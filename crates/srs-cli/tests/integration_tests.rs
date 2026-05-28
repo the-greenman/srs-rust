@@ -282,3 +282,65 @@ fn note_tag_adds_tag_and_updates_manifest() {
     assert!(manifest_tag_strings.contains(&"initial"));
     assert!(manifest_tag_strings.contains(&"new-tag"));
 }
+
+// Tag definition integration tests
+
+#[test]
+fn tag_list_returns_ok_envelope() {
+    // Against live repo - may be empty until TagDefinition records are created
+    let result = run_srs(&["tag", "list"]);
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["command"], "tag list");
+    assert!(result["payload"]["tagDefinitions"].is_array());
+}
+
+#[test]
+fn tag_create_and_retrieve_in_temp_repo() {
+    let temp = create_temp_repo();
+    let repo_path = temp.path();
+
+    // Create a TagDefinition with foundation role
+    let td_json = serde_json::json!({
+        "tagKey": "test-purpose",
+        "label": "Test Purpose",
+        "description": "A test tag definition",
+        "roles": ["foundation"],
+        "status": "active"
+    })
+    .to_string();
+
+    let created = run_srs_stdin_in_dir(repo_path, &["tag", "create"], &td_json);
+    assert_eq!(created["ok"], true, "tag create failed: {:?}", created["errors"]);
+
+    let id = created["payload"]["tagDefinition"]["instanceId"]
+        .as_str()
+        .unwrap();
+    let tag_key = created["payload"]["tagDefinition"]["tagKey"]
+        .as_str()
+        .unwrap();
+    assert_eq!(tag_key, "test-purpose");
+
+    // Retrieve by ID
+    let retrieved = run_srs_in_dir(repo_path, &["tag", "get", id]);
+    assert_eq!(retrieved["ok"], true);
+    assert_eq!(
+        retrieved["payload"]["tagDefinition"]["tagKey"],
+        "test-purpose"
+    );
+
+    // List and verify it appears
+    let listed = run_srs_in_dir(repo_path, &["tag", "list"]);
+    assert_eq!(listed["ok"], true);
+    let defs = listed["payload"]["tagDefinitions"].as_array().unwrap();
+    assert!(
+        defs.iter().any(|d| d["tagKey"] == "test-purpose"),
+        "Created tag definition should appear in list"
+    );
+
+    // Filter by role
+    let foundation = run_srs_in_dir(repo_path, &["tag", "list", "--role", "foundation"]);
+    assert_eq!(foundation["ok"], true);
+    let foundation_defs = foundation["payload"]["tagDefinitions"].as_array().unwrap();
+    assert_eq!(foundation_defs.len(), 1);
+    assert_eq!(foundation_defs[0]["tagKey"], "test-purpose");
+}
