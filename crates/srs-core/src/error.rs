@@ -16,6 +16,9 @@ pub enum CoreError {
 
     #[error("unknown field in record: {field_id}")]
     UnknownField { field_id: String },
+
+    #[error("tag key must be non-empty")]
+    EmptyTagKey,
 }
 
 impl PartialEq for CoreError {
@@ -36,6 +39,7 @@ impl PartialEq for CoreError {
                 CoreError::UnknownField { field_id: a },
                 CoreError::UnknownField { field_id: b },
             ) => a == b,
+            (CoreError::EmptyTagKey, CoreError::EmptyTagKey) => true,
             _ => false,
         }
     }

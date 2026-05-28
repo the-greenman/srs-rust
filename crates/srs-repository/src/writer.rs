@@ -2,6 +2,7 @@ use crate::error::RepositoryError;
 use crate::index::InstanceIndexEntry;
 use crate::manifest::Manifest;
 use srs_core::types::note::Note;
+use srs_core::types::tag_definition::TagDefinition;
 use std::path::Path;
 
 /// Generate a new UUID v4 as a string. Only this function generates UUIDs.
@@ -75,6 +76,48 @@ pub fn write_manifest(manifest: &Manifest) -> Result<(), RepositoryError> {
     })?;
 
     Ok(())
+}
+
+/// Write a TagDefinition to disk as pretty-printed JSON.
+pub fn write_tag_definition(td: &TagDefinition, path: &Path) -> Result<(), RepositoryError> {
+    let json = serde_json::to_string_pretty(td).map_err(|e| RepositoryError::Serialize {
+        path: path.to_path_buf(),
+        source: e,
+    })?;
+
+    std::fs::write(path, json).map_err(|e| RepositoryError::TagDefinitionWrite {
+        path: path.to_path_buf(),
+        source: e,
+    })?;
+
+    Ok(())
+}
+
+/// Add or replace the manifest index entry for a TagDefinition (in memory only).
+/// Uses tier: 3 for TagDefinition instances.
+pub fn upsert_tag_definition_index_entry(
+    manifest: &mut Manifest,
+    td: &TagDefinition,
+    relative_path: &str,
+) {
+    let entry = InstanceIndexEntry {
+        instance_id: td.instance_id.clone(),
+        tier: 3, // TagDefinition tier
+        path: relative_path.to_string(),
+        title: td.label.clone().map(serde_json::Value::String),
+        tags: None, // TagDefinitions don't have tags in the index
+    };
+
+    // Check if entry with same instance_id exists and replace it
+    if let Some(pos) = manifest
+        .instance_index
+        .iter()
+        .position(|e| e.instance_id() == td.instance_id)
+    {
+        manifest.instance_index[pos] = entry;
+    } else {
+        manifest.instance_index.push(entry);
+    }
 }
 
 #[cfg(test)]

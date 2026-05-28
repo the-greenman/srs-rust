@@ -1,6 +1,7 @@
 pub mod migrate;
 pub mod note;
 pub mod repo;
+pub mod tag;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -37,6 +38,9 @@ pub enum Commands {
     /// Migration handoff commands
     #[command(subcommand)]
     Migrate(MigrateCommand),
+    /// Tag definition management commands
+    #[command(subcommand)]
+    Tag(TagCommand),
 }
 
 #[derive(Subcommand)]
@@ -135,10 +139,38 @@ pub enum MigrateCommand {
     },
 }
 
+#[derive(Subcommand)]
+pub enum TagCommand {
+    /// List tag definitions
+    List {
+        /// Repository path (defaults to CWD)
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        /// Filter by role
+        #[arg(long)]
+        role: Option<String>,
+    },
+    /// Get a tag definition by ID
+    Get {
+        /// Repository path (defaults to CWD)
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        /// TagDefinition instance ID
+        id: String,
+    },
+    /// Create a new tag definition (reads JSON from stdin)
+    Create {
+        /// Repository path (defaults to CWD)
+        #[arg(long)]
+        repo: Option<PathBuf>,
+    },
+}
+
 pub fn dispatch(cli: Cli) -> Result<String> {
     match cli.command {
         Commands::Note(note_cmd) => note::dispatch(note_cmd),
         Commands::Repo(repo_cmd) => repo::dispatch(repo_cmd),
         Commands::Migrate(migrate_cmd) => migrate::dispatch(migrate_cmd),
+        Commands::Tag(tag_cmd) => tag::dispatch(tag_cmd),
     }
 }

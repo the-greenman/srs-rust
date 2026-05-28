@@ -3,7 +3,8 @@ use crate::output;
 use anyhow::{Context, Result};
 use serde_json::json;
 use srs_core::types::note::Note;
-use srs_repository::analysis::{audit_note_tags, collect_foundation_notes, load_analysis_profile};
+use srs_repository::analysis::{audit_note_tags, collect_foundation_notes};
+use srs_repository::tag_service::get_foundation_signal_tags;
 use srs_repository::services::{
     add_note_tag, create_note, get_note_by_id, list_notes, AddTagResult, GetNoteResult,
     ListNotesFilter,
@@ -101,8 +102,14 @@ fn cmd_note_audit_tags(repo: Option<PathBuf>) -> Result<String> {
 
 fn cmd_note_foundations(repo: Option<PathBuf>) -> Result<String> {
     let repo_root = resolve_repo(repo)?;
-    let profile = load_analysis_profile(&repo_root, "foundation")?;
-    let foundation_notes = collect_foundation_notes(&repo_root, &profile.include_tags)?;
+
+    // Get foundation signal tags from TagDefinition records (data-driven)
+    let signal_tags = get_foundation_signal_tags(&repo_root)?;
+
+    // If no TagDefinition records with foundation role exist, return empty list
+    // (acceptable transitional state until TagDefinition records are created)
+    let foundation_notes = collect_foundation_notes(&repo_root, &signal_tags)?;
+
     Ok(output::ok(
         "note foundations",
         json!({ "foundationNotes": foundation_notes }),

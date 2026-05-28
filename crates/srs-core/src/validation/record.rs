@@ -1,5 +1,5 @@
 use crate::error::CoreError;
-use crate::types::record::{Record, FieldValue};
+use crate::types::record::Record;
 use crate::types::record_type::RecordType;
 use std::collections::HashSet;
 
@@ -34,12 +34,12 @@ pub fn validate_record(record: &Record, record_type: &RecordType) -> Result<(), 
 
     // Check for missing required fields
     for field_assignment in &record_type.fields {
-        if field_assignment.is_required() {
-            if !present_field_ids.contains(field_assignment.field_id.as_str()) {
-                return Err(CoreError::MissingRequiredField {
-                    field_id: field_assignment.field_id.clone(),
-                });
-            }
+        if field_assignment.is_required()
+            && !present_field_ids.contains(field_assignment.field_id.as_str())
+        {
+            return Err(CoreError::MissingRequiredField {
+                field_id: field_assignment.field_id.clone(),
+            });
         }
     }
 
@@ -49,6 +49,7 @@ pub fn validate_record(record: &Record, record_type: &RecordType) -> Result<(), 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::record::{FieldValue, Record};
     use crate::types::record_type::{RecordType, FieldAssignment};
     use serde_json::json;
     use std::collections::HashMap;

@@ -1,6 +1,8 @@
 use crate::error::RepositoryError;
 use srs_core::types::note::Note;
+use srs_core::types::tag_definition::TagDefinition;
 use srs_core::validation::note::validate_note;
+use srs_core::validation::tag_definition::validate_tag_definition;
 use std::path::Path;
 
 /// Load a Note from a path, validating it after deserialization.
@@ -27,6 +29,36 @@ pub fn load_note(path: &Path) -> Result<Note, RepositoryError> {
 pub fn load_note_relative(repo_root: &Path, relative_path: &str) -> Result<Note, RepositoryError> {
     let path = repo_root.join(relative_path);
     load_note(&path)
+}
+
+/// Load a TagDefinition from a path, validating it after deserialization.
+pub fn load_tag_definition(path: &Path) -> Result<TagDefinition, RepositoryError> {
+    let content = std::fs::read_to_string(path).map_err(|e| RepositoryError::Io {
+        path: path.to_path_buf(),
+        source: e,
+    })?;
+
+    let td: TagDefinition =
+        serde_json::from_str(&content).map_err(|e| RepositoryError::TagDefinitionLoad {
+            path: path.to_path_buf(),
+            source: e,
+        })?;
+
+    validate_tag_definition(&td).map_err(|e| RepositoryError::TagDefinitionValidation {
+        path: path.to_path_buf(),
+        source: e,
+    })?;
+
+    Ok(td)
+}
+
+/// Load a TagDefinition from a relative path within a repo.
+pub fn load_tag_definition_relative(
+    repo_root: &Path,
+    relative_path: &str,
+) -> Result<TagDefinition, RepositoryError> {
+    let path = repo_root.join(relative_path);
+    load_tag_definition(&path)
 }
 
 #[cfg(test)]

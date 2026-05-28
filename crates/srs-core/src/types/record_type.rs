@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-use crate::types::field::Field;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

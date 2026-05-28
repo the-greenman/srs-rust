@@ -35,6 +35,10 @@ impl InstanceIndexEntry {
     pub fn is_note(&self) -> bool {
         self.tier == 0
     }
+
+    pub fn is_tag_definition(&self) -> bool {
+        self.tier == 3
+    }
 }
 
 #[cfg(test)]
@@ -71,5 +75,14 @@ mod tests {
             r#"{"instanceId": "spec-123", "tier": 1, "path": "specifications/spec.json"}"#;
         let spec: InstanceIndexEntry = serde_json::from_str(spec_json).unwrap();
         assert!(!spec.is_note());
+    }
+
+    #[test]
+    fn is_tag_definition_for_tier_3() {
+        let td_json =
+            r#"{"instanceId": "td-123", "tier": 3, "path": "records/tag-definitions/purpose.json"}"#;
+        let td: InstanceIndexEntry = serde_json::from_str(td_json).unwrap();
+        assert!(td.is_tag_definition());
+        assert!(!td.is_note());
     }
 }
