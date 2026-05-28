@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+  "title": "SRS Package Manifest (ext:repository)",
+  "description": "Index manifest for a local file-based SRS package. Declares identity, lists relative paths to field, type, view, and relation-type definition files, and records dependency references to other packages. Governs the package/ directory layout within an ext:repository.",
+  "type": "object",
+  "required": ["$schema", "id", "namespace", "name", "version", "title", "description", "status", "fields", "types", "views", "createdAt"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://srs.semanticops.com/schema/2.0/package-manifest.json"
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Stable UUID for this package. Never changes across versions."
+    },
+    "namespace": {
+      "type": "string",
+      "description": "Reverse-DNS namespace, e.g. com.semanticops.srs."
+    },
+    "name": {
+      "type": "string",
+      "description": "Machine-readable package name within the namespace, kebab-case."
+    },
+    "version": {
+      "type": "string",
+      "description": "Semver string, e.g. 1.0.0."
+    },
+    "title": {
+      "type": "string",
+      "description": "Human-readable display name."
+    },
+    "description": {
+      "type": "string",
+      "description": "What this package provides and who it is for."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "active", "deprecated"],
+      "description": "Publication status of this package."
+    },
+    "fields": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Relative paths from this package directory to field definition files, e.g. fields/title.json."
+    },
+    "types": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Relative paths from this package directory to type definition files."
+    },
+    "views": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Relative paths from this package directory to view definition files. Empty array if the package defines no views."
+    },
+    "relationTypes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Relative paths from this package directory to relation-type definition files. Omit if the package defines no relation types."
+    },
+    "dependencyRefs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/DependencyRef" },
+      "description": "Other packages this package depends on. Consumers must resolve these before using this package."
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "$defs": {
+    "DependencyRef": {
+      "type": "object",
+      "required": ["namespace", "name", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "namespace": { "type": "string" },
+        "name": { "type": "string" },
+        "version": {
+          "type": "string",
+          "description": "Semver version of the depended-upon package."
+        }
+      }
+    }
+  }
+}

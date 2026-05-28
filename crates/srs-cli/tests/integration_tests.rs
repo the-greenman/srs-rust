@@ -80,7 +80,7 @@ fn run_srs_stdin_in_dir(dir: &std::path::Path, args: &[&str], stdin: &str) -> Va
 
 fn run_srs(args: &[&str]) -> Value {
     run_srs_in_dir(
-        std::path::Path::new("/home/greenman/dev/semanticops/srs"),
+        std::path::Path::new("/home/greenman/dev/semanticops/srs/srs"),
         args,
     )
 }
@@ -187,7 +187,7 @@ fn note_get_unknown_id_returns_ok_false() {
     let exe = env!("CARGO_BIN_EXE_srs");
     let output = Command::new(exe)
         .args(["note", "get", "nonexistent-id-12345"])
-        .current_dir("/home/greenman/dev/semanticops/srs")
+        .current_dir("/home/greenman/dev/semanticops/srs/srs")
         .output()
         .expect("Failed to execute srs command");
 
@@ -310,7 +310,11 @@ fn tag_create_and_retrieve_in_temp_repo() {
     .to_string();
 
     let created = run_srs_stdin_in_dir(repo_path, &["tag", "create"], &td_json);
-    assert_eq!(created["ok"], true, "tag create failed: {:?}", created["errors"]);
+    assert_eq!(
+        created["ok"], true,
+        "tag create failed: {:?}",
+        created["errors"]
+    );
 
     let id = created["payload"]["tagDefinition"]["instanceId"]
         .as_str()
@@ -343,4 +347,168 @@ fn tag_create_and_retrieve_in_temp_repo() {
     let foundation_defs = foundation["payload"]["tagDefinitions"].as_array().unwrap();
     assert_eq!(foundation_defs.len(), 1);
     assert_eq!(foundation_defs[0]["tagKey"], "test-purpose");
+}
+
+// ---------- repo validate tests ----------
+
+fn make_valid_validate_repo() -> TempDir {
+    let temp = TempDir::new().unwrap();
+    let note_id = "00000000-0000-4000-8000-000000000001";
+
+    let manifest = serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+        "formatVersion": "1.0",
+        "scdsVersion": "2.0",
+        "conformance": "SRS 2.0 Core ext:repository",
+        "repositoryId": "00000000-0000-4000-8000-000000000099",
+        "title": "Test Repo",
+        "container": {
+            "containerId": "00000000-0000-4000-8000-000000000099",
+            "title": "Test Repo"
+        },
+        "instanceIndex": [{
+            "instanceId": note_id,
+            "tier": 0,
+            "path": "records/notes/note.json"
+        }],
+        "createdAt": "2026-01-01T00:00:00Z"
+    });
+
+    let note = serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+        "instanceId": note_id,
+        "sections": [{"name": "body", "content": "hello"}]
+    });
+
+    let notes_dir = temp.path().join("records/notes");
+    std::fs::create_dir_all(&notes_dir).unwrap();
+    std::fs::write(
+        temp.path().join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        notes_dir.join("note.json"),
+        serde_json::to_string_pretty(&note).unwrap(),
+    )
+    .unwrap();
+    temp
+}
+
+#[test]
+fn repo_validate_valid_repo_returns_ok_true() {
+    let temp = make_valid_validate_repo();
+    let repo_str = temp.path().to_str().unwrap().to_string();
+    let result = run_srs_in_dir(temp.path(), &["repo", "validate", "--repo", &repo_str]);
+    assert_eq!(result["ok"], true, "expected ok: {:?}", result);
+    assert_eq!(result["command"], "repo validate");
+    assert!(result["payload"]["summary"]["checked"].as_u64().unwrap() >= 1);
+    assert_eq!(result["payload"]["summary"]["errors"].as_u64().unwrap(), 0);
+}
+
+#[test]
+fn repo_validate_invalid_note_returns_ok_false() {
+    let temp = TempDir::new().unwrap();
+    let note_id = "00000000-0000-4000-8000-000000000002";
+
+    let manifest = serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+        "formatVersion": "1.0",
+        "scdsVersion": "2.0",
+        "conformance": "SRS 2.0 Core ext:repository",
+        "repositoryId": "00000000-0000-4000-8000-000000000099",
+        "title": "Test Repo",
+        "container": {
+            "containerId": "00000000-0000-4000-8000-000000000099",
+            "title": "Test Repo"
+        },
+        "instanceIndex": [{"instanceId": note_id, "tier": 0, "path": "records/notes/bad.json"}],
+        "createdAt": "2026-01-01T00:00:00Z"
+    });
+
+    // Missing required "sections" field
+    let bad_note = serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+        "instanceId": note_id
+    });
+
+    let notes_dir = temp.path().join("records/notes");
+    std::fs::create_dir_all(&notes_dir).unwrap();
+    std::fs::write(
+        temp.path().join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        notes_dir.join("bad.json"),
+        serde_json::to_string_pretty(&bad_note).unwrap(),
+    )
+    .unwrap();
+
+    let repo_str = temp.path().to_str().unwrap().to_string();
+    let result = run_srs_in_dir(temp.path(), &["repo", "validate", "--repo", &repo_str]);
+    assert_eq!(result["ok"], false, "expected ok false: {:?}", result);
+    let diags = result["diagnostics"].as_array().unwrap();
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.as_str().map(|s| s.contains("sections")).unwrap_or(false)),
+        "expected sections error in diagnostics: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn repo_validate_tier_schema_mismatch_returns_ok_false() {
+    let temp = TempDir::new().unwrap();
+    let note_id = "00000000-0000-4000-8000-000000000003";
+
+    let manifest = serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+        "formatVersion": "1.0",
+        "scdsVersion": "2.0",
+        "conformance": "SRS 2.0 Core ext:repository",
+        "repositoryId": "00000000-0000-4000-8000-000000000099",
+        "title": "Test Repo",
+        "container": {
+            "containerId": "00000000-0000-4000-8000-000000000099",
+            "title": "Test Repo"
+        },
+        "instanceIndex": [{"instanceId": note_id, "tier": 0, "path": "records/notes/wrong.json"}],
+        "createdAt": "2026-01-01T00:00:00Z"
+    });
+
+    // Tier 0 but declares record.json — mismatch
+    let wrong = serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+        "instanceId": note_id,
+        "sections": []
+    });
+
+    let notes_dir = temp.path().join("records/notes");
+    std::fs::create_dir_all(&notes_dir).unwrap();
+    std::fs::write(
+        temp.path().join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        notes_dir.join("wrong.json"),
+        serde_json::to_string_pretty(&wrong).unwrap(),
+    )
+    .unwrap();
+
+    let repo_str = temp.path().to_str().unwrap().to_string();
+    let result = run_srs_in_dir(temp.path(), &["repo", "validate", "--repo", &repo_str]);
+    assert_eq!(result["ok"], false, "expected ok false: {:?}", result);
+    let diags = result["diagnostics"].as_array().unwrap();
+    assert!(
+        diags.iter().any(|d| {
+            d.as_str()
+                .map(|s| s.contains("tier") && s.contains("expects schema"))
+                .unwrap_or(false)
+        }),
+        "expected tier/schema mismatch in diagnostics: {:?}",
+        diags
+    );
 }

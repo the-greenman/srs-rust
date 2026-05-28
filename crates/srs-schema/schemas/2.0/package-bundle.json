@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/package-bundle.json",
+  "title": "SRS Package Bundle",
+  "description": "A distributable package artifact containing Field and Type definitions inlined as objects. Self-contained when mode is 'bundled'; declares external dependencies when mode is 'standalone'. Produced by the package distribution tooling from a package-manifest.json source tree.",
+  "type": "object",
+  "required": ["schemaVersion", "packageId", "packageName", "packageVersion", "publishedAt", "mode", "fields", "types", "dependencyRefs"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": {
+      "type": "string",
+      "description": "SRS spec version this package was authored against, e.g. '2.0'."
+    },
+    "packageId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "packageName": { "type": "string" },
+    "packageVersion": {
+      "type": "string",
+      "description": "Semver, e.g. '1.2.0'."
+    },
+    "publishedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "publisher": { "type": "string" },
+    "description": { "type": "string" },
+    "homepage": { "type": "string", "format": "uri" },
+    "mode": {
+      "type": "string",
+      "enum": ["bundled", "standalone"],
+      "description": "bundled: all referenced Fields, Types, and Views are included inline. standalone: dependencies are expected pre-installed; dependencyRefs is the required manifest."
+    },
+    "fields": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Field" },
+      "description": "Field definitions. In bundled mode, all Fields referenced by any included Type must be present."
+    },
+    "types": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Type" }
+    },
+    "views": {
+      "type": "array",
+      "items": { "type": "object" },
+      "description": "ext:views-l1; omit if not in use."
+    },
+    "documentViews": {
+      "type": "array",
+      "items": { "type": "object" },
+      "description": "ext:views-l2; omit if not in use."
+    },
+    "relationTypes": {
+      "type": "array",
+      "items": { "type": "object" },
+      "description": "ext:recommended-relations relation type metadata."
+    },
+    "dependencyRefs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Reference" },
+      "description": "Required in both modes. Consumers use this to validate completeness without parsing content internals."
+    }
+  },
+  "$defs": {
+    "Field": {
+      "type": "object",
+      "required": ["id", "namespace", "name", "version", "description", "aiGuidance", "valueType", "createdAt"],
+      "additionalProperties": true,
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "namespace": { "type": "string" },
+        "name": { "type": "string" },
+        "version": { "type": "integer", "minimum": 1 },
+        "description": { "type": "string" },
+        "aiGuidance": {
+          "type": "object",
+          "required": ["purpose"],
+          "properties": { "purpose": { "type": "string" } }
+        },
+        "valueType": {
+          "type": "string",
+          "enum": ["string", "text", "number", "boolean", "date", "url", "select", "multiselect"]
+        },
+        "contentFormat": {
+          "type": "string",
+          "enum": ["plain", "markdown"]
+        },
+        "selectOptions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "editorHint": {
+          "type": "string",
+          "enum": ["singleline", "textarea", "rich-text", "date-picker", "dropdown", "multi-select", "voice"]
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Type": {
+      "type": "object",
+      "required": ["id", "namespace", "name", "version", "description", "fields"],
+      "additionalProperties": true,
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "namespace": { "type": "string" },
+        "name": { "type": "string" },
+        "version": { "type": "integer", "minimum": 1 },
+        "description": { "type": "string" },
+        "fields": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/FieldAssignment" }
+        },
+        "aiGuidance": { "type": "object" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "FieldAssignment": {
+      "type": "object",
+      "required": ["fieldId", "order", "required"],
+      "additionalProperties": false,
+      "properties": {
+        "fieldId": { "type": "string", "format": "uuid" },
+        "order": { "type": "integer", "minimum": 0 },
+        "required": { "type": "boolean" },
+        "displayLabel": { "type": "string" },
+        "defaultValue": {}
+      }
+    },
+    "Reference": {
+      "type": "object",
+      "required": ["id", "namespace", "name", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "namespace": { "type": "string" },
+        "name": { "type": "string" },
+        "version": { "type": "integer", "minimum": 1 },
+        "definitionType": {
+          "type": "string",
+          "enum": ["field", "type", "view", "schema", "protocol"]
+        }
+      }
+    }
+  }
+}

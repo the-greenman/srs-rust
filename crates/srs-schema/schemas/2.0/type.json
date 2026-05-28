@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/type.json",
+  "title": "SRS Type Definition",
+  "description": "A named collection of FieldAssignments that defines the structure of a TypedRecord or Record. Types belong to a namespace and are versioned.",
+  "type": "object",
+  "required": ["$schema", "id", "namespace", "name", "version", "description", "fields", "createdAt"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "namespace": {
+      "type": "string",
+      "description": "Logical grouping, e.g. 'governance', 'finance'."
+    },
+    "name": {
+      "type": "string",
+      "description": "Machine-readable name within the namespace, snake_case."
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "description": {
+      "type": "string"
+    },
+    "semanticObjectType": {
+      "type": "string",
+      "description": "Optional canonical semantic classification (e.g. 'decision', 'exercise', 'policy')."
+    },
+    "aiGuidance": {
+      "type": "object",
+      "description": "Guidance for AI agents determining whether source material matches this Type.",
+      "additionalProperties": false,
+      "properties": {
+        "purpose": { "type": "string" },
+        "extraction": { "type": "string" },
+        "negativeGuidance": { "type": "string" }
+      }
+    },
+    "fields": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/FieldAssignment" },
+      "description": "Ordered list of fields that make up this Type."
+    },
+    "fieldGroups": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/FieldGroup" },
+      "description": "ext:field-groups — grouped, potentially repeatable field sets."
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "$defs": {
+    "FieldAssignment": {
+      "type": "object",
+      "required": ["fieldId", "order", "required"],
+      "additionalProperties": false,
+      "properties": {
+        "fieldId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "References a Field by its stable id."
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Display/processing order within the Type."
+        },
+        "required": {
+          "type": "boolean",
+          "description": "Whether this field must be populated before a Record can be logged."
+        },
+        "repeatable": {
+          "type": "boolean",
+          "description": "ext:repeatable-fields — whether this field may contain multiple entries."
+        },
+        "minItems": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxItems": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "displayLabel": {
+          "type": "string",
+          "description": "Context-specific label override for this field within this Type."
+        },
+        "defaultValue": {
+          "description": "Optional default value to pre-populate the field."
+        }
+      }
+    },
+    "FieldGroup": {
+      "type": "object",
+      "required": ["groupId", "order", "fields"],
+      "additionalProperties": false,
+      "properties": {
+        "groupId": { "type": "string" },
+        "label": { "type": "string" },
+        "description": { "type": "string" },
+        "order": { "type": "integer", "minimum": 0 },
+        "required": { "type": "boolean" },
+        "repeatable": { "type": "boolean" },
+        "minItems": { "type": "integer", "minimum": 0 },
+        "maxItems": { "type": "integer", "minimum": 0 },
+        "fields": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/FieldAssignment" }
+        }
+      }
+    }
+  }
+}

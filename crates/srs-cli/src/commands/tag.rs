@@ -27,7 +27,10 @@ fn cmd_tag_list(repo: Option<PathBuf>, role: Option<String>) -> Result<String> {
         list_tag_definitions(&repo_root)?
     };
 
-    Ok(output::ok("tag list", json!({ "tagDefinitions": summaries })))
+    Ok(output::ok(
+        "tag list",
+        json!({ "tagDefinitions": summaries }),
+    ))
 }
 
 fn cmd_tag_get(repo: Option<PathBuf>, id: String) -> Result<String> {
@@ -51,11 +54,14 @@ fn cmd_tag_create(repo: Option<PathBuf>) -> Result<String> {
     let mut stdin = String::new();
     io::stdin().read_to_string(&mut stdin)?;
 
-    let tag_definition: TagDefinition = serde_json::from_str(&stdin)
-        .context("Failed to parse TagDefinition JSON")?;
+    let tag_definition: TagDefinition =
+        serde_json::from_str(&stdin).context("Failed to parse TagDefinition JSON")?;
 
     // Create the TagDefinition via the dedicated service
     let result = create_tag_definition(&repo_root, tag_definition)?;
 
-    Ok(output::ok("tag create", json!({ "tagDefinition": result.tag_definition })))
+    Ok(output::ok(
+        "tag create",
+        json!({ "tagDefinition": result.tag_definition }),
+    ))
 }

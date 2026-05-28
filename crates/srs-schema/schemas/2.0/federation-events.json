@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/federation-events.json",
+  "title": "SRS Federation Events File (ext:federation)",
+  "description": "Holds FederationEvent records for a repository. Tracks merge, split, and import operations so structural provenance remains auditable without polluting the instance index.",
+  "type": "object",
+  "required": ["repositoryId", "events"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "repositoryId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "The repository these events belong to. Must match the enclosing repository's repositoryId (Invariant 60)."
+    },
+    "events": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/FederationEvent" }
+    }
+  },
+  "$defs": {
+    "FederationEvent": {
+      "type": "object",
+      "required": ["eventId", "event", "at", "affectedInstanceIds"],
+      "additionalProperties": false,
+      "properties": {
+        "eventId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "event": {
+          "type": "string",
+          "enum": ["merge", "split", "import"],
+          "description": "'merge': instances from another repo were absorbed. 'split': instances were moved out to a new repo. 'import': read-only copy of instances was made."
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the operation was performed."
+        },
+        "performedBy": {
+          "type": "string",
+          "description": "Name or identifier of the actor who performed the operation."
+        },
+        "sourceRepositoryId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Required for 'merge' and 'import': the repository instances arrived from (Invariant 59)."
+        },
+        "targetRepositoryId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Required for 'split': the new repository instances were moved into (Invariant 59)."
+        },
+        "affectedInstanceIds": {
+          "type": "array",
+          "items": { "type": "string", "format": "uuid" },
+          "minItems": 1,
+          "description": "The instance IDs involved. Must be non-empty (Invariant 59)."
+        },
+        "strategy": {
+          "type": "string",
+          "enum": ["preserve-ids", "new-ids-with-lineage"],
+          "description": "The copy strategy used. Absent when not applicable or unknown."
+        },
+        "note": {
+          "type": "string",
+          "description": "Human-readable explanation of why the operation was performed."
+        }
+      }
+    }
+  }
+}

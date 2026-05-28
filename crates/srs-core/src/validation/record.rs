@@ -4,7 +4,7 @@ use crate::types::record_type::RecordType;
 use std::collections::HashSet;
 
 /// Validates a record against its record type definition.
-/// 
+///
 /// Checks:
 /// - All FieldAssignments where `required` is `true` or `None` have a matching FieldValue
 /// - All FieldValues reference a `field_id` that exists in the RecordType's `fields`
@@ -50,7 +50,7 @@ pub fn validate_record(record: &Record, record_type: &RecordType) -> Result<(), 
 mod tests {
     use super::*;
     use crate::types::record::{FieldValue, Record};
-    use crate::types::record_type::{RecordType, FieldAssignment};
+    use crate::types::record_type::{FieldAssignment, RecordType};
     use serde_json::json;
     use std::collections::HashMap;
 
@@ -60,27 +60,28 @@ mod tests {
             namespace: "test".to_string(),
             name: "test-type".to_string(),
             version: 1,
+            description: "test type".to_string(),
             fields: vec![
                 FieldAssignment {
                     field_id: "required-field".to_string(),
                     order: 0,
-                    required: None, // Defaults to true
+                    required: true,
                     display_label: None,
                 },
                 FieldAssignment {
                     field_id: "optional-field".to_string(),
                     order: 1,
-                    required: Some(false),
+                    required: false,
                     display_label: None,
                 },
                 FieldAssignment {
                     field_id: "explicit-required".to_string(),
                     order: 2,
-                    required: Some(true),
+                    required: true,
                     display_label: None,
                 },
             ],
-            description: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         }
     }
@@ -90,10 +91,9 @@ mod tests {
             instance_id: "inst-1".to_string(),
             type_id: "type-1".to_string(),
             type_version: 1,
-            type_namespace: None,
-            type_name: None,
+            type_namespace: "test".to_string(),
+            type_name: "test-type".to_string(),
             field_values,
-            tags: None,
             created_at: None,
             updated_at: None,
             extra: HashMap::new(),
@@ -120,12 +120,10 @@ mod tests {
     #[test]
     fn validate_record_missing_required_field() {
         let record_type = create_test_record_type();
-        let record = create_record_with_fields(vec![
-            FieldValue {
-                field_id: "explicit-required".to_string(),
-                value: json!("value2"),
-            },
-        ]);
+        let record = create_record_with_fields(vec![FieldValue {
+            field_id: "explicit-required".to_string(),
+            value: json!("value2"),
+        }]);
 
         let result = validate_record(&record, &record_type);
         assert!(result.is_err());

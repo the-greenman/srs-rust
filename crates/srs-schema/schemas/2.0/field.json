@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/field.json",
+  "title": "SRS Field Definition",
+  "description": "An atomic, reusable field definition. Fields are the shared vocabulary of SRS — defined once, referenced across many Types.",
+  "type": "object",
+  "required": ["id", "namespace", "name", "version", "description", "aiGuidance", "valueType", "createdAt"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Globally unique, stable identifier for this Field."
+    },
+    "namespace": {
+      "type": "string",
+      "description": "Logical grouping. 'core' is reserved for SRS standard definitions."
+    },
+    "name": {
+      "type": "string",
+      "description": "Machine-readable name within the namespace; snake_case."
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "description": { "type": "string" },
+    "instructions": {
+      "type": "string",
+      "description": "Fuller guidance for a human completing this field."
+    },
+    "aiGuidance": { "$ref": "#/$defs/AiGuidance" },
+    "valueType": {
+      "type": "string",
+      "enum": ["string", "text", "number", "boolean", "date", "url", "select", "multiselect"],
+      "description": "Primitive type of the value this field holds."
+    },
+    "contentFormat": {
+      "type": "string",
+      "enum": ["plain", "markdown"],
+      "description": "Meaningful only when valueType is 'string' or 'text'. Default: 'plain'."
+    },
+    "allowedValues": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Required when valueType is 'select' or 'multiselect'. Defines the semantic constraint on the value; presentation/rendering is separate."
+    },
+    "defaultValue": {
+      "description": "Default value applied when no value is supplied. Must conform to valueType."
+    },
+    "validationRules": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ValidationRule" }
+    },
+    "editorHint": {
+      "type": "string",
+      "enum": ["singleline", "textarea", "rich-text", "date-picker", "dropdown", "multi-select", "voice"],
+      "description": "Suggested UI control; implementations and Views may override."
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "lineage": { "$ref": "#/$defs/Lineage" },
+    "provenance": { "$ref": "#/$defs/Provenance" },
+    "deprecatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "createdAt": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "AiGuidance": {
+      "type": "object",
+      "required": ["purpose"],
+      "additionalProperties": false,
+      "properties": {
+        "purpose": {
+          "type": "string",
+          "description": "What this field/type captures (1-2 sentences)."
+        },
+        "extraction": {
+          "type": "string",
+          "description": "LLM instruction for how to extract or populate."
+        },
+        "negativeGuidance": {
+          "type": "string",
+          "description": "What the LLM must NOT include or do."
+        },
+        "examples": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/AiGuidanceExample" }
+        }
+      }
+    },
+    "AiGuidanceExample": {
+      "type": "object",
+      "required": ["output"],
+      "additionalProperties": false,
+      "properties": {
+        "description": { "type": "string" },
+        "input": { "type": "string" },
+        "output": { "type": "string" }
+      }
+    },
+    "ValidationRule": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["required", "minLength", "maxLength", "pattern", "enum"]
+        },
+        "value": {
+          "description": "Required for minLength, maxLength, pattern, enum.",
+          "oneOf": [
+            { "type": "string" },
+            { "type": "number" },
+            { "type": "array", "items": { "type": "string" } }
+          ]
+        },
+        "message": { "type": "string" }
+      }
+    },
+    "Lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sourceDefinitionId": { "type": "string", "format": "uuid" },
+        "sourceVersion": { "type": "integer" },
+        "forkedFromDefinitionId": { "type": "string", "format": "uuid" },
+        "forkedFromVersion": { "type": "integer" }
+      }
+    },
+    "Provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "publisher": { "type": "string" },
+        "sourcePackage": { "type": "string" },
+        "packageVersion": { "type": "string" },
+        "importedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

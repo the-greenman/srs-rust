@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/relation-type.json",
+  "title": "SRS Relation Type Definition",
+  "description": "Declares a named relation type within a package's relation type vocabulary. Relation types describe the semantic meaning and structural shape of a class of relations.",
+  "type": "object",
+  "required": ["$schema", "relationType", "namespace", "label", "description", "category"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "relationType": {
+      "type": "string",
+      "description": "Machine-readable relation type identifier, kebab-case. Must be unique within the package namespace."
+    },
+    "namespace": {
+      "type": "string",
+      "description": "The package namespace this relation type belongs to."
+    },
+    "label": {
+      "type": "string",
+      "description": "Short human-readable label for display in views and tooling."
+    },
+    "description": {
+      "type": "string",
+      "description": "Full description of the semantic meaning of this relation type."
+    },
+    "category": {
+      "type": "string",
+      "enum": ["sequence", "association", "dependency", "lifecycle", "provenance", "other"],
+      "description": "Structural category. sequence: ordered member lists; association: point-to-point links; dependency: prerequisite relationships; lifecycle: state transitions; provenance: derivation or authorship."
+    },
+    "canonicalDirection": {
+      "type": "string",
+      "description": "Human-readable description of which end is source and which is target, or what members represent."
+    },
+    "inverseType": {
+      "type": "string",
+      "description": "The relationType of the inverse relation, if one is formally declared."
+    }
+  }
+}

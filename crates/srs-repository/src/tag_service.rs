@@ -125,9 +125,11 @@ pub fn create_tag_definition(
     mut tag_definition: TagDefinition,
 ) -> Result<CreateTagDefinitionResult, RepositoryError> {
     // Validate before minting ID
-    validate_tag_definition(&tag_definition).map_err(|e| RepositoryError::TagDefinitionValidation {
-        path: repo_root.join("records/tag-definitions"),
-        source: e,
+    validate_tag_definition(&tag_definition).map_err(|e| {
+        RepositoryError::TagDefinitionValidation {
+            path: repo_root.join("records/tag-definitions"),
+            source: e,
+        }
     })?;
 
     // Mint instance_id if empty
@@ -279,8 +281,8 @@ mod tests {
         )
         .unwrap();
 
-        let result = get_tag_definition_by_id(temp.path(), "00000000-0000-0000-0000-000000000000")
-            .unwrap();
+        let result =
+            get_tag_definition_by_id(temp.path(), "00000000-0000-0000-0000-000000000000").unwrap();
 
         match result {
             GetTagDefinitionResult::Found(_) => panic!("Should not have found anything"),

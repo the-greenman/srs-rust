@@ -121,6 +121,15 @@ pub enum RepoCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Validate all repository instances against their canonical JSON schemas
+    Validate {
+        /// Repository path (defaults to CWD)
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        /// JSON output flag (silent no-op, output is always JSON)
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]

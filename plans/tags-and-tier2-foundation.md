@@ -87,7 +87,7 @@ See [agents.md](agents.md) for role definitions.
 
 ### Phase 4: Write ADR-003
 
-**Status:** `open`
+**Status:** `complete`
 
 **Goal:** The architectural decision that `TagDefinition` is core is recorded before implementation begins.
 
@@ -114,7 +114,7 @@ git commit
 
 ### Phase 5: `TagDefinition` as a Native `srs-core` Type
 
-**Status:** `open`
+**Status:** `complete`
 
 **Goal:** `srs-core` has a typed `TagDefinition` struct alongside `Note`, with its own validation.
 
@@ -218,7 +218,7 @@ git commit
 
 ### Phase 6: Tag Definition Service in `srs-repository`
 
-**Status:** `open`
+**Status:** `complete`
 
 **Goal:** `srs-repository` has dedicated, typed service functions for `TagDefinition` — not routed through the generic record store.
 
@@ -335,7 +335,10 @@ git commit
 
 ### Phase 7: `srs/` Spec Package — Tag Definition Type
 
-**Status:** `open`
+**Status:** `complete`
+
+> Note: `node scripts/validate-all.mjs` reports a pre-existing failure due to missing `/home/greenman/dev/semanticops/schemas/` directory — unrelated to this work. The tag field and type files are present in `srs/package/`.
+
 
 **Goal:** `com.semanticops.srs/tag-definition@1` exists as a type definition in the `srs/` spec package. This serves as the schema definition and validation reference — it is not what the Rust library uses to load TagDefinitions (the Rust struct is authoritative for that).
 
@@ -390,7 +393,7 @@ git commit
 
 ### Phase 8: CLI — Wire Tag Service, Remove `FOUNDATION_SIGNAL_TAGS`
 
-**Status:** `partial` — `tag.rs` exists but routes through the generic record store; `cmd_note_foundations` still uses `FOUNDATION_SIGNAL_TAGS`
+**Status:** `partial` — service wiring and `FOUNDATION_SIGNAL_TAGS` removal are complete; integration tests for `srs tag` commands not yet written
 
 **Goal:** `srs tag list/get/create` delegate to the core tag service. `FOUNDATION_SIGNAL_TAGS` is gone. `cmd_note_foundations` calls `get_foundation_signal_tags`.
 
@@ -444,16 +447,16 @@ collect_foundation_notes(&repo_root, &signal_tag_refs)
 
 #### Tasks
 
-- [ ] Rewrite `crates/srs-cli/src/commands/tag.rs` to use `tag_service` instead of `record_store`
-- [ ] Remove `record_has_role`, `get_tag_key`, `collect_foundation_signal_tags`, and all field UUID constants from `tag.rs`
-- [ ] Update `cmd_note_foundations` in `commands/note.rs` to call `get_foundation_signal_tags`
-- [ ] Confirm `FOUNDATION_SIGNAL_TAGS` does not appear anywhere in the codebase (`grep -r FOUNDATION_SIGNAL_TAGS .`)
-- [ ] Confirm `TAG_DEF_TYPE_ID` / `TAG_KEY_FIELD_ID` / `TAG_ROLES_FIELD_ID` constants removed
+- [x] Rewrite `crates/srs-cli/src/commands/tag.rs` to use `tag_service` instead of `record_store`
+- [x] Remove `record_has_role`, `get_tag_key`, `collect_foundation_signal_tags`, and all field UUID constants from `tag.rs`
+- [x] Update `cmd_note_foundations` in `commands/note.rs` to call `get_foundation_signal_tags`
+- [x] Confirm `FOUNDATION_SIGNAL_TAGS` does not appear anywhere in the codebase
+- [x] Confirm `TAG_DEF_TYPE_ID` / `TAG_KEY_FIELD_ID` / `TAG_ROLES_FIELD_ID` constants removed
 
 #### Integration tests (in `crates/srs-cli/tests/integration_tests.rs`)
 
-- `tag_list_returns_ok_envelope` — `srs tag list` against live srs repo → `ok: true`, `payload.tagDefinitions` is array (may be empty)
-- `tag_create_and_retrieve_in_temp_repo` — temp repo, create a TagDefinition with `{"tagKey": "test", "roles": ["foundation"]}` via stdin, retrieve by returned id; assert `tag_key == "test"`
+- [ ] `tag_list_returns_ok_envelope` — `srs tag list` against live srs repo → `ok: true`, `payload.tagDefinitions` is array (may be empty)
+- [ ] `tag_create_and_retrieve_in_temp_repo` — temp repo, create a TagDefinition with `{"tagKey": "test", "roles": ["foundation"]}` via stdin, retrieve by returned id; assert `tag_key == "test"`. Use existing `create_temp_repo()` fixture and `run_srs_stdin_in_dir` helper.
 
 #### Milestone gate
 

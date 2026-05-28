@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/record.json",
+  "title": "SRS Record (Tier 2)",
+  "description": "An instantiated Type with field values. A fully structured, settled instance. Intended for composition via allOf in domain schemas — $schema is not constrained here.",
+  "type": "object",
+  "required": ["instanceId", "typeId", "typeVersion", "typeNamespace", "typeName", "fieldValues"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "instanceId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "typeId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "typeVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "typeNamespace": { "type": "string" },
+    "typeName": { "type": "string" },
+    "lifecycleState": {
+      "type": "string",
+      "description": "ext:lifecycle — current lifecycle state of this Record."
+    },
+    "fieldValues": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/FieldValue" }
+    },
+    "groupValues": {
+      "type": "array",
+      "description": "ext:field-groups — grouped field value sets.",
+      "items": { "$ref": "#/$defs/FieldGroupValue" }
+    },
+    "sourceRefs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/SourceReference" }
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "meta": {
+      "type": "object",
+      "description": "Implementation-local key-value pairs. Use for lock state, visibility, session references. Cross-system keys should be namespaced (e.g. 'com.acme.locking.locked-by')."
+    }
+  },
+  "$defs": {
+    "FieldValue": {
+      "type": "object",
+      "required": ["fieldId"],
+      "additionalProperties": false,
+      "properties": {
+        "fieldId": { "type": "string", "format": "uuid" },
+        "value": {
+          "description": "Non-repeatable value. Mutually exclusive with entries.",
+          "oneOf": [
+            { "type": "string" },
+            { "type": "number" },
+            { "type": "boolean" },
+            { "type": "array", "items": { "type": "string" } },
+            { "type": "null" }
+          ]
+        },
+        "entries": {
+          "type": "array",
+          "description": "ext:repeatable-fields — repeatable value entries.",
+          "items": { "$ref": "#/$defs/FieldValueEntry" }
+        },
+        "source": {
+          "type": "string",
+          "enum": ["human", "ai", "imported", "derived"]
+        },
+        "editedAt": { "type": "string", "format": "date-time" },
+        "sourceRefs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/SourceReference" }
+        }
+      }
+    },
+    "FieldValueEntry": {
+      "type": "object",
+      "required": ["value"],
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "number" },
+            { "type": "boolean" },
+            { "type": "array", "items": { "type": "string" } },
+            { "type": "null" }
+          ]
+        },
+        "source": {
+          "type": "string",
+          "enum": ["human", "ai", "imported", "derived"]
+        },
+        "editedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "FieldGroupValue": {
+      "type": "object",
+      "required": ["groupId", "entries"],
+      "additionalProperties": false,
+      "properties": {
+        "groupId": { "type": "string" },
+        "entries": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/FieldGroupEntry" }
+        }
+      }
+    },
+    "FieldGroupEntry": {
+      "type": "object",
+      "required": ["fieldValues"],
+      "additionalProperties": false,
+      "properties": {
+        "entryId": { "type": "string", "format": "uuid" },
+        "fieldValues": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/FieldValue" }
+        }
+      }
+    },
+    "SourceReference": {
+      "type": "object",
+      "required": ["sourceType", "sourceId"],
+      "additionalProperties": false,
+      "properties": {
+        "sourceType": {
+          "type": "string",
+          "enum": ["transcript-chunk", "transcript-segment", "external-document", "repository-document"]
+        },
+        "sourceId": { "type": "string" },
+        "sourceStandard": { "type": "string" },
+        "streamId": { "type": "string", "format": "uuid" },
+        "relationType": {
+          "type": "string",
+          "enum": ["evidence", "derived-from", "quoted-from", "inspired-by", "supersedes-context"]
+        },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "note": { "type": "string" }
+      }
+    }
+  }
+}

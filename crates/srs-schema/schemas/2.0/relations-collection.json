@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
+  "title": "SRS Relations Collection",
+  "description": "Wrapper object for a repository's Relation records. Must be a JSON object with a $schema key and a relations array — never a bare array.",
+  "type": "object",
+  "required": ["relations"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "relations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Relation" }
+    }
+  },
+  "$defs": {
+    "Relation": {
+      "type": "object",
+      "required": ["relationId", "relationType", "sourceInstanceId", "targetInstanceId"],
+      "additionalProperties": false,
+      "properties": {
+        "relationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "relationType": {
+          "type": "string",
+          "description": "Canonical types: contains, depends-on, supersedes, refines, derived-from, evidences, precedes. Custom types use namespace/name format."
+        },
+        "sourceInstanceId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The asserting instance. Reads: source [relationType] target."
+        },
+        "targetInstanceId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The related instance."
+        },
+        "assertedBy": {
+          "type": "string",
+          "enum": ["human", "ai", "imported"]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Meaningful for ai-asserted relations."
+        },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "createdBy": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["proposed", "active", "rejected", "superseded"]
+        },
+        "validFrom": { "type": "string", "format": "date-time" },
+        "validUntil": { "type": "string", "format": "date-time" },
+        "notes": { "type": "string" },
+        "sourceRefs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/SourceReference" }
+        },
+        "meta": { "type": "object" },
+        "sourceRepositoryId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "ext:federation only. Repository containing the source instance. Absent = current repository."
+        },
+        "targetRepositoryId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "ext:federation only. Repository containing the target instance. Absent = current repository."
+        }
+      }
+    },
+    "SourceReference": {
+      "type": "object",
+      "required": ["sourceType", "sourceId"],
+      "additionalProperties": false,
+      "properties": {
+        "sourceType": {
+          "type": "string",
+          "enum": ["transcript-chunk", "transcript-segment", "external-document", "repository-document"]
+        },
+        "sourceId": { "type": "string" },
+        "sourceStandard": { "type": "string" },
+        "streamId": { "type": "string", "format": "uuid" },
+        "relationType": {
+          "type": "string",
+          "enum": ["evidence", "derived-from", "quoted-from", "inspired-by", "supersedes-context"]
+        },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "note": { "type": "string" }
+      }
+    }
+  }
+}

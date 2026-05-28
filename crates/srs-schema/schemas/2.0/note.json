@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/note.json",
+  "title": "SRS Note (Tier 0)",
+  "description": "A lightweight instance with no Type binding. The lowest-ceremony entry point in SRS.",
+  "type": "object",
+  "required": ["instanceId", "sections"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "instanceId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "title": { "type": "string" },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Free-form topic labels for discovery and filtering. Not semantically defined; use Relations for semantic claims."
+    },
+    "sections": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/NoteSection" },
+      "description": "Ordered list of named text sections."
+    },
+    "graduatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When set, signals full formalisation. Authoritative record of successors is in derived-from Relations from the successor Records."
+    },
+    "sourceRefs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/SourceReference" },
+      "description": "References to source material from which this Note was derived."
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "meta": {
+      "type": "object",
+      "description": "Implementation-local key-value pairs. Cross-system keys should be namespaced."
+    }
+  },
+  "$defs": {
+    "NoteSection": {
+      "type": "object",
+      "required": ["name", "content"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Section key; unique within the Note; snake_case recommended."
+        },
+        "label": { "type": "string" },
+        "content": { "type": "string" },
+        "contentHint": {
+          "type": "string",
+          "enum": ["text", "markdown", "plain"],
+          "description": "Hint only; default: text."
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Section-level topic labels; supplements or narrows Note-level tags."
+        }
+      }
+    },
+    "SourceReference": {
+      "type": "object",
+      "required": ["sourceType", "sourceId"],
+      "additionalProperties": false,
+      "properties": {
+        "sourceType": {
+          "type": "string",
+          "enum": ["transcript-chunk", "transcript-segment", "external-document", "repository-document"],
+          "description": "'repository-document' is added by ext:repository."
+        },
+        "sourceId": { "type": "string" },
+        "sourceStandard": { "type": "string" },
+        "streamId": { "type": "string", "format": "uuid" },
+        "relationType": {
+          "type": "string",
+          "enum": ["evidence", "derived-from", "quoted-from", "inspired-by", "supersedes-context"]
+        },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "note": { "type": "string" }
+      }
+    }
+  }
+}

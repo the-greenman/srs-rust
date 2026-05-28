@@ -1,0 +1,258 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/manifest.json",
+  "title": "SRS Repository Manifest (ext:repository)",
+  "description": "Root file for a SRS ext:repository. Acts as the authoritative index and entry point for the repository. Every repository must have exactly one manifest.json at its root.",
+  "type": "object",
+  "required": ["$schema", "formatVersion", "scdsVersion", "conformance", "repositoryId", "title", "container", "instanceIndex", "createdAt"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://srs.semanticops.com/schema/2.0/manifest.json"
+    },
+    "formatVersion": {
+      "type": "string",
+      "const": "1.0",
+      "description": "ext:repository format version."
+    },
+    "scdsVersion": {
+      "type": "string",
+      "const": "2.0"
+    },
+    "conformance": {
+      "type": "string",
+      "description": "Space-separated list of SRS extensions this repository conforms to. Must include 'SRS 2.0 Core' and 'ext:repository'."
+    },
+    "repositoryId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Matches the containerId of the embedded Container. Stable for the lifetime of the repository."
+    },
+    "title": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "container": {
+      "$ref": "#/$defs/Container",
+      "description": "Embedded Container record. Canonical source of truth for this repository's identity."
+    },
+    "packageRef": {
+      "$ref": "#/$defs/PackageRef",
+      "description": "Reference to the SRS Package that supplies field and type definitions."
+    },
+    "instanceIndex": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/InstanceIndexEntry" },
+      "description": "Authoritative list of all instances in this repository. Every instance file must have an entry here."
+    },
+    "relationsPath": {
+      "type": "string",
+      "description": "Relative path from manifest.json to the relations collection file."
+    },
+    "sourceDocumentsPath": {
+      "type": "string",
+      "description": "Relative path from manifest.json to the source-documents/ directory."
+    },
+    "sourceDocumentIndex": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/SourceDocumentIndexEntry" },
+      "description": "Optional explicit index of source documents. When present, implementations may use this for discovery instead of scanning for *.meta.json files (Invariant 52)."
+    },
+    "relationsChecksums": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/RelationsChecksumEntry" },
+      "description": "Optional checksums for each relations file declared in relationsPath. Enables fast no-op detection during re-import."
+    },
+    "federationPath": {
+      "type": "string",
+      "description": "ext:federation only. Path to the RepositoryRegistry file. Default when absent: 'federation/registry.json'."
+    },
+    "federationEventsPath": {
+      "type": "string",
+      "description": "ext:federation only. Path to the FederationEventsFile. Default when absent: 'federation/events.json'."
+    },
+    "aiGuidance": {
+      "type": "object",
+      "description": "Comprehension guidance for AI agents reading this repository.",
+      "additionalProperties": false,
+      "properties": {
+        "summary": {
+          "type": "string",
+          "description": "Plain-language description of what this repository is about."
+        },
+        "suggestedEntryPoints": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Relative paths to files an AI agent should read first to understand the repository."
+        },
+        "navigationHints": {
+          "type": "string",
+          "description": "Guidance on how to traverse the instanceIndex and relations to answer questions."
+        }
+      }
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "$defs": {
+    "Container": {
+      "type": "object",
+      "required": ["containerId", "title"],
+      "additionalProperties": false,
+      "properties": {
+        "containerId": { "type": "string", "format": "uuid" },
+        "namespace": { "type": "string" },
+        "name": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "containerType": {
+          "type": "string",
+          "description": "Free-form hint, e.g. 'project', 'meeting', 'sprint'."
+        },
+        "rootInstanceIds": {
+          "type": "array",
+          "items": { "type": "string", "format": "uuid" },
+          "description": "Top-level instances this Container was created to hold."
+        },
+        "memberInstanceIds": {
+          "type": "array",
+          "items": { "type": "string", "format": "uuid" },
+          "description": "Explicit membership list for all instances in scope."
+        },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "meta": { "type": "object" }
+      }
+    },
+    "PackageRef": {
+      "type": "object",
+      "required": ["mode"],
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["local", "external"],
+          "description": "'local': definitions live in the repository under package/. 'external': definitions are expected pre-installed in the consumer's registry."
+        },
+        "path": {
+          "type": "string",
+          "description": "Relative path to package.json (local mode). Default: 'package/package.json'."
+        },
+        "packageId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Identifies the external package (external mode)."
+        },
+        "packageName": {
+          "type": "string",
+          "description": "Human-readable name of the external package (external mode)."
+        },
+        "packageVersion": {
+          "type": "string",
+          "description": "Semver of the external package (external mode)."
+        }
+      }
+    },
+    "InstanceIndexEntry": {
+      "type": "object",
+      "required": ["instanceId", "tier", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "instanceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "tier": {
+          "type": "integer",
+          "enum": [0, 1, 2]
+        },
+        "path": {
+          "type": "string",
+          "description": "Relative path from manifest.json to the instance file."
+        },
+        "title": {
+          "type": "string",
+          "description": "Denormalised title for quick display without loading the instance file."
+        },
+        "typeId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "For Tier 1 and Tier 2 instances: the typeId of the Type used."
+        },
+        "typeName": {
+          "type": "string",
+          "description": "Denormalised typeName for quick filtering."
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "checksum": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+:.+$",
+          "description": "Digest of the instance file: '<algorithm>:<hex>'. E.g. 'sha256:4b2c...'. Enables fast no-op detection during re-import (Invariant 55)."
+        }
+      }
+    },
+    "SourceDocumentIndexEntry": {
+      "type": "object",
+      "required": ["documentId", "sidecarPath", "contentPath"],
+      "additionalProperties": false,
+      "properties": {
+        "documentId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Matches SourceDocument.documentId in the sidecar."
+        },
+        "sidecarPath": {
+          "type": "string",
+          "description": "Relative path from sourceDocumentsPath to the .meta.json sidecar."
+        },
+        "contentPath": {
+          "type": "string",
+          "description": "Relative path from sourceDocumentsPath to the content file."
+        },
+        "title": {
+          "type": "string",
+          "description": "Denormalised for display; not authoritative over the sidecar."
+        },
+        "sidecarChecksum": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+:.+$",
+          "description": "Digest of the .meta.json sidecar: '<algorithm>:<hex>'."
+        },
+        "contentChecksum": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+:.+$",
+          "description": "Digest of the content file: '<algorithm>:<hex>'."
+        }
+      }
+    },
+    "RelationsChecksumEntry": {
+      "type": "object",
+      "required": ["path", "checksum"],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Matches an entry in relationsPath."
+        },
+        "checksum": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+:.+$",
+          "description": "Digest of the relations file: '<algorithm>:<hex>'."
+        }
+      }
+    }
+  }
+}

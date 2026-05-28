@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/typed-record.json",
+  "title": "SRS TypedRecord (Tier 1)",
+  "description": "A structured instance with named, typed fields but no formal Type binding. Used for exploratory or in-progress work (e.g. exercises, inquiries).",
+  "type": "object",
+  "required": ["instanceId", "fields"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "instanceId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "title": { "type": "string" },
+    "instanceType": {
+      "type": "string",
+      "description": "Lightweight semantic hint; not a formal type declaration. Use namespace/name format for clarity (e.g. 'governance/exercise')."
+    },
+    "fields": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/TypedField" },
+      "description": "Ordered list of named, typed fields."
+    },
+    "graduatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When set, this TypedRecord has been formalised into a Record (Tier 2)."
+    },
+    "sourceRefs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/SourceReference" }
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "meta": {
+      "type": "object",
+      "description": "Implementation-local key-value pairs."
+    }
+  },
+  "$defs": {
+    "TypedField": {
+      "type": "object",
+      "required": ["name", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Field key; snake_case recommended; unique within the TypedRecord."
+        },
+        "label": { "type": "string" },
+        "valueType": {
+          "type": "string",
+          "enum": ["string", "text", "number", "boolean", "date", "url", "select", "multiselect"]
+        },
+        "selectOptions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "value": {
+          "description": "The field value. Type depends on valueType.",
+          "oneOf": [
+            { "type": "string" },
+            { "type": "number" },
+            { "type": "boolean" },
+            { "type": "array", "items": { "type": "string" } },
+            { "type": "null" }
+          ]
+        },
+        "source": {
+          "type": "string",
+          "enum": ["human", "ai", "imported", "derived"]
+        },
+        "editedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "SourceReference": {
+      "type": "object",
+      "required": ["sourceType", "sourceId"],
+      "additionalProperties": false,
+      "properties": {
+        "sourceType": {
+          "type": "string",
+          "enum": ["transcript-chunk", "transcript-segment", "external-document", "repository-document"]
+        },
+        "sourceId": { "type": "string" },
+        "sourceStandard": { "type": "string" },
+        "streamId": { "type": "string", "format": "uuid" },
+        "relationType": {
+          "type": "string",
+          "enum": ["evidence", "derived-from", "quoted-from", "inspired-by", "supersedes-context"]
+        },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "note": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,12 +1,12 @@
-use std::collections::HashMap;
-use std::path::Path;
-use srs_core::types::record::{Record, FieldValue};
-use srs_core::validation::record::validate_record;
 use crate::error::RepositoryError;
 use crate::index::InstanceIndexEntry;
 use crate::manifest::{load_manifest, Manifest};
 use crate::package::load_package;
 use crate::writer::{new_instance_id, write_manifest};
+use srs_core::types::record::{FieldValue, Record};
+use srs_core::validation::record::validate_record;
+use std::collections::HashMap;
+use std::path::Path;
 
 /// List all Tier 2 records matching the given type namespace and name.
 ///
@@ -30,9 +30,7 @@ pub fn list_records_by_type(
         let record = load_record(&record_path)?;
 
         // Filter by type namespace and name
-        if record.type_namespace.as_deref() == Some(type_namespace)
-            && record.type_name.as_deref() == Some(type_name)
-        {
+        if record.type_namespace == type_namespace && record.type_name == type_name {
             records.push(record);
         }
     }
@@ -43,10 +41,7 @@ pub fn list_records_by_type(
 /// Get a record by its instance ID.
 ///
 /// Returns `Ok(None)` if the record is not found in the manifest.
-pub fn get_record_by_id(
-    repo_root: &Path,
-    id: &str,
-) -> Result<Option<Record>, RepositoryError> {
+pub fn get_record_by_id(repo_root: &Path, id: &str) -> Result<Option<Record>, RepositoryError> {
     let manifest = load_manifest(repo_root)?;
 
     // Find the entry in the manifest index
@@ -86,22 +81,21 @@ pub fn create_record(
 ) -> Result<Record, RepositoryError> {
     // Load package and resolve type
     let package = load_package(repo_root)?;
-    let record_type = package
-        .resolve_type(type_id, type_version)
-        .ok_or_else(|| RepositoryError::TypeNotFound {
+    let record_type = package.resolve_type(type_id, type_version).ok_or_else(|| {
+        RepositoryError::TypeNotFound {
             type_id: type_id.to_string(),
             version: type_version,
-        })?;
+        }
+    })?;
 
     // Build the record (without instance_id initially for validation)
     let mut record = Record {
         instance_id: String::new(), // Will be filled after validation
         type_id: type_id.to_string(),
         type_version,
-        type_namespace: Some(record_type.namespace.clone()),
-        type_name: Some(record_type.name.clone()),
+        type_namespace: record_type.namespace.clone(),
+        type_name: record_type.name.clone(),
         field_values,
-        tags: None,
         created_at: Some(chrono::Utc::now().to_rfc3339()),
         updated_at: Some(chrono::Utc::now().to_rfc3339()),
         extra: HashMap::new(),
@@ -181,7 +175,7 @@ fn upsert_record_index_entry(manifest: &mut Manifest, record: &Record, relative_
         tier: 2, // Tier 2 for all records created through this store
         path: relative_path.to_string(),
         title: None, // Records don't have a direct title field
-        tags: record.tags.clone(),
+        tags: None,
     };
 
     // Check if entry with same instance_id exists and replace it
@@ -200,14 +194,13 @@ fn upsert_record_index_entry(manifest: &mut Manifest, record: &Record, relative_
 mod tests {
     use super::*;
     use serde_json::json;
-    use std::collections::HashMap;
     use std::fs;
     use std::path::PathBuf;
     use tempfile::TempDir;
 
     #[test]
     fn list_records_by_type_from_live_repo() {
-        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs");
+        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
 
         // Skip if repo structure doesn't match (live repo may evolve)
         if !srs_repo.exists() {
@@ -220,8 +213,8 @@ mod tests {
             Ok(records) => {
                 // Verify each record has the correct type
                 for record in &records {
-                    assert_eq!(record.type_namespace.as_deref(), Some("com.semanticops.srs"));
-                    assert_eq!(record.type_name.as_deref(), Some("meta.extension"));
+                    assert_eq!(record.type_namespace, "com.semanticops.srs");
+                    assert_eq!(record.type_name, "meta.extension");
                     assert_eq!(record.type_version, 1);
                 }
             }
@@ -233,7 +226,7 @@ mod tests {
 
     #[test]
     fn get_record_by_id_returns_known_record() {
-        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs");
+        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
 
         // Skip if repo structure doesn't match (live repo may evolve)
         if !srs_repo.exists() {
@@ -264,13 +257,13 @@ mod tests {
 
         let record = retrieved.unwrap();
         assert_eq!(record.instance_id, first_id);
-        assert_eq!(record.type_namespace.as_deref(), Some("com.semanticops.srs"));
-        assert_eq!(record.type_name.as_deref(), Some("meta.extension"));
+        assert_eq!(record.type_namespace, "com.semanticops.srs");
+        assert_eq!(record.type_name, "meta.extension");
     }
 
     #[test]
     fn get_record_by_id_returns_none_for_unknown() {
-        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs");
+        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
 
         let result = get_record_by_id(&srs_repo, "00000000-0000-0000-0000-000000000000")
             .expect("should not error");

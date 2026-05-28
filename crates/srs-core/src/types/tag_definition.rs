@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Semantic definition of a tag, including its roles and metadata.
 ///
@@ -111,7 +111,10 @@ mod tests {
         }"#;
 
         let td: TagDefinition = serde_json::from_str(json_str).unwrap();
-        assert_eq!(td.extra.get("unknownFutureField"), Some(&json!("preserved")));
+        assert_eq!(
+            td.extra.get("unknownFutureField"),
+            Some(&json!("preserved"))
+        );
         assert_eq!(td.extra.get("anotherExtra"), Some(&json!(42)));
 
         let serialized = serde_json::to_string(&td).unwrap();

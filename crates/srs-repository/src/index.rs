@@ -79,8 +79,7 @@ mod tests {
 
     #[test]
     fn is_tag_definition_for_tier_3() {
-        let td_json =
-            r#"{"instanceId": "td-123", "tier": 3, "path": "records/tag-definitions/purpose.json"}"#;
+        let td_json = r#"{"instanceId": "td-123", "tier": 3, "path": "records/tag-definitions/purpose.json"}"#;
         let td: InstanceIndexEntry = serde_json::from_str(td_json).unwrap();
         assert!(td.is_tag_definition());
         assert!(!td.is_note());

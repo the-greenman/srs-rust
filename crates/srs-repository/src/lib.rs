@@ -9,4 +9,5 @@ pub mod record_store;
 pub mod resolver;
 pub mod services;
 pub mod tag_service;
+pub mod validation;
 pub mod writer;

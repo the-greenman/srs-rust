@@ -70,7 +70,7 @@ mod tests {
     #[test]
     fn origin_purpose_loads_with_correct_id_and_sections() {
         let path =
-            Path::new("/home/greenman/dev/semanticops/srs/records/notes/origin-purpose.json");
+            Path::new("/home/greenman/dev/semanticops/srs/srs/records/notes/origin-purpose.json");
         let note = load_note(path).unwrap();
         assert_eq!(note.instance_id, "d5c7e536-5f7d-491a-8166-5ee25a954377");
         assert_eq!(note.sections.len(), 6);

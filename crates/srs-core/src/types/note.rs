@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub struct Note {
     #[serde(default)]
     pub instance_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tags: Option<Vec<String>>,
@@ -183,5 +184,31 @@ mod tests {
         let val = ContentHint::Markdown;
         let json = serde_json::to_string(&val).unwrap();
         assert_eq!(json, "\"markdown\"");
+    }
+
+    #[test]
+    fn minimal_note_passes_schema_contract() {
+        let reg = srs_schema::SchemaRegistry::global();
+        let note = Note {
+            instance_id: "00000000-0000-4000-8000-000000000001".to_string(),
+            title: None,
+            tags: None,
+            sections: vec![NoteSection {
+                name: "body".to_string(),
+                label: None,
+                content: "Hello".to_string(),
+                content_hint: None,
+                tags: None,
+            }],
+            graduated_at: None,
+            source_refs: None,
+            created_at: Some("2026-01-01T00:00:00Z".to_string()),
+            updated_at: None,
+            meta: None,
+        };
+        let mut value = serde_json::to_value(&note).unwrap();
+        value["$schema"] = serde_json::json!("https://srs.semanticops.com/schema/2.0/note.json");
+        reg.validate_by_id(srs_schema::NOTE_SCHEMA_ID, &value)
+            .expect("minimal Note must pass note.json schema");
     }
 }

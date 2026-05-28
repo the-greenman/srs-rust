@@ -1,8 +1,8 @@
+use crate::error::RepositoryError;
+use srs_core::types::field::{Field, ValueType};
+use srs_core::types::record_type::{FieldAssignment, RecordType};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use srs_core::types::field::{Field, ValueType};
-use srs_core::types::record_type::{RecordType, FieldAssignment};
-use crate::error::RepositoryError;
 
 /// A loaded package containing field definitions and record types.
 ///
@@ -41,14 +41,11 @@ struct FieldJson {
     name: String,
     version: u32,
     value_type: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     ai_guidance: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     allowed_values: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     default_value: Option<serde_json::Value>,
+    created_at: Option<String>,
     #[serde(flatten)]
     _extra: HashMap<String, serde_json::Value>,
 }
@@ -61,9 +58,9 @@ struct TypeJson {
     namespace: String,
     name: String,
     version: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
     fields: Vec<FieldAssignmentJson>,
+    created_at: Option<String>,
     #[serde(flatten)]
     _extra: HashMap<String, serde_json::Value>,
 }
@@ -125,14 +122,14 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
     let package_dir = repo_root.join("package");
     let package_json_path = package_dir.join("package.json");
 
-    let package_content = std::fs::read_to_string(&package_json_path)
-        .map_err(|e| RepositoryError::Io {
+    let package_content =
+        std::fs::read_to_string(&package_json_path).map_err(|e| RepositoryError::Io {
             path: package_json_path.clone(),
             source: e,
         })?;
 
-    let metadata: PackageMetadata = serde_json::from_str(&package_content)
-        .map_err(|e| RepositoryError::PackageLoad {
+    let metadata: PackageMetadata =
+        serde_json::from_str(&package_content).map_err(|e| RepositoryError::PackageLoad {
             path: package_json_path,
             source: e,
         })?;
@@ -141,14 +138,14 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
     let mut fields = Vec::new();
     for field_path in &metadata.fields {
         let full_path = package_dir.join(field_path);
-        let field_content = std::fs::read_to_string(&full_path)
-            .map_err(|e| RepositoryError::Io {
+        let field_content =
+            std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
                 path: full_path.clone(),
                 source: e,
             })?;
 
-        let field_json: FieldJson = serde_json::from_str(&field_content)
-            .map_err(|e| RepositoryError::PackageLoad {
+        let field_json: FieldJson =
+            serde_json::from_str(&field_content).map_err(|e| RepositoryError::PackageLoad {
                 path: full_path,
                 source: e,
             })?;
@@ -159,10 +156,11 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
             name: field_json.name,
             version: field_json.version,
             value_type: parse_value_type(&field_json.value_type)?,
-            description: field_json.description,
-            ai_guidance: field_json.ai_guidance,
+            description: field_json.description.unwrap_or_default(),
+            ai_guidance: field_json.ai_guidance.unwrap_or(serde_json::Value::Null),
             allowed_values: field_json.allowed_values,
             default_value: field_json.default_value,
+            created_at: field_json.created_at.unwrap_or_default(),
             extra: HashMap::new(),
         });
     }
@@ -171,34 +169,37 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
     let mut record_types = Vec::new();
     for type_path in &metadata.types {
         let full_path = package_dir.join(type_path);
-        let type_content = std::fs::read_to_string(&full_path)
-            .map_err(|e| RepositoryError::Io {
+        let type_content =
+            std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
                 path: full_path.clone(),
                 source: e,
             })?;
 
-        let type_json: TypeJson = serde_json::from_str(&type_content)
-            .map_err(|e| RepositoryError::PackageLoad {
+        let type_json: TypeJson =
+            serde_json::from_str(&type_content).map_err(|e| RepositoryError::PackageLoad {
                 path: full_path,
                 source: e,
             })?;
 
-        let fields: Vec<FieldAssignment> = type_json.fields.into_iter().map(|fa| {
-            FieldAssignment {
+        let fields: Vec<FieldAssignment> = type_json
+            .fields
+            .into_iter()
+            .map(|fa| FieldAssignment {
                 field_id: fa.field_id,
                 order: fa.order,
-                required: fa.required,
+                required: fa.required.unwrap_or(true),
                 display_label: fa.display_label,
-            }
-        }).collect();
+            })
+            .collect();
 
         record_types.push(RecordType {
             id: type_json.id,
             namespace: type_json.namespace,
             name: type_json.name,
             version: type_json.version,
+            description: type_json.description.unwrap_or_default(),
             fields,
-            description: type_json.description,
+            created_at: type_json.created_at.unwrap_or_default(),
             extra: HashMap::new(),
         });
     }
@@ -237,21 +238,30 @@ mod tests {
 
     #[test]
     fn load_package_from_live_repo() {
-        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs");
+        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
         let package = load_package(&srs_repo).expect("should load live srs package");
 
         assert_eq!(package.namespace, "com.semanticops.srs");
-        assert!(package.fields.len() > 20, "expected >20 fields, got {}", package.fields.len());
-        assert!(package.record_types.len() > 5, "expected >5 types, got {}", package.record_types.len());
+        assert!(
+            package.fields.len() > 20,
+            "expected >20 fields, got {}",
+            package.fields.len()
+        );
+        assert!(
+            package.record_types.len() > 5,
+            "expected >5 types, got {}",
+            package.record_types.len()
+        );
     }
 
     #[test]
     fn resolve_type_by_name_finds_known_type() {
-        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs");
+        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
         let package = load_package(&srs_repo).expect("should load live srs package");
 
         // Use name-based lookup to avoid hardcoding UUIDs
-        let ext_type = package.resolve_type_by_name("com.semanticops.srs", "meta.extension")
+        let ext_type = package
+            .resolve_type_by_name("com.semanticops.srs", "meta.extension")
             .expect("should find meta.extension type");
 
         assert_eq!(ext_type.name, "meta.extension");
@@ -262,10 +272,11 @@ mod tests {
 
     #[test]
     fn find_field_by_name_finds_status() {
-        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs");
+        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
         let package = load_package(&srs_repo).expect("should load live srs package");
 
-        let status_field = package.find_field_by_name("status")
+        let status_field = package
+            .find_field_by_name("status")
             .expect("should find status field");
 
         assert_eq!(status_field.name, "status");
@@ -274,17 +285,21 @@ mod tests {
 
     #[test]
     fn resolve_type_by_name_returns_none_for_unknown() {
-        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs");
+        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
         let package = load_package(&srs_repo).expect("should load live srs package");
 
-        assert!(package.resolve_type_by_name("unknown.namespace", "unknown-type").is_none());
+        assert!(package
+            .resolve_type_by_name("unknown.namespace", "unknown-type")
+            .is_none());
     }
 
     #[test]
     fn resolve_field_returns_none_for_unknown() {
-        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs");
+        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
         let package = load_package(&srs_repo).expect("should load live srs package");
 
-        assert!(package.resolve_field("00000000-0000-0000-0000-000000000000").is_none());
+        assert!(package
+            .resolve_field("00000000-0000-0000-0000-000000000000")
+            .is_none());
     }
 }

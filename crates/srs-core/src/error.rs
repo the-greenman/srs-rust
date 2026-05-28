@@ -35,10 +35,9 @@ impl PartialEq for CoreError {
                 CoreError::MissingRequiredField { field_id: a },
                 CoreError::MissingRequiredField { field_id: b },
             ) => a == b,
-            (
-                CoreError::UnknownField { field_id: a },
-                CoreError::UnknownField { field_id: b },
-            ) => a == b,
+            (CoreError::UnknownField { field_id: a }, CoreError::UnknownField { field_id: b }) => {
+                a == b
+            }
             (CoreError::EmptyTagKey, CoreError::EmptyTagKey) => true,
             _ => false,
         }

@@ -1,16 +1,16 @@
 [package]
-name = "srs-core"
-description = "Canonical Rust types and validation primitives for the Semantic Record System"
+name = "srs-schema"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+authors.workspace = true
+description = "Pinned SRS JSON Schema artifact with validation registry"
 
 [dependencies]
-serde = { workspace = true }
 serde_json = { workspace = true }
-uuid = { workspace = true }
 thiserror = { workspace = true }
+jsonschema = { version = "0.29", default-features = false }
 
 [dev-dependencies]
-srs-schema = { workspace = true }
+serde_json = { workspace = true }

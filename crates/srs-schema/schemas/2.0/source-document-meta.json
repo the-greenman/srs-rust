@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/source-document-meta.json",
+  "title": "SRS Source Document Sidecar (ext:repository)",
+  "description": "Metadata sidecar for a source document in source-documents/. The sidecar file has the same base name as the source file with .meta.json appended.",
+  "type": "object",
+  "required": ["documentId", "contentPath", "contentType", "createdAt"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "documentId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Stable identifier. Used as sourceId in SourceReferences with sourceType 'repository-document'."
+    },
+    "contentPath": {
+      "type": "string",
+      "description": "Relative path from source-documents/ to the document file."
+    },
+    "contentType": {
+      "type": "string",
+      "description": "MIME type, e.g. 'text/plain', 'application/pdf'."
+    },
+    "encoding": {
+      "type": "string",
+      "description": "Character encoding of the content file, e.g. 'utf-8'."
+    },
+    "language": {
+      "type": "string",
+      "description": "BCP 47 language tag, e.g. 'en-GB'."
+    },
+    "title": { "type": "string" },
+    "description": { "type": "string" },
+    "processingNote": {
+      "type": "string",
+      "description": "Caveats about quality or completeness of the source material."
+    },
+    "excerpt": {
+      "type": "object",
+      "description": "Optional repository-local excerpt provenance. The content file is a frozen captured snippet from another source document in the same repository.",
+      "required": ["sourceDocumentId"],
+      "additionalProperties": false,
+      "properties": {
+        "sourceDocumentId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "documentId of the repository-local parent source document this excerpt was captured from."
+        },
+        "anchor": {
+          "$ref": "#/$defs/SourceAnchor"
+        },
+        "capturedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the excerpt was extracted from the parent source."
+        },
+        "capturedBy": {
+          "type": "string",
+          "description": "Who or what extracted the excerpt."
+        },
+        "sourceChecksumAtCapture": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+:.+$",
+          "description": "Optional digest of the parent source content at extraction time: '<algorithm>:<hex>'."
+        }
+      }
+    },
+    "date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date the source document was produced or recorded."
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "importedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp when this document was imported into the repository."
+    },
+    "meta": {
+      "type": "object",
+      "description": "Implementation-local key-value pairs."
+    }
+  },
+  "$defs": {
+    "SourceAnchor": {
+      "type": "object",
+      "required": ["kind", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["line-range", "char-range", "timestamp-range", "message-id", "json-pointer", "custom"],
+          "description": "How the excerpt location is expressed in the parent source document."
+        },
+        "value": {
+          "type": "string",
+          "description": "Locator value such as '241-260', '00:13:22-00:14:10', 'msg_018', or '/messages/18'."
+        },
+        "note": {
+          "type": "string",
+          "description": "Optional human-readable clarification about the locator."
+        }
+      }
+    }
+  }
+}

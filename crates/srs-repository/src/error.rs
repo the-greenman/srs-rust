@@ -10,7 +10,10 @@ pub enum RepositoryError {
     ManifestMissing { path: PathBuf },
 
     #[error("failed to load package at {path:?}: {source}")]
-    PackageLoad { path: PathBuf, source: serde_json::Error },
+    PackageLoad {
+        path: PathBuf,
+        source: serde_json::Error,
+    },
 
     #[error("type not found: {type_id}@{version}")]
     TypeNotFound { type_id: String, version: u32 },
@@ -19,13 +22,22 @@ pub enum RepositoryError {
     FieldNotFound { field_id: String },
 
     #[error("failed to load record at {path:?}: {source}")]
-    RecordLoad { path: PathBuf, source: serde_json::Error },
+    RecordLoad {
+        path: PathBuf,
+        source: serde_json::Error,
+    },
 
     #[error("failed to write record at {path:?}: {source}")]
-    RecordWrite { path: PathBuf, source: std::io::Error },
+    RecordWrite {
+        path: PathBuf,
+        source: std::io::Error,
+    },
 
     #[error("record validation failed at {path:?}: {source}")]
-    RecordValidation { path: PathBuf, source: srs_core::error::CoreError },
+    RecordValidation {
+        path: PathBuf,
+        source: srs_core::error::CoreError,
+    },
 
     #[error("manifest parse error at {path:?}: {source}")]
     ManifestParse {
@@ -70,13 +82,25 @@ pub enum RepositoryError {
     },
 
     #[error("failed to load tag definition at {path}: {source}")]
-    TagDefinitionLoad { path: PathBuf, source: serde_json::Error },
+    TagDefinitionLoad {
+        path: PathBuf,
+        source: serde_json::Error,
+    },
 
     #[error("tag definition validation failed at {path}: {source}")]
-    TagDefinitionValidation { path: PathBuf, source: srs_core::error::CoreError },
+    TagDefinitionValidation {
+        path: PathBuf,
+        source: srs_core::error::CoreError,
+    },
 
     #[error("failed to write tag definition at {path}: {source}")]
-    TagDefinitionWrite { path: PathBuf, source: std::io::Error },
+    TagDefinitionWrite {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+
+    #[error("schema validation error at {path:?}: {message}")]
+    SchemaValidation { path: PathBuf, message: String },
 }
 
 impl PartialEq for RepositoryError {
@@ -94,8 +118,14 @@ impl PartialEq for RepositoryError {
                 RepositoryError::PackageLoad { path: b, source: _ },
             ) => a == b,
             (
-                RepositoryError::TypeNotFound { type_id: a, version: va },
-                RepositoryError::TypeNotFound { type_id: b, version: vb },
+                RepositoryError::TypeNotFound {
+                    type_id: a,
+                    version: va,
+                },
+                RepositoryError::TypeNotFound {
+                    type_id: b,
+                    version: vb,
+                },
             ) => a == b && va == vb,
             (
                 RepositoryError::FieldNotFound { field_id: a },
@@ -110,8 +140,14 @@ impl PartialEq for RepositoryError {
                 RepositoryError::RecordWrite { path: b, source: _ },
             ) => a == b,
             (
-                RepositoryError::RecordValidation { path: a, source: sa },
-                RepositoryError::RecordValidation { path: b, source: sb },
+                RepositoryError::RecordValidation {
+                    path: a,
+                    source: sa,
+                },
+                RepositoryError::RecordValidation {
+                    path: b,
+                    source: sb,
+                },
             ) => a == b && sa == sb,
             (
                 RepositoryError::ManifestParse { path: a, source: _ },
@@ -148,13 +184,29 @@ impl PartialEq for RepositoryError {
                 RepositoryError::TagDefinitionLoad { path: b, source: _ },
             ) => a == b,
             (
-                RepositoryError::TagDefinitionValidation { path: a, source: sa },
-                RepositoryError::TagDefinitionValidation { path: b, source: sb },
+                RepositoryError::TagDefinitionValidation {
+                    path: a,
+                    source: sa,
+                },
+                RepositoryError::TagDefinitionValidation {
+                    path: b,
+                    source: sb,
+                },
             ) => a == b && sa == sb,
             (
                 RepositoryError::TagDefinitionWrite { path: a, source: _ },
                 RepositoryError::TagDefinitionWrite { path: b, source: _ },
             ) => a == b,
+            (
+                RepositoryError::SchemaValidation {
+                    path: a,
+                    message: ma,
+                },
+                RepositoryError::SchemaValidation {
+                    path: b,
+                    message: mb,
+                },
+            ) => a == b && ma == mb,
             _ => false,
         }
     }

@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/federation-registry.json",
+  "title": "SRS Repository Registry (ext:federation)",
+  "description": "Local file listing the SRS document repositories known to this system or team. May be standalone or part of a federated hierarchy via childRegistries.",
+  "type": "object",
+  "required": ["registryId", "title", "updatedAt", "entries"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "registryId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Stable identity for this registry file."
+    },
+    "title": {
+      "type": "string",
+      "description": "Human-readable name for this registry."
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "entries": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/RepositoryRegistryEntry" },
+      "description": "Known repositories. No two entries may share the same repositoryId (Invariant 61)."
+    },
+    "childRegistries": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Paths or URLs to subordinate RepositoryRegistry files. Resolution is depth-first; cycles must be detected and halted (Invariant 62)."
+    }
+  },
+  "$defs": {
+    "RepositoryRegistryEntry": {
+      "type": "object",
+      "required": ["repositoryId", "title"],
+      "additionalProperties": false,
+      "properties": {
+        "repositoryId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable identity key; matches the repository's own repositoryId."
+        },
+        "title": {
+          "type": "string",
+          "description": "Human-readable name; for display and disambiguation only."
+        },
+        "location": {
+          "type": "string",
+          "description": "Local path or URL to the repository root. Absent = ID-only citation (location unknown)."
+        },
+        "lastSeen": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When this entry was last confirmed reachable."
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

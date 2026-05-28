@@ -46,7 +46,7 @@ mod tests {
     use super::*;
     #[test]
     fn live_manifest_loads_and_has_correct_first_entry() {
-        let repo_root = PathBuf::from("/home/greenman/dev/semanticops/srs");
+        let repo_root = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
         let manifest = load_manifest(&repo_root).unwrap();
 
         assert!(!manifest.instance_index.is_empty());
