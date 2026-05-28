@@ -86,7 +86,7 @@ fn run_srs(args: &[&str]) -> Value {
 }
 
 #[test]
-fn test_note_list_ok() {
+fn note_list_returns_ok_envelope() {
     let result = run_srs(&["note", "list"]);
     assert_eq!(result["ok"], true);
     assert_eq!(result["command"], "note list");
@@ -94,7 +94,7 @@ fn test_note_list_ok() {
 }
 
 #[test]
-fn test_note_list_contains_known_note() {
+fn note_list_contains_origin_purpose() {
     let result = run_srs(&["note", "list"]);
     let notes = result["payload"]["notes"].as_array().unwrap();
 
@@ -109,7 +109,7 @@ fn test_note_list_contains_known_note() {
 }
 
 #[test]
-fn test_note_list_filter_by_tag() {
+fn note_list_filters_by_tag() {
     // Filter by "purpose" tag - should return at least origin-purpose
     let result = run_srs(&["note", "list", "--tag", "purpose"]);
     assert_eq!(result["ok"], true);
@@ -119,7 +119,7 @@ fn test_note_list_filter_by_tag() {
 }
 
 #[test]
-fn test_note_audit_tags_ok() {
+fn note_audit_tags_returns_tag_counts() {
     let result = run_srs(&["note", "audit-tags"]);
     assert_eq!(result["ok"], true);
     assert_eq!(result["command"], "note audit-tags");
@@ -127,7 +127,7 @@ fn test_note_audit_tags_ok() {
 }
 
 #[test]
-fn test_note_foundations_ok() {
+fn note_foundations_returns_signal_tagged_notes() {
     let result = run_srs(&["note", "foundations"]);
     assert_eq!(result["ok"], true);
     assert_eq!(result["command"], "note foundations");
@@ -139,7 +139,7 @@ fn test_note_foundations_ok() {
 }
 
 #[test]
-fn test_repo_map_ok() {
+fn repo_map_returns_counts_and_structure() {
     let result = run_srs(&["repo", "map"]);
     assert_eq!(result["ok"], true);
     assert_eq!(result["command"], "repo map");
@@ -152,7 +152,7 @@ fn test_repo_map_ok() {
 }
 
 #[test]
-fn test_migrate_packet_foundation_ok() {
+fn migrate_packet_foundation_returns_complete_packet() {
     let result = run_srs(&["migrate", "packet", "--foundation"]);
     assert_eq!(result["ok"], true);
     assert_eq!(result["command"], "migrate packet");
@@ -166,7 +166,7 @@ fn test_migrate_packet_foundation_ok() {
 }
 
 #[test]
-fn test_note_get_by_id() {
+fn note_get_returns_note_with_sections() {
     let result = run_srs(&["note", "get", "d5c7e536-5f7d-491a-8166-5ee25a954377"]);
     assert_eq!(result["ok"], true);
 
@@ -179,10 +179,10 @@ fn test_note_get_by_id() {
 }
 
 #[test]
-fn test_note_get_unknown_id_returns_error() {
+fn note_get_unknown_id_returns_ok_false() {
     let exe = env!("CARGO_BIN_EXE_srs");
     let output = Command::new(exe)
-        .args(&["note", "get", "nonexistent-id-12345"])
+        .args(["note", "get", "nonexistent-id-12345"])
         .current_dir("/home/greenman/dev/semanticops/srs")
         .output()
         .expect("Failed to execute srs command");
@@ -197,7 +197,7 @@ fn test_note_get_unknown_id_returns_error() {
 // Write tests using temp repo fixture
 
 #[test]
-fn test_note_create_and_retrieve() {
+fn note_create_mints_id_writes_file_and_updates_manifest() {
     let temp = create_temp_repo();
     let repo_path = temp.path();
 
@@ -239,7 +239,7 @@ fn test_note_create_and_retrieve() {
 }
 
 #[test]
-fn test_note_tag_adds_tag_and_updates_manifest() {
+fn note_tag_adds_tag_and_updates_manifest() {
     let temp = create_temp_repo();
     let repo_path = temp.path();
 

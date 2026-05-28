@@ -36,7 +36,7 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn test_load_origin_purpose() {
+    fn origin_purpose_loads_with_correct_id_and_sections() {
         let path =
             Path::new("/home/greenman/dev/semanticops/srs/records/notes/origin-purpose.json");
         let note = load_note(path).unwrap();
@@ -45,7 +45,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_validates_on_read() {
+    fn load_validates_on_read() {
         let temp = TempDir::new().unwrap();
         let note_path = temp.path().join("invalid-note.json");
 

@@ -59,10 +59,7 @@ fn cmd_note_get(repo: Option<PathBuf>, id: String) -> Result<String> {
         )),
         GetNoteResult::NotANote { tier: _ } => Ok(output::err(
             "note get",
-            vec![format!(
-                "Instance '{}' is not a Note (tier != 0)",
-                id,
-            )],
+            vec![format!("Instance '{}' is not a Note (tier != 0)", id,)],
         )),
     }
 }

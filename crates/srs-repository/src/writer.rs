@@ -1,5 +1,5 @@
 use crate::error::RepositoryError;
-use crate::index::{InstanceIndexEntry, InstanceIndexObject};
+use crate::index::InstanceIndexEntry;
 use crate::manifest::Manifest;
 use srs_core::types::note::Note;
 use std::path::Path;
@@ -40,19 +40,19 @@ pub fn write_note(note: &Note, path: &Path) -> Result<(), RepositoryError> {
 
 /// Add or replace the manifest index entry for a Note (in memory only).
 pub fn upsert_index_entry(manifest: &mut Manifest, note: &Note, relative_path: &str) {
-    let entry = InstanceIndexEntry::Object(InstanceIndexObject {
+    let entry = InstanceIndexEntry {
         instance_id: note.instance_id.clone(),
         tier: 0, // Default tier for new notes
         path: relative_path.to_string(),
         title: note.title.clone().map(serde_json::Value::String),
         tags: note.tags.clone(),
-    });
+    };
 
     // Check if entry with same instance_id exists and replace it
     if let Some(pos) = manifest
         .instance_index
         .iter()
-        .position(|e| e.instance_id() == Some(&note.instance_id))
+        .position(|e| e.instance_id() == note.instance_id)
     {
         manifest.instance_index[pos] = entry;
     } else {
@@ -87,7 +87,7 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn test_new_instance_id_produces_unique_uuids() {
+    fn new_instance_id_produces_unique_uuids() {
         let id1 = new_instance_id();
         let id2 = new_instance_id();
         assert_ne!(id1, id2);
@@ -98,7 +98,7 @@ mod tests {
     }
 
     #[test]
-    fn test_write_note_roundtrip() {
+    fn write_note_roundtrips_and_includes_schema_header() {
         let temp = TempDir::new().unwrap();
         let note_path = temp.path().join("test-note.json");
 
@@ -137,7 +137,7 @@ mod tests {
     }
 
     #[test]
-    fn test_upsert_index_entry_adds_new() {
+    fn upsert_index_entry_adds_new_entry() {
         let mut manifest = Manifest {
             instance_index: vec![],
             extra: HashMap::new(),
@@ -159,19 +159,19 @@ mod tests {
         upsert_index_entry(&mut manifest, &note, "records/notes/new.json");
 
         assert_eq!(manifest.instance_index.len(), 1);
-        assert_eq!(manifest.instance_index[0].instance_id(), Some("new-id"));
+        assert_eq!(manifest.instance_index[0].instance_id(), "new-id");
     }
 
     #[test]
-    fn test_upsert_index_entry_replaces_existing() {
+    fn upsert_index_entry_replaces_existing_by_id() {
         let mut manifest = Manifest {
-            instance_index: vec![InstanceIndexEntry::Object(InstanceIndexObject {
+            instance_index: vec![InstanceIndexEntry {
                 instance_id: "existing-id".to_string(),
                 tier: 0,
                 path: "records/notes/old.json".to_string(),
                 title: Some(serde_json::Value::String("Old Title".to_string())),
                 tags: None,
-            })],
+            }],
             extra: HashMap::new(),
             root: Path::new("/tmp").to_path_buf(),
         };
@@ -195,14 +195,20 @@ mod tests {
     }
 
     #[test]
-    fn test_write_manifest_preserves_extra_fields() {
+    fn write_manifest_preserves_extra_fields() {
         let temp = TempDir::new().unwrap();
 
         // Create initial manifest
         let manifest_json = r#"{
             "srsVersion": "2.0-draft",
             "repositoryId": "test-repo",
-            "instanceIndex": ["records/notes/test.json"]
+            "instanceIndex": [
+                {
+                    "instanceId": "11111111-1111-4111-8111-111111111111",
+                    "tier": 0,
+                    "path": "records/notes/test.json"
+                }
+            ]
         }"#;
         fs::write(temp.path().join("manifest.json"), manifest_json).unwrap();
 

@@ -83,7 +83,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_note_roundtrip_json() {
+    fn note_roundtrips_json() {
         let note = Note {
             instance_id: "test-id".to_string(),
             title: Some("Test Title".to_string()),
@@ -108,7 +108,7 @@ mod tests {
     }
 
     #[test]
-    fn test_origin_purpose_deserializes() {
+    fn origin_purpose_deserializes() {
         const ORIGIN_PURPOSE_JSON: &str = r#"
         {
           "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
@@ -165,21 +165,21 @@ mod tests {
     }
 
     #[test]
-    fn test_source_type_serializes_hyphenated() {
+    fn source_type_serializes_hyphenated() {
         let val = SourceType::RepositoryDocument;
         let json = serde_json::to_string(&val).unwrap();
         assert_eq!(json, "\"repository-document\"");
     }
 
     #[test]
-    fn test_relation_type_serializes_hyphenated() {
+    fn relation_type_serializes_hyphenated() {
         let val = RelationType::DerivedFrom;
         let json = serde_json::to_string(&val).unwrap();
         assert_eq!(json, "\"derived-from\"");
     }
 
     #[test]
-    fn test_content_hint_serializes_lowercase() {
+    fn content_hint_serializes_lowercase() {
         let val = ContentHint::Markdown;
         let json = serde_json::to_string(&val).unwrap();
         assert_eq!(json, "\"markdown\"");

@@ -62,13 +62,13 @@ mod tests {
     }
 
     #[test]
-    fn test_valid_note_passes() {
+    fn valid_note_passes() {
         let note = minimal_note();
         assert!(validate_note(&note).is_ok());
     }
 
     #[test]
-    fn test_duplicate_section_name_fails() {
+    fn duplicate_section_name_fails() {
         let note = Note {
             sections: vec![
                 NoteSection {
@@ -98,7 +98,7 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_tag_on_note_fails() {
+    fn empty_tag_on_note_fails() {
         let note = Note {
             tags: Some(vec!["valid".to_string(), "".to_string()]),
             ..minimal_note()
@@ -108,7 +108,7 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_tag_on_section_fails() {
+    fn empty_tag_on_section_fails() {
         let note = Note {
             sections: vec![NoteSection {
                 name: "section1".to_string(),

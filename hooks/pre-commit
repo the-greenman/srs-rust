@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Pre-commit hook for srs-rust workspace
+# Runs formatting check, clippy lints, and cargo check
+
+echo "🔍 Running pre-commit checks..."
+
+# 1. Check formatting
+echo "  → cargo fmt --check"
+if ! cargo fmt --all -- --check; then
+    echo ""
+    echo "❌ Formatting issues found. Run 'cargo fmt --all' to fix."
+    exit 1
+fi
+
+# 2. Clippy lints (warnings as errors)
+echo "  → cargo clippy"
+if ! cargo clippy --workspace --all-targets -- -D warnings; then
+    echo ""
+    echo "❌ Clippy warnings found. Fix them before committing."
+    exit 1
+fi
+
+# 3. Cargo check (type/compilation errors)
+echo "  → cargo check"
+if ! cargo check --workspace; then
+    echo ""
+    echo "❌ Compilation errors found. Fix them before committing."
+    exit 1
+fi
+
+echo "✅ All pre-commit checks passed."

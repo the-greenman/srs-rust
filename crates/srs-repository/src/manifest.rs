@@ -44,11 +44,8 @@ pub fn load_manifest(repo_root: &Path) -> Result<Manifest, RepositoryError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use tempfile::TempDir;
-
     #[test]
-    fn test_load_live_manifest() {
+    fn live_manifest_loads_and_has_correct_first_entry() {
         let repo_root = PathBuf::from("/home/greenman/dev/semanticops/srs");
         let manifest = load_manifest(&repo_root).unwrap();
 
@@ -60,24 +57,15 @@ mod tests {
     }
 
     #[test]
-    fn test_legacy_index_round_trips() {
-        let temp = TempDir::new().unwrap();
-        let manifest_path = temp.path().join("manifest.json");
+    fn string_index_entries_are_rejected() {
+        let result: Result<Manifest, _> = serde_json::from_str(
+            r#"{
+                "instanceIndex": [
+                    "records/notes/foo.json"
+                ]
+            }"#,
+        );
 
-        // Create minimal manifest with string-array instanceIndex
-        let json = r#"{
-            "srsVersion": "2.0-draft",
-            "instanceIndex": [
-                "records/notes/foo.json",
-                "records/notes/bar.json"
-            ]
-        }"#;
-
-        fs::write(&manifest_path, json).unwrap();
-
-        let manifest = load_manifest(temp.path()).unwrap();
-        assert_eq!(manifest.instance_index.len(), 2);
-        assert_eq!(manifest.instance_index[0].path(), "records/notes/foo.json");
-        assert_eq!(manifest.instance_index[1].path(), "records/notes/bar.json");
+        assert!(result.is_err());
     }
 }

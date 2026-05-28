@@ -33,9 +33,9 @@ pub struct ListNotesResult {
 /// Result of getting a note
 #[derive(Debug, Clone)]
 pub enum GetNoteResult {
-    Found(Note),
+    Found(Box<Note>),
     NotFound,
-    NotANote { tier: Option<u8> },
+    NotANote { tier: u8 },
 }
 
 /// Result of creating a note
@@ -83,12 +83,12 @@ fn list_notes_from_manifest(
                     let has_tag = note
                         .tags
                         .as_ref()
-                        .map_or(false, |tags| tags.contains(filter_tag));
+                        .is_some_and(|tags| tags.contains(filter_tag));
                     if !has_tag {
                         continue;
                     }
                     notes.push(NoteSummary {
-                        instance_id: entry.instance_id().unwrap_or_default().to_string(),
+                        instance_id: entry.instance_id().to_string(),
                         path: path.to_string(),
                         title: entry.title(),
                         tags: note.tags.unwrap_or_default(),
@@ -99,7 +99,7 @@ fn list_notes_from_manifest(
         } else {
             // No filter, include all notes (just from manifest for efficiency)
             notes.push(NoteSummary {
-                instance_id: entry.instance_id().unwrap_or_default().to_string(),
+                instance_id: entry.instance_id().to_string(),
                 path: path.to_string(),
                 title: entry.title(),
                 tags: Vec::new(), // Tags not loaded for efficiency
@@ -124,7 +124,7 @@ fn get_note_by_id_from_manifest(
     let entry = manifest
         .instance_index
         .iter()
-        .find(|e| e.instance_id() == Some(id));
+        .find(|e| e.instance_id() == id);
 
     match entry {
         Some(e) => {
@@ -132,7 +132,7 @@ fn get_note_by_id_from_manifest(
                 return Ok(GetNoteResult::NotANote { tier: e.tier() });
             }
             let note = load_note_relative(repo_root, e.path())?;
-            Ok(GetNoteResult::Found(note))
+            Ok(GetNoteResult::Found(Box::new(note)))
         }
         None => Ok(GetNoteResult::NotFound),
     }
@@ -194,7 +194,7 @@ pub fn add_note_tag(
     let entry = manifest
         .instance_index
         .iter()
-        .find(|e| e.instance_id() == Some(id))
+        .find(|e| e.instance_id() == id)
         .cloned();
 
     match entry {
@@ -295,7 +295,10 @@ mod tests {
         let temp = create_temp_repo();
         let result = list_notes(temp.path(), ListNotesFilter::default()).unwrap();
         assert_eq!(result.notes.len(), 1);
-        assert_eq!(result.notes[0].instance_id, "11111111-1111-1111-8111-111111111111");
+        assert_eq!(
+            result.notes[0].instance_id,
+            "11111111-1111-1111-8111-111111111111"
+        );
     }
 
     #[test]
@@ -363,7 +366,7 @@ mod tests {
 
         let result = get_note_by_id(temp.path(), "22222222-2222-2222-8222-222222222222").unwrap();
         match result {
-            GetNoteResult::NotANote { tier } => assert_eq!(tier, Some(1)),
+            GetNoteResult::NotANote { tier } => assert_eq!(tier, 1),
             _ => panic!("Expected NotANote"),
         }
     }
@@ -404,9 +407,10 @@ mod tests {
         assert!(temp.path().join(&result.path).exists());
 
         // Verify manifest updated
-        let manifest: Value =
-            serde_json::from_str(&std::fs::read_to_string(temp.path().join("manifest.json")).unwrap())
-                .unwrap();
+        let manifest: Value = serde_json::from_str(
+            &std::fs::read_to_string(temp.path().join("manifest.json")).unwrap(),
+        )
+        .unwrap();
         let index = manifest["instanceIndex"].as_array().unwrap();
         assert_eq!(index.len(), 1);
         assert_eq!(index[0]["instanceId"], result.note.instance_id);
@@ -433,9 +437,10 @@ mod tests {
         }
 
         // Verify manifest was updated
-        let manifest: Value =
-            serde_json::from_str(&std::fs::read_to_string(temp.path().join("manifest.json")).unwrap())
-                .unwrap();
+        let manifest: Value = serde_json::from_str(
+            &std::fs::read_to_string(temp.path().join("manifest.json")).unwrap(),
+        )
+        .unwrap();
         let index = manifest["instanceIndex"].as_array().unwrap();
         let tags = index[0]["tags"].as_array().unwrap();
         assert!(tags.iter().any(|t| t.as_str() == Some("new-tag")));

@@ -39,7 +39,6 @@ pub struct CountsSummary {
     pub notes: usize,
     pub typed_records: usize,
     pub records: usize,
-    pub legacy_index_entries: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -139,8 +138,8 @@ pub struct SourceReferenceSummary {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ManifestEntrySummary {
-    pub instance_id: Option<String>,
-    pub tier: Option<u8>,
+    pub instance_id: String,
+    pub tier: u8,
     pub path: String,
     pub title: Option<String>,
 }
@@ -330,7 +329,7 @@ pub fn build_migration_packet(
         .instance_index
         .iter()
         .map(|entry| ManifestEntrySummary {
-            instance_id: entry.instance_id().map(ToString::to_string),
+            instance_id: entry.instance_id().to_string(),
             tier: entry.tier(),
             path: entry.path().to_string(),
             title: entry.title(),
@@ -388,22 +387,17 @@ fn summarize_repository(repo_root: &Path, manifest: &Manifest) -> RepositorySumm
 
 fn summarize_counts(manifest: &Manifest) -> CountsSummary {
     let mut by_tier: BTreeMap<String, usize> = BTreeMap::new();
-    let mut legacy_index_entries = 0;
 
     for entry in &manifest.instance_index {
-        match entry.tier() {
-            Some(tier) => *by_tier.entry(tier.to_string()).or_default() += 1,
-            None => legacy_index_entries += 1,
-        }
+        *by_tier.entry(entry.tier().to_string()).or_default() += 1;
     }
 
     CountsSummary {
         total_instances: manifest.instance_index.len(),
-        notes: *by_tier.get("0").unwrap_or(&0) + legacy_index_entries,
+        notes: *by_tier.get("0").unwrap_or(&0),
         typed_records: *by_tier.get("1").unwrap_or(&0),
         records: *by_tier.get("2").unwrap_or(&0),
         by_tier,
-        legacy_index_entries,
     }
 }
 

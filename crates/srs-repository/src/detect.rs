@@ -27,7 +27,7 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn test_find_repo_root_from_nested_path() {
+    fn find_repo_root_from_nested_path() {
         let temp = TempDir::new().unwrap();
         let repo_root = temp.path().join("repo");
         let nested = repo_root.join("records").join("notes");
@@ -40,7 +40,7 @@ mod tests {
     }
 
     #[test]
-    fn test_find_repo_root_not_found() {
+    fn find_repo_root_returns_not_found() {
         let temp = TempDir::new().unwrap();
         let start = temp.path().join("nowhere");
 
