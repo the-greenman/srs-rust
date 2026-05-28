@@ -1,0 +1,47 @@
+# SRS Rust Architecture Rules
+
+This file is written for humans and AI agents that need to understand the repo quickly.
+
+## Authority Boundaries
+
+- `srs-core` owns storage-independent SRS data structures, serialization shape, and validation.
+- `srs-repository` owns repository loading, writing, indexing, deterministic analysis, and service functions.
+- `srs-cli` owns argument parsing, repository path resolution, and JSON envelope printing only.
+- `srs-bindings` must call library services. It must not duplicate CLI behavior or business logic.
+- `srs-projection` owns rendering/export projection logic.
+
+## Policy And Configuration
+
+- Do not hardcode repository-specific semantic policy in the CLI.
+- Do not use tags as formal ontology or hidden command policy.
+- Named analysis behavior must come from repository data or explicit command input.
+- The library may define generic config shapes and deterministic algorithms, but not project-specific tag sets.
+- AI-facing guidance is data. Semantic decisions are not made by the CLI or library.
+
+## Tags
+
+- Tags are weak discovery labels.
+- Tags are not semantic claims.
+- Relations and typed records carry stable semantic meaning.
+- If a command needs a tag set, the tag set belongs in a named profile or explicit input, not in command code.
+
+## Determinism
+
+- CLI and library analysis must be read-only unless the command is explicitly a write command.
+- Analysis output must be stable JSON suitable for AI handoff.
+- The CLI/library may assemble evidence, counts, paths, indexes, and profile matches.
+- The CLI/library must not infer migrations, extract meaning, or decide semantic upgrades.
+
+## DRY Rule
+
+- Essential logic belongs in a library crate once.
+- CLI commands should be thin wrappers over library services.
+- Python bindings should expose the same library services as JSON-first calls.
+- When logic is needed by both CLI and bindings, move it down before adding another caller.
+
+## Storage Direction
+
+- The current repository implementation is file-backed and synchronous.
+- Do not introduce async traits until there is a concrete async consumer.
+- Do not split a new file-adapter crate until a second storage adapter creates real pressure.
+- Keep storage boundaries visible so a database-backed implementation can be introduced later.

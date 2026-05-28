@@ -1,9 +1,9 @@
-use crate::commands::{resolve_repo, NoteCommand, FOUNDATION_SIGNAL_TAGS};
+use crate::commands::{resolve_repo, NoteCommand};
 use crate::output;
 use anyhow::{Context, Result};
 use serde_json::json;
 use srs_core::types::note::Note;
-use srs_repository::analysis::{audit_note_tags, collect_foundation_notes};
+use srs_repository::analysis::{audit_note_tags, collect_foundation_notes, load_analysis_profile};
 use srs_repository::services::{
     add_note_tag, create_note, get_note_by_id, list_notes, AddTagResult, GetNoteResult,
     ListNotesFilter,
@@ -101,7 +101,8 @@ fn cmd_note_audit_tags(repo: Option<PathBuf>) -> Result<String> {
 
 fn cmd_note_foundations(repo: Option<PathBuf>) -> Result<String> {
     let repo_root = resolve_repo(repo)?;
-    let foundation_notes = collect_foundation_notes(&repo_root, FOUNDATION_SIGNAL_TAGS)?;
+    let profile = load_analysis_profile(&repo_root, "foundation")?;
+    let foundation_notes = collect_foundation_notes(&repo_root, &profile.include_tags)?;
     Ok(output::ok(
         "note foundations",
         json!({ "foundationNotes": foundation_notes }),

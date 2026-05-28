@@ -7,21 +7,6 @@ use clap::{Parser, Subcommand};
 use srs_repository::detect::find_repo_root;
 use std::path::PathBuf;
 
-pub const FOUNDATION_SIGNAL_TAGS: &[&str] = &[
-    "foundations",
-    "meaning-first",
-    "semantic-state",
-    "fundamental-tensions",
-    "domain",
-    "problems",
-    "protocol",
-    "projection",
-    "projections",
-    "human-ai-collaboration",
-    "distributed-knowledge",
-    "addressability",
-];
-
 pub fn resolve_repo(repo: Option<PathBuf>) -> Result<PathBuf> {
     match repo {
         Some(path) => Ok(path),

@@ -11,6 +11,14 @@ const AI_HANDOFF_GUIDANCE: &str = "This packet is deterministic repository data 
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AnalysisProfile {
+    pub profile_id: String,
+    pub description: Option<String>,
+    pub include_tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RepoMap {
     pub repository: RepositorySummary,
     pub counts: CountsSummary,
@@ -248,7 +256,7 @@ fn audit_note_tags_from_manifest(
 
 pub fn collect_foundation_notes(
     repo_root: &Path,
-    signal_tags: &[&str],
+    signal_tags: &[String],
 ) -> Result<FoundationNoteSet, RepositoryError> {
     let manifest = load_manifest(repo_root)?;
     collect_foundation_notes_from_manifest(repo_root, &manifest, signal_tags)
@@ -257,9 +265,9 @@ pub fn collect_foundation_notes(
 fn collect_foundation_notes_from_manifest(
     repo_root: &Path,
     manifest: &Manifest,
-    signal_tags: &[&str],
+    signal_tags: &[String],
 ) -> Result<FoundationNoteSet, RepositoryError> {
-    let signal_tags: BTreeSet<String> = signal_tags.iter().map(|tag| (*tag).to_string()).collect();
+    let signal_tags: BTreeSet<String> = signal_tags.iter().cloned().collect();
     let mut notes = Vec::new();
 
     for entry in &manifest.instance_index {
@@ -318,7 +326,7 @@ fn collect_foundation_notes_from_manifest(
 pub fn build_migration_packet(
     repo_root: &Path,
     profile: &str,
-    foundation_signal_tags: &[&str],
+    foundation_signal_tags: &[String],
 ) -> Result<MigrationPacket, RepositoryError> {
     let manifest = load_manifest(repo_root)?;
     let repo_map = build_repo_map_from_manifest(repo_root, &manifest)?;
@@ -360,6 +368,23 @@ pub fn build_migration_packet(
         manifest_entries,
         ai_handoff_guidance: AI_HANDOFF_GUIDANCE.to_string(),
     })
+}
+
+pub fn load_analysis_profile(
+    repo_root: &Path,
+    profile_id: &str,
+) -> Result<AnalysisProfile, RepositoryError> {
+    let path = repo_root
+        .join(".srs")
+        .join("profiles")
+        .join(format!("{profile_id}.json"));
+    let content = fs::read_to_string(&path).map_err(|source| RepositoryError::Io {
+        path: path.clone(),
+        source,
+    })?;
+    let profile: AnalysisProfile = serde_json::from_str(&content)
+        .map_err(|source| RepositoryError::ManifestParse { path, source })?;
+    Ok(profile)
 }
 
 #[derive(Debug, Clone, Default)]
@@ -690,8 +715,8 @@ mod tests {
     #[test]
     fn foundation_selection_uses_only_signal_tags() {
         let temp = fixture_repo();
-        let foundations =
-            collect_foundation_notes(temp.path(), &["meaning-first", "problems"]).unwrap();
+        let signal_tags = vec!["meaning-first".to_string(), "problems".to_string()];
+        let foundations = collect_foundation_notes(temp.path(), &signal_tags).unwrap();
 
         assert_eq!(foundations.notes.len(), 2);
         assert!(foundations.notes.iter().any(|note| {
@@ -703,9 +728,8 @@ mod tests {
     #[test]
     fn migration_packet_is_deterministic_handoff_data() {
         let temp = fixture_repo();
-        let packet =
-            build_migration_packet(temp.path(), "foundation", &["meaning-first", "problems"])
-                .unwrap();
+        let signal_tags = vec!["meaning-first".to_string(), "problems".to_string()];
+        let packet = build_migration_packet(temp.path(), "foundation", &signal_tags).unwrap();
 
         assert_eq!(packet.profile, "foundation");
         assert_eq!(packet.foundation_notes.notes.len(), 2);

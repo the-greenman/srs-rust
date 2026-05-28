@@ -1,7 +1,7 @@
-use crate::commands::{resolve_repo, MigrateCommand, FOUNDATION_SIGNAL_TAGS};
+use crate::commands::{resolve_repo, MigrateCommand};
 use crate::output;
 use anyhow::{anyhow, Result};
-use srs_repository::analysis::build_migration_packet;
+use srs_repository::analysis::{build_migration_packet, load_analysis_profile};
 use std::path::PathBuf;
 
 pub fn dispatch(cmd: MigrateCommand) -> Result<String> {
@@ -22,6 +22,7 @@ fn cmd_migrate_packet(repo: Option<PathBuf>, foundation: bool) -> Result<String>
     }
 
     let repo_root = resolve_repo(repo)?;
-    let packet = build_migration_packet(&repo_root, "foundation", FOUNDATION_SIGNAL_TAGS)?;
+    let profile = load_analysis_profile(&repo_root, "foundation")?;
+    let packet = build_migration_packet(&repo_root, &profile.profile_id, &profile.include_tags)?;
     Ok(output::ok("migrate packet", serde_json::to_value(packet)?))
 }
