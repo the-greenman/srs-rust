@@ -1,0 +1,11 @@
+[package]
+name = "srs-bindings"
+description = "SRS FFI bindings — Python, Node.js, WASM (future)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+srs-core = { workspace = true }
+srs-repository = { workspace = true }

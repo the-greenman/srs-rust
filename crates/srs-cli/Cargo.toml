@@ -1,0 +1,22 @@
+[package]
+name = "srs"
+description = "Semantic Record System CLI — machine-facing JSON command surface"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "srs"
+path = "src/main.rs"
+
+[dependencies]
+srs-core = { workspace = true }
+srs-repository = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
