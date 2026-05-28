@@ -10,6 +10,12 @@ pub enum CoreError {
 
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
+
+    #[error("missing required field: {field_id}")]
+    MissingRequiredField { field_id: String },
+
+    #[error("unknown field in record: {field_id}")]
+    UnknownField { field_id: String },
 }
 
 impl PartialEq for CoreError {
@@ -22,6 +28,14 @@ impl PartialEq for CoreError {
             (CoreError::EmptyTag, CoreError::EmptyTag) => true,
             // Json errors compared by their display representation
             (CoreError::Json(a), CoreError::Json(b)) => a.to_string() == b.to_string(),
+            (
+                CoreError::MissingRequiredField { field_id: a },
+                CoreError::MissingRequiredField { field_id: b },
+            ) => a == b,
+            (
+                CoreError::UnknownField { field_id: a },
+                CoreError::UnknownField { field_id: b },
+            ) => a == b,
             _ => false,
         }
     }

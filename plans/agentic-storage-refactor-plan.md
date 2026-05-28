@@ -1,245 +1,270 @@
-# Agentic Implementation Plan: Storage-Agnostic SRS Rust Library
+# Plan: Storage-Agnostic SRS Rust Library
 
 ## Summary
 
-Refactor SRS Rust so reusable SRS logic lives in library crates and the CLI is only an interface. The immediate priority is concrete and synchronous: move note operations out of `srs-cli` and into `srs-repository`, so the same logic can be called by CLI, Python bindings, and future applications without duplication.
+Refactor SRS Rust so reusable SRS logic lives in library crates and the CLI is only an interface. The immediate priority is concrete and synchronous: move note operations out of `srs-cli` into `srs-repository`, so the same logic can be called by CLI, Python bindings, and future applications without duplication. Long-term direction is storage-agnostic SRS support for file-backed, database-backed, and embedded applications — but speculative complexity is deferred.
 
-The long-term direction is storage-agnostic SRS support for file-backed, database-backed, and embedded applications. The near-term implementation should avoid speculative complexity: no async traits yet, no new file-adapter crate yet, and no model-specific assumptions in the plan.
+## Agent Assignments
 
-## Agent Roles
+| Role | Agent |
+|---|---|
+| Lead Integrator | — |
+| Repository Service Worker | — |
+| CLI Worker | — |
+| Core Model Worker | — |
+| Bindings Worker | — |
+| Verification | — |
 
-### Lead Integrator
+See [agents.md](agents.md) for role definitions.
 
-- **Owns:** architecture decisions, sequencing, final integration, public API consistency, and review.
-- **Write scope:** workspace manifests, cross-crate wiring, final cleanup.
-- **Coordination notes:** merge worker outputs, resolve API disagreements, and enforce the crate-boundary model.
+## Scope
 
-### Repository Service Worker
+- Move note service logic from CLI into `srs-repository`
+- Add canonical Rust types for remaining SRS data to `srs-core`
+- Define a synchronous repository boundary in `srs-repository`
+- Expose a JSON-first Python binding surface over services
 
-- **Owns:** moving note service logic and repository operations into `srs-repository`.
-- **Write scope:** `crates/srs-repository/**`.
-- **Deliverables:**
-  - note list/get/create/tag services
-  - library-owned slugging
-  - manifest update helpers without repeated loads
-  - tests proving CLI-independent behavior
+**Out of scope:**
 
-### CLI Worker
+- Async traits (deferred until a concrete async consumer exists)
+- `srs-file-repository` crate extraction (deferred until a second adapter exists)
+- Database-backed adapter implementation
 
-- **Owns:** thinning CLI commands to call library services only.
-- **Write scope:** `crates/srs-cli/**`.
-- **Deliverables:**
-  - command behavior preserved
-  - JSON envelope compatibility
-  - no duplicated business logic
+---
 
-### Core Model Worker
-
-- **Owns:** in-memory SRS types and validation in `srs-core`.
-- **Write scope:** `crates/srs-core/**`.
-- **Deliverables:**
-  - canonical Rust structs for remaining SRS data
-  - serde-compatible JSON shapes
-  - storage-independent validation
-
-### Bindings Worker
-
-- **Owns:** JSON-first Python binding surface over library services.
-- **Write scope:** `crates/srs-bindings/**`.
-- **Deliverables:**
-  - JSON-first callable APIs
-  - smoke tests for parseable outputs
-  - no duplicated CLI logic
-
-### Verification Agent
-
-- **Owns:** test runs, architecture audits, and duplication checks.
-- **Write scope:** none unless explicitly asked to patch tests.
-- **Deliverables:**
-  - command/test transcript summary
-  - crate-boundary audit
-  - duplicated-logic report
-
-## Implementation Phases
+## Phases
 
 ### Phase 1: Move Note Services To The Library
 
-Move essential note behavior out of `srs-cli` into `srs-repository`.
+**Status:** `complete`
 
-Services to add:
+**Goal:** Note CRUD and tag operations live in `srs-repository`; CLI handlers are thin wrappers.
 
-- `list_notes(repo_root, filter)`
-- `get_note_by_id(repo_root, id)`
-- `create_note(repo_root, note)`
-- `add_note_tag(repo_root, id, tag)`
-- `slugify_title(title)`
+**Agent:** Repository Service Worker + CLI Worker
 
-Requirements:
+#### Tasks
 
-- Preserve existing CLI output behavior.
-- Keep this phase synchronous.
-- Keep file-backed support inside `srs-repository` for now.
-- Avoid double-loading the manifest in tag/update flows.
-- Move slugging out of CLI because it is essential library behavior.
-- Return structured service results that CLI and bindings can serialize without reconstructing business logic.
+- [x] Add `list_notes(repo_root, filter)` to `srs-repository`
+- [x] Add `get_note_by_id(repo_root, id)` to `srs-repository`
+- [x] Add `create_note(repo_root, note)` to `srs-repository`
+- [x] Add `add_note_tag(repo_root, id, tag)` to `srs-repository`
+- [x] Move `slugify_title` to `srs-repository` (library-owned)
+- [x] Avoid double-loading manifest in tag/update flows
+- [x] Thin CLI handlers — parse args/stdin, call service, wrap output
+- [x] Remove duplicated note logic from `srs-cli`
 
-Acceptance:
+#### Acceptance Criteria
 
-- Existing `srs note list/get/create/tag` behavior remains compatible.
-- CLI command handlers only parse arguments/stdin, call services, and wrap output.
-- Service tests cover list, get, create, tag, slugging, missing IDs, non-note IDs, and manifest updates.
-- Duplicated note logic is removed from `srs-cli`.
+- [x] `srs note list/get/create/tag` CLI behaviour unchanged
+- [x] CLI handlers contain no business logic
+- [x] Service tests cover list, get, create, tag, slugging, missing IDs, non-note IDs, manifest updates
+
+#### Testing
+
+```bash
+cargo test -p srs-repository
+cargo test -p srs-cli
+cargo test --test integration_tests
+```
+
+---
 
 ### Phase 2: Add Remaining Core In-Memory Types
 
-Add canonical Rust structs to `srs-core` for:
+**Status:** `open`
 
-- fields
-- types
-- typed records
-- records
-- packages
-- relations
-- manifests
-- source references
+**Goal:** `srs-core` has canonical Rust structs for all SRS data (fields, types, records, packages, relations).
 
-Requirements:
+**Agent:** Core Model Worker
 
-- Keep serde names aligned with existing JSON schemas.
-- Preserve extension-tolerant fields where schemas allow implementation-local `meta` or loose package members.
-- Keep validation that depends only on in-memory data in `srs-core`.
-- Do not add filesystem dependencies to `srs-core`.
+#### Tasks
 
-Acceptance:
+- [ ] Add `Field` struct (`id`, `namespace`, `name`, `version`, `valueType`, `aiGuidance`, ...)
+- [ ] Add `FieldAssignment` struct (`fieldId`, `order`, `required`, `displayLabel`)
+- [ ] Add `Type` struct (`id`, `namespace`, `name`, `version`, `fields: Vec<FieldAssignment>`)
+- [ ] Add `FieldValue` struct (`fieldId`, `value: serde_json::Value`)
+- [ ] Add `Record` struct (Tier 2: `typeId`, `typeVersion`, `typeNamespace`, `typeName`, `fieldValues`)
+- [ ] Add `TypedRecord` struct (Tier 1: named fields, no type binding)
+- [ ] Add `Package` struct (`id`, `namespace`, `name`, `version`, `fields[]`, `types[]`, `views[]`)
+- [ ] Add `Relation` struct and canonical relation type vocabulary
+- [ ] Add validation: Record field values match their Field's `valueType`
+- [ ] Extend `srs-core/src/types/mod.rs` with new modules
+- [ ] Extend `srs-core/src/validation/mod.rs` with record validation
 
-- Core structs roundtrip representative schema-compatible JSON.
-- Existing note serialization remains compatible.
-- Tests cover field/type/record/package/relation examples.
+#### Acceptance Criteria
 
-### Phase 3: Introduce Synchronous Storage Boundaries In `srs-repository`
+- [ ] All new structs roundtrip representative schema-compatible JSON
+- [ ] Existing note serialization remains compatible
+- [ ] Record validation rejects mismatched field value types
+- [ ] No filesystem dependencies introduced to `srs-core`
 
-Define a synchronous repository boundary inside `srs-repository`, alongside the current file implementation.
-
-The first boundary should support:
-
-- manifest load/save
-- note load/save
-- generic instance JSON load/save
-- relations load/save
-- schema path discovery
-- package JSON load
-- source document discovery
-
-Requirements:
-
-- Use synchronous traits or interfaces first.
-- Do not introduce async until there is a concrete async consumer.
-- Do not create `srs-file-repository` yet.
-- Keep the existing filesystem implementation as the first implementation of the boundary.
-- Service functions should move toward depending on the boundary rather than directly on paths.
-
-Acceptance:
-
-- Services can run against an in-memory fake store in tests.
-- File-backed behavior remains compatible.
-- No async runtime, async-trait dependency, pinning, or async lifetime complexity is introduced.
-
-### Phase 4: Defer File Adapter Extraction Until A Second Adapter Exists
-
-Do not create a separate `srs-file-repository` crate in this pass.
-
-Extraction criteria for later:
-
-- a database-backed adapter is being implemented, or
-- another non-file adapter needs to share the same service layer, or
-- `srs-repository` becomes too large to maintain cleanly.
-
-Until then:
-
-- `srs-repository` owns storage-agnostic services and the file-backed implementation.
-- File-specific logic should be isolated into modules, not spread through services.
-- The eventual extraction path should remain obvious.
-
-Acceptance:
-
-- The current crate count does not grow prematurely.
-- The boundary is clear enough that later extraction is mechanical.
-- Database-backed implementations can be planned without forcing the file split now.
-
-### Phase 5: CLI And Python Bindings Over Services
-
-CLI:
-
-- parse command args/stdin
-- resolve repo path
-- call `srs-repository` services
-- print JSON envelopes
-
-Python bindings:
-
-- expose JSON-first functions over the same services
-- accept repo paths for file-backed use
-- return JSON strings or Python-native JSON-compatible data after parsing
-
-Initial binding functions:
-
-- `repo_map_json`
-- `note_list_json`
-- `note_get_json`
-- `note_create_json`
-- `note_tag_json`
-- `note_audit_tags_json`
-- `note_foundations_json`
-- `migration_packet_json`
-
-Acceptance:
-
-- Python bindings do not duplicate logic from CLI.
-- Binding smoke tests prove outputs are parseable JSON.
-- CLI behavior remains compatible.
-
-## Testing And Acceptance
-
-Required test commands:
+#### Testing
 
 ```bash
-cargo test
-node scripts/validate-all.mjs
+cargo test -p srs-core
 ```
 
-Additional checks:
+Specific tests to write:
 
-- Unit test note services directly in `srs-repository`.
-- Unit test core model serialization against schema-compatible examples.
-- Unit test the synchronous repository boundary with an in-memory fake store.
-- Keep CLI integration tests for command compatibility.
-- Add binding smoke tests for JSON parseability.
-- Run architecture audit for duplicated note logic, storage-specific logic in the wrong layer, and policy embedded in storage-agnostic services.
+- `field_roundtrips_json` — construct Field, serialize → deserialize, assert equal
+- `type_roundtrips_json` — Type with FieldAssignments roundtrips
+- `record_roundtrips_json` — Tier 2 Record with fieldValues roundtrips
+- `record_validation_rejects_wrong_value_type` — fieldValue type mismatch → validation error
+- `package_roundtrips_json` — Package with fields + types roundtrips
 
-Final acceptance criteria:
+---
 
-- CLI behavior remains compatible.
-- Note logic is reusable without calling CLI code.
-- Core data structures are usable in any application.
-- File-backed repo remains first-class but is not the only architectural assumption.
-- Python bindings call Rust services, not duplicated logic.
-- Database-backed implementations can be added later by implementing the synchronous boundary or by introducing async when a concrete async consumer exists.
-- SRS record validation still passes.
+### Phase 3: Synchronous Repository Boundary
+
+**Status:** `open`
+
+**Goal:** Services depend on a repository boundary trait; the file-backed implementation satisfies it; tests can use an in-memory fake.
+
+**Agent:** Repository Service Worker
+
+#### Tasks
+
+- [ ] Define synchronous repository boundary (trait or equivalent) in `srs-repository`:
+  - manifest load/save
+  - note load/save
+  - generic instance JSON load/save
+  - relations load/save
+  - package JSON load
+  - source document discovery
+- [ ] Refactor existing file-backed code to implement the boundary
+- [ ] Migrate service functions to depend on the boundary, not raw paths
+- [ ] Write an in-memory fake store for tests
+
+#### Acceptance Criteria
+
+- [ ] Services can run against in-memory fake in unit tests
+- [ ] File-backed behaviour remains compatible
+- [ ] No async runtime, async-trait, or pinning introduced
+- [ ] CLI integration tests still pass
+
+#### Testing
+
+```bash
+cargo test -p srs-repository
+cargo test --test integration_tests
+```
+
+Specific tests to write:
+
+- `list_notes_against_fake_store` — fake store with two notes → list returns both
+- `create_note_against_fake_store` — create via fake → note present in fake, manifest updated
+
+---
+
+### Phase 4: Generic Record Operations (Tier 2 Foundation)
+
+**Status:** `open`
+
+**Goal:** Library can load, list, validate, and create any Tier 2 Record against its Type from the package — no type-specific code required.
+
+**Agent:** Repository Service Worker + Core Model Worker
+
+**Depends on:** Phase 2 (core types), Phase 3 (storage boundary)
+
+#### Tasks
+
+- [ ] Add `load_package(repo_root) -> Result<Package, RepositoryError>` to `srs-repository`
+- [ ] Add `list_records_by_type(repo_root, type_namespace, type_name, type_version) -> Result<Vec<Record>, RepositoryError>`
+- [ ] Add `get_record_by_id(repo_root, id) -> Result<Option<Record>, RepositoryError>`
+- [ ] Add `create_record(repo_root, type_ref, field_values) -> Result<Record, RepositoryError>`
+- [ ] Validate Record field values against resolved Type on load and create
+- [ ] Expose `list_records_by_type` and `create_record` from `srs-repository` public API
+
+#### Acceptance Criteria
+
+- [ ] `list_records_by_type` returns all Tier 2 Records of a given type from a live repo
+- [ ] Records are validated against their Type on load (field value type checking)
+- [ ] No `TagDefinition`-specific code in `srs-repository` — tags are just one type
+- [ ] Creating a Record with a missing required field returns a validation error
+
+#### Testing
+
+```bash
+cargo test -p srs-repository
+```
+
+Specific tests to write:
+
+- `list_records_by_type_returns_matching_records` — temp repo with 2 types, filter by one
+- `record_validation_rejects_missing_required_field` — create with missing required field → error
+- `load_package_from_live_repo` — load package from `srs/`, assert field/type counts > 0
+
+---
+
+### Phase 5: CLI and Python Bindings Over Services
+
+**Status:** `open`
+
+**Goal:** CLI handlers delegate entirely to library services. Python bindings expose the same services over JSON.
+
+**Agent:** CLI Worker + Bindings Worker
+
+**Depends on:** Phase 1 (complete), Phase 4 for Tier 2 commands
+
+#### Tasks
+
+CLI:
+- [ ] Verify all handlers: parse → call service → wrap output (no inline logic)
+- [ ] Add `srs record list --type <namespace/name>` command using `list_records_by_type`
+- [ ] Add `srs record get <id>` command using `get_record_by_id`
+
+Python bindings:
+- [ ] Scaffold `crates/srs-bindings/` with PyO3
+- [ ] Expose `repo_map_json(repo_path: str) -> str`
+- [ ] Expose `note_list_json(repo_path: str, tag: Option<str>) -> str`
+- [ ] Expose `note_get_json(repo_path: str, id: str) -> str`
+- [ ] Expose `note_create_json(repo_path: str, note_json: str) -> str`
+- [ ] Expose `note_tag_json(repo_path: str, id: str, tag: str) -> str`
+- [ ] Expose `note_audit_tags_json(repo_path: str) -> str`
+- [ ] Expose `note_foundations_json(repo_path: str) -> str`
+- [ ] Expose `migration_packet_json(repo_path: str, profile: str) -> str`
+
+#### Acceptance Criteria
+
+- [ ] All Python binding functions return parseable JSON
+- [ ] Python bindings call the same services as CLI (zero duplicated logic)
+- [ ] `srs record list` returns all Tier 2 records of the given type
+- [ ] CLI behaviour remains compatible
+
+#### Testing
+
+```bash
+cargo test -p srs-bindings
+cargo test --test integration_tests
+```
+
+---
+
+## Final Acceptance
+
+All of the following must be true before this plan is closed:
+
+- [ ] `cargo test` passes with no failures
+- [ ] `cargo clippy -- -D warnings` passes
+- [ ] CLI integration tests pass (output format unchanged)
+- [ ] Note logic is reusable without calling CLI code
+- [ ] Core data structures are usable in any application (no I/O in `srs-core`)
+- [ ] Tier 2 Records can be loaded and validated generically — no type-specific library code
+- [ ] Python bindings call Rust services, not duplicated logic
+- [ ] Database-backed implementations can be added by implementing the storage boundary
 
 ## Coordination Rules
 
-- Agents are not alone in the codebase.
-- Agents must keep to their write scopes unless the Lead Integrator explicitly expands them.
+- Agents keep to their write scopes unless Lead Integrator explicitly expands them.
 - Agents must not revert edits made by others.
-- Workers should return changed file paths and a short behavior summary.
-- The Lead Integrator owns final API naming and dependency boundaries.
-- The Verification Agent should run after each major phase and before final handoff.
+- Workers return changed file paths and a short behaviour summary when done.
+- Lead Integrator owns final API naming and dependency boundaries.
+- Verification Agent runs after each major phase and before final sign-off.
 
 ## Assumptions
 
-- Synchronous APIs come first.
-- Async is deferred until there is a concrete async consumer.
+- Synchronous APIs come first. Async is deferred until there is a concrete async consumer.
 - Python bindings are JSON-first initially.
 - Database adapter implementation is out of scope for this pass.
-- A separate `srs-file-repository` crate is deferred until a second adapter justifies the split.
-- The CLI may own workflow-facing profile policy, but reusable logic belongs in library crates.
+- `srs-file-repository` crate extraction is deferred until a second adapter justifies the split.
+- The CLI may own workflow-facing profile policy; reusable logic belongs in library crates.
