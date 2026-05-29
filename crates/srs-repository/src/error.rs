@@ -129,6 +129,36 @@ pub enum RepositoryError {
 
     #[error("container validation failed: {source}")]
     ContainerValidation { source: srs_core::error::CoreError },
+
+    #[error("invalid valueType '{value_type}' in field definition at {path:?}")]
+    InvalidValueType { path: PathBuf, value_type: String },
+
+    #[error("failed to load view at {path:?}: {source}")]
+    ViewLoad {
+        path: PathBuf,
+        source: serde_json::Error,
+    },
+
+    #[error("view validation failed at {path:?}: {source}")]
+    ViewValidation {
+        path: PathBuf,
+        source: srs_core::error::CoreError,
+    },
+
+    #[error("failed to load document view at {path:?}: {source}")]
+    DocumentViewLoad {
+        path: PathBuf,
+        source: serde_json::Error,
+    },
+
+    #[error("document view validation failed at {path:?}: {source}")]
+    DocumentViewValidation {
+        path: PathBuf,
+        source: srs_core::error::CoreError,
+    },
+
+    #[error("document view not found: {view_id}")]
+    DocumentViewNotFound { view_id: String },
 }
 
 impl PartialEq for RepositoryError {
@@ -275,6 +305,48 @@ impl PartialEq for RepositoryError {
                 RepositoryError::ContainerValidation { source: sa },
                 RepositoryError::ContainerValidation { source: sb },
             ) => sa == sb,
+            (
+                RepositoryError::InvalidValueType {
+                    path: ap,
+                    value_type: av,
+                },
+                RepositoryError::InvalidValueType {
+                    path: bp,
+                    value_type: bv,
+                },
+            ) => ap == bp && av == bv,
+            (
+                RepositoryError::ViewLoad { path: a, source: _ },
+                RepositoryError::ViewLoad { path: b, source: _ },
+            ) => a == b,
+            (
+                RepositoryError::ViewValidation {
+                    path: a,
+                    source: sa,
+                },
+                RepositoryError::ViewValidation {
+                    path: b,
+                    source: sb,
+                },
+            ) => a == b && sa == sb,
+            (
+                RepositoryError::DocumentViewLoad { path: a, source: _ },
+                RepositoryError::DocumentViewLoad { path: b, source: _ },
+            ) => a == b,
+            (
+                RepositoryError::DocumentViewValidation {
+                    path: a,
+                    source: sa,
+                },
+                RepositoryError::DocumentViewValidation {
+                    path: b,
+                    source: sb,
+                },
+            ) => a == b && sa == sb,
+            (
+                RepositoryError::DocumentViewNotFound { view_id: a },
+                RepositoryError::DocumentViewNotFound { view_id: b },
+            ) => a == b,
             _ => false,
         }
     }

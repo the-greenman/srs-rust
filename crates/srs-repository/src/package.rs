@@ -2,7 +2,9 @@ use crate::error::RepositoryError;
 use srs_core::types::field::{Field, ValueType};
 use srs_core::types::record_type::{FieldAssignment, RecordType};
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
+use srs_core::types::view::{DocumentView, View};
 use srs_core::validation::relation_type_definition::validate_relation_type_definition;
+use srs_core::validation::view::{validate_document_view, validate_view};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -18,6 +20,8 @@ pub struct Package {
     pub fields: Vec<Field>,
     pub record_types: Vec<RecordType>,
     pub relation_type_definitions: Vec<RelationTypeDefinition>,
+    pub views: Vec<View>,
+    pub document_views: Vec<DocumentView>,
     pub root: PathBuf,
 }
 
@@ -35,6 +39,10 @@ struct PackageMetadata {
     types: Vec<String>,
     #[serde(default)]
     relation_types: Vec<String>,
+    #[serde(default)]
+    views: Vec<String>,
+    #[serde(default)]
+    document_views: Vec<String>,
 }
 
 /// Field JSON format from package/fields/*.json
@@ -98,6 +106,16 @@ impl Package {
     /// Get all relation type definitions as a slice.
     pub fn relation_types(&self) -> &[RelationTypeDefinition] {
         &self.relation_type_definitions
+    }
+
+    /// Resolve a view by its UUID id.
+    pub fn resolve_view(&self, id: &str) -> Option<&View> {
+        self.views.iter().find(|v| v.id == id)
+    }
+
+    /// Resolve a document view by its UUID id.
+    pub fn resolve_document_view(&self, id: &str) -> Option<&DocumentView> {
+        self.document_views.iter().find(|v| v.id == id)
     }
 
     /// Resolve a record type by its ID and version.
@@ -168,7 +186,7 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
 
         let field_json: FieldJson =
             serde_json::from_str(&field_content).map_err(|e| RepositoryError::PackageLoad {
-                path: full_path,
+                path: full_path.clone(),
                 source: e,
             })?;
 
@@ -177,7 +195,7 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
             namespace: field_json.namespace,
             name: field_json.name,
             version: field_json.version,
-            value_type: parse_value_type(&field_json.value_type)?,
+            value_type: parse_value_type(&field_json.value_type, &full_path)?,
             description: field_json.description.unwrap_or_default(),
             ai_guidance: field_json.ai_guidance.unwrap_or(serde_json::Value::Null),
             allowed_values: field_json.allowed_values,
@@ -265,6 +283,48 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
     let relation_type_definitions: Vec<RelationTypeDefinition> =
         rt_by_type.into_values().map(|(def, _)| def).collect();
 
+    // Load all views (L1)
+    let mut views = Vec::new();
+    for view_path in &metadata.views {
+        let full_path = package_dir.join(view_path);
+        let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
+            path: full_path.clone(),
+            source: e,
+        })?;
+        let view: View =
+            serde_json::from_str(&content).map_err(|source| RepositoryError::ViewLoad {
+                path: full_path.clone(),
+                source,
+            })?;
+        validate_view(&view).map_err(|source| RepositoryError::ViewValidation {
+            path: full_path.clone(),
+            source,
+        })?;
+        views.push(view);
+    }
+
+    // Load all document views (L2)
+    let mut document_views = Vec::new();
+    for document_view_path in &metadata.document_views {
+        let full_path = package_dir.join(document_view_path);
+        let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
+            path: full_path.clone(),
+            source: e,
+        })?;
+        let document_view: DocumentView =
+            serde_json::from_str(&content).map_err(|source| RepositoryError::DocumentViewLoad {
+                path: full_path.clone(),
+                source,
+            })?;
+        validate_document_view(&document_view).map_err(|source| {
+            RepositoryError::DocumentViewValidation {
+                path: full_path.clone(),
+                source,
+            }
+        })?;
+        document_views.push(document_view);
+    }
+
     Ok(Package {
         id: metadata.id,
         namespace: metadata.namespace,
@@ -273,11 +333,13 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
         fields,
         record_types,
         relation_type_definitions,
+        views,
+        document_views,
         root: repo_root.to_path_buf(),
     })
 }
 
-fn parse_value_type(s: &str) -> Result<ValueType, RepositoryError> {
+fn parse_value_type(s: &str, path: &Path) -> Result<ValueType, RepositoryError> {
     match s {
         "string" => Ok(ValueType::String),
         "text" => Ok(ValueType::Text),
@@ -287,9 +349,9 @@ fn parse_value_type(s: &str) -> Result<ValueType, RepositoryError> {
         "url" => Ok(ValueType::Url),
         "select" => Ok(ValueType::Select),
         "multiselect" => Ok(ValueType::Multiselect),
-        _ => Err(RepositoryError::PackageLoad {
-            path: PathBuf::from("field.json"),
-            source: serde_json::from_str::<()>("").unwrap_err(), // Create a generic parse error
+        _ => Err(RepositoryError::InvalidValueType {
+            path: path.to_path_buf(),
+            value_type: s.to_string(),
         }),
     }
 }
@@ -375,6 +437,35 @@ mod tests {
             "expected at least 7 relation types (canonical), got {}",
             package.relation_type_definitions.len()
         );
+    }
+
+    #[test]
+    fn load_package_loads_document_views() {
+        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
+        let package = load_package(&srs_repo).expect("should load live srs package");
+        assert!(
+            !package.document_views.is_empty(),
+            "expected at least one document view"
+        );
+    }
+
+    #[test]
+    fn resolve_document_view_finds_srs_spec_view() {
+        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
+        let package = load_package(&srs_repo).expect("should load live srs package");
+        let view = package
+            .resolve_document_view("ec34f54b-8636-5c8b-af5b-c9eb3df24fe6")
+            .expect("should find srs spec document view");
+        assert_eq!(view.name, "srs-spec-document-view");
+    }
+
+    #[test]
+    fn resolve_document_view_returns_none_for_unknown() {
+        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
+        let package = load_package(&srs_repo).expect("should load live srs package");
+        assert!(package
+            .resolve_document_view("00000000-0000-0000-0000-000000000000")
+            .is_none());
     }
 
     #[test]

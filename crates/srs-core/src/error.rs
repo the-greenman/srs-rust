@@ -25,6 +25,21 @@ pub enum CoreError {
 
     #[error("invalid field value for {field_id}: {reason}")]
     InvalidFieldValue { field_id: String, reason: String },
+
+    #[error("document view must contain at least one section")]
+    EmptyDocumentViewSections,
+
+    #[error("duplicate document section id: {section_id}")]
+    DuplicateDocumentSectionId { section_id: String },
+
+    #[error("duplicate field view id: {field_id}")]
+    DuplicateFieldViewId { field_id: String },
+
+    #[error("view must contain at least one field view")]
+    EmptyViewFieldViews,
+
+    #[error("duplicate theme variant name: {name}")]
+    DuplicateThemeVariantName { name: String },
 }
 
 impl PartialEq for CoreError {
@@ -59,6 +74,20 @@ impl PartialEq for CoreError {
                     reason: br,
                 },
             ) => af == bf && ar == br,
+            (CoreError::EmptyDocumentViewSections, CoreError::EmptyDocumentViewSections) => true,
+            (
+                CoreError::DuplicateDocumentSectionId { section_id: a },
+                CoreError::DuplicateDocumentSectionId { section_id: b },
+            ) => a == b,
+            (
+                CoreError::DuplicateFieldViewId { field_id: a },
+                CoreError::DuplicateFieldViewId { field_id: b },
+            ) => a == b,
+            (CoreError::EmptyViewFieldViews, CoreError::EmptyViewFieldViews) => true,
+            (
+                CoreError::DuplicateThemeVariantName { name: a },
+                CoreError::DuplicateThemeVariantName { name: b },
+            ) => a == b,
             _ => false,
         }
     }
