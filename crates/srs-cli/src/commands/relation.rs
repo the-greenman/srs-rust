@@ -2,9 +2,13 @@ use crate::commands::{CliContext, RelationCommand};
 use crate::output;
 use anyhow::Result;
 use serde_json::json;
+use srs_core::types::relation::Relation;
+use srs_repository::package::load_package;
 use srs_repository::relation_service::{
-    get_relation_by_id, list_relations, GetRelationResult, ListRelationsFilter,
+    create_relation, delete_relation, get_relation_by_id, list_relations, GetRelationResult,
+    ListRelationsFilter,
 };
+use std::io::{self, Read};
 
 pub fn dispatch(ctx: CliContext, cmd: RelationCommand) -> Result<String> {
     match cmd {
@@ -14,7 +18,9 @@ pub fn dispatch(ctx: CliContext, cmd: RelationCommand) -> Result<String> {
             relation_type,
             json: _,
         } => cmd_relation_list(ctx, source, target, relation_type),
+        RelationCommand::Create { json: _ } => cmd_relation_create(ctx),
         RelationCommand::Get { id, json: _ } => cmd_relation_get(ctx, id),
+        RelationCommand::Delete { id, json: _ } => cmd_relation_delete(ctx, id),
     }
 }
 
@@ -58,5 +64,44 @@ fn cmd_relation_get(ctx: CliContext, id: String) -> Result<String> {
             "relation get",
             vec![format!("Relation with id '{}' not found", id)],
         )),
+    }
+}
+
+fn cmd_relation_create(ctx: CliContext) -> Result<String> {
+    let mut stdin = String::new();
+    io::stdin().read_to_string(&mut stdin)?;
+
+    let relation: Relation = match serde_json::from_str(&stdin) {
+        Ok(relation) => relation,
+        Err(e) => {
+            return Ok(output::err(
+                "relation create",
+                vec![format!("Failed to parse relation JSON: {}", e)],
+            ))
+        }
+    };
+
+    let package = load_package(&ctx.repo)?;
+    let defs = package.relation_types();
+
+    match create_relation(&ctx.repo, relation, defs) {
+        Ok(result) => Ok(output::ok(
+            "relation create",
+            json!({ "relation": result.relation }),
+        )),
+        Err(e) => Ok(output::err("relation create", vec![e.to_string()])),
+    }
+}
+
+fn cmd_relation_delete(ctx: CliContext, id: String) -> Result<String> {
+    match delete_relation(&ctx.repo, &id) {
+        Ok(result) => Ok(output::ok(
+            "relation delete",
+            json!({
+                "relationId": result.relation_id,
+                "path": "relations/relations-collection.json"
+            }),
+        )),
+        Err(e) => Ok(output::err("relation delete", vec![e.to_string()])),
     }
 }

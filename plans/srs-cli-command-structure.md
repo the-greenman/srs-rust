@@ -263,7 +263,7 @@ Specific tests:
 - [x] Add manifest declared-extension services: list active extension IDs, add extension ID, remove extension ID.
 - [x] Add relation CRUD services: create, list (with source/target/type filters), get by ID, delete. `relation create` calls `validate_relation` (RFC-005) before writing.
 - [x] Return structured result enums for not found, conflict, validation failure, and successful mutation.
-- [ ] Extension definition services and protocol definition services are **deferred** to Phase 4. Extension uses generic record services (no new service functions needed, per ADR-005); protocol requires spec package type creation first (per ADR-006).
+- [x] Extension definition services and protocol definition services were deferred to Phase 4 and completed there. Extension uses generic record services (no new service functions needed, per ADR-005); protocol uses the spec package type and validation support (per ADR-006).
 
 #### Exit Criteria (Definition of Done)
 
@@ -327,7 +327,7 @@ Specific tests:
 - [x] Add `relation` command group.
 - [x] Standardize command names in output envelopes, for example `record list`, `repo extensions enable`.
 - [x] Standardize stdin parse errors as envelope diagnostics.
-- [ ] Extension and protocol command groups are **deferred** to Phase 4 and blocked on their prerequisites.
+- [x] Extension and protocol command groups were deferred to Phase 4 and implemented after prerequisites were satisfied.
 
 #### Test-First Integration Tests (Written → Implemented → Passing)
 
@@ -353,7 +353,10 @@ Specific tests:
 - `record_delete_removes_file_and_manifest_entry`
 - `record_create_rejects_invalid_stdin_shape`
 - `relation_list_returns_relations`
+- `relation_list_filters_by_source_target_and_type`
+- `relation_create_appends_to_relations_collection`
 - `relation_get_returns_relation_by_id`
+- `relation_delete_removes_relation`
 
 #### Breaking change
 
@@ -480,22 +483,22 @@ cargo clippy -- -D warnings
 
 All of the following must be true before this plan is closed:
 
-- [ ] `cargo test` passes.
-- [ ] `cargo clippy -- -D warnings` passes.
-- [ ] Every non-blocked command listed in the command contract parses successfully.
-- [ ] Existing CLI JSON envelope shape remains stable.
-- [ ] Global `--repo`, `--format`, and `--pretty` are implemented.
-- [ ] Per-command `--json` compatibility flags do not break existing callers.
-- [ ] CRUD services live in `srs-repository` or `srs-core`, not in CLI handlers.
-- [ ] `srs note tag add/remove` replaces the old positional `srs note tag` form.
-- [ ] `srs repo extensions` is used for declared-extension management; `srs extension` manages definition records.
-- [ ] `srs relation-type list/get` are implemented (delivered by RFC-005 plan).
-- [ ] `srs relation create` runs E1–E4 validation before writing.
+- [x] `cargo test` passes.
+- [x] `cargo clippy -- -D warnings` passes.
+- [x] Every non-blocked command listed in the command contract parses successfully.
+- [x] Existing CLI JSON envelope shape remains stable.
+- [x] Global `--repo`, `--format`, and `--pretty` are implemented.
+- [x] Per-command `--json` compatibility flags do not break existing callers.
+- [x] CRUD services live in `srs-repository` or `srs-core`, not in CLI handlers.
+- [x] `srs note tag add/remove` replaces the old positional `srs note tag` form.
+- [x] `srs repo extensions` is used for declared-extension management; `srs extension` manages definition records.
+- [x] `srs relation-type list/get` are implemented (delivered by RFC-005 plan).
+- [x] `srs relation create` runs E1–E4 validation before writing.
 - [x] `record create` and `record update` stdin shape is `{ "fieldValues": [...] }`.
-- [ ] `note update` stdin shape is a full Note JSON object.
-- [ ] Delete responses include the deleted entity ID and path.
-- [ ] Protocol support is limited to definitions; no run/session state is introduced.
-- [ ] Extension and protocol commands are either fully implemented or explicitly deferred with their prerequisites documented.
+- [x] `note update` stdin shape is a full Note JSON object.
+- [x] Delete responses include the deleted entity ID and path.
+- [x] Protocol support is limited to definitions; no run/session state is introduced.
+- [x] Extension and protocol commands are either fully implemented or explicitly deferred with their prerequisites documented.
 
 ## Coordination Rules
 

@@ -2026,6 +2026,133 @@ fn relation_get_returns_relation_by_id() {
     assert_eq!(result["payload"]["relation"]["relationType"], "contains");
 }
 
+#[test]
+fn relation_create_appends_to_relations_collection() {
+    let temp = create_temp_repo();
+
+    let manifest: Value = serde_json::json!({
+        "srsVersion": "2.0-draft",
+        "repositoryId": "test-repo",
+        "instanceIndex": [
+            { "instanceId": "note-1", "tier": 0, "path": "records/notes/note-1.json" },
+            { "instanceId": "note-2", "tier": 0, "path": "records/notes/note-2.json" }
+        ]
+    });
+    std::fs::write(
+        temp.path().join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    let package_dir = temp.path().join("package");
+    std::fs::create_dir_all(package_dir.join("relation-types")).unwrap();
+    let relation_type_def = serde_json::json!({
+        "id": "rt-contains-001",
+        "version": 1,
+        "relationType": "contains",
+        "namespace": "com.test",
+        "label": "Contains",
+        "description": "Source contains target.",
+        "category": "composition",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "status": "active"
+    });
+    std::fs::write(
+        package_dir.join("relation-types/contains.json"),
+        serde_json::to_string_pretty(&relation_type_def).unwrap(),
+    )
+    .unwrap();
+    let package_json = serde_json::json!({
+        "id": "test-pkg",
+        "namespace": "com.test",
+        "name": "test",
+        "version": "1.0.0",
+        "fields": [],
+        "types": [],
+        "relationTypes": ["relation-types/contains.json"]
+    });
+    std::fs::write(
+        package_dir.join("package.json"),
+        serde_json::to_string_pretty(&package_json).unwrap(),
+    )
+    .unwrap();
+
+    let relation = serde_json::json!({
+        "relationId": "r-new",
+        "relationType": "contains",
+        "sourceInstanceId": "note-1",
+        "targetInstanceId": "note-2",
+        "createdAt": "2026-01-01T00:00:00Z"
+    })
+    .to_string();
+
+    let created = run_srs_stdin_in_dir(temp.path(), &["relation", "create"], &relation);
+    assert_eq!(created["ok"], true, "relation create should succeed");
+    assert_eq!(created["payload"]["relation"]["relationId"], "r-new");
+
+    let content =
+        std::fs::read_to_string(temp.path().join("relations/relations-collection.json")).unwrap();
+    let collection: Value = serde_json::from_str(&content).unwrap();
+    let has_relation = collection["relations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r["relationId"] == "r-new");
+    assert!(
+        has_relation,
+        "created relation should be written to collection"
+    );
+}
+
+#[test]
+fn relation_delete_removes_relation() {
+    let temp = create_temp_repo();
+
+    std::fs::create_dir_all(temp.path().join("relations")).unwrap();
+    let relations = serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
+        "relations": [
+            {
+                "relationId": "r1",
+                "relationType": "contains",
+                "sourceInstanceId": "note-1",
+                "targetInstanceId": "note-2",
+                "createdAt": "2026-01-01T00:00:00Z"
+            },
+            {
+                "relationId": "r2",
+                "relationType": "references",
+                "sourceInstanceId": "note-2",
+                "targetInstanceId": "note-3",
+                "createdAt": "2026-01-01T00:00:00Z"
+            }
+        ]
+    });
+    std::fs::write(
+        temp.path().join("relations/relations-collection.json"),
+        serde_json::to_string_pretty(&relations).unwrap(),
+    )
+    .unwrap();
+
+    let deleted = run_srs_in_dir(temp.path(), &["relation", "delete", "r2"]);
+    assert_eq!(deleted["ok"], true, "relation delete should succeed");
+    assert_eq!(deleted["payload"]["relationId"], "r2");
+    assert_eq!(
+        deleted["payload"]["path"],
+        "relations/relations-collection.json"
+    );
+
+    let content =
+        std::fs::read_to_string(temp.path().join("relations/relations-collection.json")).unwrap();
+    let collection: Value = serde_json::from_str(&content).unwrap();
+    let has_r2 = collection["relations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r["relationId"] == "r2");
+    assert!(!has_r2, "deleted relation should be removed");
+}
+
 // --- Phase 4: Extension command group ---
 
 #[test]

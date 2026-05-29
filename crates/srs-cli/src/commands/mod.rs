@@ -423,8 +423,22 @@ pub enum RelationCommand {
         #[arg(long, hide = true)]
         json: bool,
     },
+    /// Create a relation (reads JSON from stdin)
+    Create {
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
     /// Get a relation by ID
     Get {
+        /// Relation ID
+        id: String,
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+    /// Delete a relation by ID
+    Delete {
         /// Relation ID
         id: String,
         /// Deprecated: JSON output is now the default (no-op)
