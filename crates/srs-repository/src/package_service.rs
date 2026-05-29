@@ -184,6 +184,22 @@ pub fn get_type_by_id(
     }
 }
 
+/// Get a type by its ID using the latest available version.
+pub fn get_type_by_id_latest(repo_root: &Path, id: &str) -> Result<GetTypeResult, RepositoryError> {
+    let package = load_package(repo_root)?;
+
+    let latest = package
+        .record_types
+        .iter()
+        .filter(|rt| rt.id == id)
+        .max_by_key(|rt| rt.version);
+
+    match latest {
+        Some(record_type) => Ok(GetTypeResult::Found(record_type.clone())),
+        None => Ok(GetTypeResult::NotFound),
+    }
+}
+
 /// Get a type by its namespace and name (latest version)
 pub fn get_type_by_name(
     repo_root: &Path,
@@ -226,6 +242,12 @@ pub fn create_field(repo_root: &Path, field: Field) -> Result<CreateFieldResult,
         source: e,
     })?;
 
+    let created_at = if field.created_at.trim().is_empty() {
+        chrono::Utc::now().to_rfc3339()
+    } else {
+        field.created_at.clone()
+    };
+
     // Serialize field to JSON
     let field_json = serde_json::json!({
         "id": field.id,
@@ -237,7 +259,7 @@ pub fn create_field(repo_root: &Path, field: Field) -> Result<CreateFieldResult,
         "aiGuidance": field.ai_guidance,
         "allowedValues": field.allowed_values,
         "defaultValue": field.default_value,
-        "createdAt": field.created_at,
+        "createdAt": created_at,
     });
 
     // Write field file
@@ -278,7 +300,7 @@ pub fn create_field(repo_root: &Path, field: Field) -> Result<CreateFieldResult,
     })?;
 
     Ok(CreateFieldResult {
-        field,
+        field: Field { created_at, ..field },
         path: relative_path,
     })
 }

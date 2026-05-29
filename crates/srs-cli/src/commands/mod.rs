@@ -1,8 +1,12 @@
+pub mod field;
 pub mod migrate;
 pub mod note;
+pub mod record;
+pub mod relation;
 pub mod relation_type;
 pub mod repo;
 pub mod tag;
+pub mod record_type;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -76,6 +80,18 @@ pub enum Commands {
     /// Relation type definition commands
     #[command(subcommand)]
     RelationType(RelationTypeCommand),
+    /// Field definition commands
+    #[command(subcommand)]
+    Field(FieldCommand),
+    /// Type definition commands
+    #[command(subcommand)]
+    Type(TypeCommand),
+    /// Generic record commands
+    #[command(subcommand)]
+    Record(RecordCommand),
+    /// Relation commands
+    #[command(subcommand)]
+    Relation(RelationCommand),
 }
 
 #[derive(Subcommand)]
@@ -103,16 +119,25 @@ pub enum NoteCommand {
         #[arg(long, hide = true)]
         json: bool,
     },
-    /// Add a tag to a note
-    Tag {
+    /// Update an existing note (reads JSON from stdin)
+    Update {
         /// Note instance ID
         id: String,
-        /// Tag to add
-        add_tag: String,
         /// Deprecated: JSON output is now the default (no-op)
         #[arg(long, hide = true)]
         json: bool,
     },
+    /// Delete a note by ID
+    Delete {
+        /// Note instance ID
+        id: String,
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+    /// Tag management commands
+    #[command(subcommand)]
+    Tag(NoteTagCommand),
     /// Audit note tag usage
     AuditTags {
         /// Deprecated: JSON output is now the default (no-op)
@@ -121,6 +146,30 @@ pub enum NoteCommand {
     },
     /// List foundation notes selected by deterministic tag signals
     Foundations {
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum NoteTagCommand {
+    /// Add a tag to a note
+    Add {
+        /// Note instance ID
+        id: String,
+        /// Tag to add
+        tag: String,
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+    /// Remove a tag from a note
+    Remove {
+        /// Note instance ID
+        id: String,
+        /// Tag to remove
+        tag: String,
         /// Deprecated: JSON output is now the default (no-op)
         #[arg(long, hide = true)]
         json: bool,
@@ -137,6 +186,35 @@ pub enum RepoCommand {
     },
     /// Validate all repository instances against their canonical JSON schemas
     Validate {
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+    /// Extension management commands
+    #[command(subcommand)]
+    Extensions(RepoExtensionsCommand),
+}
+
+#[derive(Subcommand)]
+pub enum RepoExtensionsCommand {
+    /// List declared extensions
+    List {
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+    /// Enable (add) a declared extension
+    Enable {
+        /// Extension ID to enable (e.g., ext:repository)
+        extension_id: String,
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+    /// Disable (remove) a declared extension
+    Disable {
+        /// Extension ID to disable (e.g., ext:repository)
+        extension_id: String,
         /// Deprecated: JSON output is now the default (no-op)
         #[arg(long, hide = true)]
         json: bool,
@@ -202,6 +280,109 @@ pub enum TagCommand {
         #[arg(long, hide = true)]
         json: bool,
     },
+    /// Update an existing tag definition (reads JSON from stdin)
+    Update {
+        /// TagDefinition instance ID
+        id: String,
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+    /// Delete a tag definition by ID
+    Delete {
+        /// TagDefinition instance ID
+        id: String,
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum FieldCommand {
+    /// List field definitions
+    List {
+        /// Filter by namespace
+        #[arg(long)]
+        namespace: Option<String>,
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+    /// Get a field definition by ID
+    Get {
+        /// Field definition ID
+        id: String,
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+    /// Create a new field definition (reads JSON from stdin)
+    Create {
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum TypeCommand {
+    /// List type definitions
+    List {
+        /// Filter by namespace
+        #[arg(long)]
+        namespace: Option<String>,
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+    /// Get a type definition by ID
+    Get {
+        /// Type definition ID
+        id: String,
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum RecordCommand {
+    /// List records by type
+    List {
+        /// Type filter (namespace/name format)
+        #[arg(long = "type", visible_alias = "type-filter")]
+        type_filter: String,
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+    /// Get a record by ID
+    Get {
+        /// Record instance ID
+        id: String,
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum RelationCommand {
+    /// List relations
+    List {
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+    /// Get a relation by ID
+    Get {
+        /// Relation ID
+        id: String,
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
 }
 
 pub fn dispatch(cli: Cli) -> Result<String> {
@@ -221,5 +402,9 @@ pub fn dispatch(cli: Cli) -> Result<String> {
         Commands::Migrate(migrate_cmd) => migrate::dispatch(ctx, migrate_cmd),
         Commands::Tag(tag_cmd) => tag::dispatch(ctx, tag_cmd),
         Commands::RelationType(rt_cmd) => relation_type::dispatch(ctx, rt_cmd),
+        Commands::Field(field_cmd) => field::dispatch(ctx, field_cmd),
+        Commands::Type(type_cmd) => record_type::dispatch(ctx, type_cmd),
+        Commands::Record(record_cmd) => record::dispatch(ctx, record_cmd),
+        Commands::Relation(relation_cmd) => relation::dispatch(ctx, relation_cmd),
     }
 }

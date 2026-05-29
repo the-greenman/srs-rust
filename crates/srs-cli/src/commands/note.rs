@@ -1,12 +1,12 @@
-use crate::commands::{CliContext, NoteCommand};
+use crate::commands::{CliContext, NoteCommand, NoteTagCommand};
 use crate::output;
 use anyhow::Result;
 use serde_json::json;
 use srs_core::types::note::Note;
 use srs_repository::analysis::{audit_note_tags, collect_foundation_notes};
 use srs_repository::services::{
-    add_note_tag, create_note, get_note_by_id, list_notes, AddTagResult, GetNoteResult,
-    ListNotesFilter,
+    add_note_tag, create_note, delete_note, get_note_by_id, list_notes, remove_note_tag,
+    update_note, AddTagResult, DeleteNoteResult, GetNoteResult, ListNotesFilter, RemoveTagResult,
 };
 use srs_repository::tag_service::get_foundation_signal_tags;
 use std::io::{self, Read};
@@ -16,11 +16,9 @@ pub fn dispatch(ctx: CliContext, cmd: NoteCommand) -> Result<String> {
         NoteCommand::List { tag, json: _ } => cmd_note_list(ctx, tag),
         NoteCommand::Get { id, json: _ } => cmd_note_get(ctx, id),
         NoteCommand::Create { json: _ } => cmd_note_create(ctx),
-        NoteCommand::Tag {
-            id,
-            add_tag,
-            json: _,
-        } => cmd_note_tag(ctx, id, add_tag),
+        NoteCommand::Update { id, json: _ } => cmd_note_update(ctx, id),
+        NoteCommand::Delete { id, json: _ } => cmd_note_delete(ctx, id),
+        NoteCommand::Tag(tag_cmd) => cmd_note_tag_dispatch(ctx, tag_cmd),
         NoteCommand::AuditTags { json: _ } => cmd_note_audit_tags(ctx),
         NoteCommand::Foundations { json: _ } => cmd_note_foundations(ctx),
     }
@@ -74,15 +72,68 @@ fn cmd_note_create(ctx: CliContext) -> Result<String> {
     Ok(output::ok("note create", json!({ "note": result.note })))
 }
 
-fn cmd_note_tag(ctx: CliContext, id: String, add_tag: String) -> Result<String> {
-    match add_note_tag(&ctx.repo, &id, &add_tag)? {
+fn cmd_note_tag_dispatch(ctx: CliContext, cmd: NoteTagCommand) -> Result<String> {
+    match cmd {
+        NoteTagCommand::Add { id, tag, json: _ } => cmd_note_tag_add(ctx, id, tag),
+        NoteTagCommand::Remove { id, tag, json: _ } => cmd_note_tag_remove(ctx, id, tag),
+    }
+}
+
+fn cmd_note_tag_add(ctx: CliContext, id: String, tag: String) -> Result<String> {
+    match add_note_tag(&ctx.repo, &id, &tag)? {
         AddTagResult::Added { note, .. } | AddTagResult::AlreadyPresent { note, .. } => {
-            Ok(output::ok("note tag", json!({ "note": note })))
+            Ok(output::ok("note tag add", json!({ "note": note, "tag": tag })))
         }
         AddTagResult::NotFound => Ok(output::err(
-            "note tag",
+            "note tag add",
             vec![format!("Note with id '{}' not found", id)],
         )),
+    }
+}
+
+fn cmd_note_tag_remove(ctx: CliContext, id: String, tag: String) -> Result<String> {
+    match remove_note_tag(&ctx.repo, &id, &tag)? {
+        RemoveTagResult::Removed { note, .. } => {
+            Ok(output::ok("note tag remove", json!({ "note": note, "tag": tag, "removed": true })))
+        }
+        RemoveTagResult::NotPresent { note, .. } => {
+            Ok(output::ok("note tag remove", json!({ "note": note, "tag": tag, "removed": false })))
+        }
+        RemoveTagResult::NotFound => Ok(output::err(
+            "note tag remove",
+            vec![format!("Note with id '{}' not found", id)],
+        )),
+    }
+}
+
+fn cmd_note_update(ctx: CliContext, id: String) -> Result<String> {
+    // Read JSON from stdin
+    let mut stdin = String::new();
+    io::stdin().read_to_string(&mut stdin)?;
+
+    let note: Note = serde_json::from_str(&stdin)
+        .map_err(|e| anyhow::anyhow!("Failed to parse note JSON: {}", e))?;
+
+    // Ensure the ID matches
+    if note.instance_id != id {
+        return Ok(output::err(
+            "note update",
+            vec![format!("Note ID in JSON ({}) does not match command argument ({})", note.instance_id, id)],
+        ));
+    }
+
+    // Call service
+    let result = update_note(&ctx.repo, note)?;
+
+    Ok(output::ok("note update", json!({ "note": result.note, "path": result.path })))
+}
+
+fn cmd_note_delete(ctx: CliContext, id: String) -> Result<String> {
+    match delete_note(&ctx.repo, &id) {
+        Ok(DeleteNoteResult { instance_id, path }) => {
+            Ok(output::ok("note delete", json!({ "instanceId": instance_id, "path": path })))
+        }
+        Err(e) => Ok(output::err("note delete", vec![e.to_string()])),
     }
 }
 

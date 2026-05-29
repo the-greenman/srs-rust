@@ -273,7 +273,7 @@ fn note_tag_adds_tag_and_updates_manifest() {
     let id = created["payload"]["note"]["instanceId"].as_str().unwrap();
 
     // Add a new tag
-    let tagged = run_srs_in_dir(repo_path, &["note", "tag", id, "new-tag"]);
+    let tagged = run_srs_in_dir(repo_path, &["note", "tag", "add", id, "new-tag"]);
     assert_eq!(tagged["ok"], true);
 
     // Verify note file has the new tag
@@ -805,7 +805,10 @@ fn repo_extensions_disable_removes_extension() {
     let manifest: Value =
         serde_json::from_str(&std::fs::read_to_string(temp.path().join("manifest.json")).unwrap())
             .unwrap();
-    let extensions = manifest["declaredExtensions"].as_array().unwrap();
+    let extensions = manifest["declaredExtensions"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
     assert!(!extensions.iter().any(|e| e == "ext:test"));
 }
 
@@ -1097,7 +1100,7 @@ fn tag_update_rewrites_tag_definition() {
         "repositoryId": "test-repo",
         "instanceIndex": [{
             "instanceId": tag_id,
-            "tier": 2,
+            "tier": 3,
             "path": "records/tag-definitions/test-tag.json"
         }]
     });
@@ -1160,7 +1163,7 @@ fn tag_delete_removes_tag_definition() {
         "repositoryId": "test-repo",
         "instanceIndex": [{
             "instanceId": tag_id,
-            "tier": 2,
+            "tier": 3,
             "path": "records/tag-definitions/delete-me.json"
         }]
     });
@@ -1311,8 +1314,10 @@ fn field_create_adds_field_to_package() {
         "namespace": "com.test",
         "name": "new-field",
         "version": 1,
+        "description": "A new field",
+        "aiGuidance": {},
         "valueType": "string",
-        "description": "A new field"
+        "createdAt": "2026-01-01T00:00:00Z"
     });
 
     let result = run_srs_stdin_in_dir(
@@ -1332,6 +1337,54 @@ fn field_create_adds_field_to_package() {
             .unwrap();
     let fields = package["fields"].as_array().unwrap();
     assert_eq!(fields.len(), 1);
+}
+
+#[test]
+fn field_create_accepts_minimal_payload() {
+    let temp = create_temp_repo();
+
+    let package_dir = temp.path().join("package");
+    std::fs::create_dir_all(&package_dir).unwrap();
+    std::fs::create_dir_all(package_dir.join("fields")).unwrap();
+
+    let package_json = serde_json::json!({
+        "id": "test-pkg",
+        "namespace": "com.test",
+        "name": "test",
+        "version": "1.0.0",
+        "fields": [],
+        "types": []
+    });
+    std::fs::write(
+        package_dir.join("package.json"),
+        serde_json::to_string_pretty(&package_json).unwrap(),
+    )
+    .unwrap();
+
+    // Minimal payload: no description, aiGuidance, or createdAt.
+    let new_field = serde_json::json!({
+        "id": "00000000-0000-0000-0000-0000000000ff",
+        "namespace": "com.test",
+        "name": "minimal-field",
+        "version": 1,
+        "valueType": "string"
+    });
+
+    let result = run_srs_stdin_in_dir(
+        temp.path(),
+        &["field", "create"],
+        &serde_json::to_string(&new_field).unwrap(),
+    );
+    assert_eq!(
+        result["ok"], true,
+        "field create with minimal payload should succeed: {:?}",
+        result["diagnostics"]
+    );
+
+    // Service should populate createdAt for persisted data.
+    let created = &result["payload"]["field"];
+    assert!(created["createdAt"].as_str().is_some());
+    assert!(!created["createdAt"].as_str().unwrap().is_empty());
 }
 
 // --- type command group ---
