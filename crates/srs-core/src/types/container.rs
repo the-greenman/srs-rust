@@ -104,7 +104,10 @@ mod tests {
 
         let parsed: Container = serde_json::from_value(value).unwrap();
         assert_eq!(parsed.extra.get("xOne"), Some(&serde_json::json!(1)));
-        assert_eq!(parsed.extra.get("xTwo"), Some(&serde_json::json!({"a": true})));
+        assert_eq!(
+            parsed.extra.get("xTwo"),
+            Some(&serde_json::json!({"a": true}))
+        );
     }
 
     #[test]

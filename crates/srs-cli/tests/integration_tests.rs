@@ -2434,3 +2434,296 @@ fn protocol_stages_returns_ordered_stages() {
     assert_eq!(stages[1]["stageId"], "s2");
     assert_eq!(stages[2]["stageId"], "s3");
 }
+
+fn make_container_test_repo() -> TempDir {
+    let temp = TempDir::new().expect("Failed to create temp dir");
+    std::fs::create_dir(temp.path().join(".srs")).expect("Failed to create .srs dir");
+    let manifest = serde_json::json!({
+        "instanceIndex": [],
+        "containerIndex": []
+    });
+    std::fs::write(
+        temp.path().join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .expect("Failed to write manifest");
+    temp
+}
+
+#[test]
+fn container_list_returns_empty_initially() {
+    let temp = make_container_test_repo();
+    let result = run_srs_in_dir(temp.path(), &["container", "list"]);
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["payload"]["containers"], serde_json::json!([]));
+}
+
+#[test]
+fn container_create_returns_container() {
+    let temp = make_container_test_repo();
+    let payload = serde_json::json!({
+        "containerId":"00000000-0000-4000-8000-000000000001",
+        "title":"Test"
+    })
+    .to_string();
+    let result = run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);
+    assert_eq!(result["ok"], true);
+    assert_eq!(
+        result["payload"]["container"]["containerId"],
+        "00000000-0000-4000-8000-000000000001"
+    );
+}
+
+#[test]
+fn container_get_returns_created_container() {
+    let temp = make_container_test_repo();
+    let payload = serde_json::json!({
+        "containerId":"00000000-0000-4000-8000-000000000001",
+        "title":"Test"
+    })
+    .to_string();
+    run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);
+    let got = run_srs_in_dir(
+        temp.path(),
+        &["container", "get", "00000000-0000-4000-8000-000000000001"],
+    );
+    assert_eq!(got["ok"], true);
+    assert_eq!(got["payload"]["container"]["title"], "Test");
+}
+
+#[test]
+fn container_update_patches_title() {
+    let temp = make_container_test_repo();
+    let payload = serde_json::json!({
+        "containerId":"00000000-0000-4000-8000-000000000001",
+        "title":"Old",
+        "description":"keep"
+    })
+    .to_string();
+    run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);
+    let patch = serde_json::json!({"title":"New"}).to_string();
+    let updated = run_srs_stdin_in_dir(
+        temp.path(),
+        &["container", "update", "00000000-0000-4000-8000-000000000001"],
+        &patch,
+    );
+    assert_eq!(updated["ok"], true);
+    assert_eq!(updated["payload"]["container"]["title"], "New");
+    assert_eq!(updated["payload"]["container"]["description"], "keep");
+}
+
+#[test]
+fn container_update_list_reflects_new_title() {
+    let temp = make_container_test_repo();
+    let payload = serde_json::json!({
+        "containerId":"00000000-0000-4000-8000-000000000001",
+        "title":"Old"
+    })
+    .to_string();
+    run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);
+    let patch = serde_json::json!({"title":"New"}).to_string();
+    run_srs_stdin_in_dir(
+        temp.path(),
+        &["container", "update", "00000000-0000-4000-8000-000000000001"],
+        &patch,
+    );
+    let listed = run_srs_in_dir(temp.path(), &["container", "list"]);
+    assert_eq!(listed["ok"], true);
+    assert_eq!(listed["payload"]["containers"][0]["title"], "New");
+}
+
+#[test]
+fn container_delete_removes_container() {
+    let temp = make_container_test_repo();
+    let payload = serde_json::json!({
+        "containerId":"00000000-0000-4000-8000-000000000001",
+        "title":"Delete"
+    })
+    .to_string();
+    run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);
+    let deleted = run_srs_in_dir(
+        temp.path(),
+        &["container", "delete", "00000000-0000-4000-8000-000000000001"],
+    );
+    assert_eq!(deleted["ok"], true);
+    let listed = run_srs_in_dir(temp.path(), &["container", "list"]);
+    assert_eq!(listed["payload"]["containers"], serde_json::json!([]));
+}
+
+#[test]
+fn container_members_add_list_remove() {
+    let temp = make_container_test_repo();
+    let payload = serde_json::json!({
+        "containerId":"00000000-0000-4000-8000-000000000001",
+        "title":"Members"
+    })
+    .to_string();
+    run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);
+    let member = "11111111-1111-4111-8111-111111111111";
+    let added = run_srs_in_dir(
+        temp.path(),
+        &[
+            "container",
+            "members",
+            "add",
+            "00000000-0000-4000-8000-000000000001",
+            member,
+        ],
+    );
+    assert_eq!(added["ok"], true);
+    let listed = run_srs_in_dir(
+        temp.path(),
+        &[
+            "container",
+            "members",
+            "list",
+            "00000000-0000-4000-8000-000000000001",
+        ],
+    );
+    assert_eq!(listed["ok"], true);
+    assert_eq!(listed["payload"]["memberInstanceIds"][0], member);
+    let removed = run_srs_in_dir(
+        temp.path(),
+        &[
+            "container",
+            "members",
+            "remove",
+            "00000000-0000-4000-8000-000000000001",
+            member,
+        ],
+    );
+    assert_eq!(removed["ok"], true);
+    assert_eq!(removed["payload"]["memberInstanceIds"], serde_json::json!([]));
+}
+
+#[test]
+fn container_roots_add_list_remove() {
+    let temp = make_container_test_repo();
+    let payload = serde_json::json!({
+        "containerId":"00000000-0000-4000-8000-000000000001",
+        "title":"Roots"
+    })
+    .to_string();
+    run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);
+    let root = "11111111-1111-4111-8111-111111111111";
+    let added = run_srs_in_dir(
+        temp.path(),
+        &[
+            "container",
+            "roots",
+            "add",
+            "00000000-0000-4000-8000-000000000001",
+            root,
+        ],
+    );
+    assert_eq!(added["ok"], true);
+    let listed = run_srs_in_dir(
+        temp.path(),
+        &[
+            "container",
+            "roots",
+            "list",
+            "00000000-0000-4000-8000-000000000001",
+        ],
+    );
+    assert_eq!(listed["ok"], true);
+    assert_eq!(listed["payload"]["rootInstanceIds"][0], root);
+    let removed = run_srs_in_dir(
+        temp.path(),
+        &[
+            "container",
+            "roots",
+            "remove",
+            "00000000-0000-4000-8000-000000000001",
+            root,
+        ],
+    );
+    assert_eq!(removed["ok"], true);
+    assert_eq!(removed["payload"]["rootInstanceIds"], serde_json::json!([]));
+}
+
+#[test]
+fn container_validate_passes_clean() {
+    let temp = make_container_test_repo();
+    let payload = serde_json::json!({
+        "containerId":"00000000-0000-4000-8000-000000000001",
+        "title":"Valid"
+    })
+    .to_string();
+    run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);
+    let result = run_srs_in_dir(
+        temp.path(),
+        &["container", "validate", "00000000-0000-4000-8000-000000000001"],
+    );
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["payload"]["ok"], true);
+}
+
+#[test]
+fn container_list_filters_by_type() {
+    let temp = make_container_test_repo();
+    let a = serde_json::json!({
+        "containerId":"00000000-0000-4000-8000-000000000001",
+        "title":"Meeting A",
+        "containerType":"meeting"
+    })
+    .to_string();
+    let b = serde_json::json!({
+        "containerId":"00000000-0000-4000-8000-000000000002",
+        "title":"Project B",
+        "containerType":"project"
+    })
+    .to_string();
+    run_srs_stdin_in_dir(temp.path(), &["container", "create"], &a);
+    run_srs_stdin_in_dir(temp.path(), &["container", "create"], &b);
+    let result = run_srs_in_dir(temp.path(), &["container", "list", "--type", "meeting"]);
+    let arr = result["payload"]["containers"].as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["containerId"], "00000000-0000-4000-8000-000000000001");
+}
+
+#[test]
+fn container_list_member_and_root_filters() {
+    let temp = make_container_test_repo();
+    let a = serde_json::json!({
+        "containerId":"00000000-0000-4000-8000-000000000001",
+        "title":"A"
+    })
+    .to_string();
+    let b = serde_json::json!({
+        "containerId":"00000000-0000-4000-8000-000000000002",
+        "title":"B"
+    })
+    .to_string();
+    run_srs_stdin_in_dir(temp.path(), &["container", "create"], &a);
+    run_srs_stdin_in_dir(temp.path(), &["container", "create"], &b);
+    let id = "11111111-1111-4111-8111-111111111111";
+    run_srs_in_dir(
+        temp.path(),
+        &[
+            "container",
+            "roots",
+            "add",
+            "00000000-0000-4000-8000-000000000001",
+            id,
+        ],
+    );
+    run_srs_in_dir(
+        temp.path(),
+        &[
+            "container",
+            "members",
+            "add",
+            "00000000-0000-4000-8000-000000000002",
+            id,
+        ],
+    );
+
+    let by_member = run_srs_in_dir(temp.path(), &["container", "list", "--member", id]);
+    assert_eq!(by_member["payload"]["containers"].as_array().unwrap().len(), 2);
+
+    let by_root = run_srs_in_dir(temp.path(), &["container", "list", "--root", id]);
+    let roots = by_root["payload"]["containers"].as_array().unwrap();
+    assert_eq!(roots.len(), 1);
+    assert_eq!(roots[0]["containerId"], "00000000-0000-4000-8000-000000000001");
+}

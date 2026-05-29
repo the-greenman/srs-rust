@@ -1,3 +1,4 @@
+pub mod container;
 pub mod extension;
 pub mod field;
 pub mod migrate;
@@ -9,7 +10,6 @@ pub mod relation;
 pub mod relation_type;
 pub mod repo;
 pub mod tag;
-pub mod container;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -145,16 +145,32 @@ pub enum ContainerCommand {
 
 #[derive(Subcommand)]
 pub enum ContainerMembersCommand {
-    List { container_id: String },
-    Add { container_id: String, instance_id: String },
-    Remove { container_id: String, instance_id: String },
+    List {
+        container_id: String,
+    },
+    Add {
+        container_id: String,
+        instance_id: String,
+    },
+    Remove {
+        container_id: String,
+        instance_id: String,
+    },
 }
 
 #[derive(Subcommand)]
 pub enum ContainerRootsCommand {
-    List { container_id: String },
-    Add { container_id: String, instance_id: String },
-    Remove { container_id: String, instance_id: String },
+    List {
+        container_id: String,
+    },
+    Add {
+        container_id: String,
+        instance_id: String,
+    },
+    Remove {
+        container_id: String,
+        instance_id: String,
+    },
 }
 
 #[derive(Subcommand)]

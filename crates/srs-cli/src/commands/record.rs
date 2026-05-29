@@ -130,7 +130,10 @@ fn cmd_record_create(
                 if let Err(e) = add_member(&ctx.repo, cid, &record.instance_id) {
                     return Ok(output::err(
                         "record create",
-                        vec![format!("Record created but failed to add to container: {}", e)],
+                        vec![format!(
+                            "Record created but failed to add to container: {}",
+                            e
+                        )],
                     ));
                 }
             }

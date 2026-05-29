@@ -76,10 +76,11 @@ fn write_container_file(container: &Container, path: &Path) -> Result<(), Reposi
             source,
         })?;
     }
-    let content = serde_json::to_string_pretty(container).map_err(|source| RepositoryError::Serialize {
-        path: path.to_path_buf(),
-        source,
-    })?;
+    let content =
+        serde_json::to_string_pretty(container).map_err(|source| RepositoryError::Serialize {
+            path: path.to_path_buf(),
+            source,
+        })?;
     std::fs::write(path, content).map_err(|source| RepositoryError::Io {
         path: path.to_path_buf(),
         source,
@@ -171,7 +172,10 @@ pub fn containers_for_instance(
     list_containers(repo_root, None, Some(instance_id), None)
 }
 
-pub fn create_container(repo_root: &Path, mut container: Container) -> Result<Container, RepositoryError> {
+pub fn create_container(
+    repo_root: &Path,
+    mut container: Container,
+) -> Result<Container, RepositoryError> {
     if container.container_id.is_empty() {
         container.container_id = new_instance_id();
     }
@@ -275,7 +279,10 @@ pub fn delete_container(repo_root: &Path, container_id: &str) -> Result<String, 
 
     let full_path = repo_root.join(&entry.path);
     if let Err(err) = std::fs::remove_file(&full_path) {
-        eprintln!("warning: failed to remove container file {:?}: {}", full_path, err);
+        eprintln!(
+            "warning: failed to remove container file {:?}: {}",
+            full_path, err
+        );
     }
     Ok(container_id.to_string())
 }
@@ -398,7 +405,10 @@ pub fn validate_container_invariants(
         }
         for id in ids {
             if !known_ids.contains(id) {
-                errors.push(format!("memberInstanceId '{}' not found in instanceIndex", id));
+                errors.push(format!(
+                    "memberInstanceId '{}' not found in instanceIndex",
+                    id
+                ));
             }
         }
     }
@@ -408,7 +418,10 @@ pub fn validate_container_invariants(
         }
         for id in ids {
             if !known_ids.contains(id) {
-                errors.push(format!("rootInstanceId '{}' not found in instanceIndex", id));
+                errors.push(format!(
+                    "rootInstanceId '{}' not found in instanceIndex",
+                    id
+                ));
             }
         }
     }

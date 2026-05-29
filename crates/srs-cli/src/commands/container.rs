@@ -68,7 +68,10 @@ fn cmd_create(ctx: CliContext) -> Result<String> {
 
 fn cmd_get(ctx: CliContext, container_id: String) -> Result<String> {
     match get_container(&ctx.repo, &container_id) {
-        Ok(container) => Ok(output::ok("container get", json!({ "container": container }))),
+        Ok(container) => Ok(output::ok(
+            "container get",
+            json!({ "container": container }),
+        )),
         Err(e) => Ok(output::err("container get", vec![e.to_string()])),
     }
 }

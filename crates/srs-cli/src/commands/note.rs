@@ -3,11 +3,11 @@ use crate::output;
 use anyhow::Result;
 use serde_json::json;
 use srs_core::types::note::Note;
+use srs_repository::analysis::{audit_note_tags, collect_foundation_notes};
 use srs_repository::container_service::{
     add_member, get_container, is_member, list_members, remove_member,
 };
 use srs_repository::error::RepositoryError;
-use srs_repository::analysis::{audit_note_tags, collect_foundation_notes};
 use srs_repository::services::{
     add_note_tag, create_note, delete_note, get_note_by_id, list_notes, remove_note_tag,
     update_note, AddTagResult, DeleteNoteResult, GetNoteResult, ListNotesFilter, RemoveTagResult,
@@ -97,7 +97,10 @@ fn cmd_note_create(ctx: CliContext) -> Result<String> {
         if let Err(e) = add_member(&ctx.repo, cid, &result.note.instance_id) {
             return Ok(output::err(
                 "note create",
-                vec![format!("Note created but failed to add to container: {}", e)],
+                vec![format!(
+                    "Note created but failed to add to container: {}",
+                    e
+                )],
             ));
         }
     }
