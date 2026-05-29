@@ -2755,3 +2755,363 @@ fn container_list_member_and_root_filters() {
         "00000000-0000-4000-8000-000000000001"
     );
 }
+
+fn create_container_for_scope(temp: &TempDir, container_id: &str) {
+    let payload = serde_json::json!({
+        "containerId": container_id,
+        "title": "Scope"
+    })
+    .to_string();
+    let result = run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);
+    assert_eq!(result["ok"], true, "container create should succeed");
+}
+
+#[test]
+fn container_scope_note_list_filters_to_members() {
+    let temp = create_temp_repo();
+    let cid = "00000000-0000-4000-8000-000000000001";
+    create_container_for_scope(&temp, cid);
+
+    let n1 = serde_json::json!({
+        "instanceId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+        "title": "In",
+        "sections": [{"name":"body","content":"x"}]
+    })
+    .to_string();
+    run_srs_stdin_in_dir(temp.path(), &["note", "create"], &n1);
+    let n2 = serde_json::json!({
+        "instanceId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2",
+        "title": "Out",
+        "sections": [{"name":"body","content":"x"}]
+    })
+    .to_string();
+    run_srs_stdin_in_dir(temp.path(), &["note", "create"], &n2);
+
+    run_srs_in_dir(
+        temp.path(),
+        &[
+            "container",
+            "members",
+            "add",
+            cid,
+            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+        ],
+    );
+
+    let listed = run_srs_in_dir(temp.path(), &["--container", cid, "note", "list"]);
+    let notes = listed["payload"]["notes"].as_array().unwrap();
+    assert_eq!(notes.len(), 1);
+    assert_eq!(
+        notes[0]["instanceId"],
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1"
+    );
+}
+
+#[test]
+fn container_scope_note_create_adds_to_container() {
+    let temp = create_temp_repo();
+    let cid = "00000000-0000-4000-8000-000000000001";
+    create_container_for_scope(&temp, cid);
+
+    let payload = serde_json::json!({
+        "instanceId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+        "title": "Scoped",
+        "sections": [{"name":"body","content":"x"}]
+    })
+    .to_string();
+    let created = run_srs_stdin_in_dir(
+        temp.path(),
+        &["--container", cid, "note", "create"],
+        &payload,
+    );
+    assert_eq!(created["ok"], true);
+
+    let members = run_srs_in_dir(temp.path(), &["container", "members", "list", cid]);
+    let arr = members["payload"]["memberInstanceIds"].as_array().unwrap();
+    assert!(arr
+        .iter()
+        .any(|v| v == "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1"));
+}
+
+#[test]
+fn container_scope_note_create_fails_invalid_container() {
+    let temp = create_temp_repo();
+    let payload = serde_json::json!({
+        "instanceId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+        "title": "Nope",
+        "sections": [{"name":"body","content":"x"}]
+    })
+    .to_string();
+    let created = run_srs_stdin_in_dir(
+        temp.path(),
+        &[
+            "--container",
+            "00000000-0000-4000-8000-999999999999",
+            "note",
+            "create",
+        ],
+        &payload,
+    );
+    assert_eq!(created["ok"], false);
+
+    let listed = run_srs_in_dir(temp.path(), &["note", "list"]);
+    assert_eq!(listed["payload"]["notes"], serde_json::json!([]));
+}
+
+#[test]
+fn container_scope_note_delete_refused_if_not_member() {
+    let temp = create_temp_repo();
+    let cid = "00000000-0000-4000-8000-000000000001";
+    create_container_for_scope(&temp, cid);
+    let payload = serde_json::json!({
+        "instanceId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+        "title": "Outside",
+        "sections": [{"name":"body","content":"x"}]
+    })
+    .to_string();
+    run_srs_stdin_in_dir(temp.path(), &["note", "create"], &payload);
+
+    let deleted = run_srs_in_dir(
+        temp.path(),
+        &[
+            "--container",
+            cid,
+            "note",
+            "delete",
+            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+        ],
+    );
+    assert_eq!(deleted["ok"], false);
+
+    let got = run_srs_in_dir(
+        temp.path(),
+        &["note", "get", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1"],
+    );
+    assert_eq!(got["ok"], true);
+}
+
+#[test]
+fn container_scope_note_delete_removes_membership() {
+    let temp = create_temp_repo();
+    let cid = "00000000-0000-4000-8000-000000000001";
+    create_container_for_scope(&temp, cid);
+    let payload = serde_json::json!({
+        "instanceId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+        "title": "Scoped",
+        "sections": [{"name":"body","content":"x"}]
+    })
+    .to_string();
+    run_srs_stdin_in_dir(
+        temp.path(),
+        &["--container", cid, "note", "create"],
+        &payload,
+    );
+
+    let deleted = run_srs_in_dir(
+        temp.path(),
+        &[
+            "--container",
+            cid,
+            "note",
+            "delete",
+            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+        ],
+    );
+    assert_eq!(deleted["ok"], true);
+
+    let got = run_srs_in_dir(
+        temp.path(),
+        &["note", "get", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1"],
+    );
+    assert_eq!(got["ok"], false);
+    let members = run_srs_in_dir(temp.path(), &["container", "members", "list", cid]);
+    assert_eq!(
+        members["payload"]["memberInstanceIds"],
+        serde_json::json!([])
+    );
+}
+
+#[test]
+fn container_scope_tag_list_filters_to_members() {
+    let temp = create_temp_repo();
+    let cid = "00000000-0000-4000-8000-000000000001";
+    create_container_for_scope(&temp, cid);
+
+    let t1 = serde_json::json!({
+        "instanceId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1",
+        "tagKey":"in",
+        "label":"In"
+    })
+    .to_string();
+    run_srs_stdin_in_dir(temp.path(), &["tag", "create"], &t1);
+    let t2 = serde_json::json!({
+        "instanceId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2",
+        "tagKey":"out",
+        "label":"Out"
+    })
+    .to_string();
+    run_srs_stdin_in_dir(temp.path(), &["tag", "create"], &t2);
+
+    run_srs_in_dir(
+        temp.path(),
+        &[
+            "container",
+            "members",
+            "add",
+            cid,
+            "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1",
+        ],
+    );
+    let listed = run_srs_in_dir(temp.path(), &["--container", cid, "tag", "list"]);
+    let arr = listed["payload"]["tagDefinitions"].as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["instanceId"], "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1");
+}
+
+#[test]
+fn container_scope_record_list_filters_to_members() {
+    let temp = create_temp_repo();
+    let cid = "00000000-0000-4000-8000-000000000001";
+    create_container_for_scope(&temp, cid);
+
+    let package_dir = temp.path().join("package");
+    std::fs::create_dir_all(package_dir.join("types")).unwrap();
+    let record_type = serde_json::json!({
+        "id": "type-test-001",
+        "namespace": "com.test",
+        "name": "test-item",
+        "version": 1,
+        "description": "Test item type",
+        "fields": []
+    });
+    std::fs::write(
+        package_dir.join("types/test-item.json"),
+        serde_json::to_string_pretty(&record_type).unwrap(),
+    )
+    .unwrap();
+    let package_json = serde_json::json!({
+        "id": "test-pkg",
+        "namespace": "com.test",
+        "name": "test",
+        "version": "1.0.0",
+        "fields": [],
+        "types": ["types/test-item.json"]
+    });
+    std::fs::write(
+        package_dir.join("package.json"),
+        serde_json::to_string_pretty(&package_json).unwrap(),
+    )
+    .unwrap();
+
+    let payload = serde_json::json!({ "fieldValues": [] }).to_string();
+    let r1 = run_srs_stdin_in_dir(
+        temp.path(),
+        &["record", "create", "--type", "com.test/test-item"],
+        &payload,
+    );
+    let r1_id = r1["payload"]["record"]["instanceId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let r2 = run_srs_stdin_in_dir(
+        temp.path(),
+        &["record", "create", "--type", "com.test/test-item"],
+        &payload,
+    );
+    let _r2_id = r2["payload"]["record"]["instanceId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    run_srs_in_dir(
+        temp.path(),
+        &["container", "members", "add", cid, r1_id.as_str()],
+    );
+    let listed = run_srs_in_dir(
+        temp.path(),
+        &[
+            "--container",
+            cid,
+            "record",
+            "list",
+            "--type",
+            "com.test/test-item",
+        ],
+    );
+    let arr = listed["payload"]["records"].as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["instanceId"], r1_id);
+}
+
+#[test]
+fn container_scope_relation_list_filters_to_internal() {
+    let temp = create_temp_repo();
+    let cid = "00000000-0000-4000-8000-000000000001";
+    create_container_for_scope(&temp, cid);
+
+    std::fs::create_dir_all(temp.path().join("records/notes")).unwrap();
+    let n1 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
+    let n2 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2";
+    let n3 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3";
+    for (id, file) in [(n1, "n1.json"), (n2, "n2.json"), (n3, "n3.json")] {
+        let note = serde_json::json!({
+            "instanceId": id,
+            "title": id,
+            "sections": [{"name":"body","content":"x"}]
+        });
+        std::fs::write(
+            temp.path().join(format!("records/notes/{}", file)),
+            serde_json::to_string_pretty(&note).unwrap(),
+        )
+        .unwrap();
+    }
+    let manifest = serde_json::json!({
+        "instanceIndex": [
+            {"instanceId": n1, "tier": 0, "path": "records/notes/n1.json"},
+            {"instanceId": n2, "tier": 0, "path": "records/notes/n2.json"},
+            {"instanceId": n3, "tier": 0, "path": "records/notes/n3.json"}
+        ],
+        "containerIndex": [{
+            "containerId": cid,
+            "title": "Scope",
+            "path": "containers/scope-00000000.json"
+        }]
+    });
+    std::fs::write(
+        temp.path().join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    run_srs_in_dir(temp.path(), &["container", "members", "add", cid, n1]);
+    run_srs_in_dir(temp.path(), &["container", "members", "add", cid, n2]);
+
+    std::fs::create_dir_all(temp.path().join("relations")).unwrap();
+    let relations = serde_json::json!({
+        "$schema":"https://srs.semanticops.com/schema/2.0/relations-collection.json",
+        "relations": [
+            {
+                "relationId": "r1",
+                "relationType": "contains",
+                "sourceInstanceId": n1,
+                "targetInstanceId": n2
+            },
+            {
+                "relationId": "r2",
+                "relationType": "contains",
+                "sourceInstanceId": n1,
+                "targetInstanceId": n3
+            }
+        ]
+    });
+    std::fs::write(
+        temp.path().join("relations/relations-collection.json"),
+        serde_json::to_string_pretty(&relations).unwrap(),
+    )
+    .unwrap();
+
+    let listed = run_srs_in_dir(temp.path(), &["--container", cid, "relation", "list"]);
+    let arr = listed["payload"]["relations"].as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["relationId"], "r1");
+}
