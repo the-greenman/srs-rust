@@ -93,6 +93,12 @@ pub enum RepositoryError {
         source: srs_core::error::CoreError,
     },
 
+    #[error("relation type definition validation failed at {path:?}: {source}")]
+    RelationTypeDefinitionValidation {
+        path: PathBuf,
+        source: srs_core::error::CoreError,
+    },
+
     #[error("failed to write tag definition at {path}: {source}")]
     TagDefinitionWrite {
         path: PathBuf,
@@ -101,6 +107,19 @@ pub enum RepositoryError {
 
     #[error("schema validation error at {path:?}: {message}")]
     SchemaValidation { path: PathBuf, message: String },
+
+    #[error("relation type conflict for '{relation_type}': definitions from {path_a:?} and {path_b:?} differ")]
+    RelationTypeDefinitionConflict {
+        relation_type: String,
+        path_a: PathBuf,
+        path_b: PathBuf,
+    },
+
+    #[error("relation validation failed for relation {relation_id}: {message}")]
+    RelationValidation {
+        relation_id: String,
+        message: String,
+    },
 }
 
 impl PartialEq for RepositoryError {
@@ -198,6 +217,16 @@ impl PartialEq for RepositoryError {
                 RepositoryError::TagDefinitionWrite { path: b, source: _ },
             ) => a == b,
             (
+                RepositoryError::RelationTypeDefinitionValidation {
+                    path: a,
+                    source: sa,
+                },
+                RepositoryError::RelationTypeDefinitionValidation {
+                    path: b,
+                    source: sb,
+                },
+            ) => a == b && sa == sb,
+            (
                 RepositoryError::SchemaValidation {
                     path: a,
                     message: ma,
@@ -207,6 +236,28 @@ impl PartialEq for RepositoryError {
                     message: mb,
                 },
             ) => a == b && ma == mb,
+            (
+                RepositoryError::RelationTypeDefinitionConflict {
+                    relation_type: rta,
+                    path_a: aa,
+                    path_b: ba,
+                },
+                RepositoryError::RelationTypeDefinitionConflict {
+                    relation_type: rtb,
+                    path_a: ab,
+                    path_b: bb,
+                },
+            ) => rta == rtb && aa == ab && ba == bb,
+            (
+                RepositoryError::RelationValidation {
+                    relation_id: ia,
+                    message: ma,
+                },
+                RepositoryError::RelationValidation {
+                    relation_id: ib,
+                    message: mb,
+                },
+            ) => ia == ib && ma == mb,
             _ => false,
         }
     }

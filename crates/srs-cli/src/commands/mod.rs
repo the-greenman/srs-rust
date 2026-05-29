@@ -1,5 +1,6 @@
 pub mod migrate;
 pub mod note;
+pub mod relation_type;
 pub mod repo;
 pub mod tag;
 
@@ -41,6 +42,9 @@ pub enum Commands {
     /// Tag definition management commands
     #[command(subcommand)]
     Tag(TagCommand),
+    /// Relation type definition commands
+    #[command(subcommand)]
+    RelationType(RelationTypeCommand),
 }
 
 #[derive(Subcommand)]
@@ -149,6 +153,27 @@ pub enum MigrateCommand {
 }
 
 #[derive(Subcommand)]
+pub enum RelationTypeCommand {
+    /// List relation type definitions loaded from the package
+    List {
+        /// Repository path (defaults to CWD)
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        /// Filter by status (active, deprecated, tombstone, retired)
+        #[arg(long)]
+        status: Option<String>,
+    },
+    /// Get a relation type definition by its UUID id
+    Get {
+        /// Repository path (defaults to CWD)
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        /// The UUID id of the relation type definition
+        id: String,
+    },
+}
+
+#[derive(Subcommand)]
 pub enum TagCommand {
     /// List tag definitions
     List {
@@ -181,5 +206,6 @@ pub fn dispatch(cli: Cli) -> Result<String> {
         Commands::Repo(repo_cmd) => repo::dispatch(repo_cmd),
         Commands::Migrate(migrate_cmd) => migrate::dispatch(migrate_cmd),
         Commands::Tag(tag_cmd) => tag::dispatch(tag_cmd),
+        Commands::RelationType(rt_cmd) => relation_type::dispatch(rt_cmd),
     }
 }

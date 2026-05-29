@@ -55,7 +55,7 @@
     "relationTypes": {
       "type": "array",
       "items": { "type": "object" },
-      "description": "ext:recommended-relations relation type metadata."
+      "description": "Relation type definitions included in this bundle."
     },
     "dependencyRefs": {
       "type": "array",
@@ -140,7 +140,7 @@
         "version": { "type": "integer", "minimum": 1 },
         "definitionType": {
           "type": "string",
-          "enum": ["field", "type", "view", "schema", "protocol"]
+          "enum": ["field", "type", "view", "schema", "protocol", "relation-type"]
         }
       }
     }

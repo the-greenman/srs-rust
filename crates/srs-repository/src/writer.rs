@@ -1,9 +1,64 @@
 use crate::error::RepositoryError;
 use crate::index::InstanceIndexEntry;
+use crate::manifest::load_manifest;
 use crate::manifest::Manifest;
+use crate::package::load_package;
 use srs_core::types::note::Note;
+use srs_core::types::relation::Relation;
 use srs_core::types::tag_definition::TagDefinition;
+use srs_core::validation::relation::{validate_relation, RelationValidationContext};
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
+
+/// Validates a relation against the installed package definitions before writing.
+///
+/// Loads the package, collects all known instance IDs and semanticObjectType map,
+/// constructs a `RelationValidationContext`, and runs `validate_relation` with
+/// `is_write: true`. Returns `Ok(())` if validation passes.
+pub fn validate_relation_before_write(
+    relation: &Relation,
+    repo_root: &Path,
+) -> Result<(), RepositoryError> {
+    let pkg = load_package(repo_root)?;
+    let manifest = load_manifest(repo_root)?;
+
+    let known_instance_ids: HashSet<String> = manifest
+        .instance_index
+        .iter()
+        .map(|e| e.instance_id().to_string())
+        .collect();
+
+    let mut instance_semantic_types: HashMap<String, String> = HashMap::new();
+    for entry in &manifest.instance_index {
+        let inst_path = repo_root.join(entry.path());
+        if let Ok(raw) = std::fs::read_to_string(&inst_path) {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
+                if let Some(sot) = val.get("semanticObjectType").and_then(|v| v.as_str()) {
+                    instance_semantic_types
+                        .insert(entry.instance_id().to_string(), sot.to_string());
+                }
+            }
+        }
+    }
+
+    let ctx = RelationValidationContext {
+        definitions: &pkg.relation_type_definitions,
+        known_instance_ids: &known_instance_ids,
+        instance_semantic_types: &instance_semantic_types,
+    };
+
+    validate_relation(relation, &ctx, true).map_err(|errs| {
+        let msg = errs
+            .into_iter()
+            .map(|e| e.message)
+            .collect::<Vec<_>>()
+            .join("; ");
+        RepositoryError::RelationValidation {
+            relation_id: relation.relation_id.clone(),
+            message: msg,
+        }
+    })
+}
 
 /// Generate a new UUID v4 as a string. Only this function generates UUIDs.
 pub fn new_instance_id() -> String {

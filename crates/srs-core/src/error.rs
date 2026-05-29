@@ -19,6 +19,9 @@ pub enum CoreError {
 
     #[error("tag key must be non-empty")]
     EmptyTagKey,
+
+    #[error("invalid relation type: {relation_type}")]
+    InvalidRelationType { relation_type: String },
 }
 
 impl PartialEq for CoreError {
@@ -39,6 +42,10 @@ impl PartialEq for CoreError {
                 a == b
             }
             (CoreError::EmptyTagKey, CoreError::EmptyTagKey) => true,
+            (
+                CoreError::InvalidRelationType { relation_type: a },
+                CoreError::InvalidRelationType { relation_type: b },
+            ) => a == b,
             _ => false,
         }
     }

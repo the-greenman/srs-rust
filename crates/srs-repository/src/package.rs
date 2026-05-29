@@ -1,6 +1,8 @@
 use crate::error::RepositoryError;
 use srs_core::types::field::{Field, ValueType};
 use srs_core::types::record_type::{FieldAssignment, RecordType};
+use srs_core::types::relation_type_definition::RelationTypeDefinition;
+use srs_core::validation::relation_type_definition::validate_relation_type_definition;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -15,6 +17,7 @@ pub struct Package {
     pub version: String,
     pub fields: Vec<Field>,
     pub record_types: Vec<RecordType>,
+    pub relation_type_definitions: Vec<RelationTypeDefinition>,
     pub root: PathBuf,
 }
 
@@ -30,6 +33,8 @@ struct PackageMetadata {
     fields: Vec<String>,
     #[serde(default)]
     types: Vec<String>,
+    #[serde(default)]
+    relation_types: Vec<String>,
 }
 
 /// Field JSON format from package/fields/*.json
@@ -78,6 +83,23 @@ struct FieldAssignmentJson {
 }
 
 impl Package {
+    /// Resolve a relation type definition by its UUID id.
+    pub fn resolve_relation_type_by_id(&self, id: &str) -> Option<&RelationTypeDefinition> {
+        self.relation_type_definitions.iter().find(|rt| rt.id == id)
+    }
+
+    /// Resolve a relation type definition by its relationType string.
+    pub fn resolve_relation_type(&self, relation_type: &str) -> Option<&RelationTypeDefinition> {
+        self.relation_type_definitions
+            .iter()
+            .find(|rt| rt.relation_type == relation_type)
+    }
+
+    /// Get all relation type definitions as a slice.
+    pub fn relation_types(&self) -> &[RelationTypeDefinition] {
+        &self.relation_type_definitions
+    }
+
     /// Resolve a record type by its ID and version.
     pub fn resolve_type(&self, type_id: &str, version: u32) -> Option<&RecordType> {
         self.record_types
@@ -204,6 +226,45 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
         });
     }
 
+    // Load all relation type definitions, detecting conflicts and coalescing identical defs.
+    // Tracks (definition, source_path) to produce good conflict errors.
+    let mut rt_by_type: HashMap<String, (RelationTypeDefinition, PathBuf)> = HashMap::new();
+    for rt_path in &metadata.relation_types {
+        let full_path = package_dir.join(rt_path);
+        let rt_content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
+            path: full_path.clone(),
+            source: e,
+        })?;
+
+        let def: RelationTypeDefinition =
+            serde_json::from_str(&rt_content).map_err(|e| RepositoryError::PackageLoad {
+                path: full_path.clone(),
+                source: e,
+            })?;
+
+        validate_relation_type_definition(&def).map_err(|source| {
+            RepositoryError::RelationTypeDefinitionValidation {
+                path: full_path.clone(),
+                source,
+            }
+        })?;
+
+        if let Some((existing, existing_path)) = rt_by_type.get(&def.relation_type) {
+            if existing != &def {
+                return Err(RepositoryError::RelationTypeDefinitionConflict {
+                    relation_type: def.relation_type.clone(),
+                    path_a: existing_path.clone(),
+                    path_b: full_path,
+                });
+            }
+            // Coalesce: keep existing, skip duplicate
+        } else {
+            rt_by_type.insert(def.relation_type.clone(), (def, full_path));
+        }
+    }
+    let relation_type_definitions: Vec<RelationTypeDefinition> =
+        rt_by_type.into_values().map(|(def, _)| def).collect();
+
     Ok(Package {
         id: metadata.id,
         namespace: metadata.namespace,
@@ -211,6 +272,7 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
         version: metadata.version,
         fields,
         record_types,
+        relation_type_definitions,
         root: repo_root.to_path_buf(),
     })
 }
@@ -301,5 +363,54 @@ mod tests {
         assert!(package
             .resolve_field("00000000-0000-0000-0000-000000000000")
             .is_none());
+    }
+
+    #[test]
+    fn load_package_loads_relation_types() {
+        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
+        let package = load_package(&srs_repo).expect("should load live srs package");
+
+        assert!(
+            package.relation_type_definitions.len() >= 7,
+            "expected at least 7 relation types (canonical), got {}",
+            package.relation_type_definitions.len()
+        );
+    }
+
+    #[test]
+    fn resolve_canonical_relation_type_precedes() {
+        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
+        let package = load_package(&srs_repo).expect("should load live srs package");
+
+        let rt = package
+            .resolve_relation_type("precedes")
+            .expect("should find canonical 'precedes' relation type");
+
+        assert_eq!(rt.namespace, "com.semanticops.srs");
+        assert!(rt.is_active());
+        assert!(rt.is_irreflexive());
+    }
+
+    #[test]
+    fn deprecated_relation_types_loaded_with_correct_status() {
+        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
+        let package = load_package(&srs_repo).expect("should load live srs package");
+
+        let deprecated: Vec<_> = package
+            .relation_type_definitions
+            .iter()
+            .filter(|rt| !rt.is_active())
+            .collect();
+
+        assert!(
+            !deprecated.is_empty(),
+            "expected at least one deprecated relation type"
+        );
+        for rt in deprecated {
+            assert!(
+                rt.resolves(),
+                "deprecated/tombstone types should still resolve"
+            );
+        }
     }
 }

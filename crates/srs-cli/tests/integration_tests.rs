@@ -349,6 +349,111 @@ fn tag_create_and_retrieve_in_temp_repo() {
     assert_eq!(foundation_defs[0]["tagKey"], "test-purpose");
 }
 
+// ---------- relation-type tests ----------
+
+#[test]
+fn relation_type_list_returns_ok_envelope() {
+    let result = run_srs(&["relation-type", "list"]);
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["command"], "relation-type list");
+
+    let defs = result["payload"]["relationTypeDefinitions"]
+        .as_array()
+        .expect("relationTypeDefinitions should be array");
+
+    assert_eq!(
+        defs.len(),
+        16,
+        "expected 16 relation type definitions (7 canonical + 5 spec-authoring-core + 4 RFC-process), got {}",
+        defs.len()
+    );
+
+    // Active canonical: contains — no status field
+    let contains_def = defs
+        .iter()
+        .find(|d| d["relationType"] == "contains")
+        .expect("should find 'contains' canonical definition");
+    assert!(
+        contains_def["status"].is_null(),
+        "canonical 'contains' should have no status field (active)"
+    );
+
+    // Deprecated SRS-internal type
+    let section_seq = defs
+        .iter()
+        .find(|d| d["relationType"] == "com.semanticops.srs/section-sequence")
+        .expect("should find 'com.semanticops.srs/section-sequence' deprecated definition");
+    assert_eq!(
+        section_seq["status"], "deprecated",
+        "section-sequence should be deprecated"
+    );
+}
+
+#[test]
+fn relation_type_get_finds_contains() {
+    let contains_id = "3a1b2c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
+    let result = run_srs(&["relation-type", "get", contains_id]);
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["command"], "relation-type get");
+
+    let def = &result["payload"]["relationTypeDefinition"];
+    assert_eq!(def["relationType"], "contains");
+    assert_eq!(def["id"], contains_id);
+}
+
+#[test]
+fn relation_type_get_not_found() {
+    let exe = env!("CARGO_BIN_EXE_srs");
+    let output = Command::new(exe)
+        .args([
+            "relation-type",
+            "get",
+            "00000000-0000-0000-0000-000000000000",
+        ])
+        .current_dir("/home/greenman/dev/semanticops/srs/srs")
+        .output()
+        .expect("Failed to execute srs command");
+
+    let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8 in output");
+    let result: Value = serde_json::from_str(&stdout).expect("Failed to parse JSON output");
+
+    assert_eq!(result["ok"], false);
+    assert!(!result["diagnostics"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn repo_validate_migrated_relations_use_only_canonical_types() {
+    let exe = env!("CARGO_BIN_EXE_srs");
+    let output = Command::new(exe)
+        .args(["repo", "validate"])
+        .current_dir("/home/greenman/dev/semanticops/srs/srs")
+        .output()
+        .expect("Failed to execute srs command");
+
+    let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8 in output");
+    let result: Value = serde_json::from_str(&stdout).expect("Failed to parse JSON output");
+
+    assert_eq!(result["command"], "repo validate");
+
+    // No E1 errors: every relationType in relations.json must resolve to an installed definition.
+    // (E2 errors from placeholder IDs in rfc-targets-section migrations are a separate known issue.)
+    let diags = result["payload"]["diagnostics"].as_array().unwrap();
+    let e1_errors: Vec<_> = diags
+        .iter()
+        .filter(|d| {
+            d["message"]
+                .as_str()
+                .map(|m| m.contains("E1:"))
+                .unwrap_or(false)
+        })
+        .collect();
+    assert!(
+        e1_errors.is_empty(),
+        "expected no E1 errors from migrated relations, got: {:?}",
+        e1_errors
+    );
+}
+
 // ---------- repo validate tests ----------
 
 fn make_valid_validate_repo() -> TempDir {

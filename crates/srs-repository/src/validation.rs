@@ -1,7 +1,11 @@
 use crate::error::RepositoryError;
 use crate::manifest::load_manifest;
+use crate::package::load_package;
 use serde_json::Value;
+use srs_core::types::relation::RelationsCollection;
+use srs_core::validation::relation::{validate_relation, RelationValidationContext};
 use srs_schema::{SchemaRegistry, NOTE_SCHEMA_ID, RECORD_SCHEMA_ID};
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
@@ -160,6 +164,99 @@ pub fn validate_repository(
         ) {
             checked += 1;
             diagnostics.extend(report);
+        }
+    }
+
+    // --- Validate relations/relations.json against E1-E4 ---
+    let relations_path = repo_root.join("relations/relations.json");
+    if relations_path.exists() {
+        // Schema-validate the file first
+        if let Some(schema_diags) = validate_file_against_schema(
+            &relations_path,
+            repo_root,
+            srs_schema::RELATIONS_COLLECTION_SCHEMA_ID,
+            reg,
+        ) {
+            checked += 1;
+            diagnostics.extend(schema_diags);
+        }
+
+        let pkg = match load_package(repo_root) {
+            Ok(pkg) => pkg,
+            Err(err) => {
+                diagnostics.push(ValidationDiagnostic {
+                    severity: DiagnosticSeverity::Error,
+                    path: "package/package.json".to_string(),
+                    schema_id: None,
+                    message: format!("failed to load package for relation validation: {err}"),
+                });
+                let errors = diagnostics
+                    .iter()
+                    .filter(|d| d.severity == DiagnosticSeverity::Error)
+                    .count();
+                let warnings = diagnostics
+                    .iter()
+                    .filter(|d| d.severity == DiagnosticSeverity::Warning)
+                    .count();
+                return Ok(RepositoryValidationReport {
+                    diagnostics,
+                    summary: ValidationSummary {
+                        checked,
+                        errors,
+                        warnings,
+                    },
+                });
+            }
+        };
+
+        // Build known instance IDs from manifest index
+        let known_instance_ids: HashSet<String> = manifest
+            .instance_index
+            .iter()
+            .map(|e| e.instance_id().to_string())
+            .collect();
+
+        // Build semanticObjectType map: parse each indexed file for the field
+        let mut instance_semantic_types: HashMap<String, String> = HashMap::new();
+        for entry in &manifest.instance_index {
+            let inst_path = repo_root.join(entry.path());
+            if let Ok(raw) = std::fs::read_to_string(&inst_path) {
+                if let Ok(val) = serde_json::from_str::<Value>(&raw) {
+                    if let Some(sot) = val.get("semanticObjectType").and_then(|v| v.as_str()) {
+                        instance_semantic_types
+                            .insert(entry.instance_id().to_string(), sot.to_string());
+                    }
+                }
+            }
+        }
+
+        let raw = std::fs::read_to_string(&relations_path).map_err(|e| RepositoryError::Io {
+            path: relations_path.clone(),
+            source: e,
+        })?;
+        let coll: RelationsCollection =
+            serde_json::from_str(&raw).map_err(|e| RepositoryError::RecordLoad {
+                path: relations_path.clone(),
+                source: e,
+            })?;
+
+        let ctx = RelationValidationContext {
+            definitions: &pkg.relation_type_definitions,
+            known_instance_ids: &known_instance_ids,
+            instance_semantic_types: &instance_semantic_types,
+        };
+        let rel_rel_path = relative_display(&relations_path, repo_root);
+        for relation in &coll.relations {
+            if let Err(errs) = validate_relation(relation, &ctx, false) {
+                for e in errs {
+                    diagnostics.push(ValidationDiagnostic {
+                        severity: DiagnosticSeverity::Error,
+                        path: rel_rel_path.clone(),
+                        schema_id: None,
+                        message: e.message,
+                    });
+                }
+            }
         }
     }
 
