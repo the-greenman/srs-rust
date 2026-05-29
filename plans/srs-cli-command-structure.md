@@ -184,6 +184,10 @@ srs relation delete <id>
 
 > **Note:** Relation commands are in scope for this plan but were missing from the original draft. They read/write `relations/relations.json` and the existing relation loading infrastructure in `srs-repository`. `relation create` reads JSON from stdin.
 >
+> **Filter flags:** `ListRelationsFilter` in `relation_service.rs` already supports `source`, `target`, and `relation_type` fields. The `relation list` CLI command must expose `--source <id>`, `--target <id>`, and `--type <relation-type>` args and pass them through. This is the mechanism for listing all related nodes: `srs relation list --source <id>` returns all outgoing relations; `--target <id>` returns all incoming.
+>
+> **Container scoping:** when `--container <id>` is set globally, `relation list` is further filtered to only relations where **both** `sourceInstanceId` and `targetInstanceId` are in that container's `memberInstanceIds`. This ensures relation lists are self-contained within the active scope. Delivered by `srs-container-commands.md` Phase D.
+>
 > **RFC-005 dependency:** `relation create` must run E1–E4 validation (relation type resolved, endpoints exist, irreflexivity, semantic type constraints) before writing. The `validate_relation_before_write` service stub is delivered by the RFC-005 plan. This plan's Phase 2 relation CRUD services must call that stub. If RFC-005 is not yet complete when Phase 2 runs, add a TODO hook and unblock it as a prerequisite before Phase 3 ships `relation create`.
 
 Input conventions:
@@ -230,8 +234,8 @@ Input conventions:
 #### Testing
 
 ```bash
-cargo test -p srs-cli
-cargo clippy -p srs-cli -- -D warnings
+cargo test -p srs
+cargo clippy -p srs -- -D warnings
 ```
 
 Specific tests:
@@ -344,6 +348,10 @@ Specific tests:
 - `type_get_returns_type_by_id`
 - `record_list_returns_records_by_type`
 - `record_get_returns_record_by_id`
+- `record_create_writes_file_and_manifest_entry`
+- `record_update_revalidates_and_rewrites_record`
+- `record_delete_removes_file_and_manifest_entry`
+- `record_create_rejects_invalid_stdin_shape`
 - `relation_list_returns_relations`
 - `relation_get_returns_relation_by_id`
 
@@ -355,7 +363,7 @@ Specific tests:
 
 - [x] Code compiles: `cargo build` exits 0
 - [x] Clippy passes: `cargo clippy -- -D warnings` exits 0
-- [x] All CLI tests pass: `cargo test -p srs-cli` exits 0
+- [x] All CLI tests pass: `cargo test -p srs` exits 0
 - [x] Integration tests updated for breaking `note tag` change
 
 #### Acceptance Criteria
@@ -369,8 +377,8 @@ Specific tests:
 #### Testing
 
 ```bash
-cargo test -p srs-cli
-cargo clippy -p srs-cli -- -D warnings
+cargo test -p srs
+cargo clippy -p srs -- -D warnings
 ```
 
 Specific tests:
@@ -384,7 +392,7 @@ Specific tests:
 
 ### Phase 4: Extension and Protocol Definition Support
 
-**Status:** open
+**Status:** completed
 
 **Goal:** Extension and protocol commands are implemented following the same pattern as Phase 3 commands. Per ADR-005, extensions use `list_records_by_type` / `get_record_by_id` / `create_record` against the existing `meta.extension` type — no native struct, no new service functions. Per ADR-006, protocols use generic record services for storage plus typed validation structs in `srs-core`.
 
@@ -421,7 +429,7 @@ Specific tests:
 ```bash
 cargo test -p srs-core
 cargo test -p srs-repository
-cargo test -p srs-cli
+cargo test -p srs
 ```
 
 Specific tests:
@@ -483,7 +491,7 @@ All of the following must be true before this plan is closed:
 - [ ] `srs repo extensions` is used for declared-extension management; `srs extension` manages definition records.
 - [ ] `srs relation-type list/get` are implemented (delivered by RFC-005 plan).
 - [ ] `srs relation create` runs E1–E4 validation before writing.
-- [ ] `record create` and `record update` stdin shape is `{ "fieldValues": [...] }`.
+- [x] `record create` and `record update` stdin shape is `{ "fieldValues": [...] }`.
 - [ ] `note update` stdin shape is a full Note JSON object.
 - [ ] Delete responses include the deleted entity ID and path.
 - [ ] Protocol support is limited to definitions; no run/session state is introduced.

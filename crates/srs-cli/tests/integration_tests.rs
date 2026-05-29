@@ -1620,6 +1620,279 @@ fn record_get_returns_record_by_id() {
     assert_eq!(result["payload"]["record"]["instanceId"], record_id);
 }
 
+#[test]
+fn record_create_writes_file_and_manifest_entry() {
+    let temp = create_temp_repo();
+    let package_dir = temp.path().join("package");
+    std::fs::create_dir_all(package_dir.join("types")).unwrap();
+
+    let record_type = serde_json::json!({
+        "id": "type-test-001",
+        "namespace": "com.test",
+        "name": "test-item",
+        "version": 1,
+        "description": "Test item type",
+        "fields": []
+    });
+    std::fs::write(
+        package_dir.join("types/test-item.json"),
+        serde_json::to_string_pretty(&record_type).unwrap(),
+    )
+    .unwrap();
+
+    let package_json = serde_json::json!({
+        "id": "test-pkg",
+        "namespace": "com.test",
+        "name": "test",
+        "version": "1.0.0",
+        "fields": [],
+        "types": ["types/test-item.json"]
+    });
+    std::fs::write(
+        package_dir.join("package.json"),
+        serde_json::to_string_pretty(&package_json).unwrap(),
+    )
+    .unwrap();
+
+    let payload = serde_json::json!({ "fieldValues": [] }).to_string();
+    let result = run_srs_stdin_in_dir(
+        temp.path(),
+        &["record", "create", "--type", "com.test/test-item"],
+        &payload,
+    );
+    assert_eq!(result["ok"], true, "record create should succeed");
+
+    let record_id = result["payload"]["record"]["instanceId"]
+        .as_str()
+        .expect("instanceId should be present");
+    assert!(
+        temp.path()
+            .join(format!("package/records/{}.json", record_id))
+            .exists(),
+        "record file should be created"
+    );
+
+    let manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(temp.path().join("manifest.json")).unwrap())
+            .unwrap();
+    let has_entry = manifest["instanceIndex"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|e| e["instanceId"] == record_id);
+    assert!(has_entry, "manifest should include created record");
+}
+
+#[test]
+fn record_update_revalidates_and_rewrites_record() {
+    let temp = create_temp_repo();
+    let package_dir = temp.path().join("package");
+    std::fs::create_dir_all(package_dir.join("fields")).unwrap();
+    std::fs::create_dir_all(package_dir.join("types")).unwrap();
+
+    let field = serde_json::json!({
+        "id": "field-title-001",
+        "namespace": "com.test",
+        "name": "title",
+        "version": 1,
+        "valueType": "string",
+        "description": "Title field"
+    });
+    std::fs::write(
+        package_dir.join("fields/title.json"),
+        serde_json::to_string_pretty(&field).unwrap(),
+    )
+    .unwrap();
+
+    let record_type = serde_json::json!({
+        "id": "type-test-001",
+        "namespace": "com.test",
+        "name": "test-item",
+        "version": 1,
+        "description": "Test item type",
+        "fields": [{"fieldId": "field-title-001", "order": 1, "required": true}]
+    });
+    std::fs::write(
+        package_dir.join("types/test-item.json"),
+        serde_json::to_string_pretty(&record_type).unwrap(),
+    )
+    .unwrap();
+
+    let package_json = serde_json::json!({
+        "id": "test-pkg",
+        "namespace": "com.test",
+        "name": "test",
+        "version": "1.0.0",
+        "fields": ["fields/title.json"],
+        "types": ["types/test-item.json"]
+    });
+    std::fs::write(
+        package_dir.join("package.json"),
+        serde_json::to_string_pretty(&package_json).unwrap(),
+    )
+    .unwrap();
+
+    let create_payload = serde_json::json!({
+        "fieldValues": [{"fieldId": "field-title-001", "value": "before"}]
+    })
+    .to_string();
+    let created = run_srs_stdin_in_dir(
+        temp.path(),
+        &["record", "create", "--type", "com.test/test-item"],
+        &create_payload,
+    );
+    assert_eq!(created["ok"], true);
+    let record_id = created["payload"]["record"]["instanceId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let update_payload = serde_json::json!({
+        "fieldValues": [{"fieldId": "field-title-001", "value": "after"}]
+    })
+    .to_string();
+    let updated = run_srs_stdin_in_dir(
+        temp.path(),
+        &["record", "update", &record_id],
+        &update_payload,
+    );
+    assert_eq!(updated["ok"], true, "record update should succeed");
+
+    let fetched = run_srs_in_dir(temp.path(), &["record", "get", &record_id]);
+    let value = fetched["payload"]["record"]["fieldValues"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|fv| fv["fieldId"] == "field-title-001")
+        .and_then(|fv| fv["value"].as_str());
+    assert_eq!(value, Some("after"));
+}
+
+#[test]
+fn record_delete_removes_file_and_manifest_entry() {
+    let temp = create_temp_repo();
+    let package_dir = temp.path().join("package");
+    std::fs::create_dir_all(package_dir.join("types")).unwrap();
+    std::fs::create_dir_all(package_dir.join("records")).unwrap();
+
+    let record_type = serde_json::json!({
+        "id": "type-test-001",
+        "namespace": "com.test",
+        "name": "test-item",
+        "version": 1,
+        "description": "Test item type",
+        "fields": []
+    });
+    std::fs::write(
+        package_dir.join("types/test-item.json"),
+        serde_json::to_string_pretty(&record_type).unwrap(),
+    )
+    .unwrap();
+
+    let package_json = serde_json::json!({
+        "id": "test-pkg",
+        "namespace": "com.test",
+        "name": "test",
+        "version": "1.0.0",
+        "fields": [],
+        "types": ["types/test-item.json"]
+    });
+    std::fs::write(
+        package_dir.join("package.json"),
+        serde_json::to_string_pretty(&package_json).unwrap(),
+    )
+    .unwrap();
+
+    let record_id = "cccccccc-cccc-cccc-8ccc-cccccccccccc";
+    let record_path = package_dir.join(format!("records/{}.json", record_id));
+    let record = serde_json::json!({
+        "instanceId": record_id,
+        "typeId": "type-test-001",
+        "typeVersion": 1,
+        "typeNamespace": "com.test",
+        "typeName": "test-item",
+        "fieldValues": []
+    });
+    std::fs::write(&record_path, serde_json::to_string_pretty(&record).unwrap()).unwrap();
+
+    let manifest: Value = serde_json::json!({
+        "srsVersion": "2.0-draft",
+        "repositoryId": "test-repo",
+        "instanceIndex": [{
+            "instanceId": record_id,
+            "tier": 2,
+            "path": format!("package/records/{}.json", record_id)
+        }]
+    });
+    std::fs::write(
+        temp.path().join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    let deleted = run_srs_in_dir(temp.path(), &["record", "delete", record_id]);
+    assert_eq!(deleted["ok"], true, "record delete should succeed");
+    assert!(!record_path.exists(), "record file should be removed");
+
+    let manifest_after: Value =
+        serde_json::from_str(&std::fs::read_to_string(temp.path().join("manifest.json")).unwrap())
+            .unwrap();
+    let has_entry = manifest_after["instanceIndex"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|e| e["instanceId"] == record_id);
+    assert!(!has_entry, "manifest entry should be removed");
+}
+
+#[test]
+fn record_create_rejects_invalid_stdin_shape() {
+    let temp = create_temp_repo();
+    let package_dir = temp.path().join("package");
+    std::fs::create_dir_all(package_dir.join("types")).unwrap();
+
+    let record_type = serde_json::json!({
+        "id": "type-test-001",
+        "namespace": "com.test",
+        "name": "test-item",
+        "version": 1,
+        "description": "Test item type",
+        "fields": []
+    });
+    std::fs::write(
+        package_dir.join("types/test-item.json"),
+        serde_json::to_string_pretty(&record_type).unwrap(),
+    )
+    .unwrap();
+
+    let package_json = serde_json::json!({
+        "id": "test-pkg",
+        "namespace": "com.test",
+        "name": "test",
+        "version": "1.0.0",
+        "fields": [],
+        "types": ["types/test-item.json"]
+    });
+    std::fs::write(
+        package_dir.join("package.json"),
+        serde_json::to_string_pretty(&package_json).unwrap(),
+    )
+    .unwrap();
+
+    let invalid_payload = serde_json::json!({
+        "fieldValues": {"field-title-001": "not-an-array"}
+    })
+    .to_string();
+    let result = run_srs_stdin_in_dir(
+        temp.path(),
+        &["record", "create", "--type", "com.test/test-item"],
+        &invalid_payload,
+    );
+
+    assert_eq!(result["ok"], false);
+    assert!(!result["diagnostics"].as_array().unwrap().is_empty());
+}
+
 // --- relation command group ---
 
 #[test]
@@ -1663,6 +1936,61 @@ fn relation_list_returns_relations() {
         .as_array()
         .expect("relations should be array");
     assert_eq!(relations_list.len(), 2);
+}
+
+#[test]
+fn relation_list_filters_by_source_target_and_type() {
+    let temp = create_temp_repo();
+
+    std::fs::create_dir_all(temp.path().join("relations")).unwrap();
+    let relations = serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
+        "relations": [
+            {
+                "relationId": "r1",
+                "relationType": "contains",
+                "sourceInstanceId": "note-1",
+                "targetInstanceId": "note-2",
+                "createdAt": "2026-01-01T00:00:00Z"
+            },
+            {
+                "relationId": "r2",
+                "relationType": "references",
+                "sourceInstanceId": "note-2",
+                "targetInstanceId": "note-3",
+                "createdAt": "2026-01-01T00:00:00Z"
+            },
+            {
+                "relationId": "r3",
+                "relationType": "contains",
+                "sourceInstanceId": "note-1",
+                "targetInstanceId": "note-4",
+                "createdAt": "2026-01-01T00:00:00Z"
+            }
+        ]
+    });
+    std::fs::write(
+        temp.path().join("relations/relations-collection.json"),
+        serde_json::to_string_pretty(&relations).unwrap(),
+    )
+    .unwrap();
+
+    let by_source = run_srs_in_dir(temp.path(), &["relation", "list", "--source", "note-1"]);
+    let source_relations = by_source["payload"]["relations"].as_array().unwrap();
+    assert_eq!(source_relations.len(), 2);
+    assert!(source_relations.iter().all(|r| r["sourceId"] == "note-1"));
+
+    let by_target = run_srs_in_dir(temp.path(), &["relation", "list", "--target", "note-2"]);
+    let target_relations = by_target["payload"]["relations"].as_array().unwrap();
+    assert_eq!(target_relations.len(), 1);
+    assert_eq!(target_relations[0]["relationId"], "r1");
+
+    let by_type = run_srs_in_dir(temp.path(), &["relation", "list", "--type", "contains"]);
+    let typed_relations = by_type["payload"]["relations"].as_array().unwrap();
+    assert_eq!(typed_relations.len(), 2);
+    assert!(typed_relations
+        .iter()
+        .all(|r| r["relationType"] == "contains"));
 }
 
 #[test]

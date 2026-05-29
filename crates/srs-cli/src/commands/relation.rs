@@ -8,13 +8,27 @@ use srs_repository::relation_service::{
 
 pub fn dispatch(ctx: CliContext, cmd: RelationCommand) -> Result<String> {
     match cmd {
-        RelationCommand::List { json: _ } => cmd_relation_list(ctx),
+        RelationCommand::List {
+            source,
+            target,
+            relation_type,
+            json: _,
+        } => cmd_relation_list(ctx, source, target, relation_type),
         RelationCommand::Get { id, json: _ } => cmd_relation_get(ctx, id),
     }
 }
 
-fn cmd_relation_list(ctx: CliContext) -> Result<String> {
-    let filter = ListRelationsFilter::default();
+fn cmd_relation_list(
+    ctx: CliContext,
+    source: Option<String>,
+    target: Option<String>,
+    relation_type: Option<String>,
+) -> Result<String> {
+    let filter = ListRelationsFilter {
+        source,
+        target,
+        relation_type,
+    };
     let summaries = list_relations(&ctx.repo, filter)?;
 
     let relations: Vec<serde_json::Value> = summaries

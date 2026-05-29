@@ -373,12 +373,52 @@ pub enum RecordCommand {
         #[arg(long, hide = true)]
         json: bool,
     },
+    /// Create a record (reads JSON from stdin)
+    Create {
+        /// Type filter (namespace/name format)
+        #[arg(long = "type", visible_alias = "type-filter")]
+        type_filter: String,
+        /// Optional type version override (defaults to latest for namespace/name)
+        #[arg(long)]
+        version: Option<u32>,
+        /// Optional output directory relative to repo root
+        #[arg(long, default_value = "package/records")]
+        dir: String,
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+    /// Update a record by ID (reads JSON from stdin)
+    Update {
+        /// Record instance ID
+        id: String,
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+    /// Delete a record by ID
+    Delete {
+        /// Record instance ID
+        id: String,
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
 pub enum RelationCommand {
     /// List relations
     List {
+        /// Filter by source instance ID
+        #[arg(long)]
+        source: Option<String>,
+        /// Filter by target instance ID
+        #[arg(long)]
+        target: Option<String>,
+        /// Filter by relation type
+        #[arg(long = "type")]
+        relation_type: Option<String>,
         /// Deprecated: JSON output is now the default (no-op)
         #[arg(long, hide = true)]
         json: bool,
