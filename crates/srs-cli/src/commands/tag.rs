@@ -1,6 +1,6 @@
-use crate::commands::{resolve_repo, TagCommand};
+use crate::commands::{CliContext, TagCommand};
 use crate::output;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde_json::json;
 use srs_core::types::tag_definition::TagDefinition;
 use srs_repository::tag_service::{
@@ -8,23 +8,20 @@ use srs_repository::tag_service::{
     list_tag_definitions_by_role, GetTagDefinitionResult,
 };
 use std::io::{self, Read};
-use std::path::PathBuf;
 
-pub fn dispatch(cmd: TagCommand) -> Result<String> {
+pub fn dispatch(ctx: CliContext, cmd: TagCommand) -> Result<String> {
     match cmd {
-        TagCommand::List { repo, role } => cmd_tag_list(repo, role),
-        TagCommand::Get { repo, id } => cmd_tag_get(repo, id),
-        TagCommand::Create { repo } => cmd_tag_create(repo),
+        TagCommand::List { role, json: _ } => cmd_tag_list(ctx, role),
+        TagCommand::Get { id, json: _ } => cmd_tag_get(ctx, id),
+        TagCommand::Create { json: _ } => cmd_tag_create(ctx),
     }
 }
 
-fn cmd_tag_list(repo: Option<PathBuf>, role: Option<String>) -> Result<String> {
-    let repo_root = resolve_repo(repo)?;
-
+fn cmd_tag_list(ctx: CliContext, role: Option<String>) -> Result<String> {
     let summaries = if let Some(role_filter) = role {
-        list_tag_definitions_by_role(&repo_root, &role_filter)?
+        list_tag_definitions_by_role(&ctx.repo, &role_filter)?
     } else {
-        list_tag_definitions(&repo_root)?
+        list_tag_definitions(&ctx.repo)?
     };
 
     Ok(output::ok(
@@ -33,10 +30,8 @@ fn cmd_tag_list(repo: Option<PathBuf>, role: Option<String>) -> Result<String> {
     ))
 }
 
-fn cmd_tag_get(repo: Option<PathBuf>, id: String) -> Result<String> {
-    let repo_root = resolve_repo(repo)?;
-
-    match get_tag_definition_by_id(&repo_root, &id)? {
+fn cmd_tag_get(ctx: CliContext, id: String) -> Result<String> {
+    match get_tag_definition_by_id(&ctx.repo, &id)? {
         GetTagDefinitionResult::Found(td) => {
             Ok(output::ok("tag get", json!({ "tagDefinition": *td })))
         }
@@ -47,18 +42,16 @@ fn cmd_tag_get(repo: Option<PathBuf>, id: String) -> Result<String> {
     }
 }
 
-fn cmd_tag_create(repo: Option<PathBuf>) -> Result<String> {
-    let repo_root = resolve_repo(repo)?;
-
+fn cmd_tag_create(ctx: CliContext) -> Result<String> {
     // Read JSON from stdin - expects a TagDefinition
     let mut stdin = String::new();
     io::stdin().read_to_string(&mut stdin)?;
 
-    let tag_definition: TagDefinition =
-        serde_json::from_str(&stdin).context("Failed to parse TagDefinition JSON")?;
+    let tag_definition: TagDefinition = serde_json::from_str(&stdin)
+        .map_err(|e| anyhow::anyhow!("Failed to parse TagDefinition JSON: {}", e))?;
 
     // Create the TagDefinition via the dedicated service
-    let result = create_tag_definition(&repo_root, tag_definition)?;
+    let result = create_tag_definition(&ctx.repo, tag_definition)?;
 
     Ok(output::ok(
         "tag create",

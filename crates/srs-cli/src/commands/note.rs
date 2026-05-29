@@ -1,6 +1,6 @@
-use crate::commands::{resolve_repo, NoteCommand};
+use crate::commands::{CliContext, NoteCommand};
 use crate::output;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde_json::json;
 use srs_core::types::note::Note;
 use srs_repository::analysis::{audit_note_tags, collect_foundation_notes};
@@ -10,28 +10,25 @@ use srs_repository::services::{
 };
 use srs_repository::tag_service::get_foundation_signal_tags;
 use std::io::{self, Read};
-use std::path::PathBuf;
 
-pub fn dispatch(cmd: NoteCommand) -> Result<String> {
+pub fn dispatch(ctx: CliContext, cmd: NoteCommand) -> Result<String> {
     match cmd {
-        NoteCommand::List { repo, tag, json: _ } => cmd_note_list(repo, tag),
-        NoteCommand::Get { repo, id, json: _ } => cmd_note_get(repo, id),
-        NoteCommand::Create { repo, json: _ } => cmd_note_create(repo),
+        NoteCommand::List { tag, json: _ } => cmd_note_list(ctx, tag),
+        NoteCommand::Get { id, json: _ } => cmd_note_get(ctx, id),
+        NoteCommand::Create { json: _ } => cmd_note_create(ctx),
         NoteCommand::Tag {
-            repo,
             id,
             add_tag,
             json: _,
-        } => cmd_note_tag(repo, id, add_tag),
-        NoteCommand::AuditTags { repo, json: _ } => cmd_note_audit_tags(repo),
-        NoteCommand::Foundations { repo, json: _ } => cmd_note_foundations(repo),
+        } => cmd_note_tag(ctx, id, add_tag),
+        NoteCommand::AuditTags { json: _ } => cmd_note_audit_tags(ctx),
+        NoteCommand::Foundations { json: _ } => cmd_note_foundations(ctx),
     }
 }
 
-fn cmd_note_list(repo: Option<PathBuf>, tag: Option<String>) -> Result<String> {
-    let repo_root = resolve_repo(repo)?;
+fn cmd_note_list(ctx: CliContext, tag: Option<String>) -> Result<String> {
     let filter = ListNotesFilter { tag };
-    let result = list_notes(&repo_root, filter)?;
+    let result = list_notes(&ctx.repo, filter)?;
 
     // Convert NoteSummary to JSON for output
     let notes: Vec<serde_json::Value> = result
@@ -49,10 +46,8 @@ fn cmd_note_list(repo: Option<PathBuf>, tag: Option<String>) -> Result<String> {
     Ok(output::ok("note list", json!({ "notes": notes })))
 }
 
-fn cmd_note_get(repo: Option<PathBuf>, id: String) -> Result<String> {
-    let repo_root = resolve_repo(repo)?;
-
-    match get_note_by_id(&repo_root, &id)? {
+fn cmd_note_get(ctx: CliContext, id: String) -> Result<String> {
+    match get_note_by_id(&ctx.repo, &id)? {
         GetNoteResult::Found(note) => Ok(output::ok("note get", json!({ "note": note }))),
         GetNoteResult::NotFound => Ok(output::err(
             "note get",
@@ -65,25 +60,22 @@ fn cmd_note_get(repo: Option<PathBuf>, id: String) -> Result<String> {
     }
 }
 
-fn cmd_note_create(repo: Option<PathBuf>) -> Result<String> {
-    let repo_root = resolve_repo(repo)?;
-
+fn cmd_note_create(ctx: CliContext) -> Result<String> {
     // Read JSON from stdin
     let mut stdin = String::new();
     io::stdin().read_to_string(&mut stdin)?;
 
-    let note: Note = serde_json::from_str(&stdin).context("Failed to parse note JSON")?;
+    let note: Note = serde_json::from_str(&stdin)
+        .map_err(|e| anyhow::anyhow!("Failed to parse note JSON: {}", e))?;
 
     // Call service
-    let result = create_note(&repo_root, note)?;
+    let result = create_note(&ctx.repo, note)?;
 
     Ok(output::ok("note create", json!({ "note": result.note })))
 }
 
-fn cmd_note_tag(repo: Option<PathBuf>, id: String, add_tag: String) -> Result<String> {
-    let repo_root = resolve_repo(repo)?;
-
-    match add_note_tag(&repo_root, &id, &add_tag)? {
+fn cmd_note_tag(ctx: CliContext, id: String, add_tag: String) -> Result<String> {
+    match add_note_tag(&ctx.repo, &id, &add_tag)? {
         AddTagResult::Added { note, .. } | AddTagResult::AlreadyPresent { note, .. } => {
             Ok(output::ok("note tag", json!({ "note": note })))
         }
@@ -94,21 +86,18 @@ fn cmd_note_tag(repo: Option<PathBuf>, id: String, add_tag: String) -> Result<St
     }
 }
 
-fn cmd_note_audit_tags(repo: Option<PathBuf>) -> Result<String> {
-    let repo_root = resolve_repo(repo)?;
-    let audit = audit_note_tags(&repo_root)?;
+fn cmd_note_audit_tags(ctx: CliContext) -> Result<String> {
+    let audit = audit_note_tags(&ctx.repo)?;
     Ok(output::ok("note audit-tags", json!({ "tagAudit": audit })))
 }
 
-fn cmd_note_foundations(repo: Option<PathBuf>) -> Result<String> {
-    let repo_root = resolve_repo(repo)?;
-
+fn cmd_note_foundations(ctx: CliContext) -> Result<String> {
     // Get foundation signal tags from TagDefinition records (data-driven)
-    let signal_tags = get_foundation_signal_tags(&repo_root)?;
+    let signal_tags = get_foundation_signal_tags(&ctx.repo)?;
 
     // If no TagDefinition records with foundation role exist, return empty list
     // (acceptable transitional state until TagDefinition records are created)
-    let foundation_notes = collect_foundation_notes(&repo_root, &signal_tags)?;
+    let foundation_notes = collect_foundation_notes(&ctx.repo, &signal_tags)?;
 
     Ok(output::ok(
         "note foundations",

@@ -168,6 +168,120 @@ fn write_record(record: &Record, path: &Path) -> Result<(), RepositoryError> {
     })
 }
 
+/// Update an existing Tier 2 record.
+///
+/// This function:
+/// 1. Loads the existing record
+/// 2. Merges the provided field values (full replacement)
+/// 3. Updates the updated_at timestamp
+/// 4. Revalidates against the type definition
+/// 5. Writes the record back to disk
+/// 6. Updates the manifest (if needed)
+pub fn update_record(
+    repo_root: &Path,
+    instance_id: &str,
+    field_values: Vec<FieldValue>,
+) -> Result<Record, RepositoryError> {
+    // Load the existing record
+    let record =
+        get_record_by_id(repo_root, instance_id)?.ok_or_else(|| RepositoryError::NotFound {
+            path: repo_root.join("records"),
+        })?;
+
+    // Load package and resolve type for validation
+    let package = load_package(repo_root)?;
+    let record_type = package
+        .resolve_type(&record.type_id, record.type_version)
+        .ok_or_else(|| RepositoryError::TypeNotFound {
+            type_id: record.type_id.clone(),
+            version: record.type_version,
+        })?;
+
+    // Build the updated record with new field values
+    let updated_record = Record {
+        instance_id: record.instance_id,
+        type_id: record.type_id,
+        type_version: record.type_version,
+        type_namespace: record.type_namespace,
+        type_name: record.type_name,
+        field_values,
+        created_at: record.created_at,
+        updated_at: Some(chrono::Utc::now().to_rfc3339()),
+        extra: record.extra,
+    };
+
+    // Validate the updated record
+    validate_record(&updated_record, record_type).map_err(|e| {
+        RepositoryError::RecordValidation {
+            path: repo_root.join("records"),
+            source: e,
+        }
+    })?;
+
+    // Write the record
+    let mut manifest = load_manifest(repo_root)?;
+    let entry = manifest
+        .instance_index
+        .iter()
+        .find(|e| e.instance_id() == instance_id)
+        .cloned()
+        .ok_or_else(|| RepositoryError::NotFound {
+            path: repo_root.join("records"),
+        })?;
+
+    let record_path = repo_root.join(entry.path());
+    write_record(&updated_record, &record_path)?;
+
+    // Update manifest (re-upsert to ensure consistency)
+    upsert_record_index_entry(&mut manifest, &updated_record, entry.path());
+    write_manifest(&manifest)?;
+
+    Ok(updated_record)
+}
+
+/// Delete a Tier 2 record by its instance ID.
+///
+/// This function:
+/// 1. Finds the record in the manifest
+/// 2. Removes the file from disk
+/// 3. Removes the entry from the manifest
+/// 4. Writes the updated manifest
+///
+/// Returns the instance_id and path of the deleted record for audit purposes.
+pub fn delete_record(
+    repo_root: &Path,
+    instance_id: &str,
+) -> Result<(String, String), RepositoryError> {
+    let mut manifest = load_manifest(repo_root)?;
+
+    // Find the entry in the manifest
+    let entry_index = manifest
+        .instance_index
+        .iter()
+        .position(|e| e.instance_id() == instance_id && e.tier() == 2)
+        .ok_or_else(|| RepositoryError::NotFound {
+            path: repo_root.join("records"),
+        })?;
+
+    let entry = manifest.instance_index[entry_index].clone();
+    let path = entry.path().to_string();
+
+    // Remove the file if it exists
+    let full_path = repo_root.join(&path);
+    if full_path.exists() {
+        std::fs::remove_file(&full_path).map_err(|e| RepositoryError::Io {
+            path: full_path.clone(),
+            source: e,
+        })?;
+    }
+
+    // Remove from manifest
+    manifest.instance_index.remove(entry_index);
+    write_manifest(&manifest)?;
+
+    Ok((instance_id.to_string(), path))
+}
+
 /// Add or replace the manifest index entry for a Record (in memory only).
 fn upsert_record_index_entry(manifest: &mut Manifest, record: &Record, relative_path: &str) {
     let entry = InstanceIndexEntry {
@@ -463,5 +577,125 @@ mod tests {
 
         assert_eq!(record.field_values.len(), 1);
         assert_eq!(record.field_values[0].field_id, "field-name-001");
+    }
+
+    // Acceptance Criteria Tests for Phase 2
+
+    #[test]
+    fn record_update_validates_against_type() {
+        let temp = create_temp_repo_with_package();
+
+        // Create initial record
+        let initial_values = vec![
+            FieldValue {
+                field_id: "field-name-001".to_string(),
+                value: json!("Initial Name"),
+            },
+            FieldValue {
+                field_id: "field-status-001".to_string(),
+                value: json!("active"),
+            },
+        ];
+
+        let record = create_record(
+            temp.path(),
+            "type-test-001",
+            1,
+            initial_values,
+            "records/test-items",
+        )
+        .unwrap();
+
+        let instance_id = record.instance_id.clone();
+
+        // UPDATE: Update with valid values
+        let updated_values = vec![
+            FieldValue {
+                field_id: "field-name-001".to_string(),
+                value: json!("Updated Name"),
+            },
+            FieldValue {
+                field_id: "field-status-001".to_string(),
+                value: json!("inactive"),
+            },
+        ];
+
+        let updated = update_record(temp.path(), &instance_id, updated_values).unwrap();
+        assert_eq!(updated.field_values[0].value, json!("Updated Name"));
+
+        // Verify file was rewritten
+        let file_path = temp
+            .path()
+            .join(format!("records/test-items/{}.json", instance_id));
+        let file_content = fs::read_to_string(&file_path).unwrap();
+        let file_record: Record = serde_json::from_str(&file_content).unwrap();
+        assert_eq!(file_record.field_values[0].value, json!("Updated Name"));
+
+        // UPDATE: Try to update with invalid value (missing required field)
+        let invalid_values = vec![FieldValue {
+            field_id: "field-status-001".to_string(),
+            value: json!("active"),
+        }];
+
+        let result = update_record(temp.path(), &instance_id, invalid_values);
+        assert!(
+            result.is_err(),
+            "should fail when required field is missing"
+        );
+    }
+
+    #[test]
+    fn record_delete_removes_file_and_manifest_entry() {
+        let temp = create_temp_repo_with_package();
+
+        // Create initial record
+        let field_values = vec![
+            FieldValue {
+                field_id: "field-name-001".to_string(),
+                value: json!("Test Name"),
+            },
+            FieldValue {
+                field_id: "field-status-001".to_string(),
+                value: json!("active"),
+            },
+        ];
+
+        let record = create_record(
+            temp.path(),
+            "type-test-001",
+            1,
+            field_values,
+            "records/test-items",
+        )
+        .unwrap();
+
+        let instance_id = record.instance_id.clone();
+        let file_path = temp
+            .path()
+            .join(format!("records/test-items/{}.json", instance_id));
+
+        // Verify it was created
+        assert!(file_path.exists());
+
+        // Verify manifest has entry
+        let manifest_before: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(temp.path().join("manifest.json")).unwrap())
+                .unwrap();
+        let index_before = manifest_before["instanceIndex"].as_array().unwrap();
+        assert!(index_before.iter().any(|e| e["instanceId"] == instance_id));
+
+        // DELETE the record
+        let (deleted_id, _deleted_path) = delete_record(temp.path(), &instance_id).unwrap();
+        assert_eq!(deleted_id, instance_id);
+
+        // Verify file was removed
+        assert!(!file_path.exists());
+
+        // Verify manifest was updated
+        let manifest_after: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(temp.path().join("manifest.json")).unwrap())
+                .unwrap();
+        let index_after = manifest_after["instanceIndex"].as_array().unwrap();
+        assert!(!index_after.iter().any(|e| e["instanceId"] == instance_id));
     }
 }

@@ -53,6 +53,28 @@ pub enum AddTagResult {
     NotFound,
 }
 
+/// Result of removing a tag
+#[derive(Debug, Clone)]
+pub enum RemoveTagResult {
+    Removed { note: Note, tag: String },
+    NotPresent { note: Note, tag: String },
+    NotFound,
+}
+
+/// Result of updating a note
+#[derive(Debug, Clone)]
+pub struct UpdateNoteResult {
+    pub note: Note,
+    pub path: String,
+}
+
+/// Result of deleting a note
+#[derive(Debug, Clone)]
+pub struct DeleteNoteResult {
+    pub instance_id: String,
+    pub path: String,
+}
+
 /// Service: List notes with optional tag filter
 pub fn list_notes(
     repo_root: &Path,
@@ -226,6 +248,128 @@ pub fn add_note_tag(
         }
         None => Ok(AddTagResult::NotFound),
     }
+}
+
+/// Service: Remove a tag from a note
+pub fn remove_note_tag(
+    repo_root: &Path,
+    id: &str,
+    tag: &str,
+) -> Result<RemoveTagResult, RepositoryError> {
+    let mut manifest = load_manifest(repo_root)?;
+
+    // Find the note in the manifest
+    let entry = manifest
+        .instance_index
+        .iter()
+        .find(|e| e.instance_id() == id)
+        .cloned();
+
+    match entry {
+        Some(e) => {
+            let mut note = load_note_relative(repo_root, e.path())?;
+
+            // Remove tag if present
+            let tags = note.tags.get_or_insert_with(Vec::new);
+            if !tags.contains(&tag.to_string()) {
+                return Ok(RemoveTagResult::NotPresent {
+                    note,
+                    tag: tag.to_string(),
+                });
+            }
+            tags.retain(|t| t != tag);
+            if tags.is_empty() {
+                note.tags = None;
+            }
+
+            // Write back
+            let full_path = repo_root.join(e.path());
+            write_note(&note, &full_path)?;
+
+            // Update manifest to reflect new tags
+            upsert_index_entry(&mut manifest, &note, e.path());
+            write_manifest(&manifest)?;
+
+            Ok(RemoveTagResult::Removed {
+                note,
+                tag: tag.to_string(),
+            })
+        }
+        None => Ok(RemoveTagResult::NotFound),
+    }
+}
+
+/// Service: Update an existing note
+/// Accepts a full Note object, replaces the stored note, and updates manifest if title changed
+pub fn update_note(repo_root: &Path, note: Note) -> Result<UpdateNoteResult, RepositoryError> {
+    let mut manifest = load_manifest(repo_root)?;
+
+    // Find the note in the manifest
+    let entry = manifest
+        .instance_index
+        .iter()
+        .find(|e| e.instance_id() == note.instance_id)
+        .cloned()
+        .ok_or_else(|| RepositoryError::NoteNotFound {
+            path: repo_root.join("records/notes"),
+            id: note.instance_id.clone(),
+        })?;
+
+    // Validate the note
+    validate_note(&note).map_err(|e| RepositoryError::NoteValidation {
+        path: repo_root.join(entry.path()),
+        source: e,
+    })?;
+
+    // Write the note
+    let full_path = repo_root.join(entry.path());
+    write_note(&note, &full_path)?;
+
+    // Update manifest if title changed
+    upsert_index_entry(&mut manifest, &note, entry.path());
+    write_manifest(&manifest)?;
+
+    Ok(UpdateNoteResult {
+        note,
+        path: entry.path().to_string(),
+    })
+}
+
+/// Service: Delete a note by ID
+/// Removes the file and updates the manifest
+pub fn delete_note(repo_root: &Path, id: &str) -> Result<DeleteNoteResult, RepositoryError> {
+    let mut manifest = load_manifest(repo_root)?;
+
+    // Find the note in the manifest
+    let entry_index = manifest
+        .instance_index
+        .iter()
+        .position(|e| e.instance_id() == id && e.is_note())
+        .ok_or_else(|| RepositoryError::NoteNotFound {
+            path: repo_root.join("records/notes"),
+            id: id.to_string(),
+        })?;
+
+    let entry = manifest.instance_index[entry_index].clone();
+    let path = entry.path().to_string();
+
+    // Remove the file
+    let full_path = repo_root.join(&path);
+    if full_path.exists() {
+        std::fs::remove_file(&full_path).map_err(|e| RepositoryError::Io {
+            path: full_path.clone(),
+            source: e,
+        })?;
+    }
+
+    // Remove from manifest
+    manifest.instance_index.remove(entry_index);
+    write_manifest(&manifest)?;
+
+    Ok(DeleteNoteResult {
+        instance_id: id.to_string(),
+        path,
+    })
 }
 
 /// Library-owned slugification for note paths
@@ -472,5 +616,111 @@ mod tests {
             AddTagResult::NotFound => {}
             _ => panic!("Expected NotFound"),
         }
+    }
+
+    // Acceptance Criteria Tests for Phase 2
+
+    #[test]
+    fn note_update_rewrites_file_and_manifest_title() {
+        let temp = create_temp_repo();
+
+        // Get the existing note
+        let existing =
+            match get_note_by_id(temp.path(), "11111111-1111-1111-8111-111111111111").unwrap() {
+                GetNoteResult::Found(n) => n,
+                _ => panic!("Should find note"),
+            };
+
+        // Update the note
+        let updated_note = Note {
+            instance_id: existing.instance_id.clone(),
+            title: Some("Updated Title".to_string()),
+            tags: existing.tags.clone(),
+            sections: existing.sections.clone(),
+            graduated_at: existing.graduated_at.clone(),
+            source_refs: existing.source_refs.clone(),
+            meta: existing.meta.clone(),
+            created_at: existing.created_at.clone(),
+            updated_at: Some("2026-01-02T00:00:00Z".to_string()),
+        };
+
+        let result = update_note(temp.path(), updated_note).unwrap();
+        assert_eq!(result.note.title, Some("Updated Title".to_string()));
+
+        // Verify file was rewritten
+        let file_content =
+            std::fs::read_to_string(temp.path().join("records/notes/test-note.json")).unwrap();
+        let file_note: Note = serde_json::from_str(&file_content).unwrap();
+        assert_eq!(file_note.title, Some("Updated Title".to_string()));
+
+        // Verify manifest was updated with new title
+        let manifest: Value = serde_json::from_str(
+            &std::fs::read_to_string(temp.path().join("manifest.json")).unwrap(),
+        )
+        .unwrap();
+        let index = manifest["instanceIndex"].as_array().unwrap();
+        assert_eq!(index[0]["title"], "Updated Title");
+    }
+
+    #[test]
+    fn note_delete_removes_file_and_manifest_entry() {
+        let temp = create_temp_repo();
+
+        let result = delete_note(temp.path(), "11111111-1111-1111-8111-111111111111").unwrap();
+        assert_eq!(result.instance_id, "11111111-1111-1111-8111-111111111111");
+
+        // Verify file was removed
+        assert!(!temp.path().join("records/notes/test-note.json").exists());
+
+        // Verify manifest entry was removed
+        let manifest: Value = serde_json::from_str(
+            &std::fs::read_to_string(temp.path().join("manifest.json")).unwrap(),
+        )
+        .unwrap();
+        let index = manifest["instanceIndex"].as_array().unwrap();
+        assert!(index.is_empty());
+    }
+
+    #[test]
+    fn note_tag_remove_updates_note() {
+        let temp = create_temp_repo();
+
+        // First add a tag we can remove
+        add_note_tag(
+            temp.path(),
+            "11111111-1111-1111-8111-111111111111",
+            "removable-tag",
+        )
+        .unwrap();
+
+        // Now remove it
+        let result = remove_note_tag(
+            temp.path(),
+            "11111111-1111-1111-8111-111111111111",
+            "removable-tag",
+        )
+        .unwrap();
+
+        match result {
+            RemoveTagResult::Removed { note, tag } => {
+                assert_eq!(tag, "removable-tag");
+                assert!(!note
+                    .tags
+                    .as_ref()
+                    .unwrap()
+                    .contains(&"removable-tag".to_string()));
+            }
+            _ => panic!("Expected Removed"),
+        }
+
+        // Verify file was updated
+        let file_content =
+            std::fs::read_to_string(temp.path().join("records/notes/test-note.json")).unwrap();
+        let file_note: Note = serde_json::from_str(&file_content).unwrap();
+        assert!(!file_note
+            .tags
+            .as_ref()
+            .unwrap()
+            .contains(&"removable-tag".to_string()));
     }
 }

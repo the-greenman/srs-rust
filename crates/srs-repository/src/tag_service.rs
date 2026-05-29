@@ -31,6 +31,18 @@ pub struct CreateTagDefinitionResult {
     pub path: String,
 }
 
+/// Result type for update_tag_definition
+pub struct UpdateTagDefinitionResult {
+    pub tag_definition: TagDefinition,
+    pub path: String,
+}
+
+/// Result type for delete_tag_definition
+pub struct DeleteTagDefinitionResult {
+    pub instance_id: String,
+    pub path: String,
+}
+
 /// Convert a tag key to a filesystem-friendly slug.
 /// Uses kebab-case: lowercase, spaces to hyphens, remove non-alphanumeric.
 fn slugify_tag_key(tag_key: &str) -> String {
@@ -173,6 +185,85 @@ pub fn create_tag_definition(
     Ok(CreateTagDefinitionResult {
         tag_definition,
         path: relative_path,
+    })
+}
+
+/// Service: Update an existing TagDefinition
+/// Validates, writes to disk, and updates manifest
+pub fn update_tag_definition(
+    repo_root: &Path,
+    tag_definition: TagDefinition,
+) -> Result<UpdateTagDefinitionResult, RepositoryError> {
+    // Validate before writing
+    validate_tag_definition(&tag_definition).map_err(|e| {
+        RepositoryError::TagDefinitionValidation {
+            path: repo_root.join("records/tag-definitions"),
+            source: e,
+        }
+    })?;
+
+    let mut manifest = load_manifest(repo_root)?;
+
+    // Find the existing entry
+    let entry = manifest
+        .instance_index
+        .iter()
+        .find(|e| e.instance_id() == tag_definition.instance_id && e.is_tag_definition())
+        .cloned()
+        .ok_or_else(|| RepositoryError::NotFound {
+            path: repo_root.join("records/tag-definitions"),
+        })?;
+
+    // Write the updated definition
+    let full_path = repo_root.join(entry.path());
+    write_tag_definition(&tag_definition, &full_path)?;
+
+    // Update manifest
+    upsert_tag_definition_index_entry(&mut manifest, &tag_definition, entry.path());
+    write_manifest(&manifest)?;
+
+    Ok(UpdateTagDefinitionResult {
+        tag_definition,
+        path: entry.path().to_string(),
+    })
+}
+
+/// Service: Delete a TagDefinition by ID
+/// Removes the file and updates the manifest
+pub fn delete_tag_definition(
+    repo_root: &Path,
+    id: &str,
+) -> Result<DeleteTagDefinitionResult, RepositoryError> {
+    let mut manifest = load_manifest(repo_root)?;
+
+    // Find the entry in the manifest
+    let entry_index = manifest
+        .instance_index
+        .iter()
+        .position(|e| e.instance_id() == id && e.is_tag_definition())
+        .ok_or_else(|| RepositoryError::NotFound {
+            path: repo_root.join("records/tag-definitions"),
+        })?;
+
+    let entry = manifest.instance_index[entry_index].clone();
+    let path = entry.path().to_string();
+
+    // Remove the file
+    let full_path = repo_root.join(&path);
+    if full_path.exists() {
+        std::fs::remove_file(&full_path).map_err(|e| RepositoryError::Io {
+            path: full_path.clone(),
+            source: e,
+        })?;
+    }
+
+    // Remove from manifest
+    manifest.instance_index.remove(entry_index);
+    write_manifest(&manifest)?;
+
+    Ok(DeleteTagDefinitionResult {
+        instance_id: id.to_string(),
+        path,
     })
 }
 
@@ -356,5 +447,87 @@ mod tests {
         assert_eq!(slugify_tag_key("Foundation"), "foundation");
         assert_eq!(slugify_tag_key("My Tag"), "my-tag");
         assert_eq!(slugify_tag_key("Complex!!!Tag"), "complextag");
+    }
+
+    // Acceptance Criteria Tests for Phase 2
+
+    #[test]
+    fn tag_update_rewrites_definition() {
+        let temp = TempDir::new().unwrap();
+        fs::write(
+            temp.path().join("manifest.json"),
+            serde_json::to_string_pretty(&create_minimal_manifest()).unwrap(),
+        )
+        .unwrap();
+
+        // Create a tag
+        let td = create_test_td("test-tag");
+        let created = create_tag_definition(temp.path(), td).unwrap();
+        let instance_id = created.tag_definition.instance_id.clone();
+
+        // Update the tag
+        let mut updated = created.tag_definition;
+        updated.label = Some("Updated Label".to_string());
+
+        let result = update_tag_definition(temp.path(), updated).unwrap();
+        assert_eq!(
+            result.tag_definition.label,
+            Some("Updated Label".to_string())
+        );
+
+        // Verify file was rewritten
+        let file_path = temp.path().join(&result.path);
+        let file_content = fs::read_to_string(&file_path).unwrap();
+        let file_td: TagDefinition = serde_json::from_str(&file_content).unwrap();
+        assert_eq!(file_td.label, Some("Updated Label".to_string()));
+
+        // Verify can be retrieved
+        let fetched = get_tag_definition_by_id(temp.path(), &instance_id).unwrap();
+        match fetched {
+            GetTagDefinitionResult::Found(td) => {
+                assert_eq!(td.label, Some("Updated Label".to_string()));
+            }
+            _ => panic!("Should find updated tag"),
+        }
+    }
+
+    #[test]
+    fn tag_delete_removes_definition() {
+        let temp = TempDir::new().unwrap();
+        fs::write(
+            temp.path().join("manifest.json"),
+            serde_json::to_string_pretty(&create_minimal_manifest()).unwrap(),
+        )
+        .unwrap();
+
+        // Create a tag
+        let td = create_test_td("deletable-tag");
+        let created = create_tag_definition(temp.path(), td).unwrap();
+        let instance_id = created.tag_definition.instance_id.clone();
+        let file_path = temp.path().join(&created.path);
+
+        // Verify it was created
+        assert!(file_path.exists());
+
+        // Delete the tag
+        let result = delete_tag_definition(temp.path(), &instance_id).unwrap();
+        assert_eq!(result.instance_id, instance_id);
+
+        // Verify file was removed
+        assert!(!file_path.exists());
+
+        // Verify manifest was updated
+        let manifest: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(temp.path().join("manifest.json")).unwrap())
+                .unwrap();
+        let index = manifest["instanceIndex"].as_array().unwrap();
+        assert!(index.is_empty());
+
+        // Verify it's no longer findable
+        let fetched = get_tag_definition_by_id(temp.path(), &instance_id).unwrap();
+        match fetched {
+            GetTagDefinitionResult::NotFound => {} // Expected
+            _ => panic!("Should not find deleted tag"),
+        }
     }
 }

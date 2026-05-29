@@ -1,27 +1,24 @@
-use crate::commands::{resolve_repo, RepoCommand};
+use crate::commands::{CliContext, RepoCommand};
 use crate::output;
 use anyhow::Result;
 use serde_json::json;
 use srs_repository::analysis::build_repo_map;
 use srs_repository::validation::validate_repository;
-use std::path::PathBuf;
 
-pub fn dispatch(cmd: RepoCommand) -> Result<String> {
+pub fn dispatch(ctx: CliContext, cmd: RepoCommand) -> Result<String> {
     match cmd {
-        RepoCommand::Map { repo, json: _ } => cmd_repo_map(repo),
-        RepoCommand::Validate { repo, json: _ } => cmd_repo_validate(repo),
+        RepoCommand::Map { json: _ } => cmd_repo_map(ctx),
+        RepoCommand::Validate { json: _ } => cmd_repo_validate(ctx),
     }
 }
 
-fn cmd_repo_map(repo: Option<PathBuf>) -> Result<String> {
-    let repo_root = resolve_repo(repo)?;
-    let repo_map = build_repo_map(&repo_root)?;
+fn cmd_repo_map(ctx: CliContext) -> Result<String> {
+    let repo_map = build_repo_map(&ctx.repo)?;
     Ok(output::ok("repo map", json!({ "repoMap": repo_map })))
 }
 
-fn cmd_repo_validate(repo: Option<PathBuf>) -> Result<String> {
-    let repo_root = resolve_repo(repo)?;
-    let report = validate_repository(&repo_root)?;
+fn cmd_repo_validate(ctx: CliContext) -> Result<String> {
+    let report = validate_repository(&ctx.repo)?;
 
     if report.is_ok() {
         Ok(output::ok(

@@ -85,6 +85,19 @@ fn run_srs(args: &[&str]) -> Value {
     )
 }
 
+/// Run srs from a directory that is NOT an SRS repo, passing explicit args (may exit non-zero)
+#[allow(dead_code)]
+fn run_srs_raw(dir: &std::path::Path, args: &[&str]) -> (bool, String) {
+    let exe = env!("CARGO_BIN_EXE_srs");
+    let output = Command::new(exe)
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("Failed to execute srs command");
+    let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8 in output");
+    (output.status.success(), stdout)
+}
+
 #[test]
 fn note_list_returns_ok_envelope() {
     let result = run_srs(&["note", "list"]);
@@ -616,4 +629,1018 @@ fn repo_validate_tier_schema_mismatch_returns_ok_false() {
         "expected tier/schema mismatch in diagnostics: {:?}",
         diags
     );
+}
+
+// Phase 1 acceptance criteria tests
+
+#[test]
+fn global_repo_option_resolves_repo() {
+    // Run from a temp dir that is NOT an SRS repo, pointing --repo at the live srs spec repo
+    let temp = TempDir::new().unwrap();
+    let repo_path = "/home/greenman/dev/semanticops/srs/srs";
+    let exe = env!("CARGO_BIN_EXE_srs");
+    let output = Command::new(exe)
+        .args(["--repo", repo_path, "repo", "map"])
+        .current_dir(temp.path())
+        .output()
+        .expect("Failed to execute srs command");
+    assert!(
+        output.status.success(),
+        "srs --repo <path> repo map failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let result: Value = serde_json::from_str(&stdout).expect("output must be valid JSON");
+    assert_eq!(result["ok"], true, "expected ok:true from --repo repo map");
+}
+
+#[test]
+fn format_json_is_default() {
+    // Run without --format and verify output is valid JSON matching the envelope
+    let result = run_srs(&["repo", "map"]);
+    assert!(
+        result["ok"].is_boolean(),
+        "default output must be a JSON envelope with ok field"
+    );
+    assert!(
+        result["command"].is_string(),
+        "default output must include command field"
+    );
+    assert!(
+        result["version"].is_string(),
+        "default output must include version field"
+    );
+
+    // Run explicitly with --format json and verify it matches
+    let result_explicit = run_srs(&["--format", "json", "repo", "map"]);
+    assert_eq!(
+        result["command"], result_explicit["command"],
+        "--format json must match default output"
+    );
+    assert_eq!(result["ok"], result_explicit["ok"]);
+}
+
+#[test]
+fn pretty_outputs_multiline_json() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = "/home/greenman/dev/semanticops/srs/srs";
+    let exe = env!("CARGO_BIN_EXE_srs");
+
+    // Run with --pretty
+    let output = Command::new(exe)
+        .args(["--repo", repo_path, "--pretty", "repo", "map"])
+        .current_dir(temp.path())
+        .output()
+        .expect("Failed to execute srs command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // Pretty JSON has newlines and indentation
+    assert!(
+        stdout.contains('\n'),
+        "--pretty output must be multi-line, got: {stdout}"
+    );
+    // Must still be valid JSON
+    let _: Value = serde_json::from_str(&stdout).expect("--pretty output must be valid JSON");
+}
+
+#[test]
+fn format_text_returns_planned_diagnostic_until_renderer_exists() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = "/home/greenman/dev/semanticops/srs/srs";
+    let exe = env!("CARGO_BIN_EXE_srs");
+
+    // --format text must not panic; it returns a planned diagnostic message
+    let output = Command::new(exe)
+        .args(["--repo", repo_path, "--format", "text", "repo", "map"])
+        .current_dir(temp.path())
+        .output()
+        .expect("Failed to execute srs command");
+
+    // Must exit 0 (not crash)
+    assert!(
+        output.status.success(),
+        "--format text must not panic, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    // Must produce some output
+    assert!(
+        !stdout.trim().is_empty(),
+        "--format text must produce output"
+    );
+}
+
+// ============================================================================
+// Phase 3: Entity-First CLI Commands - Test First
+// ============================================================================
+// These tests define the expected behavior before implementation.
+// They will fail until the CLI commands are added.
+
+// --- repo extensions commands ---
+
+#[test]
+fn repo_extensions_list_returns_declared_extensions() {
+    let temp = create_temp_repo();
+
+    // Add some declared extensions to manifest
+    let manifest: Value = serde_json::json!({
+        "srsVersion": "2.0-draft",
+        "repositoryId": "test-repo",
+        "instanceIndex": [],
+        "declaredExtensions": ["ext:repository", "ext:relations"]
+    });
+    std::fs::write(
+        temp.path().join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    let result = run_srs_in_dir(temp.path(), &["repo", "extensions", "list"]);
+    assert_eq!(result["ok"], true, "repo extensions list should succeed");
+    let extensions = result["payload"]["extensions"]
+        .as_array()
+        .expect("payload should contain extensions array");
+    assert_eq!(extensions.len(), 2);
+    assert!(extensions.iter().any(|e| e == "ext:repository"));
+    assert!(extensions.iter().any(|e| e == "ext:relations"));
+}
+
+#[test]
+fn repo_extensions_enable_adds_extension() {
+    let temp = create_temp_repo();
+
+    let result = run_srs_in_dir(temp.path(), &["repo", "extensions", "enable", "ext:test"]);
+    assert_eq!(result["ok"], true, "repo extensions enable should succeed");
+
+    // Verify manifest was updated
+    let manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(temp.path().join("manifest.json")).unwrap())
+            .unwrap();
+    let extensions = manifest["declaredExtensions"].as_array().unwrap();
+    assert!(extensions.iter().any(|e| e == "ext:test"));
+}
+
+#[test]
+fn repo_extensions_disable_removes_extension() {
+    let temp = create_temp_repo();
+
+    // Start with an enabled extension
+    let manifest: Value = serde_json::json!({
+        "srsVersion": "2.0-draft",
+        "repositoryId": "test-repo",
+        "instanceIndex": [],
+        "declaredExtensions": ["ext:test"]
+    });
+    std::fs::write(
+        temp.path().join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    let result = run_srs_in_dir(temp.path(), &["repo", "extensions", "disable", "ext:test"]);
+    assert_eq!(result["ok"], true, "repo extensions disable should succeed");
+
+    // Verify manifest was updated
+    let manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(temp.path().join("manifest.json")).unwrap())
+            .unwrap();
+    let extensions = manifest["declaredExtensions"].as_array().unwrap();
+    assert!(!extensions.iter().any(|e| e == "ext:test"));
+}
+
+// --- note update/delete commands ---
+
+#[test]
+fn note_update_rewrites_note_and_manifest() {
+    let temp = create_temp_repo();
+
+    // Create a note first
+    let note_id = "aaaaaaaa-aaaa-aaaa-8aaa-aaaaaaaaaaaa";
+    let note = serde_json::json!({
+        "instanceId": note_id,
+        "title": "Original Title",
+        "tags": ["test"],
+        "sections": [{"name": "body", "content": "original content"}]
+    });
+
+    std::fs::create_dir_all(temp.path().join("records/notes")).unwrap();
+    std::fs::write(
+        temp.path().join("records/notes/original.json"),
+        serde_json::to_string_pretty(&note).unwrap(),
+    )
+    .unwrap();
+
+    let manifest: Value = serde_json::json!({
+        "srsVersion": "2.0-draft",
+        "repositoryId": "test-repo",
+        "instanceIndex": [{
+            "instanceId": note_id,
+            "tier": 0,
+            "path": "records/notes/original.json",
+            "title": "Original Title"
+        }]
+    });
+    std::fs::write(
+        temp.path().join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    // Update the note via CLI
+    let updated = serde_json::json!({
+        "instanceId": note_id,
+        "title": "Updated Title",
+        "tags": ["test", "updated"],
+        "sections": [{"name": "body", "content": "updated content"}]
+    });
+
+    let result = run_srs_stdin_in_dir(
+        temp.path(),
+        &["note", "update", note_id],
+        &serde_json::to_string(&updated).unwrap(),
+    );
+    assert_eq!(
+        result["ok"], true,
+        "note update should succeed: {:?}",
+        result["diagnostics"]
+    );
+    assert_eq!(result["payload"]["note"]["title"], "Updated Title");
+
+    // Verify file was rewritten
+    let file_note: Value = serde_json::from_str(
+        &std::fs::read_to_string(temp.path().join("records/notes/original.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(file_note["title"], "Updated Title");
+}
+
+#[test]
+fn note_delete_removes_note_and_manifest_entry() {
+    let temp = create_temp_repo();
+
+    // Create a note first
+    let note_id = "aaaaaaaa-aaaa-aaaa-8aaa-aaaaaaaaaaaa";
+    let note = serde_json::json!({
+        "instanceId": note_id,
+        "title": "To Delete",
+        "tags": ["test"],
+        "sections": [{"name": "body", "content": "content"}]
+    });
+
+    std::fs::create_dir_all(temp.path().join("records/notes")).unwrap();
+    std::fs::write(
+        temp.path().join("records/notes/delete-me.json"),
+        serde_json::to_string_pretty(&note).unwrap(),
+    )
+    .unwrap();
+
+    let manifest: Value = serde_json::json!({
+        "srsVersion": "2.0-draft",
+        "repositoryId": "test-repo",
+        "instanceIndex": [{
+            "instanceId": note_id,
+            "tier": 0,
+            "path": "records/notes/delete-me.json",
+            "title": "To Delete"
+        }]
+    });
+    std::fs::write(
+        temp.path().join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    // Delete the note
+    let result = run_srs_in_dir(temp.path(), &["note", "delete", note_id]);
+    assert_eq!(
+        result["ok"], true,
+        "note delete should succeed: {:?}",
+        result["diagnostics"]
+    );
+    assert_eq!(result["payload"]["instanceId"], note_id);
+
+    // Verify file was removed
+    assert!(!temp.path().join("records/notes/delete-me.json").exists());
+
+    // Verify manifest was updated
+    let manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(temp.path().join("manifest.json")).unwrap())
+            .unwrap();
+    let index = manifest["instanceIndex"].as_array().unwrap();
+    assert!(index.is_empty());
+}
+
+// --- note tag nested subgroup (breaking change from old form) ---
+
+#[test]
+fn note_tag_add_adds_tag_to_note() {
+    let temp = create_temp_repo();
+
+    // Create a note
+    let note_id = "aaaaaaaa-aaaa-aaaa-8aaa-aaaaaaaaaaaa";
+    let note = serde_json::json!({
+        "instanceId": note_id,
+        "title": "Test Note",
+        "tags": ["existing"],
+        "sections": [{"name": "body", "content": "content"}]
+    });
+
+    std::fs::create_dir_all(temp.path().join("records/notes")).unwrap();
+    std::fs::write(
+        temp.path().join("records/notes/test.json"),
+        serde_json::to_string_pretty(&note).unwrap(),
+    )
+    .unwrap();
+
+    let manifest: Value = serde_json::json!({
+        "srsVersion": "2.0-draft",
+        "repositoryId": "test-repo",
+        "instanceIndex": [{
+            "instanceId": note_id,
+            "tier": 0,
+            "path": "records/notes/test.json",
+            "title": "Test Note",
+            "tags": ["existing"]
+        }]
+    });
+    std::fs::write(
+        temp.path().join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    // Add tag using new nested form
+    let result = run_srs_in_dir(temp.path(), &["note", "tag", "add", note_id, "new-tag"]);
+    assert_eq!(
+        result["ok"], true,
+        "note tag add should succeed: {:?}",
+        result["diagnostics"]
+    );
+
+    // Verify tag was added
+    let file_note: Value = serde_json::from_str(
+        &std::fs::read_to_string(temp.path().join("records/notes/test.json")).unwrap(),
+    )
+    .unwrap();
+    let tags = file_note["tags"].as_array().unwrap();
+    assert!(tags.iter().any(|t| t == "new-tag"));
+}
+
+#[test]
+fn note_tag_remove_removes_tag_from_note() {
+    let temp = create_temp_repo();
+
+    // Create a note with tags
+    let note_id = "aaaaaaaa-aaaa-aaaa-8aaa-aaaaaaaaaaaa";
+    let note = serde_json::json!({
+        "instanceId": note_id,
+        "title": "Test Note",
+        "tags": ["keep", "remove"],
+        "sections": [{"name": "body", "content": "content"}]
+    });
+
+    std::fs::create_dir_all(temp.path().join("records/notes")).unwrap();
+    std::fs::write(
+        temp.path().join("records/notes/test.json"),
+        serde_json::to_string_pretty(&note).unwrap(),
+    )
+    .unwrap();
+
+    let manifest: Value = serde_json::json!({
+        "srsVersion": "2.0-draft",
+        "repositoryId": "test-repo",
+        "instanceIndex": [{
+            "instanceId": note_id,
+            "tier": 0,
+            "path": "records/notes/test.json",
+            "title": "Test Note",
+            "tags": ["keep", "remove"]
+        }]
+    });
+    std::fs::write(
+        temp.path().join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    // Remove tag using new nested form
+    let result = run_srs_in_dir(temp.path(), &["note", "tag", "remove", note_id, "remove"]);
+    assert_eq!(
+        result["ok"], true,
+        "note tag remove should succeed: {:?}",
+        result["diagnostics"]
+    );
+
+    // Verify tag was removed
+    let file_note: Value = serde_json::from_str(
+        &std::fs::read_to_string(temp.path().join("records/notes/test.json")).unwrap(),
+    )
+    .unwrap();
+    let tags = file_note["tags"].as_array().unwrap();
+    assert!(!tags.iter().any(|t| t == "remove"));
+    assert!(tags.iter().any(|t| t == "keep"));
+}
+
+#[test]
+fn old_note_tag_positional_form_fails_with_parse_error() {
+    let temp = create_temp_repo();
+
+    // The old form `srs note tag <id> <tag>` (without add/remove subcommand)
+    // should now fail with a parse error, not silently do the wrong thing
+    let exe = env!("CARGO_BIN_EXE_srs");
+    let output = Command::new(exe)
+        .args(["note", "tag", "some-id", "some-tag"])
+        .current_dir(temp.path())
+        .output()
+        .expect("Failed to execute srs command");
+
+    // Should fail (non-zero exit)
+    assert!(
+        !output.status.success(),
+        "old note tag form should fail - commands must use 'note tag add' or 'note tag remove'"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // Should mention the expected subcommands
+    assert!(
+        stderr.contains("add") || stderr.contains("remove") || stderr.contains("subcommand"),
+        "error should hint at add/remove subcommands: {}",
+        stderr
+    );
+}
+
+// --- tag update/delete commands ---
+
+#[test]
+fn tag_update_rewrites_tag_definition() {
+    let temp = create_temp_repo();
+
+    // Create a tag definition
+    let tag_id = "bbbbbbbb-bbbb-bbbb-8bbb-bbbbbbbbbbbb";
+    let tag_def = serde_json::json!({
+        "instanceId": tag_id,
+        "tagKey": "test-tag",
+        "label": "Original Label",
+        "description": "Original description"
+    });
+
+    std::fs::create_dir_all(temp.path().join("records/tag-definitions")).unwrap();
+    std::fs::write(
+        temp.path().join("records/tag-definitions/test-tag.json"),
+        serde_json::to_string_pretty(&tag_def).unwrap(),
+    )
+    .unwrap();
+
+    let manifest: Value = serde_json::json!({
+        "srsVersion": "2.0-draft",
+        "repositoryId": "test-repo",
+        "instanceIndex": [{
+            "instanceId": tag_id,
+            "tier": 2,
+            "path": "records/tag-definitions/test-tag.json"
+        }]
+    });
+    std::fs::write(
+        temp.path().join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    // Update the tag
+    let updated = serde_json::json!({
+        "instanceId": tag_id,
+        "tagKey": "test-tag",
+        "label": "Updated Label",
+        "description": "Updated description"
+    });
+
+    let result = run_srs_stdin_in_dir(
+        temp.path(),
+        &["tag", "update", tag_id],
+        &serde_json::to_string(&updated).unwrap(),
+    );
+    assert_eq!(
+        result["ok"], true,
+        "tag update should succeed: {:?}",
+        result["diagnostics"]
+    );
+    assert_eq!(result["payload"]["tagDefinition"]["label"], "Updated Label");
+
+    // Verify file was rewritten
+    let file_tag: Value = serde_json::from_str(
+        &std::fs::read_to_string(temp.path().join("records/tag-definitions/test-tag.json"))
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(file_tag["label"], "Updated Label");
+}
+
+#[test]
+fn tag_delete_removes_tag_definition() {
+    let temp = create_temp_repo();
+
+    // Create a tag definition
+    let tag_id = "bbbbbbbb-bbbb-bbbb-8bbb-bbbbbbbbbbbb";
+    let tag_def = serde_json::json!({
+        "instanceId": tag_id,
+        "tagKey": "delete-me",
+        "label": "Delete Me"
+    });
+
+    std::fs::create_dir_all(temp.path().join("records/tag-definitions")).unwrap();
+    std::fs::write(
+        temp.path().join("records/tag-definitions/delete-me.json"),
+        serde_json::to_string_pretty(&tag_def).unwrap(),
+    )
+    .unwrap();
+
+    let manifest: Value = serde_json::json!({
+        "srsVersion": "2.0-draft",
+        "repositoryId": "test-repo",
+        "instanceIndex": [{
+            "instanceId": tag_id,
+            "tier": 2,
+            "path": "records/tag-definitions/delete-me.json"
+        }]
+    });
+    std::fs::write(
+        temp.path().join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    // Delete the tag
+    let result = run_srs_in_dir(temp.path(), &["tag", "delete", tag_id]);
+    assert_eq!(
+        result["ok"], true,
+        "tag delete should succeed: {:?}",
+        result["diagnostics"]
+    );
+    assert_eq!(result["payload"]["instanceId"], tag_id);
+
+    // Verify file was removed
+    assert!(!temp
+        .path()
+        .join("records/tag-definitions/delete-me.json")
+        .exists());
+}
+
+// --- field command group ---
+
+#[test]
+fn field_list_returns_fields() {
+    let temp = create_temp_repo();
+
+    // Create package structure with fields
+    let package_dir = temp.path().join("package");
+    std::fs::create_dir_all(&package_dir).unwrap();
+    std::fs::create_dir_all(package_dir.join("fields")).unwrap();
+
+    let field = serde_json::json!({
+        "id": "00000000-0000-0000-0000-000000000001",
+        "namespace": "com.test",
+        "name": "test-field",
+        "version": 1,
+        "valueType": "string",
+        "description": "A test field"
+    });
+    std::fs::write(
+        package_dir.join("fields/test-field.json"),
+        serde_json::to_string_pretty(&field).unwrap(),
+    )
+    .unwrap();
+
+    let package_json = serde_json::json!({
+        "id": "test-pkg",
+        "namespace": "com.test",
+        "name": "test",
+        "version": "1.0.0",
+        "fields": ["fields/test-field.json"],
+        "types": []
+    });
+    std::fs::write(
+        package_dir.join("package.json"),
+        serde_json::to_string_pretty(&package_json).unwrap(),
+    )
+    .unwrap();
+
+    let result = run_srs_in_dir(temp.path(), &["field", "list"]);
+    assert_eq!(
+        result["ok"], true,
+        "field list should succeed: {:?}",
+        result["diagnostics"]
+    );
+    let fields = result["payload"]["fields"]
+        .as_array()
+        .expect("fields should be array");
+    assert_eq!(fields.len(), 1);
+    assert_eq!(fields[0]["name"], "test-field");
+}
+
+#[test]
+fn field_get_returns_field_by_id() {
+    let temp = create_temp_repo();
+
+    let package_dir = temp.path().join("package");
+    std::fs::create_dir_all(&package_dir).unwrap();
+    std::fs::create_dir_all(package_dir.join("fields")).unwrap();
+
+    let field_id = "00000000-0000-0000-0000-000000000001";
+    let field = serde_json::json!({
+        "id": field_id,
+        "namespace": "com.test",
+        "name": "test-field",
+        "version": 1,
+        "valueType": "string",
+        "description": "A test field"
+    });
+    std::fs::write(
+        package_dir.join("fields/test-field.json"),
+        serde_json::to_string_pretty(&field).unwrap(),
+    )
+    .unwrap();
+
+    let package_json = serde_json::json!({
+        "id": "test-pkg",
+        "namespace": "com.test",
+        "name": "test",
+        "version": "1.0.0",
+        "fields": ["fields/test-field.json"],
+        "types": []
+    });
+    std::fs::write(
+        package_dir.join("package.json"),
+        serde_json::to_string_pretty(&package_json).unwrap(),
+    )
+    .unwrap();
+
+    let result = run_srs_in_dir(temp.path(), &["field", "get", field_id]);
+    assert_eq!(
+        result["ok"], true,
+        "field get should succeed: {:?}",
+        result["diagnostics"]
+    );
+    assert_eq!(result["payload"]["field"]["name"], "test-field");
+}
+
+#[test]
+fn field_create_adds_field_to_package() {
+    let temp = create_temp_repo();
+
+    let package_dir = temp.path().join("package");
+    std::fs::create_dir_all(&package_dir).unwrap();
+    std::fs::create_dir_all(package_dir.join("fields")).unwrap();
+
+    let package_json = serde_json::json!({
+        "id": "test-pkg",
+        "namespace": "com.test",
+        "name": "test",
+        "version": "1.0.0",
+        "fields": [],
+        "types": []
+    });
+    std::fs::write(
+        package_dir.join("package.json"),
+        serde_json::to_string_pretty(&package_json).unwrap(),
+    )
+    .unwrap();
+
+    let new_field = serde_json::json!({
+        "id": "00000000-0000-0000-0000-000000000001",
+        "namespace": "com.test",
+        "name": "new-field",
+        "version": 1,
+        "valueType": "string",
+        "description": "A new field"
+    });
+
+    let result = run_srs_stdin_in_dir(
+        temp.path(),
+        &["field", "create"],
+        &serde_json::to_string(&new_field).unwrap(),
+    );
+    assert_eq!(
+        result["ok"], true,
+        "field create should succeed: {:?}",
+        result["diagnostics"]
+    );
+
+    // Verify package.json was updated
+    let package: Value =
+        serde_json::from_str(&std::fs::read_to_string(package_dir.join("package.json")).unwrap())
+            .unwrap();
+    let fields = package["fields"].as_array().unwrap();
+    assert_eq!(fields.len(), 1);
+}
+
+// --- type command group ---
+
+#[test]
+fn type_list_returns_types() {
+    let temp = create_temp_repo();
+
+    let package_dir = temp.path().join("package");
+    std::fs::create_dir_all(&package_dir).unwrap();
+    std::fs::create_dir_all(package_dir.join("types")).unwrap();
+
+    let record_type = serde_json::json!({
+        "id": "00000000-0000-0000-0000-000000000002",
+        "namespace": "com.test",
+        "name": "test-type",
+        "version": 1,
+        "description": "A test type",
+        "fields": []
+    });
+    std::fs::write(
+        package_dir.join("types/test-type.json"),
+        serde_json::to_string_pretty(&record_type).unwrap(),
+    )
+    .unwrap();
+
+    let package_json = serde_json::json!({
+        "id": "test-pkg",
+        "namespace": "com.test",
+        "name": "test",
+        "version": "1.0.0",
+        "fields": [],
+        "types": ["types/test-type.json"]
+    });
+    std::fs::write(
+        package_dir.join("package.json"),
+        serde_json::to_string_pretty(&package_json).unwrap(),
+    )
+    .unwrap();
+
+    let result = run_srs_in_dir(temp.path(), &["type", "list"]);
+    assert_eq!(
+        result["ok"], true,
+        "type list should succeed: {:?}",
+        result["diagnostics"]
+    );
+    let types = result["payload"]["types"]
+        .as_array()
+        .expect("types should be array");
+    assert_eq!(types.len(), 1);
+    assert_eq!(types[0]["name"], "test-type");
+}
+
+#[test]
+fn type_get_returns_type_by_id() {
+    let temp = create_temp_repo();
+
+    let package_dir = temp.path().join("package");
+    std::fs::create_dir_all(&package_dir).unwrap();
+    std::fs::create_dir_all(package_dir.join("types")).unwrap();
+
+    let type_id = "00000000-0000-0000-0000-000000000002";
+    let record_type = serde_json::json!({
+        "id": type_id,
+        "namespace": "com.test",
+        "name": "test-type",
+        "version": 1,
+        "description": "A test type",
+        "fields": []
+    });
+    std::fs::write(
+        package_dir.join("types/test-type.json"),
+        serde_json::to_string_pretty(&record_type).unwrap(),
+    )
+    .unwrap();
+
+    let package_json = serde_json::json!({
+        "id": "test-pkg",
+        "namespace": "com.test",
+        "name": "test",
+        "version": "1.0.0",
+        "fields": [],
+        "types": ["types/test-type.json"]
+    });
+    std::fs::write(
+        package_dir.join("package.json"),
+        serde_json::to_string_pretty(&package_json).unwrap(),
+    )
+    .unwrap();
+
+    let result = run_srs_in_dir(temp.path(), &["type", "get", type_id]);
+    assert_eq!(
+        result["ok"], true,
+        "type get should succeed: {:?}",
+        result["diagnostics"]
+    );
+    assert_eq!(result["payload"]["type"]["name"], "test-type");
+}
+
+// --- record command group ---
+
+#[test]
+fn record_list_returns_records_by_type() {
+    let temp = create_temp_repo();
+
+    // Setup package and create a record
+    let package_dir = temp.path().join("package");
+    std::fs::create_dir_all(&package_dir).unwrap();
+    std::fs::create_dir_all(package_dir.join("types")).unwrap();
+
+    let record_type = serde_json::json!({
+        "id": "type-test-001",
+        "namespace": "com.test",
+        "name": "test-item",
+        "version": 1,
+        "description": "Test item type",
+        "fields": []
+    });
+    std::fs::write(
+        package_dir.join("types/test-item.json"),
+        serde_json::to_string_pretty(&record_type).unwrap(),
+    )
+    .unwrap();
+
+    let package_json = serde_json::json!({
+        "id": "test-pkg",
+        "namespace": "com.test",
+        "name": "test",
+        "version": "1.0.0",
+        "fields": [],
+        "types": ["types/test-item.json"]
+    });
+    std::fs::write(
+        package_dir.join("package.json"),
+        serde_json::to_string_pretty(&package_json).unwrap(),
+    )
+    .unwrap();
+
+    // Create a record
+    std::fs::create_dir_all(temp.path().join("records/test-items")).unwrap();
+    let record_id = "cccccccc-cccc-cccc-8ccc-cccccccccccc";
+    let record = serde_json::json!({
+        "instanceId": record_id,
+        "typeId": "type-test-001",
+        "typeVersion": 1,
+        "typeNamespace": "com.test",
+        "typeName": "test-item",
+        "fieldValues": [],
+        "createdAt": "2026-01-01T00:00:00Z"
+    });
+    std::fs::write(
+        temp.path()
+            .join(format!("records/test-items/{}.json", record_id)),
+        serde_json::to_string_pretty(&record).unwrap(),
+    )
+    .unwrap();
+
+    // Update manifest
+    let manifest: Value = serde_json::json!({
+        "srsVersion": "2.0-draft",
+        "repositoryId": "test-repo",
+        "instanceIndex": [{
+            "instanceId": record_id,
+            "tier": 2,
+            "path": format!("records/test-items/{}.json", record_id)
+        }]
+    });
+    std::fs::write(
+        temp.path().join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    let result = run_srs_in_dir(
+        temp.path(),
+        &["record", "list", "--type", "com.test/test-item"],
+    );
+    assert_eq!(
+        result["ok"], true,
+        "record list should succeed: {:?}",
+        result["diagnostics"]
+    );
+    let records = result["payload"]["records"]
+        .as_array()
+        .expect("records should be array");
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0]["instanceId"], record_id);
+}
+
+#[test]
+fn record_get_returns_record_by_id() {
+    let temp = create_temp_repo();
+
+    let record_id = "cccccccc-cccc-cccc-8ccc-cccccccccccc";
+    std::fs::create_dir_all(temp.path().join("records/test-items")).unwrap();
+    let record = serde_json::json!({
+        "instanceId": record_id,
+        "typeId": "type-test-001",
+        "typeVersion": 1,
+        "typeNamespace": "com.test",
+        "typeName": "test-item",
+        "fieldValues": [{"fieldId": "field-001", "value": "test"}],
+        "createdAt": "2026-01-01T00:00:00Z"
+    });
+    std::fs::write(
+        temp.path()
+            .join(format!("records/test-items/{}.json", record_id)),
+        serde_json::to_string_pretty(&record).unwrap(),
+    )
+    .unwrap();
+
+    let manifest: Value = serde_json::json!({
+        "srsVersion": "2.0-draft",
+        "repositoryId": "test-repo",
+        "instanceIndex": [{
+            "instanceId": record_id,
+            "tier": 2,
+            "path": format!("records/test-items/{}.json", record_id)
+        }]
+    });
+    std::fs::write(
+        temp.path().join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    let result = run_srs_in_dir(temp.path(), &["record", "get", record_id]);
+    assert_eq!(
+        result["ok"], true,
+        "record get should succeed: {:?}",
+        result["diagnostics"]
+    );
+    assert_eq!(result["payload"]["record"]["instanceId"], record_id);
+}
+
+// --- relation command group ---
+
+#[test]
+fn relation_list_returns_relations() {
+    let temp = create_temp_repo();
+
+    // Setup relations directory and file
+    std::fs::create_dir_all(temp.path().join("relations")).unwrap();
+    let relations = serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
+        "relations": [
+            {
+                "relationId": "r1",
+                "relationType": "contains",
+                "sourceInstanceId": "note-1",
+                "targetInstanceId": "note-2",
+                "createdAt": "2026-01-01T00:00:00Z"
+            },
+            {
+                "relationId": "r2",
+                "relationType": "references",
+                "sourceInstanceId": "note-2",
+                "targetInstanceId": "note-3",
+                "createdAt": "2026-01-01T00:00:00Z"
+            }
+        ]
+    });
+    std::fs::write(
+        temp.path().join("relations/relations-collection.json"),
+        serde_json::to_string_pretty(&relations).unwrap(),
+    )
+    .unwrap();
+
+    let result = run_srs_in_dir(temp.path(), &["relation", "list"]);
+    assert_eq!(
+        result["ok"], true,
+        "relation list should succeed: {:?}",
+        result["diagnostics"]
+    );
+    let relations_list = result["payload"]["relations"]
+        .as_array()
+        .expect("relations should be array");
+    assert_eq!(relations_list.len(), 2);
+}
+
+#[test]
+fn relation_get_returns_relation_by_id() {
+    let temp = create_temp_repo();
+
+    std::fs::create_dir_all(temp.path().join("relations")).unwrap();
+    let relations = serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
+        "relations": [
+            {
+                "relationId": "r1",
+                "relationType": "contains",
+                "sourceInstanceId": "note-1",
+                "targetInstanceId": "note-2",
+                "createdAt": "2026-01-01T00:00:00Z"
+            }
+        ]
+    });
+    std::fs::write(
+        temp.path().join("relations/relations-collection.json"),
+        serde_json::to_string_pretty(&relations).unwrap(),
+    )
+    .unwrap();
+
+    let result = run_srs_in_dir(temp.path(), &["relation", "get", "r1"]);
+    assert_eq!(
+        result["ok"], true,
+        "relation get should succeed: {:?}",
+        result["diagnostics"]
+    );
+    assert_eq!(result["payload"]["relation"]["relationId"], "r1");
+    assert_eq!(result["payload"]["relation"]["relationType"], "contains");
 }

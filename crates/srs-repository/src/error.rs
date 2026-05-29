@@ -67,6 +67,9 @@ pub enum RepositoryError {
         source: std::io::Error,
     },
 
+    #[error("note not found: {id} at {path:?}")]
+    NoteNotFound { path: PathBuf, id: String },
+
     #[error("io error at {path:?}: {source}")]
     Io {
         path: PathBuf,
