@@ -4,6 +4,7 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Container {
+    #[serde(default)]
     pub container_id: String,
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -108,6 +109,16 @@ mod tests {
             parsed.extra.get("xTwo"),
             Some(&serde_json::json!({"a": true}))
         );
+    }
+
+    #[test]
+    fn container_missing_container_id_defaults_to_empty() {
+        let value = serde_json::json!({
+            "title": "No ID Provided"
+        });
+        let parsed: Container = serde_json::from_value(value).unwrap();
+        assert_eq!(parsed.container_id, "");
+        assert_eq!(parsed.title, "No ID Provided");
     }
 
     #[test]

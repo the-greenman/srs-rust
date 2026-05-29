@@ -2475,6 +2475,25 @@ fn container_create_returns_container() {
 }
 
 #[test]
+fn container_create_without_id_mints_uuid() {
+    let temp = make_container_test_repo();
+    let payload = serde_json::json!({
+        "title":"Test"
+    })
+    .to_string();
+    let result = run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);
+    assert_eq!(result["ok"], true);
+    let id = result["payload"]["container"]["containerId"]
+        .as_str()
+        .expect("containerId should be present");
+    assert_eq!(id.len(), 36, "containerId should be uuid-length");
+    assert_eq!(&id[8..9], "-");
+    assert_eq!(&id[13..14], "-");
+    assert_eq!(&id[18..19], "-");
+    assert_eq!(&id[23..24], "-");
+}
+
+#[test]
 fn container_get_returns_created_container() {
     let temp = make_container_test_repo();
     let payload = serde_json::json!({
