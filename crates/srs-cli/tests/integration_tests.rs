@@ -2504,7 +2504,11 @@ fn container_update_patches_title() {
     let patch = serde_json::json!({"title":"New"}).to_string();
     let updated = run_srs_stdin_in_dir(
         temp.path(),
-        &["container", "update", "00000000-0000-4000-8000-000000000001"],
+        &[
+            "container",
+            "update",
+            "00000000-0000-4000-8000-000000000001",
+        ],
         &patch,
     );
     assert_eq!(updated["ok"], true);
@@ -2524,7 +2528,11 @@ fn container_update_list_reflects_new_title() {
     let patch = serde_json::json!({"title":"New"}).to_string();
     run_srs_stdin_in_dir(
         temp.path(),
-        &["container", "update", "00000000-0000-4000-8000-000000000001"],
+        &[
+            "container",
+            "update",
+            "00000000-0000-4000-8000-000000000001",
+        ],
         &patch,
     );
     let listed = run_srs_in_dir(temp.path(), &["container", "list"]);
@@ -2543,7 +2551,11 @@ fn container_delete_removes_container() {
     run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);
     let deleted = run_srs_in_dir(
         temp.path(),
-        &["container", "delete", "00000000-0000-4000-8000-000000000001"],
+        &[
+            "container",
+            "delete",
+            "00000000-0000-4000-8000-000000000001",
+        ],
     );
     assert_eq!(deleted["ok"], true);
     let listed = run_srs_in_dir(temp.path(), &["container", "list"]);
@@ -2593,7 +2605,10 @@ fn container_members_add_list_remove() {
         ],
     );
     assert_eq!(removed["ok"], true);
-    assert_eq!(removed["payload"]["memberInstanceIds"], serde_json::json!([]));
+    assert_eq!(
+        removed["payload"]["memberInstanceIds"],
+        serde_json::json!([])
+    );
 }
 
 #[test]
@@ -2653,7 +2668,11 @@ fn container_validate_passes_clean() {
     run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);
     let result = run_srs_in_dir(
         temp.path(),
-        &["container", "validate", "00000000-0000-4000-8000-000000000001"],
+        &[
+            "container",
+            "validate",
+            "00000000-0000-4000-8000-000000000001",
+        ],
     );
     assert_eq!(result["ok"], true);
     assert_eq!(result["payload"]["ok"], true);
@@ -2679,7 +2698,10 @@ fn container_list_filters_by_type() {
     let result = run_srs_in_dir(temp.path(), &["container", "list", "--type", "meeting"]);
     let arr = result["payload"]["containers"].as_array().unwrap();
     assert_eq!(arr.len(), 1);
-    assert_eq!(arr[0]["containerId"], "00000000-0000-4000-8000-000000000001");
+    assert_eq!(
+        arr[0]["containerId"],
+        "00000000-0000-4000-8000-000000000001"
+    );
 }
 
 #[test]
@@ -2720,10 +2742,16 @@ fn container_list_member_and_root_filters() {
     );
 
     let by_member = run_srs_in_dir(temp.path(), &["container", "list", "--member", id]);
-    assert_eq!(by_member["payload"]["containers"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        by_member["payload"]["containers"].as_array().unwrap().len(),
+        2
+    );
 
     let by_root = run_srs_in_dir(temp.path(), &["container", "list", "--root", id]);
     let roots = by_root["payload"]["containers"].as_array().unwrap();
     assert_eq!(roots.len(), 1);
-    assert_eq!(roots[0]["containerId"], "00000000-0000-4000-8000-000000000001");
+    assert_eq!(
+        roots[0]["containerId"],
+        "00000000-0000-4000-8000-000000000001"
+    );
 }
