@@ -393,7 +393,7 @@ git commit
 
 ### Phase 8: CLI — Wire Tag Service, Remove `FOUNDATION_SIGNAL_TAGS`
 
-**Status:** `partial` — service wiring and `FOUNDATION_SIGNAL_TAGS` removal are complete; integration tests for `srs tag` commands not yet written
+**Status:** `complete`
 
 **Goal:** `srs tag list/get/create` delegate to the core tag service. `FOUNDATION_SIGNAL_TAGS` is gone. `cmd_note_foundations` calls `get_foundation_signal_tags`.
 
@@ -455,8 +455,8 @@ collect_foundation_notes(&repo_root, &signal_tag_refs)
 
 #### Integration tests (in `crates/srs-cli/tests/integration_tests.rs`)
 
-- [ ] `tag_list_returns_ok_envelope` — `srs tag list` against live srs repo → `ok: true`, `payload.tagDefinitions` is array (may be empty)
-- [ ] `tag_create_and_retrieve_in_temp_repo` — temp repo, create a TagDefinition with `{"tagKey": "test", "roles": ["foundation"]}` via stdin, retrieve by returned id; assert `tag_key == "test"`. Use existing `create_temp_repo()` fixture and `run_srs_stdin_in_dir` helper.
+- [x] `tag_list_returns_ok_envelope` — `srs tag list` against live srs repo → `ok: true`, `payload.tagDefinitions` is array (may be empty)
+- [x] `tag_create_and_retrieve_in_temp_repo` — temp repo, create a TagDefinition with `{"tagKey": "test", "roles": ["foundation"]}` via stdin, retrieve by returned id; assert `tag_key == "test"`. Use existing `create_temp_repo()` fixture and `run_srs_stdin_in_dir` helper.
 
 #### Milestone gate
 
@@ -471,16 +471,16 @@ git commit
 
 ## Final Acceptance
 
-- [ ] `cargo test` passes with no failures
-- [ ] `cargo clippy -- -D warnings` passes
-- [ ] `srs tag list` returns `ok: true` against the live srs repo
-- [ ] `srs note foundations` compiles and runs without any hardcoded tag list (may return empty list until TagDefinition records are created in the repo)
-- [ ] `FOUNDATION_SIGNAL_TAGS` does not appear anywhere in the codebase
-- [ ] `TAG_DEF_TYPE_ID` / `TAG_KEY_FIELD_ID` / `TAG_ROLES_FIELD_ID` constants do not appear in `tag.rs`
-- [ ] `TagDefinition` has a typed Rust struct in `srs-core` — it is not loaded via the generic `Record` path
-- [ ] `get_foundation_signal_tags` is a library function in `srs-repository`, not a CLI concern
-- [ ] `node scripts/validate-all.mjs` passes in `srs/`
-- [ ] All existing integration tests still pass
+- [x] `cargo test` passes with no failures
+- [x] `cargo clippy -- -D warnings` passes
+- [x] `srs tag list` returns `ok: true` against the live srs repo
+- [x] `srs note foundations` compiles and runs without any hardcoded tag list (may return empty list until TagDefinition records are created in the repo)
+- [x] `FOUNDATION_SIGNAL_TAGS` does not appear anywhere in the codebase
+- [x] `TAG_DEF_TYPE_ID` / `TAG_KEY_FIELD_ID` / `TAG_ROLES_FIELD_ID` constants do not appear in `tag.rs`
+- [x] `TagDefinition` has a typed Rust struct in `srs-core` — it is not loaded via the generic `Record` path
+- [x] `get_foundation_signal_tags` is a library function in `srs-repository`, not a CLI concern
+- [x] `node scripts/validate-all.mjs` passes in `srs/`
+- [x] All existing integration tests still pass
 
 ## Coordination Rules
 

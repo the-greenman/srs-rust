@@ -75,7 +75,7 @@ srs_schema::SchemaRegistry
 
 ### Phase 1: Schema Artifact Crate + Drift Check
 
-**Status:** `pending`
+**Status:** `complete`
 
 **Goal:** Rust has a reproducible, embedded schema snapshot with an automated check against the canonical spec repo.
 
@@ -113,7 +113,7 @@ cargo test -p srs-schema
 
 ### Phase 2: Schema Registry and Validator Selection
 
-**Status:** `pending`
+**Status:** `complete`
 
 **Goal:** Consumers validate by canonical `$id` through one registry. Error messages include schema id, instance path, and human-readable detail.
 
@@ -174,7 +174,7 @@ cargo clippy -p srs-schema -- -D warnings
 
 ### Phase 3: Align Rust Models With Canonical Schemas
 
-**Status:** `pending`
+**Status:** `complete`
 
 **Goal:** Rust serialization produces JSON that passes the canonical schemas by construction wherever Rust owns the type.
 
@@ -205,7 +205,7 @@ cargo clippy -p srs-core -- -D warnings
 
 ### Phase 4: Repository Validation Service
 
-**Status:** `pending`
+**Status:** `complete`
 
 **Goal:** `srs-repository` exposes one validation service that validates an entire file-backed repository and returns diagnostics. CLI and bindings can reuse it.
 
@@ -245,7 +245,7 @@ cargo clippy -p srs-repository -- -D warnings
 
 ### Phase 5: CLI Wrapper
 
-**Status:** `pending`
+**Status:** `complete`
 
 **Goal:** `srs repo validate --repo <path> --json` exposes repository validation without duplicating validation logic.
 
@@ -298,7 +298,7 @@ cargo clippy -p srs-cli -- -D warnings
 
 ### Phase 6: Remove Redundant SRS Repo Schema Copy
 
-**Status:** `pending`
+**Status:** `complete`
 
 **Goal:** `srs/srs/schemas/` is removed, and temporary Node.js scripts read the canonical schema directory directly.
 
@@ -323,15 +323,15 @@ node scripts/validate-all.mjs
 
 ## Final Acceptance
 
-- [ ] `cargo test` passes.
-- [ ] `cargo clippy -- -D warnings` passes.
-- [ ] `scripts/check-schema-drift.sh` passes.
-- [ ] `srs repo validate --repo ../srs/srs --json` reports no schema errors.
-- [ ] A Rust-written note validates through `srs repo validate`.
-- [ ] A temp repo with a missing required field produces an error diagnostic.
-- [ ] A temp repo with a manifest tier / `$schema` mismatch produces an error diagnostic.
-- [ ] `../srs/srs/schemas/` does not exist.
-- [ ] `node scripts/validate-all.mjs` passes from `../srs`.
+- [x] `cargo test` passes.
+- [x] `cargo clippy -- -D warnings` passes.
+- [x] `scripts/check-schema-drift.sh` passes.
+- [x] `srs repo validate --repo ../srs/srs --json` reports no schema errors.
+- [x] A Rust-written note validates through `srs repo validate`.
+- [x] A temp repo with a missing required field produces an error diagnostic.
+- [x] A temp repo with a manifest tier / `$schema` mismatch produces an error diagnostic.
+- [x] `../srs/srs/schemas/` does not exist.
+- [x] `node scripts/validate-all.mjs` passes from `../srs`.
 
 ## Coordination Rules
 
