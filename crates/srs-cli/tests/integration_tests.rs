@@ -3134,3 +3134,73 @@ fn container_scope_relation_list_filters_to_internal() {
     assert_eq!(arr.len(), 1);
     assert_eq!(arr[0]["relationId"], "r1");
 }
+
+#[test]
+fn render_document_view_returns_rendered_payload() {
+    let result = run_srs(&[
+        "render",
+        "document-view",
+        "--view",
+        "ec34f54b-8636-5c8b-af5b-c9eb3df24fe6",
+    ]);
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["command"], "render document-view");
+    assert!(!result["payload"]["rendered"]
+        .as_str()
+        .unwrap_or("")
+        .is_empty());
+    assert!(result["payload"]["diagnostics"].is_array());
+}
+
+#[test]
+fn render_document_view_unknown_id_returns_ok_false() {
+    let (ok, stdout) = run_srs_raw(
+        std::path::Path::new("/home/greenman/dev/semanticops/srs/srs"),
+        &[
+            "render",
+            "document-view",
+            "--view",
+            "00000000-0000-0000-0000-000000000000",
+        ],
+    );
+    assert!(ok, "command should return JSON envelope");
+    let result: Value = serde_json::from_str(&stdout).expect("json output");
+    assert_eq!(result["ok"], false);
+    assert_eq!(result["command"], "render document-view");
+}
+
+#[test]
+fn render_document_view_writes_output_file() {
+    let temp = TempDir::new().expect("tempdir");
+    let out_path = temp.path().join("rendered.md");
+    let out_str = out_path.to_string_lossy().to_string();
+    let result = run_srs(&[
+        "render",
+        "document-view",
+        "--view",
+        "ec34f54b-8636-5c8b-af5b-c9eb3df24fe6",
+        "--output",
+        &out_str,
+    ]);
+    assert_eq!(result["ok"], true);
+    let file = std::fs::read_to_string(&out_path).expect("render output should exist");
+    assert!(!file.trim().is_empty());
+}
+
+#[test]
+fn render_document_view_view_format_text_overrides_markup() {
+    let result = run_srs(&[
+        "render",
+        "document-view",
+        "--view",
+        "ec34f54b-8636-5c8b-af5b-c9eb3df24fe6",
+        "--view-format",
+        "text",
+    ]);
+    assert_eq!(result["ok"], true);
+    let rendered = result["payload"]["rendered"].as_str().unwrap_or("");
+    assert!(
+        !rendered.contains("# "),
+        "text format should not include markdown heading markers"
+    );
+}

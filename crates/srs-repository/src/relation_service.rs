@@ -177,7 +177,7 @@ pub fn delete_relation(
 }
 
 /// Load all relations from the relations-collection.json file
-fn load_relations(repo_root: &Path) -> Result<Vec<Relation>, RepositoryError> {
+pub(crate) fn load_relations(repo_root: &Path) -> Result<Vec<Relation>, RepositoryError> {
     let collection = load_relations_collection(repo_root)?;
     Ok(collection.relations)
 }

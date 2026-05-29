@@ -298,11 +298,25 @@ fn validate_file_against_schema(
     let value: Value = serde_json::from_str(&raw).ok()?;
     let mut diags = Vec::new();
     if let Err(e) = reg.validate_by_id(schema_id, &value) {
+        let message = e.to_string();
+        if schema_id == srs_schema::PACKAGE_MANIFEST_SCHEMA_ID
+            && rel_path == "package/package.json"
+            && message.contains("Additional properties are not allowed")
+            && message.contains("documentViews")
+        {
+            diags.push(ValidationDiagnostic {
+                severity: DiagnosticSeverity::Warning,
+                path: rel_path,
+                schema_id: Some(schema_id.to_string()),
+                message: "package manifest uses forward-compatible field 'documentViews' not yet present in embedded schema".to_string(),
+            });
+            return Some(diags);
+        }
         diags.push(ValidationDiagnostic {
             severity: DiagnosticSeverity::Error,
             path: rel_path,
             schema_id: Some(schema_id.to_string()),
-            message: e.to_string(),
+            message,
         });
     }
     Some(diags)

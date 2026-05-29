@@ -4,6 +4,7 @@ pub mod field;
 pub mod migrate;
 pub mod note;
 pub mod protocol;
+pub mod render;
 pub mod record;
 pub mod record_type;
 pub mod relation;
@@ -109,6 +110,9 @@ pub enum Commands {
     /// Container grouping and membership commands
     #[command(subcommand)]
     Container(ContainerCommand),
+    /// Render document outputs from views
+    #[command(subcommand)]
+    Render(RenderCommand),
 }
 
 #[derive(Subcommand)]
@@ -606,6 +610,22 @@ pub enum ProtocolCommand {
     },
 }
 
+#[derive(Subcommand)]
+pub enum RenderCommand {
+    /// Render a document view
+    DocumentView {
+        /// DocumentView UUID
+        #[arg(long = "view")]
+        view: String,
+        /// Optional render format override (markdown, text, adoc)
+        #[arg(long = "view-format")]
+        view_format: Option<String>,
+        /// Optional output file path for rendered content
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
+}
+
 pub fn dispatch(cli: Cli) -> Result<String> {
     // Resolve repository path using global option
     let repo_root = resolve_repo(cli.repo)?;
@@ -631,5 +651,6 @@ pub fn dispatch(cli: Cli) -> Result<String> {
         Commands::Extension(ext_cmd) => extension::dispatch(ctx, ext_cmd),
         Commands::Protocol(proto_cmd) => protocol::dispatch(ctx, proto_cmd),
         Commands::Container(cmd) => container::dispatch(ctx, cmd),
+        Commands::Render(cmd) => render::dispatch(ctx, cmd),
     }
 }
