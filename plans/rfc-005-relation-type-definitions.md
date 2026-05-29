@@ -65,7 +65,7 @@ No new ADRs — this plan implements RFC-005, which was reviewed and approved in
 
 #### Tasks
 
-- [ ] Edit `srs/docs/schema/2.0/relation-type.json`:
+- [x] Edit `srs/docs/schema/2.0/relation-type.json`:
   - Add `id` to `required[]` (UUID format)
   - Add `version` to `required[]` (integer, minimum 1)
   - Add `createdAt` to `required[]` (string, date-time format)
@@ -73,18 +73,18 @@ No new ADRs — this plan implements RFC-005, which was reviewed and approved in
   - Expand `category` enum to: `["composition", "refinement", "dependency", "sequence", "derivation", "evidence", "governance", "association", "lifecycle", "provenance", "other"]`
   - Add optional properties: `irreflexive` (boolean), `allowedSourceTypes` (array of strings), `allowedTargetTypes` (array of strings), `requireSameSemanticObjectType` (boolean), `status` (enum: `"active"`, `"deprecated"`, `"tombstone"`, `"retired"`), `updatedAt` (string, date-time format)
   - Keep `additionalProperties: false`
-- [ ] Edit `srs/docs/schema/2.0/package-bundle.json`:
+- [x] Edit `srs/docs/schema/2.0/package-bundle.json`:
   - Add `"relation-type"` to `$defs/Reference/properties/definitionType/enum`
   - Update `relationTypes[]` array description from "ext:recommended-relations relation type metadata" to "Relation type definitions included in this bundle"
-- [ ] Create `srs/srs/package/relation-types/` directory with seven canonical definition files (filenames: `contains.json`, `depends-on.json`, `supersedes.json`, `refines.json`, `derived-from.json`, `evidences.json`, `precedes.json`) using the exact JSON from RFC-005 section "Canonical Relation Type Definitions". Each file must include the new required fields (`id`, `version`, `createdAt`).
-- [ ] Update the four existing spec RFC relation type files — add required fields and namespace the `relationType` values (bare strings are reserved for the seven public canonical types; all other types must use `namespace/name` format):
+- [x] Create `srs/srs/package/relation-types/` directory with seven canonical definition files (filenames: `contains.json`, `depends-on.json`, `supersedes.json`, `refines.json`, `derived-from.json`, `evidences.json`, `precedes.json`) using the exact JSON from RFC-005 section "Canonical Relation Type Definitions". Each file must include the new required fields (`id`, `version`, `createdAt`).
+- [x] Update the four existing spec RFC relation type files — add required fields and namespace the `relationType` values (bare strings are reserved for the seven public canonical types; all other types must use `namespace/name` format):
   - `srs/srs/package/spec-rfc-process/relation-types/rfc-targets-section.json` → `relationType: "com.semanticops.spec/rfc-targets-section"`
   - `srs/srs/package/spec-rfc-process/relation-types/rfc-change-sequence.json` → `relationType: "com.semanticops.spec/rfc-change-sequence"`
   - `srs/srs/package/spec-rfc-process/relation-types/rfc-revision-sequence.json` → `relationType: "com.semanticops.spec/rfc-revision-sequence"`
   - `srs/srs/package/spec-rfc-process/relation-types/rfc-proposed-artifact-sequence.json` → `relationType: "com.semanticops.spec/rfc-proposed-artifact-sequence"`
   - Assign each a new UUID4 `id`, `"version": 1`, and a `createdAt` timestamp. Keep `namespace: "com.semanticops.spec"`.
   - The `namespace` in each of these four files is `com.semanticops.spec` (not `com.semanticops.srs`).
-- [ ] Create `srs/srs/package/spec-authoring-core/relation-types/` directory with definition files for the five SRS-specific relation types used in `srs/srs/relations/relations.json` that have no existing definition. These types use `namespace/name` format for `relationType` (per the schema description that bare strings are reserved for the seven public canonical types; SRS-internal types must be namespaced):
+- [x] Create `srs/srs/package/spec-authoring-core/relation-types/` directory with definition files for the five SRS-specific relation types used in `srs/srs/relations/relations.json` that have no existing definition. These types use `namespace/name` format for `relationType` (per the schema description that bare strings are reserved for the seven public canonical types; SRS-internal types must be namespaced):
   - `section-sequence.json` — `relationType: "com.semanticops.srs/section-sequence"`, `category: "sequence"`, `irreflexive: true`
   - `subsection-sequence.json` — `relationType: "com.semanticops.srs/subsection-sequence"`, `category: "sequence"`, `irreflexive: true`
   - `design-note-sequence.json` — `relationType: "com.semanticops.srs/design-note-sequence"`, `category: "sequence"`, `irreflexive: true`
@@ -92,10 +92,10 @@ No new ADRs — this plan implements RFC-005, which was reviewed and approved in
   - `explains.json` — `relationType: "com.semanticops.srs/explains"`, `category: "evidence"`, `irreflexive: true`
   - Each file must include `id` (new UUID4), `version: 1`, `createdAt`, `relationType`, `namespace: "com.semanticops.srs"`, `label`, `description`, `category`.
   - **Also update** the `"type"` values in `srs/srs/relations/relations.json` for these five types to the namespaced form as part of the relations.json migration in the same task.
-- [ ] Edit `srs/srs/package/package.json` — add a `"relationTypes"` array listing the seven canonical paths plus the five new spec-authoring-core paths plus the four RFC-process paths (all definitions in the effective root package set must be declared at the root). The four RFC-process definitions remain on disk under `spec-rfc-process/relation-types/` but are referenced by path from the root `package.json`.
-- [ ] Run `scripts/sync-schemas-from-spec.sh` to copy updated schemas into `crates/srs-schema/schemas/2.0/`
-- [ ] Verify `scripts/check-schema-drift.sh` passes
-- [ ] Migrate `srs/srs/relations/relations.json` from the legacy grouped shape to the `relations-collection.json` flat shape using these exact rules per legacy record type. Drop `id` and `description` from every legacy record (no flat schema equivalent). Drop `label` from every legacy record **except** flat `from`/`to` records, where `label` maps to `notes` (see rule below). Set `"createdAt": "2026-05-29T00:00:00Z"` on every emitted relation.
+- [x] Edit `srs/srs/package/package.json` — add a `"relationTypes"` array listing the seven canonical paths plus the five new spec-authoring-core paths plus the four RFC-process paths (all definitions in the effective root package set must be declared at the root). The four RFC-process definitions remain on disk under `spec-rfc-process/relation-types/` but are referenced by path from the root `package.json`.
+- [x] Run `scripts/sync-schemas-from-spec.sh` to copy updated schemas into `crates/srs-schema/schemas/2.0/`
+- [x] Verify `scripts/check-schema-drift.sh` passes
+- [x] Migrate `srs/srs/relations/relations.json` from the legacy grouped shape to the `relations-collection.json` flat shape using these exact rules per legacy record type. Drop `id` and `description` from every legacy record (no flat schema equivalent). Drop `label` from every legacy record **except** flat `from`/`to` records, where `label` maps to `notes` (see rule below). Set `"createdAt": "2026-05-29T00:00:00Z"` on every emitted relation.
 
   - **`from` + `members[]` grouped records** (`subsection-sequence`, `rfc-change-sequence`, `rfc-revision-sequence`, `rfc-proposed-artifact-sequence`): These encode "parent owns these ordered children." Emit two kinds of flat relations — do **not** emit a relation using the sequence type name itself:
     1. One `contains` relation per member: `sourceInstanceId: from`, `targetInstanceId: member[i]`, `relationType: "contains"`, new UUID4 `relationId`.
@@ -112,7 +112,7 @@ No new ADRs — this plan implements RFC-005, which was reviewed and approved in
 
   - Update the `$schema` reference to `relations-collection.json`.
 
-- [ ] Update all view files that reference relation types as machine values (not prose descriptions). Since grouping relations now expand to `precedes`, sequence-type views must use `"precedes"`:
+- [x] Update all view files that reference relation types as machine values (not prose descriptions). Since grouping relations now expand to `precedes`, sequence-type views must use `"precedes"`:
   - `srs/srs/package/views/srs-spec-document-view.json`: `"section-sequence"` → `"precedes"`
   - `srs/srs/package/spec-authoring-core/views/spec-document-view.json`: `"section-sequence"` → `"precedes"`
   - `srs/srs/package/spec-authoring-core/views/rationale-document-view.json`: `"design-note-sequence"` → `"precedes"`
@@ -125,8 +125,8 @@ No new ADRs — this plan implements RFC-005, which was reviewed and approved in
 
 #### Acceptance Criteria
 
-- [ ] `scripts/check-schema-drift.sh` exits 0
-- [ ] `cargo test -p srs-schema` passes (schema self-validation tests)
+- [x] `scripts/check-schema-drift.sh` exits 0
+- [x] `cargo test -p srs-schema` passes (schema self-validation tests)
 - [ ] `node scripts/validate-all.mjs` passes from `srs/`
 
 #### Testing
@@ -139,11 +139,17 @@ cd ../srs && node scripts/validate-all.mjs
 
 #### Milestone gate
 
+1. Verify all Phase 1 acceptance criteria above are met — check each checkbox.
+2. Confirm every test listed above exists and passes.
+3. Run:
+
 ```bash
 cargo test -p srs-schema
 cargo clippy -p srs-schema -- -D warnings
-git commit
 ```
+
+4. Update this plan: mark completed task and acceptance criteria checkboxes `[x]`.
+5. `git commit`
 
 ---
 
@@ -159,11 +165,11 @@ git commit
 
 | File | Action |
 |---|---|
-| `crates/srs-core/src/types/relation_type_definition.rs` | Create |
-| `crates/srs-core/src/types/mod.rs` | Add `pub mod relation_type_definition;` |
-| `crates/srs-core/src/validation/relation_type_definition.rs` | Create |
-| `crates/srs-core/src/validation/mod.rs` | Add `pub mod relation_type_definition;` |
-| `crates/srs-core/src/error.rs` | Add `InvalidRelationTypeId`, `EmptyRelationType`, `InvalidRelationTypeStatus` variants |
+| `crates/srs-core/src/types/relation_type_definition.rs` | Create ✅ |
+| `crates/srs-core/src/types/mod.rs` | Add `pub mod relation_type_definition;` ✅ |
+| `crates/srs-core/src/validation/relation_type_definition.rs` | Create ✅ |
+| `crates/srs-core/src/validation/mod.rs` | Add `pub mod relation_type_definition;` ✅ |
+| `crates/srs-core/src/error.rs` | Add `InvalidRelationTypeId`, `EmptyRelationType`, `InvalidRelationTypeStatus` variants ✅ |
 
 #### `RelationTypeDefinition` struct shape
 
@@ -293,11 +299,17 @@ Implements:
 
 #### Milestone gate
 
+1. Verify all Phase 2 acceptance criteria above are met — check each checkbox.
+2. Confirm every named test in the Tests section exists in `crates/srs-core/src/` and passes.
+3. Run:
+
 ```bash
 cargo test -p srs-core
 cargo clippy -p srs-core -- -D warnings
-git commit
 ```
+
+4. Update this plan: mark completed task and acceptance criteria checkboxes `[x]`.
+5. `git commit`
 
 ---
 
@@ -313,11 +325,11 @@ git commit
 
 | File | Action |
 |---|---|
-| `crates/srs-repository/src/package.rs` | Add `load_relation_type_definitions`, expose via `Package` struct |
-| `crates/srs-repository/src/loader.rs` | Add `load_relation_type_definition(path)` |
-| `crates/srs-repository/src/error.rs` | Add `RelationTypeDefinitionLoad`, `RelationTypeDefinitionConflict`, `RelationValidation` variants |
-| `crates/srs-repository/src/validation.rs` | Wire E1–E4 into `validate_repository` |
-| `crates/srs-repository/src/writer.rs` | Call `validate_relation` (with `is_write: true`) before writing a new relation |
+| `crates/srs-repository/src/package.rs` | Add `load_relation_type_definitions`, expose via `Package` struct ✅ |
+| `crates/srs-repository/src/loader.rs` | Add `load_relation_type_definition(path)` ✅ |
+| `crates/srs-repository/src/error.rs` | Add `RelationTypeDefinitionLoad`, `RelationTypeDefinitionConflict`, `RelationValidation` variants ✅ |
+| `crates/srs-repository/src/validation.rs` | Wire E1–E4 into `validate_repository` ✅ |
+| `crates/srs-repository/src/writer.rs` | Call `validate_relation` (with `is_write: true`) before writing a new relation ✅ |
 
 #### `Package` struct changes
 
@@ -365,11 +377,17 @@ Before writing a new relation (when a `relation create` service exists), call `v
 
 #### Milestone gate
 
+1. Verify all Phase 3 acceptance criteria above are met — check each checkbox.
+2. Confirm every named test in the Tests section exists in `crates/srs-repository/src/` and passes.
+3. Run:
+
 ```bash
 cargo test -p srs-repository
 cargo clippy -p srs-repository -- -D warnings
-git commit
 ```
+
+4. Update this plan: mark completed task and acceptance criteria checkboxes `[x]`.
+5. `git commit`
 
 ---
 
@@ -385,8 +403,8 @@ git commit
 
 | File | Action |
 |---|---|
-| `crates/srs-cli/src/commands/relation_type.rs` | Create |
-| `crates/srs-cli/src/commands/mod.rs` | Add `pub mod relation_type;`, add `RelationType(RelationTypeCommand)` variant to `Commands`, add dispatch arm |
+| `crates/srs-cli/src/commands/relation_type.rs` | Create ✅ |
+| `crates/srs-cli/src/commands/mod.rs` | Add `pub mod relation_type;`, add `RelationType(RelationTypeCommand)` variant to `Commands`, add dispatch arm ✅ |
 
 #### Command surface
 
@@ -420,12 +438,18 @@ Output envelopes:
 
 #### Milestone gate
 
+1. Verify all Phase 4 acceptance criteria above are met — check each checkbox.
+2. Confirm every named test in the Tests section exists in `crates/srs-cli/tests/integration_tests.rs` and passes.
+3. Run:
+
 ```bash
 cargo test -p srs-cli
 cargo test --test integration_tests
 cargo clippy -p srs-cli -- -D warnings
-git commit
 ```
+
+4. Update this plan: mark completed task and acceptance criteria checkboxes `[x]`.
+5. `git commit`
 
 ---
 
@@ -437,12 +461,12 @@ git commit
 
 #### Tasks
 
-- [ ] Run full workspace test suite
-- [ ] Run clippy across all crates with `-D warnings`
+- [x] Run full workspace test suite
+- [x] Run clippy across all crates with `-D warnings`
 - [ ] Confirm `scripts/check-schema-drift.sh` passes
-- [ ] Confirm `srs repo validate --repo ../srs/srs --json` reports no new errors
+- [x] Confirm `srs repo validate --repo ../srs/srs --json` reports no new errors
 - [ ] Confirm `node scripts/validate-all.mjs` passes from `srs/`
-- [ ] Audit that every RFC-005 invariant implemented in this plan (E1–E4, conflict rule, coalescing rule) has at least one test. **Deletion rule (instance deletion → relation status transition) is deferred** — no write service for definition or instance deletion exists yet; it will be covered when the `relation delete` and `record delete` services are added in the CLI command structure plan.
+- [x] Audit that every RFC-005 invariant implemented in this plan (E1–E4, conflict rule, coalescing rule) has at least one test. **Deletion rule (instance deletion → relation status transition) is deferred** — no write service for definition or instance deletion exists yet; it will be covered when the `relation delete` and `record delete` services are added in the CLI command structure plan.
 
 #### Testing
 
@@ -458,16 +482,16 @@ cd ../srs && node scripts/validate-all.mjs
 
 ## Final Acceptance
 
-- [ ] `cargo test` passes with no failures
-- [ ] `cargo clippy -- -D warnings` passes
+- [x] `cargo test` passes with no failures
+- [x] `cargo clippy -- -D warnings` passes
 - [ ] `scripts/check-schema-drift.sh` passes
-- [ ] `srs relation-type list` against the live srs repo returns 16 definitions (7 canonical + 5 spec-authoring-core + 4 RFC-process)
-- [ ] `srs repo validate` against a repo with an unknown `relationType` produces a diagnostic
-- [ ] `srs repo validate` against a repo with a self-relation on an `irreflexive` type produces a diagnostic
-- [ ] `srs repo validate` against a repo using only canonical types and valid relations produces no diagnostics
-- [ ] E1 coalescing: two identical canonical definitions in the effective package set produce no conflict
-- [ ] E1 conflict: two definitions with same `relationType` but different `id` produce a conflict error
-- [ ] CLI integration tests pass
+- [x] `srs relation-type list` against the live srs repo returns 16 definitions (7 canonical + 5 spec-authoring-core + 4 RFC-process)
+- [x] `srs repo validate` against a repo with an unknown `relationType` produces a diagnostic
+- [x] `srs repo validate` against a repo with a self-relation on an `irreflexive` type produces a diagnostic
+- [x] `srs repo validate` against a repo using only canonical types and valid relations produces no diagnostics
+- [x] E1 coalescing: two identical canonical definitions in the effective package set produce no conflict
+- [x] E1 conflict: two definitions with same `relationType` but different `id` produce a conflict error
+- [x] CLI integration tests pass
 - [ ] `node scripts/validate-all.mjs` passes from `srs/`
 
 ## Coordination Rules
@@ -476,7 +500,7 @@ cd ../srs && node scripts/validate-all.mjs
 - Agents must not revert edits made by others.
 - Workers return changed file paths and a short behaviour summary when done.
 - Lead Integrator owns final API naming and dependency boundaries.
-- Agents must run the milestone gate (lint + tests + commit) before marking a phase complete.
+- **At the end of each phase:** verify all acceptance criteria, confirm every planned test exists and passes, update the plan checkboxes `[x]`, then commit. Do not proceed to the next phase without completing the milestone gate.
 - Verification Agent runs after each major phase and before final sign-off.
 
 ## Assumptions

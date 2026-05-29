@@ -29,7 +29,10 @@ fn cmd_relation_list(ctx: CliContext) -> Result<String> {
         })
         .collect();
 
-    Ok(output::ok("relation list", json!({ "relations": relations })))
+    Ok(output::ok(
+        "relation list",
+        json!({ "relations": relations }),
+    ))
 }
 
 fn cmd_relation_get(ctx: CliContext, id: String) -> Result<String> {

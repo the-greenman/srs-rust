@@ -1,5 +1,6 @@
 pub mod field;
 pub mod note;
+pub mod protocol;
 pub mod record;
 pub mod record_type;
 pub mod relation;

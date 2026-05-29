@@ -81,9 +81,9 @@ fn cmd_note_tag_dispatch(ctx: CliContext, cmd: NoteTagCommand) -> Result<String>
 
 fn cmd_note_tag_add(ctx: CliContext, id: String, tag: String) -> Result<String> {
     match add_note_tag(&ctx.repo, &id, &tag)? {
-        AddTagResult::Added { note, .. } | AddTagResult::AlreadyPresent { note, .. } => {
-            Ok(output::ok("note tag add", json!({ "note": note, "tag": tag })))
-        }
+        AddTagResult::Added { note, .. } | AddTagResult::AlreadyPresent { note, .. } => Ok(
+            output::ok("note tag add", json!({ "note": note, "tag": tag })),
+        ),
         AddTagResult::NotFound => Ok(output::err(
             "note tag add",
             vec![format!("Note with id '{}' not found", id)],
@@ -93,12 +93,14 @@ fn cmd_note_tag_add(ctx: CliContext, id: String, tag: String) -> Result<String> 
 
 fn cmd_note_tag_remove(ctx: CliContext, id: String, tag: String) -> Result<String> {
     match remove_note_tag(&ctx.repo, &id, &tag)? {
-        RemoveTagResult::Removed { note, .. } => {
-            Ok(output::ok("note tag remove", json!({ "note": note, "tag": tag, "removed": true })))
-        }
-        RemoveTagResult::NotPresent { note, .. } => {
-            Ok(output::ok("note tag remove", json!({ "note": note, "tag": tag, "removed": false })))
-        }
+        RemoveTagResult::Removed { note, .. } => Ok(output::ok(
+            "note tag remove",
+            json!({ "note": note, "tag": tag, "removed": true }),
+        )),
+        RemoveTagResult::NotPresent { note, .. } => Ok(output::ok(
+            "note tag remove",
+            json!({ "note": note, "tag": tag, "removed": false }),
+        )),
         RemoveTagResult::NotFound => Ok(output::err(
             "note tag remove",
             vec![format!("Note with id '{}' not found", id)],
@@ -118,21 +120,28 @@ fn cmd_note_update(ctx: CliContext, id: String) -> Result<String> {
     if note.instance_id != id {
         return Ok(output::err(
             "note update",
-            vec![format!("Note ID in JSON ({}) does not match command argument ({})", note.instance_id, id)],
+            vec![format!(
+                "Note ID in JSON ({}) does not match command argument ({})",
+                note.instance_id, id
+            )],
         ));
     }
 
     // Call service
     let result = update_note(&ctx.repo, note)?;
 
-    Ok(output::ok("note update", json!({ "note": result.note, "path": result.path })))
+    Ok(output::ok(
+        "note update",
+        json!({ "note": result.note, "path": result.path }),
+    ))
 }
 
 fn cmd_note_delete(ctx: CliContext, id: String) -> Result<String> {
     match delete_note(&ctx.repo, &id) {
-        Ok(DeleteNoteResult { instance_id, path }) => {
-            Ok(output::ok("note delete", json!({ "instanceId": instance_id, "path": path })))
-        }
+        Ok(DeleteNoteResult { instance_id, path }) => Ok(output::ok(
+            "note delete",
+            json!({ "instanceId": instance_id, "path": path }),
+        )),
         Err(e) => Ok(output::err("note delete", vec![e.to_string()])),
     }
 }

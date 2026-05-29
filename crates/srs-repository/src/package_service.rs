@@ -300,7 +300,10 @@ pub fn create_field(repo_root: &Path, field: Field) -> Result<CreateFieldResult,
     })?;
 
     Ok(CreateFieldResult {
-        field: Field { created_at, ..field },
+        field: Field {
+            created_at,
+            ..field
+        },
         path: relative_path,
     })
 }

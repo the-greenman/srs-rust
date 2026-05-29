@@ -74,7 +74,10 @@ fn cmd_tag_update(ctx: CliContext, id: String) -> Result<String> {
     if tag_definition.instance_id != id {
         return Ok(output::err(
             "tag update",
-            vec![format!("Tag ID in JSON ({}) does not match command argument ({})", tag_definition.instance_id, id)],
+            vec![format!(
+                "Tag ID in JSON ({}) does not match command argument ({})",
+                tag_definition.instance_id, id
+            )],
         ));
     }
 
@@ -89,9 +92,10 @@ fn cmd_tag_update(ctx: CliContext, id: String) -> Result<String> {
 
 fn cmd_tag_delete(ctx: CliContext, id: String) -> Result<String> {
     match delete_tag_definition(&ctx.repo, &id) {
-        Ok(DeleteTagDefinitionResult { instance_id, path }) => {
-            Ok(output::ok("tag delete", json!({ "instanceId": instance_id, "path": path })))
-        }
+        Ok(DeleteTagDefinitionResult { instance_id, path }) => Ok(output::ok(
+            "tag delete",
+            json!({ "instanceId": instance_id, "path": path }),
+        )),
         Err(e) => Ok(output::err("tag delete", vec![e.to_string()])),
     }
 }

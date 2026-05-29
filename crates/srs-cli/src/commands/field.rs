@@ -40,9 +40,7 @@ fn cmd_field_list(ctx: CliContext, namespace: Option<String>) -> Result<String> 
 
 fn cmd_field_get(ctx: CliContext, id: String) -> Result<String> {
     match get_field_by_id(&ctx.repo, &id)? {
-        GetFieldResult::Found(field) => {
-            Ok(output::ok("field get", json!({ "field": field })))
-        }
+        GetFieldResult::Found(field) => Ok(output::ok("field get", json!({ "field": field }))),
         GetFieldResult::NotFound => Ok(output::err(
             "field get",
             vec![format!("Field with id '{}' not found", id)],

@@ -1,12 +1,14 @@
+pub mod extension;
 pub mod field;
 pub mod migrate;
 pub mod note;
+pub mod protocol;
 pub mod record;
+pub mod record_type;
 pub mod relation;
 pub mod relation_type;
 pub mod repo;
 pub mod tag;
-pub mod record_type;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -92,6 +94,12 @@ pub enum Commands {
     /// Relation commands
     #[command(subcommand)]
     Relation(RelationCommand),
+    /// Extension definition commands
+    #[command(subcommand)]
+    Extension(ExtensionCommand),
+    /// Protocol definition commands
+    #[command(subcommand)]
+    Protocol(ProtocolCommand),
 }
 
 #[derive(Subcommand)]
@@ -385,6 +393,94 @@ pub enum RelationCommand {
     },
 }
 
+#[derive(Subcommand)]
+pub enum ExtensionCommand {
+    /// List extension definitions
+    List {
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+    /// Get an extension definition by ID
+    Get {
+        /// Extension instance ID
+        id: String,
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+    /// Create a new extension definition (reads JSON from stdin)
+    Create {
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+    /// Update an extension definition (reads JSON from stdin)
+    Update {
+        /// Extension instance ID
+        id: String,
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+    /// Delete an extension definition
+    Delete {
+        /// Extension instance ID
+        id: String,
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ProtocolCommand {
+    /// List protocol definitions
+    List {
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+    /// Get a protocol definition by ID
+    Get {
+        /// Protocol instance ID
+        id: String,
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+    /// List stages for a protocol
+    Stages {
+        /// Protocol instance ID
+        id: String,
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+    /// Validate a protocol definition
+    Validate {
+        /// Protocol instance ID
+        id: String,
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+    /// Export a protocol definition to portable JSON
+    Export {
+        /// Protocol instance ID
+        id: String,
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+    /// Import a protocol definition (reads JSON from stdin)
+    Import {
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+}
+
 pub fn dispatch(cli: Cli) -> Result<String> {
     // Resolve repository path using global option
     let repo_root = resolve_repo(cli.repo)?;
@@ -406,5 +502,7 @@ pub fn dispatch(cli: Cli) -> Result<String> {
         Commands::Type(type_cmd) => record_type::dispatch(ctx, type_cmd),
         Commands::Record(record_cmd) => record::dispatch(ctx, record_cmd),
         Commands::Relation(relation_cmd) => relation::dispatch(ctx, relation_cmd),
+        Commands::Extension(ext_cmd) => extension::dispatch(ctx, ext_cmd),
+        Commands::Protocol(proto_cmd) => protocol::dispatch(ctx, proto_cmd),
     }
 }

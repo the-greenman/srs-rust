@@ -78,13 +78,25 @@ Specific tests to write or verify:
 
 #### Milestone gate
 
-Every phase ends with lint, tests, and a commit before the next phase starts:
+Every phase ends with a full check before the next phase starts:
+
+1. Verify all acceptance criteria above are met — check each checkbox.
+2. Confirm every test listed in the Testing section exists in the codebase and passes.
+3. Run lint and tests:
 
 ```bash
 cargo test -p <crate>
 cargo clippy -p <crate> -- -D warnings
+```
+
+4. Update the plan file: mark completed task checkboxes `[x]` and acceptance criteria `[x]`.
+5. Commit:
+
+```bash
 git commit
 ```
+
+Do not start the next phase until the milestone gate passes and the plan is updated.
 
 ---
 
@@ -104,6 +116,7 @@ All of the following must be true before this plan is closed:
 - Agents must not revert edits made by others.
 - Workers return changed file paths and a short behaviour summary when done.
 - Lead Integrator owns final API naming and dependency boundaries.
+- **At the end of each phase:** verify all acceptance criteria, confirm planned tests exist and pass, update the plan checkboxes, then commit. Do not proceed to the next phase without completing the milestone gate.
 - Verification Agent runs after each major phase and before final sign-off.
 
 ## Assumptions

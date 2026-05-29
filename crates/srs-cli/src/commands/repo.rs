@@ -19,12 +19,14 @@ pub fn dispatch(ctx: CliContext, cmd: RepoCommand) -> Result<String> {
 fn cmd_repo_extensions_dispatch(ctx: CliContext, cmd: RepoExtensionsCommand) -> Result<String> {
     match cmd {
         RepoExtensionsCommand::List { json: _ } => cmd_repo_extensions_list(ctx),
-        RepoExtensionsCommand::Enable { extension_id, json: _ } => {
-            cmd_repo_extensions_enable(ctx, extension_id)
-        }
-        RepoExtensionsCommand::Disable { extension_id, json: _ } => {
-            cmd_repo_extensions_disable(ctx, extension_id)
-        }
+        RepoExtensionsCommand::Enable {
+            extension_id,
+            json: _,
+        } => cmd_repo_extensions_enable(ctx, extension_id),
+        RepoExtensionsCommand::Disable {
+            extension_id,
+            json: _,
+        } => cmd_repo_extensions_disable(ctx, extension_id),
     }
 }
 

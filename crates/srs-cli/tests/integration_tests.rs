@@ -1697,3 +1697,285 @@ fn relation_get_returns_relation_by_id() {
     assert_eq!(result["payload"]["relation"]["relationId"], "r1");
     assert_eq!(result["payload"]["relation"]["relationType"], "contains");
 }
+
+// --- Phase 4: Extension command group ---
+
+#[test]
+fn extension_list_returns_extensions() {
+    let temp = create_temp_repo();
+
+    // Create package with extension type
+    let package_dir = temp.path().join("package");
+    std::fs::create_dir_all(&package_dir).unwrap();
+    std::fs::create_dir_all(package_dir.join("records")).unwrap();
+
+    let package_json = serde_json::json!({
+        "id": "test-pkg",
+        "namespace": "com.test",
+        "name": "test",
+        "version": "1.0.0",
+        "fields": [],
+        "types": [{
+            "id": "ext-type",
+            "namespace": "meta",
+            "name": "extension",
+            "version": 1,
+            "fields": []
+        }]
+    });
+    std::fs::write(
+        package_dir.join("package.json"),
+        serde_json::to_string_pretty(&package_json).unwrap(),
+    )
+    .unwrap();
+
+    // Create an extension record
+    let ext_record = serde_json::json!({
+        "instanceId": "ext-001",
+        "type": "meta.extension",
+        "namespace": "com.test",
+        "name": "test-extension",
+        "version": 1,
+        "fieldValues": {
+            "extension-id": "com.test/test-extension@1",
+            "title": "Test Extension"
+        }
+    });
+    std::fs::write(
+        package_dir.join("records/ext-001.json"),
+        serde_json::to_string_pretty(&ext_record).unwrap(),
+    )
+    .unwrap();
+
+    let result = run_srs_in_dir(temp.path(), &["extension", "list"]);
+    assert_eq!(
+        result["ok"], true,
+        "extension list should succeed: {:?}",
+        result["diagnostics"]
+    );
+    let extensions = result["payload"]["extensions"].as_array().unwrap();
+    assert_eq!(extensions.len(), 1);
+}
+
+#[test]
+fn extension_get_returns_extension_by_id() {
+    let temp = create_temp_repo();
+
+    let package_dir = temp.path().join("package");
+    std::fs::create_dir_all(&package_dir).unwrap();
+    std::fs::create_dir_all(package_dir.join("records")).unwrap();
+
+    let package_json = serde_json::json!({
+        "id": "test-pkg",
+        "namespace": "com.test",
+        "name": "test",
+        "version": "1.0.0",
+        "fields": [],
+        "types": []
+    });
+    std::fs::write(
+        package_dir.join("package.json"),
+        serde_json::to_string_pretty(&package_json).unwrap(),
+    )
+    .unwrap();
+
+    let ext_record = serde_json::json!({
+        "instanceId": "ext-002",
+        "type": "meta.extension",
+        "namespace": "com.test",
+        "name": "another-extension",
+        "version": 1,
+        "fieldValues": {
+            "extension-id": "com.test/another@1",
+            "title": "Another Extension"
+        }
+    });
+    std::fs::write(
+        package_dir.join("records/ext-002.json"),
+        serde_json::to_string_pretty(&ext_record).unwrap(),
+    )
+    .unwrap();
+
+    let result = run_srs_in_dir(temp.path(), &["extension", "get", "ext-002"]);
+    assert_eq!(
+        result["ok"], true,
+        "extension get should succeed: {:?}",
+        result["diagnostics"]
+    );
+    assert_eq!(result["payload"]["extension"]["instanceId"], "ext-002");
+}
+
+// --- Phase 4: Protocol command group ---
+
+#[test]
+fn protocol_list_returns_protocols() {
+    let temp = create_temp_repo();
+
+    let package_dir = temp.path().join("package");
+    std::fs::create_dir_all(&package_dir).unwrap();
+    std::fs::create_dir_all(package_dir.join("records")).unwrap();
+
+    let package_json = serde_json::json!({
+        "id": "test-pkg",
+        "namespace": "com.test",
+        "name": "test",
+        "version": "1.0.0",
+        "fields": [],
+        "types": []
+    });
+    std::fs::write(
+        package_dir.join("package.json"),
+        serde_json::to_string_pretty(&package_json).unwrap(),
+    )
+    .unwrap();
+
+    // Create a protocol record
+    let protocol = serde_json::json!({
+        "instanceId": "proto-001",
+        "type": "meta.protocol",
+        "namespace": "com.test",
+        "name": "test-protocol",
+        "version": 1,
+        "fieldValues": {
+            "protocol-id": "com.test/test-protocol@1",
+            "protocol-namespace": "com.test",
+            "protocol-name": "test-protocol",
+            "protocol-version": 1,
+            "protocol-target-type": "meta.extension",
+            "protocol-stages": [
+                {"stageId": "stage-1", "name": "Draft", "order": 1, "dependsOn": []},
+                {"stageId": "stage-2", "name": "Review", "order": 2, "dependsOn": ["stage-1"]}
+            ],
+            "protocol-created-at": "2026-05-29T00:00:00Z"
+        }
+    });
+    std::fs::write(
+        package_dir.join("records/proto-001.json"),
+        serde_json::to_string_pretty(&protocol).unwrap(),
+    )
+    .unwrap();
+
+    let result = run_srs_in_dir(temp.path(), &["protocol", "list"]);
+    assert_eq!(
+        result["ok"], true,
+        "protocol list should succeed: {:?}",
+        result["diagnostics"]
+    );
+    let protocols = result["payload"]["protocols"].as_array().unwrap();
+    assert_eq!(protocols.len(), 1);
+}
+
+#[test]
+fn protocol_get_returns_protocol_by_id() {
+    let temp = create_temp_repo();
+
+    let package_dir = temp.path().join("package");
+    std::fs::create_dir_all(&package_dir).unwrap();
+    std::fs::create_dir_all(package_dir.join("records")).unwrap();
+
+    let package_json = serde_json::json!({
+        "id": "test-pkg",
+        "namespace": "com.test",
+        "name": "test",
+        "version": "1.0.0",
+        "fields": [],
+        "types": []
+    });
+    std::fs::write(
+        package_dir.join("package.json"),
+        serde_json::to_string_pretty(&package_json).unwrap(),
+    )
+    .unwrap();
+
+    let protocol = serde_json::json!({
+        "instanceId": "proto-002",
+        "type": "meta.protocol",
+        "namespace": "com.test",
+        "name": "another-protocol",
+        "version": 1,
+        "fieldValues": {
+            "protocol-id": "com.test/another@1",
+            "protocol-namespace": "com.test",
+            "protocol-name": "another-protocol",
+            "protocol-version": 1,
+            "protocol-target-type": "meta.extension",
+            "protocol-stages": [],
+            "protocol-created-at": "2026-05-29T00:00:00Z"
+        }
+    });
+    std::fs::write(
+        package_dir.join("records/proto-002.json"),
+        serde_json::to_string_pretty(&protocol).unwrap(),
+    )
+    .unwrap();
+
+    let result = run_srs_in_dir(temp.path(), &["protocol", "get", "proto-002"]);
+    assert_eq!(
+        result["ok"], true,
+        "protocol get should succeed: {:?}",
+        result["diagnostics"]
+    );
+    assert_eq!(result["payload"]["protocol"]["instanceId"], "proto-002");
+}
+
+#[test]
+fn protocol_stages_returns_ordered_stages() {
+    let temp = create_temp_repo();
+
+    let package_dir = temp.path().join("package");
+    std::fs::create_dir_all(&package_dir).unwrap();
+    std::fs::create_dir_all(package_dir.join("records")).unwrap();
+
+    let package_json = serde_json::json!({
+        "id": "test-pkg",
+        "namespace": "com.test",
+        "name": "test",
+        "version": "1.0.0",
+        "fields": [],
+        "types": []
+    });
+    std::fs::write(
+        package_dir.join("package.json"),
+        serde_json::to_string_pretty(&package_json).unwrap(),
+    )
+    .unwrap();
+
+    let protocol = serde_json::json!({
+        "instanceId": "proto-003",
+        "type": "meta.protocol",
+        "namespace": "com.test",
+        "name": "staged-protocol",
+        "version": 1,
+        "fieldValues": {
+            "protocol-id": "com.test/staged@1",
+            "protocol-namespace": "com.test",
+            "protocol-name": "staged-protocol",
+            "protocol-version": 1,
+            "protocol-target-type": "meta.extension",
+            "protocol-stages": [
+                {"stageId": "s3", "name": "Published", "order": 3, "dependsOn": ["s2"]},
+                {"stageId": "s1", "name": "Draft", "order": 1, "dependsOn": []},
+                {"stageId": "s2", "name": "Review", "order": 2, "dependsOn": ["s1"]}
+            ],
+            "protocol-created-at": "2026-05-29T00:00:00Z"
+        }
+    });
+    std::fs::write(
+        package_dir.join("records/proto-003.json"),
+        serde_json::to_string_pretty(&protocol).unwrap(),
+    )
+    .unwrap();
+
+    let result = run_srs_in_dir(temp.path(), &["protocol", "stages", "proto-003"]);
+    assert_eq!(
+        result["ok"], true,
+        "protocol stages should succeed: {:?}",
+        result["diagnostics"]
+    );
+    let stages = result["payload"]["stages"].as_array().unwrap();
+    assert_eq!(stages.len(), 3);
+    // Should be ordered by order field
+    assert_eq!(stages[0]["stageId"], "s1");
+    assert_eq!(stages[1]["stageId"], "s2");
+    assert_eq!(stages[2]["stageId"], "s3");
+}

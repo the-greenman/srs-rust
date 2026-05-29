@@ -1,12 +1,14 @@
 pub mod analysis;
 pub mod detect;
 pub mod error;
+pub mod extension_service;
 pub mod index;
 pub mod loader;
 pub mod manifest;
 pub mod manifest_service;
 pub mod package;
 pub mod package_service;
+pub mod protocol_service;
 pub mod record_store;
 pub mod relation_service;
 pub mod resolver;
