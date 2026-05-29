@@ -1,4 +1,5 @@
 use serde_json::Value;
+use std::path::Path;
 use std::process::Command;
 use tempfile::TempDir;
 
@@ -450,7 +451,10 @@ fn repo_validate_migrated_relations_use_only_canonical_types() {
 
     // No E1 errors: every relationType in relations.json must resolve to an installed definition.
     // (E2 errors from placeholder IDs in rfc-targets-section migrations are a separate known issue.)
-    let diags = result["payload"]["diagnostics"].as_array().unwrap();
+    let diags = result["payload"]["diagnostics"]
+        .as_array()
+        .or_else(|| result["diagnostics"].as_array())
+        .expect("repo validate diagnostics should be present");
     let e1_errors: Vec<_> = diags
         .iter()
         .filter(|d| {
@@ -508,6 +512,47 @@ fn make_valid_validate_repo() -> TempDir {
     std::fs::write(
         notes_dir.join("note.json"),
         serde_json::to_string_pretty(&note).unwrap(),
+    )
+    .unwrap();
+    temp
+}
+
+fn copy_dir_recursive(src: &Path, dst: &Path) {
+    std::fs::create_dir_all(dst).unwrap();
+    for entry in std::fs::read_dir(src).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        let target = dst.join(entry.file_name());
+        if path.is_dir() {
+            copy_dir_recursive(&path, &target);
+        } else {
+            std::fs::copy(&path, &target).unwrap();
+        }
+    }
+}
+
+fn fixture_repo_with_single_record(fixture_name: &str, record_rel_path: &str) -> TempDir {
+    let temp = TempDir::new().unwrap();
+    let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join(fixture_name);
+    copy_dir_recursive(&fixture_root, temp.path());
+
+    let manifest_path = temp.path().join("manifest.json");
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(&manifest_path).unwrap()).unwrap();
+    let filtered: Vec<Value> = manifest["instanceIndex"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|entry| entry["path"] == record_rel_path)
+        .cloned()
+        .collect();
+    manifest["instanceIndex"] = Value::Array(filtered);
+    std::fs::write(
+        &manifest_path,
+        serde_json::to_string_pretty(&manifest).unwrap(),
     )
     .unwrap();
     temp
@@ -629,6 +674,57 @@ fn repo_validate_tier_schema_mismatch_returns_ok_false() {
         "expected tier/schema mismatch in diagnostics: {:?}",
         diags
     );
+}
+
+#[test]
+fn repeatable_fields_fixture_validates_ok() {
+    let temp =
+        fixture_repo_with_single_record("repeatable-fields", "records/repeatable/valid.json");
+    let repo_str = temp.path().to_str().unwrap().to_string();
+    let result = run_srs_in_dir(temp.path(), &["repo", "validate", "--repo", &repo_str]);
+    assert_eq!(result["ok"], true, "expected ok true: {:?}", result);
+    let diags = result["payload"]["diagnostics"].as_array().unwrap();
+    assert!(!diags.iter().any(|d| {
+        d["message"]
+            .as_str()
+            .map(|m| m.contains("[partial] repeatable field"))
+            .unwrap_or(false)
+    }));
+}
+
+#[test]
+fn repeatable_fields_fixture_too_many_entries_in_diagnostics() {
+    let temp =
+        fixture_repo_with_single_record("repeatable-fields", "records/repeatable/too-many.json");
+    let repo_str = temp.path().to_str().unwrap().to_string();
+    let result = run_srs_in_dir(temp.path(), &["repo", "validate", "--repo", &repo_str]);
+    assert_eq!(result["ok"], false, "expected ok false: {:?}", result);
+    let diags = result["diagnostics"].as_array().unwrap();
+    assert!(diags.iter().any(|d| {
+        d.as_str()
+            .map(|m| m.contains("maxItems") || m.contains("00000000-0000-4000-8000-000000000901"))
+            .unwrap_or(false)
+    }));
+}
+
+#[test]
+fn field_groups_fixture_validates_ok() {
+    let temp = fixture_repo_with_single_record("field-groups", "records/groups/valid.json");
+    let repo_str = temp.path().to_str().unwrap().to_string();
+    let result = run_srs_in_dir(temp.path(), &["repo", "validate", "--repo", &repo_str]);
+    assert_eq!(result["ok"], true, "expected ok true: {:?}", result);
+}
+
+#[test]
+fn field_groups_fixture_missing_required_group_in_diagnostics() {
+    let temp = fixture_repo_with_single_record("field-groups", "records/groups/missing-group.json");
+    let repo_str = temp.path().to_str().unwrap().to_string();
+    let result = run_srs_in_dir(temp.path(), &["repo", "validate", "--repo", &repo_str]);
+    assert_eq!(result["ok"], false, "expected ok false: {:?}", result);
+    let diags = result["diagnostics"].as_array().unwrap();
+    assert!(diags
+        .iter()
+        .any(|d| d.as_str().map(|m| m.contains("people")).unwrap_or(false)));
 }
 
 // Phase 1 acceptance criteria tests

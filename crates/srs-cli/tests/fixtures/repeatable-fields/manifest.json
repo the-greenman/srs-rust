@@ -1,0 +1,25 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+  "formatVersion": "1.0",
+  "scdsVersion": "2.0",
+  "conformance": "SRS 2.0 Core ext:repository",
+  "repositoryId": "00000000-0000-4000-8000-000000000990",
+  "title": "Repeatable Fields Fixture",
+  "container": {
+    "containerId": "00000000-0000-4000-8000-000000000990",
+    "title": "Repeatable Fields Fixture"
+  },
+  "instanceIndex": [
+    {
+      "instanceId": "00000000-0000-4000-8000-000000000991",
+      "tier": 2,
+      "path": "records/repeatable/valid.json"
+    },
+    {
+      "instanceId": "00000000-0000-4000-8000-000000000992",
+      "tier": 2,
+      "path": "records/repeatable/too-many.json"
+    }
+  ],
+  "createdAt": "2026-01-01T00:00:00Z"
+}

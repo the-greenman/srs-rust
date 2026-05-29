@@ -28,8 +28,9 @@ fn cmd_render_document_view(
     }) {
         Ok(result) => {
             if let Some(path) = output_path {
-                std::fs::write(&path, result.rendered.as_bytes())
-                    .map_err(|e| anyhow::anyhow!("failed to write output file {:?}: {}", path, e))?;
+                std::fs::write(&path, result.rendered.as_bytes()).map_err(|e| {
+                    anyhow::anyhow!("failed to write output file {:?}: {}", path, e)
+                })?;
             }
             Ok(output::ok(
                 "render document-view",

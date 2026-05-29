@@ -2,7 +2,9 @@ use crate::error::RepositoryError;
 use crate::manifest::load_manifest;
 use crate::package::load_package;
 use serde_json::Value;
+use srs_core::types::record::Record;
 use srs_core::types::relation::RelationsCollection;
+use srs_core::validation::record::validate_record;
 use srs_core::validation::relation::{validate_relation, RelationValidationContext};
 use srs_schema::{SchemaRegistry, NOTE_SCHEMA_ID, RECORD_SCHEMA_ID};
 use std::collections::{HashMap, HashSet};
@@ -55,6 +57,7 @@ pub fn validate_repository(
     let reg = SchemaRegistry::global();
     let mut diagnostics: Vec<ValidationDiagnostic> = Vec::new();
     let mut checked = 0usize;
+    let mut package_for_tier2: Option<Option<crate::package::Package>> = None;
 
     // --- Validate root manifest.json ---
     let manifest_path = repo_root.join("manifest.json");
@@ -150,6 +153,44 @@ pub fn validate_repository(
                 schema_id: None,
                 message: "no known $schema declared and tier has no default schema".to_string(),
             });
+        }
+
+        if entry.tier() == 2 {
+            if package_for_tier2.is_none() {
+                package_for_tier2 = Some(load_package(repo_root).ok());
+            }
+            match package_for_tier2.as_ref().and_then(|p| p.as_ref()) {
+                Some(package) => match serde_json::from_value::<Record>(value.clone()) {
+                    Ok(record) => {
+                        if let Some(record_type) =
+                            package.resolve_type(&record.type_id, record.type_version)
+                        {
+                            if let Err(err) = validate_record(&record, record_type) {
+                                diagnostics.push(ValidationDiagnostic {
+                                    severity: DiagnosticSeverity::Error,
+                                    path: rel_path.clone(),
+                                    schema_id: None,
+                                    message: err.to_string(),
+                                });
+                            }
+                        }
+                    }
+                    Err(err) => diagnostics.push(ValidationDiagnostic {
+                        severity: DiagnosticSeverity::Error,
+                        path: rel_path.clone(),
+                        schema_id: None,
+                        message: format!(
+                            "failed to parse tier-2 record for semantic validation: {err}"
+                        ),
+                    }),
+                },
+                None => diagnostics.push(ValidationDiagnostic {
+                    severity: DiagnosticSeverity::Error,
+                    path: rel_path.clone(),
+                    schema_id: None,
+                    message: "failed to load package for tier-2 semantic validation".to_string(),
+                }),
+            }
         }
     }
 

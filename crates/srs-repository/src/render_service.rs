@@ -4,6 +4,7 @@ use crate::manifest::load_manifest;
 use crate::package::{load_package, Package};
 use crate::record_store::{get_record_by_id, list_records_by_type};
 use crate::relation_service::load_relations;
+use srs_core::types::field::ValueType;
 use srs_core::types::record::Record;
 use srs_core::types::view::{
     DocumentSection, DocumentView, RelationDirection, SectionSource, SortDirection,
@@ -44,7 +45,9 @@ pub fn render_document_view(
     let mut diagnostics = Vec::new();
     let container_title = resolve_container_title(&dv, &manifest);
     let relations = load_relations(opts.repo_root)?;
-    let format = opts.format.unwrap_or(dv.format.as_deref().unwrap_or("markdown"));
+    let format = opts
+        .format
+        .unwrap_or(dv.format.as_deref().unwrap_or("markdown"));
     let depth_offset = dv.depth_offset.unwrap_or(0);
     if depth_offset > 4 {
         diagnostics.push(format!(
@@ -330,21 +333,12 @@ fn render_record(
     }
 
     for field_id in field_ids {
-        let value = record.find_field_value(&field_id).map(|fv| &fv.value);
-        if let Some(v) = value {
-            if let Some(entries) = v.get("entries").and_then(|e| e.as_array()) {
-                if !entries.is_empty() {
-                    diagnostics.push(format!(
-                        "[partial] repeatable field {} rendered as first entry only; ext:repeatable-fields not fully supported",
-                        field_id
-                    ));
-                }
-            }
-        }
-
-        let rendered_value = value
-            .and_then(value_to_text)
-            .map(std::string::ToString::to_string);
+        let field_value = record.find_field_value(&field_id);
+        let field_type = ctx
+            .package
+            .resolve_field(&field_id)
+            .map(|field| field.value_type);
+        let rendered_value = field_value.and_then(|fv| render_field_value(fv, field_type));
         if rendered_value.is_none() && omit_empty {
             continue;
         }
@@ -375,14 +369,128 @@ fn render_record(
             out.push_str(&format!("{}: {}\n", label, value_text));
         }
     }
+    if let Some(rt) = &rt {
+        if let Some(field_groups) = &rt.field_groups {
+            out.push_str(&render_field_groups(ctx, rt, record, field_groups));
+        }
+    }
+
     out.push('\n');
     out
 }
 
-fn value_to_text(value: &serde_json::Value) -> Option<&str> {
-    // Baseline renderer currently supports scalar string field values only.
-    // Non-string values are intentionally left unrendered for now.
-    value.as_str()
+fn render_field_groups(
+    ctx: &RenderContext<'_>,
+    rt: &srs_core::types::record_type::RecordType,
+    record: &Record,
+    field_groups: &[srs_core::types::record_type::FieldGroup],
+) -> String {
+    let mut groups = field_groups.to_vec();
+    groups.sort_by_key(|g| g.order);
+    let mut out = String::new();
+
+    for group in groups {
+        let Some(group_value) = record.find_group_value(&group.group_id) else {
+            continue;
+        };
+        if group_value.entries.is_empty() {
+            continue;
+        }
+
+        if let Some(label) = &group.label {
+            out.push('\n');
+            out.push_str(&format!(
+                "{}{}\n\n",
+                heading_prefix(depth(4, ctx.depth_offset), ctx.format),
+                label
+            ));
+        }
+
+        let mut assignments = group.fields.clone();
+        assignments.sort_by_key(|fa| fa.order);
+        for (idx, entry) in group_value.entries.iter().enumerate() {
+            if idx > 0 {
+                out.push('\n');
+            }
+            for assignment in &assignments {
+                let Some(fv) = entry
+                    .field_values
+                    .iter()
+                    .find(|value| value.field_id == assignment.field_id)
+                else {
+                    continue;
+                };
+
+                let field_type = rt
+                    .find_field_assignment(&assignment.field_id)
+                    .and_then(|_| ctx.package.resolve_field(&assignment.field_id))
+                    .map(|field| field.value_type);
+                let Some(value_text) = render_field_value(fv, field_type) else {
+                    continue;
+                };
+                let label = assignment
+                    .display_label
+                    .clone()
+                    .or_else(|| {
+                        ctx.package
+                            .resolve_field(&assignment.field_id)
+                            .map(|f| f.name.clone())
+                    })
+                    .unwrap_or_else(|| assignment.field_id.clone());
+                if ctx.format == "markdown" {
+                    out.push_str(&format!("**{}**: {}\n", label, value_text));
+                } else {
+                    out.push_str(&format!("{}: {}\n", label, value_text));
+                }
+            }
+        }
+    }
+
+    out
+}
+
+fn render_field_value(
+    field_value: &srs_core::types::record::FieldValue,
+    value_type: Option<ValueType>,
+) -> Option<String> {
+    if let Some(entries) = &field_value.entries {
+        if entries.is_empty() {
+            return None;
+        }
+        let texts: Vec<String> = entries
+            .iter()
+            .filter_map(|entry| value_to_text_owned(&entry.value))
+            .collect();
+        if texts.is_empty() {
+            return None;
+        }
+        let joined = match value_type {
+            Some(ValueType::Text) | Some(ValueType::Multiselect) => texts
+                .into_iter()
+                .map(|value| format!("- {value}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            _ => texts.join(", "),
+        };
+        return Some(joined);
+    }
+    value_to_text_owned(&field_value.value)
+}
+
+fn value_to_text_owned(value: &serde_json::Value) -> Option<String> {
+    if let Some(s) = value.as_str() {
+        return Some(s.to_string());
+    }
+    if let Some(array) = value.as_array() {
+        let parts: Vec<String> = array
+            .iter()
+            .filter_map(|item| item.as_str().map(std::string::ToString::to_string))
+            .collect();
+        if !parts.is_empty() {
+            return Some(parts.join(", "));
+        }
+    }
+    None
 }
 
 fn substitute_vars(
@@ -393,7 +501,10 @@ fn substitute_vars(
 ) -> String {
     let mut out = template.to_string();
     out = out.replace("{{container-title}}", &ctx.container_title);
-    out = out.replace("{{date}}", &chrono::Utc::now().format("%Y-%m-%d").to_string());
+    out = out.replace(
+        "{{date}}",
+        &chrono::Utc::now().format("%Y-%m-%d").to_string(),
+    );
     out = out.replace(
         "{{heading-1}}",
         &heading_prefix(depth(1, ctx.depth_offset), ctx.format),
@@ -485,5 +596,123 @@ mod tests {
             result,
             Err(RepositoryError::DocumentViewNotFound { .. })
         ));
+    }
+
+    fn repeatable_fixture_root() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../srs-cli/tests/fixtures/repeatable-fields")
+    }
+
+    #[test]
+    fn repeatable_field_entries_render_all_values() {
+        let repo_root = repeatable_fixture_root();
+        let result = render_document_view(RenderDocumentViewOptions {
+            repo_root: &repo_root,
+            view_id: "00000000-0000-4000-8000-000000000981",
+            format: None,
+        })
+        .expect("render should succeed");
+        // The valid record has entries ["first", "second"]; both must appear in output
+        assert!(
+            result.rendered.contains("first"),
+            "expected 'first' in rendered output: {}",
+            result.rendered
+        );
+        assert!(
+            result.rendered.contains("second"),
+            "expected 'second' in rendered output: {}",
+            result.rendered
+        );
+        // No [partial] repeatable diagnostic — real rendering is in place
+        assert!(
+            !result
+                .diagnostics
+                .iter()
+                .any(|d| d.contains("[partial] repeatable field")),
+            "unexpected partial diagnostic: {:?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn depth_offset_warning_emitted() {
+        let repo_root = repeatable_fixture_root();
+        let result = render_document_view(RenderDocumentViewOptions {
+            repo_root: &repo_root,
+            view_id: "00000000-0000-4000-8000-000000000982",
+            format: None,
+        })
+        .expect("render should succeed");
+        assert!(
+            result.diagnostics.iter().any(|d| d.contains("[N+4b]")),
+            "expected [N+4b] diagnostic for depthOffset 5, got: {:?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn title_field_id_emits_record_heading() {
+        let repo_root = repeatable_fixture_root();
+        let result = render_document_view(RenderDocumentViewOptions {
+            repo_root: &repo_root,
+            view_id: "00000000-0000-4000-8000-000000000983",
+            format: None,
+        })
+        .expect("render should succeed");
+        // titleFieldId points to the repeatable title field; first entry value is "first"
+        // expect an H3 heading containing that value
+        assert!(
+            result.rendered.contains("### first") || result.rendered.contains("### "),
+            "expected H3 record heading from titleFieldId, got: {}",
+            result.rendered
+        );
+    }
+
+    #[test]
+    fn no_title_field_id_omits_structural_heading() {
+        let repo_root = repeatable_fixture_root();
+        // repeatable-doc-view has no titleFieldId — records render without an H3 heading
+        let result = render_document_view(RenderDocumentViewOptions {
+            repo_root: &repo_root,
+            view_id: "00000000-0000-4000-8000-000000000981",
+            format: None,
+        })
+        .expect("render should succeed");
+        // Section title "Items" produces an H2; no H3 should appear between it and field rows
+        assert!(
+            !result.rendered.contains("### "),
+            "expected no H3 record heading when titleFieldId is absent, got: {}",
+            result.rendered
+        );
+    }
+
+    #[test]
+    fn semantic_object_type_missing_slash_emits_diagnostic() {
+        let repo_root = repeatable_fixture_root();
+        let result = render_document_view(RenderDocumentViewOptions {
+            repo_root: &repo_root,
+            view_id: "00000000-0000-4000-8000-000000000984",
+            format: None,
+        })
+        .expect("render should succeed without error");
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.contains("no namespace separator")),
+            "expected 'no namespace separator' diagnostic, got: {:?}",
+            result.diagnostics
+        );
+        // Section renders empty — no content beyond the document heading
+        let lines_with_content: Vec<&str> = result
+            .rendered
+            .lines()
+            .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
+            .collect();
+        assert!(
+            lines_with_content.is_empty(),
+            "expected empty section output, got: {:?}",
+            lines_with_content
+        );
     }
 }

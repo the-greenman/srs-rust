@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "00000000-0000-4000-8000-000000000902",
+  "namespace": "fixture.repeatable",
+  "name": "repeatable-item",
+  "version": 1,
+  "description": "Type with repeatable field",
+  "fields": [
+    {
+      "fieldId": "00000000-0000-4000-8000-000000000901",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Title",
+      "repeatable": true,
+      "minItems": 1,
+      "maxItems": 3
+    }
+  ],
+  "createdAt": "2026-01-01T00:00:00Z"
+}

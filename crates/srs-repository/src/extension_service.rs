@@ -111,6 +111,9 @@ fn parse_record_compat(content: &str) -> Option<Record> {
         .map(|(k, v)| FieldValue {
             field_id: k.clone(),
             value: v.clone(),
+            entries: None,
+            source: None,
+            edited_at: None,
         })
         .collect();
 
@@ -121,6 +124,7 @@ fn parse_record_compat(content: &str) -> Option<Record> {
         type_namespace: type_namespace.to_string(),
         type_name: type_name.to_string(),
         field_values,
+        group_values: None,
         created_at: obj
             .get("createdAt")
             .and_then(|v| v.as_str().map(|s| s.to_string())),

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+  "formatVersion": "1.0",
+  "scdsVersion": "2.0",
+  "conformance": "SRS 2.0 Core ext:repository",
+  "repositoryId": "00000000-0000-4000-8000-000000000980",
+  "title": "Field Groups Fixture",
+  "container": {
+    "containerId": "00000000-0000-4000-8000-000000000980",
+    "title": "Field Groups Fixture"
+  },
+  "instanceIndex": [
+    {
+      "instanceId": "00000000-0000-4000-8000-000000000981",
+      "tier": 2,
+      "path": "records/groups/valid.json"
+    },
+    {
+      "instanceId": "00000000-0000-4000-8000-000000000982",
+      "tier": 2,
+      "path": "records/groups/missing-group.json"
+    }
+  ],
+  "createdAt": "2026-01-01T00:00:00Z"
+}

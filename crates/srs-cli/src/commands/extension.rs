@@ -70,6 +70,9 @@ fn cmd_extension_create(ctx: CliContext) -> Result<String> {
         .map(|(k, v)| FieldValue {
             field_id: k.clone(),
             value: v.clone(),
+            entries: None,
+            source: None,
+            edited_at: None,
         })
         .collect();
 
@@ -115,6 +118,9 @@ fn cmd_extension_update(ctx: CliContext, id: String) -> Result<String> {
         .map(|(k, v)| FieldValue {
             field_id: k.clone(),
             value: v.clone(),
+            entries: None,
+            source: None,
+            edited_at: None,
         })
         .collect();
 

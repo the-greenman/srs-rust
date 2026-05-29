@@ -1,0 +1,23 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json",
+  "id": "00000000-0000-4000-8000-000000000983",
+  "namespace": "fixture.repeatable",
+  "name": "title-field-view",
+  "version": 1,
+  "description": "View with titleFieldId set on the section to emit record headings",
+  "format": "markdown",
+  "sections": [
+    {
+      "sectionId": "items",
+      "title": "Items",
+      "order": 0,
+      "source": {
+        "type": "type-query",
+        "semanticObjectType": "fixture.repeatable/repeatable-item"
+      },
+      "titleFieldId": "00000000-0000-4000-8000-000000000901",
+      "emptyBehavior": "hide"
+    }
+  ],
+  "createdAt": "2026-01-01T00:00:00Z"
+}

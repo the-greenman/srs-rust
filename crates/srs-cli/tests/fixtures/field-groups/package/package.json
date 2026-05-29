@@ -1,0 +1,12 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+  "id": "fixture.field-groups.pkg",
+  "namespace": "fixture.groups",
+  "name": "field-groups",
+  "version": "1.0.0",
+  "fields": ["fields/name.json", "fields/value.json"],
+  "types": ["types/grouped-type.json"],
+  "relationTypes": [],
+  "views": [],
+  "documentViews": []
+}

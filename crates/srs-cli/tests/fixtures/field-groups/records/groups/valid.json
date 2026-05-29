@@ -1,0 +1,28 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "instanceId": "00000000-0000-4000-8000-000000000981",
+  "typeId": "00000000-0000-4000-8000-000000000913",
+  "typeVersion": 1,
+  "typeNamespace": "fixture.groups",
+  "typeName": "grouped-item",
+  "fieldValues": [],
+  "groupValues": [
+    {
+      "groupId": "people",
+      "entries": [
+        {
+          "fieldValues": [
+            {"fieldId": "00000000-0000-4000-8000-000000000911", "value": "alice"},
+            {"fieldId": "00000000-0000-4000-8000-000000000912", "value": "1"}
+          ]
+        },
+        {
+          "fieldValues": [
+            {"fieldId": "00000000-0000-4000-8000-000000000911", "value": "bob"},
+            {"fieldId": "00000000-0000-4000-8000-000000000912", "value": "2"}
+          ]
+        }
+      ]
+    }
+  ]
+}

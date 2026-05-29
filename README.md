@@ -45,7 +45,8 @@ As of 2026-05-29.
 | Views L1/L2 (`ext:views-l1`, `ext:views-l2`) | RFC-001 in progress to acceptance in repo records | Not yet implemented in runtime package/model/render pipeline |
 | Themes L1 (`ext:themes-l1`) | RFC-002 in progress to acceptance in repo records | Not implemented |
 | Render command (`srs render ...`) | Planned | Not implemented |
-| Repeatable field entries (`ext:repeatable-fields`) | In schema/spec | Not implemented in runtime record model (`entries` not modeled in `srs-core::Record`) |
+| Repeatable field entries (`ext:repeatable-fields`) | In schema/spec | Implemented (typed model, validation constraints, rendering support) |
+| Field groups (`ext:field-groups`) | In schema/spec | Implemented (typed model, required/group-count validation, rendering support) |
 | Table value type | Mentioned in planning discussions | Not implemented (not in `ValueType` enum or field schemas) |
 
 ## Current CLI Surface
@@ -128,7 +129,6 @@ scripts/check-schema-drift.sh
 - Land RFC-001/RFC-002 record acceptance updates in `../srs/srs`
 - Implement L1/L2 view models + package loading
 - Implement `render document-view`
-- Add explicit runtime handling for repeatable field entries
 - Decide and implement table-like value modeling (if kept in spec scope)
 
 ## Notes

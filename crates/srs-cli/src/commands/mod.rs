@@ -4,11 +4,11 @@ pub mod field;
 pub mod migrate;
 pub mod note;
 pub mod protocol;
-pub mod render;
 pub mod record;
 pub mod record_type;
 pub mod relation;
 pub mod relation_type;
+pub mod render;
 pub mod repo;
 pub mod tag;
 

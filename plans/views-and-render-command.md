@@ -8,7 +8,7 @@ RFC-001 and RFC-002 have been reviewed, corrected, and are ready to apply. Befor
 
 - Phase 2 (Rust Types): complete
 - Phase 3 (Package Loading): complete
-- Phase 4 (View Service + Render Service): complete
+- Phase 4 (View Service + Render Service): complete — all 9 render_service tests passing
 - Phase 5 (CLI Command): complete
 - Phase 1 (Spec Record Updates in `srs` repo): pending
 
@@ -47,16 +47,16 @@ No new ADRs — this plan implements the decisions recorded in RFC-001 (Rev 8) a
 **Out of scope:**
 
 - RFC-002 theme application logic (ThemeReference/ThemeVariant types are stubs; no theme rendering)
-- `ext:repeatable-fields` support in the render baseline (fields treated as scalar only)
 - `ext:type-inheritance` fieldOrder support (use FieldAssignment.order only)
 - `srs view list` / `srs view get` CLI commands (render is the priority; service layer supports them when added)
 - `"html"` and `"adoc"` format rendering (markdown and text only in this plan)
 
-**Partial-conformance policy:** The renderer is intentionally incomplete with respect to two declared extensions. To prevent silent non-conformance, the renderer MUST emit explicit diagnostics when it encounters conditions it cannot fully handle:
-- If a `FieldValue` with `entries` array is present (indicates `ext:repeatable-fields` usage): emit diagnostic `"[partial] repeatable field {field_id} rendered as first entry only; ext:repeatable-fields not fully supported"`
+> **Note:** `ext:repeatable-fields` was originally out of scope here and covered by a stub diagnostic. It has since been fully implemented (see `plans/completed/repeatable-fields-and-field-groups.md`). The stub is gone; `FieldValue.entries` is rendered correctly by `render_service.rs`.
+
+**Partial-conformance policy:** The renderer is intentionally incomplete with respect to one declared extension. To prevent silent non-conformance, the renderer MUST emit an explicit diagnostic when it encounters conditions it cannot fully handle:
 - If a `DocumentView`'s section source resolves a `RecordType` that has a `fieldOrder` property (indicates `ext:type-inheritance` usage): emit diagnostic `"[partial] ext:type-inheritance fieldOrder ignored; using FieldAssignment.order"`
 
-These diagnostics go into `RenderResult.diagnostics`, not as errors. The render proceeds with best-effort output.
+This diagnostic goes into `RenderResult.diagnostics`, not as an error. The render proceeds with best-effort output.
 
 ---
 
@@ -560,16 +560,22 @@ cargo test -p srs-repository render
 cargo clippy -p srs-repository -- -D warnings
 ```
 
-Tests to write in `render_service.rs`:
-- `render_document_view_produces_output` — integration test against live `srs/srs` repo; checks output is non-empty markdown
-- `render_document_view_unknown_id_returns_error` — `DocumentViewNotFound`
-- `depth_offset_warning_emitted` — DocumentView with `depthOffset: 5` → diagnostic contains "[N+4b]"
-- `heading_prefix_markdown` — unit test: `heading_prefix(2, "markdown")` == `"## "`
-- `heading_prefix_text_returns_empty` — `heading_prefix(2, "text")` == `""`
-- `title_field_id_emits_record_heading` — section with `titleFieldId` set → rendered output contains an H3 heading with the field's value
-- `no_title_field_id_omits_structural_heading` — section without `titleFieldId` → no H3 heading injected between section H2 and field rows (Rule [N+1])
-- `semantic_object_type_missing_slash_emits_diagnostic` — `semanticObjectType: "nodash"` → diagnostic contains "no namespace separator" and section renders empty
-- `repeatable_field_partial_diagnostic_emitted` — record with `entries` array in a FieldValue → diagnostic contains "[partial] repeatable field"
+Tests in `render_service.rs` (all written and passing):
+- ✓ `heading_prefix_markdown` — `heading_prefix(2, "markdown")` == `"## "`
+- ✓ `heading_prefix_text_returns_empty` — `heading_prefix(2, "text")` == `""`
+- ✓ `render_document_view_produces_output` — integration test against live `srs/srs` repo; checks output is non-empty markdown
+- ✓ `render_document_view_unknown_id_returns_error` — `DocumentViewNotFound`
+- ✓ `depth_offset_warning_emitted` — DocumentView with `depthOffset: 5` → diagnostic contains "[N+4b]"
+- ✓ `title_field_id_emits_record_heading` — section with `titleFieldId` set → rendered output contains an H3 heading
+- ✓ `no_title_field_id_omits_structural_heading` — section without `titleFieldId` → no H3 heading between section H2 and field rows (Rule [N+1])
+- ✓ `semantic_object_type_missing_slash_emits_diagnostic` — `semanticObjectType: "noslash"` → diagnostic contains "no namespace separator"; section renders empty
+- ✓ `repeatable_field_entries_render_all_values` — record with `entries` array → all entry values in output, no `[partial]` diagnostic
+
+Fixture views added to `crates/srs-cli/tests/fixtures/repeatable-fields/package/document-views/`:
+- `repeatable-doc-view.json` (id `...0981`) — basic type-query, no titleFieldId
+- `deep-offset-view.json` (id `...0982`) — depthOffset 5
+- `title-field-view.json` (id `...0983`) — titleFieldId set
+- `bad-semantic-type-view.json` (id `...0984`) — semanticObjectType without `/`
 
 #### Milestone gate
 
@@ -661,12 +667,12 @@ cargo clippy -p srs-cli -- -D warnings
 
 ## Final Acceptance
 
-- [ ] `cargo test` passes with no failures across all crates
-- [ ] `cargo clippy -- -D warnings` passes
-- [ ] `srs render document-view --repo srs/srs --view ec34f54b-8636-5c8b-af5b-c9eb3df24fe6 --pretty` produces non-empty markdown in `payload.rendered`
+- [x] `cargo test` passes with no failures across all crates
+- [x] `cargo clippy -- -D warnings` passes
+- [x] `srs render document-view --repo srs/srs --view ec34f54b-8636-5c8b-af5b-c9eb3df24fe6 --pretty` produces non-empty markdown in `payload.rendered`
+- [x] All existing CLI commands continue to function (no regression)
 - [ ] RFC-001 and RFC-002 records have `status: "accepted"` in the SRS spec repo
 - [ ] `ext-themes-l1` appears in `manifest.json` `declaredExtensions`
-- [ ] All existing CLI commands continue to function (no regression)
 
 ---
 

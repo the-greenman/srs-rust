@@ -1,0 +1,11 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "00000000-0000-4000-8000-000000000911",
+  "namespace": "fixture.groups",
+  "name": "name",
+  "version": 1,
+  "description": "Name",
+  "aiGuidance": {"purpose": "capture name"},
+  "valueType": "string",
+  "createdAt": "2026-01-01T00:00:00Z"
+}

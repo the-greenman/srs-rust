@@ -1,0 +1,21 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json",
+  "id": "00000000-0000-4000-8000-000000000984",
+  "namespace": "fixture.repeatable",
+  "name": "bad-semantic-type-view",
+  "version": 1,
+  "description": "View with a semanticObjectType missing a namespace separator to trigger diagnostic",
+  "format": "markdown",
+  "sections": [
+    {
+      "sectionId": "items",
+      "order": 0,
+      "source": {
+        "type": "type-query",
+        "semanticObjectType": "noslash"
+      },
+      "emptyBehavior": "hide"
+    }
+  ],
+  "createdAt": "2026-01-01T00:00:00Z"
+}

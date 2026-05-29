@@ -40,6 +40,40 @@ pub enum CoreError {
 
     #[error("duplicate theme variant name: {name}")]
     DuplicateThemeVariantName { name: String },
+
+    #[error("repeatable field {field_id} has {count} entries but minItems is {min}")]
+    TooFewEntries {
+        field_id: String,
+        count: usize,
+        min: u32,
+    },
+
+    #[error("repeatable field {field_id} has {count} entries but maxItems is {max}")]
+    TooManyEntries {
+        field_id: String,
+        count: usize,
+        max: u32,
+    },
+
+    #[error("non-repeatable field {field_id} must use `value`, not `entries`")]
+    EntriesOnNonRepeatableField { field_id: String },
+
+    #[error("required field group {group_id} is missing from record")]
+    MissingRequiredFieldGroup { group_id: String },
+
+    #[error("field group {group_id} has {count} entries but minItems is {min}")]
+    TooFewGroupEntries {
+        group_id: String,
+        count: usize,
+        min: u32,
+    },
+
+    #[error("field group {group_id} has {count} entries but maxItems is {max}")]
+    TooManyGroupEntries {
+        group_id: String,
+        count: usize,
+        max: u32,
+    },
 }
 
 impl PartialEq for CoreError {
@@ -88,6 +122,62 @@ impl PartialEq for CoreError {
                 CoreError::DuplicateThemeVariantName { name: a },
                 CoreError::DuplicateThemeVariantName { name: b },
             ) => a == b,
+            (
+                CoreError::TooFewEntries {
+                    field_id: af,
+                    count: ac,
+                    min: am,
+                },
+                CoreError::TooFewEntries {
+                    field_id: bf,
+                    count: bc,
+                    min: bm,
+                },
+            ) => af == bf && ac == bc && am == bm,
+            (
+                CoreError::TooManyEntries {
+                    field_id: af,
+                    count: ac,
+                    max: am,
+                },
+                CoreError::TooManyEntries {
+                    field_id: bf,
+                    count: bc,
+                    max: bm,
+                },
+            ) => af == bf && ac == bc && am == bm,
+            (
+                CoreError::EntriesOnNonRepeatableField { field_id: a },
+                CoreError::EntriesOnNonRepeatableField { field_id: b },
+            ) => a == b,
+            (
+                CoreError::MissingRequiredFieldGroup { group_id: a },
+                CoreError::MissingRequiredFieldGroup { group_id: b },
+            ) => a == b,
+            (
+                CoreError::TooFewGroupEntries {
+                    group_id: ag,
+                    count: ac,
+                    min: am,
+                },
+                CoreError::TooFewGroupEntries {
+                    group_id: bg,
+                    count: bc,
+                    min: bm,
+                },
+            ) => ag == bg && ac == bc && am == bm,
+            (
+                CoreError::TooManyGroupEntries {
+                    group_id: ag,
+                    count: ac,
+                    max: am,
+                },
+                CoreError::TooManyGroupEntries {
+                    group_id: bg,
+                    count: bc,
+                    max: bm,
+                },
+            ) => ag == bg && ac == bc && am == bm,
             _ => false,
         }
     }

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "instanceId": "00000000-0000-4000-8000-000000000992",
+  "typeId": "00000000-0000-4000-8000-000000000902",
+  "typeVersion": 1,
+  "typeNamespace": "fixture.repeatable",
+  "typeName": "repeatable-item",
+  "fieldValues": [
+    {
+      "fieldId": "00000000-0000-4000-8000-000000000901",
+      "value": "first",
+      "entries": [
+        {"value": "a"},
+        {"value": "b"},
+        {"value": "c"},
+        {"value": "d"}
+      ]
+    }
+  ]
+}

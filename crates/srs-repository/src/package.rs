@@ -1,6 +1,6 @@
 use crate::error::RepositoryError;
 use srs_core::types::field::{Field, ValueType};
-use srs_core::types::record_type::{FieldAssignment, RecordType};
+use srs_core::types::record_type::{FieldAssignment, FieldGroup, RecordType};
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::types::view::{DocumentView, View};
 use srs_core::validation::relation_type_definition::validate_relation_type_definition;
@@ -73,6 +73,8 @@ struct TypeJson {
     version: u32,
     description: Option<String>,
     fields: Vec<FieldAssignmentJson>,
+    #[serde(default)]
+    field_groups: Option<Vec<FieldGroupJson>>,
     created_at: Option<String>,
     #[serde(flatten)]
     _extra: HashMap<String, serde_json::Value>,
@@ -88,6 +90,28 @@ struct FieldAssignmentJson {
     required: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     display_label: Option<String>,
+    #[serde(default)]
+    repeatable: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    min_items: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_items: Option<u32>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FieldGroupJson {
+    group_id: String,
+    order: u32,
+    fields: Vec<FieldAssignmentJson>,
+    label: Option<String>,
+    description: Option<String>,
+    #[serde(default)]
+    required: bool,
+    #[serde(default)]
+    repeatable: bool,
+    min_items: Option<u32>,
+    max_items: Option<u32>,
 }
 
 impl Package {
@@ -229,8 +253,39 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
                 order: fa.order,
                 required: fa.required.unwrap_or(true),
                 display_label: fa.display_label,
+                repeatable: fa.repeatable,
+                min_items: fa.min_items,
+                max_items: fa.max_items,
             })
             .collect();
+        let field_groups = type_json.field_groups.map(|groups| {
+            groups
+                .into_iter()
+                .map(|group| FieldGroup {
+                    group_id: group.group_id,
+                    order: group.order,
+                    fields: group
+                        .fields
+                        .into_iter()
+                        .map(|fa| FieldAssignment {
+                            field_id: fa.field_id,
+                            order: fa.order,
+                            required: fa.required.unwrap_or(true),
+                            display_label: fa.display_label,
+                            repeatable: fa.repeatable,
+                            min_items: fa.min_items,
+                            max_items: fa.max_items,
+                        })
+                        .collect(),
+                    label: group.label,
+                    description: group.description,
+                    required: group.required,
+                    repeatable: group.repeatable,
+                    min_items: group.min_items,
+                    max_items: group.max_items,
+                })
+                .collect()
+        });
 
         record_types.push(RecordType {
             id: type_json.id,
@@ -239,6 +294,7 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
             version: type_json.version,
             description: type_json.description.unwrap_or_default(),
             fields,
+            field_groups,
             created_at: type_json.created_at.unwrap_or_default(),
             extra: HashMap::new(),
         });

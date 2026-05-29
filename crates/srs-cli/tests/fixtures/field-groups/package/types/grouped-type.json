@@ -1,0 +1,31 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "00000000-0000-4000-8000-000000000913",
+  "namespace": "fixture.groups",
+  "name": "grouped-item",
+  "version": 1,
+  "description": "Type with required group",
+  "fields": [],
+  "fieldGroups": [
+    {
+      "groupId": "people",
+      "order": 0,
+      "required": true,
+      "repeatable": true,
+      "minItems": 1,
+      "fields": [
+        {
+          "fieldId": "00000000-0000-4000-8000-000000000911",
+          "order": 0,
+          "required": true
+        },
+        {
+          "fieldId": "00000000-0000-4000-8000-000000000912",
+          "order": 1,
+          "required": true
+        }
+      ]
+    }
+  ],
+  "createdAt": "2026-01-01T00:00:00Z"
+}

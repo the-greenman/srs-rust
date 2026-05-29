@@ -39,6 +39,7 @@ pub enum GetFieldResult {
 
 /// Result for get_type_by_id
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum GetTypeResult {
     Found(RecordType),
     NotFound,
@@ -943,6 +944,7 @@ mod tests {
             version: 1,
             description: "A new test type".to_string(),
             fields: vec![],
+            field_groups: None,
             created_at: "2026-01-02T00:00:00Z".to_string(),
             extra: std::collections::HashMap::new(),
         };

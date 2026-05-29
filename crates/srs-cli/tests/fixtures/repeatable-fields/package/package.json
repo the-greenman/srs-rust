@@ -1,0 +1,17 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+  "id": "fixture.repeatable-fields.pkg",
+  "namespace": "fixture.repeatable",
+  "name": "repeatable-fields",
+  "version": "1.0.0",
+  "fields": ["fields/title.json"],
+  "types": ["types/repeatable-type.json"],
+  "relationTypes": [],
+  "views": [],
+  "documentViews": [
+    "document-views/repeatable-doc-view.json",
+    "document-views/deep-offset-view.json",
+    "document-views/title-field-view.json",
+    "document-views/bad-semantic-type-view.json"
+  ]
+}

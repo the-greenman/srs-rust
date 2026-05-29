@@ -168,6 +168,9 @@ fn cmd_protocol_import(ctx: CliContext) -> Result<String> {
         field_values.push(FieldValue {
             field_id: "protocol-id".to_string(),
             value: v.clone(),
+            entries: None,
+            source: None,
+            edited_at: None,
         });
     }
     if let Some(v) = protocol_json
@@ -177,6 +180,9 @@ fn cmd_protocol_import(ctx: CliContext) -> Result<String> {
         field_values.push(FieldValue {
             field_id: "protocol-namespace".to_string(),
             value: v.clone(),
+            entries: None,
+            source: None,
+            edited_at: None,
         });
     }
     if let Some(v) = protocol_json
@@ -186,6 +192,9 @@ fn cmd_protocol_import(ctx: CliContext) -> Result<String> {
         field_values.push(FieldValue {
             field_id: "protocol-name".to_string(),
             value: v.clone(),
+            entries: None,
+            source: None,
+            edited_at: None,
         });
     }
     if let Some(v) = protocol_json
@@ -195,6 +204,9 @@ fn cmd_protocol_import(ctx: CliContext) -> Result<String> {
         field_values.push(FieldValue {
             field_id: "protocol-version".to_string(),
             value: v.clone(),
+            entries: None,
+            source: None,
+            edited_at: None,
         });
     }
     if let Some(v) = protocol_json
@@ -204,6 +216,9 @@ fn cmd_protocol_import(ctx: CliContext) -> Result<String> {
         field_values.push(FieldValue {
             field_id: "protocol-target-type".to_string(),
             value: v.clone(),
+            entries: None,
+            source: None,
+            edited_at: None,
         });
     }
     if let Some(v) = protocol_json
@@ -213,6 +228,9 @@ fn cmd_protocol_import(ctx: CliContext) -> Result<String> {
         field_values.push(FieldValue {
             field_id: "protocol-stages".to_string(),
             value: v.clone(),
+            entries: None,
+            source: None,
+            edited_at: None,
         });
     }
     if let Some(v) = protocol_json
@@ -222,6 +240,9 @@ fn cmd_protocol_import(ctx: CliContext) -> Result<String> {
         field_values.push(FieldValue {
             field_id: "protocol-created-at".to_string(),
             value: v.clone(),
+            entries: None,
+            source: None,
+            edited_at: None,
         });
     }
 

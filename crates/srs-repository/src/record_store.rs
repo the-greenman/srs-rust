@@ -96,6 +96,7 @@ pub fn create_record(
         type_namespace: record_type.namespace.clone(),
         type_name: record_type.name.clone(),
         field_values,
+        group_values: None,
         created_at: Some(chrono::Utc::now().to_rfc3339()),
         updated_at: Some(chrono::Utc::now().to_rfc3339()),
         extra: HashMap::new(),
@@ -205,6 +206,7 @@ pub fn update_record(
         type_namespace: record.type_namespace,
         type_name: record.type_name,
         field_values,
+        group_values: record.group_values,
         created_at: record.created_at,
         updated_at: Some(chrono::Utc::now().to_rfc3339()),
         extra: record.extra,
@@ -490,10 +492,16 @@ mod tests {
             FieldValue {
                 field_id: "field-name-001".to_string(),
                 value: json!("Test Record"),
+                entries: None,
+                source: None,
+                edited_at: None,
             },
             FieldValue {
                 field_id: "field-status-001".to_string(),
                 value: json!("active"),
+                entries: None,
+                source: None,
+                edited_at: None,
             },
         ];
 
@@ -536,6 +544,9 @@ mod tests {
         let field_values = vec![FieldValue {
             field_id: "field-status-001".to_string(),
             value: json!("active"),
+            entries: None,
+            source: None,
+            edited_at: None,
         }];
 
         let result = create_record(
@@ -564,6 +575,9 @@ mod tests {
         let field_values = vec![FieldValue {
             field_id: "field-name-001".to_string(),
             value: json!("Test Record"),
+            entries: None,
+            source: None,
+            edited_at: None,
         }];
 
         let record = create_record(
@@ -590,10 +604,16 @@ mod tests {
             FieldValue {
                 field_id: "field-name-001".to_string(),
                 value: json!("Initial Name"),
+                entries: None,
+                source: None,
+                edited_at: None,
             },
             FieldValue {
                 field_id: "field-status-001".to_string(),
                 value: json!("active"),
+                entries: None,
+                source: None,
+                edited_at: None,
             },
         ];
 
@@ -613,10 +633,16 @@ mod tests {
             FieldValue {
                 field_id: "field-name-001".to_string(),
                 value: json!("Updated Name"),
+                entries: None,
+                source: None,
+                edited_at: None,
             },
             FieldValue {
                 field_id: "field-status-001".to_string(),
                 value: json!("inactive"),
+                entries: None,
+                source: None,
+                edited_at: None,
             },
         ];
 
@@ -635,6 +661,9 @@ mod tests {
         let invalid_values = vec![FieldValue {
             field_id: "field-status-001".to_string(),
             value: json!("active"),
+            entries: None,
+            source: None,
+            edited_at: None,
         }];
 
         let result = update_record(temp.path(), &instance_id, invalid_values);
@@ -653,10 +682,16 @@ mod tests {
             FieldValue {
                 field_id: "field-name-001".to_string(),
                 value: json!("Test Name"),
+                entries: None,
+                source: None,
+                edited_at: None,
             },
             FieldValue {
                 field_id: "field-status-001".to_string(),
                 value: json!("active"),
+                entries: None,
+                source: None,
+                edited_at: None,
             },
         ];
 
