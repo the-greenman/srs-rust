@@ -9,6 +9,7 @@ pub mod relation;
 pub mod relation_type;
 pub mod repo;
 pub mod tag;
+pub mod container;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -53,6 +54,10 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub pretty: bool,
 
+    /// Container scope: constrains list/create/delete to this container's membership
+    #[arg(long = "container", global = true)]
+    pub container_id: Option<String>,
+
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -63,6 +68,7 @@ pub struct CliContext {
     pub repo: PathBuf,
     pub format: OutputFormat,
     pub pretty: bool,
+    pub container_id: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -100,6 +106,55 @@ pub enum Commands {
     /// Protocol definition commands
     #[command(subcommand)]
     Protocol(ProtocolCommand),
+    /// Container grouping and membership commands
+    #[command(subcommand)]
+    Container(ContainerCommand),
+}
+
+#[derive(Subcommand)]
+pub enum ContainerCommand {
+    /// List all containers, optionally filtered by containerType or membership role
+    List {
+        /// Filter by containerType
+        #[arg(long = "type")]
+        container_type: Option<String>,
+        /// Return only containers where this instance appears in memberInstanceIds OR rootInstanceIds
+        #[arg(long = "member")]
+        member_instance_id: Option<String>,
+        /// Return only containers where this instance appears specifically in rootInstanceIds
+        #[arg(long = "root")]
+        root_instance_id: Option<String>,
+    },
+    /// Create a new container (reads JSON from stdin)
+    Create,
+    /// Get a container by ID
+    Get { container_id: String },
+    /// Update a container (reads partial JSON patch from stdin)
+    Update { container_id: String },
+    /// Delete a container by ID
+    Delete { container_id: String },
+    /// Member instance management
+    #[command(subcommand)]
+    Members(ContainerMembersCommand),
+    /// Root instance management
+    #[command(subcommand)]
+    Roots(ContainerRootsCommand),
+    /// Validate container invariants
+    Validate { container_id: String },
+}
+
+#[derive(Subcommand)]
+pub enum ContainerMembersCommand {
+    List { container_id: String },
+    Add { container_id: String, instance_id: String },
+    Remove { container_id: String, instance_id: String },
+}
+
+#[derive(Subcommand)]
+pub enum ContainerRootsCommand {
+    List { container_id: String },
+    Add { container_id: String, instance_id: String },
+    Remove { container_id: String, instance_id: String },
 }
 
 #[derive(Subcommand)]
@@ -544,6 +599,7 @@ pub fn dispatch(cli: Cli) -> Result<String> {
         repo: repo_root,
         format: cli.format,
         pretty: cli.pretty,
+        container_id: cli.container_id,
     };
 
     match cli.command {
@@ -558,5 +614,6 @@ pub fn dispatch(cli: Cli) -> Result<String> {
         Commands::Relation(relation_cmd) => relation::dispatch(ctx, relation_cmd),
         Commands::Extension(ext_cmd) => extension::dispatch(ctx, ext_cmd),
         Commands::Protocol(proto_cmd) => protocol::dispatch(ctx, proto_cmd),
+        Commands::Container(cmd) => container::dispatch(ctx, cmd),
     }
 }

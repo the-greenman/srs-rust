@@ -123,6 +123,12 @@ pub enum RepositoryError {
         relation_id: String,
         message: String,
     },
+
+    #[error("container not found: {container_id}")]
+    ContainerNotFound { container_id: String },
+
+    #[error("container validation failed: {source}")]
+    ContainerValidation { source: srs_core::error::CoreError },
 }
 
 impl PartialEq for RepositoryError {
@@ -261,6 +267,14 @@ impl PartialEq for RepositoryError {
                     message: mb,
                 },
             ) => ia == ib && ma == mb,
+            (
+                RepositoryError::ContainerNotFound { container_id: a },
+                RepositoryError::ContainerNotFound { container_id: b },
+            ) => a == b,
+            (
+                RepositoryError::ContainerValidation { source: sa },
+                RepositoryError::ContainerValidation { source: sb },
+            ) => sa == sb,
             _ => false,
         }
     }

@@ -3,6 +3,10 @@ use crate::output;
 use anyhow::Result;
 use serde_json::json;
 use srs_core::types::record::FieldValue;
+use srs_repository::container_service::{
+    add_member, get_container, is_member, list_members, remove_member,
+};
+use srs_repository::error::RepositoryError;
 use srs_repository::package::load_package;
 use srs_repository::package_service::{get_type_by_name, GetTypeResult};
 use srs_repository::record_store::{
@@ -42,7 +46,11 @@ fn cmd_record_list(ctx: CliContext, type_filter: String) -> Result<String> {
         }
     };
 
-    let records = list_records_by_type(&ctx.repo, &namespace, &name)?;
+    let mut records = list_records_by_type(&ctx.repo, &namespace, &name)?;
+    if let Some(ref cid) = ctx.container_id {
+        let members = list_members(&ctx.repo, cid)?;
+        records.retain(|r| members.iter().any(|id| id == &r.instance_id));
+    }
 
     Ok(output::ok("record list", json!({ "records": records })))
 }
@@ -63,6 +71,19 @@ fn cmd_record_create(
     version: Option<u32>,
     dir: String,
 ) -> Result<String> {
+    if let Some(ref cid) = ctx.container_id {
+        match get_container(&ctx.repo, cid) {
+            Ok(_) => {}
+            Err(RepositoryError::ContainerNotFound { .. }) => {
+                return Ok(output::err(
+                    "record create",
+                    vec![format!("Container '{}' not found — no record written", cid)],
+                ))
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+
     let (namespace, name) = match parse_type_filter(&type_filter) {
         Some(parts) => parts,
         None => {
@@ -104,7 +125,17 @@ fn cmd_record_create(
         field_values,
         &dir,
     ) {
-        Ok(record) => Ok(output::ok("record create", json!({ "record": record }))),
+        Ok(record) => {
+            if let Some(ref cid) = ctx.container_id {
+                if let Err(e) = add_member(&ctx.repo, cid, &record.instance_id) {
+                    return Ok(output::err(
+                        "record create",
+                        vec![format!("Record created but failed to add to container: {}", e)],
+                    ));
+                }
+            }
+            Ok(output::ok("record create", json!({ "record": record })))
+        }
         Err(e) => Ok(output::err("record create", vec![e.to_string()])),
     }
 }
@@ -124,6 +155,19 @@ fn cmd_record_update(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_record_delete(ctx: CliContext, id: String) -> Result<String> {
+    if let Some(ref cid) = ctx.container_id {
+        if !is_member(&ctx.repo, cid, &id)? {
+            return Ok(output::err(
+                "record delete",
+                vec![format!(
+                    "Instance '{}' is not a member of container '{}' — delete refused",
+                    id, cid
+                )],
+            ));
+        }
+        remove_member(&ctx.repo, cid, &id)?;
+    }
+
     match delete_record(&ctx.repo, &id) {
         Ok((instance_id, path)) => Ok(output::ok(
             "record delete",

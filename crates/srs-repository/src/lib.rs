@@ -1,4 +1,5 @@
 pub mod analysis;
+pub mod container_service;
 pub mod detect;
 pub mod error;
 pub mod extension_service;

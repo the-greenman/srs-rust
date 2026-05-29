@@ -22,6 +22,9 @@ pub enum CoreError {
 
     #[error("invalid relation type: {relation_type}")]
     InvalidRelationType { relation_type: String },
+
+    #[error("invalid field value for {field_id}: {reason}")]
+    InvalidFieldValue { field_id: String, reason: String },
 }
 
 impl PartialEq for CoreError {
@@ -46,6 +49,16 @@ impl PartialEq for CoreError {
                 CoreError::InvalidRelationType { relation_type: a },
                 CoreError::InvalidRelationType { relation_type: b },
             ) => a == b,
+            (
+                CoreError::InvalidFieldValue {
+                    field_id: af,
+                    reason: ar,
+                },
+                CoreError::InvalidFieldValue {
+                    field_id: bf,
+                    reason: br,
+                },
+            ) => af == bf && ar == br,
             _ => false,
         }
     }

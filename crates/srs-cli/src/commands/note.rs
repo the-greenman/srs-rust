@@ -3,6 +3,10 @@ use crate::output;
 use anyhow::Result;
 use serde_json::json;
 use srs_core::types::note::Note;
+use srs_repository::container_service::{
+    add_member, get_container, is_member, list_members, remove_member,
+};
+use srs_repository::error::RepositoryError;
 use srs_repository::analysis::{audit_note_tags, collect_foundation_notes};
 use srs_repository::services::{
     add_note_tag, create_note, delete_note, get_note_by_id, list_notes, remove_note_tag,
@@ -26,7 +30,14 @@ pub fn dispatch(ctx: CliContext, cmd: NoteCommand) -> Result<String> {
 
 fn cmd_note_list(ctx: CliContext, tag: Option<String>) -> Result<String> {
     let filter = ListNotesFilter { tag };
-    let result = list_notes(&ctx.repo, filter)?;
+    let mut result = list_notes(&ctx.repo, filter)?;
+
+    if let Some(ref cid) = ctx.container_id {
+        let members = list_members(&ctx.repo, cid)?;
+        result
+            .notes
+            .retain(|n| members.iter().any(|id| id == &n.instance_id));
+    }
 
     // Convert NoteSummary to JSON for output
     let notes: Vec<serde_json::Value> = result
@@ -59,6 +70,19 @@ fn cmd_note_get(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_note_create(ctx: CliContext) -> Result<String> {
+    if let Some(ref cid) = ctx.container_id {
+        match get_container(&ctx.repo, cid) {
+            Ok(_) => {}
+            Err(RepositoryError::ContainerNotFound { .. }) => {
+                return Ok(output::err(
+                    "note create",
+                    vec![format!("Container '{}' not found — no note written", cid)],
+                ))
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+
     // Read JSON from stdin
     let mut stdin = String::new();
     io::stdin().read_to_string(&mut stdin)?;
@@ -68,6 +92,15 @@ fn cmd_note_create(ctx: CliContext) -> Result<String> {
 
     // Call service
     let result = create_note(&ctx.repo, note)?;
+
+    if let Some(ref cid) = ctx.container_id {
+        if let Err(e) = add_member(&ctx.repo, cid, &result.note.instance_id) {
+            return Ok(output::err(
+                "note create",
+                vec![format!("Note created but failed to add to container: {}", e)],
+            ));
+        }
+    }
 
     Ok(output::ok("note create", json!({ "note": result.note })))
 }
@@ -137,6 +170,19 @@ fn cmd_note_update(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_note_delete(ctx: CliContext, id: String) -> Result<String> {
+    if let Some(ref cid) = ctx.container_id {
+        if !is_member(&ctx.repo, cid, &id)? {
+            return Ok(output::err(
+                "note delete",
+                vec![format!(
+                    "Instance '{}' is not a member of container '{}' — delete refused",
+                    id, cid
+                )],
+            ));
+        }
+        remove_member(&ctx.repo, cid, &id)?;
+    }
+
     match delete_note(&ctx.repo, &id) {
         Ok(DeleteNoteResult { instance_id, path }) => Ok(output::ok(
             "note delete",

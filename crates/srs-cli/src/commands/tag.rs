@@ -3,6 +3,10 @@ use crate::output;
 use anyhow::Result;
 use serde_json::json;
 use srs_core::types::tag_definition::TagDefinition;
+use srs_repository::container_service::{
+    add_member, get_container, is_member, list_members, remove_member,
+};
+use srs_repository::error::RepositoryError;
 use srs_repository::tag_service::{
     create_tag_definition, delete_tag_definition, get_tag_definition_by_id, list_tag_definitions,
     list_tag_definitions_by_role, update_tag_definition, DeleteTagDefinitionResult,
@@ -21,11 +25,16 @@ pub fn dispatch(ctx: CliContext, cmd: TagCommand) -> Result<String> {
 }
 
 fn cmd_tag_list(ctx: CliContext, role: Option<String>) -> Result<String> {
-    let summaries = if let Some(role_filter) = role {
+    let mut summaries = if let Some(role_filter) = role {
         list_tag_definitions_by_role(&ctx.repo, &role_filter)?
     } else {
         list_tag_definitions(&ctx.repo)?
     };
+
+    if let Some(ref cid) = ctx.container_id {
+        let members = list_members(&ctx.repo, cid)?;
+        summaries.retain(|s| members.iter().any(|id| id == &s.instance_id));
+    }
 
     Ok(output::ok(
         "tag list",
@@ -46,6 +55,19 @@ fn cmd_tag_get(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_tag_create(ctx: CliContext) -> Result<String> {
+    if let Some(ref cid) = ctx.container_id {
+        match get_container(&ctx.repo, cid) {
+            Ok(_) => {}
+            Err(RepositoryError::ContainerNotFound { .. }) => {
+                return Ok(output::err(
+                    "tag create",
+                    vec![format!("Container '{}' not found — no tag written", cid)],
+                ))
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+
     // Read JSON from stdin - expects a TagDefinition
     let mut stdin = String::new();
     io::stdin().read_to_string(&mut stdin)?;
@@ -55,6 +77,15 @@ fn cmd_tag_create(ctx: CliContext) -> Result<String> {
 
     // Create the TagDefinition via the dedicated service
     let result = create_tag_definition(&ctx.repo, tag_definition)?;
+
+    if let Some(ref cid) = ctx.container_id {
+        if let Err(e) = add_member(&ctx.repo, cid, &result.tag_definition.instance_id) {
+            return Ok(output::err(
+                "tag create",
+                vec![format!("Tag created but failed to add to container: {}", e)],
+            ));
+        }
+    }
 
     Ok(output::ok(
         "tag create",
@@ -91,6 +122,19 @@ fn cmd_tag_update(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_tag_delete(ctx: CliContext, id: String) -> Result<String> {
+    if let Some(ref cid) = ctx.container_id {
+        if !is_member(&ctx.repo, cid, &id)? {
+            return Ok(output::err(
+                "tag delete",
+                vec![format!(
+                    "Instance '{}' is not a member of container '{}' — delete refused",
+                    id, cid
+                )],
+            ));
+        }
+        remove_member(&ctx.repo, cid, &id)?;
+    }
+
     match delete_tag_definition(&ctx.repo, &id) {
         Ok(DeleteTagDefinitionResult { instance_id, path }) => Ok(output::ok(
             "tag delete",

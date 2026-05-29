@@ -3,6 +3,7 @@ use crate::output;
 use anyhow::Result;
 use serde_json::json;
 use srs_core::types::relation::Relation;
+use srs_repository::container_service::list_members;
 use srs_repository::package::load_package;
 use srs_repository::relation_service::{
     create_relation, delete_relation, get_relation_by_id, list_relations, GetRelationResult,
@@ -36,6 +37,18 @@ fn cmd_relation_list(
         relation_type,
     };
     let summaries = list_relations(&ctx.repo, filter)?;
+    let summaries = if let Some(ref cid) = ctx.container_id {
+        let members = list_members(&ctx.repo, cid)?;
+        summaries
+            .into_iter()
+            .filter(|s| {
+                members.iter().any(|id| id == &s.source_id)
+                    && members.iter().any(|id| id == &s.target_id)
+            })
+            .collect()
+    } else {
+        summaries
+    };
 
     let relations: Vec<serde_json::Value> = summaries
         .into_iter()
