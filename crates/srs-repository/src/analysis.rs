@@ -36,7 +36,6 @@ pub struct RepositorySummary {
     pub title: Option<String>,
     pub description: Option<String>,
     pub conformance: Option<String>,
-    pub root: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -91,7 +90,9 @@ pub struct TagAudit {
 pub struct TagCount {
     pub tag: String,
     pub count: usize,
-    pub files: Vec<String>,
+    /// Relative paths within the repository of files where this tag appears.
+    #[serde(rename = "sourcePaths")]
+    pub source_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -113,7 +114,6 @@ pub struct FoundationNoteSet {
 pub struct FoundationNoteSummary {
     pub instance_id: String,
     pub title: Option<String>,
-    pub path: String,
     pub tags: Vec<String>,
     pub matched_tags: Vec<String>,
     pub section_names: Vec<String>,
@@ -148,7 +148,9 @@ pub struct SourceReferenceSummary {
 pub struct ManifestEntrySummary {
     pub instance_id: String,
     pub tier: u8,
-    pub path: String,
+    /// Relative path within the repository. Intentionally included for AI migration tooling.
+    #[serde(rename = "relativePath")]
+    pub relative_path: String,
     pub title: Option<String>,
 }
 
@@ -302,7 +304,6 @@ fn collect_foundation_notes_from_manifest(
         notes.push(FoundationNoteSummary {
             instance_id: note.instance_id,
             title: note.title,
-            path: entry.path().to_string(),
             tags: note.tags.unwrap_or_default(),
             matched_tags,
             section_names: note
@@ -315,7 +316,7 @@ fn collect_foundation_notes_from_manifest(
         });
     }
 
-    notes.sort_by(|a, b| a.path.cmp(&b.path));
+    notes.sort_by(|a, b| a.instance_id.cmp(&b.instance_id));
 
     Ok(FoundationNoteSet {
         signal_tags: signal_tags.into_iter().collect(),
@@ -339,7 +340,7 @@ pub fn build_migration_packet(
         .map(|entry| ManifestEntrySummary {
             instance_id: entry.instance_id().to_string(),
             tier: entry.tier(),
-            path: entry.path().to_string(),
+            relative_path: entry.path().to_string(),
             title: entry.title(),
         })
         .collect();
@@ -400,13 +401,12 @@ impl TagAccumulator {
     }
 }
 
-fn summarize_repository(repo_root: &Path, manifest: &Manifest) -> RepositorySummary {
+fn summarize_repository(_repo_root: &Path, manifest: &Manifest) -> RepositorySummary {
     RepositorySummary {
         repository_id: string_extra(manifest, "repositoryId"),
         title: string_extra(manifest, "title"),
         description: string_extra(manifest, "description"),
         conformance: string_extra(manifest, "conformance"),
-        root: repo_root.display().to_string(),
     }
 }
 
@@ -552,7 +552,7 @@ fn to_tag_counts(map: BTreeMap<String, TagAccumulator>) -> Vec<TagCount> {
         .map(|(tag, acc)| TagCount {
             tag,
             count: acc.count,
-            files: acc.files.into_iter().collect(),
+            source_paths: acc.files.into_iter().collect(),
         })
         .collect();
     counts.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.tag.cmp(&b.tag)));
@@ -720,7 +720,7 @@ mod tests {
 
         assert_eq!(foundations.notes.len(), 2);
         assert!(foundations.notes.iter().any(|note| {
-            note.path == "records/notes/foundation.json"
+            note.instance_id == "11111111-1111-4111-8111-111111111111"
                 && note.matched_tags.contains(&"meaning-first".to_string())
         }));
     }

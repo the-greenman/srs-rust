@@ -75,7 +75,7 @@ fn cmd_repo_validate(ctx: CliContext) -> Result<String> {
             .diagnostics
             .iter()
             .filter(|d| d.severity == srs_repository::validation::DiagnosticSeverity::Error)
-            .map(|d| format!("[{}] {}", d.path, d.message))
+            .map(|d| format!("[{}] {}", d.relative_path, d.message))
             .collect();
         Ok(output::err("repo validate", diagnostics))
     }

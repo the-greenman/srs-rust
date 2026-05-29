@@ -8,6 +8,22 @@ use srs_core::validation::record::validate_record;
 use std::collections::HashMap;
 use std::path::Path;
 
+/// List all Tier 2 records in the repository, regardless of type.
+pub fn list_all_records(repo_root: &Path) -> Result<Vec<Record>, RepositoryError> {
+    let manifest = load_manifest(repo_root)?;
+    let mut records = Vec::new();
+
+    for entry in &manifest.instance_index {
+        if entry.tier() != 2 {
+            continue;
+        }
+        let record_path = repo_root.join(entry.path());
+        records.push(load_record(&record_path)?);
+    }
+
+    Ok(records)
+}
+
 /// List all Tier 2 records matching the given type namespace and name.
 ///
 /// This loads the manifest, filters entries where `tier == 2`, loads each as a Record,
@@ -250,10 +266,7 @@ pub fn update_record(
 /// 4. Writes the updated manifest
 ///
 /// Returns the instance_id and path of the deleted record for audit purposes.
-pub fn delete_record(
-    repo_root: &Path,
-    instance_id: &str,
-) -> Result<(String, String), RepositoryError> {
+pub fn delete_record(repo_root: &Path, instance_id: &str) -> Result<String, RepositoryError> {
     let mut manifest = load_manifest(repo_root)?;
 
     // Find the entry in the manifest
@@ -281,7 +294,7 @@ pub fn delete_record(
     manifest.instance_index.remove(entry_index);
     write_manifest(&manifest)?;
 
-    Ok((instance_id.to_string(), path))
+    Ok(instance_id.to_string())
 }
 
 /// Add or replace the manifest index entry for a Record (in memory only).
@@ -720,7 +733,7 @@ mod tests {
         assert!(index_before.iter().any(|e| e["instanceId"] == instance_id));
 
         // DELETE the record
-        let (deleted_id, _deleted_path) = delete_record(temp.path(), &instance_id).unwrap();
+        let deleted_id = delete_record(temp.path(), &instance_id).unwrap();
         assert_eq!(deleted_id, instance_id);
 
         // Verify file was removed

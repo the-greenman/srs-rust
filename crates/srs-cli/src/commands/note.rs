@@ -46,7 +46,6 @@ fn cmd_note_list(ctx: CliContext, tag: Option<String>) -> Result<String> {
         .map(|n| {
             json!({
                 "instanceId": n.instance_id,
-                "path": n.path,
                 "title": n.title,
             })
         })
@@ -166,10 +165,7 @@ fn cmd_note_update(ctx: CliContext, id: String) -> Result<String> {
     // Call service
     let result = update_note(&ctx.repo, note)?;
 
-    Ok(output::ok(
-        "note update",
-        json!({ "note": result.note, "path": result.path }),
-    ))
+    Ok(output::ok("note update", json!({ "note": result.note })))
 }
 
 fn cmd_note_delete(ctx: CliContext, id: String) -> Result<String> {
@@ -187,9 +183,9 @@ fn cmd_note_delete(ctx: CliContext, id: String) -> Result<String> {
     }
 
     match delete_note(&ctx.repo, &id) {
-        Ok(DeleteNoteResult { instance_id, path }) => Ok(output::ok(
+        Ok(DeleteNoteResult { instance_id }) => Ok(output::ok(
             "note delete",
-            json!({ "instanceId": instance_id, "path": path }),
+            json!({ "instanceId": instance_id }),
         )),
         Err(e) => Ok(output::err("note delete", vec![e.to_string()])),
     }

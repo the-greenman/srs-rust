@@ -160,6 +160,9 @@ pub enum ThemeMode {
 #[serde(rename_all = "camelCase")]
 pub struct ThemeReference {
     pub mode: ThemeMode,
+    /// Relative path to the theme directory, as declared in the view document (mode: "local" only).
+    /// This is a stored configuration value. srs-core never opens this path.
+    /// Any code that resolves this to a real file must live in srs-repository.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

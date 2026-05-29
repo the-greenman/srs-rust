@@ -31,14 +31,6 @@ pub struct Container {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ContainerIndexEntry {
-    pub container_id: String,
-    pub title: String,
-    pub path: String,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -119,17 +111,5 @@ mod tests {
         let parsed: Container = serde_json::from_value(value).unwrap();
         assert_eq!(parsed.container_id, "");
         assert_eq!(parsed.title, "No ID Provided");
-    }
-
-    #[test]
-    fn container_index_entry_roundtrips() {
-        let entry = ContainerIndexEntry {
-            container_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
-            title: "Sprint 1".to_string(),
-            path: "containers/sprint-1-550e8400.json".to_string(),
-        };
-        let json = serde_json::to_string(&entry).unwrap();
-        let parsed: ContainerIndexEntry = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed, entry);
     }
 }

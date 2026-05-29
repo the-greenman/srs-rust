@@ -24,6 +24,8 @@ pub enum OutputFormat {
     /// JSON output (default)
     #[default]
     Json,
+    /// YAML output
+    Yaml,
     /// Human-readable text output (planned, currently returns diagnostic)
     Text,
 }
@@ -435,11 +437,11 @@ pub enum TypeCommand {
 
 #[derive(Subcommand)]
 pub enum RecordCommand {
-    /// List records by type
+    /// List records, optionally filtered by type (namespace/name format). Omit --type to list all records.
     List {
-        /// Type filter (namespace/name format)
+        /// Type filter (namespace/name format, e.g. com.example/my-type). Omit to list all records.
         #[arg(long = "type", visible_alias = "type-filter")]
-        type_filter: String,
+        type_filter: Option<String>,
         /// Deprecated: JSON output is now the default (no-op)
         #[arg(long, hide = true)]
         json: bool,

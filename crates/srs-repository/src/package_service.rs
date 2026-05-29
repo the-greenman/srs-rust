@@ -49,42 +49,36 @@ pub enum GetTypeResult {
 #[derive(Debug, Clone)]
 pub struct CreateFieldResult {
     pub field: Field,
-    pub path: String,
 }
 
 /// Result for update_field
 #[derive(Debug, Clone)]
 pub struct UpdateFieldResult {
     pub field: Field,
-    pub path: String,
 }
 
 /// Result for delete_field
 #[derive(Debug, Clone)]
 pub struct DeleteFieldResult {
     pub id: String,
-    pub path: String,
 }
 
 /// Result for create_type
 #[derive(Debug, Clone)]
 pub struct CreateTypeResult {
     pub record_type: RecordType,
-    pub path: String,
 }
 
 /// Result for update_type
 #[derive(Debug, Clone)]
 pub struct UpdateTypeResult {
     pub record_type: RecordType,
-    pub path: String,
 }
 
 /// Result for delete_type
 #[derive(Debug, Clone)]
 pub struct DeleteTypeResult {
     pub id: String,
-    pub path: String,
 }
 
 /// List all fields in the package
@@ -305,7 +299,6 @@ pub fn create_field(repo_root: &Path, field: Field) -> Result<CreateFieldResult,
             created_at,
             ..field
         },
-        path: relative_path,
     })
 }
 
@@ -370,10 +363,7 @@ pub fn update_field(repo_root: &Path, field: Field) -> Result<UpdateFieldResult,
         source: e,
     })?;
 
-    Ok(UpdateFieldResult {
-        field,
-        path: relative_path.to_string(),
-    })
+    Ok(UpdateFieldResult { field })
 }
 
 /// Delete a field definition
@@ -432,10 +422,7 @@ pub fn delete_field(repo_root: &Path, id: &str) -> Result<DeleteFieldResult, Rep
         source: e,
     })?;
 
-    Ok(DeleteFieldResult {
-        id: id.to_string(),
-        path: relative_path,
-    })
+    Ok(DeleteFieldResult { id: id.to_string() })
 }
 
 /// Convert a name to a filesystem-friendly slug
@@ -541,10 +528,7 @@ pub fn create_type(
         source: e,
     })?;
 
-    Ok(CreateTypeResult {
-        record_type,
-        path: filename,
-    })
+    Ok(CreateTypeResult { record_type })
 }
 
 /// Update an existing type definition
@@ -631,10 +615,7 @@ pub fn update_type(
         source: e,
     })?;
 
-    Ok(UpdateTypeResult {
-        record_type,
-        path: relative_path.to_string(),
-    })
+    Ok(UpdateTypeResult { record_type })
 }
 
 /// Delete a type definition
@@ -697,10 +678,7 @@ pub fn delete_type(
         source: e,
     })?;
 
-    Ok(DeleteTypeResult {
-        id: id.to_string(),
-        path: relative_path,
-    })
+    Ok(DeleteTypeResult { id: id.to_string() })
 }
 
 #[cfg(test)]
@@ -899,8 +877,8 @@ mod tests {
             "00000000-0000-0000-0000-000000000010"
         );
 
-        // Verify file was created
-        let field_path = temp.path().join("package").join(&create_result.path);
+        // Verify file was created (derive path from field id prefix)
+        let field_path = temp.path().join("package/fields/new-field-00000000.json");
         assert!(field_path.exists());
 
         // Verify package.json was updated
@@ -968,8 +946,8 @@ mod tests {
             "00000000-0000-0000-0000-000000000020"
         );
 
-        // Verify file was created
-        let type_path = temp.path().join("package").join(&create_result.path);
+        // Verify file was created (derive path from type name and id prefix)
+        let type_path = temp.path().join("package/types/new-type-00000000.json");
         assert!(type_path.exists());
 
         // Verify package.json was updated

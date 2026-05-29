@@ -135,9 +135,9 @@ fn cmd_extension_update(ctx: CliContext, id: String) -> Result<String> {
 
 fn cmd_extension_delete(ctx: CliContext, id: String) -> Result<String> {
     match delete_record(&ctx.repo, &id) {
-        Ok((instance_id, path)) => Ok(output::ok(
+        Ok(instance_id) => Ok(output::ok(
             "extension delete",
-            json!({ "instanceId": instance_id, "path": path }),
+            json!({ "instanceId": instance_id }),
         )),
         Err(e) => Ok(output::err("extension delete", vec![e.to_string()])),
     }

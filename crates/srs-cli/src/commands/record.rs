@@ -10,7 +10,8 @@ use srs_repository::error::RepositoryError;
 use srs_repository::package::load_package;
 use srs_repository::package_service::{get_type_by_name, GetTypeResult};
 use srs_repository::record_store::{
-    create_record, delete_record, get_record_by_id, list_records_by_type, update_record,
+    create_record, delete_record, get_record_by_id, list_all_records, list_records_by_type,
+    update_record,
 };
 use std::io::{self, Read};
 
@@ -32,21 +33,23 @@ pub fn dispatch(ctx: CliContext, cmd: RecordCommand) -> Result<String> {
     }
 }
 
-fn cmd_record_list(ctx: CliContext, type_filter: String) -> Result<String> {
-    let (namespace, name) = match parse_type_filter(&type_filter) {
-        Some(parts) => parts,
-        None => {
-            return Ok(output::err(
-                "record list",
-                vec![format!(
-                    "Invalid type filter '{}'. Expected format: namespace/name",
-                    type_filter
-                )],
-            ))
-        }
+fn cmd_record_list(ctx: CliContext, type_filter: Option<String>) -> Result<String> {
+    let mut records = match type_filter {
+        None => list_all_records(&ctx.repo)?,
+        Some(ref filter) => match parse_type_filter(filter) {
+            Some((namespace, name)) => list_records_by_type(&ctx.repo, &namespace, &name)?,
+            None => {
+                return Ok(output::err(
+                    "record list",
+                    vec![format!(
+                        "Invalid type filter '{}'. Expected format: namespace/name",
+                        filter
+                    )],
+                ))
+            }
+        },
     };
 
-    let mut records = list_records_by_type(&ctx.repo, &namespace, &name)?;
     if let Some(ref cid) = ctx.container_id {
         let members = list_members(&ctx.repo, cid)?;
         records.retain(|r| members.iter().any(|id| id == &r.instance_id));
@@ -172,9 +175,9 @@ fn cmd_record_delete(ctx: CliContext, id: String) -> Result<String> {
     }
 
     match delete_record(&ctx.repo, &id) {
-        Ok((instance_id, path)) => Ok(output::ok(
+        Ok(instance_id) => Ok(output::ok(
             "record delete",
-            json!({ "instanceId": instance_id, "path": path }),
+            json!({ "instanceId": instance_id }),
         )),
         Err(e) => Ok(output::err("record delete", vec![e.to_string()])),
     }

@@ -14,7 +14,10 @@ use std::path::Path;
 #[serde(rename_all = "camelCase")]
 pub struct ValidationDiagnostic {
     pub severity: DiagnosticSeverity,
-    pub path: String,
+    /// Relative path within the repository that this diagnostic applies to.
+    /// Serialized as "path" for JSON backward compatibility.
+    #[serde(rename = "path")]
+    pub relative_path: String,
     pub schema_id: Option<String>,
     pub message: String,
 }
@@ -90,7 +93,7 @@ pub fn validate_repository(
             Err(e) => {
                 diagnostics.push(ValidationDiagnostic {
                     severity: DiagnosticSeverity::Error,
-                    path: rel_path,
+                    relative_path: rel_path,
                     schema_id: None,
                     message: format!("I/O error: {e}"),
                 });
@@ -103,7 +106,7 @@ pub fn validate_repository(
             Err(e) => {
                 diagnostics.push(ValidationDiagnostic {
                     severity: DiagnosticSeverity::Error,
-                    path: rel_path,
+                    relative_path: rel_path,
                     schema_id: None,
                     message: format!("JSON parse error: {e}"),
                 });
@@ -122,7 +125,7 @@ pub fn validate_repository(
             if tier_id != decl {
                 diagnostics.push(ValidationDiagnostic {
                     severity: DiagnosticSeverity::Error,
-                    path: rel_path.clone(),
+                    relative_path: rel_path.clone(),
                     schema_id: Some(decl.to_string()),
                     message: format!(
                         "manifest tier {} expects schema {tier_id} but file declares {decl}",
@@ -141,7 +144,7 @@ pub fn validate_repository(
             if let Err(e) = reg.validate_by_id(schema_id, &value) {
                 diagnostics.push(ValidationDiagnostic {
                     severity: DiagnosticSeverity::Error,
-                    path: rel_path.clone(),
+                    relative_path: rel_path.clone(),
                     schema_id: Some(schema_id.to_string()),
                     message: e.to_string(),
                 });
@@ -149,7 +152,7 @@ pub fn validate_repository(
         } else {
             diagnostics.push(ValidationDiagnostic {
                 severity: DiagnosticSeverity::Warning,
-                path: rel_path.clone(),
+                relative_path: rel_path.clone(),
                 schema_id: None,
                 message: "no known $schema declared and tier has no default schema".to_string(),
             });
@@ -168,7 +171,7 @@ pub fn validate_repository(
                             if let Err(err) = validate_record(&record, record_type) {
                                 diagnostics.push(ValidationDiagnostic {
                                     severity: DiagnosticSeverity::Error,
-                                    path: rel_path.clone(),
+                                    relative_path: rel_path.clone(),
                                     schema_id: None,
                                     message: err.to_string(),
                                 });
@@ -177,7 +180,7 @@ pub fn validate_repository(
                     }
                     Err(err) => diagnostics.push(ValidationDiagnostic {
                         severity: DiagnosticSeverity::Error,
-                        path: rel_path.clone(),
+                        relative_path: rel_path.clone(),
                         schema_id: None,
                         message: format!(
                             "failed to parse tier-2 record for semantic validation: {err}"
@@ -186,7 +189,7 @@ pub fn validate_repository(
                 },
                 None => diagnostics.push(ValidationDiagnostic {
                     severity: DiagnosticSeverity::Error,
-                    path: rel_path.clone(),
+                    relative_path: rel_path.clone(),
                     schema_id: None,
                     message: "failed to load package for tier-2 semantic validation".to_string(),
                 }),
@@ -227,7 +230,7 @@ pub fn validate_repository(
             Err(err) => {
                 diagnostics.push(ValidationDiagnostic {
                     severity: DiagnosticSeverity::Error,
-                    path: "package/package.json".to_string(),
+                    relative_path: "package/package.json".to_string(),
                     schema_id: None,
                     message: format!("failed to load package for relation validation: {err}"),
                 });
@@ -292,7 +295,7 @@ pub fn validate_repository(
                 for e in errs {
                     diagnostics.push(ValidationDiagnostic {
                         severity: DiagnosticSeverity::Error,
-                        path: rel_rel_path.clone(),
+                        relative_path: rel_rel_path.clone(),
                         schema_id: None,
                         message: e.message,
                     });
@@ -347,7 +350,7 @@ fn validate_file_against_schema(
         {
             diags.push(ValidationDiagnostic {
                 severity: DiagnosticSeverity::Warning,
-                path: rel_path,
+                relative_path: rel_path,
                 schema_id: Some(schema_id.to_string()),
                 message: "package manifest uses forward-compatible field 'documentViews' not yet present in embedded schema".to_string(),
             });
@@ -355,7 +358,7 @@ fn validate_file_against_schema(
         }
         diags.push(ValidationDiagnostic {
             severity: DiagnosticSeverity::Error,
-            path: rel_path,
+            relative_path: rel_path,
             schema_id: Some(schema_id.to_string()),
             message,
         });
@@ -514,7 +517,7 @@ mod tests {
         if !report.is_ok() {
             for d in &report.diagnostics {
                 if d.severity == DiagnosticSeverity::Error {
-                    println!("ERROR [{}]: {}", d.path, d.message);
+                    println!("ERROR [{}]: {}", d.relative_path, d.message);
                 }
             }
         }

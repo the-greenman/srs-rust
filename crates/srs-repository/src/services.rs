@@ -12,7 +12,6 @@ use std::path::Path;
 #[serde(rename_all = "camelCase")]
 pub struct NoteSummary {
     pub instance_id: String,
-    pub path: String,
     pub title: Option<String>,
     pub tags: Vec<String>,
 }
@@ -42,7 +41,6 @@ pub enum GetNoteResult {
 #[derive(Debug, Clone)]
 pub struct CreateNoteResult {
     pub note: Note,
-    pub path: String,
 }
 
 /// Result of adding a tag
@@ -65,14 +63,12 @@ pub enum RemoveTagResult {
 #[derive(Debug, Clone)]
 pub struct UpdateNoteResult {
     pub note: Note,
-    pub path: String,
 }
 
 /// Result of deleting a note
 #[derive(Debug, Clone)]
 pub struct DeleteNoteResult {
     pub instance_id: String,
-    pub path: String,
 }
 
 /// Service: List notes with optional tag filter
@@ -111,7 +107,6 @@ fn list_notes_from_manifest(
                     }
                     notes.push(NoteSummary {
                         instance_id: entry.instance_id().to_string(),
-                        path: path.to_string(),
                         title: entry.title(),
                         tags: note.tags.unwrap_or_default(),
                     });
@@ -122,7 +117,6 @@ fn list_notes_from_manifest(
             // No filter, include all notes (just from manifest for efficiency)
             notes.push(NoteSummary {
                 instance_id: entry.instance_id().to_string(),
-                path: path.to_string(),
                 title: entry.title(),
                 tags: Vec::new(), // Tags not loaded for efficiency
             });
@@ -198,10 +192,7 @@ pub fn create_note(repo_root: &Path, mut note: Note) -> Result<CreateNoteResult,
     upsert_index_entry(&mut manifest, &note, &relative_path);
     write_manifest(&manifest)?;
 
-    Ok(CreateNoteResult {
-        note,
-        path: relative_path,
-    })
+    Ok(CreateNoteResult { note })
 }
 
 /// Service: Add a tag to a note
@@ -329,10 +320,7 @@ pub fn update_note(repo_root: &Path, note: Note) -> Result<UpdateNoteResult, Rep
     upsert_index_entry(&mut manifest, &note, entry.path());
     write_manifest(&manifest)?;
 
-    Ok(UpdateNoteResult {
-        note,
-        path: entry.path().to_string(),
-    })
+    Ok(UpdateNoteResult { note })
 }
 
 /// Service: Delete a note by ID
@@ -368,7 +356,6 @@ pub fn delete_note(repo_root: &Path, id: &str) -> Result<DeleteNoteResult, Repos
 
     Ok(DeleteNoteResult {
         instance_id: id.to_string(),
-        path,
     })
 }
 
@@ -545,10 +532,9 @@ mod tests {
 
         let result = create_note(temp.path(), note).unwrap();
         assert!(!result.note.instance_id.is_empty());
-        assert_eq!(result.path, "records/notes/my-new-note.json");
 
-        // Verify file exists
-        assert!(temp.path().join(&result.path).exists());
+        // Verify file exists at the expected path
+        assert!(temp.path().join("records/notes/my-new-note.json").exists());
 
         // Verify manifest updated
         let manifest: Value = serde_json::from_str(

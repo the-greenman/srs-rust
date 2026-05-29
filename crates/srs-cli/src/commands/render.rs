@@ -28,6 +28,8 @@ fn cmd_render_document_view(
     }) {
         Ok(result) => {
             if let Some(path) = output_path {
+                // Output delivery: writing caller-specified --output path is thin I/O glue,
+                // not repository management. This is intentionally in the CLI layer.
                 std::fs::write(&path, result.rendered.as_bytes()).map_err(|e| {
                     anyhow::anyhow!("failed to write output file {:?}: {}", path, e)
                 })?;

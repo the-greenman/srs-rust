@@ -43,6 +43,7 @@ impl OutputDTO {
     pub fn render(self, format: OutputFormat, pretty: bool) -> String {
         match format {
             OutputFormat::Json => self.render_json(pretty),
+            OutputFormat::Yaml => self.render_yaml(),
             OutputFormat::Text => self.render_text(),
         }
     }
@@ -55,6 +56,12 @@ impl OutputDTO {
         } else {
             value.to_string()
         }
+    }
+
+    /// Render as YAML
+    fn render_yaml(&self) -> String {
+        let value = serde_json::to_value(self).unwrap_or(serde_json::json!(null));
+        serde_yaml::to_string(&value).unwrap_or_else(|e| format!("yaml serialization error: {}", e))
     }
 
     /// Render as text (planned - currently returns diagnostic)

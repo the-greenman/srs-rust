@@ -2,8 +2,18 @@ use crate::error::RepositoryError;
 use crate::manifest::{load_manifest, Manifest};
 use crate::writer::{new_instance_id, write_manifest};
 use serde::{Deserialize, Serialize};
-use srs_core::types::container::{Container, ContainerIndexEntry};
+use srs_core::types::container::Container;
 use srs_core::validation::container::validate_container;
+
+/// Internal index entry mapping a container ID to its file path within the repository.
+/// This type is an srs-repository implementation detail and must not be exposed to callers.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ContainerIndexEntry {
+    pub container_id: String,
+    pub title: String,
+    pub path: String,
+}
 use std::collections::HashSet;
 use std::path::Path;
 
@@ -12,7 +22,6 @@ use std::path::Path;
 pub struct ContainerSummary {
     pub container_id: String,
     pub title: String,
-    pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub container_type: Option<String>,
 }
@@ -157,7 +166,6 @@ pub fn list_containers(
         summaries.push(ContainerSummary {
             container_id: entry.container_id,
             title: entry.title,
-            path: entry.path,
             container_type: container.container_type,
         });
     }
@@ -620,8 +628,9 @@ mod tests {
             minimal_container("550e8400-e29b-41d4-a716-446655440000", "Delete"),
         )
         .unwrap();
-        let listed = list_containers(&repo, None, None, None).unwrap();
-        let path = repo.join(&listed[0].path);
+        let manifest = load_manifest(&repo).unwrap();
+        let index = load_container_index(&manifest);
+        let path = repo.join(&index[0].path);
         assert!(path.exists());
         delete_container(&repo, &created.container_id).unwrap();
         assert!(!path.exists());
@@ -938,9 +947,10 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let repo = make_minimal_container_repo(&temp);
         let out = create_container(&repo, minimal_container("", "Sprint")).unwrap();
-        let listed = list_containers(&repo, None, None, None).unwrap();
-        assert_eq!(listed.len(), 1);
-        assert!(listed[0].path.contains(&out.container_id[..8]));
+        let manifest = load_manifest(&repo).unwrap();
+        let index = load_container_index(&manifest);
+        assert_eq!(index.len(), 1);
+        assert!(index[0].path.contains(&out.container_id[..8]));
     }
 
     #[test]

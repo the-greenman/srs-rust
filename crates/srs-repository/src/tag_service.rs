@@ -28,19 +28,16 @@ pub enum GetTagDefinitionResult {
 /// Result type for create_tag_definition
 pub struct CreateTagDefinitionResult {
     pub tag_definition: TagDefinition,
-    pub path: String,
 }
 
 /// Result type for update_tag_definition
 pub struct UpdateTagDefinitionResult {
     pub tag_definition: TagDefinition,
-    pub path: String,
 }
 
 /// Result type for delete_tag_definition
 pub struct DeleteTagDefinitionResult {
     pub instance_id: String,
-    pub path: String,
 }
 
 /// Convert a tag key to a filesystem-friendly slug.
@@ -182,10 +179,7 @@ pub fn create_tag_definition(
     upsert_tag_definition_index_entry(&mut manifest, &tag_definition, &relative_path);
     write_manifest(&manifest)?;
 
-    Ok(CreateTagDefinitionResult {
-        tag_definition,
-        path: relative_path,
-    })
+    Ok(CreateTagDefinitionResult { tag_definition })
 }
 
 /// Service: Update an existing TagDefinition
@@ -222,10 +216,7 @@ pub fn update_tag_definition(
     upsert_tag_definition_index_entry(&mut manifest, &tag_definition, entry.path());
     write_manifest(&manifest)?;
 
-    Ok(UpdateTagDefinitionResult {
-        tag_definition,
-        path: entry.path().to_string(),
-    })
+    Ok(UpdateTagDefinitionResult { tag_definition })
 }
 
 /// Service: Delete a TagDefinition by ID
@@ -263,7 +254,6 @@ pub fn delete_tag_definition(
 
     Ok(DeleteTagDefinitionResult {
         instance_id: id.to_string(),
-        path,
     })
 }
 
@@ -323,8 +313,14 @@ mod tests {
         let td = create_test_td("test-tag");
         let result = create_tag_definition(temp.path(), td).unwrap();
 
-        // Check file was written
-        let file_path = temp.path().join(&result.path);
+        // Check file was written (find it via the manifest index path)
+        let manifest = load_manifest(temp.path()).unwrap();
+        let entry = manifest
+            .instance_index
+            .iter()
+            .find(|e| e.instance_id() == result.tag_definition.instance_id)
+            .expect("manifest entry should exist");
+        let file_path = temp.path().join(entry.path());
         assert!(file_path.exists());
 
         // Check instance_id was minted
@@ -475,8 +471,14 @@ mod tests {
             Some("Updated Label".to_string())
         );
 
-        // Verify file was rewritten
-        let file_path = temp.path().join(&result.path);
+        // Verify file was rewritten (find it via the manifest index path)
+        let manifest = load_manifest(temp.path()).unwrap();
+        let entry = manifest
+            .instance_index
+            .iter()
+            .find(|e| e.instance_id() == instance_id)
+            .expect("manifest entry should exist");
+        let file_path = temp.path().join(entry.path());
         let file_content = fs::read_to_string(&file_path).unwrap();
         let file_td: TagDefinition = serde_json::from_str(&file_content).unwrap();
         assert_eq!(file_td.label, Some("Updated Label".to_string()));
@@ -504,7 +506,14 @@ mod tests {
         let td = create_test_td("deletable-tag");
         let created = create_tag_definition(temp.path(), td).unwrap();
         let instance_id = created.tag_definition.instance_id.clone();
-        let file_path = temp.path().join(&created.path);
+        // Get the file path from the manifest before deletion
+        let manifest = load_manifest(temp.path()).unwrap();
+        let entry = manifest
+            .instance_index
+            .iter()
+            .find(|e| e.instance_id() == instance_id)
+            .expect("manifest entry should exist");
+        let file_path = temp.path().join(entry.path());
 
         // Verify it was created
         assert!(file_path.exists());

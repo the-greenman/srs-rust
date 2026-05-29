@@ -117,7 +117,7 @@ fn cmd_tag_update(ctx: CliContext, id: String) -> Result<String> {
 
     Ok(output::ok(
         "tag update",
-        json!({ "tagDefinition": result.tag_definition, "path": result.path }),
+        json!({ "tagDefinition": result.tag_definition }),
     ))
 }
 
@@ -136,9 +136,9 @@ fn cmd_tag_delete(ctx: CliContext, id: String) -> Result<String> {
     }
 
     match delete_tag_definition(&ctx.repo, &id) {
-        Ok(DeleteTagDefinitionResult { instance_id, path }) => Ok(output::ok(
+        Ok(DeleteTagDefinitionResult { instance_id }) => Ok(output::ok(
             "tag delete",
-            json!({ "instanceId": instance_id, "path": path }),
+            json!({ "instanceId": instance_id }),
         )),
         Err(e) => Ok(output::err("tag delete", vec![e.to_string()])),
     }

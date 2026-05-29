@@ -62,10 +62,7 @@ fn cmd_field_create(ctx: CliContext) -> Result<String> {
 
     let result = create_field(&ctx.repo, field)?;
 
-    Ok(output::ok(
-        "field create",
-        json!({ "field": result.field, "path": result.path }),
-    ))
+    Ok(output::ok("field create", json!({ "field": result.field })))
 }
 
 fn normalize_field_input(value: serde_json::Value) -> serde_json::Value {
