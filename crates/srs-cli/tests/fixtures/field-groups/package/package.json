@@ -3,10 +3,14 @@
   "id": "fixture.field-groups.pkg",
   "namespace": "fixture.groups",
   "name": "field-groups",
+  "title": "Field Groups Fixture Package",
+  "description": "Test fixture for field group rendering and validation.",
+  "status": "active",
   "version": "1.0.0",
   "fields": ["fields/name.json", "fields/value.json"],
   "types": ["types/grouped-type.json"],
   "relationTypes": [],
   "views": [],
-  "documentViews": []
+  "documentViews": [],
+  "createdAt": "2026-05-01T00:00:00Z"
 }

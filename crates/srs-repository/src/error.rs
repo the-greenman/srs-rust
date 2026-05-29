@@ -159,6 +159,21 @@ pub enum RepositoryError {
 
     #[error("document view not found: {view_id}")]
     DocumentViewNotFound { view_id: String },
+
+    #[error("package ref path '{path}' is outside the repository root")]
+    PackageRefOutsideRepo { path: String },
+
+    #[error("package ref path '{path}' does not contain a package.json")]
+    PackageRefMissing { path: String },
+
+    #[error("package ref '{path}' contains a conflicting {kind} definition: id '{id}' (first loaded from {first_path:?}, conflict from {second_path:?})")]
+    PackageRefConflict {
+        path: String,
+        kind: String,
+        id: String,
+        first_path: PathBuf,
+        second_path: PathBuf,
+    },
 }
 
 impl PartialEq for RepositoryError {
@@ -347,6 +362,28 @@ impl PartialEq for RepositoryError {
                 RepositoryError::DocumentViewNotFound { view_id: a },
                 RepositoryError::DocumentViewNotFound { view_id: b },
             ) => a == b,
+            (
+                RepositoryError::PackageRefOutsideRepo { path: a },
+                RepositoryError::PackageRefOutsideRepo { path: b },
+            ) => a == b,
+            (
+                RepositoryError::PackageRefMissing { path: a },
+                RepositoryError::PackageRefMissing { path: b },
+            ) => a == b,
+            (
+                RepositoryError::PackageRefConflict {
+                    path: pa,
+                    kind: ka,
+                    id: ia,
+                    ..
+                },
+                RepositoryError::PackageRefConflict {
+                    path: pb,
+                    kind: kb,
+                    id: ib,
+                    ..
+                },
+            ) => pa == pb && ka == kb && ia == ib,
             _ => false,
         }
     }

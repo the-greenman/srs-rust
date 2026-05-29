@@ -39,32 +39,42 @@ As of 2026-05-29.
 | Relations (`relation`) | Defined and stable | Implemented (CRUD + validation paths) |
 | Relation Types (`relation-type`) | RFC-005 aligned | Implemented (status lifecycle + resolver behavior) |
 | Containers (`container`) | Defined + invariants | Implemented (CRUD, members, roots, invariant validation, `--container` scoping for list/create/delete on note/tag/record) |
-| Fields/Types (`field`, `type`) | Defined | Implemented (definition management) |
-| Extensions (`extension`) | Defined | Implemented command surface |
-| Protocols (`protocol`) | Defined | Implemented command surface |
-| Views L1/L2 (`ext:views-l1`, `ext:views-l2`) | RFC-001 in progress to acceptance in repo records | Not yet implemented in runtime package/model/render pipeline |
-| Themes L1 (`ext:themes-l1`) | RFC-002 in progress to acceptance in repo records | Not implemented |
-| Render command (`srs render ...`) | Planned | Not implemented |
-| Repeatable field entries (`ext:repeatable-fields`) | In schema/spec | Implemented (typed model, validation constraints, rendering support) |
-| Field groups (`ext:field-groups`) | In schema/spec | Implemented (typed model, required/group-count validation, rendering support) |
-| Table value type | Mentioned in planning discussions | Not implemented (not in `ValueType` enum or field schemas) |
+| Fields (`field`) | Defined | Implemented (list, get, create — update/delete not exposed) |
+| Types (`type`) | Defined | Read-only via CLI (list, get); authoring is via package files |
+| Extensions (`extension`) | Defined | Implemented (CRUD) |
+| Protocols (`protocol`) | Defined | Implemented (CRUD, validation, stages, import/export) |
+| Package refs (`srs package`) | Defined | Implemented (list, enable, disable — with scope + existence validation) |
+| Views L1 (`ext:views-l1`) | RFC-001 acceptance in progress | Implemented in model + render pipeline; no CLI CRUD (views are package-defined) |
+| Views L2 / Document Views (`ext:views-l2`) | RFC-001 acceptance in progress | Implemented — `srs render document-view` works; section sourcing via TypeQuery/RelationQuery/FixedInstances/ContainerSubset; repeatable fields and field groups rendered |
+| Repeatable field entries (`ext:repeatable-fields`) | In schema/spec | Implemented (typed model, validation constraints, rendering) |
+| Field groups (`ext:field-groups`) | In schema/spec | Implemented (typed model, required/group-count validation, rendering) |
+| Lifecycle state machine (`ext:lifecycle`) | In progress | Stub — `lifecycleState` field parsed but not enforced; no state transition logic |
+| Type inheritance (`ext:type-inheritance`) | In planning | Not implemented — `fieldOrder` present in model but ignored at render time |
+| Themes (`ext:themes-l1`) | RFC-002 in progress | Not implemented |
+| Addressability (`ext:addressability`) | Declared | Not implemented |
+| Recommended relations (`ext:recommended-relations`) | Declared | Not implemented |
+| Federation (`ext:federation`) | Not declared | Not implemented |
+| Subsection nesting in renders | In spec (via relations) | Not implemented — renders are one level deep (section → records); subsection-of relation traversal not implemented |
+| Table value type | Mentioned in planning | Not implemented (not in `ValueType` enum or field schemas) |
 
 ## Current CLI Surface
 
 Top-level command groups currently available:
 
-- `note`
-- `repo`
-- `migrate`
-- `tag`
-- `relation-type`
-- `field`
-- `type`
-- `record`
-- `relation`
-- `extension`
-- `protocol`
-- `container`
+- `note` — CRUD, tag management, audits
+- `repo` — validate, map, extensions list/enable/disable
+- `migrate` — packet
+- `tag` — CRUD
+- `relation-type` — list, get
+- `field` — list, get, create
+- `type` — list, get
+- `record` — CRUD
+- `relation` — CRUD
+- `extension` — CRUD
+- `protocol` — CRUD, validation, stages, import/export
+- `container` — CRUD, members, roots, validate
+- `package` — list, enable, disable
+- `render` — `document-view` (render to stdout or `--output <file>`)
 
 Global flags:
 
@@ -127,8 +137,8 @@ scripts/check-schema-drift.sh
 ## Near-Term Roadmap
 
 - Land RFC-001/RFC-002 record acceptance updates in `../srs/srs`
-- Implement L1/L2 view models + package loading
-- Implement `render document-view`
+- Implement subsection nesting in document view renders (traverse subsection-of relations to produce multi-level hierarchy)
+- Implement lifecycle state enforcement (`ext:lifecycle` state machine)
 - Decide and implement table-like value modeling (if kept in spec scope)
 
 ## Notes

@@ -6,9 +6,11 @@ use crate::record_store::{get_record_by_id, list_records_by_type};
 use crate::relation_service::load_relations;
 use srs_core::types::field::ValueType;
 use srs_core::types::record::Record;
+use srs_core::types::relation::Relation;
 use srs_core::types::view::{
     DocumentSection, DocumentView, RelationDirection, SectionSource, SortDirection,
 };
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 pub struct RenderDocumentViewOptions<'a> {
@@ -126,6 +128,12 @@ fn resolve_container_title(dv: &DocumentView, manifest: &crate::manifest::Manife
         }
     }
 
+    if let Some(title) = manifest.extra.get("title").and_then(|v| v.as_str()) {
+        if !title.is_empty() {
+            return title.to_string();
+        }
+    }
+
     manifest
         .extra
         .get("namespace")
@@ -134,17 +142,132 @@ fn resolve_container_title(dv: &DocumentView, manifest: &crate::manifest::Manife
         .to_string()
 }
 
+/// Sort records by following the `precedes` relation chain among them.
+///
+/// Builds a linked-list ordering from `precedes` relations whose both endpoints
+/// are in the candidate set. Records not connected by any precedes relation fall
+/// back to `created_at` order. Handles cycles via a visited set.
+fn sort_by_precedes_chain(records: Vec<Record>, relations: &[Relation]) -> Vec<Record> {
+    if records.len() <= 1 {
+        return records;
+    }
+
+    let id_set: HashSet<&str> = records.iter().map(|r| r.instance_id.as_str()).collect();
+
+    // Build successor map and in-degree count from precedes relations within the set.
+    let mut next: HashMap<&str, &str> = HashMap::new();
+    let mut in_degree: HashMap<&str, usize> = id_set.iter().map(|id| (*id, 0)).collect();
+
+    for rel in relations {
+        if rel.relation_type != "precedes" {
+            continue;
+        }
+        let src = rel.source_instance_id.as_str();
+        let tgt = rel.target_instance_id.as_str();
+        if id_set.contains(src) && id_set.contains(tgt) {
+            next.insert(src, tgt);
+            *in_degree.entry(tgt).or_insert(0) += 1;
+        }
+    }
+
+    // Heads: nodes with no incoming precedes edge within the set.
+    let mut heads: Vec<&str> = in_degree
+        .iter()
+        .filter(|(_, &deg)| deg == 0)
+        .map(|(&id, _)| id)
+        .collect();
+    // Stable-sort heads by created_at for deterministic ordering of disconnected components.
+    heads.sort_by(|a, b| {
+        let ta = records
+            .iter()
+            .find(|r| r.instance_id == *a)
+            .and_then(|r| r.created_at.as_deref())
+            .unwrap_or("");
+        let tb = records
+            .iter()
+            .find(|r| r.instance_id == *b)
+            .and_then(|r| r.created_at.as_deref())
+            .unwrap_or("");
+        ta.cmp(tb)
+    });
+
+    let record_map: HashMap<&str, &Record> = records
+        .iter()
+        .map(|r| (r.instance_id.as_str(), r))
+        .collect();
+
+    let mut result: Vec<Record> = Vec::with_capacity(records.len());
+    let mut visited: HashSet<&str> = HashSet::new();
+
+    for head in heads {
+        let mut current = head;
+        loop {
+            if visited.contains(current) {
+                break;
+            }
+            visited.insert(current);
+            if let Some(&record) = record_map.get(current) {
+                result.push(record.clone());
+            }
+            match next.get(current) {
+                Some(&nxt) => current = nxt,
+                None => break,
+            }
+        }
+    }
+
+    // Append orphans / cycle members not reached above, sorted by created_at.
+    let mut remaining: Vec<&Record> = records
+        .iter()
+        .filter(|r| !visited.contains(r.instance_id.as_str()))
+        .collect();
+    remaining.sort_by(|a, b| {
+        a.created_at
+            .as_deref()
+            .unwrap_or("")
+            .cmp(b.created_at.as_deref().unwrap_or(""))
+    });
+    result.extend(remaining.into_iter().cloned());
+
+    result
+}
+
+/// Collect subsection records that are targets of `contains` relations from
+/// `instance_id`, ordered by `precedes` chain.
+fn collect_subsections(
+    repo_root: &Path,
+    instance_id: &str,
+    relations: &[Relation],
+) -> Result<Vec<Record>, RepositoryError> {
+    let target_ids: Vec<&str> = relations
+        .iter()
+        .filter(|r| r.relation_type == "contains" && r.source_instance_id == instance_id)
+        .map(|r| r.target_instance_id.as_str())
+        .collect();
+
+    let mut subsections = Vec::new();
+    for id in target_ids {
+        if let Some(record) = get_record_by_id(repo_root, id)? {
+            subsections.push(record);
+        }
+    }
+
+    Ok(sort_by_precedes_chain(subsections, relations))
+}
+
 fn render_section(
     repo_root: &Path,
     ctx: &RenderContext<'_>,
     section: &DocumentSection,
-    relations: &[srs_core::types::relation::Relation],
+    relations: &[Relation],
     diagnostics: &mut Vec<String>,
 ) -> Result<String, RepositoryError> {
     let mut records = resolve_section_instances(repo_root, section, relations, diagnostics)?;
     if records.is_empty() && section.required != Some(true) {
         return Ok(String::new());
     }
+
+    // Apply explicit field-based ordering first if declared.
     if let Some(ordering) = &section.ordering {
         if let Some(field_id) = &ordering.field_id {
             records.sort_by(|a, b| {
@@ -156,6 +279,9 @@ fn render_section(
                 records.reverse();
             }
         }
+    } else if matches!(&section.source, SectionSource::TypeQuery { .. }) {
+        // For TypeQuery sections without explicit ordering, use precedes-chain sort.
+        records = sort_by_precedes_chain(records, relations);
     }
 
     let mut out = String::new();
@@ -176,8 +302,17 @@ fn render_section(
         return Ok(out);
     }
 
+    let record_heading_level = depth(2, ctx.depth_offset) + 1;
     for record in &records {
-        out.push_str(&render_record(ctx, section, record, diagnostics));
+        out.push_str(&render_record_at_level(
+            repo_root,
+            ctx,
+            section,
+            record,
+            record_heading_level,
+            relations,
+            diagnostics,
+        )?);
     }
     Ok(out)
 }
@@ -259,23 +394,28 @@ fn resolve_section_instances(
     }
 }
 
-fn render_record(
+fn render_record_at_level(
+    repo_root: &Path,
     ctx: &RenderContext<'_>,
     section: &DocumentSection,
     record: &Record,
+    heading_level: u32,
+    relations: &[Relation],
     diagnostics: &mut Vec<String>,
-) -> String {
+) -> Result<String, RepositoryError> {
     let mut out = String::new();
     let rt = ctx
         .package
         .resolve_type(&record.type_id, record.type_version)
         .cloned();
 
+    let structured = section.title_field_id.is_some();
+
     if let Some(title_field_id) = &section.title_field_id {
         if let Some(title) = record.get_field_value_str(title_field_id) {
             out.push_str(&format!(
                 "{}{}\n\n",
-                heading_prefix(depth(3, ctx.depth_offset), ctx.format),
+                heading_prefix(heading_level, ctx.format),
                 title
             ));
         }
@@ -333,11 +473,18 @@ fn render_record(
     }
 
     for field_id in field_ids {
+        // In structured mode (titleFieldId set), skip the title field — already emitted as heading.
+        if structured {
+            if let Some(title_fid) = &section.title_field_id {
+                if &field_id == title_fid {
+                    continue;
+                }
+            }
+        }
+
         let field_value = record.find_field_value(&field_id);
-        let field_type = ctx
-            .package
-            .resolve_field(&field_id)
-            .map(|field| field.value_type);
+        let field_def = ctx.package.resolve_field(&field_id);
+        let field_type = field_def.map(|field| field.value_type);
         let rendered_value = field_value.and_then(|fv| render_field_value(fv, field_type));
         if rendered_value.is_none() && omit_empty {
             continue;
@@ -348,6 +495,22 @@ fn render_record(
                 Some(srs_core::types::view::EmptyBehavior::ShowPlaceholder)
             )
         {
+            continue;
+        }
+
+        let value_text = rendered_value.unwrap_or_else(|| "(empty)".to_string());
+
+        // In structured mode, Text/Multiselect fields render as plain prose (no label prefix).
+        if structured
+            && matches!(
+                field_type,
+                Some(ValueType::Text) | Some(ValueType::Multiselect)
+            )
+        {
+            if !value_text.is_empty() {
+                out.push_str(&value_text);
+                out.push_str("\n\n");
+            }
             continue;
         }
 
@@ -362,7 +525,6 @@ fn render_record(
             .or_else(|| ctx.package.resolve_field(&field_id).map(|f| f.name.clone()))
             .unwrap_or_else(|| field_id.clone());
 
-        let value_text = rendered_value.unwrap_or_else(|| "(empty)".to_string());
         if ctx.format == "markdown" {
             out.push_str(&format!("**{}**: {}\n", label, value_text));
         } else {
@@ -375,8 +537,24 @@ fn render_record(
         }
     }
 
+    // In structured mode, render subsections nested one heading level deeper.
+    if structured {
+        let subsections = collect_subsections(repo_root, &record.instance_id, relations)?;
+        for subsection in &subsections {
+            out.push_str(&render_record_at_level(
+                repo_root,
+                ctx,
+                section,
+                subsection,
+                heading_level + 1,
+                relations,
+                diagnostics,
+            )?);
+        }
+    }
+
     out.push('\n');
-    out
+    Ok(out)
 }
 
 fn render_field_groups(

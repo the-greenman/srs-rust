@@ -182,32 +182,60 @@ pub(crate) fn load_relations(repo_root: &Path) -> Result<Vec<Relation>, Reposito
     Ok(collection.relations)
 }
 
-/// Load the relations collection file
+/// Load the relations collection file.
+///
+/// Path resolution order:
+/// 1. `relationsPath` declared in `manifest.json` (relative to repo_root)
+/// 2. `relations/relations-collection.json` (legacy default)
+/// 3. `relations/relations.json` (alternate convention used by some repos)
+///
+/// Returns an empty collection if no file is found.
 fn load_relations_collection(repo_root: &Path) -> Result<RelationsCollection, RepositoryError> {
-    let relations_path = repo_root.join("relations/relations-collection.json");
+    let empty = || RelationsCollection {
+        schema: Some(
+            "https://srs.semanticops.com/schema/2.0/relations-collection.json".to_string(),
+        ),
+        relations: Vec::new(),
+    };
 
-    if !relations_path.exists() {
-        // Return empty collection if file doesn't exist
-        return Ok(RelationsCollection {
-            schema: Some(
-                "https://srs.semanticops.com/schema/2.0/relations-collection.json".to_string(),
-            ),
-            relations: Vec::new(),
-        });
-    }
+    // Determine the path to try first from the manifest's relationsPath field.
+    let manifest_path = if let Ok(manifest) = crate::manifest::load_manifest(repo_root) {
+        manifest
+            .extra
+            .get("relationsPath")
+            .and_then(|v| v.as_str())
+            .map(|rel| repo_root.join(rel))
+    } else {
+        None
+    };
 
-    let content = std::fs::read_to_string(&relations_path).map_err(|e| RepositoryError::Io {
-        path: relations_path.clone(),
-        source: e,
-    })?;
+    // Build candidate list: manifest path first, then the two defaults.
+    let candidates: Vec<std::path::PathBuf> = [
+        manifest_path,
+        Some(repo_root.join("relations/relations-collection.json")),
+        Some(repo_root.join("relations/relations.json")),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
 
-    let collection: RelationsCollection =
-        serde_json::from_str(&content).map_err(|e| RepositoryError::RecordLoad {
+    for relations_path in &candidates {
+        if !relations_path.exists() {
+            continue;
+        }
+        let content = std::fs::read_to_string(relations_path).map_err(|e| RepositoryError::Io {
             path: relations_path.clone(),
             source: e,
         })?;
+        let collection: RelationsCollection =
+            serde_json::from_str(&content).map_err(|e| RepositoryError::RecordLoad {
+                path: relations_path.clone(),
+                source: e,
+            })?;
+        return Ok(collection);
+    }
 
-    Ok(collection)
+    Ok(empty())
 }
 
 /// Write the relations collection to file
@@ -453,6 +481,106 @@ mod tests {
         .unwrap();
         assert_eq!(collection.relations.len(), 4);
         assert!(collection.relations.iter().any(|r| r.relation_id == "r4"));
+    }
+
+    #[test]
+    fn load_relations_respects_manifest_relations_path() {
+        let temp = TempDir::new().unwrap();
+        std::fs::create_dir_all(temp.path().join("relations")).unwrap();
+
+        // Manifest declares a custom relationsPath
+        let manifest = json!({
+            "srsVersion": "2.0-draft",
+            "repositoryId": "test-repo",
+            "instanceIndex": [],
+            "relationsPath": "relations/custom.json"
+        });
+        std::fs::write(
+            temp.path().join("manifest.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+
+        let relations = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
+            "relations": [
+                {
+                    "relationId": "rc1",
+                    "relationType": "precedes",
+                    "sourceInstanceId": "a",
+                    "targetInstanceId": "b",
+                    "createdAt": "2026-01-01T00:00:00Z"
+                }
+            ]
+        });
+        std::fs::write(
+            temp.path().join("relations/custom.json"),
+            serde_json::to_string_pretty(&relations).unwrap(),
+        )
+        .unwrap();
+
+        let result = load_relations(temp.path()).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].relation_id, "rc1");
+    }
+
+    #[test]
+    fn load_relations_falls_back_to_relations_json() {
+        let temp = TempDir::new().unwrap();
+        std::fs::create_dir_all(temp.path().join("relations")).unwrap();
+
+        // No relationsPath in manifest, no relations-collection.json — only relations.json
+        let manifest = json!({
+            "srsVersion": "2.0-draft",
+            "repositoryId": "test-repo",
+            "instanceIndex": []
+        });
+        std::fs::write(
+            temp.path().join("manifest.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+
+        let relations = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
+            "relations": [
+                {
+                    "relationId": "rj1",
+                    "relationType": "contains",
+                    "sourceInstanceId": "x",
+                    "targetInstanceId": "y",
+                    "createdAt": "2026-01-01T00:00:00Z"
+                }
+            ]
+        });
+        std::fs::write(
+            temp.path().join("relations/relations.json"),
+            serde_json::to_string_pretty(&relations).unwrap(),
+        )
+        .unwrap();
+
+        let result = load_relations(temp.path()).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].relation_id, "rj1");
+    }
+
+    #[test]
+    fn load_relations_returns_empty_when_no_file() {
+        let temp = TempDir::new().unwrap();
+        // No relations directory or file at all
+        let manifest = json!({
+            "srsVersion": "2.0-draft",
+            "repositoryId": "test-repo",
+            "instanceIndex": []
+        });
+        std::fs::write(
+            temp.path().join("manifest.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+
+        let result = load_relations(temp.path()).unwrap();
+        assert!(result.is_empty());
     }
 
     #[test]

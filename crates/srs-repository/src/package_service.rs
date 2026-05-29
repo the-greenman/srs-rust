@@ -715,6 +715,19 @@ mod tests {
         std::fs::create_dir_all(package_dir.join("fields")).unwrap();
         std::fs::create_dir_all(package_dir.join("types")).unwrap();
 
+        // Create manifest.json so load_package can load it strictly.
+        let manifest_json = json!({
+            "srsVersion": "2.0-draft",
+            "repositoryId": "test-repo-id",
+            "namespace": "com.test",
+            "instanceIndex": []
+        });
+        std::fs::write(
+            temp.path().join("manifest.json"),
+            serde_json::to_string_pretty(&manifest_json).unwrap(),
+        )
+        .unwrap();
+
         // Create package.json
         let package_json = json!({
             "id": "test-package",

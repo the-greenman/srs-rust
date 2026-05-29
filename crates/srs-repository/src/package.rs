@@ -1,4 +1,5 @@
 use crate::error::RepositoryError;
+use crate::manifest::load_manifest;
 use srs_core::types::field::{Field, ValueType};
 use srs_core::types::record_type::{FieldAssignment, FieldGroup, RecordType};
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
@@ -179,11 +180,12 @@ impl Package {
     }
 }
 
-/// Load a package from a repository's `package/` directory.
-///
-/// The `repo_root` parameter is the path to the repository root (where the package/ directory is located).
-pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
-    let package_dir = repo_root.join("package");
+/// Load raw package content from a directory containing a package.json.
+#[allow(clippy::type_complexity)]
+fn load_package_from_dir(
+    package_dir: &Path,
+    rt_by_type: &mut HashMap<String, (RelationTypeDefinition, PathBuf)>,
+) -> Result<(Vec<Field>, Vec<RecordType>, Vec<View>, Vec<DocumentView>), RepositoryError> {
     let package_json_path = package_dir.join("package.json");
 
     let package_content =
@@ -245,7 +247,7 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
                 source: e,
             })?;
 
-        let fields: Vec<FieldAssignment> = type_json
+        let type_fields: Vec<FieldAssignment> = type_json
             .fields
             .into_iter()
             .map(|fa| FieldAssignment {
@@ -293,7 +295,7 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
             name: type_json.name,
             version: type_json.version,
             description: type_json.description.unwrap_or_default(),
-            fields,
+            fields: type_fields,
             field_groups,
             created_at: type_json.created_at.unwrap_or_default(),
             extra: HashMap::new(),
@@ -301,8 +303,6 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
     }
 
     // Load all relation type definitions, detecting conflicts and coalescing identical defs.
-    // Tracks (definition, source_path) to produce good conflict errors.
-    let mut rt_by_type: HashMap<String, (RelationTypeDefinition, PathBuf)> = HashMap::new();
     for rt_path in &metadata.relation_types {
         let full_path = package_dir.join(rt_path);
         let rt_content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
@@ -336,8 +336,6 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
             rt_by_type.insert(def.relation_type.clone(), (def, full_path));
         }
     }
-    let relation_type_definitions: Vec<RelationTypeDefinition> =
-        rt_by_type.into_values().map(|(def, _)| def).collect();
 
     // Load all views (L1)
     let mut views = Vec::new();
@@ -380,6 +378,166 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
         })?;
         document_views.push(document_view);
     }
+
+    Ok((fields, record_types, views, document_views))
+}
+
+/// Load a package from a repository's `package/` directory, merging any sub-packages
+/// declared in `manifest.json` `packageRefs`.
+///
+/// The `repo_root` parameter is the path to the repository root (where the package/ directory is located).
+pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
+    let package_dir = repo_root.join("package");
+    let package_json_path = package_dir.join("package.json");
+
+    // Read the primary package id/namespace/name/version from its manifest.
+    let package_content =
+        std::fs::read_to_string(&package_json_path).map_err(|e| RepositoryError::Io {
+            path: package_json_path.clone(),
+            source: e,
+        })?;
+    let metadata: PackageMetadata =
+        serde_json::from_str(&package_content).map_err(|e| RepositoryError::PackageLoad {
+            path: package_json_path,
+            source: e,
+        })?;
+
+    // Shared relation-type map for conflict detection across all packages.
+    let mut rt_by_type: HashMap<String, (RelationTypeDefinition, PathBuf)> = HashMap::new();
+
+    // Load the primary package.
+    let (mut fields, mut record_types, mut views, mut document_views) =
+        load_package_from_dir(&package_dir, &mut rt_by_type)?;
+
+    // Merge sub-packages declared in manifest.json packageRefs.
+    // Manifest load failure is an error — it means the repo is malformed.
+    let manifest = load_manifest(repo_root)?;
+    if let Some(pkg_refs) = manifest.extra.get("packageRefs").and_then(|v| v.as_array()) {
+        // Track source paths for each collected id so we can report conflicts.
+        let mut field_sources: HashMap<String, PathBuf> = HashMap::new();
+        let mut type_sources: HashMap<(String, u32), PathBuf> = HashMap::new();
+        let mut view_sources: HashMap<String, PathBuf> = HashMap::new();
+        let mut doc_view_sources: HashMap<String, PathBuf> = HashMap::new();
+
+        // Seed with items already loaded from the primary package.
+        for f in &fields {
+            field_sources.insert(f.id.clone(), package_dir.clone());
+        }
+        for rt in &record_types {
+            type_sources.insert((rt.id.clone(), rt.version), package_dir.clone());
+        }
+        for v in &views {
+            view_sources.insert(v.id.clone(), package_dir.clone());
+        }
+        for dv in &document_views {
+            doc_view_sources.insert(dv.id.clone(), package_dir.clone());
+        }
+
+        for pkg_ref in pkg_refs {
+            let mode = pkg_ref.get("mode").and_then(|m| m.as_str()).unwrap_or("");
+            if mode != "local" {
+                continue;
+            }
+            let rel_path = match pkg_ref.get("path").and_then(|p| p.as_str()) {
+                Some(p) => p,
+                None => continue,
+            };
+            // packageRef path is relative to repo_root (e.g. "package/spec-authoring-core")
+            let sub_package_dir = repo_root.join(rel_path);
+            if !sub_package_dir.join("package.json").exists() {
+                return Err(RepositoryError::PackageRefMissing {
+                    path: rel_path.to_string(),
+                });
+            }
+            let (sub_fields, sub_types, sub_views, sub_doc_views) =
+                load_package_from_dir(&sub_package_dir, &mut rt_by_type)?;
+
+            // Merge fields — conflict if same id but different content
+            for field in sub_fields {
+                if let Some(first_path) = field_sources.get(&field.id) {
+                    // Already present: check for conflict by comparing against existing
+                    let existing = fields.iter().find(|f| f.id == field.id).unwrap();
+                    if existing.version != field.version
+                        || existing.namespace != field.namespace
+                        || existing.name != field.name
+                    {
+                        return Err(RepositoryError::PackageRefConflict {
+                            path: rel_path.to_string(),
+                            kind: "field".to_string(),
+                            id: field.id.clone(),
+                            first_path: first_path.clone(),
+                            second_path: sub_package_dir.clone(),
+                        });
+                    }
+                    // Identical — coalesce silently
+                } else {
+                    field_sources.insert(field.id.clone(), sub_package_dir.clone());
+                    fields.push(field);
+                }
+            }
+            // Merge record types — conflict if same id+version but different content
+            for rt in sub_types {
+                let key = (rt.id.clone(), rt.version);
+                if let Some(first_path) = type_sources.get(&key) {
+                    let existing = record_types
+                        .iter()
+                        .find(|r| r.id == rt.id && r.version == rt.version)
+                        .unwrap();
+                    if existing.namespace != rt.namespace || existing.name != rt.name {
+                        return Err(RepositoryError::PackageRefConflict {
+                            path: rel_path.to_string(),
+                            kind: "type".to_string(),
+                            id: rt.id.clone(),
+                            first_path: first_path.clone(),
+                            second_path: sub_package_dir.clone(),
+                        });
+                    }
+                } else {
+                    type_sources.insert(key, sub_package_dir.clone());
+                    record_types.push(rt);
+                }
+            }
+            // Merge views — conflict if same id but different name
+            for view in sub_views {
+                if let Some(first_path) = view_sources.get(&view.id) {
+                    let existing = views.iter().find(|v| v.id == view.id).unwrap();
+                    if existing.name != view.name {
+                        return Err(RepositoryError::PackageRefConflict {
+                            path: rel_path.to_string(),
+                            kind: "view".to_string(),
+                            id: view.id.clone(),
+                            first_path: first_path.clone(),
+                            second_path: sub_package_dir.clone(),
+                        });
+                    }
+                } else {
+                    view_sources.insert(view.id.clone(), sub_package_dir.clone());
+                    views.push(view);
+                }
+            }
+            // Merge document views — conflict if same id but different name
+            for dv in sub_doc_views {
+                if let Some(first_path) = doc_view_sources.get(&dv.id) {
+                    let existing = document_views.iter().find(|d| d.id == dv.id).unwrap();
+                    if existing.name != dv.name {
+                        return Err(RepositoryError::PackageRefConflict {
+                            path: rel_path.to_string(),
+                            kind: "document-view".to_string(),
+                            id: dv.id.clone(),
+                            first_path: first_path.clone(),
+                            second_path: sub_package_dir.clone(),
+                        });
+                    }
+                } else {
+                    doc_view_sources.insert(dv.id.clone(), sub_package_dir.clone());
+                    document_views.push(dv);
+                }
+            }
+        }
+    }
+
+    let relation_type_definitions: Vec<RelationTypeDefinition> =
+        rt_by_type.into_values().map(|(def, _)| def).collect();
 
     Ok(Package {
         id: metadata.id,
@@ -536,6 +694,198 @@ mod tests {
         assert_eq!(rt.namespace, "com.semanticops.srs");
         assert!(rt.is_active());
         assert!(rt.is_irreflexive());
+    }
+
+    /// Write a minimal SRS repo at `root` with a primary package at `root/package/`.
+    fn create_minimal_repo(root: &Path) {
+        // .srs marker
+        std::fs::create_dir_all(root.join(".srs")).unwrap();
+        // manifest.json
+        let manifest = serde_json::json!({
+            "srsVersion": "2.0-draft",
+            "repositoryId": "test-repo-id",
+            "namespace": "com.test",
+            "instanceIndex": []
+        });
+        std::fs::write(
+            root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        // primary package
+        let pkg_dir = root.join("package");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        write_package_json(&pkg_dir, "primary-pkg-id", "com.test", "primary", &[], &[]);
+    }
+
+    /// Write a package.json for the given dir, listing optional field/type files.
+    fn write_package_json(
+        dir: &Path,
+        id: &str,
+        namespace: &str,
+        name: &str,
+        fields: &[&str],
+        types: &[&str],
+    ) {
+        let pkg = serde_json::json!({
+            "id": id,
+            "namespace": namespace,
+            "name": name,
+            "version": "1.0.0",
+            "fields": fields,
+            "types": types,
+            "relationTypes": [],
+            "views": [],
+            "documentViews": []
+        });
+        std::fs::write(
+            dir.join("package.json"),
+            serde_json::to_string_pretty(&pkg).unwrap(),
+        )
+        .unwrap();
+    }
+
+    fn write_field_json(dir: &Path, file: &str, id: &str, name: &str) {
+        let field = serde_json::json!({
+            "id": id,
+            "namespace": "com.test",
+            "name": name,
+            "version": 1,
+            "valueType": "string"
+        });
+        std::fs::write(
+            dir.join(file),
+            serde_json::to_string_pretty(&field).unwrap(),
+        )
+        .unwrap();
+    }
+
+    fn add_package_ref_to_manifest(root: &Path, rel_path: &str) {
+        let manifest_path = root.join("manifest.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&manifest_path).unwrap()).unwrap();
+        let refs = manifest
+            .get("packageRefs")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let mut refs = refs;
+        refs.push(serde_json::json!({"mode": "local", "path": rel_path}));
+        manifest["packageRefs"] = serde_json::json!(refs);
+        std::fs::write(
+            &manifest_path,
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn load_package_errors_on_missing_package_ref() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = temp.path();
+        create_minimal_repo(root);
+        add_package_ref_to_manifest(root, "package/nonexistent");
+
+        let result = load_package(root);
+        assert!(
+            matches!(result, Err(RepositoryError::PackageRefMissing { .. })),
+            "expected PackageRefMissing, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn load_package_detects_conflicting_field_definitions() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = temp.path();
+        create_minimal_repo(root);
+
+        // Sub-package with a field using the same id as primary but different name.
+        let sub_dir = root.join("package").join("sub");
+        std::fs::create_dir_all(&sub_dir).unwrap();
+        write_field_json(
+            &root.join("package"),
+            "field-a.json",
+            "field-uuid-1",
+            "original_name",
+        );
+        write_package_json(
+            &root.join("package"),
+            "primary-pkg-id",
+            "com.test",
+            "primary",
+            &["field-a.json"],
+            &[],
+        );
+
+        write_field_json(
+            &sub_dir,
+            "field-a-conflict.json",
+            "field-uuid-1",
+            "different_name",
+        );
+        write_package_json(
+            &sub_dir,
+            "sub-pkg-id",
+            "com.test",
+            "sub",
+            &["field-a-conflict.json"],
+            &[],
+        );
+        add_package_ref_to_manifest(root, "package/sub");
+
+        let result = load_package(root);
+        assert!(
+            matches!(
+                result,
+                Err(RepositoryError::PackageRefConflict { ref kind, .. }) if kind == "field"
+            ),
+            "expected PackageRefConflict(field), got {result:?}"
+        );
+    }
+
+    #[test]
+    fn load_package_coalesces_identical_field_definitions() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = temp.path();
+        create_minimal_repo(root);
+
+        let sub_dir = root.join("package").join("sub");
+        std::fs::create_dir_all(&sub_dir).unwrap();
+
+        // Same field in both primary and sub-package.
+        write_field_json(
+            &root.join("package"),
+            "field-a.json",
+            "field-uuid-1",
+            "shared_field",
+        );
+        write_package_json(
+            &root.join("package"),
+            "primary-pkg-id",
+            "com.test",
+            "primary",
+            &["field-a.json"],
+            &[],
+        );
+        write_field_json(&sub_dir, "field-a.json", "field-uuid-1", "shared_field");
+        write_package_json(
+            &sub_dir,
+            "sub-pkg-id",
+            "com.test",
+            "sub",
+            &["field-a.json"],
+            &[],
+        );
+        add_package_ref_to_manifest(root, "package/sub");
+
+        let package = load_package(root).expect("identical fields should coalesce without error");
+        // Field should appear exactly once.
+        let count = package
+            .fields
+            .iter()
+            .filter(|f| f.id == "field-uuid-1")
+            .count();
+        assert_eq!(count, 1, "expected exactly one copy of field-uuid-1");
     }
 
     #[test]

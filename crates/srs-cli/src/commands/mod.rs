@@ -3,6 +3,7 @@ pub mod extension;
 pub mod field;
 pub mod migrate;
 pub mod note;
+pub mod package;
 pub mod protocol;
 pub mod record;
 pub mod record_type;
@@ -113,6 +114,9 @@ pub enum Commands {
     /// Render document outputs from views
     #[command(subcommand)]
     Render(RenderCommand),
+    /// Package management commands
+    #[command(subcommand)]
+    Package(PackageCommand),
 }
 
 #[derive(Subcommand)]
@@ -626,6 +630,22 @@ pub enum RenderCommand {
     },
 }
 
+#[derive(Subcommand)]
+pub enum PackageCommand {
+    /// List package refs declared in the manifest
+    List,
+    /// Enable a local sub-package by adding it to manifest packageRefs
+    Enable {
+        /// Relative path to the sub-package directory (e.g. package/spec-authoring-core)
+        path: String,
+    },
+    /// Disable a local sub-package by removing it from manifest packageRefs
+    Disable {
+        /// Relative path to the sub-package directory (e.g. package/spec-authoring-core)
+        path: String,
+    },
+}
+
 pub fn dispatch(cli: Cli) -> Result<String> {
     // Resolve repository path using global option
     let repo_root = resolve_repo(cli.repo)?;
@@ -652,5 +672,6 @@ pub fn dispatch(cli: Cli) -> Result<String> {
         Commands::Protocol(proto_cmd) => protocol::dispatch(ctx, proto_cmd),
         Commands::Container(cmd) => container::dispatch(ctx, cmd),
         Commands::Render(cmd) => render::dispatch(ctx, cmd),
+        Commands::Package(pkg_cmd) => package::dispatch(ctx, pkg_cmd),
     }
 }

@@ -3,6 +3,9 @@
   "id": "fixture.repeatable-fields.pkg",
   "namespace": "fixture.repeatable",
   "name": "repeatable-fields",
+  "title": "Repeatable Fields Fixture Package",
+  "description": "Test fixture for repeatable field entry rendering.",
+  "status": "active",
   "version": "1.0.0",
   "fields": ["fields/title.json"],
   "types": ["types/repeatable-type.json"],
@@ -13,5 +16,6 @@
     "document-views/deep-offset-view.json",
     "document-views/title-field-view.json",
     "document-views/bad-semantic-type-view.json"
-  ]
+  ],
+  "createdAt": "2026-05-01T00:00:00Z"
 }

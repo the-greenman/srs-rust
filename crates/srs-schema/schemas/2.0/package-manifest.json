@@ -56,6 +56,11 @@
       "items": { "type": "string" },
       "description": "Relative paths from this package directory to view definition files. Empty array if the package defines no views."
     },
+    "documentViews": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Relative paths from this package directory to document view definition files. Omit if the package defines no document views."
+    },
     "relationTypes": {
       "type": "array",
       "items": { "type": "string" },
