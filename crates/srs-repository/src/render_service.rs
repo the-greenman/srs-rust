@@ -1,10 +1,9 @@
 use crate::container_service::list_members;
 use crate::error::RepositoryError;
-use crate::manifest::load_manifest;
-use crate::package::{load_package, Package};
+use crate::package::Package;
 use crate::record_store::{get_record_by_id, list_records_by_type};
 use crate::relation_service::load_relations;
-use crate::store::FileStore;
+use crate::store::RepositoryStore;
 use srs_core::types::field::ValueType;
 use srs_core::types::record::Record;
 use srs_core::types::relation::Relation;
@@ -12,10 +11,9 @@ use srs_core::types::view::{
     DocumentSection, DocumentView, RelationDirection, SectionSource, SortDirection,
 };
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 
 pub struct RenderDocumentViewOptions<'a> {
-    pub repo_root: &'a Path,
+    pub store: &'a dyn RepositoryStore,
     pub view_id: &'a str,
     pub format: Option<&'a str>,
 }
@@ -36,7 +34,7 @@ struct RenderContext<'a> {
 pub fn render_document_view(
     opts: RenderDocumentViewOptions<'_>,
 ) -> Result<RenderResult, RepositoryError> {
-    let package = load_package(opts.repo_root)?;
+    let package = opts.store.load_package()?;
     let dv = package.resolve_document_view(opts.view_id).ok_or_else(|| {
         RepositoryError::DocumentViewNotFound {
             view_id: opts.view_id.to_string(),
@@ -44,10 +42,10 @@ pub fn render_document_view(
     })?;
     let dv = dv.clone();
 
-    let manifest = load_manifest(opts.repo_root)?;
+    let manifest = opts.store.load_manifest()?;
     let mut diagnostics = Vec::new();
     let container_title = resolve_container_title(&dv, &manifest);
-    let relations = load_relations(&FileStore::new(opts.repo_root))?;
+    let relations = load_relations(opts.store)?;
     let format = opts
         .format
         .unwrap_or(dv.format.as_deref().unwrap_or("markdown"));
@@ -82,7 +80,7 @@ pub fn render_document_view(
     sections.sort_by_key(|s| s.order);
     for section in &sections {
         rendered.push_str(&render_section(
-            opts.repo_root,
+            opts.store,
             &ctx,
             section,
             &relations,
@@ -236,7 +234,7 @@ fn sort_by_precedes_chain(records: Vec<Record>, relations: &[Relation]) -> Vec<R
 /// Collect subsection records that are targets of `contains` relations from
 /// `instance_id`, ordered by `precedes` chain.
 fn collect_subsections(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     instance_id: &str,
     relations: &[Relation],
 ) -> Result<Vec<Record>, RepositoryError> {
@@ -248,7 +246,7 @@ fn collect_subsections(
 
     let mut subsections = Vec::new();
     for id in target_ids {
-        if let Some(record) = get_record_by_id(&FileStore::new(repo_root), id)? {
+        if let Some(record) = get_record_by_id(store, id)? {
             subsections.push(record);
         }
     }
@@ -257,13 +255,13 @@ fn collect_subsections(
 }
 
 fn render_section(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     ctx: &RenderContext<'_>,
     section: &DocumentSection,
     relations: &[Relation],
     diagnostics: &mut Vec<String>,
 ) -> Result<String, RepositoryError> {
-    let mut records = resolve_section_instances(repo_root, section, relations, diagnostics)?;
+    let mut records = resolve_section_instances(store, section, relations, diagnostics)?;
     if records.is_empty() && section.required != Some(true) {
         return Ok(String::new());
     }
@@ -306,7 +304,7 @@ fn render_section(
     let record_heading_level = depth(2, ctx.depth_offset) + 1;
     for record in &records {
         out.push_str(&render_record_at_level(
-            repo_root,
+            store,
             ctx,
             section,
             record,
@@ -319,7 +317,7 @@ fn render_section(
 }
 
 fn resolve_section_instances(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     section: &DocumentSection,
     relations: &[srs_core::types::relation::Relation],
     diagnostics: &mut Vec<String>,
@@ -328,7 +326,7 @@ fn resolve_section_instances(
         SectionSource::FixedInstances { instance_ids } => {
             let mut records = Vec::new();
             for id in instance_ids {
-                if let Some(record) = get_record_by_id(&FileStore::new(repo_root), id)? {
+                if let Some(record) = get_record_by_id(store, id)? {
                     records.push(record);
                 }
             }
@@ -345,7 +343,7 @@ fn resolve_section_instances(
                 ));
                 return Ok(Vec::new());
             };
-            list_records_by_type(&FileStore::new(repo_root), namespace, name)
+            list_records_by_type(store, namespace, name)
         }
         SectionSource::RelationQuery {
             from_instance_id,
@@ -373,7 +371,7 @@ fn resolve_section_instances(
             }
             let mut records = Vec::new();
             for id in ids {
-                if let Some(record) = get_record_by_id(&FileStore::new(repo_root), &id)? {
+                if let Some(record) = get_record_by_id(store, &id)? {
                     records.push(record);
                 }
             }
@@ -383,10 +381,10 @@ fn resolve_section_instances(
             container_id,
             container_type: _,
         } => {
-            let members = list_members(&FileStore::new(repo_root), container_id)?;
+            let members = list_members(store, container_id)?;
             let mut records = Vec::new();
             for id in members {
-                if let Some(record) = get_record_by_id(&FileStore::new(repo_root), &id)? {
+                if let Some(record) = get_record_by_id(store, &id)? {
                     records.push(record);
                 }
             }
@@ -396,7 +394,7 @@ fn resolve_section_instances(
 }
 
 fn render_record_at_level(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     ctx: &RenderContext<'_>,
     section: &DocumentSection,
     record: &Record,
@@ -540,10 +538,10 @@ fn render_record_at_level(
 
     // In structured mode, render subsections nested one heading level deeper.
     if structured {
-        let subsections = collect_subsections(repo_root, &record.instance_id, relations)?;
+        let subsections = collect_subsections(store, &record.instance_id, relations)?;
         for subsection in &subsections {
             out.push_str(&render_record_at_level(
-                repo_root,
+                store,
                 ctx,
                 section,
                 subsection,
@@ -734,6 +732,7 @@ fn depth(base: u32, depth_offset: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::FileStore;
 
     #[test]
     fn heading_prefix_markdown() {
@@ -747,9 +746,13 @@ mod tests {
 
     #[test]
     fn render_document_view_produces_output() {
-        let repo_root = Path::new("/home/greenman/dev/semanticops/srs/srs");
+        let repo_root = std::path::Path::new("/home/greenman/dev/semanticops/srs/srs");
+        if !repo_root.join("manifest.json").exists() {
+            return;
+        }
+        let store = FileStore::new(repo_root);
         let result = render_document_view(RenderDocumentViewOptions {
-            repo_root,
+            store: &store,
             view_id: "ec34f54b-8636-5c8b-af5b-c9eb3df24fe6",
             format: None,
         })
@@ -765,9 +768,13 @@ mod tests {
 
     #[test]
     fn render_document_view_unknown_id_returns_error() {
-        let repo_root = Path::new("/home/greenman/dev/semanticops/srs/srs");
+        let repo_root = std::path::Path::new("/home/greenman/dev/semanticops/srs/srs");
+        if !repo_root.join("manifest.json").exists() {
+            return;
+        }
+        let store = FileStore::new(repo_root);
         let result = render_document_view(RenderDocumentViewOptions {
-            repo_root,
+            store: &store,
             view_id: "00000000-0000-0000-0000-000000000000",
             format: None,
         });
@@ -785,8 +792,9 @@ mod tests {
     #[test]
     fn repeatable_field_entries_render_all_values() {
         let repo_root = repeatable_fixture_root();
+        let store = FileStore::new(&repo_root);
         let result = render_document_view(RenderDocumentViewOptions {
-            repo_root: &repo_root,
+            store: &store,
             view_id: "00000000-0000-4000-8000-000000000981",
             format: None,
         })
@@ -816,8 +824,9 @@ mod tests {
     #[test]
     fn depth_offset_warning_emitted() {
         let repo_root = repeatable_fixture_root();
+        let store = FileStore::new(&repo_root);
         let result = render_document_view(RenderDocumentViewOptions {
-            repo_root: &repo_root,
+            store: &store,
             view_id: "00000000-0000-4000-8000-000000000982",
             format: None,
         })
@@ -832,8 +841,9 @@ mod tests {
     #[test]
     fn title_field_id_emits_record_heading() {
         let repo_root = repeatable_fixture_root();
+        let store = FileStore::new(&repo_root);
         let result = render_document_view(RenderDocumentViewOptions {
-            repo_root: &repo_root,
+            store: &store,
             view_id: "00000000-0000-4000-8000-000000000983",
             format: None,
         })
@@ -850,9 +860,10 @@ mod tests {
     #[test]
     fn no_title_field_id_omits_structural_heading() {
         let repo_root = repeatable_fixture_root();
+        let store = FileStore::new(&repo_root);
         // repeatable-doc-view has no titleFieldId — records render without an H3 heading
         let result = render_document_view(RenderDocumentViewOptions {
-            repo_root: &repo_root,
+            store: &store,
             view_id: "00000000-0000-4000-8000-000000000981",
             format: None,
         })
@@ -868,8 +879,9 @@ mod tests {
     #[test]
     fn semantic_object_type_missing_slash_emits_diagnostic() {
         let repo_root = repeatable_fixture_root();
+        let store = FileStore::new(&repo_root);
         let result = render_document_view(RenderDocumentViewOptions {
-            repo_root: &repo_root,
+            store: &store,
             view_id: "00000000-0000-4000-8000-000000000984",
             format: None,
         })

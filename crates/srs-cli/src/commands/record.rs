@@ -7,13 +7,12 @@ use srs_repository::container_service::{
     add_member, get_container, is_member, list_members, remove_member,
 };
 use srs_repository::error::RepositoryError;
-use srs_repository::package::load_package;
 use srs_repository::package_service::{get_type_by_name, GetTypeResult};
 use srs_repository::record_store::{
     create_record, delete_record, get_record_by_id, list_all_records, list_records_by_type,
     update_record,
 };
-use srs_repository::FileStore;
+use srs_repository::{FileStore, RepositoryStore};
 use std::io::{self, Read};
 
 pub fn dispatch(ctx: CliContext, cmd: RecordCommand) -> Result<String> {
@@ -219,8 +218,9 @@ fn resolve_type(
     name: &str,
     version: Option<u32>,
 ) -> Result<Option<srs_core::types::record_type::RecordType>> {
+    let store = FileStore::new(&ctx.repo);
     if let Some(version) = version {
-        let package = load_package(&ctx.repo)?;
+        let package = store.load_package()?;
         let found = package
             .record_types
             .iter()
@@ -229,7 +229,6 @@ fn resolve_type(
         return Ok(found);
     }
 
-    let store = FileStore::new(&ctx.repo);
     let result = get_type_by_name(&store, namespace, name)?;
 
     match result {

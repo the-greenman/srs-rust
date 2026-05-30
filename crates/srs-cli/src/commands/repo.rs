@@ -65,7 +65,8 @@ fn cmd_repo_map(ctx: CliContext) -> Result<String> {
 }
 
 fn cmd_repo_validate(ctx: CliContext) -> Result<String> {
-    let report = validate_repository(&ctx.repo)?;
+    let store = FileStore::new(&ctx.repo);
+    let report = validate_repository(&store)?;
 
     if report.is_ok() {
         Ok(output::ok(

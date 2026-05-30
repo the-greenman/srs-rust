@@ -1,7 +1,6 @@
 use crate::error::RepositoryError;
-use crate::package::load_package;
+use crate::store::RepositoryStore;
 use srs_core::types::view::{DocumentView, View};
-use std::path::Path;
 
 #[derive(Debug, Clone)]
 pub enum GetDocumentViewResult {
@@ -15,29 +14,34 @@ pub enum GetViewResult {
     NotFound,
 }
 
-pub fn list_document_views(repo_root: &Path) -> Result<Vec<DocumentView>, RepositoryError> {
-    let package = load_package(repo_root)?;
+pub fn list_document_views(
+    store: &dyn RepositoryStore,
+) -> Result<Vec<DocumentView>, RepositoryError> {
+    let package = store.load_package()?;
     Ok(package.document_views)
 }
 
 pub fn get_document_view_by_id(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<GetDocumentViewResult, RepositoryError> {
-    let package = load_package(repo_root)?;
+    let package = store.load_package()?;
     match package.resolve_document_view(id) {
         Some(view) => Ok(GetDocumentViewResult::Found(Box::new(view.clone()))),
         None => Ok(GetDocumentViewResult::NotFound),
     }
 }
 
-pub fn list_views(repo_root: &Path) -> Result<Vec<View>, RepositoryError> {
-    let package = load_package(repo_root)?;
+pub fn list_views(store: &dyn RepositoryStore) -> Result<Vec<View>, RepositoryError> {
+    let package = store.load_package()?;
     Ok(package.views)
 }
 
-pub fn get_view_by_id(repo_root: &Path, id: &str) -> Result<GetViewResult, RepositoryError> {
-    let package = load_package(repo_root)?;
+pub fn get_view_by_id(
+    store: &dyn RepositoryStore,
+    id: &str,
+) -> Result<GetViewResult, RepositoryError> {
+    let package = store.load_package()?;
     match package.resolve_view(id) {
         Some(view) => Ok(GetViewResult::Found(Box::new(view.clone()))),
         None => Ok(GetViewResult::NotFound),

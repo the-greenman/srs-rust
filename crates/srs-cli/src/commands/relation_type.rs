@@ -2,7 +2,7 @@ use crate::commands::{CliContext, RelationTypeCommand};
 use crate::output;
 use anyhow::Result;
 use serde_json::json;
-use srs_repository::package::load_package;
+use srs_repository::{FileStore, RepositoryStore};
 
 pub fn dispatch(ctx: CliContext, cmd: RelationTypeCommand) -> Result<String> {
     match cmd {
@@ -12,7 +12,8 @@ pub fn dispatch(ctx: CliContext, cmd: RelationTypeCommand) -> Result<String> {
 }
 
 fn cmd_relation_type_list(ctx: CliContext, status_filter: Option<String>) -> Result<String> {
-    let package = load_package(&ctx.repo)?;
+    let store = FileStore::new(&ctx.repo);
+    let package = store.load_package()?;
 
     let relation_type_definitions: Vec<_> = package
         .relation_type_definitions
@@ -40,7 +41,8 @@ fn cmd_relation_type_list(ctx: CliContext, status_filter: Option<String>) -> Res
 }
 
 fn cmd_relation_type_get(ctx: CliContext, id: String) -> Result<String> {
-    let package = load_package(&ctx.repo)?;
+    let store = FileStore::new(&ctx.repo);
+    let package = store.load_package()?;
 
     match package.resolve_relation_type_by_id(&id) {
         Some(rt) => Ok(output::ok(

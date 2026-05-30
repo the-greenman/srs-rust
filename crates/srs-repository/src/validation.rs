@@ -1,6 +1,5 @@
 use crate::error::RepositoryError;
-use crate::manifest::load_manifest;
-use crate::package::load_package;
+use crate::store::RepositoryStore;
 use serde_json::Value;
 use srs_core::types::record::Record;
 use srs_core::types::relation::RelationsCollection;
@@ -8,7 +7,6 @@ use srs_core::validation::record::validate_record;
 use srs_core::validation::relation::{validate_relation, RelationValidationContext};
 use srs_schema::{SchemaRegistry, NOTE_SCHEMA_ID, RECORD_SCHEMA_ID};
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -50,12 +48,12 @@ impl RepositoryValidationReport {
     }
 }
 
-/// Validate an entire file-backed repository.
+/// Validate an entire repository via the storage trait.
 ///
 /// I/O errors and malformed JSON are returned as `Err(RepositoryError)`.
 /// Schema violations are returned as diagnostics inside the report.
 pub fn validate_repository(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
 ) -> Result<RepositoryValidationReport, RepositoryError> {
     let reg = SchemaRegistry::global();
     let mut diagnostics: Vec<ValidationDiagnostic> = Vec::new();
@@ -63,15 +61,14 @@ pub fn validate_repository(
     let mut package_for_tier2: Option<Option<crate::package::Package>> = None;
 
     // --- Validate root manifest.json ---
-    let manifest_path = repo_root.join("manifest.json");
-    let manifest_raw =
-        std::fs::read_to_string(&manifest_path).map_err(|e| RepositoryError::Io {
-            path: manifest_path.clone(),
-            source: e,
-        })?;
+    let manifest_raw = store.load_text_file("manifest.json").map_err(|e| match e {
+        RepositoryError::Io { path, source } => RepositoryError::Io { path, source },
+        RepositoryError::NotFound { path } => RepositoryError::ManifestMissing { path },
+        other => other,
+    })?;
     let manifest_value: Value =
         serde_json::from_str(&manifest_raw).map_err(|e| RepositoryError::ManifestParse {
-            path: manifest_path.clone(),
+            path: std::path::PathBuf::from("manifest.json"),
             source: e,
         })?;
 
@@ -81,34 +78,20 @@ pub fn validate_repository(
     let _ = &manifest_value;
 
     // --- Load manifest for instanceIndex ---
-    let manifest = load_manifest(repo_root)?;
+    let manifest = store.load_manifest()?;
 
     // --- Validate each instanceIndex entry ---
     for entry in &manifest.instance_index {
-        let instance_path = repo_root.join(entry.path());
         let rel_path = entry.path().to_string();
 
-        let raw = match std::fs::read_to_string(&instance_path) {
-            Ok(s) => s,
-            Err(e) => {
-                diagnostics.push(ValidationDiagnostic {
-                    severity: DiagnosticSeverity::Error,
-                    relative_path: rel_path,
-                    schema_id: None,
-                    message: format!("I/O error: {e}"),
-                });
-                continue;
-            }
-        };
-
-        let value: Value = match serde_json::from_str(&raw) {
+        let value = match store.load_instance_json(&rel_path) {
             Ok(v) => v,
             Err(e) => {
                 diagnostics.push(ValidationDiagnostic {
                     severity: DiagnosticSeverity::Error,
                     relative_path: rel_path,
                     schema_id: None,
-                    message: format!("JSON parse error: {e}"),
+                    message: format!("I/O error: {e}"),
                 });
                 continue;
             }
@@ -160,7 +143,7 @@ pub fn validate_repository(
 
         if entry.tier() == 2 {
             if package_for_tier2.is_none() {
-                package_for_tier2 = Some(load_package(repo_root).ok());
+                package_for_tier2 = Some(store.load_package().ok());
             }
             match package_for_tier2.as_ref().and_then(|p| p.as_ref()) {
                 Some(package) => match serde_json::from_value::<Record>(value.clone()) {
@@ -198,34 +181,34 @@ pub fn validate_repository(
     }
 
     // --- Validate package/package.json if present ---
-    let package_manifest_path = repo_root.join("package/package.json");
-    if package_manifest_path.exists() {
-        if let Some(report) = validate_file_against_schema(
-            &package_manifest_path,
-            repo_root,
+    if let Ok(pkg_value) = store.load_instance_json("package/package.json") {
+        checked += 1;
+        if let Some(report) = validate_value_against_schema(
+            &pkg_value,
+            "package/package.json",
             srs_schema::PACKAGE_MANIFEST_SCHEMA_ID,
             reg,
         ) {
-            checked += 1;
             diagnostics.extend(report);
         }
     }
 
     // --- Validate relations/relations.json against E1-E4 ---
-    let relations_path = repo_root.join("relations/relations.json");
-    if relations_path.exists() {
+    if let Ok(relations_raw) = store.load_text_file("relations/relations.json") {
         // Schema-validate the file first
-        if let Some(schema_diags) = validate_file_against_schema(
-            &relations_path,
-            repo_root,
-            srs_schema::RELATIONS_COLLECTION_SCHEMA_ID,
-            reg,
-        ) {
+        if let Ok(relations_value) = serde_json::from_str::<Value>(&relations_raw) {
             checked += 1;
-            diagnostics.extend(schema_diags);
+            if let Some(schema_diags) = validate_value_against_schema(
+                &relations_value,
+                "relations/relations.json",
+                srs_schema::RELATIONS_COLLECTION_SCHEMA_ID,
+                reg,
+            ) {
+                diagnostics.extend(schema_diags);
+            }
         }
 
-        let pkg = match load_package(repo_root) {
+        let pkg = match store.load_package() {
             Ok(pkg) => pkg,
             Err(err) => {
                 diagnostics.push(ValidationDiagnostic {
@@ -260,42 +243,56 @@ pub fn validate_repository(
             .map(|e| e.instance_id().to_string())
             .collect();
 
-        // Build semanticObjectType map: parse each indexed file for the field
+        // Build semanticObjectType map: parse each indexed instance file for the field
         let mut instance_semantic_types: HashMap<String, String> = HashMap::new();
         for entry in &manifest.instance_index {
-            let inst_path = repo_root.join(entry.path());
-            if let Ok(raw) = std::fs::read_to_string(&inst_path) {
-                if let Ok(val) = serde_json::from_str::<Value>(&raw) {
-                    if let Some(sot) = val.get("semanticObjectType").and_then(|v| v.as_str()) {
-                        instance_semantic_types
-                            .insert(entry.instance_id().to_string(), sot.to_string());
-                    }
+            if let Ok(val) = store.load_instance_json(entry.path()) {
+                if let Some(sot) = val.get("semanticObjectType").and_then(|v| v.as_str()) {
+                    instance_semantic_types
+                        .insert(entry.instance_id().to_string(), sot.to_string());
                 }
             }
         }
 
-        let raw = std::fs::read_to_string(&relations_path).map_err(|e| RepositoryError::Io {
-            path: relations_path.clone(),
-            source: e,
-        })?;
-        let coll: RelationsCollection =
-            serde_json::from_str(&raw).map_err(|e| RepositoryError::RecordLoad {
-                path: relations_path.clone(),
-                source: e,
-            })?;
+        let coll: RelationsCollection = match serde_json::from_str(&relations_raw) {
+            Ok(c) => c,
+            Err(e) => {
+                diagnostics.push(ValidationDiagnostic {
+                    severity: DiagnosticSeverity::Error,
+                    relative_path: "relations/relations.json".to_string(),
+                    schema_id: None,
+                    message: format!("JSON parse error: {e}"),
+                });
+                let errors = diagnostics
+                    .iter()
+                    .filter(|d| d.severity == DiagnosticSeverity::Error)
+                    .count();
+                let warnings = diagnostics
+                    .iter()
+                    .filter(|d| d.severity == DiagnosticSeverity::Warning)
+                    .count();
+                return Ok(RepositoryValidationReport {
+                    diagnostics,
+                    summary: ValidationSummary {
+                        checked,
+                        errors,
+                        warnings,
+                    },
+                });
+            }
+        };
 
         let ctx = RelationValidationContext {
             definitions: &pkg.relation_type_definitions,
             known_instance_ids: &known_instance_ids,
             instance_semantic_types: &instance_semantic_types,
         };
-        let rel_rel_path = relative_display(&relations_path, repo_root);
         for relation in &coll.relations {
             if let Err(errs) = validate_relation(relation, &ctx, false) {
                 for e in errs {
                     diagnostics.push(ValidationDiagnostic {
                         severity: DiagnosticSeverity::Error,
-                        relative_path: rel_rel_path.clone(),
+                        relative_path: "relations/relations.json".to_string(),
                         schema_id: None,
                         message: e.message,
                     });
@@ -331,17 +328,14 @@ fn tier_to_schema_id(tier: u8) -> Option<&'static str> {
     }
 }
 
-fn validate_file_against_schema(
-    path: &Path,
-    repo_root: &Path,
+fn validate_value_against_schema(
+    value: &Value,
+    rel_path: &str,
     schema_id: &'static str,
     reg: &SchemaRegistry,
 ) -> Option<Vec<ValidationDiagnostic>> {
-    let rel_path = relative_display(path, repo_root);
-    let raw = std::fs::read_to_string(path).ok()?;
-    let value: Value = serde_json::from_str(&raw).ok()?;
     let mut diags = Vec::new();
-    if let Err(e) = reg.validate_by_id(schema_id, &value) {
+    if let Err(e) = reg.validate_by_id(schema_id, value) {
         let message = e.to_string();
         if schema_id == srs_schema::PACKAGE_MANIFEST_SCHEMA_ID
             && rel_path == "package/package.json"
@@ -350,7 +344,7 @@ fn validate_file_against_schema(
         {
             diags.push(ValidationDiagnostic {
                 severity: DiagnosticSeverity::Warning,
-                relative_path: rel_path,
+                relative_path: rel_path.to_string(),
                 schema_id: Some(schema_id.to_string()),
                 message: "package manifest uses forward-compatible field 'documentViews' not yet present in embedded schema".to_string(),
             });
@@ -358,7 +352,7 @@ fn validate_file_against_schema(
         }
         diags.push(ValidationDiagnostic {
             severity: DiagnosticSeverity::Error,
-            relative_path: rel_path,
+            relative_path: rel_path.to_string(),
             schema_id: Some(schema_id.to_string()),
             message,
         });
@@ -366,18 +360,12 @@ fn validate_file_against_schema(
     Some(diags)
 }
 
-fn relative_display(path: &Path, base: &Path) -> String {
-    path.strip_prefix(base)
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| path.to_string_lossy().into_owned())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
     use std::fs;
-    use std::path::PathBuf;
+    use std::path::Path;
     use tempfile::TempDir;
 
     fn write_json(dir: &Path, rel: &str, value: &Value) {
@@ -429,7 +417,8 @@ mod tests {
         );
         write_json(temp.path(), "records/notes/note.json", &valid_note(note_id));
 
-        let report = validate_repository(temp.path()).unwrap();
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
         assert!(report.is_ok(), "diagnostics: {:?}", report.diagnostics);
         assert_eq!(report.summary.checked, 2);
     }
@@ -458,7 +447,8 @@ mod tests {
             }),
         );
 
-        let report = validate_repository(temp.path()).unwrap();
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
         assert!(!report.is_ok());
         assert!(report.summary.errors >= 1);
         let msgs: Vec<_> = report.diagnostics.iter().map(|d| &d.message).collect();
@@ -493,7 +483,8 @@ mod tests {
             }),
         );
 
-        let report = validate_repository(temp.path()).unwrap();
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
         assert!(!report.is_ok());
         let mismatch = report
             .diagnostics
@@ -508,12 +499,14 @@ mod tests {
 
     #[test]
     fn live_srs_repo_validates_cleanly() {
+        use std::path::PathBuf;
         let repo_root = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
         if !repo_root.join("manifest.json").exists() {
             println!("Skipping: live repo not found");
             return;
         }
-        let report = validate_repository(&repo_root).unwrap();
+        let store = crate::store::FileStore::new(&repo_root);
+        let report = validate_repository(&store).unwrap();
         if !report.is_ok() {
             for d in &report.diagnostics {
                 if d.severity == DiagnosticSeverity::Error {

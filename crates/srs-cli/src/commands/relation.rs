@@ -4,12 +4,11 @@ use anyhow::Result;
 use serde_json::json;
 use srs_core::types::relation::Relation;
 use srs_repository::container_service::list_members;
-use srs_repository::package::load_package;
 use srs_repository::relation_service::{
     create_relation, delete_relation, get_relation_by_id, list_relations, GetRelationResult,
     ListRelationsFilter,
 };
-use srs_repository::FileStore;
+use srs_repository::{FileStore, RepositoryStore};
 use std::io::{self, Read};
 
 pub fn dispatch(ctx: CliContext, cmd: RelationCommand) -> Result<String> {
@@ -97,9 +96,9 @@ fn cmd_relation_create(ctx: CliContext) -> Result<String> {
         }
     };
 
-    let package = load_package(&ctx.repo)?;
-    let defs = package.relation_types();
     let store = FileStore::new(&ctx.repo);
+    let package = store.load_package()?;
+    let defs = package.relation_types();
     match create_relation(&store, relation, defs) {
         Ok(result) => Ok(output::ok(
             "relation create",
