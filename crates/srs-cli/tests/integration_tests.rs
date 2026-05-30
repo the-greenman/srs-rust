@@ -77,6 +77,18 @@ fn run_srs_stdin_in_dir(dir: &std::path::Path, args: &[&str], stdin: &str) -> Va
     serde_json::from_str(&stdout).expect("Failed to parse JSON output")
 }
 
+fn run_srs_any_status_in_dir(dir: &std::path::Path, args: &[&str]) -> (bool, Value) {
+    let exe = env!("CARGO_BIN_EXE_srs");
+    let output = Command::new(exe)
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("Failed to execute srs command");
+    let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8 in output");
+    let json: Value = serde_json::from_str(&stdout).expect("Failed to parse JSON output");
+    (output.status.success(), json)
+}
+
 // Read-only tests against live srs repo
 
 fn run_srs(args: &[&str]) -> Value {
@@ -167,6 +179,164 @@ fn repo_map_returns_counts_and_structure() {
             .unwrap()
             > 0
     );
+}
+
+#[test]
+fn repo_create_happy_path() {
+    let temp = TempDir::new().unwrap();
+    let repo_dir = temp.path().join("new-repo");
+    std::fs::create_dir_all(&repo_dir).unwrap();
+    let repo_dir_str = repo_dir.to_str().unwrap();
+
+    let result = run_srs_in_dir(
+        temp.path(),
+        &[
+            "--repo",
+            repo_dir_str,
+            "repo",
+            "create",
+            "--repository-id",
+            "repo-123",
+            "--namespace",
+            "com.semanticops.test",
+            "--package-id",
+            "pkg-123",
+            "--package-name",
+            "primary",
+        ],
+    );
+
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["command"], "repo create");
+    assert!(repo_dir.join(".srs").is_dir());
+    assert!(repo_dir.join("manifest.json").is_file());
+    assert!(repo_dir.join("package/package.json").is_file());
+}
+
+#[test]
+fn repo_create_without_existing_repo_does_not_call_detect() {
+    let temp = TempDir::new().unwrap();
+    let non_repo_dir = temp.path().join("target");
+    std::fs::create_dir_all(&non_repo_dir).unwrap();
+    let non_repo_str = non_repo_dir.to_str().unwrap();
+
+    let result = run_srs_in_dir(
+        temp.path(),
+        &[
+            "--repo",
+            non_repo_str,
+            "repo",
+            "create",
+            "--repository-id",
+            "repo-456",
+            "--namespace",
+            "com.semanticops.test",
+            "--package-id",
+            "pkg-456",
+            "--package-name",
+            "primary",
+        ],
+    );
+
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["command"], "repo create");
+}
+
+#[test]
+fn repo_create_existing_repo_errors() {
+    let temp = TempDir::new().unwrap();
+    let repo_dir = temp.path().join("dupe-repo");
+    std::fs::create_dir_all(&repo_dir).unwrap();
+    let repo_dir_str = repo_dir.to_str().unwrap();
+
+    let _first = run_srs_in_dir(
+        temp.path(),
+        &[
+            "--repo",
+            repo_dir_str,
+            "repo",
+            "create",
+            "--repository-id",
+            "repo-789",
+            "--namespace",
+            "com.semanticops.test",
+            "--package-id",
+            "pkg-789",
+            "--package-name",
+            "primary",
+        ],
+    );
+
+    let (ok, second) = run_srs_any_status_in_dir(
+        temp.path(),
+        &[
+            "--repo",
+            repo_dir_str,
+            "repo",
+            "create",
+            "--repository-id",
+            "repo-789",
+            "--namespace",
+            "com.semanticops.test",
+            "--package-id",
+            "pkg-789",
+            "--package-name",
+            "primary",
+        ],
+    );
+
+    assert!(!ok);
+    assert_eq!(second["ok"], false);
+    let diagnostics = second["diagnostics"].as_array().unwrap();
+    assert!(
+        diagnostics.iter().any(|d| {
+            d.as_str()
+                .map(|s| s.contains("repository already exists"))
+                .unwrap_or(false)
+        }),
+        "expected already-exists diagnostic, got {:?}",
+        diagnostics
+    );
+}
+
+#[test]
+fn repo_copy_memory_fixture_to_filestore() {
+    let temp = TempDir::new().unwrap();
+    let src = temp.path().join("src-repo");
+    let dst = temp.path().join("dst-repo");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::create_dir_all(&dst).unwrap();
+    let src_str = src.to_str().unwrap();
+    let dst_str = dst.to_str().unwrap();
+
+    let created = run_srs_in_dir(
+        temp.path(),
+        &[
+            "--repo",
+            src_str,
+            "repo",
+            "create",
+            "--repository-id",
+            "repo-copy-src",
+            "--namespace",
+            "com.semanticops.copy",
+            "--package-id",
+            "pkg-copy-src",
+            "--package-name",
+            "primary",
+        ],
+    );
+    assert_eq!(created["ok"], true);
+
+    let copied = run_srs_in_dir(
+        temp.path(),
+        &["repo", "copy", "--from", src_str, "--to", dst_str],
+    );
+    assert_eq!(copied["ok"], true);
+    assert_eq!(copied["command"], "repo copy");
+    assert!(dst.join(".srs").is_dir());
+    assert!(dst.join("manifest.json").is_file());
+    assert!(dst.join("package/package.json").is_file());
 }
 
 #[test]

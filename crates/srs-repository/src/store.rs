@@ -1,6 +1,7 @@
 use crate::error::RepositoryError;
 use crate::manifest::Manifest;
 use crate::package::Package;
+use crate::repository_lifecycle::{CreateRepositoryResult, InitializeRepositoryInput};
 use srs_core::types::field::{Field, ValueType};
 use srs_core::types::record_type::{FieldAssignment, FieldGroup, RecordType};
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
@@ -21,6 +22,15 @@ use std::path::PathBuf;
 /// All path arguments are *relative* to the repository root so that
 /// implementations can resolve them however they choose.
 pub trait RepositoryStore {
+    // --- Repository lifecycle ---
+
+    fn repository_root(&self) -> PathBuf;
+    fn repository_exists(&self) -> Result<bool, RepositoryError>;
+    fn initialize_repository(
+        &self,
+        input: &InitializeRepositoryInput,
+    ) -> Result<CreateRepositoryResult, RepositoryError>;
+
     // --- Manifest ---
 
     fn load_manifest(&self) -> Result<Manifest, RepositoryError>;
@@ -56,6 +66,15 @@ pub trait RepositoryStore {
     ) -> Result<(), RepositoryError>;
     fn delete_type_file(&self, relative_path: &str) -> Result<(), RepositoryError>;
     fn ensure_types_dir(&self) -> Result<(), RepositoryError>;
+
+    // --- Relation type definitions ---
+
+    fn save_relation_type_definition(
+        &self,
+        relative_path: &str,
+        relation_type: &RelationTypeDefinition,
+    ) -> Result<(), RepositoryError>;
+    fn ensure_relation_types_dir(&self) -> Result<(), RepositoryError>;
 
     // --- Views (L1) ---
 
@@ -499,6 +518,56 @@ fn load_package_from_dir(
 }
 
 impl RepositoryStore for FileStore {
+    fn repository_root(&self) -> PathBuf {
+        self.repo_root.clone()
+    }
+
+    fn repository_exists(&self) -> Result<bool, RepositoryError> {
+        let srs_dir = self.repo_root.join(".srs");
+        let manifest = self.repo_root.join("manifest.json");
+        let package = self.repo_root.join("package/package.json");
+        Ok(srs_dir.is_dir() && manifest.is_file() && package.is_file())
+    }
+
+    fn initialize_repository(
+        &self,
+        input: &InitializeRepositoryInput,
+    ) -> Result<CreateRepositoryResult, RepositoryError> {
+        if self.repository_exists()? {
+            return Err(RepositoryError::RepositoryAlreadyExists {
+                path: self.repo_root.clone(),
+            });
+        }
+
+        self.ensure_dir(&self.repo_root.join(".srs"))?;
+        self.ensure_dir(&self.repo_root.join("package"))?;
+
+        let manifest = serde_json::json!({
+            "instanceIndex": [],
+            "srsVersion": input.repository.srs_version,
+            "repositoryId": input.repository.repository_id,
+            "namespace": input.repository.namespace
+        });
+        self.write_json(&self.repo_root.join("manifest.json"), &manifest)?;
+
+        let package = serde_json::json!({
+            "id": input.primary_package.id,
+            "namespace": input.primary_package.namespace,
+            "name": input.primary_package.name,
+            "version": input.primary_package.version,
+            "fields": [],
+            "types": [],
+            "relationTypes": [],
+            "views": [],
+            "documentViews": []
+        });
+        self.write_json(&self.repo_root.join("package/package.json"), &package)?;
+
+        Ok(CreateRepositoryResult {
+            repo_root: self.repo_root.clone(),
+        })
+    }
+
     // --- Manifest ---
 
     fn load_manifest(&self) -> Result<Manifest, RepositoryError> {
@@ -746,6 +815,23 @@ impl RepositoryStore for FileStore {
         self.ensure_dir(&self.pkg_abs("types"))
     }
 
+    fn save_relation_type_definition(
+        &self,
+        relative_path: &str,
+        relation_type: &RelationTypeDefinition,
+    ) -> Result<(), RepositoryError> {
+        let value =
+            serde_json::to_value(relation_type).map_err(|e| RepositoryError::Serialize {
+                path: self.pkg_abs(relative_path),
+                source: e,
+            })?;
+        self.write_json(&self.pkg_abs(relative_path), &value)
+    }
+
+    fn ensure_relation_types_dir(&self) -> Result<(), RepositoryError> {
+        self.ensure_dir(&self.pkg_abs("relation-types"))
+    }
+
     // --- Views (L1) ---
 
     fn save_view(&self, relative_path: &str, view: &View) -> Result<(), RepositoryError> {
@@ -983,6 +1069,7 @@ pub mod memory {
         manifest: RefCell<Manifest>,
         package: RefCell<Package>,
         data: RefCell<HashMap<String, serde_json::Value>>,
+        repository_initialized: RefCell<bool>,
     }
 
     impl MemoryStore {
@@ -992,6 +1079,7 @@ pub mod memory {
                 manifest: RefCell::new(manifest),
                 package: RefCell::new(package),
                 data: RefCell::new(HashMap::new()),
+                repository_initialized: RefCell::new(true),
             };
             store
                 .data
@@ -1100,6 +1188,32 @@ pub mod memory {
             self
         }
 
+        pub fn uninitialized() -> Self {
+            let manifest = Manifest {
+                instance_index: vec![],
+                extra: HashMap::new(),
+                root: PathBuf::from("/memory"),
+            };
+            let package = Package {
+                id: "".to_string(),
+                namespace: "".to_string(),
+                name: "".to_string(),
+                version: "".to_string(),
+                fields: vec![],
+                record_types: vec![],
+                relation_type_definitions: vec![],
+                views: vec![],
+                document_views: vec![],
+                root: PathBuf::from("/memory"),
+            };
+            Self {
+                manifest: RefCell::new(manifest),
+                package: RefCell::new(package),
+                data: RefCell::new(HashMap::new()),
+                repository_initialized: RefCell::new(false),
+            }
+        }
+
         /// Return a clone of all stored data (for assertions).
         pub fn all_data(&self) -> HashMap<String, serde_json::Value> {
             self.data.borrow().clone()
@@ -1120,6 +1234,78 @@ pub mod memory {
     }
 
     impl RepositoryStore for MemoryStore {
+        fn repository_root(&self) -> PathBuf {
+            PathBuf::from("/memory")
+        }
+
+        fn repository_exists(&self) -> Result<bool, RepositoryError> {
+            Ok(*self.repository_initialized.borrow())
+        }
+
+        fn initialize_repository(
+            &self,
+            input: &InitializeRepositoryInput,
+        ) -> Result<CreateRepositoryResult, RepositoryError> {
+            if *self.repository_initialized.borrow() {
+                return Err(RepositoryError::RepositoryAlreadyExists {
+                    path: PathBuf::from("/memory"),
+                });
+            }
+
+            let mut manifest_extra = HashMap::new();
+            manifest_extra.insert(
+                "srsVersion".to_string(),
+                serde_json::Value::String(input.repository.srs_version.clone()),
+            );
+            manifest_extra.insert(
+                "repositoryId".to_string(),
+                serde_json::Value::String(input.repository.repository_id.clone()),
+            );
+            manifest_extra.insert(
+                "namespace".to_string(),
+                serde_json::Value::String(input.repository.namespace.clone()),
+            );
+
+            *self.manifest.borrow_mut() = Manifest {
+                instance_index: vec![],
+                extra: manifest_extra,
+                root: PathBuf::from("/memory"),
+            };
+
+            *self.package.borrow_mut() = Package {
+                id: input.primary_package.id.clone(),
+                namespace: input.primary_package.namespace.clone(),
+                name: input.primary_package.name.clone(),
+                version: input.primary_package.version.clone(),
+                fields: vec![],
+                record_types: vec![],
+                relation_type_definitions: vec![],
+                views: vec![],
+                document_views: vec![],
+                root: PathBuf::from("/memory"),
+            };
+
+            let package_json = serde_json::json!({
+                "id": input.primary_package.id,
+                "namespace": input.primary_package.namespace,
+                "name": input.primary_package.name,
+                "version": input.primary_package.version,
+                "fields": [],
+                "types": [],
+                "relationTypes": [],
+                "views": [],
+                "documentViews": []
+            });
+            self.data
+                .borrow_mut()
+                .insert("package/package.json".to_string(), package_json);
+            *self.repository_initialized.borrow_mut() = true;
+
+            Ok(CreateRepositoryResult {
+                repo_root: PathBuf::from("/memory"),
+            })
+        }
+
         fn load_manifest(&self) -> Result<Manifest, RepositoryError> {
             Ok(self.manifest.borrow().clone())
         }
@@ -1201,6 +1387,20 @@ pub mod memory {
         }
 
         fn ensure_types_dir(&self) -> Result<(), RepositoryError> {
+            Ok(())
+        }
+
+        fn save_relation_type_definition(
+            &self,
+            relative_path: &str,
+            relation_type: &RelationTypeDefinition,
+        ) -> Result<(), RepositoryError> {
+            let v = serde_json::to_value(relation_type).unwrap();
+            self.data.borrow_mut().insert(relative_path.to_string(), v);
+            Ok(())
+        }
+
+        fn ensure_relation_types_dir(&self) -> Result<(), RepositoryError> {
             Ok(())
         }
 

@@ -174,6 +174,15 @@ pub enum RepositoryError {
         first_path: PathBuf,
         second_path: PathBuf,
     },
+
+    #[error("repository already exists at {path:?}")]
+    RepositoryAlreadyExists { path: PathBuf },
+
+    #[error("invalid repository initialization: {message}")]
+    InvalidRepositoryInitialization { message: String },
+
+    #[error("repository target is not empty at {path:?}")]
+    RepositoryNotEmpty { path: PathBuf },
 }
 
 impl PartialEq for RepositoryError {
@@ -384,6 +393,18 @@ impl PartialEq for RepositoryError {
                     ..
                 },
             ) => pa == pb && ka == kb && ia == ib,
+            (
+                RepositoryError::RepositoryAlreadyExists { path: a },
+                RepositoryError::RepositoryAlreadyExists { path: b },
+            ) => a == b,
+            (
+                RepositoryError::InvalidRepositoryInitialization { message: a },
+                RepositoryError::InvalidRepositoryInitialization { message: b },
+            ) => a == b,
+            (
+                RepositoryError::RepositoryNotEmpty { path: a },
+                RepositoryError::RepositoryNotEmpty { path: b },
+            ) => a == b,
             _ => false,
         }
     }

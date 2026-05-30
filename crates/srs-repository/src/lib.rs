@@ -13,6 +13,8 @@ pub mod protocol_service;
 pub mod record_store;
 pub mod relation_service;
 pub mod render_service;
+pub mod repository_lifecycle;
+pub mod repository_portability;
 pub mod resolver;
 pub mod services;
 pub mod store;

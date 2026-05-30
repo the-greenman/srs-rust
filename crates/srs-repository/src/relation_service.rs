@@ -502,11 +502,24 @@ mod tests {
         use crate::error::RepositoryError;
         use crate::manifest::Manifest;
         use crate::package::Package;
+        use crate::repository_lifecycle::{CreateRepositoryResult, InitializeRepositoryInput};
         use crate::store::RepositoryStore;
 
         struct BrokenManifestStore;
 
         impl RepositoryStore for BrokenManifestStore {
+            fn repository_root(&self) -> std::path::PathBuf {
+                unimplemented!()
+            }
+            fn repository_exists(&self) -> Result<bool, RepositoryError> {
+                unimplemented!()
+            }
+            fn initialize_repository(
+                &self,
+                _: &InitializeRepositoryInput,
+            ) -> Result<CreateRepositoryResult, RepositoryError> {
+                unimplemented!()
+            }
             fn load_manifest(&self) -> Result<Manifest, RepositoryError> {
                 Err(RepositoryError::ManifestParse {
                     path: std::path::PathBuf::from("manifest.json"),
@@ -563,6 +576,16 @@ mod tests {
                 unimplemented!()
             }
             fn ensure_types_dir(&self) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn save_relation_type_definition(
+                &self,
+                _: &str,
+                _: &srs_core::types::relation_type_definition::RelationTypeDefinition,
+            ) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn ensure_relation_types_dir(&self) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
             fn save_view(

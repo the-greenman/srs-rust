@@ -267,6 +267,39 @@ pub enum NoteTagCommand {
 
 #[derive(Subcommand)]
 pub enum RepoCommand {
+    /// Create a new repository at the target path
+    Create {
+        /// Repository ID (UUID/string)
+        #[arg(long = "repository-id")]
+        repository_id: String,
+        /// Repository namespace
+        #[arg(long)]
+        namespace: String,
+        /// SRS version stored in manifest
+        #[arg(long = "srs-version", default_value = "2.0-draft")]
+        srs_version: String,
+        /// Primary package ID
+        #[arg(long = "package-id")]
+        package_id: String,
+        /// Primary package name
+        #[arg(long = "package-name")]
+        package_name: String,
+        /// Primary package version
+        #[arg(long = "package-version", default_value = "1.0.0")]
+        package_version: String,
+        /// Primary package namespace (defaults to repository namespace)
+        #[arg(long = "package-namespace")]
+        package_namespace: Option<String>,
+    },
+    /// Copy a repository from source to target path using logical portability
+    Copy {
+        /// Source repository root
+        #[arg(long = "from")]
+        from: PathBuf,
+        /// Target repository root
+        #[arg(long = "to")]
+        to: PathBuf,
+    },
     /// Emit a deterministic repository map
     Map {
         /// Deprecated: JSON output is now the default (no-op)
@@ -649,8 +682,14 @@ pub enum PackageCommand {
 }
 
 pub fn dispatch(cli: Cli) -> Result<String> {
-    // Resolve repository path using global option
-    let repo_root = resolve_repo(cli.repo)?;
+    // repo create targets explicit --repo or current dir; it must not require existing .srs
+    let repo_root = match &cli.command {
+        Commands::Repo(RepoCommand::Create { .. } | RepoCommand::Copy { .. }) => match &cli.repo {
+            Some(path) => path.clone(),
+            None => std::env::current_dir()?,
+        },
+        _ => resolve_repo(cli.repo.clone())?,
+    };
 
     // Build context for command handlers
     let ctx = CliContext {
