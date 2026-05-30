@@ -467,54 +467,16 @@ All of the following must be true before this plan is closed:
 - [ ] `srs note list`, `srs record list`, `srs relation list` with and without `--container` produce correct results
 - [ ] `srs note create`, `srs record create`, `srs field create`, `srs protocol import` produce identical JSON output to pre-plan behavior
 - [x] `cargo build -p srs` contains zero imports of `list_members`, `add_member`, `remove_member`, `is_member` — enforced by `pub(crate)` visibility (compile-time proof)
-- [ ] No CLI handler function performs `.retain()` or `.filter()` on a list result — **PARTIALLY MET**: `tag.rs:40`, `field.rs:35`, `record_type.rs:35`, `relation_type.rs:19` still filter in-handler (see Deferred Work)
-- [ ] No public service function in `srs-repository` has a `serde_json::Value` parameter — **PARTIALLY MET**: `extension_service.rs` and `protocol_service.rs` (see Deferred Work)
+- [x] No CLI handler function performs `.retain()` or `.filter()` on a list result — all in-handler filter chains removed (D3 complete)
+- [x] No public service function in `srs-repository` has a `serde_json::Value` parameter — all moved to service layer (D1/D2 complete; `CreateExtensionInput.raw` and `ImportProtocolInput.raw` are intentional opaque boundaries)
 - [x] `scripts/check-schema-sync.sh` exits 0
 - [x] ADR-010 status updated to `accepted`
 
 ---
 
-## Deferred Work
+## Deferred Work ✅ ALL COMPLETE
 
-The following items were out of scope for this plan's four phases or were explicitly deferred. They are tracked here so a future agent can pick them up without re-reading the full history.
-
-### D1: Extension service migration (`extension.rs` + `extension_service.rs`)
-
-**What remains:** `crates/srs-cli/src/commands/extension.rs` (146 lines) still extracts `fieldValues` from raw JSON, infers `type_id`/`typeVersion`, and constructs `FieldValue` objects directly in the handler. `list_extensions` returns `Vec<Record>` (generic) rather than a typed `Vec<ExtensionSummary>`.
-
-**What needs to happen:**
-- Define `ExtensionSummary { instance_id, namespace, name, extension_type }` in `extension_service.rs`
-- Rewrite `list_extensions` to return `Vec<ExtensionSummary>`
-- Define `CreateExtensionInput { raw: serde_json::Value }` — service extracts `fieldValues` and infers type internally
-- Add `create_extension(store, input) -> Result<ExtensionResult, RepositoryError>`
-- Add `update_extension(store, id, input) -> Result<ExtensionResult, RepositoryError>`
-- Update `extension.rs` CLI handler to pass raw stdin to service; remove field extraction logic
-
-### D2: Protocol service migration (`protocol.rs` + `protocol_service.rs`)
-
-**What remains:** `crates/srs-cli/src/commands/protocol.rs` (265 lines) contains:
-- `cmd_protocol_import`: 153-line function that extracts fields from protocol JSON, maps camelCase keys to `FieldValue` objects, hardcodes field IDs — all business logic that belongs in the service
-- `cmd_protocol_get`: injects `instanceId` into the returned JSON object manually
-
-**What needs to happen:**
-- Define `ProtocolImportInput { raw: serde_json::Value }` in `protocol_service.rs`
-- Move the 153-line import body into `import_protocol(store, input) -> Result<ProtocolResult, RepositoryError>`
-- Define `ProtocolResult { protocol: serde_json::Value, instance_id: String }` — service populates `instance_id`
-- Rewrite `get_protocol` to return `ProtocolResult` with `instance_id` already set
-- Update `protocol.rs` CLI handler to be a thin wrapper
-
-### D3: Remaining in-handler filter calls
-
-Four CLI handlers still filter list results inside the handler rather than passing filter parameters to the service:
-
-| File | Line | Pattern |
-|---|---|---|
-| `crates/srs-cli/src/commands/tag.rs` | 40 | `filter(|s| member_ids.contains(...))` — container filter still done in-handler for the `tag list` path |
-| `crates/srs-cli/src/commands/field.rs` | 35 | `filter(|f| f.namespace == *ns)` — namespace filter done in-handler |
-| `crates/srs-cli/src/commands/record_type.rs` | 35 | `filter(|t| t.namespace == *ns)` — namespace filter done in-handler |
-| `crates/srs-cli/src/commands/relation_type.rs` | 19 | `filter(|rt| ...)` — status filter done in-handler |
-
-`list_relation_types_filtered`, `list_fields_filtered`, and `list_types_filtered` service functions already exist in `package_service.rs` — the CLI handlers just need to call them and remove the in-handler filter chains.
+D1, D2, and D3 were completed in commit `d87e5cd`. No remaining deferred items.
 
 ## Coordination Rules
 
