@@ -5,6 +5,7 @@ use serde_json::json;
 use srs_repository::package_service::{
     get_type_by_id_latest, list_types, list_types_by_namespace, GetTypeResult,
 };
+use srs_repository::FileStore;
 
 pub fn dispatch(ctx: CliContext, cmd: TypeCommand) -> Result<String> {
     match cmd {
@@ -14,10 +15,11 @@ pub fn dispatch(ctx: CliContext, cmd: TypeCommand) -> Result<String> {
 }
 
 fn cmd_type_list(ctx: CliContext, namespace: Option<String>) -> Result<String> {
+    let store = FileStore::new(&ctx.repo);
     let summaries = if let Some(ns) = namespace {
-        list_types_by_namespace(&ctx.repo, &ns)?
+        list_types_by_namespace(&store, &ns)?
     } else {
-        list_types(&ctx.repo)?
+        list_types(&store)?
     };
 
     let types: Vec<serde_json::Value> = summaries
@@ -37,7 +39,8 @@ fn cmd_type_list(ctx: CliContext, namespace: Option<String>) -> Result<String> {
 }
 
 fn cmd_type_get(ctx: CliContext, id: String) -> Result<String> {
-    match get_type_by_id_latest(&ctx.repo, &id)? {
+    let store = FileStore::new(&ctx.repo);
+    match get_type_by_id_latest(&store, &id)? {
         GetTypeResult::Found(record_type) => {
             Ok(output::ok("type get", json!({ "type": record_type })))
         }

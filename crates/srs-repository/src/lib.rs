@@ -15,7 +15,10 @@ pub mod relation_service;
 pub mod render_service;
 pub mod resolver;
 pub mod services;
+pub mod store;
 pub mod tag_service;
 pub mod validation;
 pub mod view_service;
 pub mod writer;
+
+pub use store::{FileStore, RepositoryStore};

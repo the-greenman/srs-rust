@@ -13,6 +13,7 @@ use srs_repository::record_store::{
     create_record, delete_record, get_record_by_id, list_all_records, list_records_by_type,
     update_record,
 };
+use srs_repository::FileStore;
 use std::io::{self, Read};
 
 pub fn dispatch(ctx: CliContext, cmd: RecordCommand) -> Result<String> {
@@ -223,7 +224,8 @@ fn resolve_type(
         return Ok(found);
     }
 
-    let result = get_type_by_name(&ctx.repo, namespace, name)?;
+    let store = FileStore::new(&ctx.repo);
+    let result = get_type_by_name(&store, namespace, name)?;
 
     match result {
         GetTypeResult::Found(record_type) => Ok(Some(record_type)),
