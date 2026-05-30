@@ -24,7 +24,8 @@ pub fn dispatch(ctx: CliContext, cmd: ProtocolCommand) -> Result<String> {
 }
 
 fn cmd_protocol_list(ctx: CliContext) -> Result<String> {
-    let protocols = list_protocols(&ctx.repo)?;
+    let store = FileStore::new(&ctx.repo);
+    let protocols = list_protocols(&store)?;
 
     let summaries: Vec<serde_json::Value> = protocols
         .into_iter()
@@ -47,7 +48,8 @@ fn cmd_protocol_list(ctx: CliContext) -> Result<String> {
 }
 
 fn cmd_protocol_get(ctx: CliContext, id: String) -> Result<String> {
-    match get_protocol_by_id(&ctx.repo, &id)? {
+    let store = FileStore::new(&ctx.repo);
+    match get_protocol_by_id(&store, &id)? {
         GetProtocolResult::Found {
             instance_id,
             protocol,
@@ -72,7 +74,8 @@ fn cmd_protocol_get(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_protocol_stages(ctx: CliContext, id: String) -> Result<String> {
-    let stages = match list_protocol_stages(&ctx.repo, &id) {
+    let store = FileStore::new(&ctx.repo);
+    let stages = match list_protocol_stages(&store, &id) {
         Ok(stages) => stages,
         Err(RepositoryError::NotFound { .. }) => {
             return Ok(output::err(
@@ -102,7 +105,8 @@ fn cmd_protocol_stages(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_protocol_validate(ctx: CliContext, id: String) -> Result<String> {
-    let result = match validate_protocol_definition(&ctx.repo, &id) {
+    let store = FileStore::new(&ctx.repo);
+    let result = match validate_protocol_definition(&store, &id) {
         Ok(result) => result,
         Err(RepositoryError::NotFound { .. }) => {
             return Ok(output::err(
@@ -124,7 +128,8 @@ fn cmd_protocol_validate(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_protocol_export(ctx: CliContext, id: String) -> Result<String> {
-    match get_protocol_by_id(&ctx.repo, &id)? {
+    let store = FileStore::new(&ctx.repo);
+    match get_protocol_by_id(&store, &id)? {
         GetProtocolResult::Found { protocol, .. } => {
             // Export as a portable JSON definition (just the protocol struct)
             Ok(output::ok(

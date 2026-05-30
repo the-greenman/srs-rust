@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use srs_core::types::protocol::{
     Protocol, ProtocolDiagnosticSeverity, ProtocolStage, ProtocolStageSummary,
 };
@@ -9,7 +7,7 @@ use srs_core::validation::protocol::validate_protocol;
 
 use crate::error::RepositoryError;
 use crate::record_store::get_record_by_id;
-use crate::store::FileStore;
+use crate::store::RepositoryStore;
 
 /// Result for protocol get operation
 #[derive(Debug, Clone)]
@@ -30,20 +28,15 @@ pub struct ValidateProtocolResult {
 }
 
 /// Get a protocol definition by ID
-/// Loads the record via generic get_record_by_id and deserializes the protocol fields
 pub fn get_protocol_by_id(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<GetProtocolResult, RepositoryError> {
-    let store = FileStore::new(repo_root);
-    match get_record_by_id(&store, id)? {
+    match get_record_by_id(store, id)? {
         Some(record) => {
-            // Check if it's a protocol type
             if !is_protocol_type(&record) {
                 return Ok(GetProtocolResult::NotFound);
             }
-
-            // Extract protocol from record field values
             let protocol = record_to_protocol(&record)?;
             Ok(GetProtocolResult::Found {
                 instance_id: record.instance_id,
@@ -51,7 +44,7 @@ pub fn get_protocol_by_id(
             })
         }
         None => {
-            if let Some(record) = get_record_by_id_fallback(repo_root, id)? {
+            if let Some(record) = get_record_by_id_fallback(store, id)? {
                 if is_protocol_type(&record) {
                     let protocol = record_to_protocol(&record)?;
                     Ok(GetProtocolResult::Found {
@@ -69,14 +62,14 @@ pub fn get_protocol_by_id(
 }
 
 /// List protocol definitions
-/// Uses list_records_by_type with meta.protocol type
-pub fn list_protocols(repo_root: &Path) -> Result<Vec<ProtocolSummary>, RepositoryError> {
+pub fn list_protocols(
+    store: &dyn RepositoryStore,
+) -> Result<Vec<ProtocolSummary>, RepositoryError> {
     use crate::record_store::list_records_by_type;
 
-    let store = FileStore::new(repo_root);
-    let mut records = list_records_by_type(&store, "meta", "protocol")?;
+    let mut records = list_records_by_type(store, "meta", "protocol")?;
     if records.is_empty() {
-        records = list_records_by_type_fallback(repo_root, "meta", "protocol")?;
+        records = list_records_by_type_fallback(store, "meta", "protocol")?;
     }
 
     let mut summaries = vec![];
@@ -90,10 +83,10 @@ pub fn list_protocols(repo_root: &Path) -> Result<Vec<ProtocolSummary>, Reposito
 
 /// List stages for a protocol
 pub fn list_protocol_stages(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<Vec<ProtocolStageSummary>, RepositoryError> {
-    match get_protocol_by_id(repo_root, id)? {
+    match get_protocol_by_id(store, id)? {
         GetProtocolResult::Found { protocol, .. } => {
             let mut stages: Vec<ProtocolStageSummary> = protocol
                 .protocol_stages
@@ -106,23 +99,22 @@ pub fn list_protocol_stages(
                 })
                 .collect();
 
-            // Sort by order
             stages.sort_by_key(|s| s.order);
 
             Ok(stages)
         }
         GetProtocolResult::NotFound => Err(RepositoryError::NotFound {
-            path: repo_root.join("package/records"),
+            path: std::path::PathBuf::from("package/records"),
         }),
     }
 }
 
 /// Validate a protocol definition
 pub fn validate_protocol_definition(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<ValidateProtocolResult, RepositoryError> {
-    match get_protocol_by_id(repo_root, id)? {
+    match get_protocol_by_id(store, id)? {
         GetProtocolResult::Found {
             instance_id,
             protocol,
@@ -148,7 +140,7 @@ pub fn validate_protocol_definition(
             })
         }
         GetProtocolResult::NotFound => Err(RepositoryError::NotFound {
-            path: repo_root.join("package/records"),
+            path: std::path::PathBuf::from("package/records"),
         }),
     }
 }
@@ -174,7 +166,6 @@ fn record_to_protocol(
 ) -> Result<Protocol, RepositoryError> {
     let fv = &record.field_values;
 
-    // Parse stages from field values
     let stages_json = find_field_value(fv, "protocol-stages")
         .or_else(|| find_field_value(fv, "stages"))
         .ok_or_else(|| RepositoryError::ManifestParse {
@@ -215,7 +206,6 @@ fn record_to_protocol_summary(
 ) -> Result<ProtocolSummary, RepositoryError> {
     let fv = &record.field_values;
 
-    // Count stages
     let stage_count = find_field_value(fv, "protocol-stages")
         .or_else(|| find_field_value(fv, "stages"))
         .and_then(|v| v.as_array().map(|arr| arr.len()))
@@ -282,32 +272,26 @@ fn json_error(msg: &str) -> serde_json::Error {
 }
 
 fn list_records_by_type_fallback(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     type_namespace: &str,
     type_name: &str,
 ) -> Result<Vec<Record>, RepositoryError> {
-    let records_dir = repo_root.join("package/records");
-    if !records_dir.exists() {
-        return Ok(vec![]);
-    }
+    let paths = match store.list_instance_files("package/records") {
+        Ok(p) => p,
+        Err(RepositoryError::Io { .. } | RepositoryError::NotFound { .. }) => return Ok(vec![]),
+        Err(e) => return Err(e),
+    };
 
     let mut records = vec![];
-    for entry in std::fs::read_dir(&records_dir).map_err(|source| RepositoryError::Io {
-        path: records_dir.clone(),
-        source,
-    })? {
-        let entry = entry.map_err(|source| RepositoryError::Io {
-            path: records_dir.clone(),
-            source,
-        })?;
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+    for path in &paths {
+        if !path.ends_with(".json") {
             continue;
         }
-        let content = std::fs::read_to_string(&path).map_err(|source| RepositoryError::Io {
-            path: path.clone(),
-            source,
-        })?;
+        let value = match store.load_instance_json(path) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let content = serde_json::to_string(&value).unwrap_or_default();
         if let Some(record) = parse_record_compat(&content) {
             if record.type_namespace == type_namespace && record.type_name == type_name {
                 records.push(record);
@@ -318,22 +302,23 @@ fn list_records_by_type_fallback(
 }
 
 fn get_record_by_id_fallback(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<Option<Record>, RepositoryError> {
-    let path = repo_root.join("package/records").join(format!("{id}.json"));
-    if !path.exists() {
-        return Ok(None);
+    let path = format!("package/records/{id}.json");
+    match store.load_instance_json(&path) {
+        Ok(value) => {
+            let content = serde_json::to_string(&value).unwrap_or_default();
+            let record =
+                parse_record_compat(&content).ok_or_else(|| RepositoryError::RecordLoad {
+                    path: std::path::PathBuf::from(&path),
+                    source: json_error("Failed to parse record"),
+                })?;
+            Ok(Some(record))
+        }
+        Err(RepositoryError::Io { .. } | RepositoryError::NotFound { .. }) => Ok(None),
+        Err(e) => Err(e),
     }
-    let content = std::fs::read_to_string(&path).map_err(|source| RepositoryError::Io {
-        path: path.clone(),
-        source,
-    })?;
-    let record = parse_record_compat(&content).ok_or_else(|| RepositoryError::RecordLoad {
-        path: path.clone(),
-        source: json_error("Failed to parse record"),
-    })?;
-    Ok(Some(record))
 }
 
 fn parse_record_compat(content: &str) -> Option<Record> {
