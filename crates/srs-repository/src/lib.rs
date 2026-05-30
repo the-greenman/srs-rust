@@ -10,6 +10,7 @@ pub mod manifest;
 pub mod manifest_service;
 pub mod package;
 pub mod package_service;
+pub mod package_types;
 pub mod protocol_service;
 pub mod record_store;
 pub mod relation_service;
@@ -25,4 +26,5 @@ pub mod view_service;
 pub mod writer;
 
 pub use json_store::JsonStore;
+pub use package_types::{DefinitionKind, OwnedField, OwnedType, PackageBoundary, PackageSelector};
 pub use store::{FileStore, RepositoryStore};

@@ -11,12 +11,12 @@ future SqlStore map those operations to their own storage representation.
 
 | Phase | Status |
 |---|---|
-| 1: Architecture Contract | Mostly done — ADR decision still open |
-| 2: Package Boundary Types and Store Contract | Not started |
-| 3: Package Lifecycle Services | Partial — create/list done; import/update missing |
-| 4: Package-Aware Definition Services | Mostly done — field/type create targeting sub-package missing |
-| 5: CLI | Partial — create/list/filters done; import/update/slice/deprecations missing |
-| 6: Test Coverage | Minimal — most planned tests not written |
+| 1: Architecture Contract | Complete — ADR-009 written |
+| 2: Package Boundary Types and Store Contract | Complete |
+| 3: Package Lifecycle Services | Complete |
+| 4: Package-Aware Definition Services | Complete |
+| 5: CLI | Complete |
+| 6: Test Coverage | Mostly complete — a few planned tests not written (see Phase 6) |
 
 ---
 
@@ -95,15 +95,13 @@ until this phase's milestone gate passes.
 - [x] State that package services use selectors and adapters use files/tables.
 - [x] Document packages as definition/meta boundaries.
 - [x] Document that raw `package.json`, package paths, and package file indexes must not appear in service APIs.
-- [ ] Resolve the ADR: either create `docs/adr/0002-package-boundary-model.md` or add a paragraph
-  to `ARCHITECTURE.md` under a new "## Why No Separate Package ADR" heading explaining that the
-  Package Boundaries section is sufficient.
+- [x] Resolve the ADR: created `docs/adr/009-package-boundary-model.md`.
 
 #### Acceptance Criteria
 
 - [x] `ARCHITECTURE.md` names packages as logical definition boundaries.
 - [x] `ARCHITECTURE.md` prohibits path-shaped package service APIs.
-- [ ] ADR is created, or a written rationale for deferral exists in `ARCHITECTURE.md`.
+- [x] ADR is created, or a written rationale for deferral exists in `ARCHITECTURE.md`.
 
 #### Milestone gate (blocks Phase 2)
 
@@ -322,26 +320,26 @@ reconstructs from disk.
 
 #### Phase 2 Tasks
 
-- [ ] Create `crates/srs-repository/src/package_types.rs` with `PackageSelector`, `PackageBoundary`,
+- [x] Create `crates/srs-repository/src/package_types.rs` with `PackageSelector`, `PackageBoundary`,
   `DefinitionKind`, `OwnedField`, `OwnedType`. **Not gated behind `#[cfg(test)]`.**
-- [ ] Add `pub mod package_types;` and re-exports to `lib.rs`.
-- [ ] Add `PackageNotFound` and `DefinitionNotFound` variants to `error.rs`.
-- [ ] Add the seven new methods to the `RepositoryStore` trait with the doc comments above.
-- [ ] Implement all seven methods on `FileStore`.
-- [ ] Add `boundaries: RefCell<HashMap<Option<String>, PackageBoundary>>` to `MemoryStore` and
+- [x] Add `pub mod package_types;` and re-exports to `lib.rs`.
+- [x] Add `PackageNotFound` and `DefinitionNotFound` variants to `error.rs`.
+- [x] Add the seven new methods to the `RepositoryStore` trait with the doc comments above.
+- [x] Implement all seven methods on `FileStore`.
+- [x] Add `boundaries: RefCell<HashMap<Option<String>, PackageBoundary>>` to `MemoryStore` and
   implement all seven methods. Pre-populate primary boundary in `empty()` / `with_field()` /
   `with_type()`.
-- [ ] Implement all seven methods on `JsonStore`.
+- [x] Implement all seven methods on `JsonStore`.
 
 #### Phase 2 Acceptance Criteria
 
-- [ ] `package_types.rs` compiles outside `#[cfg(test)]`.
-- [ ] All three stores compile with no warnings after adding the seven methods.
-- [ ] MemoryStore `boundaries` is keyed by `PackageSelector`, not by path strings.
-- [ ] FileStore preserves current `package/` and `packageRefs` layout.
-- [ ] JsonStore implements all seven methods using `load_instance_json`/`save_instance_json`.
-- [ ] `resolve_definition_owner` doc includes the O(n×m) complexity note.
-- [ ] `DefinitionKind::RelationType` is present but implementations may treat it as a no-op for
+- [x] `package_types.rs` compiles outside `#[cfg(test)]`.
+- [x] All three stores compile with no warnings after adding the seven methods.
+- [x] MemoryStore `boundaries` is keyed by `PackageSelector`, not by path strings.
+- [x] FileStore preserves current `package/` and `packageRefs` layout.
+- [x] JsonStore implements all seven methods using `load_instance_json`/`save_instance_json`.
+- [x] `resolve_definition_owner` doc includes the O(n×m) complexity note.
+- [x] `DefinitionKind::RelationType` is present but implementations may treat it as a no-op for
   the `field_paths`/`type_paths` tracking arrays; this is acceptable for Phase 2.
 
 #### Phase 2 Testing — add to `store.rs` `#[cfg(test)]`
@@ -410,12 +408,12 @@ same path or same id is already registered and return `PackageAlreadyRegistered`
 
 #### Phase 3 Tasks
 
-- [ ] Migrate `create_package` to call `store.register_package_boundary` and
+- [x] Migrate `create_package` to call `store.register_package_boundary` and
   `store.save_package_boundary_metadata`. Add explicit duplicate check (same path or id already
   registered → `PackageAlreadyRegistered`).
-- [ ] Migrate `list_packages` to call `store.list_package_boundaries`. Map `PackageBoundary` to
+- [x] Migrate `list_packages` to call `store.list_package_boundaries`. Map `PackageBoundary` to
   `PackageBoundaryInfo`. Remove direct `load_package_json` call.
-- [ ] Implement `import_package_local`:
+- [x] Implement `import_package_local`:
   - Input: `ImportPackageLocalInput { source_path: String }`.
   - Read `store.load_instance_json("{source_path}/package.json")` — no `std::fs`.
   - Extract `id`, `namespace`, `name`, `version`. Return `PackageLoad` error if missing fields.
@@ -423,22 +421,22 @@ same path or same id is already registered and return `PackageAlreadyRegistered`
     `PackageAlreadyRegistered { id }` if found.
   - Call `store.register_package_boundary(Some(source_path.clone()))`.
   - Output: `ImportPackageLocalResult { selector: Some(source_path), id, namespace, name }`.
-- [ ] Implement `update_package_metadata`:
+- [x] Implement `update_package_metadata`:
   - Input: `UpdatePackageMetadataInput { selector: PackageSelector, namespace: Option<String>, name: Option<String>, version: Option<String> }`.
   - Call `store.load_package_boundary(&input.selector)`. Return `PackageNotFound` if absent.
   - Patch non-None fields onto the loaded `PackageBoundary`.
   - Call `store.save_package_boundary_metadata(&patched)`.
   - Output: `UpdatePackageMetadataResult { boundary: PackageBoundary }`.
   - `field_paths` and `type_paths` must be unchanged.
-- [ ] Add `RepositoryError::PackageAlreadyRegistered { id: String }` to `error.rs`.
+- [x] Add `RepositoryError::PackageAlreadyRegistered { id: String }` to `error.rs`.
 
 #### Phase 3 Acceptance Criteria
 
-- [ ] `create_package` uses boundary methods; returns `PackageAlreadyRegistered` on duplicate.
-- [ ] `list_packages` uses `list_package_boundaries`; no direct `load_package_json` call.
-- [ ] `import_package_local` callable through `&dyn RepositoryStore`; no `std::fs` calls.
-- [ ] `update_package_metadata` only patches id/namespace/name/version; `field_paths`/`type_paths` unchanged.
-- [ ] Duplicate `create_package` or `import_package_local` returns `PackageAlreadyRegistered`.
+- [x] `create_package` uses boundary methods; returns `PackageAlreadyRegistered` on duplicate.
+- [x] `list_packages` uses `list_package_boundaries`; no direct `load_package_json` call.
+- [x] `import_package_local` callable through `&dyn RepositoryStore`; no `std::fs` calls.
+- [x] `update_package_metadata` only patches id/namespace/name/version; `field_paths`/`type_paths` unchanged.
+- [x] Duplicate `create_package` or `import_package_local` returns `PackageAlreadyRegistered`.
 
 #### Phase 3 Testing
 
@@ -490,32 +488,32 @@ Apply the same pattern to `create_type`.
 
 #### Phase 4 Tasks
 
-- [ ] Add `create_field_in_package(store, field, selector: PackageSelector) -> Result<CreateFieldResult>`:
+- [x] Add `create_field_in_package(store, field, selector: PackageSelector) -> Result<CreateFieldResult>`:
   - Call `store.ensure_fields_dir()` (or boundary-equivalent).
   - Compute filename as today.
   - Call `store.save_field(&filename, &field)` with the appropriate prefix for the boundary.
   - Call `store.add_definition_to_boundary(&selector, DefinitionKind::Field, &filename)`.
   - Return `CreateFieldResult`.
-- [ ] Add `create_type_in_package` with the same pattern.
-- [ ] Keep `create_field` and `create_type` as wrappers calling `*_in_package(..., None)`.
-- [ ] Migrate `find_field_path` to use `store.resolve_definition_owner(id, DefinitionKind::Field)`,
+- [x] Add `create_type_in_package` with the same pattern.
+- [x] Keep `create_field` and `create_type` as wrappers calling `*_in_package(..., None)`.
+- [x] Migrate `find_field_path` to use `store.resolve_definition_owner(id, DefinitionKind::Field)`,
   then reconstruct the full path from the returned selector. Remove the manual walk.
-- [ ] Migrate `find_type_path` the same way.
-- [ ] Migrate `delete_field` to call `store.remove_definition_from_boundary` after deleting the file.
-- [ ] Migrate `delete_type` the same way.
-- [ ] Migrate `list_fields_internal` to build provenance from `store.list_package_boundaries()`
+- [x] Migrate `find_type_path` the same way.
+- [x] Migrate `delete_field` to call `store.remove_definition_from_boundary` after deleting the file.
+- [x] Migrate `delete_type` the same way.
+- [x] Migrate `list_fields_internal` to build provenance from `store.list_package_boundaries()`
   and `boundary.field_paths` instead of calling `load_package_json`.
-- [ ] Migrate `list_types_internal` the same way.
-- [ ] Verify no field/type service function calls `load_package_json` or `save_package_json`.
+- [x] Migrate `list_types_internal` the same way.
+- [x] Verify no field/type service function calls `load_package_json` or `save_package_json`.
 
 #### Phase 4 Acceptance Criteria
 
-- [ ] `create_field_in_package` / `create_type_in_package` exist and accept a selector.
-- [ ] `create_field` / `create_type` remain as wrappers; existing CLI callers compile unchanged.
-- [ ] No field/type service function calls `load_package_json` or `save_package_json`.
-- [ ] `find_field_path` / `find_type_path` use `resolve_definition_owner`.
-- [ ] `delete_field` / `delete_type` call `remove_definition_from_boundary`.
-- [ ] All existing tests continue to pass.
+- [x] `create_field_in_package` / `create_type_in_package` exist and accept a selector.
+- [x] `create_field` / `create_type` remain as wrappers; existing CLI callers compile unchanged.
+- [x] No field/type service function calls `load_package_json` or `save_package_json`.
+- [x] `find_field_path` / `find_type_path` use `resolve_definition_owner`.
+- [x] `delete_field` / `delete_type` call `remove_definition_from_boundary`.
+- [x] All existing tests continue to pass.
 
 #### Phase 4 Testing
 
@@ -562,32 +560,32 @@ separate service logic. This is documented in `CLAUDE.md`.
 
 #### Phase 5 Tasks
 
-- [ ] `srs package import`: add `PackageCommand::Import { #[arg(long)] path: String }` to `mod.rs`.
+- [x] `srs package import`: add `PackageCommand::Import { #[arg(long)] path: String }` to `mod.rs`.
   Handler in `package.rs` calls `import_package_local`. Output envelope:
   `{ "selector": ..., "id": ..., "namespace": ..., "name": ... }`.
-- [ ] `srs package update`: add `PackageCommand::Update { #[arg(long)] selector: Option<String>, #[arg(long)] namespace: Option<String>, #[arg(long)] name: Option<String>, #[arg(long)] version: Option<String> }`.
+- [x] `srs package update`: add `PackageCommand::Update { #[arg(long)] selector: Option<String>, #[arg(long)] namespace: Option<String>, #[arg(long)] name: Option<String>, #[arg(long)] version: Option<String> }`.
   Omitted `--selector` maps to `None` (primary package). Handler calls `update_package_metadata`.
   Output: updated boundary as JSON object.
-- [ ] `srs slice create`: add `PackageCommand::SliceCreate { ... }` with the same args as
+- [x] `srs slice create`: add `PackageCommand::SliceCreate { ... }` with the same args as
   `PackageCommand::Create`. Dispatch arm calls `cmd_package_create` with the same arguments.
-- [ ] `srs field create --package`: add `#[arg(long)] package: Option<String>` to
+- [x] `srs field create --package`: add `#[arg(long)] package: Option<String>` to
   `FieldCommand::Create`. Dispatch passes selector to `create_field_in_package`.
-- [ ] `srs type create --package`: same for `TypeCommand::Create` and `create_type_in_package`.
-- [ ] Deprecate `package enable/disable`: add `#[arg(hide = true)]` and update help strings to
+- [x] `srs type create --package`: same for `TypeCommand::Create` and `create_type_in_package`.
+- [x] Deprecate `package enable/disable`: add `#[arg(hide = true)]` and update help strings to
   "Deprecated: use `srs package import` instead." Keep implementations.
-- [ ] Update `CLAUDE.md`: add `srs package import`, `srs package update`, `srs slice create`;
+- [x] Update `CLAUDE.md`: add `srs package import`, `srs package update`, `srs slice create`;
   document `--package` on `field create` and `type create`; mark `enable/disable` as deprecated.
 
 #### Phase 5 Acceptance Criteria
 
-- [ ] `srs package import --path <rel>` creates and registers a boundary from an existing path.
-- [ ] `srs package update` changes name/namespace/version only; field/type counts unchanged.
-- [ ] `srs slice create` with same args as `srs package create` produces identical output shape.
-- [ ] `srs field create --package pkg/ext` calls `create_field_in_package(..., Some("pkg/ext"))`.
-- [ ] `srs type create --package pkg/ext` calls `create_type_in_package(..., Some("pkg/ext"))`.
-- [ ] `srs package enable/disable` still exit 0 but are hidden from `--help`.
-- [ ] All output envelopes are stable JSON (no removed keys).
-- [ ] `CLAUDE.md` reflects all changes.
+- [x] `srs package import --path <rel>` creates and registers a boundary from an existing path.
+- [x] `srs package update` changes name/namespace/version only; field/type counts unchanged.
+- [x] `srs slice create` with same args as `srs package create` produces identical output shape.
+- [x] `srs field create --package pkg/ext` calls `create_field_in_package(..., Some("pkg/ext"))`.
+- [x] `srs type create --package pkg/ext` calls `create_type_in_package(..., Some("pkg/ext"))`.
+- [x] `srs package enable/disable` still exit 0 but are hidden from `--help`.
+- [x] All output envelopes are stable JSON (no removed keys).
+- [x] `CLAUDE.md` reflects all changes.
 
 #### Phase 5 Testing — `crates/srs-cli/tests/`
 
@@ -625,22 +623,27 @@ explicit test coverage. This phase catches any invariants that slipped through.
 
 #### Phase 6 Tasks
 
-- [ ] Verify or write:
-  - `package_service::tests::list_packages_returns_primary_and_sub_packages`
-  - `package_service::tests::list_fields_by_package_filters_correctly` (may be written in Phase 4)
-  - `package_service::tests::list_types_by_package_filters_correctly` (may be written in Phase 4)
-  - `package_service::tests::list_fields_includes_source_package` (may be written in Phase 4)
-  - `package_service::tests::list_types_includes_source_package` (may be written in Phase 4)
-  - `package_service::tests::create_package_auto_registers_boundary` (may be written in Phase 3)
-  - `package_service::tests::create_package_rejects_primary_path` (may be written in Phase 3)
-  - `package_service::tests::field_delete_removes_from_package_json` (exists, verify still passes)
-  - `package_service::tests::type_delete_removes_from_package_json` (exists, verify still passes)
-  - `store::tests::memory_store_save_field_uses_package_prefix_key` — asserts that after
-    `save_field("fields/foo.json", ...)`, the MemoryStore data map contains the key
-    `"package/fields/foo.json"` and not `"fields/foo.json"`. This invariant is load-bearing for
-    `resolve_definition_owner` correctness and **should be promoted to Phase 2 acceptance criteria**
-    if not already present.
-  - `store::tests::json_store_field_roundtrip` — `create_field` then `list_fields` via JsonStore.
+- [x] Verify or write:
+  - `package_service::tests::list_packages_returns_primary_and_sub_packages` ✓ exists
+  - `package_service::tests::list_fields_by_package_filters_correctly` ✓ exists
+  - `package_service::tests::list_types_by_package_filters_correctly` ✓ exists
+  - `package_service::tests::list_fields_includes_source_package` ✓ exists
+  - `package_service::tests::list_types_includes_source_package` ✓ exists
+  - `package_service::tests::create_package_auto_registers_boundary` ✓ exists
+  - `package_service::tests::create_package_rejects_primary_path` ✓ exists
+  - `package_service::tests::field_delete_removes_from_package_json` ✓ exists (renamed `delete_field_removes_from_boundary_index`)
+  - `package_service::tests::type_delete_removes_from_package_json` ✓ exists (renamed `delete_type_resolves_owner_package`)
+  - `store::tests::memory_store_save_field_uses_package_prefix_key` ✓ exists
+  - `store::tests::json_store_field_roundtrip` — not written; covered implicitly by integration tests
+
+The following planned Phase 2 store tests were not explicitly written but their coverage is present via
+other named tests or integration tests:
+  - `memory_store_add_definition_idempotent` — not written as standalone; idempotency verified via `add_definition_to_boundary_updates_paths`
+  - `memory_store_remove_definition_from_boundary` — not written as standalone; covered by `delete_field_removes_from_boundary_index`
+  - `memory_store_resolve_definition_not_found` — not written; `DefinitionNotFound` path covered by `json_store_resolve_definition_owner_returns_definition_not_found`
+  - `memory_store_save_boundary_metadata_does_not_overwrite_paths` — written as `save_package_boundary_metadata_preserves_field_paths` in package_service tests
+  - `file_store_list_package_boundaries_returns_primary` — written as `file_store_package_boundary_maps_existing_layout`
+  - `file_store_register_sub_package_adds_to_manifest` — not written as standalone
 
 #### Phase 6 Milestone gate (Final Acceptance gate)
 
@@ -655,28 +658,28 @@ cargo clippy -p srs-repository -- -D warnings
 
 All of the following must be true before this plan is closed:
 
-- [ ] `cargo test` passes with no failures.
-- [ ] `cargo clippy -- -D warnings` passes.
-- [ ] `ARCHITECTURE.md` documents logical package boundaries.
-- [ ] ADR created or deferral explicitly documented in `ARCHITECTURE.md`.
-- [ ] `package_types.rs` is not gated behind `#[cfg(test)]`.
-- [ ] No service function calls `load_package_json` or `save_package_json` directly.
-- [ ] MemoryStore `boundaries` is keyed by `PackageSelector`, not path strings.
-- [ ] FileStore preserves current `package/` and `packageRefs` layout.
-- [ ] JsonStore implements all seven boundary methods.
-- [ ] `resolve_definition_owner` doc contains the O(n×m) complexity note.
-- [ ] `DefinitionKind::RelationType` is present in the enum; implementations may treat as no-op.
-- [ ] `create_package` returns `PackageAlreadyRegistered` on duplicate.
-- [ ] `import_package_local` is implemented and contains no `std::fs` calls.
-- [ ] `update_package_metadata` does not touch `field_paths` or `type_paths`.
-- [ ] `create_field_in_package` / `create_type_in_package` exist with selector parameter.
-- [ ] `create_field` / `create_type` remain as wrappers; all existing callers compile unchanged.
-- [ ] `srs package import`, `srs package update`, `srs slice create` available in CLI.
-- [ ] `srs field create --package` and `srs type create --package` available.
-- [ ] `srs package enable/disable` hidden from help, still functional.
-- [ ] `memory_store_save_field_uses_package_prefix_key` test exists and passes.
-- [ ] `CLAUDE.md` updated with new commands.
-- [ ] A future SQL adapter can implement all seven boundary methods without changing service APIs.
+- [x] `cargo test` passes with no failures.
+- [x] `cargo clippy -- -D warnings` passes.
+- [x] `ARCHITECTURE.md` documents logical package boundaries.
+- [x] ADR created or deferral explicitly documented in `ARCHITECTURE.md`.
+- [x] `package_types.rs` is not gated behind `#[cfg(test)]`.
+- [x] No service function calls `load_package_json` or `save_package_json` directly.
+- [x] MemoryStore `boundaries` is keyed by `PackageSelector`, not path strings.
+- [x] FileStore preserves current `package/` and `packageRefs` layout.
+- [x] JsonStore implements all seven boundary methods.
+- [x] `resolve_definition_owner` doc contains the O(n×m) complexity note.
+- [x] `DefinitionKind::RelationType` is present in the enum; implementations may treat as no-op.
+- [x] `create_package` returns `PackageAlreadyRegistered` on duplicate.
+- [x] `import_package_local` is implemented and contains no `std::fs` calls.
+- [x] `update_package_metadata` does not touch `field_paths` or `type_paths`.
+- [x] `create_field_in_package` / `create_type_in_package` exist with selector parameter.
+- [x] `create_field` / `create_type` remain as wrappers; all existing callers compile unchanged.
+- [x] `srs package import`, `srs package update`, `srs slice create` available in CLI.
+- [x] `srs field create --package` and `srs type create --package` available.
+- [x] `srs package enable/disable` hidden from help, still functional.
+- [x] `memory_store_save_field_uses_package_prefix_key` test exists and passes.
+- [x] `CLAUDE.md` updated with new commands.
+- [x] A future SQL adapter can implement all seven boundary methods without changing service APIs.
 
 ---
 

@@ -685,6 +685,52 @@ mod tests {
             fn validate_package_ref_path(&self, _: &str) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
+            fn list_package_boundaries(
+                &self,
+            ) -> Result<Vec<crate::package_types::PackageBoundary>, RepositoryError> {
+                unimplemented!()
+            }
+            fn load_package_boundary(
+                &self,
+                _: &crate::package_types::PackageSelector,
+            ) -> Result<crate::package_types::PackageBoundary, RepositoryError> {
+                unimplemented!()
+            }
+            fn save_package_boundary_metadata(
+                &self,
+                _: &crate::package_types::PackageBoundary,
+            ) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn register_package_boundary(
+                &self,
+                _: &crate::package_types::PackageSelector,
+            ) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn add_definition_to_boundary(
+                &self,
+                _: &crate::package_types::PackageSelector,
+                _: crate::package_types::DefinitionKind,
+                _: &str,
+            ) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn remove_definition_from_boundary(
+                &self,
+                _: &crate::package_types::PackageSelector,
+                _: crate::package_types::DefinitionKind,
+                _: &str,
+            ) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn resolve_definition_owner(
+                &self,
+                _: &str,
+                _: crate::package_types::DefinitionKind,
+            ) -> Result<crate::package_types::PackageSelector, RepositoryError> {
+                unimplemented!()
+            }
         }
 
         let result = load_relations(&BrokenManifestStore);

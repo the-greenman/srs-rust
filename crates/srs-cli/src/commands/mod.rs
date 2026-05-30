@@ -609,6 +609,9 @@ pub enum FieldCommand {
     },
     /// Create a new field definition (reads JSON from stdin)
     Create {
+        /// Package boundary path (omit for primary package, pass path for sub-package)
+        #[arg(long)]
+        package: Option<String>,
         /// Deprecated: JSON output is now the default (no-op)
         #[arg(long, hide = true)]
         json: bool,
@@ -639,6 +642,9 @@ pub enum TypeCommand {
     },
     /// Create a type definition (reads JSON from stdin)
     Create {
+        /// Package boundary path (omit for primary package, pass path for sub-package)
+        #[arg(long)]
+        package: Option<String>,
         /// Deprecated: JSON output is now the default (no-op)
         #[arg(long, hide = true)]
         json: bool,
@@ -864,12 +870,53 @@ pub enum PackageCommand {
         #[arg(long = "path")]
         boundary_path: String,
     },
-    /// Enable a local sub-package by adding it to manifest packageRefs
+    /// Import a pre-existing local directory as a package boundary
+    Import {
+        /// Path relative to repo root of a directory containing a package.json
+        #[arg(long = "path")]
+        path: String,
+    },
+    /// Update package boundary metadata (namespace, name, or version)
+    Update {
+        /// Boundary path (omit for primary package)
+        #[arg(long = "selector")]
+        selector: Option<String>,
+        /// New namespace
+        #[arg(long)]
+        namespace: Option<String>,
+        /// New name
+        #[arg(long)]
+        name: Option<String>,
+        /// New version
+        #[arg(long)]
+        version: Option<String>,
+    },
+    /// Create a new package slice (alias for create; permanent alias, not intended to diverge)
+    SliceCreate {
+        /// Package UUID
+        #[arg(long = "id")]
+        id: String,
+        /// Package namespace (e.g. com.example)
+        #[arg(long)]
+        namespace: String,
+        /// Package name (kebab-case)
+        #[arg(long)]
+        name: String,
+        /// Package version (semver, e.g. 1.0.0)
+        #[arg(long, default_value = "1.0.0")]
+        version: String,
+        /// Boundary path relative to repo root (e.g. package/my-ext)
+        #[arg(long = "path")]
+        boundary_path: String,
+    },
+    /// [Deprecated: use `package import` instead] Enable a local sub-package
+    #[command(hide = true)]
     Enable {
         /// Relative path to the sub-package directory (e.g. package/spec-authoring-core)
         path: String,
     },
-    /// Disable a local sub-package by removing it from manifest packageRefs
+    /// [Deprecated: use `package import` instead] Disable a local sub-package
+    #[command(hide = true)]
     Disable {
         /// Relative path to the sub-package directory (e.g. package/spec-authoring-core)
         path: String,

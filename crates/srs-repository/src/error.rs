@@ -186,6 +186,15 @@ pub enum RepositoryError {
 
     #[error("invalid snapshot data: {message}")]
     InvalidSnapshotData { message: String },
+
+    #[error("package not found: {selector:?}")]
+    PackageNotFound { selector: Option<String> },
+
+    #[error("package already registered: id '{id}'")]
+    PackageAlreadyRegistered { id: String },
+
+    #[error("definition not found: {id}")]
+    DefinitionNotFound { id: String },
 }
 
 impl PartialEq for RepositoryError {
@@ -411,6 +420,18 @@ impl PartialEq for RepositoryError {
             (
                 RepositoryError::InvalidSnapshotData { message: a },
                 RepositoryError::InvalidSnapshotData { message: b },
+            ) => a == b,
+            (
+                RepositoryError::PackageNotFound { selector: a },
+                RepositoryError::PackageNotFound { selector: b },
+            ) => a == b,
+            (
+                RepositoryError::PackageAlreadyRegistered { id: a },
+                RepositoryError::PackageAlreadyRegistered { id: b },
+            ) => a == b,
+            (
+                RepositoryError::DefinitionNotFound { id: a },
+                RepositoryError::DefinitionNotFound { id: b },
             ) => a == b,
             _ => false,
         }

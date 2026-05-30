@@ -3946,3 +3946,326 @@ fn render_document_view_view_format_text_overrides_markup() {
         "text format should not include markdown heading markers"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Phase 5: package command integration tests
+// ---------------------------------------------------------------------------
+
+fn create_temp_repo_with_package() -> TempDir {
+    let temp = TempDir::new().expect("Failed to create temp dir");
+    let srs_dir = temp.path().join(".srs");
+    std::fs::create_dir_all(&srs_dir).unwrap();
+
+    let manifest = serde_json::json!({ "instanceIndex": [] });
+    std::fs::write(
+        temp.path().join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    let package_dir = temp.path().join("package");
+    std::fs::create_dir_all(package_dir.join("fields")).unwrap();
+    std::fs::create_dir_all(package_dir.join("types")).unwrap();
+
+    let package_json = serde_json::json!({
+        "id": "primary-pkg",
+        "namespace": "com.test",
+        "name": "primary",
+        "version": "1.0.0",
+        "fields": [],
+        "types": []
+    });
+    std::fs::write(
+        temp.path().join("package/package.json"),
+        serde_json::to_string_pretty(&package_json).unwrap(),
+    )
+    .unwrap();
+
+    temp
+}
+
+#[test]
+fn package_create_happy_path() {
+    let temp = create_temp_repo_with_package();
+
+    // The boundary directory must exist (the service writes package.json into it).
+    std::fs::create_dir_all(temp.path().join("pkg/sub")).unwrap();
+
+    let result = run_srs_in_dir(
+        temp.path(),
+        &[
+            "package",
+            "create",
+            "--id",
+            "sub-pkg-001",
+            "--namespace",
+            "com.sub",
+            "--name",
+            "sub",
+            "--version",
+            "1.0.0",
+            "--path",
+            "pkg/sub",
+        ],
+    );
+    assert_eq!(
+        result["ok"], true,
+        "package create should succeed: {:?}",
+        result
+    );
+    assert_eq!(result["payload"]["id"], "sub-pkg-001");
+
+    // package list should now show primary + sub
+    let list = run_srs_in_dir(temp.path(), &["package", "list"]);
+    assert_eq!(list["ok"], true);
+    let packages = list["payload"]["packages"].as_array().unwrap();
+    assert_eq!(packages.len(), 2, "should have primary + 1 sub-package");
+}
+
+#[test]
+fn package_import_local_happy_path() {
+    let temp = create_temp_repo_with_package();
+
+    let sub_dir = temp.path().join("external/mypkg");
+    std::fs::create_dir_all(&sub_dir).unwrap();
+    std::fs::write(
+        sub_dir.join("package.json"),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "id": "import-pkg-001",
+            "namespace": "com.imported",
+            "name": "imported",
+            "version": "2.0.0",
+            "fields": [],
+            "types": []
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let result = run_srs_in_dir(
+        temp.path(),
+        &["package", "import", "--path", "external/mypkg"],
+    );
+    assert_eq!(
+        result["ok"], true,
+        "package import should succeed: {:?}",
+        result
+    );
+    assert_eq!(result["payload"]["id"], "import-pkg-001");
+    assert_eq!(result["payload"]["namespace"], "com.imported");
+
+    // Verify it appears in list
+    let list = run_srs_in_dir(temp.path(), &["package", "list"]);
+    let packages = list["payload"]["packages"].as_array().unwrap();
+    assert!(
+        packages.iter().any(|p| p["id"] == "import-pkg-001"),
+        "imported package should appear in list"
+    );
+}
+
+#[test]
+fn package_update_metadata_only() {
+    let temp = create_temp_repo_with_package();
+
+    let result = run_srs_in_dir(
+        temp.path(),
+        &["package", "update", "--name", "renamed-primary"],
+    );
+    assert_eq!(
+        result["ok"], true,
+        "package update should succeed: {:?}",
+        result
+    );
+    assert_eq!(result["payload"]["name"], "renamed-primary");
+
+    // list should reflect the new name
+    let list = run_srs_in_dir(temp.path(), &["package", "list"]);
+    let packages = list["payload"]["packages"].as_array().unwrap();
+    let primary = packages
+        .iter()
+        .find(|p| p["boundaryPath"].is_null())
+        .unwrap();
+    assert_eq!(primary["name"], "renamed-primary");
+}
+
+#[test]
+fn slice_create_output_matches_package_create() {
+    // slice create is a permanent alias for package create — its output shape must be identical.
+    let temp = create_temp_repo_with_package();
+
+    std::fs::create_dir_all(temp.path().join("pkg/slice")).unwrap();
+
+    let result = run_srs_in_dir(
+        temp.path(),
+        &[
+            "package",
+            "slice-create",
+            "--id",
+            "slice-pkg-001",
+            "--namespace",
+            "com.slice",
+            "--name",
+            "slice",
+            "--version",
+            "1.0.0",
+            "--path",
+            "pkg/slice",
+        ],
+    );
+    assert_eq!(
+        result["ok"], true,
+        "slice create should succeed: {:?}",
+        result
+    );
+    assert_eq!(
+        result["command"], "package create",
+        "slice create must emit same command name as package create"
+    );
+    assert_eq!(result["payload"]["id"], "slice-pkg-001");
+}
+
+#[test]
+fn field_create_in_sub_package() {
+    let temp = create_temp_repo_with_package();
+
+    // Create sub-package boundary via CLI (package create writes the package.json).
+    std::fs::create_dir_all(temp.path().join("pkg/ext/fields")).unwrap();
+    run_srs_in_dir(
+        temp.path(),
+        &[
+            "package",
+            "create",
+            "--id",
+            "ext-pkg-001",
+            "--namespace",
+            "com.ext",
+            "--name",
+            "ext",
+            "--version",
+            "1.0.0",
+            "--path",
+            "pkg/ext",
+        ],
+    );
+
+    let new_field = serde_json::json!({
+        "id": "00000000-0000-0000-0000-sub000000001",
+        "namespace": "com.ext",
+        "name": "ext-field",
+        "version": 1,
+        "valueType": "string"
+    });
+    let result = run_srs_stdin_in_dir(
+        temp.path(),
+        &["field", "create", "--package", "pkg/ext"],
+        &serde_json::to_string(&new_field).unwrap(),
+    );
+    assert_eq!(
+        result["ok"], true,
+        "field create --package should succeed: {:?}",
+        result
+    );
+
+    // Sub-package package.json should list the field; primary should not.
+    let sub_pkg: Value = serde_json::from_str(
+        &std::fs::read_to_string(temp.path().join("pkg/ext/package.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        sub_pkg["fields"].as_array().unwrap().len(),
+        1,
+        "field should appear in sub-package package.json"
+    );
+
+    let primary_pkg: Value = serde_json::from_str(
+        &std::fs::read_to_string(temp.path().join("package/package.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        primary_pkg["fields"].as_array().unwrap().len(),
+        0,
+        "field should NOT appear in primary package.json"
+    );
+}
+
+#[test]
+fn field_list_with_package_filter() {
+    let temp = create_temp_repo_with_package();
+
+    // Seed primary package with one field
+    let pkg_json = serde_json::json!({
+        "id": "primary-pkg",
+        "namespace": "com.test",
+        "name": "primary",
+        "version": "1.0.0",
+        "fields": ["fields/f-primary.json"],
+        "types": []
+    });
+    std::fs::write(
+        temp.path().join("package/package.json"),
+        serde_json::to_string_pretty(&pkg_json).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        temp.path().join("package/fields/f-primary.json"),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "id": "00000000-0000-0000-0000-fld000000001",
+            "namespace": "com.test",
+            "name": "primary-field",
+            "version": 1,
+            "valueType": "string",
+            "description": "",
+            "createdAt": "2026-01-01T00:00:00Z"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let result = run_srs_in_dir(temp.path(), &["field", "list"]);
+    assert_eq!(result["ok"], true);
+    let fields = result["payload"]["fields"].as_array().unwrap();
+    assert!(
+        fields.iter().any(|f| f["name"] == "primary-field"),
+        "primary-field should appear in field list"
+    );
+}
+
+#[test]
+fn type_list_with_package_filter() {
+    let temp = create_temp_repo_with_package();
+
+    // Seed primary package with one type
+    let pkg_json = serde_json::json!({
+        "id": "primary-pkg",
+        "namespace": "com.test",
+        "name": "primary",
+        "version": "1.0.0",
+        "fields": [],
+        "types": ["types/t-primary.json"]
+    });
+    std::fs::write(
+        temp.path().join("package/package.json"),
+        serde_json::to_string_pretty(&pkg_json).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        temp.path().join("package/types/t-primary.json"),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "id": "00000000-0000-0000-0000-typ000000001",
+            "namespace": "com.test",
+            "name": "primary-type",
+            "version": 1,
+            "fields": []
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let result = run_srs_in_dir(temp.path(), &["type", "list"]);
+    assert_eq!(result["ok"], true);
+    let types = result["payload"]["types"].as_array().unwrap();
+    assert!(
+        types.iter().any(|t| t["name"] == "primary-type"),
+        "primary-type should appear in type list"
+    );
+}

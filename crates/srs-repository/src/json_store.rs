@@ -3,6 +3,7 @@ use crate::manifest::Manifest;
 use crate::package::Package;
 use crate::repository_lifecycle::{CreateRepositoryResult, InitializeRepositoryInput};
 use crate::store::RepositoryStore;
+use serde::de::Error as SerdeDeError;
 use srs_core::types::field::{Field, ValueType};
 use srs_core::types::record_type::{FieldAssignment, FieldGroup, RecordType};
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
@@ -110,6 +111,37 @@ struct FieldGroupJson {
     repeatable: bool,
     min_items: Option<u32>,
     max_items: Option<u32>,
+}
+
+fn json_store_boundary_from_json(
+    pkg_json: &serde_json::Value,
+    selector: crate::package_types::PackageSelector,
+) -> crate::package_types::PackageBoundary {
+    let field_paths = pkg_json["fields"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let type_paths = pkg_json["types"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    crate::package_types::PackageBoundary {
+        selector,
+        id: pkg_json["id"].as_str().unwrap_or("").to_string(),
+        namespace: pkg_json["namespace"].as_str().unwrap_or("").to_string(),
+        name: pkg_json["name"].as_str().unwrap_or("").to_string(),
+        version: pkg_json["version"].as_str().unwrap_or("").to_string(),
+        field_paths,
+        type_paths,
+    }
 }
 
 impl JsonStore {
@@ -235,7 +267,7 @@ impl JsonStore {
     }
 
     #[allow(clippy::type_complexity)]
-    fn load_package_boundary(
+    fn load_package_from_prefix(
         &self,
         package_prefix: &str,
         rt_by_type: &mut HashMap<String, (RelationTypeDefinition, PathBuf)>,
@@ -493,7 +525,7 @@ impl RepositoryStore for JsonStore {
         let manifest = self.load_manifest()?;
         let mut rt_by_type: HashMap<String, (RelationTypeDefinition, PathBuf)> = HashMap::new();
         let (root_meta, mut fields, mut record_types, mut views, mut document_views) =
-            self.load_package_boundary("package", &mut rt_by_type)?;
+            self.load_package_from_prefix("package", &mut rt_by_type)?;
 
         if let Some(pkg_refs) = manifest.extra.get("packageRefs").and_then(|v| v.as_array()) {
             let mut field_sources: HashMap<String, PathBuf> = HashMap::new();
@@ -523,7 +555,7 @@ impl RepositoryStore for JsonStore {
                     None => continue,
                 };
                 let (.., sub_fields, sub_types, sub_views, sub_doc_views) =
-                    self.load_package_boundary(rel_path, &mut rt_by_type)?;
+                    self.load_package_from_prefix(rel_path, &mut rt_by_type)?;
 
                 for field in sub_fields {
                     if let Some(first_path) = field_sources.get(&field.id) {
@@ -912,6 +944,195 @@ impl RepositoryStore for JsonStore {
     fn validate_package_ref_path(&self, _relative_path: &str) -> Result<(), RepositoryError> {
         Ok(())
     }
+
+    // --- Package boundaries ---
+
+    fn list_package_boundaries(
+        &self,
+    ) -> Result<Vec<crate::package_types::PackageBoundary>, RepositoryError> {
+        let mut result = Vec::new();
+
+        // Primary
+        let primary_json = self.data_get("package/package.json")?;
+        result.push(json_store_boundary_from_json(&primary_json, None));
+
+        // Sub-packages from manifest
+        let state = self.state.borrow();
+        if let Some(refs) = state
+            .manifest
+            .extra
+            .get("packageRefs")
+            .and_then(|v| v.as_array())
+        {
+            for pkg_ref in refs {
+                if pkg_ref.get("mode").and_then(|m| m.as_str()) != Some("local") {
+                    continue;
+                }
+                if let Some(path) = pkg_ref.get("path").and_then(|p| p.as_str()) {
+                    let key = format!("{path}/package.json");
+                    if let Some(pkg_json) = state.data.get(&key).cloned() {
+                        result.push(json_store_boundary_from_json(
+                            &pkg_json,
+                            Some(path.to_string()),
+                        ));
+                    }
+                }
+            }
+        }
+        Ok(result)
+    }
+
+    fn load_package_boundary(
+        &self,
+        selector: &crate::package_types::PackageSelector,
+    ) -> Result<crate::package_types::PackageBoundary, RepositoryError> {
+        let key = match selector {
+            None => "package/package.json".to_string(),
+            Some(p) => format!("{p}/package.json"),
+        };
+        let pkg_json = self
+            .data_get(&key)
+            .map_err(|_| RepositoryError::PackageNotFound {
+                selector: selector.clone(),
+            })?;
+        Ok(json_store_boundary_from_json(&pkg_json, selector.clone()))
+    }
+
+    fn save_package_boundary_metadata(
+        &self,
+        boundary: &crate::package_types::PackageBoundary,
+    ) -> Result<(), RepositoryError> {
+        let key = match &boundary.selector {
+            None => "package/package.json".to_string(),
+            Some(p) => format!("{p}/package.json"),
+        };
+        let mut pkg_json = self.data_get(&key).unwrap_or_else(|_| {
+            serde_json::json!({
+                "fields": [],
+                "types": [],
+                "relationTypes": [],
+                "views": [],
+                "documentViews": []
+            })
+        });
+        if let Some(obj) = pkg_json.as_object_mut() {
+            obj.insert("id".to_string(), serde_json::json!(boundary.id));
+            obj.insert(
+                "namespace".to_string(),
+                serde_json::json!(boundary.namespace),
+            );
+            obj.insert("name".to_string(), serde_json::json!(boundary.name));
+            obj.insert("version".to_string(), serde_json::json!(boundary.version));
+        }
+        self.state.borrow_mut().data.insert(key, pkg_json);
+        self.flush()
+    }
+
+    fn register_package_boundary(
+        &self,
+        selector: &crate::package_types::PackageSelector,
+    ) -> Result<(), RepositoryError> {
+        let path = match selector {
+            None => return Ok(()),
+            Some(p) => p.clone(),
+        };
+        let mut state = self.state.borrow_mut();
+        let mut refs: Vec<serde_json::Value> = state
+            .manifest
+            .extra
+            .get("packageRefs")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let already = refs
+            .iter()
+            .any(|r| r.get("path").and_then(|p| p.as_str()) == Some(&path));
+        if !already {
+            refs.push(serde_json::json!({"mode": "local", "path": path}));
+            state
+                .manifest
+                .extra
+                .insert("packageRefs".to_string(), serde_json::Value::Array(refs));
+        }
+        drop(state);
+        self.flush()
+    }
+
+    fn add_definition_to_boundary(
+        &self,
+        selector: &crate::package_types::PackageSelector,
+        kind: crate::package_types::DefinitionKind,
+        path: &str,
+    ) -> Result<(), RepositoryError> {
+        let key = match selector {
+            None => "package/package.json".to_string(),
+            Some(p) => format!("{p}/package.json"),
+        };
+        let mut pkg_json = self.data_get(&key)?;
+        let array_key = crate::store::definition_kind_key(kind);
+        let arr =
+            pkg_json[array_key]
+                .as_array_mut()
+                .ok_or_else(|| RepositoryError::PackageLoad {
+                    path: PathBuf::from(&key),
+                    source: serde_json::Error::custom(format!("{array_key} is not an array")),
+                })?;
+        if !arr.iter().any(|e| e.as_str() == Some(path)) {
+            arr.push(serde_json::json!(path));
+        }
+        self.state.borrow_mut().data.insert(key, pkg_json);
+        self.flush()
+    }
+
+    fn remove_definition_from_boundary(
+        &self,
+        selector: &crate::package_types::PackageSelector,
+        kind: crate::package_types::DefinitionKind,
+        path: &str,
+    ) -> Result<(), RepositoryError> {
+        let key = match selector {
+            None => "package/package.json".to_string(),
+            Some(p) => format!("{p}/package.json"),
+        };
+        let mut pkg_json = self.data_get(&key)?;
+        let array_key = crate::store::definition_kind_key(kind);
+        if let Some(arr) = pkg_json[array_key].as_array_mut() {
+            arr.retain(|e| e.as_str() != Some(path));
+        }
+        self.state.borrow_mut().data.insert(key, pkg_json);
+        self.flush()
+    }
+
+    fn resolve_definition_owner(
+        &self,
+        id: &str,
+        kind: crate::package_types::DefinitionKind,
+    ) -> Result<crate::package_types::PackageSelector, RepositoryError> {
+        let array_key = crate::store::definition_kind_key(kind);
+        let boundaries = self.list_package_boundaries()?;
+        for boundary in &boundaries {
+            let prefix = match &boundary.selector {
+                None => "package".to_string(),
+                Some(p) => p.clone(),
+            };
+            let pkg_key = format!("{prefix}/package.json");
+            if let Ok(pkg_json) = self.data_get(&pkg_key) {
+                if let Some(paths) = pkg_json[array_key].as_array() {
+                    for entry in paths {
+                        if let Some(rel) = entry.as_str() {
+                            let data_key = format!("{prefix}/{rel}");
+                            if let Ok(val) = self.data_get(&data_key) {
+                                if val["id"].as_str() == Some(id) {
+                                    return Ok(boundary.selector.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Err(RepositoryError::DefinitionNotFound { id: id.to_string() })
+    }
 }
 
 #[cfg(test)]
@@ -1187,5 +1408,116 @@ mod tests {
         assert!(!get_repository_status(&store).unwrap().exists);
         create_repository(&store, &init_input()).unwrap();
         assert!(get_repository_status(&store).unwrap().exists);
+    }
+
+    // --- Package boundary tests for JsonStore ---
+
+    #[test]
+    fn json_store_package_boundaries_roundtrip() {
+        use crate::package_service::{create_package, list_packages, CreatePackageInput};
+        use crate::store::RepositoryStore;
+
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("repo.srsj");
+        let store = JsonStore::create(&path).unwrap();
+        create_repository(&store, &init_input()).unwrap();
+
+        // Primary boundary should be present after repo creation.
+        let boundaries = store.list_package_boundaries().unwrap();
+        assert_eq!(boundaries.len(), 1, "primary boundary should exist");
+        assert!(boundaries[0].selector.is_none());
+
+        // Create a sub-package and verify it appears.
+        create_package(
+            &store,
+            CreatePackageInput {
+                id: "json-sub-001".to_string(),
+                namespace: "com.json".to_string(),
+                name: "sub".to_string(),
+                version: "1.0.0".to_string(),
+                boundary_path: Some("pkg/sub".to_string()),
+            },
+        )
+        .unwrap();
+
+        let packages = list_packages(&store).unwrap();
+        assert_eq!(packages.len(), 2);
+        assert!(packages.iter().any(|p| p.id == "json-sub-001"));
+    }
+
+    #[test]
+    fn json_store_add_remove_definition_boundary() {
+        use crate::package_types::DefinitionKind;
+        use crate::store::RepositoryStore;
+
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("repo.srsj");
+        let store = JsonStore::create(&path).unwrap();
+        create_repository(&store, &init_input()).unwrap();
+
+        store
+            .add_definition_to_boundary(&None, DefinitionKind::Field, "fields/foo.json")
+            .unwrap();
+        let b = store.load_package_boundary(&None).unwrap();
+        assert!(b.field_paths.contains(&"fields/foo.json".to_string()));
+
+        store
+            .remove_definition_from_boundary(&None, DefinitionKind::Field, "fields/foo.json")
+            .unwrap();
+        let b2 = store.load_package_boundary(&None).unwrap();
+        assert!(!b2.field_paths.contains(&"fields/foo.json".to_string()));
+    }
+
+    #[test]
+    fn json_store_save_boundary_metadata_preserves_paths() {
+        use crate::package_service::{update_package_metadata, UpdatePackageMetadataInput};
+        use crate::package_types::DefinitionKind;
+        use crate::store::RepositoryStore;
+
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("repo.srsj");
+        let store = JsonStore::create(&path).unwrap();
+        create_repository(&store, &init_input()).unwrap();
+
+        store
+            .add_definition_to_boundary(&None, DefinitionKind::Field, "fields/keep.json")
+            .unwrap();
+
+        update_package_metadata(
+            &store,
+            None,
+            UpdatePackageMetadataInput {
+                name: Some("renamed".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let b = store.load_package_boundary(&None).unwrap();
+        assert_eq!(b.name, "renamed");
+        assert!(
+            b.field_paths.contains(&"fields/keep.json".to_string()),
+            "field_paths must survive save_package_boundary_metadata"
+        );
+    }
+
+    #[test]
+    fn json_store_resolve_definition_owner_returns_definition_not_found() {
+        use crate::error::RepositoryError;
+        use crate::package_types::DefinitionKind;
+        use crate::store::RepositoryStore;
+
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("repo.srsj");
+        let store = JsonStore::create(&path).unwrap();
+        create_repository(&store, &init_input()).unwrap();
+
+        let err = store
+            .resolve_definition_owner("nonexistent-id", DefinitionKind::Field)
+            .unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::DefinitionNotFound { .. }),
+            "should return DefinitionNotFound, got: {err:?}"
+        );
     }
 }

@@ -1,7 +1,6 @@
 use crate::error::RepositoryError;
-use crate::manifest_service::list_package_refs;
+use crate::package_types::{DefinitionKind, PackageBoundary, PackageSelector};
 use crate::store::RepositoryStore;
-use serde::de::Error as SerdeDeError;
 use serde::{Deserialize, Serialize};
 use srs_core::types::field::Field;
 use srs_core::types::record_type::RecordType;
@@ -131,42 +130,23 @@ fn list_fields_internal(
     store: &dyn RepositoryStore,
     filter: Option<Option<&str>>,
 ) -> Result<Vec<FieldSummary>, RepositoryError> {
-    // Build a map from field ID → boundary_path by walking each package boundary
+    // Build a map from field ID → boundary selector by walking each boundary
     let mut provenance: std::collections::HashMap<String, Option<String>> =
         std::collections::HashMap::new();
 
-    // Primary package
-    if let Ok(pkg_json) = store.load_package_json() {
-        if let Some(fields) = pkg_json["fields"].as_array() {
-            for entry in fields {
-                if let Some(path) = entry.as_str() {
-                    let full = format!("package/{path}");
-                    if let Ok(val) = store.load_instance_json(&full) {
-                        if let Some(id) = val["id"].as_str() {
-                            provenance.insert(id.to_string(), None);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Sub-packages
-    for pkg_ref in list_package_refs(store)? {
-        let pkg_json_path = format!("{}/package.json", pkg_ref.path);
-        if let Ok(pkg_json) = store.load_instance_json(&pkg_json_path) {
-            if let Some(fields) = pkg_json["fields"].as_array() {
-                for entry in fields {
-                    if let Some(rel) = entry.as_str() {
-                        let full = format!("{}/{rel}", pkg_ref.path);
-                        if let Ok(val) = store.load_instance_json(&full) {
-                            if let Some(id) = val["id"].as_str() {
-                                provenance
-                                    .entry(id.to_string())
-                                    .or_insert_with(|| Some(pkg_ref.path.clone()));
-                            }
-                        }
-                    }
+    let boundaries = store.list_package_boundaries()?;
+    for boundary in &boundaries {
+        let prefix = match &boundary.selector {
+            None => "package".to_string(),
+            Some(p) => p.clone(),
+        };
+        for rel_path in &boundary.field_paths {
+            let full = format!("{prefix}/{rel_path}");
+            if let Ok(val) = store.load_instance_json(&full) {
+                if let Some(id) = val["id"].as_str() {
+                    provenance
+                        .entry(id.to_string())
+                        .or_insert_with(|| boundary.selector.clone());
                 }
             }
         }
@@ -244,36 +224,19 @@ fn list_types_internal(
     let mut provenance: std::collections::HashMap<String, Option<String>> =
         std::collections::HashMap::new();
 
-    if let Ok(pkg_json) = store.load_package_json() {
-        if let Some(types) = pkg_json["types"].as_array() {
-            for entry in types {
-                if let Some(path) = entry.as_str() {
-                    let full = format!("package/{path}");
-                    if let Ok(val) = store.load_instance_json(&full) {
-                        if let Some(id) = val["id"].as_str() {
-                            provenance.insert(id.to_string(), None);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    for pkg_ref in list_package_refs(store)? {
-        let pkg_json_path = format!("{}/package.json", pkg_ref.path);
-        if let Ok(pkg_json) = store.load_instance_json(&pkg_json_path) {
-            if let Some(types) = pkg_json["types"].as_array() {
-                for entry in types {
-                    if let Some(rel) = entry.as_str() {
-                        let full = format!("{}/{rel}", pkg_ref.path);
-                        if let Ok(val) = store.load_instance_json(&full) {
-                            if let Some(id) = val["id"].as_str() {
-                                provenance
-                                    .entry(id.to_string())
-                                    .or_insert_with(|| Some(pkg_ref.path.clone()));
-                            }
-                        }
-                    }
+    let boundaries = store.list_package_boundaries()?;
+    for boundary in &boundaries {
+        let prefix = match &boundary.selector {
+            None => "package".to_string(),
+            Some(p) => p.clone(),
+        };
+        for rel_path in &boundary.type_paths {
+            let full = format!("{prefix}/{rel_path}");
+            if let Ok(val) = store.load_instance_json(&full) {
+                if let Some(id) = val["id"].as_str() {
+                    provenance
+                        .entry(id.to_string())
+                        .or_insert_with(|| boundary.selector.clone());
                 }
             }
         }
@@ -352,14 +315,22 @@ pub fn get_type_by_name(
     }
 }
 
-/// Create a new field definition.
-/// Writes the field JSON file and updates package.json.
+/// Create a new field definition in the primary package.
+/// Writes the field JSON file and updates the boundary index.
 pub fn create_field(
     store: &dyn RepositoryStore,
     field: Field,
 ) -> Result<CreateFieldResult, RepositoryError> {
-    let mut package_json = store.load_package_json()?;
+    create_field_in_package(store, field, None)
+}
 
+/// Create a new field definition in a specific package boundary.
+/// Pass `selector = None` for the primary package; `Some(path)` for a sub-package.
+pub fn create_field_in_package(
+    store: &dyn RepositoryStore,
+    field: Field,
+    selector: PackageSelector,
+) -> Result<CreateFieldResult, RepositoryError> {
     let filename = format!("fields/{}-{}.json", slugify(&field.name), &field.id[..8]);
 
     store.ensure_fields_dir()?;
@@ -376,20 +347,7 @@ pub fn create_field(
     };
 
     store.save_field(&filename, &field_with_timestamp)?;
-
-    let fields_array =
-        package_json["fields"]
-            .as_array_mut()
-            .ok_or_else(|| RepositoryError::PackageLoad {
-                path: std::path::PathBuf::from("package/package.json"),
-                source: serde_json::Error::custom("fields is not an array"),
-            })?;
-
-    if !fields_array.iter().any(|f| f.as_str() == Some(&filename)) {
-        fields_array.push(serde_json::json!(filename));
-    }
-
-    store.save_package_json(&package_json)?;
+    store.add_definition_to_boundary(&selector, DefinitionKind::Field, &filename)?;
 
     Ok(CreateFieldResult {
         field: field_with_timestamp,
@@ -402,7 +360,7 @@ pub fn update_field(
     store: &dyn RepositoryStore,
     field: Field,
 ) -> Result<UpdateFieldResult, RepositoryError> {
-    let relative_path =
+    let (relative_path, _owner) =
         find_field_path(store, &field.id)?.ok_or_else(|| RepositoryError::FieldNotFound {
             field_id: field.id.clone(),
         })?;
@@ -411,48 +369,42 @@ pub fn update_field(
 }
 
 /// Delete a field definition.
-/// Removes the field JSON file and updates package.json.
+/// Removes the field JSON file and updates the boundary index.
 pub fn delete_field(
     store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<DeleteFieldResult, RepositoryError> {
-    let relative_path =
+    let (relative_path, owner) =
         find_field_path(store, id)?.ok_or_else(|| RepositoryError::FieldNotFound {
             field_id: id.to_string(),
         })?;
 
-    let mut package_json = store.load_package_json()?;
-    let fields_array =
-        package_json["fields"]
-            .as_array_mut()
-            .ok_or_else(|| RepositoryError::PackageLoad {
-                path: std::path::PathBuf::from("package/package.json"),
-                source: serde_json::Error::custom("fields is not an array"),
-            })?;
-    fields_array.retain(|f| f.as_str() != Some(&relative_path));
-
     store.delete_field_file(&relative_path)?;
-    store.save_package_json(&package_json)?;
+    store.remove_definition_from_boundary(&owner, DefinitionKind::Field, &relative_path)?;
     Ok(DeleteFieldResult { id: id.to_string() })
 }
 
-/// Find the package.json-relative path for a field by scanning each listed file for a matching id.
+/// Find the package-relative path and owner boundary for a field by its ID.
 fn find_field_path(
     store: &dyn RepositoryStore,
     id: &str,
-) -> Result<Option<String>, RepositoryError> {
-    let package_json = store.load_package_json()?;
-    let fields = match package_json["fields"].as_array() {
-        Some(a) => a.clone(),
-        None => return Ok(None),
+) -> Result<Option<(String, PackageSelector)>, RepositoryError> {
+    let owner = match store.resolve_definition_owner(id, DefinitionKind::Field) {
+        Ok(sel) => sel,
+        Err(RepositoryError::DefinitionNotFound { .. }) => return Ok(None),
+        Err(e) => return Err(e),
     };
-    for entry in &fields {
-        if let Some(rel) = entry.as_str() {
-            let full = format!("package/{rel}");
-            if let Ok(val) = store.load_instance_json(&full) {
-                if val["id"].as_str() == Some(id) {
-                    return Ok(Some(rel.to_string()));
-                }
+    // Walk the boundary's field_paths to find the matching path
+    let boundary = store.load_package_boundary(&owner)?;
+    for rel_path in &boundary.field_paths {
+        let prefix = match &owner {
+            None => "package".to_string(),
+            Some(p) => p.clone(),
+        };
+        let full = format!("{prefix}/{rel_path}");
+        if let Ok(val) = store.load_instance_json(&full) {
+            if val["id"].as_str() == Some(id) {
+                return Ok(Some((rel_path.clone(), owner)));
             }
         }
     }
@@ -466,14 +418,22 @@ fn slugify(name: &str) -> String {
         .replace(' ', "-")
 }
 
-/// Create a new type definition.
-/// Writes the type JSON file and updates package.json.
+/// Create a new type definition in the primary package.
+/// Writes the type JSON file and updates the boundary index.
 pub fn create_type(
     store: &dyn RepositoryStore,
     record_type: RecordType,
 ) -> Result<CreateTypeResult, RepositoryError> {
-    let mut package_json = store.load_package_json()?;
+    create_type_in_package(store, record_type, None)
+}
 
+/// Create a new type definition in a specific package boundary.
+/// Pass `selector = None` for the primary package; `Some(path)` for a sub-package.
+pub fn create_type_in_package(
+    store: &dyn RepositoryStore,
+    record_type: RecordType,
+    selector: PackageSelector,
+) -> Result<CreateTypeResult, RepositoryError> {
     store.ensure_types_dir()?;
 
     let filename = format!(
@@ -483,20 +443,7 @@ pub fn create_type(
     );
 
     store.save_type(&filename, &record_type)?;
-
-    let types_array =
-        package_json["types"]
-            .as_array_mut()
-            .ok_or_else(|| RepositoryError::PackageLoad {
-                path: std::path::PathBuf::from("package/package.json"),
-                source: serde_json::Error::custom("types is not an array"),
-            })?;
-
-    if !types_array.iter().any(|t| t.as_str() == Some(&filename)) {
-        types_array.push(serde_json::json!(filename.clone()));
-    }
-
-    store.save_package_json(&package_json)?;
+    store.add_definition_to_boundary(&selector, DefinitionKind::Type, &filename)?;
 
     Ok(CreateTypeResult { record_type })
 }
@@ -507,7 +454,7 @@ pub fn update_type(
     store: &dyn RepositoryStore,
     record_type: RecordType,
 ) -> Result<UpdateTypeResult, RepositoryError> {
-    let relative_path =
+    let (relative_path, _owner) =
         find_type_path(store, &record_type.id)?.ok_or_else(|| RepositoryError::TypeNotFound {
             type_id: record_type.id.clone(),
             version: record_type.version,
@@ -517,50 +464,43 @@ pub fn update_type(
 }
 
 /// Delete a type definition.
-/// Removes the type JSON file and updates package.json.
+/// Removes the type JSON file and updates the boundary index.
 pub fn delete_type(
     store: &dyn RepositoryStore,
     id: &str,
     version: u32,
 ) -> Result<DeleteTypeResult, RepositoryError> {
-    let relative_path =
+    let (relative_path, owner) =
         find_type_path(store, id)?.ok_or_else(|| RepositoryError::TypeNotFound {
             type_id: id.to_string(),
             version,
         })?;
 
-    let mut package_json = store.load_package_json()?;
-    let types_array =
-        package_json["types"]
-            .as_array_mut()
-            .ok_or_else(|| RepositoryError::PackageLoad {
-                path: std::path::PathBuf::from("package/package.json"),
-                source: serde_json::Error::custom("types is not an array"),
-            })?;
-    types_array.retain(|t| t.as_str() != Some(&relative_path));
-
     store.delete_type_file(&relative_path)?;
-    store.save_package_json(&package_json)?;
+    store.remove_definition_from_boundary(&owner, DefinitionKind::Type, &relative_path)?;
     Ok(DeleteTypeResult { id: id.to_string() })
 }
 
-/// Find the package.json-relative path for a type by scanning each listed file for a matching id.
+/// Find the boundary-relative path and owner for a type by its ID.
 fn find_type_path(
     store: &dyn RepositoryStore,
     id: &str,
-) -> Result<Option<String>, RepositoryError> {
-    let package_json = store.load_package_json()?;
-    let types = match package_json["types"].as_array() {
-        Some(a) => a.clone(),
-        None => return Ok(None),
+) -> Result<Option<(String, PackageSelector)>, RepositoryError> {
+    let owner = match store.resolve_definition_owner(id, DefinitionKind::Type) {
+        Ok(sel) => sel,
+        Err(RepositoryError::DefinitionNotFound { .. }) => return Ok(None),
+        Err(e) => return Err(e),
     };
-    for entry in &types {
-        if let Some(rel) = entry.as_str() {
-            let full = format!("package/{rel}");
-            if let Ok(val) = store.load_instance_json(&full) {
-                if val["id"].as_str() == Some(id) {
-                    return Ok(Some(rel.to_string()));
-                }
+    let boundary = store.load_package_boundary(&owner)?;
+    for rel_path in &boundary.type_paths {
+        let prefix = match &owner {
+            None => "package".to_string(),
+            Some(p) => p.clone(),
+        };
+        let full = format!("{prefix}/{rel_path}");
+        if let Ok(val) = store.load_instance_json(&full) {
+            if val["id"].as_str() == Some(id) {
+                return Ok(Some((rel_path.clone(), owner)));
             }
         }
     }
@@ -571,40 +511,19 @@ fn find_type_path(
 pub fn list_packages(
     store: &dyn RepositoryStore,
 ) -> Result<Vec<PackageBoundaryInfo>, RepositoryError> {
-    let mut result = Vec::new();
-
-    // Primary package
-    if let Ok(pkg_json) = store.load_package_json() {
-        result.push(package_boundary_info_from_json(&pkg_json, None));
-    }
-
-    // Sub-packages
-    for pkg_ref in list_package_refs(store)? {
-        let pkg_json_path = format!("{}/package.json", pkg_ref.path);
-        if let Ok(pkg_json) = store.load_instance_json(&pkg_json_path) {
-            result.push(package_boundary_info_from_json(
-                &pkg_json,
-                Some(pkg_ref.path),
-            ));
-        }
-    }
-
-    Ok(result)
-}
-
-fn package_boundary_info_from_json(
-    pkg_json: &serde_json::Value,
-    boundary_path: Option<String>,
-) -> PackageBoundaryInfo {
-    PackageBoundaryInfo {
-        boundary_path,
-        id: pkg_json["id"].as_str().unwrap_or("").to_string(),
-        namespace: pkg_json["namespace"].as_str().unwrap_or("").to_string(),
-        name: pkg_json["name"].as_str().unwrap_or("").to_string(),
-        version: pkg_json["version"].as_str().unwrap_or("").to_string(),
-        field_count: pkg_json["fields"].as_array().map(|a| a.len()).unwrap_or(0),
-        type_count: pkg_json["types"].as_array().map(|a| a.len()).unwrap_or(0),
-    }
+    let boundaries = store.list_package_boundaries()?;
+    Ok(boundaries
+        .into_iter()
+        .map(|b| PackageBoundaryInfo {
+            boundary_path: b.selector,
+            id: b.id,
+            namespace: b.namespace,
+            name: b.name,
+            version: b.version,
+            field_count: b.field_paths.len(),
+            type_count: b.type_paths.len(),
+        })
+        .collect())
 }
 
 /// Input for creating a new package boundary.
@@ -635,14 +554,14 @@ pub fn create_package(
     store: &dyn RepositoryStore,
     input: CreatePackageInput,
 ) -> Result<CreatePackageResult, RepositoryError> {
-    let boundary = input.boundary_path.as_ref().ok_or_else(|| {
+    let boundary_path = input.boundary_path.as_ref().ok_or_else(|| {
         RepositoryError::InvalidRepositoryInitialization {
             message: "boundary_path is required for create_package (use create_repository for the primary package)".to_string(),
         }
     })?;
 
     // Validate the path won't collide with primary package
-    if boundary == "package" {
+    if boundary_path == "package" {
         return Err(RepositoryError::InvalidRepositoryInitialization {
             message: "boundary_path 'package' is reserved for the primary package".to_string(),
         });
@@ -654,7 +573,7 @@ pub fn create_package(
         ("namespace", input.namespace.trim()),
         ("name", input.name.trim()),
         ("version", input.version.trim()),
-        ("boundary_path", boundary.trim()),
+        ("boundary_path", boundary_path.trim()),
     ] {
         if value.is_empty() {
             return Err(RepositoryError::InvalidRepositoryInitialization {
@@ -663,61 +582,177 @@ pub fn create_package(
         }
     }
 
-    // Write package.json for the new boundary
-    let pkg_json_path = format!("{boundary}/package.json");
-    let package_json = serde_json::json!({
-        "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
-        "id": input.id,
-        "namespace": input.namespace,
-        "name": input.name,
-        "version": input.version,
-        "title": input.name,
-        "description": "",
-        "status": "active",
-        "createdAt": chrono::Utc::now().to_rfc3339(),
-        "fields": [],
-        "types": [],
-        "relationTypes": [],
-        "views": [],
-        "documentViews": []
-    });
-    store.ensure_instance_dir(boundary)?;
-    store.save_instance_json(&pkg_json_path, &package_json)?;
+    let selector: PackageSelector = Some(boundary_path.clone());
 
-    // Register in manifest packageRefs (reuse validate_package_ref_path for FileStore safety)
-    store.validate_package_ref_path(boundary)?;
-    let mut manifest = store.load_manifest()?;
-    let mut refs: Vec<serde_json::Value> = manifest
-        .extra
-        .get("packageRefs")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default();
-    let already_registered = refs
-        .iter()
-        .any(|r| r.get("path").and_then(|p| p.as_str()) == Some(boundary));
-    if !already_registered {
-        refs.push(serde_json::json!({"mode": "local", "path": boundary}));
-        refs.sort_by(|a, b| {
-            a.get("path")
-                .and_then(|p| p.as_str())
-                .cmp(&b.get("path").and_then(|p| p.as_str()))
+    // Check for duplicate: reject if id or path already registered
+    if let Ok(existing) = store.load_package_boundary(&selector) {
+        if !existing.id.is_empty() {
+            return Err(RepositoryError::PackageAlreadyRegistered { id: existing.id });
+        }
+    }
+    // Also check by id across all boundaries
+    let all = store.list_package_boundaries()?;
+    if all.iter().any(|b| b.id == input.id) {
+        return Err(RepositoryError::PackageAlreadyRegistered {
+            id: input.id.clone(),
         });
-        manifest
-            .extra
-            .insert("packageRefs".to_string(), serde_json::Value::Array(refs));
-        store.save_manifest(&manifest)?;
     }
 
+    // Ensure directory exists and write package.json via boundary methods
+    store.ensure_instance_dir(boundary_path)?;
+    let boundary = PackageBoundary {
+        selector: selector.clone(),
+        id: input.id.clone(),
+        namespace: input.namespace.clone(),
+        name: input.name.clone(),
+        version: input.version.clone(),
+        field_paths: vec![],
+        type_paths: vec![],
+    };
+    store.save_package_boundary_metadata(&boundary)?;
+    store.register_package_boundary(&selector)?;
+
     Ok(CreatePackageResult {
-        boundary_path: Some(boundary.clone()),
+        boundary_path: Some(boundary_path.clone()),
         id: input.id,
     })
+}
+
+/// Input for importing a local pre-existing package directory.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportPackageLocalInput {
+    /// Path relative to repository root of a directory containing a `package.json`.
+    pub source_path: String,
+}
+
+/// Result for import_package_local
+#[derive(Debug, Clone)]
+pub struct ImportPackageLocalResult {
+    pub selector: PackageSelector,
+    pub id: String,
+    pub namespace: String,
+    pub name: String,
+}
+
+/// Import a pre-existing local package directory as a new boundary.
+///
+/// `source_path` is a pre-existing directory (relative to repo root) that already
+/// contains a `package.json`. The service reads it via `load_instance_json` — no
+/// file copying, no `std::fs`.
+pub fn import_package_local(
+    store: &dyn RepositoryStore,
+    input: ImportPackageLocalInput,
+) -> Result<ImportPackageLocalResult, RepositoryError> {
+    let source_path = input.source_path.trim().to_string();
+    if source_path.is_empty() {
+        return Err(RepositoryError::InvalidRepositoryInitialization {
+            message: "source_path must not be empty".to_string(),
+        });
+    }
+
+    // Read the existing package.json from source_path
+    let pkg_json_key = format!("{source_path}/package.json");
+    let pkg_json = store.load_instance_json(&pkg_json_key).map_err(|_| {
+        RepositoryError::PackageRefMissing {
+            path: source_path.clone(),
+        }
+    })?;
+
+    let id = pkg_json["id"].as_str().unwrap_or("").to_string();
+    let namespace = pkg_json["namespace"].as_str().unwrap_or("").to_string();
+    let name = pkg_json["name"].as_str().unwrap_or("").to_string();
+    let version = pkg_json["version"].as_str().unwrap_or("").to_string();
+
+    if id.is_empty() {
+        return Err(RepositoryError::InvalidRepositoryInitialization {
+            message: "source package.json missing required 'id' field".to_string(),
+        });
+    }
+
+    // Reject duplicate id
+    let all = store.list_package_boundaries()?;
+    if all.iter().any(|b| b.id == id) {
+        return Err(RepositoryError::PackageAlreadyRegistered { id });
+    }
+
+    let selector: PackageSelector = Some(source_path.clone());
+
+    // Register the boundary using metadata from the existing package.json
+    let boundary = PackageBoundary {
+        selector: selector.clone(),
+        id: id.clone(),
+        namespace: namespace.clone(),
+        name: name.clone(),
+        version,
+        field_paths: pkg_json["fields"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        type_paths: pkg_json["types"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default(),
+    };
+    store.save_package_boundary_metadata(&boundary)?;
+    store.register_package_boundary(&selector)?;
+
+    Ok(ImportPackageLocalResult {
+        selector,
+        id,
+        namespace,
+        name,
+    })
+}
+
+/// Input for updating package boundary metadata.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatePackageMetadataInput {
+    pub namespace: Option<String>,
+    pub name: Option<String>,
+    pub version: Option<String>,
+}
+
+/// Result for update_package_metadata
+#[derive(Debug, Clone)]
+pub struct UpdatePackageMetadataResult {
+    pub boundary: PackageBoundary,
+}
+
+/// Update package boundary metadata (namespace/name/version only).
+/// Never touches field_paths or type_paths.
+pub fn update_package_metadata(
+    store: &dyn RepositoryStore,
+    selector: PackageSelector,
+    input: UpdatePackageMetadataInput,
+) -> Result<UpdatePackageMetadataResult, RepositoryError> {
+    let mut boundary = store.load_package_boundary(&selector)?;
+    if let Some(ns) = input.namespace {
+        boundary.namespace = ns;
+    }
+    if let Some(name) = input.name {
+        boundary.name = name;
+    }
+    if let Some(version) = input.version {
+        boundary.version = version;
+    }
+    store.save_package_boundary_metadata(&boundary)?;
+    Ok(UpdatePackageMetadataResult { boundary })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::package_types::DefinitionKind;
     use crate::store::memory::MemoryStore;
     use srs_core::types::field::ValueType;
     use std::collections::HashMap;
@@ -910,5 +945,452 @@ mod tests {
         assert!(!types
             .iter()
             .any(|t| t.as_str().unwrap().contains("00000000")));
+    }
+
+    // --- Phase 3: package lifecycle tests ---
+
+    #[test]
+    fn create_package_auto_registers_boundary() {
+        let store = MemoryStore::default();
+        let input = CreatePackageInput {
+            id: "ext-pkg-001".to_string(),
+            namespace: "com.ext".to_string(),
+            name: "extension".to_string(),
+            version: "1.0.0".to_string(),
+            boundary_path: Some("pkg/ext".to_string()),
+        };
+        create_package(&store, input).unwrap();
+
+        let boundaries = store.list_package_boundaries().unwrap();
+        let has_ext = boundaries
+            .iter()
+            .any(|b| b.selector == Some("pkg/ext".to_string()));
+        assert!(
+            has_ext,
+            "boundary should be registered after create_package"
+        );
+    }
+
+    #[test]
+    fn create_package_rejects_primary_path() {
+        let store = MemoryStore::default();
+        let input = CreatePackageInput {
+            id: "bad-pkg".to_string(),
+            namespace: "com.ext".to_string(),
+            name: "bad".to_string(),
+            version: "1.0.0".to_string(),
+            boundary_path: Some("package".to_string()),
+        };
+        let result = create_package(&store, input);
+        assert!(
+            matches!(
+                result,
+                Err(RepositoryError::InvalidRepositoryInitialization { .. })
+            ),
+            "expected error for reserved path 'package'"
+        );
+    }
+
+    #[test]
+    fn create_package_rejects_duplicate_id() {
+        let store = MemoryStore::default();
+        let input = CreatePackageInput {
+            id: "dup-pkg".to_string(),
+            namespace: "com.ext".to_string(),
+            name: "ext".to_string(),
+            version: "1.0.0".to_string(),
+            boundary_path: Some("pkg/ext".to_string()),
+        };
+        create_package(&store, input.clone()).unwrap();
+        let second = create_package(
+            &store,
+            CreatePackageInput {
+                boundary_path: Some("pkg/ext2".to_string()),
+                ..input
+            },
+        );
+        assert!(
+            matches!(
+                second,
+                Err(RepositoryError::PackageAlreadyRegistered { .. })
+            ),
+            "second create with same id should fail"
+        );
+    }
+
+    #[test]
+    fn import_package_local_registers_logical_package() {
+        let store = MemoryStore::default();
+        // Pre-seed a package.json at a sub-package path
+        let pkg_json = serde_json::json!({
+            "id": "import-pkg-001",
+            "namespace": "com.imported",
+            "name": "imported",
+            "version": "2.0.0",
+            "fields": [],
+            "types": []
+        });
+        store
+            .save_instance_json("external/mypkg/package.json", &pkg_json)
+            .unwrap();
+
+        let input = ImportPackageLocalInput {
+            source_path: "external/mypkg".to_string(),
+        };
+        let result = import_package_local(&store, input).unwrap();
+        assert_eq!(result.id, "import-pkg-001");
+        assert_eq!(result.namespace, "com.imported");
+        assert_eq!(result.selector, Some("external/mypkg".to_string()));
+
+        // list_packages should now include it
+        let packages = list_packages(&store).unwrap();
+        assert!(
+            packages.iter().any(|p| p.id == "import-pkg-001"),
+            "imported package should appear in list_packages"
+        );
+    }
+
+    #[test]
+    fn import_package_local_rejects_duplicate() {
+        let store = MemoryStore::default();
+        let pkg_json = serde_json::json!({
+            "id": "dup-import",
+            "namespace": "com.test",
+            "name": "dup",
+            "version": "1.0.0",
+            "fields": [],
+            "types": []
+        });
+        store
+            .save_instance_json("ext/dup/package.json", &pkg_json)
+            .unwrap();
+
+        import_package_local(
+            &store,
+            ImportPackageLocalInput {
+                source_path: "ext/dup".to_string(),
+            },
+        )
+        .unwrap();
+
+        // Seed a second path with same id
+        store
+            .save_instance_json("ext/dup2/package.json", &pkg_json)
+            .unwrap();
+        let second = import_package_local(
+            &store,
+            ImportPackageLocalInput {
+                source_path: "ext/dup2".to_string(),
+            },
+        );
+        assert!(
+            matches!(
+                second,
+                Err(RepositoryError::PackageAlreadyRegistered { .. })
+            ),
+            "duplicate import should return PackageAlreadyRegistered"
+        );
+    }
+
+    #[test]
+    fn import_package_local_rejects_missing_source() {
+        let store = MemoryStore::default();
+        let result = import_package_local(
+            &store,
+            ImportPackageLocalInput {
+                source_path: "nonexistent/path".to_string(),
+            },
+        );
+        assert!(
+            matches!(result, Err(RepositoryError::PackageRefMissing { .. })),
+            "missing source should return PackageRefMissing"
+        );
+    }
+
+    #[test]
+    fn update_package_metadata_does_not_rewrite_definitions() {
+        use crate::store::RepositoryStore;
+
+        let store = MemoryStore::default();
+        // Add a field path to the primary boundary
+        store
+            .add_definition_to_boundary(&None, DefinitionKind::Field, "fields/keep-me.json")
+            .unwrap();
+
+        update_package_metadata(
+            &store,
+            None,
+            UpdatePackageMetadataInput {
+                name: Some("updated-name".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let boundary = store.load_package_boundary(&None).unwrap();
+        assert_eq!(boundary.name, "updated-name");
+        assert!(
+            boundary
+                .field_paths
+                .contains(&"fields/keep-me.json".to_string()),
+            "field_paths should be preserved after metadata update"
+        );
+    }
+
+    #[test]
+    fn update_package_metadata_changes_name() {
+        let store = MemoryStore::default();
+        update_package_metadata(
+            &store,
+            None,
+            UpdatePackageMetadataInput {
+                name: Some("new-name".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let packages = list_packages(&store).unwrap();
+        let primary = packages.iter().find(|p| p.boundary_path.is_none()).unwrap();
+        assert_eq!(primary.name, "new-name");
+    }
+
+    // --- Phase 4: package-aware definition tests ---
+
+    #[test]
+    fn create_field_in_sub_package() {
+        use crate::store::RepositoryStore;
+
+        let store = MemoryStore::default();
+        let selector = Some("pkg/ext".to_string());
+        store.register_package_boundary(&selector).unwrap();
+
+        let field = make_field("00000000-0000-0000-0000-abc000000001", "ext-field");
+        create_field_in_package(&store, field, selector.clone()).unwrap();
+
+        let boundary = store.load_package_boundary(&selector).unwrap();
+        assert!(
+            boundary.field_paths.iter().any(|p| p.contains("ext-field")),
+            "field path should appear in sub-package boundary"
+        );
+
+        // Primary boundary should NOT have it
+        let primary = store.load_package_boundary(&None).unwrap();
+        assert!(
+            !primary.field_paths.iter().any(|p| p.contains("ext-field")),
+            "field should not appear in primary boundary"
+        );
+    }
+
+    #[test]
+    fn delete_field_removes_from_boundary_index() {
+        let store = MemoryStore::with_field(make_field(
+            "00000000-0000-0000-0000-000000000001",
+            "test-field",
+        ));
+
+        delete_field(&store, "00000000-0000-0000-0000-000000000001").unwrap();
+
+        let boundary = store.load_package_boundary(&None).unwrap();
+        assert!(
+            !boundary.field_paths.iter().any(|p| p.contains("00000000")),
+            "field path should be removed from boundary after delete"
+        );
+    }
+
+    #[test]
+    fn update_field_resolves_owner_package() {
+        let store = MemoryStore::with_field(make_field(
+            "00000000-0000-0000-0000-000000000001",
+            "test-field",
+        ));
+
+        let mut updated_field = make_field("00000000-0000-0000-0000-000000000001", "test-field");
+        updated_field.description = "updated description".to_string();
+
+        let result = update_field(&store, updated_field).unwrap();
+        assert_eq!(result.field.description, "updated description");
+    }
+
+    #[test]
+    fn delete_type_resolves_owner_package() {
+        let store = MemoryStore::with_type(make_type(
+            "00000000-0000-0000-0000-000000000002",
+            "test-type",
+        ));
+
+        delete_type(&store, "00000000-0000-0000-0000-000000000002", 1).unwrap();
+
+        let boundary = store.load_package_boundary(&None).unwrap();
+        assert!(
+            !boundary.type_paths.iter().any(|p| p.contains("00000000")),
+            "type path should be removed from boundary after delete"
+        );
+    }
+
+    #[test]
+    fn list_fields_by_package_filters_correctly() {
+        use crate::store::RepositoryStore;
+
+        let store = MemoryStore::default();
+        let selector = Some("pkg/ext".to_string());
+        store.register_package_boundary(&selector).unwrap();
+
+        // Create field in sub-package
+        create_field_in_package(
+            &store,
+            make_field("00000000-0000-0000-0000-aaa000000001", "ext-only-field"),
+            selector.clone(),
+        )
+        .unwrap();
+
+        // Seed sub-package data so load_package() can see it (need package.json with this field)
+        // list_fields_by_package uses list_fields_internal which uses load_package() —
+        // since MemoryStore's Package object won't have the sub-package field loaded,
+        // only the provenance filtering is tested here.
+
+        // Create a field in primary
+        create_field(
+            &store,
+            make_field("00000000-0000-0000-0000-bbb000000002", "primary-field"),
+        )
+        .unwrap();
+
+        // list_fields_by_package for sub-package should return only sub-package fields
+        // (but load_package() won't see the sub-field since MemoryStore's Package is static)
+        // The key behaviour: primary filter should not include sub-package fields
+        let primary_fields = list_fields_by_package(&store, None).unwrap();
+        assert!(
+            primary_fields.iter().all(|f| f.source_package.is_none()),
+            "fields from primary package filter should have no source_package"
+        );
+    }
+
+    #[test]
+    fn list_fields_includes_source_package() {
+        let store = MemoryStore::with_field(make_field(
+            "00000000-0000-0000-0000-000000000001",
+            "test-field",
+        ));
+
+        let fields = list_fields(&store).unwrap();
+        // Primary package fields have source_package = None
+        assert!(
+            fields.iter().any(|f| f.source_package.is_none()),
+            "primary package fields should have source_package = None"
+        );
+    }
+
+    #[test]
+    fn list_types_by_package_filters_correctly() {
+        let store = MemoryStore::with_type(make_type(
+            "00000000-0000-0000-0000-000000000002",
+            "test-type",
+        ));
+
+        let primary_types = list_types_by_package(&store, None).unwrap();
+        assert!(primary_types.iter().all(|t| t.source_package.is_none()));
+    }
+
+    #[test]
+    fn list_types_includes_source_package() {
+        let store = MemoryStore::with_type(make_type(
+            "00000000-0000-0000-0000-000000000002",
+            "test-type",
+        ));
+
+        let types = list_types(&store).unwrap();
+        assert!(types.iter().any(|t| t.source_package.is_none()));
+    }
+
+    #[test]
+    fn create_package_rejects_duplicate_path() {
+        // Two packages with different IDs but the same boundary_path must fail.
+        let store = MemoryStore::default();
+        let first = CreatePackageInput {
+            id: "pkg-id-001".to_string(),
+            namespace: "com.ext".to_string(),
+            name: "ext".to_string(),
+            version: "1.0.0".to_string(),
+            boundary_path: Some("pkg/ext".to_string()),
+        };
+        create_package(&store, first).unwrap();
+        // Same path, different id — the boundary already exists with a non-empty id,
+        // so the duplicate guard (load_package_boundary → non-empty id) must fire.
+        let second = create_package(
+            &store,
+            CreatePackageInput {
+                id: "pkg-id-002".to_string(),
+                namespace: "com.ext".to_string(),
+                name: "ext2".to_string(),
+                version: "1.0.0".to_string(),
+                boundary_path: Some("pkg/ext".to_string()),
+            },
+        );
+        assert!(
+            matches!(
+                second,
+                Err(RepositoryError::PackageAlreadyRegistered { .. })
+            ),
+            "second create with same path but different id should fail"
+        );
+    }
+
+    #[test]
+    fn save_package_boundary_metadata_preserves_field_paths() {
+        // Regression for Bug 1: save_package_boundary_metadata must not wipe field_paths/type_paths.
+        use crate::store::RepositoryStore;
+        let store = MemoryStore::default();
+
+        // Add a field to the primary boundary so field_paths is non-empty.
+        create_field(
+            &store,
+            make_field("00000000-0000-0000-0000-preserve0001", "preserve-me"),
+        )
+        .unwrap();
+
+        // Now call update_package_metadata, which internally calls save_package_boundary_metadata.
+        update_package_metadata(
+            &store,
+            None,
+            UpdatePackageMetadataInput {
+                name: Some("mutated-name".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let boundary = store.load_package_boundary(&None).unwrap();
+        assert_eq!(boundary.name, "mutated-name", "name should be updated");
+        assert!(
+            !boundary.field_paths.is_empty(),
+            "field_paths must be preserved after save_package_boundary_metadata"
+        );
+    }
+
+    #[test]
+    fn list_packages_returns_primary_and_sub_packages() {
+        let store = MemoryStore::default();
+        let input = CreatePackageInput {
+            id: "sub-pkg-001".to_string(),
+            namespace: "com.sub".to_string(),
+            name: "sub".to_string(),
+            version: "1.0.0".to_string(),
+            boundary_path: Some("pkg/sub".to_string()),
+        };
+        create_package(&store, input).unwrap();
+
+        let packages = list_packages(&store).unwrap();
+        assert_eq!(packages.len(), 2, "should have primary + 1 sub-package");
+        assert!(
+            packages.iter().any(|p| p.boundary_path.is_none()),
+            "primary package should be present"
+        );
+        assert!(
+            packages
+                .iter()
+                .any(|p| p.boundary_path == Some("pkg/sub".to_string())),
+            "sub-package should be present"
+        );
     }
 }

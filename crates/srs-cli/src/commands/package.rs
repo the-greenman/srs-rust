@@ -3,12 +3,29 @@ use crate::output;
 use anyhow::Result;
 use serde_json::json;
 use srs_repository::manifest_service::{add_package_ref, remove_package_ref};
-use srs_repository::package_service::{create_package, list_packages, CreatePackageInput};
+use srs_repository::package_service::{
+    create_package, import_package_local, list_packages, update_package_metadata,
+    CreatePackageInput, ImportPackageLocalInput, UpdatePackageMetadataInput,
+};
 
 pub fn dispatch(ctx: CliContext, cmd: PackageCommand) -> Result<String> {
     match cmd {
         PackageCommand::List => cmd_package_list(ctx),
         PackageCommand::Create {
+            id,
+            namespace,
+            name,
+            version,
+            boundary_path,
+        } => cmd_package_create(ctx, id, namespace, name, version, boundary_path),
+        PackageCommand::Import { path } => cmd_package_import(ctx, path),
+        PackageCommand::Update {
+            selector,
+            namespace,
+            name,
+            version,
+        } => cmd_package_update(ctx, selector, namespace, name, version),
+        PackageCommand::SliceCreate {
             id,
             namespace,
             name,
@@ -58,6 +75,56 @@ fn cmd_package_create(
     Ok(output::ok(
         "package create",
         json!({ "id": result.id, "boundaryPath": result.boundary_path }),
+    ))
+}
+
+fn cmd_package_import(ctx: CliContext, path: String) -> Result<String> {
+    let input = ImportPackageLocalInput {
+        source_path: path.clone(),
+    };
+    let result = with_store(&ctx, |store| {
+        Ok(import_package_local(store, input.clone())?)
+    })?;
+    Ok(output::ok(
+        "package import",
+        json!({
+            "selector": result.selector,
+            "id": result.id,
+            "namespace": result.namespace,
+            "name": result.name,
+        }),
+    ))
+}
+
+fn cmd_package_update(
+    ctx: CliContext,
+    selector: Option<String>,
+    namespace: Option<String>,
+    name: Option<String>,
+    version: Option<String>,
+) -> Result<String> {
+    let input = UpdatePackageMetadataInput {
+        namespace,
+        name,
+        version,
+    };
+    let result = with_store(&ctx, |store| {
+        Ok(update_package_metadata(
+            store,
+            selector.clone(),
+            input.clone(),
+        )?)
+    })?;
+    let b = &result.boundary;
+    Ok(output::ok(
+        "package update",
+        json!({
+            "selector": b.selector,
+            "id": b.id,
+            "namespace": b.namespace,
+            "name": b.name,
+            "version": b.version,
+        }),
     ))
 }
 
