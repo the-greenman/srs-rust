@@ -45,3 +45,19 @@ This file is written for humans and AI agents that need to understand the repo q
 - Do not introduce async traits until there is a concrete async consumer.
 - Do not split a new file-adapter crate until a second storage adapter creates real pressure.
 - Keep storage boundaries visible so a database-backed implementation can be introduced later.
+
+## Repository Lifecycle And Portability
+
+- Repository creation is a repository service request executed by `RepositoryStore` adapters.
+- Service code must not create repository directories/files directly; adapters own backend details.
+- Full repository copy is a logical operation using a backend-neutral `RepositorySnapshot`.
+- CLI `repo copy` must call portability services, not perform filesystem copy operations.
+- File paths (`.srs/`, `manifest.json`, `package/package.json`) are FileStore implementation details, not service contracts.
+- Future SQL-backed adapters may use table storage while preserving the same service API.
+- Ordering constraint: repository lifecycle/portability foundation lands before package-management and container-boundary storage plans.
+
+## Store Matrix Testing
+
+- Storage-boundary behavior must be validated against multiple concrete stores, not only one adapter.
+- `srs-repository` tests for lifecycle and portability must include both `FileStore` and `JsonStore` paths.
+- New repository service features should add at least one cross-store roundtrip test (for example: memory -> json -> file).

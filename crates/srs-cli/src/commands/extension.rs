@@ -1,11 +1,10 @@
-use crate::commands::{CliContext, ExtensionCommand};
+use crate::commands::{with_store, CliContext, ExtensionCommand};
 use crate::output;
 use anyhow::Result;
 use serde_json::json;
 use srs_core::types::record::FieldValue;
 use srs_repository::extension_service::{get_extension_by_id, list_extensions};
 use srs_repository::record_store::{create_record, delete_record, update_record};
-use srs_repository::FileStore;
 use std::io::{self, Read};
 
 pub fn dispatch(ctx: CliContext, cmd: ExtensionCommand) -> Result<String> {
@@ -19,8 +18,7 @@ pub fn dispatch(ctx: CliContext, cmd: ExtensionCommand) -> Result<String> {
 }
 
 fn cmd_extension_list(ctx: CliContext) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
-    let records = list_extensions(&store)?;
+    let records = with_store(&ctx, |store| Ok(list_extensions(store)?))?;
 
     let extensions: Vec<serde_json::Value> = records
         .into_iter()
@@ -42,8 +40,7 @@ fn cmd_extension_list(ctx: CliContext) -> Result<String> {
 }
 
 fn cmd_extension_get(ctx: CliContext, id: String) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
-    match get_extension_by_id(&store, &id)? {
+    match with_store(&ctx, |store| Ok(get_extension_by_id(store, &id)?))? {
         Some(record) => Ok(output::ok("extension get", json!({ "extension": record }))),
         None => Ok(output::err(
             "extension get",
@@ -93,14 +90,15 @@ fn cmd_extension_create(ctx: CliContext) -> Result<String> {
         .unwrap_or(1) as u32;
 
     // Create the record
-    let store = FileStore::new(&ctx.repo);
-    let record = create_record(
-        &store,
-        type_id,
-        type_version,
-        field_values,
-        "package/records",
-    )?;
+    let record = with_store(&ctx, |store| {
+        Ok(create_record(
+            store,
+            type_id,
+            type_version,
+            field_values,
+            "package/records",
+        )?)
+    })?;
 
     Ok(output::ok(
         "extension create",
@@ -129,8 +127,7 @@ fn cmd_extension_update(ctx: CliContext, id: String) -> Result<String> {
         .collect();
 
     // Update the record
-    let store = FileStore::new(&ctx.repo);
-    let record = update_record(&store, &id, field_values)?;
+    let record = with_store(&ctx, |store| Ok(update_record(store, &id, field_values)?))?;
 
     Ok(output::ok(
         "extension update",
@@ -139,8 +136,7 @@ fn cmd_extension_update(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_extension_delete(ctx: CliContext, id: String) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
-    match delete_record(&store, &id) {
+    match with_store(&ctx, |store| Ok(delete_record(store, &id)?)) {
         Ok(instance_id) => Ok(output::ok(
             "extension delete",
             json!({ "instanceId": instance_id }),

@@ -1,8 +1,7 @@
-use crate::commands::{CliContext, MigrateCommand};
+use crate::commands::{with_store, CliContext, MigrateCommand};
 use crate::output;
 use anyhow::{anyhow, Result};
 use srs_repository::analysis::{build_migration_packet, load_analysis_profile};
-use srs_repository::FileStore;
 
 pub fn dispatch(ctx: CliContext, cmd: MigrateCommand) -> Result<String> {
     match cmd {
@@ -20,8 +19,13 @@ fn cmd_migrate_packet(ctx: CliContext, foundation: bool) -> Result<String> {
         ));
     }
 
-    let store = FileStore::new(&ctx.repo);
-    let profile = load_analysis_profile(&store, "foundation")?;
-    let packet = build_migration_packet(&store, &profile.profile_id, &profile.include_tags)?;
+    let packet = with_store(&ctx, |store| {
+        let profile = load_analysis_profile(store, "foundation")?;
+        Ok(build_migration_packet(
+            store,
+            &profile.profile_id,
+            &profile.include_tags,
+        )?)
+    })?;
     Ok(output::ok("migrate packet", serde_json::to_value(packet)?))
 }

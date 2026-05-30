@@ -1,4 +1,4 @@
-use crate::commands::{CliContext, RecordCommand};
+use crate::commands::{with_store, CliContext, RecordCommand};
 use crate::output;
 use anyhow::Result;
 use serde_json::json;
@@ -12,7 +12,6 @@ use srs_repository::record_store::{
     create_record, delete_record, get_record_by_id, list_all_records, list_records_by_type,
     update_record,
 };
-use srs_repository::{FileStore, RepositoryStore};
 use std::io::{self, Read};
 
 pub fn dispatch(ctx: CliContext, cmd: RecordCommand) -> Result<String> {
@@ -34,11 +33,10 @@ pub fn dispatch(ctx: CliContext, cmd: RecordCommand) -> Result<String> {
 }
 
 fn cmd_record_list(ctx: CliContext, type_filter: Option<String>) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
-    let mut records = match type_filter {
-        None => list_all_records(&store)?,
+    let parsed_filter = match type_filter {
+        None => None,
         Some(ref filter) => match parse_type_filter(filter) {
-            Some((namespace, name)) => list_records_by_type(&store, &namespace, &name)?,
+            Some((namespace, name)) => Some((namespace, name)),
             None => {
                 return Ok(output::err(
                     "record list",
@@ -51,8 +49,15 @@ fn cmd_record_list(ctx: CliContext, type_filter: Option<String>) -> Result<Strin
         },
     };
 
+    let mut records = with_store(&ctx, |store| {
+        Ok(match &parsed_filter {
+            None => list_all_records(store)?,
+            Some((namespace, name)) => list_records_by_type(store, namespace, name)?,
+        })
+    })?;
+
     if let Some(ref cid) = ctx.container_id {
-        let members = list_members(&store, cid)?;
+        let members = with_store(&ctx, |store| Ok(list_members(store, cid)?))?;
         records.retain(|r| members.iter().any(|id| id == &r.instance_id));
     }
 
@@ -60,8 +65,7 @@ fn cmd_record_list(ctx: CliContext, type_filter: Option<String>) -> Result<Strin
 }
 
 fn cmd_record_get(ctx: CliContext, id: String) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
-    match get_record_by_id(&store, &id)? {
+    match with_store(&ctx, |store| Ok(get_record_by_id(store, &id)?))? {
         Some(record) => Ok(output::ok("record get", json!({ "record": record }))),
         None => Ok(output::err(
             "record get",
@@ -76,17 +80,20 @@ fn cmd_record_create(
     version: Option<u32>,
     dir: String,
 ) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
     if let Some(ref cid) = ctx.container_id {
-        match get_container(&store, cid) {
+        match with_store(&ctx, |store| Ok(get_container(store, cid)?)) {
             Ok(_) => {}
-            Err(RepositoryError::ContainerNotFound { .. }) => {
-                return Ok(output::err(
-                    "record create",
-                    vec![format!("Container '{}' not found — no record written", cid)],
-                ))
+            Err(e) => {
+                if let Some(RepositoryError::ContainerNotFound { .. }) =
+                    e.downcast_ref::<RepositoryError>()
+                {
+                    return Ok(output::err(
+                        "record create",
+                        vec![format!("Container '{}' not found — no record written", cid)],
+                    ));
+                }
+                return Err(e);
             }
-            Err(e) => return Err(e.into()),
         }
     }
 
@@ -124,16 +131,20 @@ fn cmd_record_create(
         }
     };
 
-    match create_record(
-        &store,
-        &record_type.id,
-        record_type.version,
-        field_values,
-        &dir,
-    ) {
+    match with_store(&ctx, |store| {
+        Ok(create_record(
+            store,
+            &record_type.id,
+            record_type.version,
+            field_values,
+            &dir,
+        )?)
+    }) {
         Ok(record) => {
             if let Some(ref cid) = ctx.container_id {
-                if let Err(e) = add_member(&store, cid, &record.instance_id) {
+                if let Err(e) = with_store(&ctx, |store| {
+                    Ok(add_member(store, cid, &record.instance_id)?)
+                }) {
                     return Ok(output::err(
                         "record create",
                         vec![format!(
@@ -157,17 +168,15 @@ fn cmd_record_update(ctx: CliContext, id: String) -> Result<String> {
         Err(msg) => return Ok(output::err("record update", vec![msg])),
     };
 
-    let store = FileStore::new(&ctx.repo);
-    match update_record(&store, &id, field_values) {
+    match with_store(&ctx, |store| Ok(update_record(store, &id, field_values)?)) {
         Ok(record) => Ok(output::ok("record update", json!({ "record": record }))),
         Err(e) => Ok(output::err("record update", vec![e.to_string()])),
     }
 }
 
 fn cmd_record_delete(ctx: CliContext, id: String) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
     if let Some(ref cid) = ctx.container_id {
-        if !is_member(&store, cid, &id)? {
+        if !with_store(&ctx, |store| Ok(is_member(store, cid, &id)?))? {
             return Ok(output::err(
                 "record delete",
                 vec![format!(
@@ -176,10 +185,10 @@ fn cmd_record_delete(ctx: CliContext, id: String) -> Result<String> {
                 )],
             ));
         }
-        remove_member(&store, cid, &id)?;
+        with_store(&ctx, |store| Ok(remove_member(store, cid, &id)?))?;
     }
 
-    match delete_record(&store, &id) {
+    match with_store(&ctx, |store| Ok(delete_record(store, &id)?)) {
         Ok(instance_id) => Ok(output::ok(
             "record delete",
             json!({ "instanceId": instance_id }),
@@ -218,21 +227,22 @@ fn resolve_type(
     name: &str,
     version: Option<u32>,
 ) -> Result<Option<srs_core::types::record_type::RecordType>> {
-    let store = FileStore::new(&ctx.repo);
-    if let Some(version) = version {
-        let package = store.load_package()?;
-        let found = package
-            .record_types
-            .iter()
-            .find(|rt| rt.namespace == namespace && rt.name == name && rt.version == version)
-            .cloned();
-        return Ok(found);
-    }
+    let result = with_store(ctx, |store| {
+        if let Some(version) = version {
+            let package = store.load_package()?;
+            let found = package
+                .record_types
+                .iter()
+                .find(|rt| rt.namespace == namespace && rt.name == name && rt.version == version)
+                .cloned();
+            return Ok(found);
+        }
 
-    let result = get_type_by_name(&store, namespace, name)?;
+        Ok(match get_type_by_name(store, namespace, name)? {
+            GetTypeResult::Found(record_type) => Some(record_type),
+            GetTypeResult::NotFound => None,
+        })
+    })?;
 
-    match result {
-        GetTypeResult::Found(record_type) => Ok(Some(record_type)),
-        GetTypeResult::NotFound => Ok(None),
-    }
+    Ok(result)
 }

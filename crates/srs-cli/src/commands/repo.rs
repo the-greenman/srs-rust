@@ -1,6 +1,6 @@
-use crate::commands::{CliContext, RepoCommand, RepoExtensionsCommand};
+use crate::commands::{with_store, CliContext, RepoCommand, RepoExtensionsCommand, StoreBackend};
 use crate::output;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde_json::json;
 use srs_repository::analysis::build_repo_map;
 use srs_repository::manifest_service::{
@@ -11,7 +11,7 @@ use srs_repository::repository_lifecycle::{
 };
 use srs_repository::repository_portability::copy_repository;
 use srs_repository::validation::validate_repository;
-use srs_repository::FileStore;
+use srs_repository::{FileStore, JsonStore};
 
 pub fn dispatch(ctx: CliContext, cmd: RepoCommand) -> Result<String> {
     match cmd {
@@ -34,7 +34,12 @@ pub fn dispatch(ctx: CliContext, cmd: RepoCommand) -> Result<String> {
             package_namespace,
         ),
         RepoCommand::Map { json: _ } => cmd_repo_map(ctx),
-        RepoCommand::Copy { from, to } => cmd_repo_copy(ctx, from, to),
+        RepoCommand::Copy {
+            from,
+            to,
+            from_store,
+            to_store,
+        } => cmd_repo_copy(ctx, from, to, from_store, to_store),
         RepoCommand::Validate { json: _ } => cmd_repo_validate(ctx),
         RepoCommand::Extensions(ext_cmd) => cmd_repo_extensions_dispatch(ctx, ext_cmd),
     }
@@ -51,7 +56,6 @@ fn cmd_repo_create(
     package_version: String,
     package_namespace: Option<String>,
 ) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
     let input = InitializeRepositoryInput {
         repository: RepositoryMetadata {
             repository_id,
@@ -66,7 +70,18 @@ fn cmd_repo_create(
         },
     };
 
-    let result = create_repository(&store, &input)?;
+    let result = match ctx.store {
+        StoreBackend::File => {
+            let store = FileStore::new(&ctx.repo);
+            create_repository(&store, &input)?
+        }
+        StoreBackend::Json => {
+            let store = JsonStore::create(&ctx.repo)
+                .with_context(|| format!("Failed to create JsonStore at {}", ctx.repo.display()))?;
+            create_repository(&store, &input)?
+        }
+    };
+
     Ok(output::ok(
         "repo create",
         json!({
@@ -90,8 +105,7 @@ fn cmd_repo_extensions_dispatch(ctx: CliContext, cmd: RepoExtensionsCommand) -> 
 }
 
 fn cmd_repo_extensions_list(ctx: CliContext) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
-    let extensions = list_declared_extensions(&store)?;
+    let extensions = with_store(&ctx, |store| Ok(list_declared_extensions(store)?))?;
     Ok(output::ok(
         "repo extensions list",
         json!({ "extensions": extensions }),
@@ -99,8 +113,9 @@ fn cmd_repo_extensions_list(ctx: CliContext) -> Result<String> {
 }
 
 fn cmd_repo_extensions_enable(ctx: CliContext, extension_id: String) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
-    let extensions = add_declared_extension(&store, &extension_id)?;
+    let extensions = with_store(&ctx, |store| {
+        Ok(add_declared_extension(store, &extension_id)?)
+    })?;
     Ok(output::ok(
         "repo extensions enable",
         json!({ "extensionId": extension_id, "extensions": extensions }),
@@ -108,8 +123,9 @@ fn cmd_repo_extensions_enable(ctx: CliContext, extension_id: String) -> Result<S
 }
 
 fn cmd_repo_extensions_disable(ctx: CliContext, extension_id: String) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
-    let extensions = remove_declared_extension(&store, &extension_id)?;
+    let extensions = with_store(&ctx, |store| {
+        Ok(remove_declared_extension(store, &extension_id)?)
+    })?;
     Ok(output::ok(
         "repo extensions disable",
         json!({ "extensionId": extension_id, "extensions": extensions }),
@@ -117,8 +133,7 @@ fn cmd_repo_extensions_disable(ctx: CliContext, extension_id: String) -> Result<
 }
 
 fn cmd_repo_map(ctx: CliContext) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
-    let repo_map = build_repo_map(&store)?;
+    let repo_map = with_store(&ctx, |store| Ok(build_repo_map(store)?))?;
     Ok(output::ok("repo map", json!({ "repoMap": repo_map })))
 }
 
@@ -126,10 +141,38 @@ fn cmd_repo_copy(
     _ctx: CliContext,
     from: std::path::PathBuf,
     to: std::path::PathBuf,
+    from_store: Option<StoreBackend>,
+    to_store: Option<StoreBackend>,
 ) -> Result<String> {
-    let source = FileStore::new(&from);
-    let target = FileStore::new(&to);
-    copy_repository(&source, &target)?;
+    let from_store = from_store.unwrap_or_else(|| infer_copy_store(&from));
+    let to_store = to_store.unwrap_or_else(|| infer_copy_store(&to));
+
+    match (from_store, to_store) {
+        (StoreBackend::File, StoreBackend::File) => {
+            let source = FileStore::new(&from);
+            let target = FileStore::new(&to);
+            copy_repository(&source, &target)?;
+        }
+        (StoreBackend::File, StoreBackend::Json) => {
+            let source = FileStore::new(&from);
+            let target = JsonStore::create(&to)
+                .with_context(|| format!("Failed to create JsonStore at {}", to.display()))?;
+            copy_repository(&source, &target)?;
+        }
+        (StoreBackend::Json, StoreBackend::File) => {
+            let source = JsonStore::open(&from)
+                .with_context(|| format!("Failed to open JsonStore at {}", from.display()))?;
+            let target = FileStore::new(&to);
+            copy_repository(&source, &target)?;
+        }
+        (StoreBackend::Json, StoreBackend::Json) => {
+            let source = JsonStore::open(&from)
+                .with_context(|| format!("Failed to open JsonStore at {}", from.display()))?;
+            let target = JsonStore::create(&to)
+                .with_context(|| format!("Failed to create JsonStore at {}", to.display()))?;
+            copy_repository(&source, &target)?;
+        }
+    }
     Ok(output::ok(
         "repo copy",
         json!({
@@ -139,9 +182,16 @@ fn cmd_repo_copy(
     ))
 }
 
+fn infer_copy_store(path: &std::path::Path) -> StoreBackend {
+    if path.extension().and_then(|ext| ext.to_str()) == Some("srsj") || path.is_file() {
+        StoreBackend::Json
+    } else {
+        StoreBackend::File
+    }
+}
+
 fn cmd_repo_validate(ctx: CliContext) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
-    let report = validate_repository(&store)?;
+    let report = with_store(&ctx, |store| Ok(validate_repository(store)?))?;
 
     if report.is_ok() {
         Ok(output::ok(

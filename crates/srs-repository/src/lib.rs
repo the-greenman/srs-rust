@@ -4,6 +4,7 @@ pub mod detect;
 pub mod error;
 pub mod extension_service;
 pub mod index;
+pub mod json_store;
 pub mod loader;
 pub mod manifest;
 pub mod manifest_service;
@@ -23,4 +24,5 @@ pub mod validation;
 pub mod view_service;
 pub mod writer;
 
+pub use json_store::JsonStore;
 pub use store::{FileStore, RepositoryStore};

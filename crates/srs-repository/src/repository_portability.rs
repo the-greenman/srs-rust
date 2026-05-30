@@ -276,19 +276,11 @@ fn export_package_boundary(
         None => "package".to_string(),
     };
     let package_json_path = format!("{package_prefix}/package.json");
-    let package_json: serde_json::Value =
-        serde_json::from_str(&source.load_text_file(&package_json_path)?).map_err(|source| {
-            RepositoryError::PackageLoad {
-                path: std::path::PathBuf::from(&package_json_path),
-                source,
-            }
-        })?;
+    let package_json = source.load_instance_json(&package_json_path)?;
     let metadata: RawPackageMetadata =
-        serde_json::from_value(package_json.clone()).map_err(|source| {
-            RepositoryError::PackageLoad {
-                path: std::path::PathBuf::from(&package_json_path),
-                source,
-            }
+        serde_json::from_value(package_json).map_err(|source| RepositoryError::PackageLoad {
+            path: std::path::PathBuf::from(&package_json_path),
+            source,
         })?;
 
     let fields = metadata
@@ -426,11 +418,10 @@ fn load_typed_json<T: serde::de::DeserializeOwned>(
     rel_path: &str,
 ) -> Result<T, RepositoryError> {
     let full = format!("{base_prefix}/{rel_path}");
-    serde_json::from_str(&source.load_text_file(&full)?).map_err(|source| {
-        RepositoryError::PackageLoad {
-            path: std::path::PathBuf::from(full),
-            source,
-        }
+    let value = source.load_instance_json(&full)?;
+    serde_json::from_value(value).map_err(|source| RepositoryError::PackageLoad {
+        path: std::path::PathBuf::from(full),
+        source,
     })
 }
 
@@ -513,6 +504,7 @@ fn id_prefix(id: &str) -> Result<&str, RepositoryError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::json_store::JsonStore;
     use crate::store::memory::MemoryStore;
     use crate::store::{FileStore, RepositoryStore};
     use crate::validation::validate_repository;
@@ -730,6 +722,35 @@ mod tests {
         import_repository_snapshot(&target, &snapshot).unwrap();
 
         let report = validate_repository(&target).unwrap();
+        assert!(report.is_ok(), "{:?}", report.diagnostics);
+    }
+
+    #[test]
+    fn memory_to_json_to_file_roundtrip_validates() {
+        let source = MemoryStore::uninitialized();
+        source.initialize_repository(&make_input()).unwrap();
+        let mut snapshot = export_repository_snapshot(&source).unwrap();
+        snapshot.instances.push(SnapshotInstance {
+            instance_id: "55555555-5555-4555-8555-555555555555".to_string(),
+            tier: 0,
+            title: None,
+            tags: None,
+            value: serde_json::json!({
+                "instanceId": "55555555-5555-4555-8555-555555555555",
+                "sections": [{"name":"body","content":"json hop"}]
+            }),
+        });
+
+        let tmp = TempDir::new().unwrap();
+        let json_path = tmp.path().join("repo.srsj");
+        let json_store = JsonStore::create(&json_path).unwrap();
+        import_repository_snapshot(&json_store, &snapshot).unwrap();
+
+        let out = TempDir::new().unwrap();
+        let file_store = FileStore::new(out.path());
+        copy_repository(&json_store, &file_store).unwrap();
+
+        let report = validate_repository(&file_store).unwrap();
         assert!(report.is_ok(), "{:?}", report.diagnostics);
     }
 }

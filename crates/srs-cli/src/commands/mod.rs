@@ -13,10 +13,11 @@ pub mod render;
 pub mod repo;
 pub mod tag;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use srs_repository::detect::find_repo_root;
-use std::path::PathBuf;
+use srs_repository::{FileStore, JsonStore, RepositoryStore};
+use std::path::{Path, PathBuf};
 
 /// Output format for CLI commands
 #[derive(Debug, Clone, Copy, Default, ValueEnum, PartialEq)]
@@ -30,14 +31,150 @@ pub enum OutputFormat {
     Text,
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum StoreBackend {
+    File,
+    Json,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepositoryLocation {
+    pub path: PathBuf,
+    pub store: StoreBackend,
+}
+
 /// Resolve repository root from explicit path or auto-detect from cwd
-pub fn resolve_repo(repo: Option<PathBuf>) -> Result<PathBuf> {
-    match repo {
-        Some(path) => Ok(path),
-        None => {
+pub fn resolve_repo(
+    repo: Option<PathBuf>,
+    backend: Option<StoreBackend>,
+) -> Result<RepositoryLocation> {
+    match (repo, backend) {
+        (Some(path), Some(store)) => Ok(RepositoryLocation { path, store }),
+        (Some(path), None) => Ok(RepositoryLocation {
+            store: infer_store_from_location(&path),
+            path,
+        }),
+        (None, Some(StoreBackend::File)) => {
             let cwd = std::env::current_dir()?;
-            find_repo_root(&cwd).context("Failed to find repository root")
+            Ok(RepositoryLocation {
+                path: find_repo_root(&cwd).context("Failed to find repository root")?,
+                store: StoreBackend::File,
+            })
         }
+        (None, Some(StoreBackend::Json)) => {
+            let cwd = std::env::current_dir()?;
+            Ok(RepositoryLocation {
+                path: find_json_repo_file(&cwd)
+                    .map(|found| found.path)
+                    .unwrap_or_else(|| cwd.join("repo.srsj")),
+                store: StoreBackend::Json,
+            })
+        }
+        (None, None) => resolve_repo_from_cwd(),
+    }
+}
+
+fn infer_store_from_location(path: &Path) -> StoreBackend {
+    if path.extension().and_then(|ext| ext.to_str()) == Some("srsj") || path.is_file() {
+        StoreBackend::Json
+    } else {
+        StoreBackend::File
+    }
+}
+
+#[derive(Debug, Clone)]
+struct DiscoveredRepo {
+    path: PathBuf,
+    distance: usize,
+}
+
+fn resolve_repo_from_cwd() -> Result<RepositoryLocation> {
+    let cwd = std::env::current_dir()?;
+    let file_repo = find_repo_root(&cwd).ok().map(|path| DiscoveredRepo {
+        distance: ancestor_distance(&cwd, &path),
+        path,
+    });
+    let json_repo = find_json_repo_file(&cwd);
+
+    match (file_repo, json_repo) {
+        (Some(file_repo), Some(json_repo)) if file_repo.distance == json_repo.distance => {
+            Err(anyhow!(
+                "Found both file-backed and JSON-backed repositories at {}; pass --repo to choose one",
+                file_repo.path.display()
+            ))
+        }
+        (Some(file_repo), Some(json_repo)) if file_repo.distance < json_repo.distance => {
+            Ok(RepositoryLocation {
+                path: file_repo.path,
+                store: StoreBackend::File,
+            })
+        }
+        (Some(_), Some(json_repo)) => Ok(RepositoryLocation {
+            path: json_repo.path,
+            store: StoreBackend::Json,
+        }),
+        (Some(file_repo), None) => Ok(RepositoryLocation {
+            path: file_repo.path,
+            store: StoreBackend::File,
+        }),
+        (None, Some(json_repo)) => Ok(RepositoryLocation {
+            path: json_repo.path,
+            store: StoreBackend::Json,
+        }),
+        (None, None) => find_repo_root(&cwd)
+            .context("Failed to find repository root")
+            .map(|path| RepositoryLocation {
+                path,
+                store: StoreBackend::File,
+            }),
+    }
+}
+
+fn find_json_repo_file(start: &Path) -> Option<DiscoveredRepo> {
+    let mut current = start.to_path_buf();
+    let mut distance = 0;
+
+    loop {
+        let repo_file = current.join("repo.srsj");
+        if repo_file.is_file() {
+            return Some(DiscoveredRepo {
+                path: repo_file,
+                distance,
+            });
+        }
+
+        if !current.pop() {
+            return None;
+        }
+        distance += 1;
+    }
+}
+
+fn ancestor_distance(start: &Path, ancestor: &Path) -> usize {
+    start
+        .strip_prefix(ancestor)
+        .map(|relative| relative.components().count())
+        .unwrap_or(usize::MAX)
+}
+
+fn resolve_repo_for_create(
+    repo: Option<PathBuf>,
+    backend: Option<StoreBackend>,
+) -> Result<RepositoryLocation> {
+    match (repo, backend) {
+        (Some(path), Some(store)) => Ok(RepositoryLocation { path, store }),
+        (Some(path), None) => Ok(RepositoryLocation {
+            store: infer_store_from_location(&path),
+            path,
+        }),
+        (None, Some(StoreBackend::Json)) => Ok(RepositoryLocation {
+            path: std::env::current_dir()?.join("repo.srsj"),
+            store: StoreBackend::Json,
+        }),
+        (None, _) => Ok(RepositoryLocation {
+            path: std::env::current_dir()?,
+            store: StoreBackend::File,
+        }),
     }
 }
 
@@ -53,6 +190,10 @@ pub struct Cli {
     /// Output format
     #[arg(long, global = true, value_enum, default_value = "json")]
     pub format: OutputFormat,
+
+    /// Storage backend override. By default the backend is inferred from the repository location.
+    #[arg(long = "store", global = true, value_enum)]
+    pub store: Option<StoreBackend>,
 
     /// Pretty-print JSON output (no effect on text format)
     #[arg(long, global = true)]
@@ -70,9 +211,27 @@ pub struct Cli {
 #[allow(dead_code)]
 pub struct CliContext {
     pub repo: PathBuf,
+    pub store: StoreBackend,
     pub format: OutputFormat,
     pub pretty: bool,
     pub container_id: Option<String>,
+}
+
+pub fn with_store<T>(
+    ctx: &CliContext,
+    f: impl FnOnce(&dyn RepositoryStore) -> Result<T>,
+) -> Result<T> {
+    match ctx.store {
+        StoreBackend::File => {
+            let store = FileStore::new(&ctx.repo);
+            f(&store)
+        }
+        StoreBackend::Json => {
+            let store = JsonStore::open(&ctx.repo)
+                .with_context(|| format!("Failed to open JsonStore at {}", ctx.repo.display()))?;
+            f(&store)
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -299,6 +458,12 @@ pub enum RepoCommand {
         /// Target repository root
         #[arg(long = "to")]
         to: PathBuf,
+        /// Source store backend override. By default inferred from --from.
+        #[arg(long = "from-store", value_enum)]
+        from_store: Option<StoreBackend>,
+        /// Target store backend override. By default inferred from --to.
+        #[arg(long = "to-store", value_enum)]
+        to_store: Option<StoreBackend>,
     },
     /// Emit a deterministic repository map
     Map {
@@ -462,6 +627,12 @@ pub enum TypeCommand {
     Get {
         /// Type definition ID
         id: String,
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+    /// Create a type definition (reads JSON from stdin)
+    Create {
         /// Deprecated: JSON output is now the default (no-op)
         #[arg(long, hide = true)]
         json: bool,
@@ -682,18 +853,28 @@ pub enum PackageCommand {
 }
 
 pub fn dispatch(cli: Cli) -> Result<String> {
-    // repo create targets explicit --repo or current dir; it must not require existing .srs
-    let repo_root = match &cli.command {
-        Commands::Repo(RepoCommand::Create { .. } | RepoCommand::Copy { .. }) => match &cli.repo {
-            Some(path) => path.clone(),
-            None => std::env::current_dir()?,
+    // repo create targets explicit --repo or current dir; it must not require existing .srs.
+    let location = match &cli.command {
+        Commands::Repo(RepoCommand::Create { .. }) => {
+            resolve_repo_for_create(cli.repo.clone(), cli.store)?
+        }
+        Commands::Repo(RepoCommand::Copy { .. }) => match &cli.repo {
+            Some(path) => RepositoryLocation {
+                path: path.clone(),
+                store: cli.store.unwrap_or_else(|| infer_store_from_location(path)),
+            },
+            None => RepositoryLocation {
+                path: std::env::current_dir()?,
+                store: cli.store.unwrap_or(StoreBackend::File),
+            },
         },
-        _ => resolve_repo(cli.repo.clone())?,
+        _ => resolve_repo(cli.repo.clone(), cli.store)?,
     };
 
     // Build context for command handlers
     let ctx = CliContext {
-        repo: repo_root,
+        repo: location.path,
+        store: location.store,
         format: cli.format,
         pretty: cli.pretty,
         container_id: cli.container_id,

@@ -1,4 +1,4 @@
-use crate::commands::{CliContext, TagCommand};
+use crate::commands::{with_store, CliContext, TagCommand};
 use crate::output;
 use anyhow::Result;
 use serde_json::json;
@@ -12,7 +12,6 @@ use srs_repository::tag_service::{
     list_tag_definitions_by_role, update_tag_definition, DeleteTagDefinitionResult,
     GetTagDefinitionResult,
 };
-use srs_repository::FileStore;
 use std::io::{self, Read};
 
 pub fn dispatch(ctx: CliContext, cmd: TagCommand) -> Result<String> {
@@ -26,15 +25,16 @@ pub fn dispatch(ctx: CliContext, cmd: TagCommand) -> Result<String> {
 }
 
 fn cmd_tag_list(ctx: CliContext, role: Option<String>) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
-    let mut summaries = if let Some(role_filter) = role {
-        list_tag_definitions_by_role(&store, &role_filter)?
-    } else {
-        list_tag_definitions(&store)?
-    };
+    let mut summaries = with_store(&ctx, |store| {
+        Ok(if let Some(role_filter) = role {
+            list_tag_definitions_by_role(store, &role_filter)?
+        } else {
+            list_tag_definitions(store)?
+        })
+    })?;
 
     if let Some(ref cid) = ctx.container_id {
-        let members = list_members(&store, cid)?;
+        let members = with_store(&ctx, |store| Ok(list_members(store, cid)?))?;
         summaries.retain(|s| members.iter().any(|id| id == &s.instance_id));
     }
 
@@ -45,8 +45,7 @@ fn cmd_tag_list(ctx: CliContext, role: Option<String>) -> Result<String> {
 }
 
 fn cmd_tag_get(ctx: CliContext, id: String) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
-    match get_tag_definition_by_id(&store, &id)? {
+    match with_store(&ctx, |store| Ok(get_tag_definition_by_id(store, &id)?))? {
         GetTagDefinitionResult::Found(td) => {
             Ok(output::ok("tag get", json!({ "tagDefinition": *td })))
         }
@@ -58,17 +57,20 @@ fn cmd_tag_get(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_tag_create(ctx: CliContext) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
     if let Some(ref cid) = ctx.container_id {
-        match get_container(&store, cid) {
+        match with_store(&ctx, |store| Ok(get_container(store, cid)?)) {
             Ok(_) => {}
-            Err(RepositoryError::ContainerNotFound { .. }) => {
-                return Ok(output::err(
-                    "tag create",
-                    vec![format!("Container '{}' not found — no tag written", cid)],
-                ))
+            Err(e) => {
+                if let Some(RepositoryError::ContainerNotFound { .. }) =
+                    e.downcast_ref::<RepositoryError>()
+                {
+                    return Ok(output::err(
+                        "tag create",
+                        vec![format!("Container '{}' not found — no tag written", cid)],
+                    ));
+                }
+                return Err(e);
             }
-            Err(e) => return Err(e.into()),
         }
     }
 
@@ -80,10 +82,14 @@ fn cmd_tag_create(ctx: CliContext) -> Result<String> {
         .map_err(|e| anyhow::anyhow!("Failed to parse TagDefinition JSON: {}", e))?;
 
     // Create the TagDefinition via the dedicated service
-    let result = create_tag_definition(&store, tag_definition)?;
+    let result = with_store(&ctx, |store| {
+        Ok(create_tag_definition(store, tag_definition)?)
+    })?;
 
     if let Some(ref cid) = ctx.container_id {
-        if let Err(e) = add_member(&store, cid, &result.tag_definition.instance_id) {
+        if let Err(e) = with_store(&ctx, |store| {
+            Ok(add_member(store, cid, &result.tag_definition.instance_id)?)
+        }) {
             return Ok(output::err(
                 "tag create",
                 vec![format!("Tag created but failed to add to container: {}", e)],
@@ -117,8 +123,9 @@ fn cmd_tag_update(ctx: CliContext, id: String) -> Result<String> {
     }
 
     // Update the TagDefinition
-    let store = FileStore::new(&ctx.repo);
-    let result = update_tag_definition(&store, tag_definition)?;
+    let result = with_store(&ctx, |store| {
+        Ok(update_tag_definition(store, tag_definition)?)
+    })?;
 
     Ok(output::ok(
         "tag update",
@@ -127,9 +134,8 @@ fn cmd_tag_update(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_tag_delete(ctx: CliContext, id: String) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
     if let Some(ref cid) = ctx.container_id {
-        if !is_member(&store, cid, &id)? {
+        if !with_store(&ctx, |store| Ok(is_member(store, cid, &id)?))? {
             return Ok(output::err(
                 "tag delete",
                 vec![format!(
@@ -138,10 +144,10 @@ fn cmd_tag_delete(ctx: CliContext, id: String) -> Result<String> {
                 )],
             ));
         }
-        remove_member(&store, cid, &id)?;
+        with_store(&ctx, |store| Ok(remove_member(store, cid, &id)?))?;
     }
 
-    match delete_tag_definition(&store, &id) {
+    match with_store(&ctx, |store| Ok(delete_tag_definition(store, &id)?)) {
         Ok(DeleteTagDefinitionResult { instance_id }) => Ok(output::ok(
             "tag delete",
             json!({ "instanceId": instance_id }),

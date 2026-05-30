@@ -1,4 +1,4 @@
-use crate::commands::{CliContext, NoteCommand, NoteTagCommand};
+use crate::commands::{with_store, CliContext, NoteCommand, NoteTagCommand};
 use crate::output;
 use anyhow::Result;
 use serde_json::json;
@@ -13,7 +13,6 @@ use srs_repository::services::{
     update_note, AddTagResult, DeleteNoteResult, GetNoteResult, ListNotesFilter, RemoveTagResult,
 };
 use srs_repository::tag_service::get_foundation_signal_tags;
-use srs_repository::FileStore;
 use std::io::{self, Read};
 
 pub fn dispatch(ctx: CliContext, cmd: NoteCommand) -> Result<String> {
@@ -30,12 +29,11 @@ pub fn dispatch(ctx: CliContext, cmd: NoteCommand) -> Result<String> {
 }
 
 fn cmd_note_list(ctx: CliContext, tag: Option<String>) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
     let filter = ListNotesFilter { tag };
-    let mut result = list_notes(&store, filter)?;
+    let mut result = with_store(&ctx, |store| Ok(list_notes(store, filter.clone())?))?;
 
     if let Some(ref cid) = ctx.container_id {
-        let members = list_members(&store, cid)?;
+        let members = with_store(&ctx, |store| Ok(list_members(store, cid)?))?;
         result
             .notes
             .retain(|n| members.iter().any(|id| id == &n.instance_id));
@@ -56,8 +54,7 @@ fn cmd_note_list(ctx: CliContext, tag: Option<String>) -> Result<String> {
 }
 
 fn cmd_note_get(ctx: CliContext, id: String) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
-    match get_note_by_id(&store, &id)? {
+    match with_store(&ctx, |store| Ok(get_note_by_id(store, &id)?))? {
         GetNoteResult::Found(note) => Ok(output::ok("note get", json!({ "note": note }))),
         GetNoteResult::NotFound => Ok(output::err(
             "note get",
@@ -71,17 +68,20 @@ fn cmd_note_get(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_note_create(ctx: CliContext) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
     if let Some(ref cid) = ctx.container_id {
-        match get_container(&store, cid) {
+        match with_store(&ctx, |store| Ok(get_container(store, cid)?)) {
             Ok(_) => {}
-            Err(RepositoryError::ContainerNotFound { .. }) => {
-                return Ok(output::err(
-                    "note create",
-                    vec![format!("Container '{}' not found — no note written", cid)],
-                ))
+            Err(e) => {
+                if let Some(RepositoryError::ContainerNotFound { .. }) =
+                    e.downcast_ref::<RepositoryError>()
+                {
+                    return Ok(output::err(
+                        "note create",
+                        vec![format!("Container '{}' not found — no note written", cid)],
+                    ));
+                }
+                return Err(e);
             }
-            Err(e) => return Err(e.into()),
         }
     }
 
@@ -91,10 +91,12 @@ fn cmd_note_create(ctx: CliContext) -> Result<String> {
     let note: Note = serde_json::from_str(&stdin)
         .map_err(|e| anyhow::anyhow!("Failed to parse note JSON: {}", e))?;
 
-    let result = create_note(&store, note)?;
+    let result = with_store(&ctx, |store| Ok(create_note(store, note.clone())?))?;
 
     if let Some(ref cid) = ctx.container_id {
-        if let Err(e) = add_member(&store, cid, &result.note.instance_id) {
+        if let Err(e) = with_store(&ctx, |store| {
+            Ok(add_member(store, cid, &result.note.instance_id)?)
+        }) {
             return Ok(output::err(
                 "note create",
                 vec![format!(
@@ -116,8 +118,7 @@ fn cmd_note_tag_dispatch(ctx: CliContext, cmd: NoteTagCommand) -> Result<String>
 }
 
 fn cmd_note_tag_add(ctx: CliContext, id: String, tag: String) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
-    match add_note_tag(&store, &id, &tag)? {
+    match with_store(&ctx, |store| Ok(add_note_tag(store, &id, &tag)?))? {
         AddTagResult::Added { note, .. } | AddTagResult::AlreadyPresent { note, .. } => Ok(
             output::ok("note tag add", json!({ "note": note, "tag": tag })),
         ),
@@ -129,8 +130,7 @@ fn cmd_note_tag_add(ctx: CliContext, id: String, tag: String) -> Result<String> 
 }
 
 fn cmd_note_tag_remove(ctx: CliContext, id: String, tag: String) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
-    match remove_note_tag(&store, &id, &tag)? {
+    match with_store(&ctx, |store| Ok(remove_note_tag(store, &id, &tag)?))? {
         RemoveTagResult::Removed { note, .. } => Ok(output::ok(
             "note tag remove",
             json!({ "note": note, "tag": tag, "removed": true }),
@@ -163,16 +163,14 @@ fn cmd_note_update(ctx: CliContext, id: String) -> Result<String> {
         ));
     }
 
-    let store = FileStore::new(&ctx.repo);
-    let result = update_note(&store, note)?;
+    let result = with_store(&ctx, |store| Ok(update_note(store, note.clone())?))?;
 
     Ok(output::ok("note update", json!({ "note": result.note })))
 }
 
 fn cmd_note_delete(ctx: CliContext, id: String) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
     if let Some(ref cid) = ctx.container_id {
-        if !is_member(&store, cid, &id)? {
+        if !with_store(&ctx, |store| Ok(is_member(store, cid, &id)?))? {
             return Ok(output::err(
                 "note delete",
                 vec![format!(
@@ -181,10 +179,10 @@ fn cmd_note_delete(ctx: CliContext, id: String) -> Result<String> {
                 )],
             ));
         }
-        remove_member(&store, cid, &id)?;
+        with_store(&ctx, |store| Ok(remove_member(store, cid, &id)?))?;
     }
 
-    match delete_note(&store, &id) {
+    match with_store(&ctx, |store| Ok(delete_note(store, &id)?)) {
         Ok(DeleteNoteResult { instance_id }) => Ok(output::ok(
             "note delete",
             json!({ "instanceId": instance_id }),
@@ -194,15 +192,15 @@ fn cmd_note_delete(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_note_audit_tags(ctx: CliContext) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
-    let audit = audit_note_tags(&store)?;
+    let audit = with_store(&ctx, |store| Ok(audit_note_tags(store)?))?;
     Ok(output::ok("note audit-tags", json!({ "tagAudit": audit })))
 }
 
 fn cmd_note_foundations(ctx: CliContext) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
-    let signal_tags = get_foundation_signal_tags(&store)?;
-    let foundation_notes = collect_foundation_notes(&store, &signal_tags)?;
+    let signal_tags = with_store(&ctx, |store| Ok(get_foundation_signal_tags(store)?))?;
+    let foundation_notes = with_store(&ctx, |store| {
+        Ok(collect_foundation_notes(store, &signal_tags)?)
+    })?;
 
     Ok(output::ok(
         "note foundations",

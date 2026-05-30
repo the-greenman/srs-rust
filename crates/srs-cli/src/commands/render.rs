@@ -1,9 +1,8 @@
-use crate::commands::{CliContext, RenderCommand};
+use crate::commands::{with_store, CliContext, RenderCommand};
 use crate::output;
 use anyhow::Result;
 use serde_json::json;
 use srs_repository::render_service::{render_document_view, RenderDocumentViewOptions};
-use srs_repository::FileStore;
 use std::path::PathBuf;
 
 pub fn dispatch(ctx: CliContext, cmd: RenderCommand) -> Result<String> {
@@ -22,11 +21,12 @@ fn cmd_render_document_view(
     format: Option<String>,
     output_path: Option<PathBuf>,
 ) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
-    match render_document_view(RenderDocumentViewOptions {
-        store: &store,
-        view_id: &view_id,
-        format: format.as_deref(),
+    match with_store(&ctx, |store| {
+        Ok(render_document_view(RenderDocumentViewOptions {
+            store,
+            view_id: &view_id,
+            format: format.as_deref(),
+        })?)
     }) {
         Ok(result) => {
             if let Some(path) = output_path {

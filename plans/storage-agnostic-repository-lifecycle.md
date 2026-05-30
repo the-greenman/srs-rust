@@ -24,9 +24,9 @@ This plan updates the repository architecture rules and requires a new ADR.
 
 | ADR | Decision | Status |
 |---|---|---|
-| TBD | Repository creation and full-repository copy are logical store operations; adapters own files/tables | proposed |
+| [ADR-008](../docs/adr/008-repository-lifecycle-and-portability.md) | Repository creation and full-repository copy are logical store operations; adapters own files/tables | accepted |
 
-The Documentation Worker must create the ADR during Phase 1. These decisions extend ADR-008 rather than merely implementing it: repository creation is adapter-owned, full-repository portability is logical rather than filesystem-copy based, and services must not assume file-backed repository layout.
+Phase 1 created ADR-008. These decisions define repository creation as adapter-owned, full-repository portability as logical rather than filesystem-copy based, and service-layer behavior as layout-agnostic.
 
 ---
 
@@ -68,19 +68,19 @@ The Documentation Worker must create the ADR during Phase 1. These decisions ext
 
 #### Tasks
 
-- [ ] Update `srs-rust/ARCHITECTURE.md` with a repository lifecycle section.
-- [ ] State that new repository creation is requested by services and implemented by adapters.
-- [ ] State that full repository copy uses a logical snapshot, not file copying.
-- [ ] Document that FileStore paths and future SQL tables are adapter details.
-- [ ] Create an ADR under `srs-rust/docs/adr/` covering repository creation and full-repository portability.
-- [ ] Document the ordering constraint: repository lifecycle first, package/container boundary plans after.
+- [x] Update `srs-rust/ARCHITECTURE.md` with a repository lifecycle section.
+- [x] State that new repository creation is requested by services and implemented by adapters.
+- [x] State that full repository copy uses a logical snapshot, not file copying.
+- [x] Document that FileStore paths and future SQL tables are adapter details.
+- [x] Create an ADR under `srs-rust/docs/adr/` covering repository creation and full-repository portability.
+- [x] Document the ordering constraint: repository lifecycle first, package/container boundary plans after.
 
 #### Acceptance Criteria
 
-- [ ] `ARCHITECTURE.md` documents storage-agnostic repository creation.
-- [ ] `ARCHITECTURE.md` documents full logical repository portability.
-- [ ] ADR is created and linked from this plan's Architecture Decisions section.
-- [ ] Ordering constraint is documented in this plan and architecture notes.
+- [x] `ARCHITECTURE.md` documents storage-agnostic repository creation.
+- [x] `ARCHITECTURE.md` documents full logical repository portability.
+- [x] ADR is created and linked from this plan's Architecture Decisions section.
+- [x] Ordering constraint is documented in this plan and architecture notes.
 
 #### Testing
 
@@ -351,16 +351,16 @@ cargo clippy -- -D warnings
 
 All of the following must be true before this plan is closed:
 
-- [ ] `cargo test` passes with no failures.
-- [ ] `cargo clippy -- -D warnings` passes.
-- [ ] `ARCHITECTURE.md` documents storage-agnostic repository lifecycle and portability.
-- [ ] ADR for repository lifecycle and portability is created.
+- [x] `cargo test` passes with no failures.
+- [x] `cargo clippy -- -D warnings` passes.
+- [x] `ARCHITECTURE.md` documents storage-agnostic repository lifecycle and portability.
+- [x] ADR for repository lifecycle and portability is created.
 - [x] Repository instantiation is implemented through `RepositoryStore`.
 - [x] MemoryStore can host a newly created repository without fake filesystem assumptions.
 - [x] FileStore preserves current on-disk layout for newly created repositories.
 - [x] A repository assembled in MemoryStore can be materialized into FileStore.
 - [x] `RepositorySnapshot` is path-free and backend-neutral.
-- [ ] A future SQL adapter can implement repository lifecycle and portability without changing service APIs.
+- [x] A future SQL adapter can implement repository lifecycle and portability without changing service APIs.
 
 ## Coordination Rules
 

@@ -89,6 +89,36 @@ fn run_srs_any_status_in_dir(dir: &std::path::Path, args: &[&str]) -> (bool, Val
     (output.status.success(), json)
 }
 
+#[test]
+fn ordinary_commands_do_not_construct_concrete_stores() {
+    let commands_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/commands");
+    let allowed = ["mod.rs", "repo.rs"];
+    let forbidden = ["FileStore::new", "JsonStore::", "StoreBackend"];
+
+    for entry in std::fs::read_dir(commands_dir).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+            continue;
+        }
+
+        let file_name = path.file_name().unwrap().to_str().unwrap();
+        if allowed.contains(&file_name) {
+            continue;
+        }
+
+        let source = std::fs::read_to_string(&path).unwrap();
+        for pattern in forbidden {
+            assert!(
+                !source.contains(pattern),
+                "{} must use with_store instead of backend-specific '{}'",
+                file_name,
+                pattern
+            );
+        }
+    }
+}
+
 // Read-only tests against live srs repo
 
 fn run_srs(args: &[&str]) -> Value {
@@ -337,6 +367,452 @@ fn repo_copy_memory_fixture_to_filestore() {
     assert!(dst.join(".srs").is_dir());
     assert!(dst.join("manifest.json").is_file());
     assert!(dst.join("package/package.json").is_file());
+}
+
+#[test]
+fn json_store_repo_create_and_note_ops_work() {
+    let temp = TempDir::new().unwrap();
+    let repo_file = temp.path().join("repo.srsj");
+    let repo_file_str = repo_file.to_str().unwrap();
+
+    let created = run_srs_in_dir(
+        temp.path(),
+        &[
+            "--store",
+            "json",
+            "--repo",
+            repo_file_str,
+            "repo",
+            "create",
+            "--repository-id",
+            "repo-json-1",
+            "--namespace",
+            "com.semanticops.json",
+            "--package-id",
+            "pkg-json-1",
+            "--package-name",
+            "primary",
+        ],
+    );
+    assert_eq!(created["ok"], true);
+    assert!(repo_file.is_file());
+
+    let note_json = serde_json::json!({
+        "title": "Json Note",
+        "sections": [{"name": "body", "content": "hi"}]
+    })
+    .to_string();
+    let note_created = run_srs_stdin_in_dir(
+        temp.path(),
+        &["--store", "json", "--repo", repo_file_str, "note", "create"],
+        &note_json,
+    );
+    assert_eq!(note_created["ok"], true);
+
+    let listed = run_srs_in_dir(
+        temp.path(),
+        &["--store", "json", "--repo", repo_file_str, "note", "list"],
+    );
+    assert_eq!(listed["ok"], true);
+    let notes = listed["payload"]["notes"].as_array().unwrap();
+    assert_eq!(notes.len(), 1);
+    assert_eq!(notes[0]["title"], "Json Note");
+}
+
+#[test]
+fn json_store_backend_is_inferred_from_repo_location() {
+    let temp = TempDir::new().unwrap();
+    let repo_file = temp.path().join("repo.srsj");
+    let repo_file_str = repo_file.to_str().unwrap();
+
+    let created = run_srs_in_dir(
+        temp.path(),
+        &[
+            "--repo",
+            repo_file_str,
+            "repo",
+            "create",
+            "--repository-id",
+            "repo-json-inferred",
+            "--namespace",
+            "com.semanticops.json",
+            "--package-id",
+            "pkg-json-inferred",
+            "--package-name",
+            "primary",
+        ],
+    );
+    assert_eq!(created["ok"], true);
+    assert!(repo_file.is_file());
+
+    let note_json = serde_json::json!({
+        "title": "Inferred Json Note",
+        "sections": [{"name": "body", "content": "hi"}]
+    })
+    .to_string();
+    let note_created = run_srs_stdin_in_dir(
+        temp.path(),
+        &["--repo", repo_file_str, "note", "create"],
+        &note_json,
+    );
+    assert_eq!(note_created["ok"], true);
+
+    let listed = run_srs_in_dir(temp.path(), &["--repo", repo_file_str, "note", "list"]);
+    assert_eq!(listed["ok"], true);
+    let notes = listed["payload"]["notes"].as_array().unwrap();
+    assert_eq!(notes.len(), 1);
+    assert_eq!(notes[0]["title"], "Inferred Json Note");
+}
+
+#[test]
+fn repo_copy_json_to_file_store() {
+    let temp = TempDir::new().unwrap();
+    let src_json = temp.path().join("src.srsj");
+    let dst_file = temp.path().join("dst-file");
+    std::fs::create_dir_all(&dst_file).unwrap();
+    let src_json_str = src_json.to_str().unwrap();
+    let dst_file_str = dst_file.to_str().unwrap();
+
+    let _created = run_srs_in_dir(
+        temp.path(),
+        &[
+            "--store",
+            "json",
+            "--repo",
+            src_json_str,
+            "repo",
+            "create",
+            "--repository-id",
+            "repo-json-src",
+            "--namespace",
+            "com.semanticops.json",
+            "--package-id",
+            "pkg-json-src",
+            "--package-name",
+            "primary",
+        ],
+    );
+
+    let copied = run_srs_in_dir(
+        temp.path(),
+        &[
+            "repo",
+            "copy",
+            "--from",
+            src_json_str,
+            "--to",
+            dst_file_str,
+            "--from-store",
+            "json",
+            "--to-store",
+            "file",
+        ],
+    );
+    assert_eq!(copied["ok"], true);
+    assert!(dst_file.join("manifest.json").is_file());
+    assert!(dst_file.join("package/package.json").is_file());
+}
+
+#[test]
+fn repo_copy_infers_json_store_from_srsj_paths() {
+    let temp = TempDir::new().unwrap();
+    let src_json = temp.path().join("src.srsj");
+    let dst_json = temp.path().join("dst.srsj");
+    let src_json_str = src_json.to_str().unwrap();
+    let dst_json_str = dst_json.to_str().unwrap();
+
+    let created = run_srs_in_dir(
+        temp.path(),
+        &[
+            "--repo",
+            src_json_str,
+            "repo",
+            "create",
+            "--repository-id",
+            "repo-json-copy-src",
+            "--namespace",
+            "com.semanticops.json",
+            "--package-id",
+            "pkg-json-copy-src",
+            "--package-name",
+            "primary",
+        ],
+    );
+    assert_eq!(created["ok"], true);
+
+    let copied = run_srs_in_dir(
+        temp.path(),
+        &["repo", "copy", "--from", src_json_str, "--to", dst_json_str],
+    );
+    assert_eq!(copied["ok"], true);
+    assert!(dst_json.is_file());
+}
+
+#[test]
+fn json_store_current_directory_repo_is_auto_detected() {
+    let temp = TempDir::new().unwrap();
+
+    let created = run_srs_in_dir(
+        temp.path(),
+        &[
+            "--store",
+            "json",
+            "repo",
+            "create",
+            "--repository-id",
+            "repo-json-cwd",
+            "--namespace",
+            "com.semanticops.json",
+            "--package-id",
+            "pkg-json-cwd",
+            "--package-name",
+            "primary",
+        ],
+    );
+    assert_eq!(created["ok"], true);
+
+    let listed = run_srs_in_dir(temp.path(), &["note", "list"]);
+    assert_eq!(listed["ok"], true);
+    assert_eq!(listed["payload"]["notes"].as_array().unwrap().len(), 0);
+}
+
+#[test]
+fn json_store_cli_schema_record_and_roundtrip_workflow() {
+    let temp = TempDir::new().unwrap();
+    let json_repo = temp.path().join("demo.srsj");
+    let file_repo = temp.path().join("demo-files");
+    let roundtrip_json = temp.path().join("roundtrip.srsj");
+    let json_repo_str = json_repo.to_str().unwrap();
+    let file_repo_str = file_repo.to_str().unwrap();
+    let roundtrip_json_str = roundtrip_json.to_str().unwrap();
+
+    let created = run_srs_in_dir(
+        temp.path(),
+        &[
+            "--repo",
+            json_repo_str,
+            "repo",
+            "create",
+            "--repository-id",
+            "repo-json-dogfood",
+            "--namespace",
+            "com.semanticops.dogfood",
+            "--package-id",
+            "pkg-json-dogfood",
+            "--package-name",
+            "primary",
+        ],
+    );
+    assert_eq!(created["ok"], true);
+
+    let title_field_id = "00000000-0000-4000-8000-000000000101";
+    let status_field_id = "00000000-0000-4000-8000-000000000102";
+    let type_id = "00000000-0000-4000-8000-000000000201";
+
+    for field in [
+        serde_json::json!({
+            "id": title_field_id,
+            "namespace": "com.semanticops.dogfood",
+            "name": "decision-title",
+            "version": 1,
+            "valueType": "string"
+        }),
+        serde_json::json!({
+            "id": status_field_id,
+            "namespace": "com.semanticops.dogfood",
+            "name": "decision-status",
+            "version": 1,
+            "valueType": "select",
+            "allowedValues": ["proposed", "accepted"]
+        }),
+    ] {
+        let result = run_srs_stdin_in_dir(
+            temp.path(),
+            &["--repo", json_repo_str, "field", "create"],
+            &field.to_string(),
+        );
+        assert_eq!(result["ok"], true, "field create failed: {:?}", result);
+    }
+
+    let record_type = serde_json::json!({
+        "id": type_id,
+        "namespace": "com.semanticops.dogfood",
+        "name": "decision",
+        "version": 1,
+        "description": "A dogfood decision record",
+        "fields": [
+            {
+                "fieldId": title_field_id,
+                "order": 0,
+                "required": true,
+                "displayLabel": "Title"
+            },
+            {
+                "fieldId": status_field_id,
+                "order": 1,
+                "required": false,
+                "displayLabel": "Status"
+            }
+        ],
+        "createdAt": "2026-01-01T00:00:00Z"
+    });
+    let type_created = run_srs_stdin_in_dir(
+        temp.path(),
+        &["--repo", json_repo_str, "type", "create"],
+        &record_type.to_string(),
+    );
+    assert_eq!(
+        type_created["ok"], true,
+        "type create failed: {:?}",
+        type_created
+    );
+
+    let record_payload = serde_json::json!({
+        "fieldValues": [
+            {"fieldId": title_field_id, "value": "Backend abstraction is repo-level"},
+            {"fieldId": status_field_id, "value": "accepted"}
+        ]
+    });
+    let record_created = run_srs_stdin_in_dir(
+        temp.path(),
+        &[
+            "--repo",
+            json_repo_str,
+            "record",
+            "create",
+            "--type",
+            "com.semanticops.dogfood/decision",
+        ],
+        &record_payload.to_string(),
+    );
+    assert_eq!(
+        record_created["ok"], true,
+        "record create failed: {:?}",
+        record_created
+    );
+    let record_id = record_created["payload"]["record"]["instanceId"]
+        .as_str()
+        .unwrap();
+
+    let tag_created = run_srs_stdin_in_dir(
+        temp.path(),
+        &["--repo", json_repo_str, "tag", "create"],
+        &serde_json::json!({
+            "tagKey": "dogfood",
+            "label": "Dogfood",
+            "roles": ["foundation"],
+            "status": "active"
+        })
+        .to_string(),
+    );
+    assert_eq!(tag_created["ok"], true);
+
+    let container_created = run_srs_stdin_in_dir(
+        temp.path(),
+        &["--repo", json_repo_str, "container", "create"],
+        &serde_json::json!({
+            "title": "Dogfood Container",
+            "containerType": "test"
+        })
+        .to_string(),
+    );
+    assert_eq!(container_created["ok"], true);
+    let container_id = container_created["payload"]["container"]["containerId"]
+        .as_str()
+        .unwrap();
+    let member_added = run_srs_in_dir(
+        temp.path(),
+        &[
+            "--repo",
+            json_repo_str,
+            "container",
+            "members",
+            "add",
+            container_id,
+            record_id,
+        ],
+    );
+    assert_eq!(member_added["ok"], true);
+
+    let relation_list = run_srs_in_dir(temp.path(), &["--repo", json_repo_str, "relation", "list"]);
+    assert_eq!(relation_list["ok"], true);
+    assert!(relation_list["payload"]["relations"].is_array());
+
+    let fields = run_srs_in_dir(temp.path(), &["--repo", json_repo_str, "field", "list"]);
+    assert_eq!(fields["ok"], true);
+    assert_eq!(fields["payload"]["fields"].as_array().unwrap().len(), 2);
+    let types = run_srs_in_dir(temp.path(), &["--repo", json_repo_str, "type", "list"]);
+    assert_eq!(types["ok"], true);
+    assert_eq!(types["payload"]["types"].as_array().unwrap().len(), 1);
+    let records = run_srs_in_dir(temp.path(), &["--repo", json_repo_str, "record", "list"]);
+    assert_eq!(records["ok"], true);
+    assert_eq!(records["payload"]["records"].as_array().unwrap().len(), 1);
+
+    let copied_to_files = run_srs_in_dir(
+        temp.path(),
+        &[
+            "repo",
+            "copy",
+            "--from",
+            json_repo_str,
+            "--to",
+            file_repo_str,
+        ],
+    );
+    assert_eq!(copied_to_files["ok"], true);
+    assert!(file_repo.join("manifest.json").is_file());
+    assert!(file_repo.join("package/package.json").is_file());
+
+    let copied_back_to_json = run_srs_in_dir(
+        temp.path(),
+        &[
+            "repo",
+            "copy",
+            "--from",
+            file_repo_str,
+            "--to",
+            roundtrip_json_str,
+        ],
+    );
+    assert_eq!(copied_back_to_json["ok"], true);
+    assert!(roundtrip_json.is_file());
+
+    let validate = run_srs_in_dir(
+        temp.path(),
+        &["--repo", roundtrip_json_str, "repo", "validate"],
+    );
+    assert_eq!(validate["ok"], true);
+    let roundtrip_fields = run_srs_in_dir(
+        temp.path(),
+        &["--repo", roundtrip_json_str, "field", "list"],
+    );
+    assert_eq!(
+        roundtrip_fields["payload"]["fields"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    let roundtrip_types =
+        run_srs_in_dir(temp.path(), &["--repo", roundtrip_json_str, "type", "list"]);
+    assert_eq!(
+        roundtrip_types["payload"]["types"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    let roundtrip_records = run_srs_in_dir(
+        temp.path(),
+        &["--repo", roundtrip_json_str, "record", "list"],
+    );
+    assert_eq!(
+        roundtrip_records["payload"]["records"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
 }
 
 #[test]

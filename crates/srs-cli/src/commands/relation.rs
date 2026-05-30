@@ -1,4 +1,4 @@
-use crate::commands::{CliContext, RelationCommand};
+use crate::commands::{with_store, CliContext, RelationCommand};
 use crate::output;
 use anyhow::Result;
 use serde_json::json;
@@ -8,7 +8,6 @@ use srs_repository::relation_service::{
     create_relation, delete_relation, get_relation_by_id, list_relations, GetRelationResult,
     ListRelationsFilter,
 };
-use srs_repository::{FileStore, RepositoryStore};
 use std::io::{self, Read};
 
 pub fn dispatch(ctx: CliContext, cmd: RelationCommand) -> Result<String> {
@@ -36,10 +35,9 @@ fn cmd_relation_list(
         target,
         relation_type,
     };
-    let store = FileStore::new(&ctx.repo);
-    let summaries = list_relations(&store, filter)?;
+    let summaries = with_store(&ctx, |store| Ok(list_relations(store, filter)?))?;
     let summaries = if let Some(ref cid) = ctx.container_id {
-        let members = list_members(&store, cid)?;
+        let members = with_store(&ctx, |store| Ok(list_members(store, cid)?))?;
         summaries
             .into_iter()
             .filter(|s| {
@@ -70,8 +68,7 @@ fn cmd_relation_list(
 }
 
 fn cmd_relation_get(ctx: CliContext, id: String) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
-    match get_relation_by_id(&store, &id)? {
+    match with_store(&ctx, |store| Ok(get_relation_by_id(store, &id)?))? {
         GetRelationResult::Found(relation) => {
             Ok(output::ok("relation get", json!({ "relation": relation })))
         }
@@ -96,10 +93,11 @@ fn cmd_relation_create(ctx: CliContext) -> Result<String> {
         }
     };
 
-    let store = FileStore::new(&ctx.repo);
-    let package = store.load_package()?;
-    let defs = package.relation_types();
-    match create_relation(&store, relation, defs) {
+    match with_store(&ctx, |store| {
+        let package = store.load_package()?;
+        let defs = package.relation_types();
+        Ok(create_relation(store, relation, defs)?)
+    }) {
         Ok(result) => Ok(output::ok(
             "relation create",
             json!({ "relation": result.relation }),
@@ -109,8 +107,7 @@ fn cmd_relation_create(ctx: CliContext) -> Result<String> {
 }
 
 fn cmd_relation_delete(ctx: CliContext, id: String) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
-    match delete_relation(&store, &id) {
+    match with_store(&ctx, |store| Ok(delete_relation(store, &id)?)) {
         Ok(result) => Ok(output::ok(
             "relation delete",
             json!({

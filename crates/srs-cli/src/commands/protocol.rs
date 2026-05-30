@@ -1,4 +1,4 @@
-use crate::commands::{CliContext, ProtocolCommand};
+use crate::commands::{with_store, CliContext, ProtocolCommand};
 use crate::output;
 use anyhow::Result;
 use serde_json::json;
@@ -9,7 +9,6 @@ use srs_repository::protocol_service::{
     GetProtocolResult,
 };
 use srs_repository::record_store::create_record;
-use srs_repository::FileStore;
 use std::io::{self, Read};
 
 pub fn dispatch(ctx: CliContext, cmd: ProtocolCommand) -> Result<String> {
@@ -24,8 +23,7 @@ pub fn dispatch(ctx: CliContext, cmd: ProtocolCommand) -> Result<String> {
 }
 
 fn cmd_protocol_list(ctx: CliContext) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
-    let protocols = list_protocols(&store)?;
+    let protocols = with_store(&ctx, |store| Ok(list_protocols(store)?))?;
 
     let summaries: Vec<serde_json::Value> = protocols
         .into_iter()
@@ -48,8 +46,7 @@ fn cmd_protocol_list(ctx: CliContext) -> Result<String> {
 }
 
 fn cmd_protocol_get(ctx: CliContext, id: String) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
-    match get_protocol_by_id(&store, &id)? {
+    match with_store(&ctx, |store| Ok(get_protocol_by_id(store, &id)?))? {
         GetProtocolResult::Found {
             instance_id,
             protocol,
@@ -74,16 +71,17 @@ fn cmd_protocol_get(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_protocol_stages(ctx: CliContext, id: String) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
-    let stages = match list_protocol_stages(&store, &id) {
+    let stages = match with_store(&ctx, |store| Ok(list_protocol_stages(store, &id)?)) {
         Ok(stages) => stages,
-        Err(RepositoryError::NotFound { .. }) => {
-            return Ok(output::err(
-                "protocol stages",
-                vec![format!("Protocol '{}' not found", id)],
-            ));
+        Err(e) => {
+            if let Some(RepositoryError::NotFound { .. }) = e.downcast_ref::<RepositoryError>() {
+                return Ok(output::err(
+                    "protocol stages",
+                    vec![format!("Protocol '{}' not found", id)],
+                ));
+            }
+            return Err(e);
         }
-        Err(e) => return Err(e.into()),
     };
 
     let stages_json: Vec<serde_json::Value> = stages
@@ -105,16 +103,17 @@ fn cmd_protocol_stages(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_protocol_validate(ctx: CliContext, id: String) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
-    let result = match validate_protocol_definition(&store, &id) {
+    let result = match with_store(&ctx, |store| Ok(validate_protocol_definition(store, &id)?)) {
         Ok(result) => result,
-        Err(RepositoryError::NotFound { .. }) => {
-            return Ok(output::err(
-                "protocol validate",
-                vec![format!("Protocol '{}' not found", id)],
-            ));
+        Err(e) => {
+            if let Some(RepositoryError::NotFound { .. }) = e.downcast_ref::<RepositoryError>() {
+                return Ok(output::err(
+                    "protocol validate",
+                    vec![format!("Protocol '{}' not found", id)],
+                ));
+            }
+            return Err(e);
         }
-        Err(e) => return Err(e.into()),
     };
 
     Ok(output::ok(
@@ -128,8 +127,7 @@ fn cmd_protocol_validate(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_protocol_export(ctx: CliContext, id: String) -> Result<String> {
-    let store = FileStore::new(&ctx.repo);
-    match get_protocol_by_id(&store, &id)? {
+    match with_store(&ctx, |store| Ok(get_protocol_by_id(store, &id)?))? {
         GetProtocolResult::Found { protocol, .. } => {
             // Export as a portable JSON definition (just the protocol struct)
             Ok(output::ok(
@@ -253,8 +251,15 @@ fn cmd_protocol_import(ctx: CliContext) -> Result<String> {
     }
 
     // Create the protocol record
-    let store = FileStore::new(&ctx.repo);
-    let record = create_record(&store, "meta.protocol", 1, field_values, "package/records")?;
+    let record = with_store(&ctx, |store| {
+        Ok(create_record(
+            store,
+            "meta.protocol",
+            1,
+            field_values,
+            "package/records",
+        )?)
+    })?;
 
     Ok(output::ok("protocol import", json!({ "protocol": record })))
 }
