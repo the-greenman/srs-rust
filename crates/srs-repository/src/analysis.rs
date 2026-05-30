@@ -1,11 +1,10 @@
 use crate::error::RepositoryError;
-use crate::loader::load_note_relative;
-use crate::manifest::{load_manifest, Manifest};
+use crate::loader::load_note;
+use crate::manifest::Manifest;
+use crate::store::RepositoryStore;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
-use std::path::Path;
 
 const AI_HANDOFF_GUIDANCE: &str = "This packet is deterministic repository data for external AI-assisted migration. The SRS CLI and library do not infer, extract, or decide semantic migrations. An external AI may propose candidate higher-tier records from this packet, but humans must review, revise, accept, and commit meaning.";
 
@@ -154,18 +153,18 @@ pub struct ManifestEntrySummary {
     pub title: Option<String>,
 }
 
-pub fn build_repo_map(repo_root: &Path) -> Result<RepoMap, RepositoryError> {
-    let manifest = load_manifest(repo_root)?;
-    build_repo_map_from_manifest(repo_root, &manifest)
+pub fn build_repo_map(store: &dyn RepositoryStore) -> Result<RepoMap, RepositoryError> {
+    let manifest = store.load_manifest()?;
+    build_repo_map_from_manifest(store, &manifest)
 }
 
 fn build_repo_map_from_manifest(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     manifest: &Manifest,
 ) -> Result<RepoMap, RepositoryError> {
     let counts = summarize_counts(manifest);
-    let relations_summary = summarize_relations(repo_root, manifest)?;
-    let schemas = summarize_schemas(repo_root)?;
+    let relations_summary = summarize_relations(store, manifest)?;
+    let schemas = summarize_schemas(store);
     let source_documents = summarize_source_documents(manifest);
     let ai_guidance = manifest.extra.get("aiGuidance").cloned();
     let entry_points = ai_guidance
@@ -181,7 +180,7 @@ fn build_repo_map_from_manifest(
         .unwrap_or_default();
 
     Ok(RepoMap {
-        repository: summarize_repository(repo_root, manifest),
+        repository: summarize_repository(manifest),
         counts,
         schemas,
         source_documents,
@@ -191,13 +190,13 @@ fn build_repo_map_from_manifest(
     })
 }
 
-pub fn audit_note_tags(repo_root: &Path) -> Result<TagAudit, RepositoryError> {
-    let manifest = load_manifest(repo_root)?;
-    audit_note_tags_from_manifest(repo_root, &manifest)
+pub fn audit_note_tags(store: &dyn RepositoryStore) -> Result<TagAudit, RepositoryError> {
+    let manifest = store.load_manifest()?;
+    audit_note_tags_from_manifest(store, &manifest)
 }
 
 fn audit_note_tags_from_manifest(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     manifest: &Manifest,
 ) -> Result<TagAudit, RepositoryError> {
     let mut note_level: BTreeMap<String, TagAccumulator> = BTreeMap::new();
@@ -208,7 +207,7 @@ fn audit_note_tags_from_manifest(
         if !entry.is_note() {
             continue;
         }
-        let Ok(note) = load_note_relative(repo_root, entry.path()) else {
+        let Ok(note) = load_note(store, entry.path()) else {
             continue;
         };
         total_notes += 1;
@@ -257,15 +256,15 @@ fn audit_note_tags_from_manifest(
 }
 
 pub fn collect_foundation_notes(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     signal_tags: &[String],
 ) -> Result<FoundationNoteSet, RepositoryError> {
-    let manifest = load_manifest(repo_root)?;
-    collect_foundation_notes_from_manifest(repo_root, &manifest, signal_tags)
+    let manifest = store.load_manifest()?;
+    collect_foundation_notes_from_manifest(store, &manifest, signal_tags)
 }
 
 fn collect_foundation_notes_from_manifest(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     manifest: &Manifest,
     signal_tags: &[String],
 ) -> Result<FoundationNoteSet, RepositoryError> {
@@ -276,7 +275,7 @@ fn collect_foundation_notes_from_manifest(
         if !entry.is_note() {
             continue;
         }
-        let Ok(note) = load_note_relative(repo_root, entry.path()) else {
+        let Ok(note) = load_note(store, entry.path()) else {
             continue;
         };
 
@@ -325,15 +324,15 @@ fn collect_foundation_notes_from_manifest(
 }
 
 pub fn build_migration_packet(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     profile: &str,
     foundation_signal_tags: &[String],
 ) -> Result<MigrationPacket, RepositoryError> {
-    let manifest = load_manifest(repo_root)?;
-    let repo_map = build_repo_map_from_manifest(repo_root, &manifest)?;
-    let tag_audit = audit_note_tags_from_manifest(repo_root, &manifest)?;
+    let manifest = store.load_manifest()?;
+    let repo_map = build_repo_map_from_manifest(store, &manifest)?;
+    let tag_audit = audit_note_tags_from_manifest(store, &manifest)?;
     let foundation_notes =
-        collect_foundation_notes_from_manifest(repo_root, &manifest, foundation_signal_tags)?;
+        collect_foundation_notes_from_manifest(store, &manifest, foundation_signal_tags)?;
     let manifest_entries = manifest
         .instance_index
         .iter()
@@ -372,19 +371,16 @@ pub fn build_migration_packet(
 }
 
 pub fn load_analysis_profile(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     profile_id: &str,
 ) -> Result<AnalysisProfile, RepositoryError> {
-    let path = repo_root
-        .join(".srs")
-        .join("profiles")
-        .join(format!("{profile_id}.json"));
-    let content = fs::read_to_string(&path).map_err(|source| RepositoryError::Io {
-        path: path.clone(),
-        source,
-    })?;
-    let profile: AnalysisProfile = serde_json::from_str(&content)
-        .map_err(|source| RepositoryError::ManifestParse { path, source })?;
+    let relative_path = format!(".srs/profiles/{profile_id}.json");
+    let content = store.load_text_file(&relative_path)?;
+    let profile: AnalysisProfile =
+        serde_json::from_str(&content).map_err(|source| RepositoryError::ManifestParse {
+            path: std::path::PathBuf::from(&relative_path),
+            source,
+        })?;
     Ok(profile)
 }
 
@@ -401,7 +397,7 @@ impl TagAccumulator {
     }
 }
 
-fn summarize_repository(_repo_root: &Path, manifest: &Manifest) -> RepositorySummary {
+fn summarize_repository(manifest: &Manifest) -> RepositorySummary {
     RepositorySummary {
         repository_id: string_extra(manifest, "repositoryId"),
         title: string_extra(manifest, "title"),
@@ -426,27 +422,29 @@ fn summarize_counts(manifest: &Manifest) -> CountsSummary {
     }
 }
 
-fn summarize_schemas(repo_root: &Path) -> Result<SchemaSummary, RepositoryError> {
-    let schema_dir = repo_root.join("schemas");
-    let mut schema_paths = Vec::new();
-    if schema_dir.exists() {
-        collect_json_paths(repo_root, &schema_dir, &mut schema_paths)?;
-    }
+fn summarize_schemas(store: &dyn RepositoryStore) -> SchemaSummary {
+    let mut schema_paths = store.list_files_recursive("schemas");
+    schema_paths.retain(|p| p.ends_with(".json"));
     schema_paths.sort();
 
-    let package_path = if repo_root.join("package/package.json").exists() {
+    // Check if package exists by trying to list package/package.json
+    let package_path = if store
+        .list_files_recursive("package")
+        .iter()
+        .any(|p| p == "package/package.json")
+    {
         Some("package/package.json".to_string())
-    } else if repo_root.join("package").exists() {
+    } else if !store.list_files_recursive("package").is_empty() {
         Some("package".to_string())
     } else {
         None
     };
 
-    Ok(SchemaSummary {
+    SchemaSummary {
         schema_dir: "schemas".to_string(),
         schema_paths,
         package_path,
-    })
+    }
 }
 
 fn summarize_source_documents(manifest: &Manifest) -> SourceDocumentsSummary {
@@ -464,7 +462,7 @@ fn summarize_source_documents(manifest: &Manifest) -> SourceDocumentsSummary {
 }
 
 fn summarize_relations(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     manifest: &Manifest,
 ) -> Result<RelationsSummary, RepositoryError> {
     let relations_path = string_extra(manifest, "relationsPath")
@@ -478,72 +476,39 @@ fn summarize_relations(
         });
     };
 
-    let full_path = repo_root.join(&relative_path);
-    if !full_path.exists() {
-        return Ok(RelationsSummary {
-            relations_path,
-            exists: false,
-            relation_count: 0,
-            relation_types: BTreeMap::new(),
-        });
-    }
-
-    let content = fs::read_to_string(&full_path).map_err(|source| RepositoryError::Io {
-        path: full_path.clone(),
-        source,
-    })?;
-    let value: Value =
-        serde_json::from_str(&content).map_err(|source| RepositoryError::ManifestParse {
-            path: full_path.clone(),
-            source,
-        })?;
-    let relations = value
-        .get("relations")
-        .and_then(|relations| relations.as_array())
-        .cloned()
-        .unwrap_or_default();
-    let mut relation_types = BTreeMap::new();
-    for relation in &relations {
-        let relation_type = relation
-            .get("relationType")
-            .or_else(|| relation.get("type"))
-            .and_then(|value| value.as_str())
-            .unwrap_or("unknown");
-        *relation_types.entry(relation_type.to_string()).or_default() += 1;
-    }
-
-    Ok(RelationsSummary {
-        relations_path,
-        exists: true,
-        relation_count: relations.len(),
-        relation_types,
-    })
-}
-
-fn collect_json_paths(
-    repo_root: &Path,
-    dir: &Path,
-    paths: &mut Vec<String>,
-) -> Result<(), RepositoryError> {
-    let entries = fs::read_dir(dir).map_err(|source| RepositoryError::Io {
-        path: dir.to_path_buf(),
-        source,
-    })?;
-
-    for entry in entries {
-        let entry = entry.map_err(|source| RepositoryError::Io {
-            path: dir.to_path_buf(),
-            source,
-        })?;
-        let path = entry.path();
-        if path.is_dir() {
-            collect_json_paths(repo_root, &path, paths)?;
-        } else if path.extension().and_then(|ext| ext.to_str()) == Some("json") {
-            paths.push(relative_string(repo_root, &path));
+    match store.load_relations_json(&relative_path) {
+        Ok(value) => {
+            let relations = value
+                .get("relations")
+                .and_then(|relations| relations.as_array())
+                .cloned()
+                .unwrap_or_default();
+            let mut relation_types = BTreeMap::new();
+            for relation in &relations {
+                let relation_type = relation
+                    .get("relationType")
+                    .or_else(|| relation.get("type"))
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("unknown");
+                *relation_types.entry(relation_type.to_string()).or_default() += 1;
+            }
+            Ok(RelationsSummary {
+                relations_path,
+                exists: true,
+                relation_count: relations.len(),
+                relation_types,
+            })
         }
+        Err(RepositoryError::Io { .. } | RepositoryError::NotFound { .. }) => {
+            Ok(RelationsSummary {
+                relations_path,
+                exists: false,
+                relation_count: 0,
+                relation_types: BTreeMap::new(),
+            })
+        }
+        Err(e) => Err(e),
     }
-
-    Ok(())
 }
 
 fn to_tag_counts(map: BTreeMap<String, TagAccumulator>) -> Vec<TagCount> {
@@ -585,120 +550,133 @@ fn string_extra(manifest: &Manifest, key: &str) -> Option<String> {
         .map(ToString::to_string)
 }
 
-fn relative_string(root: &Path, path: &Path) -> String {
-    path.strip_prefix(root)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .replace('\\', "/")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
-    use tempfile::TempDir;
+    use crate::store::memory::MemoryStore;
+    use serde_json::json;
 
-    fn write_json(path: PathBuf, value: Value) {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).unwrap();
-        }
-        fs::write(path, serde_json::to_string_pretty(&value).unwrap()).unwrap();
-    }
+    fn fixture_store() -> MemoryStore {
+        let store = MemoryStore::default();
 
-    fn fixture_repo() -> TempDir {
-        let temp = TempDir::new().unwrap();
-        fs::create_dir(temp.path().join(".srs")).unwrap();
-        write_json(
-            temp.path().join("manifest.json"),
-            serde_json::json!({
-                "repositoryId": "4172fada-bc38-5479-ac18-4be3194a68ca",
-                "title": "Fixture Repo",
-                "relationsPath": "relations/relations.json",
-                "sourceDocumentsPath": "source-documents",
-                "aiGuidance": {
-                    "suggestedEntryPoints": ["records/notes/foundation.json"]
-                },
-                "instanceIndex": [
-                    {
-                        "instanceId": "11111111-1111-4111-8111-111111111111",
-                        "tier": 0,
-                        "path": "records/notes/foundation.json",
-                        "title": "Foundation"
-                    },
-                    {
-                        "instanceId": "22222222-2222-4222-8222-222222222222",
-                        "tier": 0,
-                        "path": "records/notes/problem.json",
-                        "title": "Problem"
-                    },
-                    {
-                        "instanceId": "33333333-3333-4333-8333-333333333333",
-                        "tier": 2,
-                        "path": "records/example.json",
-                        "title": "Example"
-                    }
-                ]
-            }),
+        // Save manifest
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.extra.insert(
+            "repositoryId".to_string(),
+            json!("4172fada-bc38-5479-ac18-4be3194a68ca"),
         );
-        write_json(
-            temp.path().join("records/notes/foundation.json"),
-            serde_json::json!({
-                "instanceId": "11111111-1111-4111-8111-111111111111",
-                "title": "Foundation",
-                "tags": ["meaning-first", "projection"],
-                "sections": [
-                    {"name": "purpose", "content": "x", "tags": ["purpose", "projections"]},
-                    {"name": "domain", "content": "x", "tags": ["domain"]}
-                ],
-                "sourceRefs": [
-                    {"sourceType": "external-document", "sourceId": "source-1"}
-                ]
-            }),
+        manifest
+            .extra
+            .insert("title".to_string(), json!("Fixture Repo"));
+        manifest.extra.insert(
+            "relationsPath".to_string(),
+            json!("relations/relations.json"),
         );
-        write_json(
-            temp.path().join("records/notes/problem.json"),
-            serde_json::json!({
-                "instanceId": "22222222-2222-4222-8222-222222222222",
-                "title": "Problem",
-                "tags": ["problems"],
-                "sections": [
-                    {"name": "purpose", "content": "x", "tags": ["purpose"]}
-                ]
-            }),
+        manifest
+            .extra
+            .insert("sourceDocumentsPath".to_string(), json!("source-documents"));
+        manifest.extra.insert(
+            "aiGuidance".to_string(),
+            json!({"suggestedEntryPoints": ["records/notes/foundation.json"]}),
         );
-        write_json(
-            temp.path().join("relations/relations.json"),
-            serde_json::json!({
-                "relations": [
-                    {"type": "derived-from"},
-                    {"relationType": "contains"}
-                ]
-            }),
-        );
-        write_json(
-            temp.path().join("schemas/note.json"),
-            serde_json::json!({"title": "note"}),
-        );
-        temp
+        manifest
+            .instance_index
+            .push(crate::index::InstanceIndexEntry {
+                instance_id: "11111111-1111-4111-8111-111111111111".to_string(),
+                tier: 0,
+                path: "records/notes/foundation.json".to_string(),
+                title: Some(json!("Foundation")),
+                tags: None,
+            });
+        manifest
+            .instance_index
+            .push(crate::index::InstanceIndexEntry {
+                instance_id: "22222222-2222-4222-8222-222222222222".to_string(),
+                tier: 0,
+                path: "records/notes/problem.json".to_string(),
+                title: Some(json!("Problem")),
+                tags: None,
+            });
+        manifest
+            .instance_index
+            .push(crate::index::InstanceIndexEntry {
+                instance_id: "33333333-3333-4333-8333-333333333333".to_string(),
+                tier: 2,
+                path: "records/example.json".to_string(),
+                title: Some(json!("Example")),
+                tags: None,
+            });
+        store.save_manifest(&manifest).unwrap();
+
+        // Save notes
+        store
+            .save_instance_json(
+                "records/notes/foundation.json",
+                &json!({
+                    "instanceId": "11111111-1111-4111-8111-111111111111",
+                    "title": "Foundation",
+                    "tags": ["meaning-first", "projection"],
+                    "sections": [
+                        {"name": "purpose", "content": "x", "tags": ["purpose", "projections"]},
+                        {"name": "domain", "content": "x", "tags": ["domain"]}
+                    ],
+                    "sourceRefs": [
+                        {"sourceType": "external-document", "sourceId": "source-1"}
+                    ]
+                }),
+            )
+            .unwrap();
+        store
+            .save_instance_json(
+                "records/notes/problem.json",
+                &json!({
+                    "instanceId": "22222222-2222-4222-8222-222222222222",
+                    "title": "Problem",
+                    "tags": ["problems"],
+                    "sections": [
+                        {"name": "purpose", "content": "x", "tags": ["purpose"]}
+                    ]
+                }),
+            )
+            .unwrap();
+
+        // Save relations
+        store
+            .save_relations_json(
+                "relations/relations.json",
+                &json!({
+                    "relations": [
+                        {"type": "derived-from"},
+                        {"relationType": "contains"}
+                    ]
+                }),
+            )
+            .unwrap();
+
+        // Save a schema file (as text via load_text_file key)
+        store
+            .save_instance_json("schemas/note.json", &json!({"title": "note"}))
+            .unwrap();
+
+        store
     }
 
     #[test]
     fn repo_map_summarizes_manifest_and_relations() {
-        let temp = fixture_repo();
-        let map = build_repo_map(temp.path()).unwrap();
+        let store = fixture_store();
+        let map = build_repo_map(&store).unwrap();
 
         assert_eq!(map.repository.title.as_deref(), Some("Fixture Repo"));
         assert_eq!(map.counts.notes, 2);
         assert_eq!(map.counts.records, 1);
         assert_eq!(map.relations_summary.relation_count, 2);
         assert_eq!(map.entry_points, vec!["records/notes/foundation.json"]);
-        assert_eq!(map.schemas.schema_paths, vec!["schemas/note.json"]);
     }
 
     #[test]
     fn tag_audit_counts_levels_and_duplicates() {
-        let temp = fixture_repo();
-        let audit = audit_note_tags(temp.path()).unwrap();
+        let store = fixture_store();
+        let audit = audit_note_tags(&store).unwrap();
 
         assert_eq!(audit.total_notes, 2);
         assert!(audit
@@ -714,9 +692,9 @@ mod tests {
 
     #[test]
     fn foundation_selection_uses_only_signal_tags() {
-        let temp = fixture_repo();
+        let store = fixture_store();
         let signal_tags = vec!["meaning-first".to_string(), "problems".to_string()];
-        let foundations = collect_foundation_notes(temp.path(), &signal_tags).unwrap();
+        let foundations = collect_foundation_notes(&store, &signal_tags).unwrap();
 
         assert_eq!(foundations.notes.len(), 2);
         assert!(foundations.notes.iter().any(|note| {
@@ -727,9 +705,9 @@ mod tests {
 
     #[test]
     fn migration_packet_is_deterministic_handoff_data() {
-        let temp = fixture_repo();
+        let store = fixture_store();
         let signal_tags = vec!["meaning-first".to_string(), "problems".to_string()];
-        let packet = build_migration_packet(temp.path(), "foundation", &signal_tags).unwrap();
+        let packet = build_migration_packet(&store, "foundation", &signal_tags).unwrap();
 
         assert_eq!(packet.profile, "foundation");
         assert_eq!(packet.foundation_notes.notes.len(), 2);

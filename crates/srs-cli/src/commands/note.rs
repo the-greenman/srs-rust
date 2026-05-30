@@ -194,14 +194,15 @@ fn cmd_note_delete(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_note_audit_tags(ctx: CliContext) -> Result<String> {
-    let audit = audit_note_tags(&ctx.repo)?;
+    let store = FileStore::new(&ctx.repo);
+    let audit = audit_note_tags(&store)?;
     Ok(output::ok("note audit-tags", json!({ "tagAudit": audit })))
 }
 
 fn cmd_note_foundations(ctx: CliContext) -> Result<String> {
     let store = FileStore::new(&ctx.repo);
     let signal_tags = get_foundation_signal_tags(&store)?;
-    let foundation_notes = collect_foundation_notes(&ctx.repo, &signal_tags)?;
+    let foundation_notes = collect_foundation_notes(&store, &signal_tags)?;
 
     Ok(output::ok(
         "note foundations",

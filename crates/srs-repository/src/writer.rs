@@ -1,7 +1,7 @@
 use crate::error::RepositoryError;
 use crate::index::InstanceIndexEntry;
 use crate::manifest::Manifest;
-use crate::store::{FileStore, RepositoryStore};
+use crate::store::RepositoryStore;
 use srs_core::types::note::Note;
 use srs_core::types::relation::Relation;
 use srs_core::types::tag_definition::TagDefinition;
@@ -143,36 +143,6 @@ pub fn upsert_tag_definition_index_entry(
     } else {
         manifest.instance_index.push(entry);
     }
-}
-
-// ---------------------------------------------------------------------------
-// Compatibility shims — used by Phase D/E modules not yet refactored.
-// Will be removed when those modules are updated.
-// ---------------------------------------------------------------------------
-
-/// Write the manifest back to disk (file-backed compat shim).
-/// The manifest's `root` field determines the file path.
-pub fn write_manifest_compat(manifest: &Manifest) -> Result<(), RepositoryError> {
-    let store = FileStore::new(&manifest.root);
-    store.save_manifest(manifest)
-}
-
-/// Write a TagDefinition to disk at an absolute path (file-backed compat shim).
-/// Temporary — will be replaced when tag_service.rs is refactored in Phase D.
-#[allow(dead_code)]
-pub fn write_tag_definition_path(
-    td: &TagDefinition,
-    path: &std::path::Path,
-) -> Result<(), RepositoryError> {
-    let json = serde_json::to_string_pretty(td).map_err(|e| RepositoryError::Serialize {
-        path: path.to_path_buf(),
-        source: e,
-    })?;
-    // TEMPORARY: direct std::fs — only in compat shim, removed in Phase D
-    std::fs::write(path, json).map_err(|e| RepositoryError::TagDefinitionWrite {
-        path: path.to_path_buf(),
-        source: e,
-    })
 }
 
 #[cfg(test)]

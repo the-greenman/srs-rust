@@ -122,6 +122,13 @@ pub trait RepositoryStore {
 
     // --- Sub-package path validation ---
 
+    /// List all files under `relative_dir` recursively, returning relative paths.
+    /// Returns an empty Vec if the directory does not exist.
+    fn list_files_recursive(&self, relative_dir: &str) -> Vec<String>;
+
+    /// Read a text file at `relative_path` and return its contents.
+    fn load_text_file(&self, relative_path: &str) -> Result<String, RepositoryError>;
+
     /// Verify that `relative_path` (relative to repo root) points to a directory
     /// containing a `package.json`.
     ///
@@ -886,6 +893,20 @@ impl RepositoryStore for FileStore {
         self.ensure_dir(&self.repo_root.join("containers"))
     }
 
+    // --- Generic file access ---
+
+    fn list_files_recursive(&self, relative_dir: &str) -> Vec<String> {
+        let dir = self.abs(relative_dir);
+        let mut result = Vec::new();
+        collect_paths_recursive(&self.repo_root, &dir, &mut result);
+        result
+    }
+
+    fn load_text_file(&self, relative_path: &str) -> Result<String, RepositoryError> {
+        let path = self.abs(relative_path);
+        std::fs::read_to_string(&path).map_err(|source| RepositoryError::Io { path, source })
+    }
+
     // --- Sub-package path validation ---
 
     fn validate_package_ref_path(&self, relative_path: &str) -> Result<(), RepositoryError> {
@@ -918,6 +939,31 @@ impl RepositoryStore for FileStore {
         }
 
         Ok(())
+    }
+}
+
+/// Recursively collect file paths under `dir`, storing relative paths from `root`.
+fn collect_paths_recursive(
+    root: &std::path::Path,
+    dir: &std::path::Path,
+    result: &mut Vec<String>,
+) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_paths_recursive(root, &path, result);
+        } else {
+            let relative = path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            result.push(relative);
+        }
     }
 }
 
@@ -1316,6 +1362,24 @@ pub mod memory {
 
         fn ensure_containers_dir(&self) -> Result<(), RepositoryError> {
             Ok(())
+        }
+
+        fn list_files_recursive(&self, relative_dir: &str) -> Vec<String> {
+            let prefix = format!("{}/", relative_dir.trim_end_matches('/'));
+            self.data
+                .borrow()
+                .keys()
+                .filter(|k| k.starts_with(&prefix))
+                .cloned()
+                .collect()
+        }
+
+        fn load_text_file(&self, relative_path: &str) -> Result<String, RepositoryError> {
+            self.data
+                .borrow()
+                .get(relative_path)
+                .and_then(|v| v.as_str().map(|s| s.to_string()))
+                .ok_or_else(|| not_found(relative_path))
         }
 
         fn validate_package_ref_path(&self, _relative_path: &str) -> Result<(), RepositoryError> {

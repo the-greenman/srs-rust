@@ -1,10 +1,10 @@
 use crate::error::RepositoryError;
-use crate::store::{FileStore, RepositoryStore};
+use crate::store::RepositoryStore;
 use srs_core::types::note::Note;
 use srs_core::types::tag_definition::TagDefinition;
 use srs_core::validation::note::validate_note;
 use srs_core::validation::tag_definition::validate_tag_definition;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Load a Note from the store by relative path, validating after deserialization.
 pub fn load_note(
@@ -39,26 +39,6 @@ pub fn load_tag_definition(
         source: e,
     })?;
     Ok(td)
-}
-
-// ---------------------------------------------------------------------------
-// Compatibility shims — used by Phase D/E modules not yet refactored.
-// These will be removed when those modules are updated to accept &dyn RepositoryStore.
-// ---------------------------------------------------------------------------
-
-/// Load a Note from a relative path within a repo (file-backed compat shim).
-pub fn load_note_relative(repo_root: &Path, relative_path: &str) -> Result<Note, RepositoryError> {
-    let store = FileStore::new(repo_root);
-    load_note(&store, relative_path)
-}
-
-/// Load a TagDefinition from a relative path within a repo (file-backed compat shim).
-pub fn load_tag_definition_relative(
-    repo_root: &Path,
-    relative_path: &str,
-) -> Result<TagDefinition, RepositoryError> {
-    let store = FileStore::new(repo_root);
-    load_tag_definition(&store, relative_path)
 }
 
 #[cfg(test)]

@@ -59,7 +59,8 @@ fn cmd_repo_extensions_disable(ctx: CliContext, extension_id: String) -> Result<
 }
 
 fn cmd_repo_map(ctx: CliContext) -> Result<String> {
-    let repo_map = build_repo_map(&ctx.repo)?;
+    let store = FileStore::new(&ctx.repo);
+    let repo_map = build_repo_map(&store)?;
     Ok(output::ok("repo map", json!({ "repoMap": repo_map })))
 }
 
