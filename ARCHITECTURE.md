@@ -56,6 +56,16 @@ This file is written for humans and AI agents that need to understand the repo q
 - Future SQL-backed adapters may use table storage while preserving the same service API.
 - Ordering constraint: repository lifecycle/portability foundation lands before package-management and container-boundary storage plans.
 
+## Package Boundaries
+
+- A package is a logical definition boundary, not a filesystem directory shape.
+- Services address packages through package IDs/namespaces, not filesystem paths.
+- Raw `package.json` paths and package file index arrays are FileStore implementation details; they must not leak into service API signatures.
+- `load_package()` returns the merged effective view across all declared package boundaries. Services that need the merged view call this.
+- `create_package` registers a new package boundary in the manifest and creates the package skeleton. It must not accept a filesystem path as its primary identifier.
+- Package create/update/delete operations must be callable through `&dyn RepositoryStore` without `std::fs`.
+- A future SQL adapter must be able to implement package boundaries as table rows without changing service APIs.
+
 ## Store Matrix Testing
 
 - Storage-boundary behavior must be validated against multiple concrete stores, not only one adapter.

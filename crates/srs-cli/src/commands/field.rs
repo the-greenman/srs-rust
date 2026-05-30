@@ -4,24 +4,37 @@ use anyhow::Result;
 use serde_json::json;
 use srs_core::types::field::Field;
 use srs_repository::package_service::{
-    create_field, get_field_by_id, list_fields, list_fields_by_namespace, GetFieldResult,
+    create_field, get_field_by_id, list_fields, list_fields_by_namespace, list_fields_by_package,
+    GetFieldResult,
 };
 use std::io::{self, Read};
 
 pub fn dispatch(ctx: CliContext, cmd: FieldCommand) -> Result<String> {
     match cmd {
-        FieldCommand::List { namespace, json: _ } => cmd_field_list(ctx, namespace),
+        FieldCommand::List {
+            namespace,
+            package,
+            json: _,
+        } => cmd_field_list(ctx, namespace, package),
         FieldCommand::Get { id, json: _ } => cmd_field_get(ctx, id),
         FieldCommand::Create { json: _ } => cmd_field_create(ctx),
     }
 }
 
-fn cmd_field_list(ctx: CliContext, namespace: Option<String>) -> Result<String> {
+fn cmd_field_list(
+    ctx: CliContext,
+    namespace: Option<String>,
+    package: Option<String>,
+) -> Result<String> {
     let summaries = with_store(&ctx, |store| {
-        Ok(if let Some(ns) = namespace {
-            list_fields_by_namespace(store, &ns)?
-        } else {
-            list_fields(store)?
+        Ok(match (&namespace, &package) {
+            (Some(ns), None) => list_fields_by_namespace(store, ns)?,
+            (None, Some(pkg)) => list_fields_by_package(store, Some(pkg.as_str()))?,
+            (Some(ns), Some(pkg)) => list_fields_by_package(store, Some(pkg.as_str()))?
+                .into_iter()
+                .filter(|f| f.namespace == *ns)
+                .collect(),
+            (None, None) => list_fields(store)?,
         })
     })?;
 
@@ -33,6 +46,7 @@ fn cmd_field_list(ctx: CliContext, namespace: Option<String>) -> Result<String> 
                 "namespace": s.namespace,
                 "name": s.name,
                 "version": s.version,
+                "sourcePackage": s.source_package,
             })
         })
         .collect();

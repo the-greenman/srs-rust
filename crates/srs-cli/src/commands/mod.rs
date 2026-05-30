@@ -592,6 +592,9 @@ pub enum FieldCommand {
         /// Filter by namespace
         #[arg(long)]
         namespace: Option<String>,
+        /// Filter by package boundary path (omit for primary package, pass path for sub-package)
+        #[arg(long)]
+        package: Option<String>,
         /// Deprecated: JSON output is now the default (no-op)
         #[arg(long, hide = true)]
         json: bool,
@@ -619,6 +622,9 @@ pub enum TypeCommand {
         /// Filter by namespace
         #[arg(long)]
         namespace: Option<String>,
+        /// Filter by package boundary path (omit for primary package, pass path for sub-package)
+        #[arg(long)]
+        package: Option<String>,
         /// Deprecated: JSON output is now the default (no-op)
         #[arg(long, hide = true)]
         json: bool,
@@ -838,8 +844,26 @@ pub enum RenderCommand {
 
 #[derive(Subcommand)]
 pub enum PackageCommand {
-    /// List package refs declared in the manifest
+    /// List package boundaries (primary + declared sub-packages)
     List,
+    /// Create a new sub-package boundary
+    Create {
+        /// Package UUID
+        #[arg(long = "id")]
+        id: String,
+        /// Package namespace (e.g. com.example)
+        #[arg(long)]
+        namespace: String,
+        /// Package name (kebab-case)
+        #[arg(long)]
+        name: String,
+        /// Package version (semver, e.g. 1.0.0)
+        #[arg(long, default_value = "1.0.0")]
+        version: String,
+        /// Boundary path relative to repo root (e.g. package/my-ext)
+        #[arg(long = "path")]
+        boundary_path: String,
+    },
     /// Enable a local sub-package by adding it to manifest packageRefs
     Enable {
         /// Relative path to the sub-package directory (e.g. package/spec-authoring-core)

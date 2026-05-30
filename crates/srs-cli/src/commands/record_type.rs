@@ -4,24 +4,37 @@ use anyhow::Result;
 use serde_json::json;
 use srs_core::types::record_type::RecordType;
 use srs_repository::package_service::{
-    create_type, get_type_by_id_latest, list_types, list_types_by_namespace, GetTypeResult,
+    create_type, get_type_by_id_latest, list_types, list_types_by_namespace, list_types_by_package,
+    GetTypeResult,
 };
 use std::io::{self, Read};
 
 pub fn dispatch(ctx: CliContext, cmd: TypeCommand) -> Result<String> {
     match cmd {
-        TypeCommand::List { namespace, json: _ } => cmd_type_list(ctx, namespace),
+        TypeCommand::List {
+            namespace,
+            package,
+            json: _,
+        } => cmd_type_list(ctx, namespace, package),
         TypeCommand::Get { id, json: _ } => cmd_type_get(ctx, id),
         TypeCommand::Create { json: _ } => cmd_type_create(ctx),
     }
 }
 
-fn cmd_type_list(ctx: CliContext, namespace: Option<String>) -> Result<String> {
+fn cmd_type_list(
+    ctx: CliContext,
+    namespace: Option<String>,
+    package: Option<String>,
+) -> Result<String> {
     let summaries = with_store(&ctx, |store| {
-        Ok(if let Some(ns) = namespace {
-            list_types_by_namespace(store, &ns)?
-        } else {
-            list_types(store)?
+        Ok(match (&namespace, &package) {
+            (Some(ns), None) => list_types_by_namespace(store, ns)?,
+            (None, Some(pkg)) => list_types_by_package(store, Some(pkg.as_str()))?,
+            (Some(ns), Some(pkg)) => list_types_by_package(store, Some(pkg.as_str()))?
+                .into_iter()
+                .filter(|t| t.namespace == *ns)
+                .collect(),
+            (None, None) => list_types(store)?,
         })
     })?;
 
@@ -34,6 +47,7 @@ fn cmd_type_list(ctx: CliContext, namespace: Option<String>) -> Result<String> {
                 "name": s.name,
                 "version": s.version,
                 "fieldCount": s.field_count,
+                "sourcePackage": s.source_package,
             })
         })
         .collect();

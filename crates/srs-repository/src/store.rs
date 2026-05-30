@@ -1125,7 +1125,7 @@ pub mod memory {
             );
             // Update the in-memory package
             store.package.borrow_mut().fields.push(field.clone());
-            // Update package.json index
+            // Update package.json index (paths are package-relative, no "package/" prefix)
             store
                 .data
                 .borrow_mut()
@@ -1138,9 +1138,12 @@ pub mod memory {
                 .as_array_mut()
                 .unwrap()
                 .push(serde_json::json!(filename.clone()));
-            // Store the field data file
+            // Store the field data file at repo-root-relative key ("package/fields/...")
             let field_val = serde_json::to_value(&field).unwrap();
-            store.data.borrow_mut().insert(filename, field_val);
+            store
+                .data
+                .borrow_mut()
+                .insert(format!("package/{filename}"), field_val);
             store
         }
 
@@ -1170,7 +1173,10 @@ pub mod memory {
                 .unwrap()
                 .push(serde_json::json!(filename.clone()));
             let type_val = serde_json::to_value(&record_type).unwrap();
-            store.data.borrow_mut().insert(filename, type_val);
+            store
+                .data
+                .borrow_mut()
+                .insert(format!("package/{filename}"), type_val);
             store
         }
 
@@ -1346,8 +1352,9 @@ pub mod memory {
         }
 
         fn save_field(&self, relative_path: &str, field: &Field) -> Result<(), RepositoryError> {
+            let key = format!("package/{relative_path}");
             let v = serde_json::to_value(field).unwrap();
-            self.data.borrow_mut().insert(relative_path.to_string(), v);
+            self.data.borrow_mut().insert(key, v);
             Ok(())
         }
 
@@ -1356,14 +1363,16 @@ pub mod memory {
             relative_path: &str,
             field: &Field,
         ) -> Result<(), RepositoryError> {
-            if !self.data.borrow().contains_key(relative_path) {
+            let key = format!("package/{relative_path}");
+            if !self.data.borrow().contains_key(&key) {
                 return Err(not_found(relative_path));
             }
             self.save_field(relative_path, field)
         }
 
         fn delete_field_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-            self.data.borrow_mut().remove(relative_path);
+            let key = format!("package/{relative_path}");
+            self.data.borrow_mut().remove(&key);
             Ok(())
         }
 
@@ -1376,8 +1385,9 @@ pub mod memory {
             relative_path: &str,
             record_type: &RecordType,
         ) -> Result<(), RepositoryError> {
+            let key = format!("package/{relative_path}");
             let v = serde_json::to_value(record_type).unwrap();
-            self.data.borrow_mut().insert(relative_path.to_string(), v);
+            self.data.borrow_mut().insert(key, v);
             Ok(())
         }
 
@@ -1386,14 +1396,16 @@ pub mod memory {
             relative_path: &str,
             record_type: &RecordType,
         ) -> Result<(), RepositoryError> {
-            if !self.data.borrow().contains_key(relative_path) {
+            let key = format!("package/{relative_path}");
+            if !self.data.borrow().contains_key(&key) {
                 return Err(not_found(relative_path));
             }
             self.save_type(relative_path, record_type)
         }
 
         fn delete_type_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-            self.data.borrow_mut().remove(relative_path);
+            let key = format!("package/{relative_path}");
+            self.data.borrow_mut().remove(&key);
             Ok(())
         }
 
