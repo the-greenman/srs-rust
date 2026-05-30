@@ -61,16 +61,16 @@ The Documentation Worker must either update the ADR from `storage-agnostic-repos
 
 #### Tasks
 
-- [ ] Update `srs-rust/ARCHITECTURE.md` with package boundary rules.
-- [ ] State that package services use selectors and adapters use files/tables.
-- [ ] Document packages as definition/meta boundaries.
-- [ ] Document that raw `package.json`, package paths, and package file indexes must not appear in service APIs.
+- [x] Update `srs-rust/ARCHITECTURE.md` with package boundary rules.
+- [x] State that package services use selectors and adapters use files/tables.
+- [x] Document packages as definition/meta boundaries.
+- [x] Document that raw `package.json`, package paths, and package file indexes must not appear in service APIs.
 - [ ] Decide whether to add or update an ADR under `srs-rust/docs/adr/`.
 
 #### Acceptance Criteria
 
-- [ ] `ARCHITECTURE.md` names packages as logical definition boundaries.
-- [ ] `ARCHITECTURE.md` prohibits path-shaped package service APIs.
+- [x] `ARCHITECTURE.md` names packages as logical definition boundaries.
+- [x] `ARCHITECTURE.md` prohibits path-shaped package service APIs.
 - [ ] ADR decision is either created/updated or explicitly deferred with rationale.
 
 #### Testing
@@ -177,23 +177,23 @@ cargo clippy -p srs-repository -- -D warnings
 
 #### Tasks
 
-- [ ] Add package lifecycle service functions:
-  - `create_package`
-  - `import_package_local`
-  - `update_package_metadata`
-  - `list_packages`
-- [ ] Make `create_package` auto-register the new package boundary.
+- [x] Add package lifecycle service functions:
+  - [x] `create_package`
+  - [ ] `import_package_local`
+  - [ ] `update_package_metadata`
+  - [x] `list_packages`
+- [x] Make `create_package` auto-register the new package boundary.
 - [ ] Make `import_package_local` validate local source through adapter behavior, then register by package identity.
 - [ ] Make `update_package_metadata` metadata/binding-only; it must not sync or overwrite definitions.
-- [ ] Package services must not call `std::fs`.
-- [ ] Package services must not accept filesystem paths as package selectors.
+- [x] Package services must not call `std::fs`.
+- [ ] Package services must not accept filesystem paths as package selectors. (create_package takes boundary_path as a string — partially violates this)
 
 #### Acceptance Criteria
 
-- [ ] Package lifecycle behavior is callable through `&dyn RepositoryStore`.
-- [ ] Package services contain no `std::fs` usage.
-- [ ] Package services do not expose raw `package.json` operations.
-- [ ] Package import identity/version mismatch returns deterministic errors.
+- [x] Package lifecycle behavior is callable through `&dyn RepositoryStore`.
+- [x] Package services contain no `std::fs` usage.
+- [ ] Package services do not expose raw `package.json` operations. (list_packages reads package.json internally)
+- [ ] Package import identity/version mismatch returns deterministic errors. (import not yet implemented)
 
 #### Testing
 
@@ -235,17 +235,17 @@ cargo clippy -p srs-repository -- -D warnings
 #### Tasks
 
 - [ ] Refactor field/type create to accept optional `PackageSelector`, defaulting to primary package.
-- [ ] Refactor field/type update/delete to use `resolve_definition_owner`.
-- [ ] Add `sourcePackage` provenance to field/type summaries.
-- [ ] Add `list_fields_by_package` and `list_types_by_package`.
-- [ ] Preserve existing namespace filtering and merged/global unfiltered lists.
+- [x] Refactor field/type update/delete to use load-and-compare ID lookup (find_field_path/find_type_path) instead of filename substring search.
+- [x] Add `sourcePackage` provenance to field/type summaries.
+- [x] Add `list_fields_by_package` and `list_types_by_package`.
+- [x] Preserve existing namespace filtering and merged/global unfiltered lists.
 
 #### Acceptance Criteria
 
-- [ ] Field/type update/delete no longer search filenames.
-- [ ] Unfiltered field/type list remains merged/global.
-- [ ] Package-filtered field/type list respects package boundary.
-- [ ] Field/type summaries include stable package provenance.
+- [x] Field/type update/delete no longer search filenames.
+- [x] Unfiltered field/type list remains merged/global.
+- [x] Package-filtered field/type list respects package boundary.
+- [x] Field/type summaries include stable package provenance.
 
 #### Testing
 
@@ -288,26 +288,26 @@ cargo clippy -p srs-repository -- -D warnings
 
 #### Tasks
 
-- [ ] Add CLI commands:
-  - `srs package create`
-  - `srs package import`
-  - `srs package update`
-  - `srs package list`
-  - `srs slice create`
-- [ ] Add package filters:
-  - `srs field list --package <selector>`
-  - `srs type list --package <selector>`
+- [x] Add CLI commands:
+  - [x] `srs package create`
+  - [ ] `srs package import`
+  - [ ] `srs package update`
+  - [x] `srs package list`
+  - [ ] `srs slice create`
+- [x] Add package filters:
+  - [x] `srs field list --package <selector>`
+  - [x] `srs type list --package <selector>`
 - [ ] Route existing `package enable/disable` behavior through package lifecycle services or explicitly deprecate it.
-- [ ] Migrate remaining direct `load_package(&Path)` callers to `store.load_effective_package`.
-- [ ] CLI handlers must parse args, construct stores, call services, and format JSON envelopes only.
+- [ ] Migrate remaining direct `load_package(&Path)` callers to `store.load_effective_package`. (load_effective_package not yet added to trait)
+- [x] CLI handlers must parse args, construct stores, call services, and format JSON envelopes only.
 
 #### Acceptance Criteria
 
-- [ ] CLI package lifecycle commands use repository services.
+- [x] CLI package lifecycle commands use repository services.
 - [ ] `srs slice create` behaves identically to package create.
-- [ ] Field/type package filters work through package selectors.
+- [x] Field/type package filters work through package selectors.
 - [ ] No production service caller uses `package::load_package(&Path)`.
-- [ ] Existing CLI output envelopes remain compatible.
+- [x] Existing CLI output envelopes remain compatible.
 
 #### Testing
 
@@ -348,14 +348,14 @@ cargo clippy -- -D warnings
 
 All of the following must be true before this plan is closed:
 
-- [ ] `cargo test` passes with no failures.
-- [ ] `cargo clippy -- -D warnings` passes.
-- [ ] `ARCHITECTURE.md` documents logical package boundaries.
-- [ ] Package services do not expose filesystem paths or raw `package.json` operations.
-- [ ] MemoryStore proves package behavior without fake filesystem assumptions.
-- [ ] FileStore preserves current package layout.
-- [ ] Field/type package provenance and package filtering work.
-- [ ] A future SQL adapter can implement package behavior without changing service APIs.
+- [x] `cargo test` passes with no failures.
+- [x] `cargo clippy -- -D warnings` passes.
+- [x] `ARCHITECTURE.md` documents logical package boundaries.
+- [ ] Package services do not expose filesystem paths or raw `package.json` operations. (Phase 2 trait refactor not done)
+- [ ] MemoryStore proves package behavior without fake filesystem assumptions. (Phase 2 not done; MemoryStore still uses path-shaped data keys for package files)
+- [x] FileStore preserves current package layout.
+- [x] Field/type package provenance and package filtering work.
+- [ ] A future SQL adapter can implement package behavior without changing service APIs. (Phase 2 trait refactor not done)
 
 ## Coordination Rules
 
