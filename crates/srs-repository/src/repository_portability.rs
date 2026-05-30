@@ -25,7 +25,9 @@ pub struct SnapshotInstance {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PackageSnapshot {
+pub struct PackageBoundarySnapshot {
+    /// None => primary package at `package/`; Some(path) => sub-package path from manifest packageRefs.
+    pub boundary_path: Option<String>,
     pub metadata: PrimaryPackageMetadata,
     pub fields: Vec<Field>,
     pub record_types: Vec<RecordType>,
@@ -39,17 +41,42 @@ pub struct PackageSnapshot {
 pub struct RepositorySnapshot {
     pub repository: RepositoryMetadata,
     pub declared_extensions: Vec<String>,
-    pub package: PackageSnapshot,
+    pub packages: Vec<PackageBoundarySnapshot>,
     pub instances: Vec<SnapshotInstance>,
     pub containers: Vec<Container>,
     pub relations: Vec<Relation>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawPackageMetadata {
+    id: String,
+    namespace: String,
+    name: String,
+    version: String,
+    #[serde(default)]
+    fields: Vec<String>,
+    #[serde(default)]
+    types: Vec<String>,
+    #[serde(default)]
+    relation_types: Vec<String>,
+    #[serde(default)]
+    views: Vec<String>,
+    #[serde(default)]
+    document_views: Vec<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawPackageRef {
+    mode: String,
+    path: String,
 }
 
 pub fn export_repository_snapshot(
     source: &dyn RepositoryStore,
 ) -> Result<RepositorySnapshot, RepositoryError> {
     let manifest = source.load_manifest()?;
-    let package = source.load_package()?;
 
     let mut instances = Vec::new();
     for entry in &manifest.instance_index {
@@ -79,6 +106,24 @@ pub fn export_repository_snapshot(
         })
         .unwrap_or_default();
 
+    let mut package_boundaries: Vec<Option<String>> = vec![None];
+    let refs: Vec<RawPackageRef> = manifest
+        .extra
+        .get("packageRefs")
+        .cloned()
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default();
+    package_boundaries.extend(
+        refs.into_iter()
+            .filter(|r| r.mode == "local")
+            .map(|r| Some(r.path)),
+    );
+
+    let mut packages = Vec::new();
+    for boundary in package_boundaries {
+        packages.push(export_package_boundary(source, boundary)?);
+    }
+
     Ok(RepositorySnapshot {
         repository: RepositoryMetadata {
             repository_id: manifest
@@ -101,19 +146,7 @@ pub fn export_repository_snapshot(
                 .to_string(),
         },
         declared_extensions,
-        package: PackageSnapshot {
-            metadata: PrimaryPackageMetadata {
-                id: package.id,
-                namespace: package.namespace,
-                name: package.name,
-                version: package.version,
-            },
-            fields: package.fields,
-            record_types: package.record_types,
-            relation_type_definitions: package.relation_type_definitions,
-            views: package.views,
-            document_views: package.document_views,
-        },
+        packages,
         instances,
         containers,
         relations: load_relations(source)?,
@@ -124,18 +157,22 @@ pub fn import_repository_snapshot(
     target: &dyn RepositoryStore,
     snapshot: &RepositorySnapshot,
 ) -> Result<(), RepositoryError> {
-    if target.repository_exists()? {
-        return Err(RepositoryError::RepositoryNotEmpty {
-            path: target.repository_root(),
-        });
-    }
+    ensure_target_empty(target)?;
+
+    let primary = snapshot
+        .packages
+        .iter()
+        .find(|p| p.boundary_path.is_none())
+        .ok_or_else(|| RepositoryError::InvalidSnapshotData {
+            message: "snapshot missing primary package boundary".to_string(),
+        })?;
 
     target.initialize_repository(&InitializeRepositoryInput {
         repository: snapshot.repository.clone(),
-        primary_package: snapshot.package.metadata.clone(),
+        primary_package: primary.metadata.clone(),
     })?;
 
-    import_package(target, &snapshot.package)?;
+    import_package_boundary(target, primary)?;
 
     let mut manifest = target.load_manifest()?;
     if !snapshot.declared_extensions.is_empty() {
@@ -148,6 +185,24 @@ pub fn import_repository_snapshot(
                     .map(|e| serde_json::Value::String(e.clone()))
                     .collect(),
             ),
+        );
+    }
+
+    let mut package_refs = Vec::new();
+    for package in snapshot
+        .packages
+        .iter()
+        .filter(|p| p.boundary_path.is_some())
+    {
+        import_package_boundary(target, package)?;
+        if let Some(path) = &package.boundary_path {
+            package_refs.push(serde_json::json!({ "mode": "local", "path": path }));
+        }
+    }
+    if !package_refs.is_empty() {
+        manifest.extra.insert(
+            "packageRefs".to_string(),
+            serde_json::Value::Array(package_refs),
         );
     }
 
@@ -194,71 +249,210 @@ pub fn copy_repository(
     import_repository_snapshot(target, &snapshot)
 }
 
-fn import_package(
-    target: &dyn RepositoryStore,
-    package: &PackageSnapshot,
-) -> Result<(), RepositoryError> {
-    let mut package_json = target.load_package_json()?;
-
-    target.ensure_fields_dir()?;
-    let mut fields = Vec::new();
-    for field in &package.fields {
-        let path = format!("fields/{}-{}.json", slugify(&field.name), &field.id[..8]);
-        target.save_field(&path, field)?;
-        fields.push(serde_json::Value::String(path));
+fn export_package_boundary(
+    source: &dyn RepositoryStore,
+    boundary_path: Option<String>,
+) -> Result<PackageBoundarySnapshot, RepositoryError> {
+    if boundary_path.is_none() {
+        let pkg = source.load_package()?;
+        return Ok(PackageBoundarySnapshot {
+            boundary_path: None,
+            metadata: PrimaryPackageMetadata {
+                id: pkg.id,
+                namespace: pkg.namespace,
+                name: pkg.name,
+                version: pkg.version,
+            },
+            fields: pkg.fields,
+            record_types: pkg.record_types,
+            relation_type_definitions: pkg.relation_type_definitions,
+            views: pkg.views,
+            document_views: pkg.document_views,
+        });
     }
-    package_json["fields"] = serde_json::Value::Array(fields);
 
-    target.ensure_types_dir()?;
-    let mut types = Vec::new();
+    let package_prefix = match &boundary_path {
+        Some(p) => p.clone(),
+        None => "package".to_string(),
+    };
+    let package_json_path = format!("{package_prefix}/package.json");
+    let package_json: serde_json::Value =
+        serde_json::from_str(&source.load_text_file(&package_json_path)?).map_err(|source| {
+            RepositoryError::PackageLoad {
+                path: std::path::PathBuf::from(&package_json_path),
+                source,
+            }
+        })?;
+    let metadata: RawPackageMetadata =
+        serde_json::from_value(package_json.clone()).map_err(|source| {
+            RepositoryError::PackageLoad {
+                path: std::path::PathBuf::from(&package_json_path),
+                source,
+            }
+        })?;
+
+    let fields = metadata
+        .fields
+        .iter()
+        .map(|p| load_typed_json::<Field>(source, &package_prefix, p))
+        .collect::<Result<Vec<_>, _>>()?;
+    let record_types = metadata
+        .types
+        .iter()
+        .map(|p| load_typed_json::<RecordType>(source, &package_prefix, p))
+        .collect::<Result<Vec<_>, _>>()?;
+    let relation_type_definitions = metadata
+        .relation_types
+        .iter()
+        .map(|p| load_typed_json::<RelationTypeDefinition>(source, &package_prefix, p))
+        .collect::<Result<Vec<_>, _>>()?;
+    let views = metadata
+        .views
+        .iter()
+        .map(|p| load_typed_json::<View>(source, &package_prefix, p))
+        .collect::<Result<Vec<_>, _>>()?;
+    let document_views = metadata
+        .document_views
+        .iter()
+        .map(|p| load_typed_json::<DocumentView>(source, &package_prefix, p))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(PackageBoundarySnapshot {
+        boundary_path,
+        metadata: PrimaryPackageMetadata {
+            id: metadata.id,
+            namespace: metadata.namespace,
+            name: metadata.name,
+            version: metadata.version,
+        },
+        fields,
+        record_types,
+        relation_type_definitions,
+        views,
+        document_views,
+    })
+}
+
+fn import_package_boundary(
+    target: &dyn RepositoryStore,
+    package: &PackageBoundarySnapshot,
+) -> Result<(), RepositoryError> {
+    let base_prefix = package
+        .boundary_path
+        .as_ref()
+        .map(|p| p.to_string())
+        .unwrap_or_else(|| "package".to_string());
+
+    ensure_repo_dir(target, &base_prefix)?;
+
+    let mut field_paths = Vec::new();
+    for field in &package.fields {
+        let path = format!(
+            "fields/{}-{}.json",
+            slugify(&field.name),
+            id_prefix(&field.id)?
+        );
+        write_repo_json(target, &base_prefix, &path, field)?;
+        field_paths.push(path);
+    }
+
+    let mut type_paths = Vec::new();
     for record_type in &package.record_types {
         let path = format!(
             "types/{}-{}.json",
             slugify(&record_type.name),
-            &record_type.id[..8]
+            id_prefix(&record_type.id)?
         );
-        target.save_type(&path, record_type)?;
-        types.push(serde_json::Value::String(path));
+        write_repo_json(target, &base_prefix, &path, record_type)?;
+        type_paths.push(path);
     }
-    package_json["types"] = serde_json::Value::Array(types);
 
-    target.ensure_relation_types_dir()?;
-    let mut relation_types = Vec::new();
+    let mut relation_type_paths = Vec::new();
     for relation_type in &package.relation_type_definitions {
         let path = format!(
             "relation-types/{}-{}.json",
             slugify(&relation_type.relation_type),
-            &relation_type.id[..8]
+            id_prefix(&relation_type.id)?
         );
-        target.save_relation_type_definition(&path, relation_type)?;
-        relation_types.push(serde_json::Value::String(path));
+        write_repo_json(target, &base_prefix, &path, relation_type)?;
+        relation_type_paths.push(path);
     }
-    package_json["relationTypes"] = serde_json::Value::Array(relation_types);
 
-    target.ensure_views_dir()?;
-    let mut views = Vec::new();
+    let mut view_paths = Vec::new();
     for view in &package.views {
-        let path = format!("views/{}-{}.json", slugify(&view.name), &view.id[..8]);
-        target.save_view(&path, view)?;
-        views.push(serde_json::Value::String(path));
+        let path = format!(
+            "views/{}-{}.json",
+            slugify(&view.name),
+            id_prefix(&view.id)?
+        );
+        write_repo_json(target, &base_prefix, &path, view)?;
+        view_paths.push(path);
     }
-    package_json["views"] = serde_json::Value::Array(views);
 
-    target.ensure_document_views_dir()?;
-    let mut doc_views = Vec::new();
+    let mut doc_view_paths = Vec::new();
     for view in &package.document_views {
         let path = format!(
             "document-views/{}-{}.json",
             slugify(&view.name),
-            &view.id[..8]
+            id_prefix(&view.id)?
         );
-        target.save_document_view(&path, view)?;
-        doc_views.push(serde_json::Value::String(path));
+        write_repo_json(target, &base_prefix, &path, view)?;
+        doc_view_paths.push(path);
     }
-    package_json["documentViews"] = serde_json::Value::Array(doc_views);
 
-    target.save_package_json(&package_json)?;
+    let package_json = serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+        "id": package.metadata.id,
+        "namespace": package.metadata.namespace,
+        "name": package.metadata.name,
+        "version": package.metadata.version,
+        "title": package.metadata.name,
+        "description": "",
+        "status": "active",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "fields": field_paths,
+        "types": type_paths,
+        "relationTypes": relation_type_paths,
+        "views": view_paths,
+        "documentViews": doc_view_paths
+    });
+    target.save_instance_json(&format!("{base_prefix}/package.json"), &package_json)?;
     Ok(())
+}
+
+fn load_typed_json<T: serde::de::DeserializeOwned>(
+    source: &dyn RepositoryStore,
+    base_prefix: &str,
+    rel_path: &str,
+) -> Result<T, RepositoryError> {
+    let full = format!("{base_prefix}/{rel_path}");
+    serde_json::from_str(&source.load_text_file(&full)?).map_err(|source| {
+        RepositoryError::PackageLoad {
+            path: std::path::PathBuf::from(full),
+            source,
+        }
+    })
+}
+
+fn write_repo_json<T: serde::Serialize>(
+    target: &dyn RepositoryStore,
+    base_prefix: &str,
+    rel_path: &str,
+    value: &T,
+) -> Result<(), RepositoryError> {
+    let full = format!("{base_prefix}/{rel_path}");
+    if let Some((dir, _)) = full.rsplit_once('/') {
+        ensure_repo_dir(target, dir)?;
+    }
+    let json = serde_json::to_value(value).map_err(|source| RepositoryError::Serialize {
+        path: std::path::PathBuf::from(&full),
+        source,
+    })?;
+    target.save_instance_json(&full, &json)
+}
+
+fn ensure_repo_dir(target: &dyn RepositoryStore, rel_dir: &str) -> Result<(), RepositoryError> {
+    target.ensure_instance_dir(rel_dir)
 }
 
 fn ensure_instance_parent(
@@ -270,6 +464,21 @@ fn ensure_instance_parent(
         .map(|(dir, _)| dir)
         .unwrap_or("records");
     target.ensure_instance_dir(parent)
+}
+
+fn ensure_target_empty(target: &dyn RepositoryStore) -> Result<(), RepositoryError> {
+    let files = target.list_files_recursive("");
+    if !files.is_empty() {
+        return Err(RepositoryError::RepositoryNotEmpty {
+            path: target.repository_root(),
+        });
+    }
+    if target.repository_exists()? {
+        return Err(RepositoryError::RepositoryNotEmpty {
+            path: target.repository_root(),
+        });
+    }
+    Ok(())
 }
 
 fn canonical_instance_path(tier: u8, instance_id: &str) -> String {
@@ -292,11 +501,21 @@ fn slugify(name: &str) -> String {
     }
 }
 
+fn id_prefix(id: &str) -> Result<&str, RepositoryError> {
+    if id.len() < 8 {
+        return Err(RepositoryError::InvalidSnapshotData {
+            message: format!("identifier '{id}' must be at least 8 characters"),
+        });
+    }
+    Ok(&id[..8])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::store::memory::MemoryStore;
-    use crate::store::FileStore;
+    use crate::store::{FileStore, RepositoryStore};
+    use crate::validation::validate_repository;
     use tempfile::TempDir;
 
     fn make_input() -> InitializeRepositoryInput {
@@ -348,8 +567,9 @@ mod tests {
         let source = MemoryStore::uninitialized();
         source.initialize_repository(&make_input()).unwrap();
 
-        let target = MemoryStore::uninitialized();
-        target.initialize_repository(&make_input()).unwrap();
+        let temp = TempDir::new().unwrap();
+        std::fs::write(temp.path().join("already-there.txt"), "x").unwrap();
+        let target = FileStore::new(temp.path());
 
         let err = copy_repository(&source, &target).unwrap_err();
         assert!(matches!(err, RepositoryError::RepositoryNotEmpty { .. }));
@@ -365,5 +585,151 @@ mod tests {
         assert!(!text.contains("\"path\""));
         assert!(!text.contains("package/"));
         assert!(!text.contains("records/"));
+    }
+
+    #[test]
+    fn import_repository_snapshot_rejects_short_identifiers() {
+        let source = MemoryStore::uninitialized();
+        source.initialize_repository(&make_input()).unwrap();
+        let mut snapshot = export_repository_snapshot(&source).unwrap();
+        snapshot.packages[0].fields.push(Field {
+            id: "short".to_string(),
+            namespace: "com.semanticops.copy".to_string(),
+            name: "bad".to_string(),
+            version: 1,
+            value_type: srs_core::types::field::ValueType::String,
+            description: "".to_string(),
+            ai_guidance: serde_json::Value::Null,
+            allowed_values: None,
+            default_value: None,
+            created_at: "".to_string(),
+            extra: std::collections::HashMap::new(),
+        });
+
+        let target = MemoryStore::uninitialized();
+        let result = import_repository_snapshot(&target, &snapshot);
+        assert!(matches!(
+            result,
+            Err(RepositoryError::InvalidSnapshotData { .. })
+        ));
+    }
+
+    #[test]
+    fn copy_memory_repo_to_filestore_preserves_packages() {
+        let source = MemoryStore::uninitialized();
+        source.initialize_repository(&make_input()).unwrap();
+        let mut snapshot = export_repository_snapshot(&source).unwrap();
+        snapshot.packages.push(PackageBoundarySnapshot {
+            boundary_path: Some("package/subpkg".to_string()),
+            metadata: PrimaryPackageMetadata {
+                id: "pkg-sub".to_string(),
+                namespace: "com.semanticops.copy".to_string(),
+                name: "subpkg".to_string(),
+                version: "1.0.0".to_string(),
+            },
+            fields: vec![],
+            record_types: vec![],
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![],
+        });
+
+        let temp = TempDir::new().unwrap();
+        let target = FileStore::new(temp.path());
+        import_repository_snapshot(&target, &snapshot).unwrap();
+
+        let manifest = target.load_manifest().unwrap();
+        let refs = manifest
+            .extra
+            .get("packageRefs")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0]["path"], "package/subpkg");
+    }
+
+    #[test]
+    fn copy_memory_repo_to_filestore_preserves_records_and_containers() {
+        let source = MemoryStore::uninitialized();
+        source.initialize_repository(&make_input()).unwrap();
+        let mut snapshot = export_repository_snapshot(&source).unwrap();
+        snapshot.instances.push(SnapshotInstance {
+            instance_id: "11111111-1111-4111-8111-111111111111".to_string(),
+            tier: 0,
+            title: Some(serde_json::Value::String("n".to_string())),
+            tags: None,
+            value: serde_json::json!({
+                "instanceId": "11111111-1111-4111-8111-111111111111",
+                "sections": [{"name":"body","content":"hello"}]
+            }),
+        });
+        snapshot.containers.push(Container {
+            container_id: "22222222-2222-4222-8222-222222222222".to_string(),
+            title: "C".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            member_instance_ids: Some(vec!["11111111-1111-4111-8111-111111111111".to_string()]),
+            root_instance_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: std::collections::HashMap::new(),
+        });
+        snapshot.relations.push(Relation {
+            relation_id: "33333333-3333-4333-8333-333333333333".to_string(),
+            relation_type: "contains".to_string(),
+            source_instance_id: "22222222-2222-4222-8222-222222222222".to_string(),
+            target_instance_id: "11111111-1111-4111-8111-111111111111".to_string(),
+            asserted_by: None,
+            confidence: None,
+            created_at: None,
+            created_by: None,
+            status: None,
+            valid_from: None,
+            valid_until: None,
+            notes: None,
+            source_refs: None,
+            meta: None,
+            source_repository_id: None,
+            target_repository_id: None,
+        });
+
+        let temp = TempDir::new().unwrap();
+        let target = FileStore::new(temp.path());
+        import_repository_snapshot(&target, &snapshot).unwrap();
+
+        let copied = target.load_manifest().unwrap();
+        assert_eq!(copied.instance_index.len(), 1);
+        let summaries = list_containers(&target, None, None, None).unwrap();
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(load_relations(&target).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn copied_repository_validates() {
+        let source = MemoryStore::uninitialized();
+        source.initialize_repository(&make_input()).unwrap();
+        let mut snapshot = export_repository_snapshot(&source).unwrap();
+        snapshot.instances.push(SnapshotInstance {
+            instance_id: "44444444-4444-4444-8444-444444444444".to_string(),
+            tier: 0,
+            title: None,
+            tags: None,
+            value: serde_json::json!({
+                "instanceId": "44444444-4444-4444-8444-444444444444",
+                "sections": [{"name":"body","content":"ok"}]
+            }),
+        });
+
+        let temp = TempDir::new().unwrap();
+        let target = FileStore::new(temp.path());
+        import_repository_snapshot(&target, &snapshot).unwrap();
+
+        let report = validate_repository(&target).unwrap();
+        assert!(report.is_ok(), "{:?}", report.diagnostics);
     }
 }

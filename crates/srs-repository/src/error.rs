@@ -183,6 +183,9 @@ pub enum RepositoryError {
 
     #[error("repository target is not empty at {path:?}")]
     RepositoryNotEmpty { path: PathBuf },
+
+    #[error("invalid snapshot data: {message}")]
+    InvalidSnapshotData { message: String },
 }
 
 impl PartialEq for RepositoryError {
@@ -404,6 +407,10 @@ impl PartialEq for RepositoryError {
             (
                 RepositoryError::RepositoryNotEmpty { path: a },
                 RepositoryError::RepositoryNotEmpty { path: b },
+            ) => a == b,
+            (
+                RepositoryError::InvalidSnapshotData { message: a },
+                RepositoryError::InvalidSnapshotData { message: b },
             ) => a == b,
             _ => false,
         }

@@ -551,10 +551,15 @@ impl RepositoryStore for FileStore {
         self.write_json(&self.repo_root.join("manifest.json"), &manifest)?;
 
         let package = serde_json::json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
             "id": input.primary_package.id,
             "namespace": input.primary_package.namespace,
             "name": input.primary_package.name,
             "version": input.primary_package.version,
+            "title": input.primary_package.name,
+            "description": "",
+            "status": "active",
+            "createdAt": "2026-01-01T00:00:00Z",
             "fields": [],
             "types": [],
             "relationTypes": [],
@@ -1171,12 +1176,18 @@ pub mod memory {
 
         fn package_to_json(pkg: &Package) -> serde_json::Value {
             serde_json::json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
                 "id": pkg.id,
                 "namespace": pkg.namespace,
                 "name": pkg.name,
                 "version": pkg.version,
+                "title": pkg.name,
+                "description": "",
+                "status": "active",
+                "createdAt": "2026-01-01T00:00:00Z",
                 "fields": [],
                 "types": [],
+                "relationTypes": [],
                 "views": [],
                 "documentViews": []
             })
