@@ -199,7 +199,8 @@ fn cmd_note_audit_tags(ctx: CliContext) -> Result<String> {
 }
 
 fn cmd_note_foundations(ctx: CliContext) -> Result<String> {
-    let signal_tags = get_foundation_signal_tags(&ctx.repo)?;
+    let store = FileStore::new(&ctx.repo);
+    let signal_tags = get_foundation_signal_tags(&store)?;
     let foundation_notes = collect_foundation_notes(&ctx.repo, &signal_tags)?;
 
     Ok(output::ok(

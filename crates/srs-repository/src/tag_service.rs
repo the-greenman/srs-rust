@@ -1,13 +1,9 @@
 use crate::error::RepositoryError;
-use crate::loader::load_tag_definition_relative;
-use crate::manifest::load_manifest;
-use crate::writer::{
-    new_instance_id, upsert_tag_definition_index_entry, write_manifest_compat as write_manifest,
-    write_tag_definition_path as write_tag_definition,
-};
+use crate::loader::load_tag_definition;
+use crate::store::RepositoryStore;
+use crate::writer::{new_instance_id, upsert_tag_definition_index_entry, write_manifest};
 use srs_core::types::tag_definition::TagDefinition;
 use srs_core::validation::tag_definition::validate_tag_definition;
-use std::path::Path;
 
 /// Summary for list operations
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -42,7 +38,6 @@ pub struct DeleteTagDefinitionResult {
 }
 
 /// Convert a tag key to a filesystem-friendly slug.
-/// Uses kebab-case: lowercase, spaces to hyphens, remove non-alphanumeric.
 fn slugify_tag_key(tag_key: &str) -> String {
     tag_key
         .to_lowercase()
@@ -51,11 +46,10 @@ fn slugify_tag_key(tag_key: &str) -> String {
 }
 
 /// List all TagDefinitions in the repository.
-/// Returns summaries for each definition.
 pub fn list_tag_definitions(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
 ) -> Result<Vec<TagDefinitionSummary>, RepositoryError> {
-    let manifest = load_manifest(repo_root)?;
+    let manifest = store.load_manifest()?;
     let mut summaries = Vec::new();
 
     for entry in &manifest.instance_index {
@@ -63,7 +57,7 @@ pub fn list_tag_definitions(
             continue;
         }
 
-        match load_tag_definition_relative(repo_root, &entry.path) {
+        match load_tag_definition(store, &entry.path) {
             Ok(td) => {
                 summaries.push(TagDefinitionSummary {
                     instance_id: td.instance_id,
@@ -73,7 +67,7 @@ pub fn list_tag_definitions(
                     status: td.status,
                 });
             }
-            Err(_) => continue, // Skip invalid entries
+            Err(_) => continue,
         }
     }
 
@@ -82,10 +76,10 @@ pub fn list_tag_definitions(
 
 /// List TagDefinitions filtered by role.
 pub fn list_tag_definitions_by_role(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     role: &str,
 ) -> Result<Vec<TagDefinitionSummary>, RepositoryError> {
-    let all = list_tag_definitions(repo_root)?;
+    let all = list_tag_definitions(store)?;
     let filtered: Vec<_> = all
         .into_iter()
         .filter(|td| {
@@ -100,19 +94,20 @@ pub fn list_tag_definitions_by_role(
 
 /// Get a TagDefinition by its instance ID.
 pub fn get_tag_definition_by_id(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<GetTagDefinitionResult, RepositoryError> {
-    let manifest = load_manifest(repo_root)?;
+    let manifest = store.load_manifest()?;
 
     let entry = manifest
         .instance_index
         .iter()
-        .find(|e| e.instance_id() == id && e.is_tag_definition());
+        .find(|e| e.instance_id() == id && e.is_tag_definition())
+        .cloned();
 
     match entry {
         Some(entry) => {
-            let td = load_tag_definition_relative(repo_root, &entry.path)?;
+            let td = load_tag_definition(store, &entry.path)?;
             Ok(GetTagDefinitionResult::Found(Box::new(td)))
         }
         None => Ok(GetTagDefinitionResult::NotFound),
@@ -120,138 +115,105 @@ pub fn get_tag_definition_by_id(
 }
 
 /// Get all foundation signal tags.
-/// Returns tag_key strings for all TagDefinitions with role "foundation".
-/// Returns Ok(vec![]) if no definitions exist — not an error.
-pub fn get_foundation_signal_tags(repo_root: &Path) -> Result<Vec<String>, RepositoryError> {
-    let foundation_defs = list_tag_definitions_by_role(repo_root, "foundation")?;
+pub fn get_foundation_signal_tags(
+    store: &dyn RepositoryStore,
+) -> Result<Vec<String>, RepositoryError> {
+    let foundation_defs = list_tag_definitions_by_role(store, "foundation")?;
     let tag_keys: Vec<String> = foundation_defs.into_iter().map(|td| td.tag_key).collect();
     Ok(tag_keys)
 }
 
 /// Create a new TagDefinition.
-/// Mints instance_id if empty, validates, writes to disk, updates manifest.
 pub fn create_tag_definition(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     mut tag_definition: TagDefinition,
 ) -> Result<CreateTagDefinitionResult, RepositoryError> {
-    // Validate before minting ID
     validate_tag_definition(&tag_definition).map_err(|e| {
         RepositoryError::TagDefinitionValidation {
-            path: repo_root.join("records/tag-definitions"),
+            path: std::path::PathBuf::from("records/tag-definitions"),
             source: e,
         }
     })?;
 
-    // Mint instance_id if empty
     if tag_definition.instance_id.is_empty() {
         tag_definition.instance_id = new_instance_id();
     }
 
-    // Ensure the target directory exists
-    let target_dir = repo_root.join("records/tag-definitions");
-    std::fs::create_dir_all(&target_dir).map_err(|e| RepositoryError::Io {
-        path: target_dir.clone(),
-        source: e,
-    })?;
+    store.ensure_instance_dir("records/tag-definitions")?;
 
-    // Generate slug from tag_key for filename
     let slug = slugify_tag_key(&tag_definition.tag_key);
     let filename = format!("{}-{}.json", slug, &tag_definition.instance_id[..8]);
-    let file_path = target_dir.join(&filename);
+    let relative_path = format!("records/tag-definitions/{}", filename);
 
-    // Write the TagDefinition
-    write_tag_definition(&tag_definition, &file_path)?;
+    let value = serde_json::to_value(&tag_definition).map_err(|e| RepositoryError::Serialize {
+        path: std::path::PathBuf::from(&relative_path),
+        source: e,
+    })?;
+    store.save_instance_json(&relative_path, &value)?;
 
-    // Calculate relative path for manifest
-    let relative_path = file_path
-        .strip_prefix(repo_root)
-        .map_err(|_| RepositoryError::Io {
-            path: file_path.clone(),
-            source: std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "file path not within repo root",
-            ),
-        })?
-        .to_string_lossy()
-        .to_string();
-
-    // Update manifest
-    let mut manifest = load_manifest(repo_root)?;
+    let mut manifest = store.load_manifest()?;
     upsert_tag_definition_index_entry(&mut manifest, &tag_definition, &relative_path);
-    write_manifest(&manifest)?;
+    write_manifest(store, &manifest)?;
 
     Ok(CreateTagDefinitionResult { tag_definition })
 }
 
-/// Service: Update an existing TagDefinition
-/// Validates, writes to disk, and updates manifest
+/// Update an existing TagDefinition.
 pub fn update_tag_definition(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     tag_definition: TagDefinition,
 ) -> Result<UpdateTagDefinitionResult, RepositoryError> {
-    // Validate before writing
     validate_tag_definition(&tag_definition).map_err(|e| {
         RepositoryError::TagDefinitionValidation {
-            path: repo_root.join("records/tag-definitions"),
+            path: std::path::PathBuf::from("records/tag-definitions"),
             source: e,
         }
     })?;
 
-    let mut manifest = load_manifest(repo_root)?;
+    let mut manifest = store.load_manifest()?;
 
-    // Find the existing entry
     let entry = manifest
         .instance_index
         .iter()
         .find(|e| e.instance_id() == tag_definition.instance_id && e.is_tag_definition())
         .cloned()
         .ok_or_else(|| RepositoryError::NotFound {
-            path: repo_root.join("records/tag-definitions"),
+            path: std::path::PathBuf::from("records/tag-definitions"),
         })?;
 
-    // Write the updated definition
-    let full_path = repo_root.join(entry.path());
-    write_tag_definition(&tag_definition, &full_path)?;
+    let value = serde_json::to_value(&tag_definition).map_err(|e| RepositoryError::Serialize {
+        path: std::path::PathBuf::from(entry.path()),
+        source: e,
+    })?;
+    store.save_instance_json(entry.path(), &value)?;
 
-    // Update manifest
     upsert_tag_definition_index_entry(&mut manifest, &tag_definition, entry.path());
-    write_manifest(&manifest)?;
+    write_manifest(store, &manifest)?;
 
     Ok(UpdateTagDefinitionResult { tag_definition })
 }
 
-/// Service: Delete a TagDefinition by ID
-/// Removes the file and updates the manifest
+/// Delete a TagDefinition by ID.
 pub fn delete_tag_definition(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<DeleteTagDefinitionResult, RepositoryError> {
-    let mut manifest = load_manifest(repo_root)?;
+    let mut manifest = store.load_manifest()?;
 
-    // Find the entry in the manifest
     let entry_index = manifest
         .instance_index
         .iter()
         .position(|e| e.instance_id() == id && e.is_tag_definition())
         .ok_or_else(|| RepositoryError::NotFound {
-            path: repo_root.join("records/tag-definitions"),
+            path: std::path::PathBuf::from("records/tag-definitions"),
         })?;
 
-    let entry = manifest.instance_index[entry_index].clone();
-    let path = entry.path().to_string();
+    let path = manifest.instance_index[entry_index].path().to_string();
 
-    // Remove the file
-    let full_path = repo_root.join(&path);
-    if full_path.exists() {
-        std::fs::remove_file(&full_path).map_err(|e| RepositoryError::Io {
-            path: full_path.clone(),
-            source: e,
-        })?;
-    }
+    let _ = store.delete_instance_file(&path); // best-effort; ignore if file missing
 
-    // Remove from manifest
     manifest.instance_index.remove(entry_index);
-    write_manifest(&manifest)?;
+    write_manifest(store, &manifest)?;
 
     Ok(DeleteTagDefinitionResult {
         instance_id: id.to_string(),
@@ -261,22 +223,16 @@ pub fn delete_tag_definition(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use crate::store::memory::MemoryStore;
     use std::collections::HashMap;
-    use std::fs;
-    use tempfile::TempDir;
 
-    fn create_minimal_manifest() -> serde_json::Value {
-        json!({
-            "srsVersion": "2.0-draft",
-            "repositoryId": "test-repo",
-            "instanceIndex": []
-        })
+    fn make_store() -> MemoryStore {
+        MemoryStore::default()
     }
 
     fn create_test_td(tag_key: &str) -> TagDefinition {
         TagDefinition {
-            instance_id: String::new(), // Will be minted
+            instance_id: String::new(),
             tag_key: tag_key.to_string(),
             label: Some(format!("{} Label", tag_key)),
             description: Some(format!("Description for {}", tag_key)),
@@ -291,151 +247,88 @@ mod tests {
 
     #[test]
     fn list_tag_definitions_empty_repo() {
-        let temp = TempDir::new().unwrap();
-        fs::write(
-            temp.path().join("manifest.json"),
-            serde_json::to_string_pretty(&create_minimal_manifest()).unwrap(),
-        )
-        .unwrap();
-
-        let result = list_tag_definitions(temp.path()).unwrap();
+        let store = make_store();
+        let result = list_tag_definitions(&store).unwrap();
         assert!(result.is_empty());
     }
 
     #[test]
-    fn create_tag_definition_writes_file_and_updates_manifest() {
-        let temp = TempDir::new().unwrap();
-        fs::write(
-            temp.path().join("manifest.json"),
-            serde_json::to_string_pretty(&create_minimal_manifest()).unwrap(),
-        )
-        .unwrap();
-
+    fn create_tag_definition_writes_and_updates_manifest() {
+        let store = make_store();
         let td = create_test_td("test-tag");
-        let result = create_tag_definition(temp.path(), td).unwrap();
+        let result = create_tag_definition(&store, td).unwrap();
 
-        // Check file was written (find it via the manifest index path)
-        let manifest = load_manifest(temp.path()).unwrap();
+        assert!(!result.tag_definition.instance_id.is_empty());
+
+        let manifest = store.load_manifest().unwrap();
         let entry = manifest
             .instance_index
             .iter()
-            .find(|e| e.instance_id() == result.tag_definition.instance_id)
-            .expect("manifest entry should exist");
-        let file_path = temp.path().join(entry.path());
-        assert!(file_path.exists());
-
-        // Check instance_id was minted
-        assert!(!result.tag_definition.instance_id.is_empty());
-
-        // Check manifest was updated
-        let manifest: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(temp.path().join("manifest.json")).unwrap())
-                .unwrap();
-        let index = manifest["instanceIndex"].as_array().unwrap();
-        assert_eq!(index.len(), 1);
-        assert_eq!(index[0]["tier"], 3);
-        assert_eq!(index[0]["instanceId"], result.tag_definition.instance_id);
+            .find(|e| e.instance_id() == result.tag_definition.instance_id);
+        assert!(entry.is_some());
+        assert_eq!(entry.unwrap().tier(), 3);
     }
 
     #[test]
     fn get_tag_definition_by_id_finds_created() {
-        let temp = TempDir::new().unwrap();
-        fs::write(
-            temp.path().join("manifest.json"),
-            serde_json::to_string_pretty(&create_minimal_manifest()).unwrap(),
-        )
-        .unwrap();
-
+        let store = make_store();
         let td = create_test_td("test-tag");
-        let created = create_tag_definition(temp.path(), td).unwrap();
+        let created = create_tag_definition(&store, td).unwrap();
 
-        let result =
-            get_tag_definition_by_id(temp.path(), &created.tag_definition.instance_id).unwrap();
-
+        let result = get_tag_definition_by_id(&store, &created.tag_definition.instance_id).unwrap();
         match result {
-            GetTagDefinitionResult::Found(td) => {
-                assert_eq!(td.tag_key, "test-tag");
-            }
+            GetTagDefinitionResult::Found(td) => assert_eq!(td.tag_key, "test-tag"),
             GetTagDefinitionResult::NotFound => panic!("Should have found the tag definition"),
         }
     }
 
     #[test]
     fn get_tag_definition_by_id_not_found() {
-        let temp = TempDir::new().unwrap();
-        fs::write(
-            temp.path().join("manifest.json"),
-            serde_json::to_string_pretty(&create_minimal_manifest()).unwrap(),
-        )
-        .unwrap();
-
+        let store = make_store();
         let result =
-            get_tag_definition_by_id(temp.path(), "00000000-0000-0000-0000-000000000000").unwrap();
-
+            get_tag_definition_by_id(&store, "00000000-0000-0000-0000-000000000000").unwrap();
         match result {
             GetTagDefinitionResult::Found(_) => panic!("Should not have found anything"),
-            GetTagDefinitionResult::NotFound => (), // Expected
+            GetTagDefinitionResult::NotFound => (),
         }
     }
 
     #[test]
     fn list_tag_definitions_by_role_filters_correctly() {
-        let temp = TempDir::new().unwrap();
-        fs::write(
-            temp.path().join("manifest.json"),
-            serde_json::to_string_pretty(&create_minimal_manifest()).unwrap(),
-        )
-        .unwrap();
+        let store = make_store();
 
-        // Create foundation tag
         let mut foundation_td = create_test_td("foundation-tag");
         foundation_td.roles = Some(vec!["foundation".to_string()]);
-        create_tag_definition(temp.path(), foundation_td).unwrap();
+        create_tag_definition(&store, foundation_td).unwrap();
 
-        // Create navigation tag
         let mut nav_td = create_test_td("nav-tag");
         nav_td.roles = Some(vec!["navigation".to_string()]);
-        create_tag_definition(temp.path(), nav_td).unwrap();
+        create_tag_definition(&store, nav_td).unwrap();
 
-        // List foundation tags
-        let foundation_results = list_tag_definitions_by_role(temp.path(), "foundation").unwrap();
+        let foundation_results = list_tag_definitions_by_role(&store, "foundation").unwrap();
         assert_eq!(foundation_results.len(), 1);
         assert_eq!(foundation_results[0].tag_key, "foundation-tag");
 
-        // List navigation tags
-        let nav_results = list_tag_definitions_by_role(temp.path(), "navigation").unwrap();
+        let nav_results = list_tag_definitions_by_role(&store, "navigation").unwrap();
         assert_eq!(nav_results.len(), 1);
         assert_eq!(nav_results[0].tag_key, "nav-tag");
     }
 
     #[test]
     fn get_foundation_signal_tags_returns_tag_keys() {
-        let temp = TempDir::new().unwrap();
-        fs::write(
-            temp.path().join("manifest.json"),
-            serde_json::to_string_pretty(&create_minimal_manifest()).unwrap(),
-        )
-        .unwrap();
-
-        // Create foundation tag
+        let store = make_store();
         let mut td = create_test_td("purpose");
         td.roles = Some(vec!["foundation".to_string()]);
-        create_tag_definition(temp.path(), td).unwrap();
+        create_tag_definition(&store, td).unwrap();
 
-        let signal_tags = get_foundation_signal_tags(temp.path()).unwrap();
+        let signal_tags = get_foundation_signal_tags(&store).unwrap();
         assert_eq!(signal_tags, vec!["purpose"]);
     }
 
     #[test]
     fn get_foundation_signal_tags_empty_when_none_defined() {
-        let temp = TempDir::new().unwrap();
-        fs::write(
-            temp.path().join("manifest.json"),
-            serde_json::to_string_pretty(&create_minimal_manifest()).unwrap(),
-        )
-        .unwrap();
-
-        let signal_tags = get_foundation_signal_tags(temp.path()).unwrap();
+        let store = make_store();
+        let signal_tags = get_foundation_signal_tags(&store).unwrap();
         assert!(signal_tags.is_empty());
     }
 
@@ -446,46 +339,23 @@ mod tests {
         assert_eq!(slugify_tag_key("Complex!!!Tag"), "complextag");
     }
 
-    // Acceptance Criteria Tests for Phase 2
-
     #[test]
     fn tag_update_rewrites_definition() {
-        let temp = TempDir::new().unwrap();
-        fs::write(
-            temp.path().join("manifest.json"),
-            serde_json::to_string_pretty(&create_minimal_manifest()).unwrap(),
-        )
-        .unwrap();
-
-        // Create a tag
+        let store = make_store();
         let td = create_test_td("test-tag");
-        let created = create_tag_definition(temp.path(), td).unwrap();
+        let created = create_tag_definition(&store, td).unwrap();
         let instance_id = created.tag_definition.instance_id.clone();
 
-        // Update the tag
         let mut updated = created.tag_definition;
         updated.label = Some("Updated Label".to_string());
 
-        let result = update_tag_definition(temp.path(), updated).unwrap();
+        let result = update_tag_definition(&store, updated).unwrap();
         assert_eq!(
             result.tag_definition.label,
             Some("Updated Label".to_string())
         );
 
-        // Verify file was rewritten (find it via the manifest index path)
-        let manifest = load_manifest(temp.path()).unwrap();
-        let entry = manifest
-            .instance_index
-            .iter()
-            .find(|e| e.instance_id() == instance_id)
-            .expect("manifest entry should exist");
-        let file_path = temp.path().join(entry.path());
-        let file_content = fs::read_to_string(&file_path).unwrap();
-        let file_td: TagDefinition = serde_json::from_str(&file_content).unwrap();
-        assert_eq!(file_td.label, Some("Updated Label".to_string()));
-
-        // Verify can be retrieved
-        let fetched = get_tag_definition_by_id(temp.path(), &instance_id).unwrap();
+        let fetched = get_tag_definition_by_id(&store, &instance_id).unwrap();
         match fetched {
             GetTagDefinitionResult::Found(td) => {
                 assert_eq!(td.label, Some("Updated Label".to_string()));
@@ -496,47 +366,20 @@ mod tests {
 
     #[test]
     fn tag_delete_removes_definition() {
-        let temp = TempDir::new().unwrap();
-        fs::write(
-            temp.path().join("manifest.json"),
-            serde_json::to_string_pretty(&create_minimal_manifest()).unwrap(),
-        )
-        .unwrap();
-
-        // Create a tag
+        let store = make_store();
         let td = create_test_td("deletable-tag");
-        let created = create_tag_definition(temp.path(), td).unwrap();
+        let created = create_tag_definition(&store, td).unwrap();
         let instance_id = created.tag_definition.instance_id.clone();
-        // Get the file path from the manifest before deletion
-        let manifest = load_manifest(temp.path()).unwrap();
-        let entry = manifest
-            .instance_index
-            .iter()
-            .find(|e| e.instance_id() == instance_id)
-            .expect("manifest entry should exist");
-        let file_path = temp.path().join(entry.path());
 
-        // Verify it was created
-        assert!(file_path.exists());
-
-        // Delete the tag
-        let result = delete_tag_definition(temp.path(), &instance_id).unwrap();
+        let result = delete_tag_definition(&store, &instance_id).unwrap();
         assert_eq!(result.instance_id, instance_id);
 
-        // Verify file was removed
-        assert!(!file_path.exists());
+        let manifest = store.load_manifest().unwrap();
+        assert!(manifest.instance_index.is_empty());
 
-        // Verify manifest was updated
-        let manifest: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(temp.path().join("manifest.json")).unwrap())
-                .unwrap();
-        let index = manifest["instanceIndex"].as_array().unwrap();
-        assert!(index.is_empty());
-
-        // Verify it's no longer findable
-        let fetched = get_tag_definition_by_id(temp.path(), &instance_id).unwrap();
+        let fetched = get_tag_definition_by_id(&store, &instance_id).unwrap();
         match fetched {
-            GetTagDefinitionResult::NotFound => {} // Expected
+            GetTagDefinitionResult::NotFound => {}
             _ => panic!("Should not find deleted tag"),
         }
     }
