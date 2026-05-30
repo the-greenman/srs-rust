@@ -1,8 +1,32 @@
+//! # Record Service
+//!
+//! Public API for record (Tier 2) operations. This module is the sole entry point for
+//! all record logic. CLI handlers and future API handlers must call these
+//! functions; they must not call internal helpers directly.
+//!
+//! ## Service boundary contract (ADR-010)
+//!
+//! - Every public function takes a typed input struct and returns a typed result struct.
+//! - All validation, container orchestration, and multi-step operations happen here.
+//! - Functions marked `pub(crate)` are internal helpers; do not promote them to `pub`.
+//!
+//! ## Handler pattern
+//!
+//! ```rust,ignore
+//! // CLI or API handler — this is the entire function body
+//! let input: CreateRecordInput = serde_json::from_reader(io::stdin())?;
+//! let result = record_store::create_record(store, input)?;
+//! output::ok("record create", result)
+//! ```
+
+use crate::container_service;
 use crate::error::RepositoryError;
 use crate::index::InstanceIndexEntry;
 use crate::manifest::Manifest;
+use crate::package_service::{get_type_by_name, GetTypeResult};
 use crate::store::RepositoryStore;
 use crate::writer::{new_instance_id, write_manifest};
+use serde::Deserialize;
 use srs_core::types::record::{FieldValue, Record};
 use srs_core::validation::record::validate_record;
 use std::collections::HashMap;
@@ -216,6 +240,179 @@ pub fn delete_record(
     write_manifest(store, &manifest)?;
 
     Ok(instance_id.to_string())
+}
+
+/// Filter options for listing records
+#[derive(Debug, Clone, Default)]
+pub struct RecordListFilter {
+    pub type_namespace: Option<String>,
+    pub type_name: Option<String>,
+    /// If Some, only return records that are members of this container.
+    pub container_id: Option<String>,
+}
+
+/// Input for creating a record (fieldValues payload)
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateRecordInput {
+    pub field_values: Vec<FieldValue>,
+}
+
+/// Result for create_record_in_context
+#[derive(Debug, Clone)]
+pub struct CreateRecordResult {
+    pub record: Record,
+}
+
+/// Result for delete_record_in_context
+#[derive(Debug, Clone)]
+pub struct DeleteRecordResult {
+    pub instance_id: String,
+}
+
+/// List records using a unified filter (type and/or container).
+pub fn list_records_filtered(
+    store: &dyn RepositoryStore,
+    filter: RecordListFilter,
+) -> Result<Vec<Record>, RepositoryError> {
+    // Resolve container members once
+    let member_ids: Option<std::collections::HashSet<String>> =
+        if let Some(ref cid) = filter.container_id {
+            let members = container_service::list_members(store, cid)?;
+            Some(members.into_iter().collect())
+        } else {
+            None
+        };
+
+    let manifest = store.load_manifest()?;
+    let mut records = Vec::new();
+
+    for entry in &manifest.instance_index {
+        if entry.tier() != 2 {
+            continue;
+        }
+
+        // Container membership filter
+        if let Some(ref member_set) = member_ids {
+            if !member_set.contains(entry.instance_id()) {
+                continue;
+            }
+        }
+
+        let record = load_record(store, entry.path())?;
+
+        // Type namespace/name filter
+        if let Some(ref ns) = filter.type_namespace {
+            if &record.type_namespace != ns {
+                continue;
+            }
+        }
+        if let Some(ref name) = filter.type_name {
+            if &record.type_name != name {
+                continue;
+            }
+        }
+
+        records.push(record);
+    }
+
+    Ok(records)
+}
+
+/// Create a record from a `namespace/name` type filter and optionally add to a container.
+///
+/// - Parses `type_filter` as `namespace/name`
+/// - Resolves the type (with optional version pin)
+/// - Creates the record
+/// - If `container_id` is Some, validates the container exists and adds the record
+pub fn create_record_in_context(
+    store: &dyn RepositoryStore,
+    type_filter: &str,
+    type_version: Option<u32>,
+    input: CreateRecordInput,
+    container_id: Option<String>,
+    relative_dir: &str,
+) -> Result<CreateRecordResult, RepositoryError> {
+    // Parse namespace/name
+    let parts: Vec<&str> = type_filter.splitn(2, '/').collect();
+    if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
+        return Err(RepositoryError::InvalidRepositoryInitialization {
+            message: format!(
+                "Invalid type filter '{}'. Expected format: namespace/name",
+                type_filter
+            ),
+        });
+    }
+    let namespace = parts[0];
+    let name = parts[1];
+
+    // Validate container exists before writing anything
+    if let Some(ref cid) = container_id {
+        container_service::get_container(store, cid)?;
+    }
+
+    // Resolve type
+    let record_type = if let Some(version) = type_version {
+        let package = store.load_package()?;
+        package
+            .record_types
+            .iter()
+            .find(|rt| rt.namespace == namespace && rt.name == name && rt.version == version)
+            .cloned()
+            .ok_or_else(|| RepositoryError::TypeNotFound {
+                type_id: format!("{}/{}", namespace, name),
+                version,
+            })?
+    } else {
+        match get_type_by_name(store, namespace, name)? {
+            GetTypeResult::Found(rt) => rt,
+            GetTypeResult::NotFound => {
+                return Err(RepositoryError::TypeNotFound {
+                    type_id: format!("{}/{}", namespace, name),
+                    version: 0,
+                })
+            }
+        }
+    };
+
+    let record = create_record(
+        store,
+        &record_type.id,
+        record_type.version,
+        input.field_values,
+        relative_dir,
+    )?;
+
+    if let Some(ref cid) = container_id {
+        container_service::add_member(store, cid, &record.instance_id)?;
+    }
+
+    Ok(CreateRecordResult { record })
+}
+
+/// Delete a record with optional container-scoped membership check.
+///
+/// If `container_id` is Some, the record must be a member of that container;
+/// membership is removed before the record is deleted.
+pub fn delete_record_in_context(
+    store: &dyn RepositoryStore,
+    id: String,
+    container_id: Option<String>,
+) -> Result<DeleteRecordResult, RepositoryError> {
+    if let Some(ref cid) = container_id {
+        if !container_service::is_member(store, cid, &id)? {
+            return Err(RepositoryError::NotFound {
+                path: std::path::PathBuf::from(format!(
+                    "Instance '{}' is not a member of container '{}'",
+                    id, cid
+                )),
+            });
+        }
+        container_service::remove_member(store, cid, &id)?;
+    }
+
+    let instance_id = delete_record(store, &id)?;
+    Ok(DeleteRecordResult { instance_id })
 }
 
 /// Add or replace the manifest index entry for a Record (in memory only).

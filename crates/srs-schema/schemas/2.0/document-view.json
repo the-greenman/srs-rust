@@ -1,0 +1,250 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/document-view.json",
+  "title": "SRS Document View Definition (ext:views-l2)",
+  "description": "A versioned, Container-level projection. Assembles multiple Records from a Container into a coherent, ordered document. Depends on ext:views-l1.",
+  "type": "object",
+  "required": ["$schema", "id", "namespace", "name", "version", "description", "sections", "createdAt"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://srs.semanticops.com/schema/2.0/document-view.json"
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Stable UUID for this DocumentView."
+    },
+    "namespace": {
+      "type": "string",
+      "description": "Logical namespace, e.g. 'com.semanticops.srs'."
+    },
+    "name": {
+      "type": "string",
+      "description": "Machine-readable name within the namespace, kebab-case."
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "description": {
+      "type": "string",
+      "description": "What kind of document this produces; intended audience."
+    },
+    "containerType": {
+      "type": "string",
+      "description": "When set, this DocumentView is intended for Containers of this type."
+    },
+    "sections": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/DocumentSection" },
+      "description": "Ordered list of sections that make up the document."
+    },
+    "navigationLinks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/NavigationLink" },
+      "description": "Assembly-time cross-section reading aids. Do not appear in the Relation graph."
+    },
+    "preamble": {
+      "type": "string",
+      "description": "Template string rendered before all sections. Standard variables: {{container-title}}, {{date}}, {{container-id}}, {{heading-1}}, {{heading-2}}. When absent and format is 'markdown', 'html', or 'adoc', implementations MUST render a document title heading at level 1 + depthOffset."
+    },
+    "format": {
+      "type": "string",
+      "description": "Output format for all section rendering. Portable values: 'markdown', 'adoc', 'html', 'text'. Governs all section rendering; ExportConfig.format on a referenced L1 View is ignored. When absent, output format is implementation-defined."
+    },
+    "depthOffset": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Shifts all auto-rendered heading levels by this amount. Default: 0. At 0: document title H1, sections H2, records H3. Implementations SHOULD emit a warning diagnostic when depthOffset > 4."
+    },
+    "themeRef": {
+      "$ref": "#/$defs/ThemeReference",
+      "description": "Default Theme (ext:themes-l1). Applied when no variant is selected at render time. Ignored when ext:themes-l1 is not declared."
+    },
+    "themeVariants": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ThemeVariant" },
+      "description": "Named alternative themes selectable at render invocation. Variant names MUST be unique within this array. Ignored when ext:themes-l1 is not declared."
+    },
+    "aiGuidance": { "type": "object" },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "lineage": { "type": "object" },
+    "provenance": { "type": "object" }
+  },
+  "$defs": {
+    "DocumentSection": {
+      "type": "object",
+      "required": ["sectionId", "order", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "sectionId": {
+          "type": "string",
+          "description": "Stable identifier for this section within the DocumentView."
+        },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "order": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source": { "$ref": "#/$defs/SectionSource" },
+        "renderViewId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "View (ext:views-l1) used to render each instance in this section. When absent, implementations MUST use the default rendering baseline."
+        },
+        "titleFieldId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The fieldId whose value provides the per-record heading within this section. Must appear in the effective field list of every instance type in the section, have valueType 'string' or 'text', and not be repeatable. Enforced at render time."
+        },
+        "ordering": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "fieldId": { "type": "string", "format": "uuid" },
+            "direction": {
+              "type": "string",
+              "enum": ["asc", "desc"],
+              "description": "Default: 'asc'."
+            }
+          }
+        },
+        "required": {
+          "type": "boolean",
+          "description": "When true, an empty section is always shown regardless of emptyBehavior."
+        },
+        "emptyBehavior": {
+          "type": "string",
+          "enum": ["hide", "show-placeholder"],
+          "description": "What to do when the section has no records. Default: hide."
+        }
+      }
+    },
+    "SectionSource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "instanceIds"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "type": "string", "const": "fixed-instances" },
+            "instanceIds": {
+              "type": "array",
+              "items": { "type": "string", "format": "uuid" },
+              "description": "Explicit list of instance UUIDs. For preamble, cover page, or curated sections."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "semanticObjectType"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "type": "string", "const": "type-query" },
+            "semanticObjectType": {
+              "type": "string",
+              "description": "For cross-system portability use namespace/name format (e.g. 'core/decision'). Bare strings are acceptable in single-system DocumentViews not included in a Package."
+            },
+            "lifecycleState": { "type": "string" },
+            "containerIds": {
+              "type": "array",
+              "items": { "type": "string", "format": "uuid" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "fromInstanceId", "relationType"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "type": "string", "const": "relation-query" },
+            "fromInstanceId": { "type": "string", "format": "uuid" },
+            "relationType": { "type": "string" },
+            "direction": {
+              "type": "string",
+              "enum": ["forward", "inverse"],
+              "description": "Default: 'forward'."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "containerId"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "type": "string", "const": "container-subset" },
+            "containerId": { "type": "string", "format": "uuid" },
+            "containerType": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "NavigationLink": {
+      "type": "object",
+      "required": ["fromSectionId", "toSectionId"],
+      "additionalProperties": false,
+      "properties": {
+        "fromSectionId": { "type": "string" },
+        "toSectionId": { "type": "string" },
+        "label": { "type": "string" },
+        "bidirectional": {
+          "type": "boolean",
+          "description": "Default: false."
+        }
+      }
+    },
+    "ThemeReference": {
+      "type": "object",
+      "required": ["mode"],
+      "additionalProperties": false,
+      "description": "A pointer to a Theme (ext:themes-l1). Follows the same mode-based reference pattern as packageRef in the manifest.",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["local", "remote", "bundled"]
+        },
+        "path": {
+          "type": "string",
+          "description": "Path to a Theme JSON file. Required when mode === 'local'."
+        },
+        "url": {
+          "type": "string",
+          "description": "URL to a Theme JSON file. Required when mode === 'remote'."
+        },
+        "themeId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "References Theme.id in Package.themes[]. Required when mode === 'bundled'."
+        }
+      }
+    },
+    "ThemeVariant": {
+      "type": "object",
+      "required": ["name", "themeRef"],
+      "additionalProperties": false,
+      "description": "A named alternative theme selectable at render time instead of DocumentView.themeRef.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Case-sensitive identifier. MUST be unique within DocumentView.themeVariants."
+        },
+        "description": { "type": "string" },
+        "themeRef": { "$ref": "#/$defs/ThemeReference" }
+      }
+    }
+  }
+}

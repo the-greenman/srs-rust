@@ -4,7 +4,7 @@
   "title": "SRS Package Manifest (ext:repository)",
   "description": "Index manifest for a local file-based SRS package. Declares identity, lists relative paths to field, type, view, and relation-type definition files, and records dependency references to other packages. Governs the package/ directory layout within an ext:repository.",
   "type": "object",
-  "required": ["$schema", "id", "namespace", "name", "version", "title", "description", "status", "fields", "types", "views", "createdAt"],
+  "required": ["$schema", "id", "namespace", "name", "version", "title", "description", "status", "fields", "types", "createdAt"],
   "additionalProperties": false,
   "properties": {
     "$schema": {
@@ -54,12 +54,17 @@
     "views": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Relative paths from this package directory to view definition files. Empty array if the package defines no views."
+      "description": "Relative paths from this package directory to L1 View definition files (ext:views-l1). Omit or use empty array if the package defines no Views."
     },
     "documentViews": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Relative paths from this package directory to document view definition files. Omit if the package defines no document views."
+      "description": "ext:views-l2 — relative paths from this package directory to DocumentView definition files. Omit if the package defines no DocumentViews."
+    },
+    "themes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "ext:themes-l1 — relative paths from this package directory to Theme definition files. Omit if the package defines no Themes."
     },
     "relationTypes": {
       "type": "array",

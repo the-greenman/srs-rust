@@ -1,3 +1,24 @@
+//! # Protocol Service
+//!
+//! Public API for protocol definition operations. This module is the sole entry point
+//! for all protocol logic. CLI handlers and future API handlers must call these
+//! functions; they must not call internal helpers directly.
+//!
+//! ## Service boundary contract (ADR-010)
+//!
+//! - Every public function takes a typed input struct and returns a typed result struct.
+//! - All validation, field-ID mapping, and multi-step operations happen here.
+//! - Functions marked `pub(crate)` are internal helpers; do not promote them to `pub`.
+//!
+//! ## Handler pattern
+//!
+//! ```rust,ignore
+//! // CLI or API handler — this is the entire function body
+//! let input: ProtocolImportInput = serde_json::from_reader(io::stdin())?;
+//! let result = protocol_service::import_protocol(store, input)?;
+//! output::ok("protocol import", result)
+//! ```
+
 use srs_core::types::protocol::{
     Protocol, ProtocolDiagnosticSeverity, ProtocolStage, ProtocolStageSummary,
 };

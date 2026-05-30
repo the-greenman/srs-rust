@@ -4,30 +4,25 @@
   "title": "SRS Repository Manifest (ext:repository)",
   "description": "Root file for a SRS ext:repository. Acts as the authoritative index and entry point for the repository. Every repository must have exactly one manifest.json at its root.",
   "type": "object",
-  "required": ["$schema", "formatVersion", "scdsVersion", "conformance", "repositoryId", "title", "container", "instanceIndex", "createdAt"],
+  "required": ["$schema", "srsVersion", "repositoryId", "title", "instanceIndex", "createdAt"],
   "additionalProperties": false,
   "properties": {
     "$schema": {
       "type": "string",
       "const": "https://srs.semanticops.com/schema/2.0/manifest.json"
     },
-    "formatVersion": {
+    "srsVersion": {
       "type": "string",
-      "const": "1.0",
-      "description": "ext:repository format version."
-    },
-    "scdsVersion": {
-      "type": "string",
-      "const": "2.0"
-    },
-    "conformance": {
-      "type": "string",
-      "description": "Space-separated list of SRS extensions this repository conforms to. Must include 'SRS 2.0 Core' and 'ext:repository'."
+      "description": "SRS spec version this repository conforms to, e.g. '2.0' or '2.0-draft'."
     },
     "repositoryId": {
       "type": "string",
       "format": "uuid",
-      "description": "Matches the containerId of the embedded Container. Stable for the lifetime of the repository."
+      "description": "Stable UUID for this repository. Never changes on copy or export."
+    },
+    "namespace": {
+      "type": "string",
+      "description": "Reverse-DNS namespace for this repository, e.g. 'com.semanticops.srs'."
     },
     "title": {
       "type": "string"
@@ -35,18 +30,33 @@
     "description": {
       "type": "string"
     },
+    "declaredExtensions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "SRS extensions this repository conforms to, e.g. ['ext:lifecycle', 'ext:views-l1', 'ext:views-l2']."
+    },
     "container": {
       "$ref": "#/$defs/Container",
       "description": "Embedded Container record. Canonical source of truth for this repository's identity."
     },
+    "containerIndex": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ContainerIndexEntry" },
+      "description": "Index of all Containers in this repository."
+    },
     "packageRef": {
       "$ref": "#/$defs/PackageRef",
-      "description": "Reference to the SRS Package that supplies field and type definitions."
+      "description": "Reference to the SRS Package that supplies field and type definitions (single package)."
+    },
+    "packageRefs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/PackageRef" },
+      "description": "References to one or more SRS Packages that supply field and type definitions. Use instead of packageRef when multiple packages are in scope."
     },
     "instanceIndex": {
       "type": "array",
       "items": { "$ref": "#/$defs/InstanceIndexEntry" },
-      "description": "Authoritative list of all instances in this repository. Every instance file must have an entry here."
+      "description": "Authoritative list of all instances in this repository. Files not listed here are not members."
     },
     "relationsPath": {
       "type": "string",
@@ -59,40 +69,37 @@
     "sourceDocumentIndex": {
       "type": "array",
       "items": { "$ref": "#/$defs/SourceDocumentIndexEntry" },
-      "description": "Optional explicit index of source documents. When present, implementations may use this for discovery instead of scanning for *.meta.json files (Invariant 52)."
+      "description": "Optional explicit index of source documents."
     },
     "relationsChecksums": {
       "type": "array",
       "items": { "$ref": "#/$defs/RelationsChecksumEntry" },
-      "description": "Optional checksums for each relations file declared in relationsPath. Enables fast no-op detection during re-import."
+      "description": "Optional checksums for each relations file. Enables fast no-op detection during re-import."
     },
     "federationPath": {
       "type": "string",
-      "description": "ext:federation only. Path to the RepositoryRegistry file. Default when absent: 'federation/registry.json'."
+      "description": "ext:federation only. Path to the RepositoryRegistry file. Default: 'federation/registry.json'."
     },
     "federationEventsPath": {
       "type": "string",
-      "description": "ext:federation only. Path to the FederationEventsFile. Default when absent: 'federation/events.json'."
+      "description": "ext:federation only. Path to the FederationEventsFile. Default: 'federation/events.json'."
     },
     "aiGuidance": {
       "type": "object",
       "description": "Comprehension guidance for AI agents reading this repository.",
       "additionalProperties": false,
       "properties": {
-        "summary": {
-          "type": "string",
-          "description": "Plain-language description of what this repository is about."
-        },
+        "summary": { "type": "string" },
         "suggestedEntryPoints": {
           "type": "array",
-          "items": { "type": "string" },
-          "description": "Relative paths to files an AI agent should read first to understand the repository."
+          "items": { "type": "string" }
         },
-        "navigationHints": {
-          "type": "string",
-          "description": "Guidance on how to traverse the instanceIndex and relations to answer questions."
-        }
+        "navigationHints": { "type": "string" }
       }
+    },
+    "meta": {
+      "type": "object",
+      "description": "Implementation-local key-value pairs. Common keys: 'sourceOfTruth', 'renderedExports'. Cross-system keys should be namespaced."
     },
     "createdAt": {
       "type": "string",
@@ -120,18 +127,31 @@
         },
         "rootInstanceIds": {
           "type": "array",
-          "items": { "type": "string", "format": "uuid" },
-          "description": "Top-level instances this Container was created to hold."
+          "items": { "type": "string", "format": "uuid" }
         },
         "memberInstanceIds": {
           "type": "array",
-          "items": { "type": "string", "format": "uuid" },
-          "description": "Explicit membership list for all instances in scope."
+          "items": { "type": "string", "format": "uuid" }
         },
         "tags": { "type": "array", "items": { "type": "string" } },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" },
         "meta": { "type": "object" }
+      }
+    },
+    "ContainerIndexEntry": {
+      "type": "object",
+      "required": ["containerId", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "containerId": { "type": "string", "format": "uuid" },
+        "title": { "type": "string" },
+        "path": {
+          "type": "string",
+          "description": "Relative path from manifest.json to the container file."
+        },
+        "containerType": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } }
       }
     },
     "PackageRef": {
@@ -146,7 +166,7 @@
         },
         "path": {
           "type": "string",
-          "description": "Relative path to package.json (local mode). Default: 'package/package.json'."
+          "description": "Relative path to the package directory or package.json (local mode)."
         },
         "packageId": {
           "type": "string",
@@ -182,12 +202,11 @@
         },
         "title": {
           "type": "string",
-          "description": "Denormalised title for quick display without loading the instance file."
+          "description": "Denormalised title for quick display."
         },
         "typeId": {
           "type": "string",
-          "format": "uuid",
-          "description": "For Tier 1 and Tier 2 instances: the typeId of the Type used."
+          "format": "uuid"
         },
         "typeName": {
           "type": "string",
@@ -200,7 +219,7 @@
         "checksum": {
           "type": "string",
           "pattern": "^[a-z0-9]+:.+$",
-          "description": "Digest of the instance file: '<algorithm>:<hex>'. E.g. 'sha256:4b2c...'. Enables fast no-op detection during re-import (Invariant 55)."
+          "description": "Digest of the instance file: '<algorithm>:<hex>'."
         }
       }
     },
@@ -211,30 +230,18 @@
       "properties": {
         "documentId": {
           "type": "string",
-          "format": "uuid",
-          "description": "Matches SourceDocument.documentId in the sidecar."
+          "format": "uuid"
         },
-        "sidecarPath": {
-          "type": "string",
-          "description": "Relative path from sourceDocumentsPath to the .meta.json sidecar."
-        },
-        "contentPath": {
-          "type": "string",
-          "description": "Relative path from sourceDocumentsPath to the content file."
-        },
-        "title": {
-          "type": "string",
-          "description": "Denormalised for display; not authoritative over the sidecar."
-        },
+        "sidecarPath": { "type": "string" },
+        "contentPath": { "type": "string" },
+        "title": { "type": "string" },
         "sidecarChecksum": {
           "type": "string",
-          "pattern": "^[a-z0-9]+:.+$",
-          "description": "Digest of the .meta.json sidecar: '<algorithm>:<hex>'."
+          "pattern": "^[a-z0-9]+:.+$"
         },
         "contentChecksum": {
           "type": "string",
-          "pattern": "^[a-z0-9]+:.+$",
-          "description": "Digest of the content file: '<algorithm>:<hex>'."
+          "pattern": "^[a-z0-9]+:.+$"
         }
       }
     },
@@ -243,14 +250,10 @@
       "required": ["path", "checksum"],
       "additionalProperties": false,
       "properties": {
-        "path": {
-          "type": "string",
-          "description": "Matches an entry in relationsPath."
-        },
+        "path": { "type": "string" },
         "checksum": {
           "type": "string",
-          "pattern": "^[a-z0-9]+:.+$",
-          "description": "Digest of the relations file: '<algorithm>:<hex>'."
+          "pattern": "^[a-z0-9]+:.+$"
         }
       }
     }

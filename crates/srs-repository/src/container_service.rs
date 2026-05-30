@@ -1,3 +1,27 @@
+//! # Container Service
+//!
+//! Public API for container operations. This module is the sole entry point for
+//! all container logic. CLI handlers and future API handlers must call these
+//! functions; they must not call internal helpers directly.
+//!
+//! ## Service boundary contract (ADR-010)
+//!
+//! - Every public function takes a typed input struct and returns a typed result struct.
+//! - All validation, container orchestration, and multi-step operations happen here.
+//! - Functions marked `pub(crate)` are internal helpers; do not promote them to `pub`.
+//!   Specifically: `list_members`, `add_member`, `remove_member`, `is_member` are
+//!   `pub(crate)` so that CLI and API handlers cannot call them directly — container
+//!   scoping is the service's responsibility, not the caller's.
+//!
+//! ## Handler pattern
+//!
+//! ```rust,ignore
+//! // CLI or API handler — this is the entire function body
+//! let input: ContainerPatch = serde_json::from_reader(io::stdin())?;
+//! let result = container_service::update_container(store, id, input)?;
+//! output::ok("container update", result)
+//! ```
+
 use crate::error::RepositoryError;
 use crate::store::RepositoryStore;
 use crate::writer::new_instance_id;
@@ -152,7 +176,7 @@ pub fn delete_container(
     Ok(container_id.to_string())
 }
 
-pub fn list_members(
+pub(crate) fn list_members(
     store: &dyn RepositoryStore,
     container_id: &str,
 ) -> Result<Vec<String>, RepositoryError> {
@@ -160,7 +184,7 @@ pub fn list_members(
     Ok(container.member_instance_ids.unwrap_or_default())
 }
 
-pub fn add_member(
+pub(crate) fn add_member(
     store: &dyn RepositoryStore,
     container_id: &str,
     instance_id: &str,
@@ -177,7 +201,7 @@ pub fn add_member(
     Ok(members)
 }
 
-pub fn remove_member(
+pub(crate) fn remove_member(
     store: &dyn RepositoryStore,
     container_id: &str,
     instance_id: &str,
@@ -236,13 +260,39 @@ pub fn remove_root(
     Ok(container.root_instance_ids.unwrap_or_default())
 }
 
-pub fn is_member(
+pub(crate) fn is_member(
     store: &dyn RepositoryStore,
     container_id: &str,
     instance_id: &str,
 ) -> Result<bool, RepositoryError> {
     let members = list_members(store, container_id)?;
     Ok(members.iter().any(|id| id == instance_id))
+}
+
+/// Add a member to a container — public entry point for membership management commands.
+pub fn add_container_member(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+    instance_id: &str,
+) -> Result<Vec<String>, RepositoryError> {
+    add_member(store, container_id, instance_id)
+}
+
+/// Remove a member from a container — public entry point for membership management commands.
+pub fn remove_container_member(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+    instance_id: &str,
+) -> Result<Vec<String>, RepositoryError> {
+    remove_member(store, container_id, instance_id)
+}
+
+/// List members of a container — public entry point for membership inspection commands.
+pub fn list_container_members(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+) -> Result<Vec<String>, RepositoryError> {
+    list_members(store, container_id)
 }
 
 pub fn validate_container_invariants(

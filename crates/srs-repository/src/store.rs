@@ -129,16 +129,44 @@ pub trait RepositoryStore {
 
     // --- Containers ---
 
+    /// Load a container by its logical `container_id`.
+    /// Returns `ContainerNotFound` if no container with that ID is registered.
+    fn load_container(
+        &self,
+        container_id: &str,
+    ) -> Result<srs_core::types::container::Container, RepositoryError>;
+
+    /// Persist a container by its logical `container_id`.
+    /// Creates it if it does not exist; overwrites if it does.
+    fn save_container(
+        &self,
+        container: &srs_core::types::container::Container,
+    ) -> Result<(), RepositoryError>;
+
+    /// Delete a container by its logical `container_id`.
+    /// Returns `ContainerNotFound` if no container with that ID is registered.
+    fn delete_container(&self, container_id: &str) -> Result<(), RepositoryError>;
+
+    /// List all containers as lightweight summaries `(container_id, title)`.
+    /// Order is not guaranteed.
+    fn list_container_summaries(&self) -> Result<Vec<(String, String)>, RepositoryError>;
+
+    // --- Containers (transitional path-based methods — do not use in new service code) ---
+
+    #[deprecated(note = "Use load_container instead")]
     fn load_container_json(
         &self,
         relative_path: &str,
     ) -> Result<serde_json::Value, RepositoryError>;
+    #[deprecated(note = "Use save_container instead")]
     fn save_container_json(
         &self,
         relative_path: &str,
         value: &serde_json::Value,
     ) -> Result<(), RepositoryError>;
+    #[deprecated(note = "Use delete_container instead")]
     fn delete_container_file(&self, relative_path: &str) -> Result<(), RepositoryError>;
+    #[deprecated(note = "No-op in logical container model; remove call sites")]
     fn ensure_containers_dir(&self) -> Result<(), RepositoryError>;
 
     // --- Package boundaries ---
@@ -1012,6 +1040,68 @@ impl RepositoryStore for FileStore {
 
     // --- Containers ---
 
+    fn load_container(
+        &self,
+        container_id: &str,
+    ) -> Result<srs_core::types::container::Container, RepositoryError> {
+        let path = file_store_find_container_path(self, container_id)?;
+        let val = self.read_json(&self.abs(&path))?;
+        serde_json::from_value(val).map_err(|source| RepositoryError::ManifestParse {
+            path: self.abs(&path),
+            source,
+        })
+    }
+
+    fn save_container(
+        &self,
+        container: &srs_core::types::container::Container,
+    ) -> Result<(), RepositoryError> {
+        let id = &container.container_id;
+        let val = serde_json::to_value(container).map_err(|source| RepositoryError::Serialize {
+            path: std::path::PathBuf::from("containers"),
+            source,
+        })?;
+        // Find existing path or derive a new one
+        let path = match file_store_find_container_path(self, id) {
+            Ok(p) => p,
+            Err(RepositoryError::ContainerNotFound { .. }) => {
+                // New container — derive path from title slug + id prefix
+                let slug = container
+                    .title
+                    .to_lowercase()
+                    .chars()
+                    .map(|c| if c.is_alphanumeric() { c } else { '-' })
+                    .collect::<String>();
+                let prefix = &id[..id.len().min(8)];
+                let filename = format!("containers/{slug}-{prefix}.json");
+                // Register in index
+                file_store_upsert_container_index(self, id, &container.title, &filename)?;
+                filename
+            }
+            Err(e) => return Err(e),
+        };
+        self.ensure_dir(&self.repo_root.join("containers"))?;
+        self.write_json(&self.abs(&path), &val)
+    }
+
+    fn delete_container(&self, container_id: &str) -> Result<(), RepositoryError> {
+        let path = file_store_find_container_path(self, container_id)?;
+        // Remove from index
+        file_store_remove_container_index(self, container_id)?;
+        // Delete file (ignore missing-file errors)
+        let _ = self.delete_file(&self.abs(&path));
+        Ok(())
+    }
+
+    fn list_container_summaries(&self) -> Result<Vec<(String, String)>, RepositoryError> {
+        let index = file_store_load_container_index(self)?;
+        Ok(index
+            .into_iter()
+            .map(|(id, title, _path)| (id, title))
+            .collect())
+    }
+
+    #[allow(deprecated)]
     fn load_container_json(
         &self,
         relative_path: &str,
@@ -1019,6 +1109,7 @@ impl RepositoryStore for FileStore {
         self.read_json(&self.abs(relative_path))
     }
 
+    #[allow(deprecated)]
     fn save_container_json(
         &self,
         relative_path: &str,
@@ -1027,10 +1118,12 @@ impl RepositoryStore for FileStore {
         self.write_json(&self.abs(relative_path), value)
     }
 
+    #[allow(deprecated)]
     fn delete_container_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
         self.delete_file(&self.abs(relative_path))
     }
 
+    #[allow(deprecated)]
     fn ensure_containers_dir(&self) -> Result<(), RepositoryError> {
         self.ensure_dir(&self.repo_root.join("containers"))
     }
@@ -1306,6 +1399,90 @@ pub(crate) fn definition_kind_key(kind: DefinitionKind) -> &'static str {
         DefinitionKind::DocumentView => "documentViews",
         DefinitionKind::RelationType => "relationTypes",
     }
+}
+
+/// Load the container index as `(container_id, title, path)` triples from the manifest.
+fn file_store_load_container_index(
+    store: &FileStore,
+) -> Result<Vec<(String, String, String)>, RepositoryError> {
+    let manifest = store.load_manifest()?;
+    let entries: Vec<serde_json::Value> = manifest
+        .extra
+        .get("containerIndex")
+        .cloned()
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default();
+    Ok(entries
+        .into_iter()
+        .filter_map(|e| {
+            let id = e["containerId"].as_str()?.to_string();
+            let title = e["title"].as_str().unwrap_or("").to_string();
+            let path = e["path"].as_str()?.to_string();
+            Some((id, title, path))
+        })
+        .collect())
+}
+
+/// Find the file path for a container by its `container_id`.
+fn file_store_find_container_path(
+    store: &FileStore,
+    container_id: &str,
+) -> Result<String, RepositoryError> {
+    let index = file_store_load_container_index(store)?;
+    index
+        .into_iter()
+        .find(|(id, _, _)| id == container_id)
+        .map(|(_, _, path)| path)
+        .ok_or_else(|| RepositoryError::ContainerNotFound {
+            container_id: container_id.to_string(),
+        })
+}
+
+/// Insert or update an entry in the manifest `containerIndex`.
+fn file_store_upsert_container_index(
+    store: &FileStore,
+    container_id: &str,
+    title: &str,
+    path: &str,
+) -> Result<(), RepositoryError> {
+    let mut manifest = store.load_manifest()?;
+    let mut entries: Vec<serde_json::Value> = manifest
+        .extra
+        .get("containerIndex")
+        .cloned()
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default();
+    entries.retain(|e| e["containerId"].as_str() != Some(container_id));
+    entries.push(serde_json::json!({
+        "containerId": container_id,
+        "title": title,
+        "path": path,
+    }));
+    manifest.extra.insert(
+        "containerIndex".to_string(),
+        serde_json::to_value(entries).unwrap(),
+    );
+    store.save_manifest(&manifest)
+}
+
+/// Remove an entry from the manifest `containerIndex`.
+fn file_store_remove_container_index(
+    store: &FileStore,
+    container_id: &str,
+) -> Result<(), RepositoryError> {
+    let mut manifest = store.load_manifest()?;
+    let mut entries: Vec<serde_json::Value> = manifest
+        .extra
+        .get("containerIndex")
+        .cloned()
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default();
+    entries.retain(|e| e["containerId"].as_str() != Some(container_id));
+    manifest.extra.insert(
+        "containerIndex".to_string(),
+        serde_json::to_value(entries).unwrap(),
+    );
+    store.save_manifest(&manifest)
 }
 
 /// Recursively collect file paths under `dir`, storing relative paths from `root`.
@@ -1898,6 +2075,91 @@ pub mod memory {
             Ok(())
         }
 
+        fn load_container(
+            &self,
+            container_id: &str,
+        ) -> Result<srs_core::types::container::Container, RepositoryError> {
+            let key = format!("containers/{container_id}.json");
+            let val = self.data.borrow().get(&key).cloned().ok_or_else(|| {
+                RepositoryError::ContainerNotFound {
+                    container_id: container_id.to_string(),
+                }
+            })?;
+            serde_json::from_value(val).map_err(|source| RepositoryError::ManifestParse {
+                path: std::path::PathBuf::from(&key),
+                source,
+            })
+        }
+
+        fn save_container(
+            &self,
+            container: &srs_core::types::container::Container,
+        ) -> Result<(), RepositoryError> {
+            let id = &container.container_id;
+            let key = format!("containers/{id}.json");
+            let val =
+                serde_json::to_value(container).map_err(|source| RepositoryError::Serialize {
+                    path: std::path::PathBuf::from(&key),
+                    source,
+                })?;
+            self.data.borrow_mut().insert(key, val);
+            // Update summary index in manifest
+            let mut manifest = self.manifest.borrow_mut();
+            let mut entries: Vec<serde_json::Value> = manifest
+                .extra
+                .get("containerIndex")
+                .cloned()
+                .and_then(|v| serde_json::from_value(v).ok())
+                .unwrap_or_default();
+            entries.retain(|e| e["containerId"].as_str() != Some(id));
+            entries.push(serde_json::json!({ "containerId": id, "title": container.title }));
+            manifest
+                .extra
+                .insert("containerIndex".to_string(), serde_json::json!(entries));
+            Ok(())
+        }
+
+        fn delete_container(&self, container_id: &str) -> Result<(), RepositoryError> {
+            let key = format!("containers/{container_id}.json");
+            if self.data.borrow_mut().remove(&key).is_none() {
+                return Err(RepositoryError::ContainerNotFound {
+                    container_id: container_id.to_string(),
+                });
+            }
+            // Remove from manifest index
+            let mut manifest = self.manifest.borrow_mut();
+            let mut entries: Vec<serde_json::Value> = manifest
+                .extra
+                .get("containerIndex")
+                .cloned()
+                .and_then(|v| serde_json::from_value(v).ok())
+                .unwrap_or_default();
+            entries.retain(|e| e["containerId"].as_str() != Some(container_id));
+            manifest
+                .extra
+                .insert("containerIndex".to_string(), serde_json::json!(entries));
+            Ok(())
+        }
+
+        fn list_container_summaries(&self) -> Result<Vec<(String, String)>, RepositoryError> {
+            let manifest = self.manifest.borrow();
+            let entries: Vec<serde_json::Value> = manifest
+                .extra
+                .get("containerIndex")
+                .cloned()
+                .and_then(|v| serde_json::from_value(v).ok())
+                .unwrap_or_default();
+            Ok(entries
+                .into_iter()
+                .filter_map(|e| {
+                    let id = e["containerId"].as_str()?.to_string();
+                    let title = e["title"].as_str().unwrap_or("").to_string();
+                    Some((id, title))
+                })
+                .collect())
+        }
+
+        #[allow(deprecated)]
         fn load_container_json(
             &self,
             relative_path: &str,
@@ -1909,6 +2171,7 @@ pub mod memory {
                 .ok_or_else(|| not_found(relative_path))
         }
 
+        #[allow(deprecated)]
         fn save_container_json(
             &self,
             relative_path: &str,
@@ -1920,11 +2183,13 @@ pub mod memory {
             Ok(())
         }
 
+        #[allow(deprecated)]
         fn delete_container_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
             self.data.borrow_mut().remove(relative_path);
             Ok(())
         }
 
+        #[allow(deprecated)]
         fn ensure_containers_dir(&self) -> Result<(), RepositoryError> {
             Ok(())
         }
@@ -2268,6 +2533,90 @@ mod tests {
                 "records/notes/b.json".to_string(),
             ]
         );
+    }
+
+    // --- Container store tests ---
+
+    fn minimal_container_for_store(id: &str, title: &str) -> srs_core::types::container::Container {
+        srs_core::types::container::Container {
+            container_id: id.to_string(),
+            title: title.to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            tags: None,
+            root_instance_ids: None,
+            member_instance_ids: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: std::collections::HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn memory_store_container_operations_are_keyed_by_id() {
+        let store = MemoryStore::default();
+        let container = minimal_container_for_store("c-111", "Sprint 1");
+
+        store.save_container(&container).unwrap();
+
+        // Load back via logical ID
+        let loaded = store.load_container("c-111").unwrap();
+        assert_eq!(loaded.container_id, "c-111");
+        assert_eq!(loaded.title, "Sprint 1");
+
+        // load_instance_json at id-keyed path must succeed (proves storage is id-keyed)
+        store
+            .load_instance_json("containers/c-111.json")
+            .expect("container should be stored at id-keyed path");
+    }
+
+    #[test]
+    fn memory_store_container_summaries_reflects_saves() {
+        let store = MemoryStore::default();
+        for i in 1..=3u32 {
+            store
+                .save_container(&minimal_container_for_store(
+                    &format!("cid-{i}"),
+                    &format!("Container {i}"),
+                ))
+                .unwrap();
+        }
+        let summaries = store.list_container_summaries().unwrap();
+        assert_eq!(summaries.len(), 3);
+        assert!(summaries.iter().any(|(id, _)| id == "cid-1"));
+        assert!(summaries.iter().any(|(id, _)| id == "cid-2"));
+        assert!(summaries.iter().any(|(id, _)| id == "cid-3"));
+    }
+
+    #[test]
+    fn memory_store_delete_container_removes_entry() {
+        let store = MemoryStore::default();
+        store
+            .save_container(&minimal_container_for_store("del-me", "Delete Me"))
+            .unwrap();
+
+        store.delete_container("del-me").unwrap();
+
+        let err = store.load_container("del-me").unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::ContainerNotFound { .. }),
+            "should get ContainerNotFound after delete"
+        );
+        let summaries = store.list_container_summaries().unwrap();
+        assert!(
+            !summaries.iter().any(|(id, _)| id == "del-me"),
+            "summary index should not contain deleted container"
+        );
+    }
+
+    #[test]
+    fn memory_store_delete_container_missing_returns_not_found() {
+        let store = MemoryStore::default();
+        let err = store.delete_container("nonexistent").unwrap_err();
+        assert!(matches!(err, RepositoryError::ContainerNotFound { .. }));
     }
 
     // --- Package boundary tests ---

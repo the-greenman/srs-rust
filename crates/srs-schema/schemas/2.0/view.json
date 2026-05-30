@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/view.json",
+  "title": "SRS View Definition (ext:views-l1)",
+  "description": "A versioned presentation and export configuration over a specific Type. Multiple Views may exist for the same Type, serving different audiences or purposes.",
+  "type": "object",
+  "required": ["$schema", "id", "namespace", "name", "version", "description", "typeId", "typeVersion", "fieldViews", "createdAt"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://srs.semanticops.com/schema/2.0/view.json"
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Stable UUID for this View. Never changes across versions."
+    },
+    "namespace": {
+      "type": "string",
+      "description": "Logical namespace, e.g. 'com.semanticops.srs'."
+    },
+    "name": {
+      "type": "string",
+      "description": "Machine-readable name within the namespace, kebab-case."
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "description": {
+      "type": "string",
+      "description": "When to use this View; what workflow or audience it serves."
+    },
+    "typeId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "References the Type this View is bound to."
+    },
+    "typeVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "fieldViews": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/FieldView" },
+      "description": "Presentation configuration for each field. Fields omitted here are treated as visible: false."
+    },
+    "protection": {
+      "type": "string",
+      "enum": ["none", "read-only", "fill-in"],
+      "description": "View-level workflow constraint. 'none' (default): no restriction. 'read-only': Records rendered through this View cannot be edited. 'fill-in': only null or empty field values may be populated."
+    },
+    "exportConfig": {
+      "$ref": "#/$defs/ExportConfig"
+    },
+    "aiGuidance": {
+      "type": "object",
+      "description": "Guidance for AI agents using this View.",
+      "additionalProperties": false,
+      "properties": {
+        "purpose": { "type": "string" },
+        "extraction": { "type": "string" }
+      }
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "lineage": { "type": "object" },
+    "provenance": { "type": "object" }
+  },
+  "$defs": {
+    "FieldView": {
+      "type": "object",
+      "required": ["fieldId", "order"],
+      "additionalProperties": false,
+      "properties": {
+        "fieldId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Must appear in the bound Type's effective field list."
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Display order within this View."
+        },
+        "required": {
+          "type": "boolean",
+          "description": "View-level workflow constraint; does not alter the Field contract."
+        },
+        "visible": {
+          "type": "boolean",
+          "description": "Default: true. A hidden field remains in the Record and may appear in other Views."
+        },
+        "displayLabel": { "type": "string" },
+        "displayHint": { "type": "string" },
+        "editorHintOverride": { "type": "string" }
+      }
+    },
+    "ExportConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Configuration for rendering a Record through this View as an exportable document.",
+      "properties": {
+        "format": {
+          "type": "string",
+          "description": "Target output format. Portable values: 'markdown', 'adoc', 'html', 'text'. In section rendering context (ext:views-l2), DocumentView.format supersedes this value."
+        },
+        "preamble": {
+          "type": "string",
+          "description": "Template string rendered before field values. Standard variables: {{instance-id}}, {{date}}, {{status}}, {{namespace}}, {{name}}. In section rendering context, {{heading-3}} is also available (resolves to heading level 3 + depthOffset)."
+        },
+        "fieldOrder": {
+          "type": "array",
+          "items": { "type": "string", "format": "uuid" },
+          "description": "Explicit export field ordering by fieldId. Defaults to fieldViews[].order."
+        },
+        "omitEmptyFields": {
+          "type": "boolean",
+          "description": "Default: false. When true, fields with no value are omitted from output."
+        }
+      }
+    }
+  }
+}

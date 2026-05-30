@@ -1,0 +1,204 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/theme.json",
+  "title": "SRS Theme Definition (ext:themes-l1)",
+  "description": "Visual presentation layer for a DocumentView. Specifies assets, element templates, and stylesheets without altering semantic structure. Depends on ext:views-l2.",
+  "type": "object",
+  "required": ["$schema", "id", "namespace", "name", "version", "description", "targets", "createdAt"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://srs.semanticops.com/schema/2.0/theme.json"
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Stable UUID for this Theme."
+    },
+    "namespace": { "type": "string" },
+    "name": { "type": "string" },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "description": {
+      "type": "string",
+      "description": "What this theme is for; intended output format and audience."
+    },
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" },
+      "description": "Output formats this theme is designed for (e.g. 'html', 'markdown'). Implementations apply this theme only when DocumentView.format appears in this list. MUST contain at least one entry (Rule [T-1b])."
+    },
+    "assets": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/AssetDeclaration" },
+      "description": "Named asset declarations. Names must be unique within the Theme. Referenced in templates as {{asset:name}}."
+    },
+    "cssClassFields": {
+      "type": "array",
+      "items": { "type": "string", "format": "uuid" },
+      "description": "fieldIds whose values are injected as CSS classes on record wrapper elements. Only string, text, and select valueTypes generate classes. Only applies to 'html' and 'pdf' output."
+    },
+    "pageTemplates": { "$ref": "#/$defs/PageTemplates" },
+    "elementTemplates": { "$ref": "#/$defs/ElementTemplates" },
+    "stylesheet": { "$ref": "#/$defs/StylesheetDeclaration" },
+    "typography": { "$ref": "#/$defs/TypographyHints" },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "lineage": { "type": "object" },
+    "provenance": { "type": "object" }
+  },
+  "$defs": {
+    "AssetDeclaration": {
+      "type": "object",
+      "required": ["type", "mode"],
+      "additionalProperties": false,
+      "description": "A named asset referenced in templates via {{asset:name}}.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["image", "font", "stylesheet", "data"]
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["local", "remote", "inline"]
+        },
+        "path": {
+          "type": "string",
+          "description": "Local file path. Required when mode === 'local'."
+        },
+        "url": {
+          "type": "string",
+          "description": "Remote URL. Required when mode === 'remote'."
+        },
+        "data": {
+          "type": "string",
+          "description": "Base64 for binary types; raw text for stylesheet/data. Required when mode === 'inline'."
+        },
+        "mimeType": {
+          "type": "string",
+          "description": "e.g. 'image/png', 'font/woff2', 'text/css'."
+        }
+      }
+    },
+    "PageTemplates": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Page-level chrome for paginated output formats ('pdf', 'docx'). Ignored for non-paginated formats.",
+      "properties": {
+        "coverPage": {
+          "type": "string",
+          "description": "Rendered as the first page. Available variables: all DocumentView preamble variables, {{asset:*}}, {{heading-1}}."
+        },
+        "pageHeader": {
+          "type": "string",
+          "description": "Repeated at the top of each page. Additional variable: {{page-number}}."
+        },
+        "pageFooter": {
+          "type": "string",
+          "description": "Repeated at the bottom of each page. Additional variable: {{page-number}}."
+        }
+      }
+    },
+    "ElementTemplates": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Templates that wrap auto-rendered content at each structural level. Each receives {{content}} and returns the full output. Templates wrap — they do not replace or reorder content.",
+      "properties": {
+        "documentWrapper": {
+          "type": "string",
+          "description": "Wraps the entire rendered document body. Available: {{content}}, {{container-title}}, {{date}}, {{asset:*}}."
+        },
+        "sectionWrapper": {
+          "type": "string",
+          "description": "Wraps each section. Available: {{content}}, {{section-title}}, {{section-id}}, {{asset:*}}."
+        },
+        "sectionWrapperOverrides": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/SectionWrapperOverride" },
+          "description": "Per-section overrides. Takes precedence over sectionWrapper when sectionId matches. sectionId values MUST be unique within this array."
+        },
+        "recordWrapper": {
+          "type": "string",
+          "description": "Wraps each record. Available: {{content}}, {{record-heading}}, {{type-namespace}}, {{type-name}}, {{asset:*}}."
+        },
+        "recordWrapperOverrides": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/RecordWrapperOverride" },
+          "description": "Per-type overrides. Takes precedence over recordWrapper when typeId matches. typeId values MUST be unique within this array."
+        },
+        "fieldRow": {
+          "type": "string",
+          "description": "Wraps each field label+value pair. Available: {{field-label}}, {{field-value}}, {{field-name}}, {{content}}. Applied after ExportConfig filtering/ordering when renderViewId is set. Does not wrap ExportConfig.preamble content."
+        }
+      }
+    },
+    "SectionWrapperOverride": {
+      "type": "object",
+      "required": ["sectionId", "template"],
+      "additionalProperties": false,
+      "properties": {
+        "sectionId": {
+          "type": "string",
+          "description": "Matches DocumentSection.sectionId; case-sensitive."
+        },
+        "template": { "type": "string" }
+      }
+    },
+    "RecordWrapperOverride": {
+      "type": "object",
+      "required": ["typeId", "template"],
+      "additionalProperties": false,
+      "properties": {
+        "typeId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Matches Record.typeId; targets all records of this type."
+        },
+        "template": { "type": "string" }
+      }
+    },
+    "StylesheetDeclaration": {
+      "type": "object",
+      "required": ["mode"],
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["inline", "local", "remote"]
+        },
+        "content": {
+          "type": "string",
+          "description": "Inline CSS. Required when mode === 'inline'."
+        },
+        "path": {
+          "type": "string",
+          "description": "Local path. Required when mode === 'local'."
+        },
+        "url": {
+          "type": "string",
+          "description": "Remote URL. Required when mode === 'remote'."
+        }
+      }
+    },
+    "TypographyHints": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Informative declarations. No normative rendering behaviour is derived from these values.",
+      "properties": {
+        "baseFont": { "type": "string" },
+        "headingFont": { "type": "string" },
+        "monoFont": { "type": "string" },
+        "baseFontSize": { "type": "string", "description": "e.g. '16px', '1rem', '11pt'." },
+        "lineHeight": { "type": "string", "description": "e.g. '1.5', '24px'." }
+      }
+    }
+  }
+}

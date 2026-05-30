@@ -1,3 +1,25 @@
+//! # Tag Service
+//!
+//! Public API for tag definition operations. This module is the sole entry point for
+//! all tag logic. CLI handlers and future API handlers must call these
+//! functions; they must not call internal helpers directly.
+//!
+//! ## Service boundary contract (ADR-010)
+//!
+//! - Every public function takes a typed input struct and returns a typed result struct.
+//! - All validation, container orchestration, and multi-step operations happen here.
+//! - Functions marked `pub(crate)` are internal helpers; do not promote them to `pub`.
+//!
+//! ## Handler pattern
+//!
+//! ```rust,ignore
+//! // CLI or API handler — this is the entire function body
+//! let input: CreateTagInput = serde_json::from_reader(io::stdin())?;
+//! let result = tag_service::create_tag_definition(store, input)?;
+//! output::ok("tag create", result)
+//! ```
+
+use crate::container_service;
 use crate::error::RepositoryError;
 use crate::loader::load_tag_definition;
 use crate::store::RepositoryStore;
@@ -191,6 +213,100 @@ pub fn update_tag_definition(
     write_manifest(store, &manifest)?;
 
     Ok(UpdateTagDefinitionResult { tag_definition })
+}
+
+/// Filter options for listing tag definitions
+#[derive(Debug, Clone, Default)]
+pub struct TagListFilter {
+    /// If Some, only return tag definitions that are members of this container.
+    pub container_id: Option<String>,
+}
+
+/// List tag definitions with optional container filter.
+pub fn list_tag_definitions_filtered(
+    store: &dyn RepositoryStore,
+    filter: TagListFilter,
+) -> Result<Vec<TagDefinitionSummary>, RepositoryError> {
+    let member_ids: Option<std::collections::HashSet<String>> =
+        if let Some(ref cid) = filter.container_id {
+            let members = container_service::list_members(store, cid)?;
+            Some(members.into_iter().collect())
+        } else {
+            None
+        };
+
+    let all = list_tag_definitions(store)?;
+
+    let filtered = all
+        .into_iter()
+        .filter(|td| {
+            if let Some(ref member_set) = member_ids {
+                member_set.contains(&td.instance_id)
+            } else {
+                true
+            }
+        })
+        .collect();
+
+    Ok(filtered)
+}
+
+/// Create a tag definition and optionally add it to a container atomically.
+pub fn create_tag_definition_in_context(
+    store: &dyn RepositoryStore,
+    tag: TagDefinition,
+    container_id: Option<String>,
+) -> Result<CreateTagDefinitionResult, RepositoryError> {
+    if let Some(ref cid) = container_id {
+        container_service::get_container(store, cid)?;
+    }
+
+    let result = create_tag_definition(store, tag)?;
+
+    if let Some(ref cid) = container_id {
+        container_service::add_member(store, cid, &result.tag_definition.instance_id)?;
+    }
+
+    Ok(result)
+}
+
+/// Delete a tag definition with optional container-scoped membership check.
+pub fn delete_tag_definition_in_context(
+    store: &dyn RepositoryStore,
+    id: String,
+    container_id: Option<String>,
+) -> Result<DeleteTagDefinitionResult, RepositoryError> {
+    if let Some(ref cid) = container_id {
+        if !container_service::is_member(store, cid, &id)? {
+            return Err(RepositoryError::NotFound {
+                path: std::path::PathBuf::from(format!(
+                    "Instance '{}' is not a member of container '{}'",
+                    id, cid
+                )),
+            });
+        }
+        container_service::remove_member(store, cid, &id)?;
+    }
+
+    delete_tag_definition(store, &id)
+}
+
+/// Update a tag definition after validating that the ID in the body matches
+/// the provided command ID.
+pub fn update_tag_definition_validated(
+    store: &dyn RepositoryStore,
+    id: &str,
+    tag: TagDefinition,
+) -> Result<UpdateTagDefinitionResult, RepositoryError> {
+    if tag.instance_id != id {
+        return Err(RepositoryError::InvalidRepositoryInitialization {
+            message: format!(
+                "Tag definition ID in body ({}) does not match path ID ({})",
+                tag.instance_id, id
+            ),
+        });
+    }
+    update_tag_definition(store, tag)
 }
 
 /// Delete a TagDefinition by ID.

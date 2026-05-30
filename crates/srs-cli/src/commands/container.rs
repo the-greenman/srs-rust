@@ -6,9 +6,9 @@ use anyhow::Result;
 use serde_json::json;
 use srs_core::types::container::Container;
 use srs_repository::container_service::{
-    add_member, add_root, create_container, delete_container, get_container, list_containers,
-    list_members, list_roots, remove_member, remove_root, update_container,
-    validate_container_invariants, ContainerPatch,
+    add_container_member, add_root, create_container, delete_container, get_container,
+    list_container_members, list_containers, list_roots, remove_container_member, remove_root,
+    update_container, validate_container_invariants, ContainerPatch,
 };
 use std::io;
 
@@ -109,7 +109,9 @@ fn cmd_delete(ctx: CliContext, container_id: String) -> Result<String> {
 fn dispatch_members(ctx: CliContext, cmd: ContainerMembersCommand) -> Result<String> {
     match cmd {
         ContainerMembersCommand::List { container_id } => {
-            let ids = with_store(&ctx, |store| Ok(list_members(store, &container_id)?))?;
+            let ids = with_store(&ctx, |store| {
+                Ok(list_container_members(store, &container_id)?)
+            })?;
             Ok(output::ok(
                 "container members list",
                 json!({ "containerId": container_id, "memberInstanceIds": ids }),
@@ -120,7 +122,7 @@ fn dispatch_members(ctx: CliContext, cmd: ContainerMembersCommand) -> Result<Str
             instance_id,
         } => {
             let ids = with_store(&ctx, |store| {
-                Ok(add_member(store, &container_id, &instance_id)?)
+                Ok(add_container_member(store, &container_id, &instance_id)?)
             })?;
             Ok(output::ok(
                 "container members add",
@@ -132,7 +134,7 @@ fn dispatch_members(ctx: CliContext, cmd: ContainerMembersCommand) -> Result<Str
             instance_id,
         } => {
             let ids = with_store(&ctx, |store| {
-                Ok(remove_member(store, &container_id, &instance_id)?)
+                Ok(remove_container_member(store, &container_id, &instance_id)?)
             })?;
             Ok(output::ok(
                 "container members remove",

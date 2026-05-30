@@ -1,9 +1,31 @@
+//! # Package Service
+//!
+//! Public API for field, type, and package definition operations. This module is the
+//! sole entry point for all package-level logic. CLI handlers and future API handlers
+//! must call these functions; they must not call internal helpers directly.
+//!
+//! ## Service boundary contract (ADR-010)
+//!
+//! - Every public function takes a typed input struct and returns a typed result struct.
+//! - All validation and multi-step operations happen here.
+//! - Functions marked `pub(crate)` are internal helpers; do not promote them to `pub`.
+//!
+//! ## Handler pattern
+//!
+//! ```rust,ignore
+//! // CLI or API handler — this is the entire function body
+//! let filter = FieldListFilter { namespace: ns, package: pkg };
+//! let result = package_service::list_fields_filtered(store, filter)?;
+//! output::ok("field list", result)
+//! ```
+
 use crate::error::RepositoryError;
 use crate::package_types::{DefinitionKind, PackageBoundary, PackageSelector};
 use crate::store::RepositoryStore;
 use serde::{Deserialize, Serialize};
 use srs_core::types::field::Field;
 use srs_core::types::record_type::RecordType;
+use srs_core::types::relation_type_definition::RelationTypeDefinition;
 
 /// Summary for field list operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -266,6 +288,119 @@ fn list_types_internal(
         .collect();
 
     Ok(summaries)
+}
+
+/// Filter options for listing fields
+#[derive(Debug, Clone, Default)]
+pub struct FieldListFilter {
+    /// If Some, only return fields with this namespace.
+    pub namespace: Option<String>,
+    /// If Some, only return fields from this package boundary path
+    /// (`None` string = primary package; `Some(path)` = sub-package).
+    pub package: Option<Option<String>>,
+}
+
+/// Filter options for listing types
+#[derive(Debug, Clone, Default)]
+pub struct TypeListFilter {
+    /// If Some, only return types with this namespace.
+    pub namespace: Option<String>,
+    /// If Some, only return types from this package boundary path.
+    pub package: Option<Option<String>>,
+}
+
+/// Unified field listing function combining namespace and package filtering.
+pub fn list_fields_filtered(
+    store: &dyn RepositoryStore,
+    filter: FieldListFilter,
+) -> Result<Vec<FieldSummary>, RepositoryError> {
+    let all = if let Some(boundary) = filter.package {
+        list_fields_internal(store, Some(boundary.as_deref()))?
+    } else {
+        list_fields_internal(store, None)?
+    };
+
+    Ok(if let Some(ref ns) = filter.namespace {
+        all.into_iter().filter(|f| &f.namespace == ns).collect()
+    } else {
+        all
+    })
+}
+
+/// Unified type listing function combining namespace and package filtering.
+pub fn list_types_filtered(
+    store: &dyn RepositoryStore,
+    filter: TypeListFilter,
+) -> Result<Vec<TypeSummary>, RepositoryError> {
+    let all = if let Some(boundary) = filter.package {
+        list_types_internal(store, Some(boundary.as_deref()))?
+    } else {
+        list_types_internal(store, None)?
+    };
+
+    Ok(if let Some(ref ns) = filter.namespace {
+        all.into_iter().filter(|t| &t.namespace == ns).collect()
+    } else {
+        all
+    })
+}
+
+/// List relation type definitions with optional status filter.
+///
+/// If `status` is None, all definitions are returned. If Some, only definitions
+/// whose serialized status string matches are returned.
+pub fn list_relation_types_filtered(
+    store: &dyn RepositoryStore,
+    status: Option<String>,
+) -> Result<Vec<RelationTypeDefinition>, RepositoryError> {
+    let package = store.load_package()?;
+    let defs = package.relation_type_definitions;
+
+    Ok(if let Some(ref status_filter) = status {
+        defs.into_iter()
+            .filter(|rtd| {
+                let serialized = rtd
+                    .status
+                    .as_ref()
+                    .and_then(|s| serde_json::to_value(s).ok())
+                    .and_then(|v| v.as_str().map(|s| s.to_string()))
+                    .unwrap_or_default();
+                &serialized == status_filter
+            })
+            .collect()
+    } else {
+        defs
+    })
+}
+
+/// Create a field with normalized defaults (description, aiGuidance, createdAt),
+/// deserializing from a raw JSON value.
+///
+/// Moves normalization logic from CLI handlers into the service layer.
+pub fn create_field_normalized(
+    store: &dyn RepositoryStore,
+    mut raw: serde_json::Value,
+    package_selector: PackageSelector,
+) -> Result<CreateFieldResult, RepositoryError> {
+    // Normalize description: absent → empty string
+    if raw.get("description").is_none() || raw["description"].is_null() {
+        raw["description"] = serde_json::json!("");
+    }
+    // Normalize aiGuidance: absent → {}
+    if raw.get("aiGuidance").is_none() || raw["aiGuidance"].is_null() {
+        raw["aiGuidance"] = serde_json::json!({});
+    }
+    // Normalize createdAt: absent → now
+    if raw.get("createdAt").is_none() || raw["createdAt"].is_null() {
+        raw["createdAt"] = serde_json::json!(chrono::Utc::now().to_rfc3339());
+    }
+
+    let field: Field = serde_json::from_value(raw).map_err(|e| RepositoryError::Serialize {
+        path: std::path::PathBuf::from("fields"),
+        source: e,
+    })?;
+
+    create_field_in_package(store, field, package_selector)
 }
 
 /// Get a type by its ID and version

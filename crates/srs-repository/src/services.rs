@@ -1,3 +1,25 @@
+//! # Note Service
+//!
+//! Public API for note operations. This module is the sole entry point for
+//! all note logic. CLI handlers and future API handlers must call these
+//! functions; they must not call internal helpers directly.
+//!
+//! ## Service boundary contract (ADR-010)
+//!
+//! - Every public function takes a typed input struct and returns a typed result struct.
+//! - All validation, container orchestration, and multi-step operations happen here.
+//! - Functions marked `pub(crate)` are internal helpers; do not promote them to `pub`.
+//!
+//! ## Handler pattern
+//!
+//! ```rust,ignore
+//! // CLI or API handler — this is the entire function body
+//! let input: CreateNoteInput = serde_json::from_reader(io::stdin())?;
+//! let result = note_service::create_note(store, input)?;
+//! output::ok("note create", result)
+//! ```
+
+use crate::container_service;
 use crate::error::RepositoryError;
 use crate::loader::load_note;
 use crate::store::RepositoryStore;
@@ -19,6 +41,24 @@ pub struct NoteSummary {
 #[derive(Debug, Clone, Default)]
 pub struct ListNotesFilter {
     pub tag: Option<String>,
+    /// If Some, only return notes that are members of this container.
+    pub container_id: Option<String>,
+}
+
+/// Container-aware create input wrapping the existing Note
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateNoteInput {
+    #[serde(flatten)]
+    pub note: Note,
+    pub container_id: Option<String>,
+}
+
+/// Explicit delete input with optional container scoping
+#[derive(Debug)]
+pub struct DeleteNoteInput {
+    pub id: String,
+    pub container_id: Option<String>,
 }
 
 /// Result of listing notes
@@ -70,17 +110,33 @@ pub struct DeleteNoteResult {
     pub instance_id: String,
 }
 
-/// Service: List notes with optional tag filter
+/// Service: List notes with optional tag and container filter
 pub fn list_notes(
     store: &dyn RepositoryStore,
     filter: ListNotesFilter,
 ) -> Result<ListNotesResult, RepositoryError> {
+    // Resolve container members once if a container filter is set.
+    let member_ids: Option<std::collections::HashSet<String>> =
+        if let Some(ref cid) = filter.container_id {
+            let members = container_service::list_members(store, cid)?;
+            Some(members.into_iter().collect())
+        } else {
+            None
+        };
+
     let manifest = store.load_manifest()?;
     let mut notes = Vec::new();
 
     for entry in &manifest.instance_index {
         if !entry.is_note() {
             continue;
+        }
+
+        // Container membership filter
+        if let Some(ref member_set) = member_ids {
+            if !member_set.contains(entry.instance_id()) {
+                continue;
+            }
         }
 
         if let Some(ref filter_tag) = filter.tag {
@@ -111,6 +167,71 @@ pub fn list_notes(
     }
 
     Ok(ListNotesResult { notes })
+}
+
+/// Service: Create a note and optionally add it to a container atomically.
+///
+/// If `input.container_id` is Some, the container is verified to exist before
+/// creating the note. If creation succeeds, the note is added to the container.
+pub fn create_note_in_context(
+    store: &dyn RepositoryStore,
+    input: CreateNoteInput,
+) -> Result<CreateNoteResult, RepositoryError> {
+    if let Some(ref cid) = input.container_id {
+        // Validate container exists before writing anything
+        container_service::get_container(store, cid)?;
+    }
+
+    let result = create_note(store, input.note)?;
+
+    if let Some(ref cid) = input.container_id {
+        container_service::add_member(store, cid, &result.note.instance_id)?;
+    }
+
+    Ok(result)
+}
+
+/// Service: Delete a note with optional container-scoped membership check.
+///
+/// If `input.container_id` is Some, the note must be a member of that container.
+/// The membership is removed before the note is deleted.
+pub fn delete_note_in_context(
+    store: &dyn RepositoryStore,
+    input: DeleteNoteInput,
+) -> Result<DeleteNoteResult, RepositoryError> {
+    if let Some(ref cid) = input.container_id {
+        if !container_service::is_member(store, cid, &input.id)? {
+            return Err(RepositoryError::NotFound {
+                path: std::path::PathBuf::from(format!(
+                    "Instance '{}' is not a member of container '{}'",
+                    input.id, cid
+                )),
+            });
+        }
+        container_service::remove_member(store, cid, &input.id)?;
+    }
+
+    delete_note(store, &input.id)
+}
+
+/// Service: Update a note after validating that the ID in the body matches
+/// the provided URL/command ID.
+///
+/// Moves the ID-mismatch check from CLI handlers into the service layer.
+pub fn update_note_validated(
+    store: &dyn RepositoryStore,
+    id: &str,
+    note: Note,
+) -> Result<UpdateNoteResult, RepositoryError> {
+    if note.instance_id != id {
+        return Err(RepositoryError::InvalidRepositoryInitialization {
+            message: format!(
+                "Note ID in body ({}) does not match path ID ({})",
+                note.instance_id, id
+            ),
+        });
+    }
+    update_note(store, note)
 }
 
 /// Service: Get a note by its instance ID
@@ -420,6 +541,7 @@ mod tests {
             &store,
             ListNotesFilter {
                 tag: Some("test".to_string()),
+                container_id: None,
             },
         )
         .unwrap();
@@ -429,6 +551,7 @@ mod tests {
             &store,
             ListNotesFilter {
                 tag: Some("nonexistent".to_string()),
+                container_id: None,
             },
         )
         .unwrap();

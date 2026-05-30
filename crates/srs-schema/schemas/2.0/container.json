@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/container.json",
+  "title": "SRS Container",
+  "description": "A lightweight grouping boundary over a collection of instances. Containers answer scoping questions — which instances belong together — that the Relation graph alone cannot answer.",
+  "type": "object",
+  "required": ["containerId", "title"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://srs.semanticops.com/schema/2.0/container.json"
+    },
+    "containerId": {
+      "type": "string",
+      "description": "Stable UUID for this Container. Must not appear in Relation.sourceInstanceId or targetInstanceId."
+    },
+    "title": {
+      "type": "string",
+      "description": "Human-readable label for this Container."
+    },
+    "namespace": {
+      "type": "string",
+      "description": "Optional namespace grouping."
+    },
+    "name": {
+      "type": "string",
+      "description": "Optional machine-readable name within the namespace."
+    },
+    "description": {
+      "type": "string",
+      "description": "Optional description of the Container's purpose."
+    },
+    "containerType": {
+      "type": "string",
+      "description": "Free-form hint, e.g. 'project', 'meeting', 'sprint'."
+    },
+    "rootInstanceIds": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Top-level instances this Container was created to hold. Implementations may derive nested members by traversing contains Relations from these roots."
+    },
+    "memberInstanceIds": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Explicit membership list for all instances in scope. When present, allows membership queries without graph traversal."
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Free-form topic labels."
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "meta": {
+      "type": "object",
+      "description": "Implementation-local metadata. Cross-system keys should be namespaced."
+    }
+  }
+}

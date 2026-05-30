@@ -1,3 +1,25 @@
+//! # Relation Service
+//!
+//! Public API for relation operations. This module is the sole entry point for
+//! all relation logic. CLI handlers and future API handlers must call these
+//! functions; they must not call internal helpers directly.
+//!
+//! ## Service boundary contract (ADR-010)
+//!
+//! - Every public function takes a typed input struct and returns a typed result struct.
+//! - All validation, container orchestration, and multi-step operations happen here.
+//! - Functions marked `pub(crate)` are internal helpers; do not promote them to `pub`.
+//!
+//! ## Handler pattern
+//!
+//! ```rust,ignore
+//! // CLI or API handler — this is the entire function body
+//! let input: RelationListFilter = RelationListFilter { container_id: ctx.container_id };
+//! let result = relation_service::list_relations(store, input)?;
+//! output::ok("relation list", result)
+//! ```
+
+use crate::container_service;
 use crate::error::RepositoryError;
 use crate::store::RepositoryStore;
 use srs_core::types::relation::{Relation, RelationsCollection};
@@ -40,6 +62,8 @@ pub struct ListRelationsFilter {
     pub source: Option<String>,
     pub target: Option<String>,
     pub relation_type: Option<String>,
+    /// If Some, only return relations where BOTH source AND target are members of this container.
+    pub container_id: Option<String>,
 }
 
 /// List relations from the relations-collection.json file with optional filtering
@@ -47,11 +71,27 @@ pub fn list_relations(
     store: &dyn RepositoryStore,
     filter: ListRelationsFilter,
 ) -> Result<Vec<RelationSummary>, RepositoryError> {
+    // Resolve container members once if container filter is set
+    let member_ids: Option<HashSet<String>> = if let Some(ref cid) = filter.container_id {
+        let members = container_service::list_members(store, cid)?;
+        Some(members.into_iter().collect())
+    } else {
+        None
+    };
+
     let relations = load_relations(store)?;
 
     let filtered: Vec<_> = relations
         .into_iter()
         .filter(|r| {
+            // Container filter: both source AND target must be members
+            if let Some(ref member_set) = member_ids {
+                if !member_set.contains(&r.source_instance_id)
+                    || !member_set.contains(&r.target_instance_id)
+                {
+                    return false;
+                }
+            }
             if let Some(ref source_filter) = filter.source {
                 if &r.source_instance_id != source_filter {
                     return false;
@@ -78,6 +118,18 @@ pub fn list_relations(
         .collect();
 
     Ok(filtered)
+}
+
+/// Create a relation, loading relation type definitions internally from the package.
+///
+/// This variant does not require the caller to supply definitions — the service
+/// resolves them from the package. Use this from service-layer callers.
+pub fn create_relation_auto(
+    store: &dyn RepositoryStore,
+    relation: Relation,
+) -> Result<CreateRelationResult, RepositoryError> {
+    let package = store.load_package()?;
+    create_relation(store, relation, &package.relation_type_definitions)
 }
 
 /// Get a relation by its relation ID
@@ -354,6 +406,7 @@ mod tests {
             source: Some("note-1".to_string()),
             target: None,
             relation_type: None,
+            container_id: None,
         };
         let result = list_relations(&store, filter).unwrap();
         assert_eq!(result.len(), 2);
@@ -367,6 +420,7 @@ mod tests {
             source: None,
             target: Some("note-2".to_string()),
             relation_type: None,
+            container_id: None,
         };
         let result = list_relations(&store, filter).unwrap();
         assert_eq!(result.len(), 1);
@@ -380,6 +434,7 @@ mod tests {
             source: None,
             target: None,
             relation_type: Some("contains".to_string()),
+            container_id: None,
         };
         let result = list_relations(&store, filter).unwrap();
         assert_eq!(result.len(), 2);
@@ -660,9 +715,29 @@ mod tests {
             fn ensure_relations_dir(&self, _: &str) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
+            fn load_container(
+                &self,
+                _: &str,
+            ) -> Result<srs_core::types::container::Container, RepositoryError> {
+                unimplemented!()
+            }
+            fn save_container(
+                &self,
+                _: &srs_core::types::container::Container,
+            ) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn delete_container(&self, _: &str) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn list_container_summaries(&self) -> Result<Vec<(String, String)>, RepositoryError> {
+                unimplemented!()
+            }
+            #[allow(deprecated)]
             fn load_container_json(&self, _: &str) -> Result<serde_json::Value, RepositoryError> {
                 unimplemented!()
             }
+            #[allow(deprecated)]
             fn save_container_json(
                 &self,
                 _: &str,
@@ -670,9 +745,11 @@ mod tests {
             ) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
+            #[allow(deprecated)]
             fn delete_container_file(&self, _: &str) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
+            #[allow(deprecated)]
             fn ensure_containers_dir(&self) -> Result<(), RepositoryError> {
                 unimplemented!()
             }

@@ -1,3 +1,24 @@
+//! # Extension Service
+//!
+//! Public API for extension definition operations. This module is the sole entry point
+//! for all extension logic. CLI handlers and future API handlers must call these
+//! functions; they must not call internal helpers directly.
+//!
+//! ## Service boundary contract (ADR-010)
+//!
+//! - Every public function takes a typed input struct and returns a typed result struct.
+//! - All validation and multi-step operations happen here.
+//! - Functions marked `pub(crate)` are internal helpers; do not promote them to `pub`.
+//!
+//! ## Handler pattern
+//!
+//! ```rust,ignore
+//! // CLI or API handler — this is the entire function body
+//! let input: CreateExtensionInput = serde_json::from_reader(io::stdin())?;
+//! let result = extension_service::create_extension(store, input)?;
+//! output::ok("extension create", result)
+//! ```
+
 use srs_core::types::record::{FieldValue, Record};
 
 use crate::error::RepositoryError;

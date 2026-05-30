@@ -3,9 +3,8 @@ use crate::output;
 use anyhow::Result;
 use serde_json::json;
 use srs_core::types::relation::Relation;
-use srs_repository::container_service::list_members;
 use srs_repository::relation_service::{
-    create_relation, delete_relation, get_relation_by_id, list_relations, GetRelationResult,
+    create_relation_auto, delete_relation, get_relation_by_id, list_relations, GetRelationResult,
     ListRelationsFilter,
 };
 use std::io::{self, Read};
@@ -34,20 +33,9 @@ fn cmd_relation_list(
         source,
         target,
         relation_type,
+        container_id: ctx.container_id.clone(),
     };
     let summaries = with_store(&ctx, |store| Ok(list_relations(store, filter)?))?;
-    let summaries = if let Some(ref cid) = ctx.container_id {
-        let members = with_store(&ctx, |store| Ok(list_members(store, cid)?))?;
-        summaries
-            .into_iter()
-            .filter(|s| {
-                members.iter().any(|id| id == &s.source_id)
-                    && members.iter().any(|id| id == &s.target_id)
-            })
-            .collect()
-    } else {
-        summaries
-    };
 
     let relations: Vec<serde_json::Value> = summaries
         .into_iter()
@@ -93,11 +81,7 @@ fn cmd_relation_create(ctx: CliContext) -> Result<String> {
         }
     };
 
-    match with_store(&ctx, |store| {
-        let package = store.load_package()?;
-        let defs = package.relation_types();
-        Ok(create_relation(store, relation, defs)?)
-    }) {
+    match with_store(&ctx, |store| Ok(create_relation_auto(store, relation)?)) {
         Ok(result) => Ok(output::ok(
             "relation create",
             json!({ "relation": result.relation }),

@@ -3,6 +3,9 @@ use serde_json::Value;
 use std::sync::OnceLock;
 use thiserror::Error;
 
+pub const CONTAINER_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/container.json";
+pub const DOCUMENT_VIEW_SCHEMA_ID: &str =
+    "https://srs.semanticops.com/schema/2.0/document-view.json";
 pub const FIELD_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/field.json";
 pub const FEDERATION_EVENTS_SCHEMA_ID: &str =
     "https://srs.semanticops.com/schema/2.0/federation-events.json";
@@ -21,10 +24,14 @@ pub const RELATIONS_COLLECTION_SCHEMA_ID: &str =
     "https://srs.semanticops.com/schema/2.0/relations-collection.json";
 pub const SOURCE_DOCUMENT_META_SCHEMA_ID: &str =
     "https://srs.semanticops.com/schema/2.0/source-document-meta.json";
+pub const THEME_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/theme.json";
 pub const TYPE_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/type.json";
 pub const TYPED_RECORD_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/typed-record.json";
+pub const VIEW_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/view.json";
 
 pub const ALL_SCHEMA_IDS: &[&str] = &[
+    CONTAINER_SCHEMA_ID,
+    DOCUMENT_VIEW_SCHEMA_ID,
     FIELD_SCHEMA_ID,
     FEDERATION_EVENTS_SCHEMA_ID,
     FEDERATION_REGISTRY_SCHEMA_ID,
@@ -36,8 +43,10 @@ pub const ALL_SCHEMA_IDS: &[&str] = &[
     RELATION_TYPE_SCHEMA_ID,
     RELATIONS_COLLECTION_SCHEMA_ID,
     SOURCE_DOCUMENT_META_SCHEMA_ID,
+    THEME_SCHEMA_ID,
     TYPE_SCHEMA_ID,
     TYPED_RECORD_SCHEMA_ID,
+    VIEW_SCHEMA_ID,
 ];
 
 macro_rules! include_schema {
@@ -47,6 +56,11 @@ macro_rules! include_schema {
 }
 
 static SCHEMA_SOURCES: &[(&str, &str)] = &[
+    (CONTAINER_SCHEMA_ID, include_schema!("container.json")),
+    (
+        DOCUMENT_VIEW_SCHEMA_ID,
+        include_schema!("document-view.json"),
+    ),
     (FIELD_SCHEMA_ID, include_schema!("field.json")),
     (
         FEDERATION_EVENTS_SCHEMA_ID,
@@ -79,8 +93,10 @@ static SCHEMA_SOURCES: &[(&str, &str)] = &[
         SOURCE_DOCUMENT_META_SCHEMA_ID,
         include_schema!("source-document-meta.json"),
     ),
+    (THEME_SCHEMA_ID, include_schema!("theme.json")),
     (TYPE_SCHEMA_ID, include_schema!("type.json")),
     (TYPED_RECORD_SCHEMA_ID, include_schema!("typed-record.json")),
+    (VIEW_SCHEMA_ID, include_schema!("view.json")),
 ];
 
 #[derive(Debug, Error)]
@@ -187,7 +203,7 @@ mod tests {
     #[test]
     fn registry_builds_and_has_all_schema_ids() {
         let reg = SchemaRegistry::global();
-        assert_eq!(reg.schema_ids().len(), 13);
+        assert_eq!(reg.schema_ids().len(), 17);
         for id in ALL_SCHEMA_IDS {
             assert!(reg.schema_ids().contains(id), "missing: {id}");
         }

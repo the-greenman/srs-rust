@@ -112,4 +112,29 @@ mod tests {
         assert_eq!(parsed.container_id, "");
         assert_eq!(parsed.title, "No ID Provided");
     }
+
+    #[test]
+    fn minimal_container_passes_schema_contract() {
+        let container = Container {
+            container_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+            title: "Sprint 1".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            root_instance_ids: None,
+            member_instance_ids: None,
+            tags: None,
+            created_at: Some("2026-01-01T00:00:00Z".to_string()),
+            updated_at: None,
+            meta: None,
+            extra: HashMap::new(),
+        };
+        let mut value = serde_json::to_value(&container).unwrap();
+        value["$schema"] =
+            serde_json::json!("https://srs.semanticops.com/schema/2.0/container.json");
+        srs_schema::SchemaRegistry::global()
+            .validate_by_id(srs_schema::CONTAINER_SCHEMA_ID, &value)
+            .expect("minimal Container must pass container.json schema");
+    }
 }
