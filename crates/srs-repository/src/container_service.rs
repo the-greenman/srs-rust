@@ -1,9 +1,10 @@
 use crate::error::RepositoryError;
-use crate::manifest::{load_manifest, Manifest};
-use crate::writer::{new_instance_id, write_manifest_compat as write_manifest};
+use crate::store::RepositoryStore;
+use crate::writer::new_instance_id;
 use serde::{Deserialize, Serialize};
 use srs_core::types::container::Container;
 use srs_core::validation::container::validate_container;
+use std::collections::HashSet;
 
 /// Internal index entry mapping a container ID to its file path within the repository.
 /// This type is an srs-repository implementation detail and must not be exposed to callers.
@@ -14,8 +15,6 @@ pub(crate) struct ContainerIndexEntry {
     pub title: String,
     pub path: String,
 }
-use std::collections::HashSet;
-use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -45,55 +44,52 @@ pub struct ContainerValidationReport {
     pub errors: Vec<String>,
 }
 
-fn load_container_index(manifest: &Manifest) -> Vec<ContainerIndexEntry> {
-    manifest
+fn load_container_index(
+    store: &dyn RepositoryStore,
+) -> Result<Vec<ContainerIndexEntry>, RepositoryError> {
+    let manifest = store.load_manifest()?;
+    Ok(manifest
         .extra
         .get("containerIndex")
         .cloned()
         .and_then(|v| serde_json::from_value(v).ok())
-        .unwrap_or_default()
+        .unwrap_or_default())
 }
 
 fn save_container_index(
-    manifest: &mut Manifest,
+    store: &dyn RepositoryStore,
     index: Vec<ContainerIndexEntry>,
 ) -> Result<(), RepositoryError> {
+    let mut manifest = store.load_manifest()?;
     let value = serde_json::to_value(index).map_err(|source| RepositoryError::Serialize {
-        path: manifest.root.join("manifest.json"),
+        path: std::path::PathBuf::from("manifest.json"),
         source,
     })?;
     manifest.extra.insert("containerIndex".to_string(), value);
-    Ok(())
+    store.save_manifest(&manifest)
 }
 
-fn load_container_file(path: &Path) -> Result<Container, RepositoryError> {
-    let content = std::fs::read_to_string(path).map_err(|source| RepositoryError::Io {
-        path: path.to_path_buf(),
+fn load_container(
+    store: &dyn RepositoryStore,
+    relative_path: &str,
+) -> Result<Container, RepositoryError> {
+    let value = store.load_container_json(relative_path)?;
+    serde_json::from_value(value).map_err(|source| RepositoryError::ManifestParse {
+        path: std::path::PathBuf::from(relative_path),
+        source,
+    })
+}
+
+fn write_container(
+    store: &dyn RepositoryStore,
+    container: &Container,
+    relative_path: &str,
+) -> Result<(), RepositoryError> {
+    let value = serde_json::to_value(container).map_err(|source| RepositoryError::Serialize {
+        path: std::path::PathBuf::from(relative_path),
         source,
     })?;
-
-    serde_json::from_str(&content).map_err(|source| RepositoryError::ManifestParse {
-        path: path.to_path_buf(),
-        source,
-    })
-}
-
-fn write_container_file(container: &Container, path: &Path) -> Result<(), RepositoryError> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|source| RepositoryError::Io {
-            path: parent.to_path_buf(),
-            source,
-        })?;
-    }
-    let content =
-        serde_json::to_string_pretty(container).map_err(|source| RepositoryError::Serialize {
-            path: path.to_path_buf(),
-            source,
-        })?;
-    std::fs::write(path, content).map_err(|source| RepositoryError::Io {
-        path: path.to_path_buf(),
-        source,
-    })
+    store.save_container_json(relative_path, &value)
 }
 
 fn slugify_title(title: &str) -> String {
@@ -109,33 +105,29 @@ fn slugify_title(title: &str) -> String {
 }
 
 fn find_container_entry(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     container_id: &str,
-) -> Result<(Manifest, Vec<ContainerIndexEntry>, ContainerIndexEntry), RepositoryError> {
-    let manifest = load_manifest(repo_root)?;
-    let index = load_container_index(&manifest);
-    let entry = index
-        .iter()
+) -> Result<ContainerIndexEntry, RepositoryError> {
+    let index = load_container_index(store)?;
+    index
+        .into_iter()
         .find(|e| e.container_id == container_id)
-        .cloned()
         .ok_or_else(|| RepositoryError::ContainerNotFound {
             container_id: container_id.to_string(),
-        })?;
-    Ok((manifest, index, entry))
+        })
 }
 
 pub fn list_containers(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     container_type: Option<&str>,
     member_instance_id: Option<&str>,
     root_instance_id: Option<&str>,
 ) -> Result<Vec<ContainerSummary>, RepositoryError> {
-    let manifest = load_manifest(repo_root)?;
-    let index = load_container_index(&manifest);
+    let index = load_container_index(store)?;
     let mut summaries = Vec::new();
 
     for entry in index {
-        let container = load_container_file(&repo_root.join(&entry.path))?;
+        let container = load_container(store, &entry.path)?;
         if let Some(filter) = container_type {
             if container.container_type.as_deref() != Some(filter) {
                 continue;
@@ -174,14 +166,14 @@ pub fn list_containers(
 }
 
 pub fn containers_for_instance(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     instance_id: &str,
 ) -> Result<Vec<ContainerSummary>, RepositoryError> {
-    list_containers(repo_root, None, Some(instance_id), None)
+    list_containers(store, None, Some(instance_id), None)
 }
 
 pub fn create_container(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     mut container: Container,
 ) -> Result<Container, RepositoryError> {
     if container.container_id.is_empty() {
@@ -193,44 +185,35 @@ pub fn create_container(
     let slug = slugify_title(&container.title);
     let id_prefix = &container.container_id[..container.container_id.len().min(8)];
     let filename = format!("{}-{}.json", slug, id_prefix);
-    let file_path = repo_root.join("containers").join(filename);
-    write_container_file(&container, &file_path)?;
+    let relative_path = format!("containers/{}", filename);
 
-    let relative_path = file_path
-        .strip_prefix(repo_root)
-        .map_err(|_| RepositoryError::Io {
-            path: file_path.clone(),
-            source: std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "container path not within repo root",
-            ),
-        })?
-        .to_string_lossy()
-        .to_string();
+    store.ensure_containers_dir()?;
+    write_container(store, &container, &relative_path)?;
 
-    let mut manifest = load_manifest(repo_root)?;
-    let mut index = load_container_index(&manifest);
+    let mut index = load_container_index(store)?;
     index.push(ContainerIndexEntry {
         container_id: container.container_id.clone(),
         title: container.title.clone(),
         path: relative_path,
     });
-    save_container_index(&mut manifest, index)?;
-    write_manifest(&manifest)?;
+    save_container_index(store, index)?;
     Ok(container)
 }
 
-pub fn get_container(repo_root: &Path, container_id: &str) -> Result<Container, RepositoryError> {
-    let (_, _, entry) = find_container_entry(repo_root, container_id)?;
-    load_container_file(&repo_root.join(entry.path))
+pub fn get_container(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+) -> Result<Container, RepositoryError> {
+    let entry = find_container_entry(store, container_id)?;
+    load_container(store, &entry.path)
 }
 
 pub fn update_container(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     container_id: &str,
     patch: ContainerPatch,
 ) -> Result<Container, RepositoryError> {
-    let mut container = get_container(repo_root, container_id)?;
+    let mut container = get_container(store, container_id)?;
     if let Some(v) = patch.title {
         container.title = v;
     }
@@ -255,8 +238,7 @@ pub fn update_container(
     validate_container(&container)
         .map_err(|source| RepositoryError::ContainerValidation { source })?;
 
-    let mut manifest = load_manifest(repo_root)?;
-    let mut index = load_container_index(&manifest);
+    let mut index = load_container_index(store)?;
     let pos = index
         .iter()
         .position(|e| e.container_id == container_id)
@@ -264,16 +246,17 @@ pub fn update_container(
             container_id: container_id.to_string(),
         })?;
     let path = index[pos].path.clone();
-    write_container_file(&container, &repo_root.join(&path))?;
+    write_container(store, &container, &path)?;
     index[pos].title = container.title.clone();
-    save_container_index(&mut manifest, index)?;
-    write_manifest(&manifest)?;
+    save_container_index(store, index)?;
     Ok(container)
 }
 
-pub fn delete_container(repo_root: &Path, container_id: &str) -> Result<String, RepositoryError> {
-    let mut manifest = load_manifest(repo_root)?;
-    let mut index = load_container_index(&manifest);
+pub fn delete_container(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+) -> Result<String, RepositoryError> {
+    let mut index = load_container_index(store)?;
     let pos = index
         .iter()
         .position(|e| e.container_id == container_id)
@@ -281,31 +264,31 @@ pub fn delete_container(repo_root: &Path, container_id: &str) -> Result<String, 
             container_id: container_id.to_string(),
         })?;
     let entry = index.remove(pos);
+    save_container_index(store, index)?;
 
-    save_container_index(&mut manifest, index)?;
-    write_manifest(&manifest)?;
-
-    let full_path = repo_root.join(&entry.path);
-    if let Err(err) = std::fs::remove_file(&full_path) {
+    if let Err(err) = store.delete_container_file(&entry.path) {
         eprintln!(
-            "warning: failed to remove container file {:?}: {}",
-            full_path, err
+            "warning: failed to remove container file '{}': {}",
+            entry.path, err
         );
     }
     Ok(container_id.to_string())
 }
 
-pub fn list_members(repo_root: &Path, container_id: &str) -> Result<Vec<String>, RepositoryError> {
-    let container = get_container(repo_root, container_id)?;
+pub fn list_members(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+) -> Result<Vec<String>, RepositoryError> {
+    let container = get_container(store, container_id)?;
     Ok(container.member_instance_ids.unwrap_or_default())
 }
 
 pub fn add_member(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     container_id: &str,
     instance_id: &str,
 ) -> Result<Vec<String>, RepositoryError> {
-    let mut container = get_container(repo_root, container_id)?;
+    let mut container = get_container(store, container_id)?;
     let mut members = container.member_instance_ids.unwrap_or_default();
     if members.iter().any(|id| id == instance_id) {
         return Ok(members);
@@ -314,17 +297,17 @@ pub fn add_member(
     members.sort();
     container.member_instance_ids = Some(members.clone());
 
-    let (_, _, entry) = find_container_entry(repo_root, container_id)?;
-    write_container_file(&container, &repo_root.join(entry.path))?;
+    let entry = find_container_entry(store, container_id)?;
+    write_container(store, &container, &entry.path)?;
     Ok(members)
 }
 
 pub fn remove_member(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     container_id: &str,
     instance_id: &str,
 ) -> Result<Vec<String>, RepositoryError> {
-    let mut container = get_container(repo_root, container_id)?;
+    let mut container = get_container(store, container_id)?;
     let mut members = container.member_instance_ids.unwrap_or_default();
     members.retain(|id| id != instance_id);
     if members.is_empty() {
@@ -333,22 +316,25 @@ pub fn remove_member(
         container.member_instance_ids = Some(members.clone());
     }
 
-    let (_, _, entry) = find_container_entry(repo_root, container_id)?;
-    write_container_file(&container, &repo_root.join(entry.path))?;
+    let entry = find_container_entry(store, container_id)?;
+    write_container(store, &container, &entry.path)?;
     Ok(members)
 }
 
-pub fn list_roots(repo_root: &Path, container_id: &str) -> Result<Vec<String>, RepositoryError> {
-    let container = get_container(repo_root, container_id)?;
+pub fn list_roots(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+) -> Result<Vec<String>, RepositoryError> {
+    let container = get_container(store, container_id)?;
     Ok(container.root_instance_ids.unwrap_or_default())
 }
 
 pub fn add_root(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     container_id: &str,
     instance_id: &str,
 ) -> Result<Vec<String>, RepositoryError> {
-    let mut container = get_container(repo_root, container_id)?;
+    let mut container = get_container(store, container_id)?;
     let mut roots = container.root_instance_ids.unwrap_or_default();
     if roots.iter().any(|id| id == instance_id) {
         return Ok(roots);
@@ -357,17 +343,17 @@ pub fn add_root(
     roots.sort();
     container.root_instance_ids = Some(roots.clone());
 
-    let (_, _, entry) = find_container_entry(repo_root, container_id)?;
-    write_container_file(&container, &repo_root.join(entry.path))?;
+    let entry = find_container_entry(store, container_id)?;
+    write_container(store, &container, &entry.path)?;
     Ok(roots)
 }
 
 pub fn remove_root(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     container_id: &str,
     instance_id: &str,
 ) -> Result<Vec<String>, RepositoryError> {
-    let mut container = get_container(repo_root, container_id)?;
+    let mut container = get_container(store, container_id)?;
     let mut roots = container.root_instance_ids.unwrap_or_default();
     roots.retain(|id| id != instance_id);
     if roots.is_empty() {
@@ -376,31 +362,31 @@ pub fn remove_root(
         container.root_instance_ids = Some(roots.clone());
     }
 
-    let (_, _, entry) = find_container_entry(repo_root, container_id)?;
-    write_container_file(&container, &repo_root.join(entry.path))?;
+    let entry = find_container_entry(store, container_id)?;
+    write_container(store, &container, &entry.path)?;
     Ok(roots)
 }
 
 pub fn is_member(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     container_id: &str,
     instance_id: &str,
 ) -> Result<bool, RepositoryError> {
-    let members = list_members(repo_root, container_id)?;
+    let members = list_members(store, container_id)?;
     Ok(members.iter().any(|id| id == instance_id))
 }
 
 pub fn validate_container_invariants(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     container_id: &str,
 ) -> Result<ContainerValidationReport, RepositoryError> {
-    let container = get_container(repo_root, container_id)?;
+    let container = get_container(store, container_id)?;
     let mut errors = Vec::new();
     if let Err(err) = validate_container(&container) {
         errors.push(err.to_string());
     }
 
-    let manifest = load_manifest(repo_root)?;
+    let manifest = store.load_manifest()?;
     let known_ids: HashSet<String> = manifest
         .instance_index
         .iter()
@@ -443,21 +429,10 @@ pub fn validate_container_invariants(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manifest::load_manifest;
-    use tempfile::TempDir;
+    use crate::store::memory::MemoryStore;
 
-    fn make_minimal_container_repo(temp: &TempDir) -> std::path::PathBuf {
-        std::fs::create_dir(temp.path().join(".srs")).unwrap();
-        let manifest = serde_json::json!({
-            "instanceIndex": [],
-            "containerIndex": []
-        });
-        std::fs::write(
-            temp.path().join("manifest.json"),
-            serde_json::to_string_pretty(&manifest).unwrap(),
-        )
-        .unwrap();
-        temp.path().to_path_buf()
+    fn make_store() -> MemoryStore {
+        MemoryStore::default()
     }
 
     fn minimal_container(id: &str, title: &str) -> Container {
@@ -480,20 +455,18 @@ mod tests {
 
     #[test]
     fn create_container_writes_file_and_index() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
+        let store = make_store();
         let c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Sprint 1");
-        let out = create_container(&repo, c).unwrap();
+        let out = create_container(&store, c).unwrap();
         assert_eq!(out.title, "Sprint 1");
-        let listed = list_containers(&repo, None, None, None).unwrap();
+        let listed = list_containers(&store, None, None, None).unwrap();
         assert_eq!(listed.len(), 1);
     }
 
     #[test]
     fn get_container_missing_returns_error() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
-        let err = get_container(&repo, "missing").unwrap_err();
+        let store = make_store();
+        let err = get_container(&store, "missing").unwrap_err();
         assert!(matches!(
             err,
             RepositoryError::ContainerNotFound { container_id } if container_id == "missing"
@@ -502,49 +475,45 @@ mod tests {
 
     #[test]
     fn create_container_mints_id_if_empty() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
-        let out = create_container(&repo, minimal_container("", "Sprint 1")).unwrap();
+        let store = make_store();
+        let out = create_container(&store, minimal_container("", "Sprint 1")).unwrap();
         assert!(uuid::Uuid::parse_str(&out.container_id).is_ok());
     }
 
     #[test]
     fn list_containers_returns_all() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
+        let store = make_store();
         create_container(
-            &repo,
+            &store,
             minimal_container("550e8400-e29b-41d4-a716-446655440000", "A"),
         )
         .unwrap();
         create_container(
-            &repo,
+            &store,
             minimal_container("550e8400-e29b-41d4-a716-446655440001", "B"),
         )
         .unwrap();
-        let listed = list_containers(&repo, None, None, None).unwrap();
+        let listed = list_containers(&store, None, None, None).unwrap();
         assert_eq!(listed.len(), 2);
     }
 
     #[test]
     fn get_container_returns_container() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
+        let store = make_store();
         let created = create_container(
-            &repo,
+            &store,
             minimal_container("550e8400-e29b-41d4-a716-446655440000", "Sprint 1"),
         )
         .unwrap();
-        let got = get_container(&repo, &created.container_id).unwrap();
+        let got = get_container(&store, &created.container_id).unwrap();
         assert_eq!(got.title, "Sprint 1");
     }
 
     #[test]
     fn update_container_patches_title() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
+        let store = make_store();
         let created = create_container(
-            &repo,
+            &store,
             minimal_container("550e8400-e29b-41d4-a716-446655440000", "Old"),
         )
         .unwrap();
@@ -557,16 +526,15 @@ mod tests {
             tags: None,
             meta: None,
         };
-        let updated = update_container(&repo, &created.container_id, patch).unwrap();
+        let updated = update_container(&store, &created.container_id, patch).unwrap();
         assert_eq!(updated.title, "New");
     }
 
     #[test]
     fn update_container_list_shows_updated_title() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
+        let store = make_store();
         let created = create_container(
-            &repo,
+            &store,
             minimal_container("550e8400-e29b-41d4-a716-446655440000", "Old"),
         )
         .unwrap();
@@ -579,18 +547,17 @@ mod tests {
             tags: None,
             meta: None,
         };
-        update_container(&repo, &created.container_id, patch).unwrap();
-        let listed = list_containers(&repo, None, None, None).unwrap();
+        update_container(&store, &created.container_id, patch).unwrap();
+        let listed = list_containers(&store, None, None, None).unwrap();
         assert_eq!(listed[0].title, "New");
     }
 
     #[test]
     fn update_container_preserves_other_fields() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
+        let store = make_store();
         let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Old");
         c.description = Some("keep".to_string());
-        let created = create_container(&repo, c).unwrap();
+        let created = create_container(&store, c).unwrap();
         let patch = ContainerPatch {
             title: Some("New".to_string()),
             namespace: None,
@@ -600,47 +567,43 @@ mod tests {
             tags: None,
             meta: None,
         };
-        update_container(&repo, &created.container_id, patch).unwrap();
-        let got = get_container(&repo, &created.container_id).unwrap();
+        update_container(&store, &created.container_id, patch).unwrap();
+        let got = get_container(&store, &created.container_id).unwrap();
         assert_eq!(got.description.as_deref(), Some("keep"));
     }
 
     #[test]
     fn delete_container_removes_index_entry() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
+        let store = make_store();
         let created = create_container(
-            &repo,
+            &store,
             minimal_container("550e8400-e29b-41d4-a716-446655440000", "Delete"),
         )
         .unwrap();
-        delete_container(&repo, &created.container_id).unwrap();
-        let listed = list_containers(&repo, None, None, None).unwrap();
+        delete_container(&store, &created.container_id).unwrap();
+        let listed = list_containers(&store, None, None, None).unwrap();
         assert!(listed.is_empty());
     }
 
     #[test]
     fn delete_container_file_is_absent_after_delete() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
+        let store = make_store();
         let created = create_container(
-            &repo,
+            &store,
             minimal_container("550e8400-e29b-41d4-a716-446655440000", "Delete"),
         )
         .unwrap();
-        let manifest = load_manifest(&repo).unwrap();
-        let index = load_container_index(&manifest);
-        let path = repo.join(&index[0].path);
-        assert!(path.exists());
-        delete_container(&repo, &created.container_id).unwrap();
-        assert!(!path.exists());
+        let index = load_container_index(&store).unwrap();
+        let path = index[0].path.clone();
+        assert!(store.load_container_json(&path).is_ok());
+        delete_container(&store, &created.container_id).unwrap();
+        assert!(store.load_container_json(&path).is_err());
     }
 
     #[test]
     fn delete_container_missing_returns_error() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
-        let err = delete_container(&repo, "missing").unwrap_err();
+        let store = make_store();
+        let err = delete_container(&store, "missing").unwrap_err();
         assert!(matches!(
             err,
             RepositoryError::ContainerNotFound { container_id } if container_id == "missing"
@@ -649,15 +612,14 @@ mod tests {
 
     #[test]
     fn add_member_adds_id() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
+        let store = make_store();
         let created = create_container(
-            &repo,
+            &store,
             minimal_container("550e8400-e29b-41d4-a716-446655440000", "Members"),
         )
         .unwrap();
         let out = add_member(
-            &repo,
+            &store,
             &created.container_id,
             "11111111-1111-4111-8111-111111111111",
         )
@@ -667,21 +629,20 @@ mod tests {
 
     #[test]
     fn add_member_is_idempotent() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
+        let store = make_store();
         let created = create_container(
-            &repo,
+            &store,
             minimal_container("550e8400-e29b-41d4-a716-446655440000", "Members"),
         )
         .unwrap();
         add_member(
-            &repo,
+            &store,
             &created.container_id,
             "11111111-1111-4111-8111-111111111111",
         )
         .unwrap();
         let out = add_member(
-            &repo,
+            &store,
             &created.container_id,
             "11111111-1111-4111-8111-111111111111",
         )
@@ -691,21 +652,20 @@ mod tests {
 
     #[test]
     fn remove_member_removes_id() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
+        let store = make_store();
         let created = create_container(
-            &repo,
+            &store,
             minimal_container("550e8400-e29b-41d4-a716-446655440000", "Members"),
         )
         .unwrap();
         add_member(
-            &repo,
+            &store,
             &created.container_id,
             "11111111-1111-4111-8111-111111111111",
         )
         .unwrap();
         let out = remove_member(
-            &repo,
+            &store,
             &created.container_id,
             "11111111-1111-4111-8111-111111111111",
         )
@@ -715,15 +675,14 @@ mod tests {
 
     #[test]
     fn remove_member_noop_when_absent() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
+        let store = make_store();
         let created = create_container(
-            &repo,
+            &store,
             minimal_container("550e8400-e29b-41d4-a716-446655440000", "Members"),
         )
         .unwrap();
         let out = remove_member(
-            &repo,
+            &store,
             &created.container_id,
             "11111111-1111-4111-8111-111111111111",
         )
@@ -733,40 +692,38 @@ mod tests {
 
     #[test]
     fn remove_member_clears_field_when_list_empty() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
+        let store = make_store();
         let created = create_container(
-            &repo,
+            &store,
             minimal_container("550e8400-e29b-41d4-a716-446655440000", "Members"),
         )
         .unwrap();
         add_member(
-            &repo,
+            &store,
             &created.container_id,
             "11111111-1111-4111-8111-111111111111",
         )
         .unwrap();
         remove_member(
-            &repo,
+            &store,
             &created.container_id,
             "11111111-1111-4111-8111-111111111111",
         )
         .unwrap();
-        let got = get_container(&repo, &created.container_id).unwrap();
+        let got = get_container(&store, &created.container_id).unwrap();
         assert!(got.member_instance_ids.is_none());
     }
 
     #[test]
     fn add_root_adds_id() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
+        let store = make_store();
         let created = create_container(
-            &repo,
+            &store,
             minimal_container("550e8400-e29b-41d4-a716-446655440000", "Roots"),
         )
         .unwrap();
         let out = add_root(
-            &repo,
+            &store,
             &created.container_id,
             "11111111-1111-4111-8111-111111111111",
         )
@@ -776,21 +733,20 @@ mod tests {
 
     #[test]
     fn remove_root_removes_id() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
+        let store = make_store();
         let created = create_container(
-            &repo,
+            &store,
             minimal_container("550e8400-e29b-41d4-a716-446655440000", "Roots"),
         )
         .unwrap();
         add_root(
-            &repo,
+            &store,
             &created.container_id,
             "11111111-1111-4111-8111-111111111111",
         )
         .unwrap();
         let out = remove_root(
-            &repo,
+            &store,
             &created.container_id,
             "11111111-1111-4111-8111-111111111111",
         )
@@ -800,186 +756,172 @@ mod tests {
 
     #[test]
     fn validate_invariants_passes_clean() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
+        let store = make_store();
         let created = create_container(
-            &repo,
+            &store,
             minimal_container("550e8400-e29b-41d4-a716-446655440000", "Clean"),
         )
         .unwrap();
-        let report = validate_container_invariants(&repo, &created.container_id).unwrap();
+        let report = validate_container_invariants(&store, &created.container_id).unwrap();
         assert!(report.ok);
     }
 
     #[test]
     fn validate_invariants_fails_invalid_member_id() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
+        let store = make_store();
         let created = create_container(
-            &repo,
+            &store,
             minimal_container("550e8400-e29b-41d4-a716-446655440000", "Invalid"),
         )
         .unwrap();
         add_member(
-            &repo,
+            &store,
             &created.container_id,
             "11111111-1111-4111-8111-111111111111",
         )
         .unwrap();
-        let report = validate_container_invariants(&repo, &created.container_id).unwrap();
+        let report = validate_container_invariants(&store, &created.container_id).unwrap();
         assert!(!report.ok);
     }
 
     #[test]
     fn validate_invariants_fails_invalid_root_id() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
+        let store = make_store();
         let created = create_container(
-            &repo,
+            &store,
             minimal_container("550e8400-e29b-41d4-a716-446655440000", "Invalid"),
         )
         .unwrap();
         add_root(
-            &repo,
+            &store,
             &created.container_id,
             "11111111-1111-4111-8111-111111111111",
         )
         .unwrap();
-        let report = validate_container_invariants(&repo, &created.container_id).unwrap();
+        let report = validate_container_invariants(&store, &created.container_id).unwrap();
         assert!(!report.ok);
     }
 
     #[test]
     fn validate_invariants_fails_container_id_in_member_ids() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
+        let store = make_store();
         let id = "550e8400-e29b-41d4-a716-446655440000";
-        let created = create_container(&repo, minimal_container(id, "Invalid")).unwrap();
-        add_member(&repo, &created.container_id, id).unwrap();
-        let report = validate_container_invariants(&repo, &created.container_id).unwrap();
+        let created = create_container(&store, minimal_container(id, "Invalid")).unwrap();
+        add_member(&store, &created.container_id, id).unwrap();
+        let report = validate_container_invariants(&store, &created.container_id).unwrap();
         assert!(!report.ok);
     }
 
     #[test]
     fn validate_invariants_fails_container_id_in_root_ids() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
+        let store = make_store();
         let id = "550e8400-e29b-41d4-a716-446655440000";
-        let created = create_container(&repo, minimal_container(id, "Invalid")).unwrap();
-        add_root(&repo, &created.container_id, id).unwrap();
-        let report = validate_container_invariants(&repo, &created.container_id).unwrap();
+        let created = create_container(&store, minimal_container(id, "Invalid")).unwrap();
+        add_root(&store, &created.container_id, id).unwrap();
+        let report = validate_container_invariants(&store, &created.container_id).unwrap();
         assert!(!report.ok);
     }
 
     #[test]
     fn containers_for_instance_returns_matching_containers() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
+        let store = make_store();
         let a = create_container(
-            &repo,
+            &store,
             minimal_container("550e8400-e29b-41d4-a716-446655440000", "A"),
         )
         .unwrap();
         let _b = create_container(
-            &repo,
+            &store,
             minimal_container("550e8400-e29b-41d4-a716-446655440001", "B"),
         )
         .unwrap();
         let member = "11111111-1111-4111-8111-111111111111";
-        add_member(&repo, &a.container_id, member).unwrap();
-        let out = containers_for_instance(&repo, member).unwrap();
+        add_member(&store, &a.container_id, member).unwrap();
+        let out = containers_for_instance(&store, member).unwrap();
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].container_id, a.container_id);
     }
 
     #[test]
     fn containers_for_instance_includes_root_role() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
+        let store = make_store();
         let a = create_container(
-            &repo,
+            &store,
             minimal_container("550e8400-e29b-41d4-a716-446655440000", "A"),
         )
         .unwrap();
         let member = "11111111-1111-4111-8111-111111111111";
-        add_root(&repo, &a.container_id, member).unwrap();
-        let out = containers_for_instance(&repo, member).unwrap();
+        add_root(&store, &a.container_id, member).unwrap();
+        let out = containers_for_instance(&store, member).unwrap();
         assert_eq!(out.len(), 1);
     }
 
     #[test]
     fn containers_for_instance_returns_empty_when_no_match() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
+        let store = make_store();
         create_container(
-            &repo,
+            &store,
             minimal_container("550e8400-e29b-41d4-a716-446655440000", "A"),
         )
         .unwrap();
-        let out = containers_for_instance(&repo, "11111111-1111-4111-8111-111111111111").unwrap();
+        let out = containers_for_instance(&store, "11111111-1111-4111-8111-111111111111").unwrap();
         assert!(out.is_empty());
     }
 
     #[test]
     fn list_containers_root_filter_matches_root_only() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
+        let store = make_store();
         let a = create_container(
-            &repo,
+            &store,
             minimal_container("550e8400-e29b-41d4-a716-446655440000", "A"),
         )
         .unwrap();
         let b = create_container(
-            &repo,
+            &store,
             minimal_container("550e8400-e29b-41d4-a716-446655440001", "B"),
         )
         .unwrap();
         let id = "11111111-1111-4111-8111-111111111111";
-        add_root(&repo, &a.container_id, id).unwrap();
-        add_member(&repo, &b.container_id, id).unwrap();
-        let out = list_containers(&repo, None, None, Some(id)).unwrap();
+        add_root(&store, &a.container_id, id).unwrap();
+        add_member(&store, &b.container_id, id).unwrap();
+        let out = list_containers(&store, None, None, Some(id)).unwrap();
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].container_id, a.container_id);
     }
 
     #[test]
     fn create_container_mints_full_uuid_prefix_filename_safely() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
-        let out = create_container(&repo, minimal_container("", "Sprint")).unwrap();
-        let manifest = load_manifest(&repo).unwrap();
-        let index = load_container_index(&manifest);
+        let store = make_store();
+        let out = create_container(&store, minimal_container("", "Sprint")).unwrap();
+        let index = load_container_index(&store).unwrap();
         assert_eq!(index.len(), 1);
         assert!(index[0].path.contains(&out.container_id[..8]));
     }
 
     #[test]
     fn is_member_true_and_false() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
+        let store = make_store();
         let created = create_container(
-            &repo,
+            &store,
             minimal_container("550e8400-e29b-41d4-a716-446655440000", "Members"),
         )
         .unwrap();
         let id = "11111111-1111-4111-8111-111111111111";
-        assert!(!is_member(&repo, &created.container_id, id).unwrap());
-        add_member(&repo, &created.container_id, id).unwrap();
-        assert!(is_member(&repo, &created.container_id, id).unwrap());
+        assert!(!is_member(&store, &created.container_id, id).unwrap());
+        add_member(&store, &created.container_id, id).unwrap();
+        assert!(is_member(&store, &created.container_id, id).unwrap());
     }
 
     #[test]
     fn save_and_load_container_index_roundtrip() {
-        let temp = TempDir::new().unwrap();
-        let repo = make_minimal_container_repo(&temp);
-        let mut manifest = load_manifest(&repo).unwrap();
+        let store = make_store();
         let idx = vec![ContainerIndexEntry {
             container_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
             title: "A".to_string(),
             path: "containers/a-550e8400.json".to_string(),
         }];
-        save_container_index(&mut manifest, idx).unwrap();
-        let loaded = load_container_index(&manifest);
+        save_container_index(&store, idx).unwrap();
+        let loaded = load_container_index(&store).unwrap();
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].title, "A");
     }

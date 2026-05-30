@@ -53,7 +53,7 @@ fn cmd_record_list(ctx: CliContext, type_filter: Option<String>) -> Result<Strin
     };
 
     if let Some(ref cid) = ctx.container_id {
-        let members = list_members(&ctx.repo, cid)?;
+        let members = list_members(&store, cid)?;
         records.retain(|r| members.iter().any(|id| id == &r.instance_id));
     }
 
@@ -77,8 +77,9 @@ fn cmd_record_create(
     version: Option<u32>,
     dir: String,
 ) -> Result<String> {
+    let store = FileStore::new(&ctx.repo);
     if let Some(ref cid) = ctx.container_id {
-        match get_container(&ctx.repo, cid) {
+        match get_container(&store, cid) {
             Ok(_) => {}
             Err(RepositoryError::ContainerNotFound { .. }) => {
                 return Ok(output::err(
@@ -124,7 +125,6 @@ fn cmd_record_create(
         }
     };
 
-    let store = FileStore::new(&ctx.repo);
     match create_record(
         &store,
         &record_type.id,
@@ -134,7 +134,7 @@ fn cmd_record_create(
     ) {
         Ok(record) => {
             if let Some(ref cid) = ctx.container_id {
-                if let Err(e) = add_member(&ctx.repo, cid, &record.instance_id) {
+                if let Err(e) = add_member(&store, cid, &record.instance_id) {
                     return Ok(output::err(
                         "record create",
                         vec![format!(
@@ -166,8 +166,9 @@ fn cmd_record_update(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_record_delete(ctx: CliContext, id: String) -> Result<String> {
+    let store = FileStore::new(&ctx.repo);
     if let Some(ref cid) = ctx.container_id {
-        if !is_member(&ctx.repo, cid, &id)? {
+        if !is_member(&store, cid, &id)? {
             return Ok(output::err(
                 "record delete",
                 vec![format!(
@@ -176,10 +177,9 @@ fn cmd_record_delete(ctx: CliContext, id: String) -> Result<String> {
                 )],
             ));
         }
-        remove_member(&ctx.repo, cid, &id)?;
+        remove_member(&store, cid, &id)?;
     }
 
-    let store = FileStore::new(&ctx.repo);
     match delete_record(&store, &id) {
         Ok(instance_id) => Ok(output::ok(
             "record delete",

@@ -10,6 +10,7 @@ use srs_repository::container_service::{
     list_members, list_roots, remove_member, remove_root, update_container,
     validate_container_invariants, ContainerPatch,
 };
+use srs_repository::FileStore;
 use std::io;
 
 pub fn dispatch(ctx: CliContext, cmd: ContainerCommand) -> Result<String> {
@@ -35,8 +36,9 @@ fn cmd_list(
     member_instance_id: Option<String>,
     root_instance_id: Option<String>,
 ) -> Result<String> {
+    let store = FileStore::new(&ctx.repo);
     let containers = list_containers(
-        &ctx.repo,
+        &store,
         container_type.as_deref(),
         member_instance_id.as_deref(),
         root_instance_id.as_deref(),
@@ -57,7 +59,8 @@ fn cmd_create(ctx: CliContext) -> Result<String> {
             ))
         }
     };
-    match create_container(&ctx.repo, container) {
+    let store = FileStore::new(&ctx.repo);
+    match create_container(&store, container) {
         Ok(container) => Ok(output::ok(
             "container create",
             json!({ "container": container }),
@@ -67,7 +70,8 @@ fn cmd_create(ctx: CliContext) -> Result<String> {
 }
 
 fn cmd_get(ctx: CliContext, container_id: String) -> Result<String> {
-    match get_container(&ctx.repo, &container_id) {
+    let store = FileStore::new(&ctx.repo);
+    match get_container(&store, &container_id) {
         Ok(container) => Ok(output::ok(
             "container get",
             json!({ "container": container }),
@@ -86,7 +90,8 @@ fn cmd_update(ctx: CliContext, container_id: String) -> Result<String> {
             ))
         }
     };
-    match update_container(&ctx.repo, &container_id, patch) {
+    let store = FileStore::new(&ctx.repo);
+    match update_container(&store, &container_id, patch) {
         Ok(container) => Ok(output::ok(
             "container update",
             json!({ "container": container }),
@@ -96,16 +101,18 @@ fn cmd_update(ctx: CliContext, container_id: String) -> Result<String> {
 }
 
 fn cmd_delete(ctx: CliContext, container_id: String) -> Result<String> {
-    match delete_container(&ctx.repo, &container_id) {
+    let store = FileStore::new(&ctx.repo);
+    match delete_container(&store, &container_id) {
         Ok(id) => Ok(output::ok("container delete", json!({ "containerId": id }))),
         Err(e) => Ok(output::err("container delete", vec![e.to_string()])),
     }
 }
 
 fn dispatch_members(ctx: CliContext, cmd: ContainerMembersCommand) -> Result<String> {
+    let store = FileStore::new(&ctx.repo);
     match cmd {
         ContainerMembersCommand::List { container_id } => {
-            let ids = list_members(&ctx.repo, &container_id)?;
+            let ids = list_members(&store, &container_id)?;
             Ok(output::ok(
                 "container members list",
                 json!({ "containerId": container_id, "memberInstanceIds": ids }),
@@ -115,7 +122,7 @@ fn dispatch_members(ctx: CliContext, cmd: ContainerMembersCommand) -> Result<Str
             container_id,
             instance_id,
         } => {
-            let ids = add_member(&ctx.repo, &container_id, &instance_id)?;
+            let ids = add_member(&store, &container_id, &instance_id)?;
             Ok(output::ok(
                 "container members add",
                 json!({ "containerId": container_id, "instanceId": instance_id, "memberInstanceIds": ids }),
@@ -125,7 +132,7 @@ fn dispatch_members(ctx: CliContext, cmd: ContainerMembersCommand) -> Result<Str
             container_id,
             instance_id,
         } => {
-            let ids = remove_member(&ctx.repo, &container_id, &instance_id)?;
+            let ids = remove_member(&store, &container_id, &instance_id)?;
             Ok(output::ok(
                 "container members remove",
                 json!({ "containerId": container_id, "instanceId": instance_id, "memberInstanceIds": ids }),
@@ -135,9 +142,10 @@ fn dispatch_members(ctx: CliContext, cmd: ContainerMembersCommand) -> Result<Str
 }
 
 fn dispatch_roots(ctx: CliContext, cmd: ContainerRootsCommand) -> Result<String> {
+    let store = FileStore::new(&ctx.repo);
     match cmd {
         ContainerRootsCommand::List { container_id } => {
-            let ids = list_roots(&ctx.repo, &container_id)?;
+            let ids = list_roots(&store, &container_id)?;
             Ok(output::ok(
                 "container roots list",
                 json!({ "containerId": container_id, "rootInstanceIds": ids }),
@@ -147,7 +155,7 @@ fn dispatch_roots(ctx: CliContext, cmd: ContainerRootsCommand) -> Result<String>
             container_id,
             instance_id,
         } => {
-            let ids = add_root(&ctx.repo, &container_id, &instance_id)?;
+            let ids = add_root(&store, &container_id, &instance_id)?;
             Ok(output::ok(
                 "container roots add",
                 json!({ "containerId": container_id, "instanceId": instance_id, "rootInstanceIds": ids }),
@@ -157,7 +165,7 @@ fn dispatch_roots(ctx: CliContext, cmd: ContainerRootsCommand) -> Result<String>
             container_id,
             instance_id,
         } => {
-            let ids = remove_root(&ctx.repo, &container_id, &instance_id)?;
+            let ids = remove_root(&store, &container_id, &instance_id)?;
             Ok(output::ok(
                 "container roots remove",
                 json!({ "containerId": container_id, "instanceId": instance_id, "rootInstanceIds": ids }),
@@ -167,7 +175,8 @@ fn dispatch_roots(ctx: CliContext, cmd: ContainerRootsCommand) -> Result<String>
 }
 
 fn cmd_validate(ctx: CliContext, container_id: String) -> Result<String> {
-    let report = validate_container_invariants(&ctx.repo, &container_id)?;
+    let store = FileStore::new(&ctx.repo);
+    let report = validate_container_invariants(&store, &container_id)?;
     if report.ok {
         Ok(output::ok(
             "container validate",

@@ -12,6 +12,7 @@ use srs_repository::tag_service::{
     list_tag_definitions_by_role, update_tag_definition, DeleteTagDefinitionResult,
     GetTagDefinitionResult,
 };
+use srs_repository::FileStore;
 use std::io::{self, Read};
 
 pub fn dispatch(ctx: CliContext, cmd: TagCommand) -> Result<String> {
@@ -32,7 +33,8 @@ fn cmd_tag_list(ctx: CliContext, role: Option<String>) -> Result<String> {
     };
 
     if let Some(ref cid) = ctx.container_id {
-        let members = list_members(&ctx.repo, cid)?;
+        let cstore = FileStore::new(&ctx.repo);
+        let members = list_members(&cstore, cid)?;
         summaries.retain(|s| members.iter().any(|id| id == &s.instance_id));
     }
 
@@ -56,7 +58,8 @@ fn cmd_tag_get(ctx: CliContext, id: String) -> Result<String> {
 
 fn cmd_tag_create(ctx: CliContext) -> Result<String> {
     if let Some(ref cid) = ctx.container_id {
-        match get_container(&ctx.repo, cid) {
+        let cstore = FileStore::new(&ctx.repo);
+        match get_container(&cstore, cid) {
             Ok(_) => {}
             Err(RepositoryError::ContainerNotFound { .. }) => {
                 return Ok(output::err(
@@ -79,7 +82,8 @@ fn cmd_tag_create(ctx: CliContext) -> Result<String> {
     let result = create_tag_definition(&ctx.repo, tag_definition)?;
 
     if let Some(ref cid) = ctx.container_id {
-        if let Err(e) = add_member(&ctx.repo, cid, &result.tag_definition.instance_id) {
+        let cstore = FileStore::new(&ctx.repo);
+        if let Err(e) = add_member(&cstore, cid, &result.tag_definition.instance_id) {
             return Ok(output::err(
                 "tag create",
                 vec![format!("Tag created but failed to add to container: {}", e)],
@@ -123,7 +127,8 @@ fn cmd_tag_update(ctx: CliContext, id: String) -> Result<String> {
 
 fn cmd_tag_delete(ctx: CliContext, id: String) -> Result<String> {
     if let Some(ref cid) = ctx.container_id {
-        if !is_member(&ctx.repo, cid, &id)? {
+        let cstore = FileStore::new(&ctx.repo);
+        if !is_member(&cstore, cid, &id)? {
             return Ok(output::err(
                 "tag delete",
                 vec![format!(
@@ -132,7 +137,7 @@ fn cmd_tag_delete(ctx: CliContext, id: String) -> Result<String> {
                 )],
             ));
         }
-        remove_member(&ctx.repo, cid, &id)?;
+        remove_member(&cstore, cid, &id)?;
     }
 
     match delete_tag_definition(&ctx.repo, &id) {

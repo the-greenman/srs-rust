@@ -35,7 +35,7 @@ fn cmd_note_list(ctx: CliContext, tag: Option<String>) -> Result<String> {
     let mut result = list_notes(&store, filter)?;
 
     if let Some(ref cid) = ctx.container_id {
-        let members = list_members(&ctx.repo, cid)?;
+        let members = list_members(&store, cid)?;
         result
             .notes
             .retain(|n| members.iter().any(|id| id == &n.instance_id));
@@ -71,8 +71,9 @@ fn cmd_note_get(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_note_create(ctx: CliContext) -> Result<String> {
+    let store = FileStore::new(&ctx.repo);
     if let Some(ref cid) = ctx.container_id {
-        match get_container(&ctx.repo, cid) {
+        match get_container(&store, cid) {
             Ok(_) => {}
             Err(RepositoryError::ContainerNotFound { .. }) => {
                 return Ok(output::err(
@@ -90,11 +91,10 @@ fn cmd_note_create(ctx: CliContext) -> Result<String> {
     let note: Note = serde_json::from_str(&stdin)
         .map_err(|e| anyhow::anyhow!("Failed to parse note JSON: {}", e))?;
 
-    let store = FileStore::new(&ctx.repo);
     let result = create_note(&store, note)?;
 
     if let Some(ref cid) = ctx.container_id {
-        if let Err(e) = add_member(&ctx.repo, cid, &result.note.instance_id) {
+        if let Err(e) = add_member(&store, cid, &result.note.instance_id) {
             return Ok(output::err(
                 "note create",
                 vec![format!(
@@ -170,8 +170,9 @@ fn cmd_note_update(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_note_delete(ctx: CliContext, id: String) -> Result<String> {
+    let store = FileStore::new(&ctx.repo);
     if let Some(ref cid) = ctx.container_id {
-        if !is_member(&ctx.repo, cid, &id)? {
+        if !is_member(&store, cid, &id)? {
             return Ok(output::err(
                 "note delete",
                 vec![format!(
@@ -180,10 +181,9 @@ fn cmd_note_delete(ctx: CliContext, id: String) -> Result<String> {
                 )],
             ));
         }
-        remove_member(&ctx.repo, cid, &id)?;
+        remove_member(&store, cid, &id)?;
     }
 
-    let store = FileStore::new(&ctx.repo);
     match delete_note(&store, &id) {
         Ok(DeleteNoteResult { instance_id }) => Ok(output::ok(
             "note delete",

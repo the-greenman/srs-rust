@@ -383,7 +383,7 @@ fn resolve_section_instances(
             container_id,
             container_type: _,
         } => {
-            let members = list_members(repo_root, container_id)?;
+            let members = list_members(&FileStore::new(repo_root), container_id)?;
             let mut records = Vec::new();
             for id in members {
                 if let Some(record) = get_record_by_id(&FileStore::new(repo_root), &id)? {

@@ -9,6 +9,7 @@ use srs_repository::relation_service::{
     create_relation, delete_relation, get_relation_by_id, list_relations, GetRelationResult,
     ListRelationsFilter,
 };
+use srs_repository::FileStore;
 use std::io::{self, Read};
 
 pub fn dispatch(ctx: CliContext, cmd: RelationCommand) -> Result<String> {
@@ -38,7 +39,8 @@ fn cmd_relation_list(
     };
     let summaries = list_relations(&ctx.repo, filter)?;
     let summaries = if let Some(ref cid) = ctx.container_id {
-        let members = list_members(&ctx.repo, cid)?;
+        let cstore = FileStore::new(&ctx.repo);
+        let members = list_members(&cstore, cid)?;
         summaries
             .into_iter()
             .filter(|s| {
