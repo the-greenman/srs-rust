@@ -880,6 +880,98 @@ impl RepositoryStore for JsonStore {
         Ok(())
     }
 
+    fn load_container(
+        &self,
+        container_id: &str,
+    ) -> Result<srs_core::types::container::Container, RepositoryError> {
+        let key = format!("containers/{container_id}.json");
+        let val = self
+            .data_get(&key)
+            .map_err(|_| RepositoryError::ContainerNotFound {
+                container_id: container_id.to_string(),
+            })?;
+        serde_json::from_value(val).map_err(|source| RepositoryError::ManifestParse {
+            path: std::path::PathBuf::from(&key),
+            source,
+        })
+    }
+
+    fn save_container(
+        &self,
+        container: &srs_core::types::container::Container,
+    ) -> Result<(), RepositoryError> {
+        let id = &container.container_id;
+        let key = format!("containers/{id}.json");
+        let val = serde_json::to_value(container).map_err(|source| RepositoryError::Serialize {
+            path: std::path::PathBuf::from(&key),
+            source,
+        })?;
+        self.state.borrow_mut().data.insert(key, val);
+        // Update index in manifest data
+        let mut manifest_val = self
+            .data_get("manifest.json")
+            .unwrap_or_else(|_| serde_json::json!({}));
+        let mut entries: Vec<serde_json::Value> = manifest_val["containerIndex"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        entries.retain(|e| e["containerId"].as_str() != Some(id));
+        entries.push(serde_json::json!({ "containerId": id, "title": container.title }));
+        if let Some(obj) = manifest_val.as_object_mut() {
+            obj.insert("containerIndex".to_string(), serde_json::json!(entries));
+        }
+        self.state
+            .borrow_mut()
+            .data
+            .insert("manifest.json".to_string(), manifest_val);
+        self.flush()
+    }
+
+    fn delete_container(&self, container_id: &str) -> Result<(), RepositoryError> {
+        let key = format!("containers/{container_id}.json");
+        if self.state.borrow_mut().data.remove(&key).is_none() {
+            return Err(RepositoryError::ContainerNotFound {
+                container_id: container_id.to_string(),
+            });
+        }
+        // Remove from manifest index
+        let mut manifest_val = self
+            .data_get("manifest.json")
+            .unwrap_or_else(|_| serde_json::json!({}));
+        let mut entries: Vec<serde_json::Value> = manifest_val["containerIndex"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        entries.retain(|e| e["containerId"].as_str() != Some(container_id));
+        if let Some(obj) = manifest_val.as_object_mut() {
+            obj.insert("containerIndex".to_string(), serde_json::json!(entries));
+        }
+        self.state
+            .borrow_mut()
+            .data
+            .insert("manifest.json".to_string(), manifest_val);
+        self.flush()
+    }
+
+    fn list_container_summaries(&self) -> Result<Vec<(String, String)>, RepositoryError> {
+        let manifest_val = self
+            .data_get("manifest.json")
+            .unwrap_or_else(|_| serde_json::json!({}));
+        let entries: Vec<serde_json::Value> = manifest_val["containerIndex"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        Ok(entries
+            .into_iter()
+            .filter_map(|e| {
+                let id = e["containerId"].as_str()?.to_string();
+                let title = e["title"].as_str().unwrap_or("").to_string();
+                Some((id, title))
+            })
+            .collect())
+    }
+
+    #[allow(deprecated)]
     fn load_container_json(
         &self,
         relative_path: &str,
@@ -887,6 +979,7 @@ impl RepositoryStore for JsonStore {
         self.data_get(relative_path)
     }
 
+    #[allow(deprecated)]
     fn save_container_json(
         &self,
         relative_path: &str,
@@ -899,11 +992,13 @@ impl RepositoryStore for JsonStore {
         self.flush()
     }
 
+    #[allow(deprecated)]
     fn delete_container_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
         self.state.borrow_mut().data.remove(relative_path);
         self.flush()
     }
 
+    #[allow(deprecated)]
     fn ensure_containers_dir(&self) -> Result<(), RepositoryError> {
         Ok(())
     }
@@ -1519,5 +1614,160 @@ mod tests {
             matches!(err, RepositoryError::DefinitionNotFound { .. }),
             "should return DefinitionNotFound, got: {err:?}"
         );
+    }
+
+    // --- Container store tests for JsonStore ---
+
+    #[test]
+    fn json_store_container_operations_are_keyed_by_id() {
+        use crate::store::RepositoryStore;
+        use srs_core::types::container::Container;
+
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("repo.srsj");
+        let store = JsonStore::create(&path).unwrap();
+        create_repository(&store, &init_input()).unwrap();
+
+        let container = Container {
+            container_id: "json-c-001".to_string(),
+            title: "My Container".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            tags: None,
+            root_instance_ids: None,
+            member_instance_ids: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: std::collections::HashMap::new(),
+        };
+        store.save_container(&container).unwrap();
+
+        let loaded = store.load_container("json-c-001").unwrap();
+        assert_eq!(loaded.container_id, "json-c-001");
+        assert_eq!(loaded.title, "My Container");
+
+        let summaries = store.list_container_summaries().unwrap();
+        assert!(summaries.iter().any(|(id, _)| id == "json-c-001"));
+    }
+
+    #[test]
+    fn json_store_container_persists_across_reopen() {
+        use crate::store::RepositoryStore;
+        use srs_core::types::container::Container;
+
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("repo.srsj");
+        {
+            let store = JsonStore::create(&path).unwrap();
+            create_repository(&store, &init_input()).unwrap();
+            store
+                .save_container(&Container {
+                    container_id: "persist-c".to_string(),
+                    title: "Persisted".to_string(),
+                    namespace: None,
+                    name: None,
+                    description: None,
+                    container_type: None,
+                    tags: None,
+                    root_instance_ids: None,
+                    member_instance_ids: None,
+                    created_at: None,
+                    updated_at: None,
+                    meta: None,
+                    extra: std::collections::HashMap::new(),
+                })
+                .unwrap();
+        }
+        let reopened = JsonStore::open(&path).unwrap();
+        let loaded = reopened.load_container("persist-c").unwrap();
+        assert_eq!(loaded.title, "Persisted");
+        let summaries = reopened.list_container_summaries().unwrap();
+        assert!(summaries.iter().any(|(id, _)| id == "persist-c"));
+    }
+
+    #[test]
+    fn json_store_delete_container_removes_entry() {
+        use crate::store::RepositoryStore;
+        use srs_core::types::container::Container;
+
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("repo.srsj");
+        let store = JsonStore::create(&path).unwrap();
+        create_repository(&store, &init_input()).unwrap();
+
+        store
+            .save_container(&Container {
+                container_id: "delete-me".to_string(),
+                title: "Delete Me".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                tags: None,
+                root_instance_ids: None,
+                member_instance_ids: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: std::collections::HashMap::new(),
+            })
+            .unwrap();
+        store.delete_container("delete-me").unwrap();
+
+        let err = store.load_container("delete-me").unwrap_err();
+        assert!(matches!(err, RepositoryError::ContainerNotFound { .. }));
+
+        let summaries = store.list_container_summaries().unwrap();
+        assert!(!summaries.iter().any(|(id, _)| id == "delete-me"));
+    }
+
+    #[test]
+    fn file_store_container_adapter_preserves_existing_layout() {
+        use crate::repository_lifecycle::create_repository;
+        use crate::store::RepositoryStore;
+        use srs_core::types::container::Container;
+
+        let tmp = TempDir::new().unwrap();
+        let store = FileStore::new(tmp.path());
+        create_repository(&store, &init_input()).unwrap();
+
+        let container = Container {
+            container_id: "fs-c-001".to_string(),
+            title: "File Store Container".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            tags: None,
+            root_instance_ids: None,
+            member_instance_ids: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: std::collections::HashMap::new(),
+        };
+        store.save_container(&container).unwrap();
+
+        // File must exist under containers/ directory
+        assert!(
+            tmp.path().join("containers").is_dir(),
+            "containers/ directory should exist"
+        );
+        let json_files: Vec<_> = std::fs::read_dir(tmp.path().join("containers"))
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().map(|x| x == "json").unwrap_or(false))
+            .collect();
+        assert_eq!(json_files.len(), 1, "one container file should exist");
+
+        // Load it back
+        let loaded = store.load_container("fs-c-001").unwrap();
+        assert_eq!(loaded.title, "File Store Container");
+
+        let summaries = store.list_container_summaries().unwrap();
+        assert!(summaries.iter().any(|(id, _)| id == "fs-c-001"));
     }
 }

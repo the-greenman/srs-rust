@@ -58,17 +58,17 @@ The Documentation Worker must either update the ADR from `storage-agnostic-repos
 
 #### Tasks
 
-- [ ] Update `srs-rust/ARCHITECTURE.md` with container boundary rules.
-- [ ] State that container services use `containerId` and instance IDs.
-- [ ] State that FileStore paths and container indexes are adapter details.
-- [ ] Document containers as content-instance boundaries, distinct from package definition boundaries.
-- [ ] Decide whether to add or update an ADR under `srs-rust/docs/adr/`.
+- [x] Update `srs-rust/ARCHITECTURE.md` with container boundary rules.
+- [x] State that container services use `containerId` and instance IDs.
+- [x] State that FileStore paths and container indexes are adapter details.
+- [x] Document containers as content-instance boundaries, distinct from package definition boundaries.
+- [x] Decide whether to add or update an ADR under `srs-rust/docs/adr/`: no separate ADR — same adapter-owns-storage principle as ADR-009, documented in ARCHITECTURE.md.
 
 #### Acceptance Criteria
 
-- [ ] `ARCHITECTURE.md` names containers as logical content boundaries.
-- [ ] `ARCHITECTURE.md` prohibits path-shaped container service APIs.
-- [ ] ADR decision is either created/updated or explicitly deferred with rationale.
+- [x] `ARCHITECTURE.md` names containers as logical content boundaries.
+- [x] `ARCHITECTURE.md` prohibits path-shaped container service APIs.
+- [x] ADR decision is either created/updated or explicitly deferred with rationale.
 
 #### Testing
 
@@ -105,28 +105,28 @@ cargo clippy -p srs-repository -- -D warnings
 
 #### Tasks
 
-- [ ] Add `ContainerSelector` or equivalent container ID wrapper if useful for API consistency.
-- [ ] Add store methods for container operations:
+- [x] Add `ContainerSelector` or equivalent container ID wrapper if useful for API consistency.
+- [x] Add store methods for container operations:
   - `load_container`
   - `save_container`
   - `delete_container`
   - `list_container_summaries`
-- [ ] Move `ContainerIndexEntry.path` lookup behind FileStore.
-- [ ] Mark old raw container path methods as transitional:
+- [x] Move `ContainerIndexEntry.path` lookup behind FileStore.
+- [x] Mark old raw container path methods as transitional:
   - `load_container_json`
   - `save_container_json`
   - `delete_container_file`
   - `ensure_containers_dir`
-- [ ] Implement new container methods for MemoryStore using `container_id` keys.
-- [ ] Implement new container methods for FileStore by preserving the current `containers/*.json` layout.
+- [x] Implement new container methods for MemoryStore using `container_id` keys.
+- [x] Implement new container methods for FileStore by preserving the current `containers/*.json` layout.
 
 #### Acceptance Criteria
 
-- [ ] New container methods are sufficient for container services without paths.
-- [ ] MemoryStore stores containers by `container_id`.
-- [ ] FileStore preserves current container layout.
-- [ ] Trait remains synchronous.
-- [ ] All implementers compile.
+- [x] New container methods are sufficient for container services without paths.
+- [x] MemoryStore stores containers by `container_id`.
+- [x] FileStore preserves current container layout.
+- [x] Trait remains synchronous.
+- [x] All implementers compile.
 
 #### Testing
 
@@ -166,18 +166,18 @@ cargo clippy -p srs-repository -- -D warnings
 
 #### Tasks
 
-- [ ] Refactor container service functions to use store-level container operations by `container_id`.
-- [ ] Remove service-owned path lookup from `ContainerIndexEntry`.
-- [ ] Keep roots and members as instance IDs.
-- [ ] Keep validation semantics unchanged.
-- [ ] Keep CLI-visible behavior unchanged.
+- [x] Refactor container service functions to use store-level container operations by `container_id`.
+- [x] Remove service-owned path lookup from `ContainerIndexEntry`.
+- [x] Keep roots and members as instance IDs.
+- [x] Keep validation semantics unchanged.
+- [x] Keep CLI-visible behavior unchanged.
 
 #### Acceptance Criteria
 
-- [ ] Container service APIs do not expose file paths.
-- [ ] Container CRUD and membership operations use `container_id` at the service boundary.
-- [ ] Container membership/root behavior is unchanged.
-- [ ] No production container service code calls raw container path methods.
+- [x] Container service APIs do not expose file paths.
+- [x] Container CRUD and membership operations use `container_id` at the service boundary.
+- [x] Container membership/root behavior is unchanged.
+- [x] No production container service code calls raw container path methods.
 
 #### Testing
 

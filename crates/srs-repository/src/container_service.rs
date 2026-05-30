@@ -6,16 +6,6 @@ use srs_core::types::container::Container;
 use srs_core::validation::container::validate_container;
 use std::collections::HashSet;
 
-/// Internal index entry mapping a container ID to its file path within the repository.
-/// This type is an srs-repository implementation detail and must not be exposed to callers.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ContainerIndexEntry {
-    pub container_id: String,
-    pub title: String,
-    pub path: String,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContainerSummary {
@@ -44,90 +34,17 @@ pub struct ContainerValidationReport {
     pub errors: Vec<String>,
 }
 
-fn load_container_index(
-    store: &dyn RepositoryStore,
-) -> Result<Vec<ContainerIndexEntry>, RepositoryError> {
-    let manifest = store.load_manifest()?;
-    Ok(manifest
-        .extra
-        .get("containerIndex")
-        .cloned()
-        .and_then(|v| serde_json::from_value(v).ok())
-        .unwrap_or_default())
-}
-
-fn save_container_index(
-    store: &dyn RepositoryStore,
-    index: Vec<ContainerIndexEntry>,
-) -> Result<(), RepositoryError> {
-    let mut manifest = store.load_manifest()?;
-    let value = serde_json::to_value(index).map_err(|source| RepositoryError::Serialize {
-        path: std::path::PathBuf::from("manifest.json"),
-        source,
-    })?;
-    manifest.extra.insert("containerIndex".to_string(), value);
-    store.save_manifest(&manifest)
-}
-
-fn load_container(
-    store: &dyn RepositoryStore,
-    relative_path: &str,
-) -> Result<Container, RepositoryError> {
-    let value = store.load_container_json(relative_path)?;
-    serde_json::from_value(value).map_err(|source| RepositoryError::ManifestParse {
-        path: std::path::PathBuf::from(relative_path),
-        source,
-    })
-}
-
-fn write_container(
-    store: &dyn RepositoryStore,
-    container: &Container,
-    relative_path: &str,
-) -> Result<(), RepositoryError> {
-    let value = serde_json::to_value(container).map_err(|source| RepositoryError::Serialize {
-        path: std::path::PathBuf::from(relative_path),
-        source,
-    })?;
-    store.save_container_json(relative_path, &value)
-}
-
-fn slugify_title(title: &str) -> String {
-    let slug = title
-        .to_lowercase()
-        .replace(|c: char| !c.is_alphanumeric() && c != '-' && c != ' ', "")
-        .replace(' ', "-");
-    if slug.is_empty() {
-        "container".to_string()
-    } else {
-        slug
-    }
-}
-
-fn find_container_entry(
-    store: &dyn RepositoryStore,
-    container_id: &str,
-) -> Result<ContainerIndexEntry, RepositoryError> {
-    let index = load_container_index(store)?;
-    index
-        .into_iter()
-        .find(|e| e.container_id == container_id)
-        .ok_or_else(|| RepositoryError::ContainerNotFound {
-            container_id: container_id.to_string(),
-        })
-}
-
 pub fn list_containers(
     store: &dyn RepositoryStore,
     container_type: Option<&str>,
     member_instance_id: Option<&str>,
     root_instance_id: Option<&str>,
 ) -> Result<Vec<ContainerSummary>, RepositoryError> {
-    let index = load_container_index(store)?;
+    let summaries_raw = store.list_container_summaries()?;
     let mut summaries = Vec::new();
 
-    for entry in index {
-        let container = load_container(store, &entry.path)?;
+    for (container_id, _title) in summaries_raw {
+        let container = store.load_container(&container_id)?;
         if let Some(filter) = container_type {
             if container.container_type.as_deref() != Some(filter) {
                 continue;
@@ -156,8 +73,8 @@ pub fn list_containers(
             }
         }
         summaries.push(ContainerSummary {
-            container_id: entry.container_id,
-            title: entry.title,
+            container_id: container.container_id.clone(),
+            title: container.title.clone(),
             container_type: container.container_type,
         });
     }
@@ -182,21 +99,7 @@ pub fn create_container(
     validate_container(&container)
         .map_err(|source| RepositoryError::ContainerValidation { source })?;
 
-    let slug = slugify_title(&container.title);
-    let id_prefix = &container.container_id[..container.container_id.len().min(8)];
-    let filename = format!("{}-{}.json", slug, id_prefix);
-    let relative_path = format!("containers/{}", filename);
-
-    store.ensure_containers_dir()?;
-    write_container(store, &container, &relative_path)?;
-
-    let mut index = load_container_index(store)?;
-    index.push(ContainerIndexEntry {
-        container_id: container.container_id.clone(),
-        title: container.title.clone(),
-        path: relative_path,
-    });
-    save_container_index(store, index)?;
+    store.save_container(&container)?;
     Ok(container)
 }
 
@@ -204,8 +107,7 @@ pub fn get_container(
     store: &dyn RepositoryStore,
     container_id: &str,
 ) -> Result<Container, RepositoryError> {
-    let entry = find_container_entry(store, container_id)?;
-    load_container(store, &entry.path)
+    store.load_container(container_id)
 }
 
 pub fn update_container(
@@ -238,17 +140,7 @@ pub fn update_container(
     validate_container(&container)
         .map_err(|source| RepositoryError::ContainerValidation { source })?;
 
-    let mut index = load_container_index(store)?;
-    let pos = index
-        .iter()
-        .position(|e| e.container_id == container_id)
-        .ok_or_else(|| RepositoryError::ContainerNotFound {
-            container_id: container_id.to_string(),
-        })?;
-    let path = index[pos].path.clone();
-    write_container(store, &container, &path)?;
-    index[pos].title = container.title.clone();
-    save_container_index(store, index)?;
+    store.save_container(&container)?;
     Ok(container)
 }
 
@@ -256,22 +148,7 @@ pub fn delete_container(
     store: &dyn RepositoryStore,
     container_id: &str,
 ) -> Result<String, RepositoryError> {
-    let mut index = load_container_index(store)?;
-    let pos = index
-        .iter()
-        .position(|e| e.container_id == container_id)
-        .ok_or_else(|| RepositoryError::ContainerNotFound {
-            container_id: container_id.to_string(),
-        })?;
-    let entry = index.remove(pos);
-    save_container_index(store, index)?;
-
-    if let Err(err) = store.delete_container_file(&entry.path) {
-        eprintln!(
-            "warning: failed to remove container file '{}': {}",
-            entry.path, err
-        );
-    }
+    store.delete_container(container_id)?;
     Ok(container_id.to_string())
 }
 
@@ -296,9 +173,7 @@ pub fn add_member(
     members.push(instance_id.to_string());
     members.sort();
     container.member_instance_ids = Some(members.clone());
-
-    let entry = find_container_entry(store, container_id)?;
-    write_container(store, &container, &entry.path)?;
+    store.save_container(&container)?;
     Ok(members)
 }
 
@@ -315,10 +190,8 @@ pub fn remove_member(
     } else {
         container.member_instance_ids = Some(members.clone());
     }
-
-    let entry = find_container_entry(store, container_id)?;
-    write_container(store, &container, &entry.path)?;
-    Ok(members)
+    store.save_container(&container)?;
+    Ok(container.member_instance_ids.unwrap_or_default())
 }
 
 pub fn list_roots(
@@ -342,10 +215,8 @@ pub fn add_root(
     roots.push(instance_id.to_string());
     roots.sort();
     container.root_instance_ids = Some(roots.clone());
-
-    let entry = find_container_entry(store, container_id)?;
-    write_container(store, &container, &entry.path)?;
-    Ok(roots)
+    store.save_container(&container)?;
+    Ok(container.root_instance_ids.unwrap_or_default())
 }
 
 pub fn remove_root(
@@ -361,10 +232,8 @@ pub fn remove_root(
     } else {
         container.root_instance_ids = Some(roots.clone());
     }
-
-    let entry = find_container_entry(store, container_id)?;
-    write_container(store, &container, &entry.path)?;
-    Ok(roots)
+    store.save_container(&container)?;
+    Ok(container.root_instance_ids.unwrap_or_default())
 }
 
 pub fn is_member(
@@ -586,18 +455,16 @@ mod tests {
     }
 
     #[test]
-    fn delete_container_file_is_absent_after_delete() {
+    fn delete_container_makes_container_unreachable() {
         let store = make_store();
         let created = create_container(
             &store,
             minimal_container("550e8400-e29b-41d4-a716-446655440000", "Delete"),
         )
         .unwrap();
-        let index = load_container_index(&store).unwrap();
-        let path = index[0].path.clone();
-        assert!(store.load_container_json(&path).is_ok());
         delete_container(&store, &created.container_id).unwrap();
-        assert!(store.load_container_json(&path).is_err());
+        let err = store.load_container(&created.container_id).unwrap_err();
+        assert!(matches!(err, RepositoryError::ContainerNotFound { .. }));
     }
 
     #[test]
@@ -893,9 +760,8 @@ mod tests {
     fn create_container_mints_full_uuid_prefix_filename_safely() {
         let store = make_store();
         let out = create_container(&store, minimal_container("", "Sprint")).unwrap();
-        let index = load_container_index(&store).unwrap();
-        assert_eq!(index.len(), 1);
-        assert!(index[0].path.contains(&out.container_id[..8]));
+        assert!(!out.container_id.is_empty());
+        assert!(uuid::Uuid::parse_str(&out.container_id).is_ok());
     }
 
     #[test]
@@ -913,16 +779,58 @@ mod tests {
     }
 
     #[test]
-    fn save_and_load_container_index_roundtrip() {
+    fn create_container_uses_logical_id_boundary() {
         let store = make_store();
-        let idx = vec![ContainerIndexEntry {
-            container_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
-            title: "A".to_string(),
-            path: "containers/a-550e8400.json".to_string(),
-        }];
-        save_container_index(&store, idx).unwrap();
-        let loaded = load_container_index(&store).unwrap();
-        assert_eq!(loaded.len(), 1);
-        assert_eq!(loaded[0].title, "A");
+        let id = "550e8400-e29b-41d4-a716-446655440000";
+        let out = create_container(&store, minimal_container(id, "Test")).unwrap();
+        // Service creates through container ID, not path
+        assert_eq!(out.container_id, id);
+        let loaded = store.load_container(id).unwrap();
+        assert_eq!(loaded.container_id, id);
+    }
+
+    #[test]
+    fn update_container_does_not_require_path_lookup_in_service() {
+        let store = make_store();
+        let id = "550e8400-e29b-41d4-a716-446655440000";
+        create_container(&store, minimal_container(id, "Original")).unwrap();
+        let patch = ContainerPatch {
+            title: Some("Updated".to_string()),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            tags: None,
+            meta: None,
+        };
+        // Path lookup is adapter-owned; service only needs the container ID
+        let updated = update_container(&store, id, patch).unwrap();
+        assert_eq!(updated.title, "Updated");
+    }
+
+    #[test]
+    fn container_membership_unchanged() {
+        let store = make_store();
+        let id = "550e8400-e29b-41d4-a716-446655440000";
+        create_container(&store, minimal_container(id, "Test")).unwrap();
+        let member = "11111111-1111-4111-8111-111111111111";
+        add_member(&store, id, member).unwrap();
+        assert!(is_member(&store, id, member).unwrap());
+        remove_member(&store, id, member).unwrap();
+        assert!(!is_member(&store, id, member).unwrap());
+    }
+
+    #[test]
+    fn validate_container_invariants_unchanged() {
+        let store = make_store();
+        let id = "550e8400-e29b-41d4-a716-446655440000";
+        create_container(&store, minimal_container(id, "Test")).unwrap();
+        // Clean container passes
+        let report = validate_container_invariants(&store, id).unwrap();
+        assert!(report.ok);
+        // Adding the container's own ID as member fails
+        add_member(&store, id, id).unwrap();
+        let report = validate_container_invariants(&store, id).unwrap();
+        assert!(!report.ok);
     }
 }
