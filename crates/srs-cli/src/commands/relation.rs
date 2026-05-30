@@ -37,10 +37,10 @@ fn cmd_relation_list(
         target,
         relation_type,
     };
-    let summaries = list_relations(&ctx.repo, filter)?;
+    let store = FileStore::new(&ctx.repo);
+    let summaries = list_relations(&store, filter)?;
     let summaries = if let Some(ref cid) = ctx.container_id {
-        let cstore = FileStore::new(&ctx.repo);
-        let members = list_members(&cstore, cid)?;
+        let members = list_members(&store, cid)?;
         summaries
             .into_iter()
             .filter(|s| {
@@ -71,7 +71,8 @@ fn cmd_relation_list(
 }
 
 fn cmd_relation_get(ctx: CliContext, id: String) -> Result<String> {
-    match get_relation_by_id(&ctx.repo, &id)? {
+    let store = FileStore::new(&ctx.repo);
+    match get_relation_by_id(&store, &id)? {
         GetRelationResult::Found(relation) => {
             Ok(output::ok("relation get", json!({ "relation": relation })))
         }
@@ -98,8 +99,8 @@ fn cmd_relation_create(ctx: CliContext) -> Result<String> {
 
     let package = load_package(&ctx.repo)?;
     let defs = package.relation_types();
-
-    match create_relation(&ctx.repo, relation, defs) {
+    let store = FileStore::new(&ctx.repo);
+    match create_relation(&store, relation, defs) {
         Ok(result) => Ok(output::ok(
             "relation create",
             json!({ "relation": result.relation }),
@@ -109,7 +110,8 @@ fn cmd_relation_create(ctx: CliContext) -> Result<String> {
 }
 
 fn cmd_relation_delete(ctx: CliContext, id: String) -> Result<String> {
-    match delete_relation(&ctx.repo, &id) {
+    let store = FileStore::new(&ctx.repo);
+    match delete_relation(&store, &id) {
         Ok(result) => Ok(output::ok(
             "relation delete",
             json!({

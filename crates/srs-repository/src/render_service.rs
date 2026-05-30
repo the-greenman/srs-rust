@@ -47,7 +47,7 @@ pub fn render_document_view(
     let manifest = load_manifest(opts.repo_root)?;
     let mut diagnostics = Vec::new();
     let container_title = resolve_container_title(&dv, &manifest);
-    let relations = load_relations(opts.repo_root)?;
+    let relations = load_relations(&FileStore::new(opts.repo_root))?;
     let format = opts
         .format
         .unwrap_or(dv.format.as_deref().unwrap_or("markdown"));

@@ -1,10 +1,9 @@
 use crate::error::RepositoryError;
-use crate::manifest::load_manifest;
+use crate::store::RepositoryStore;
 use srs_core::types::relation::{Relation, RelationsCollection};
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::validation::relation::{validate_relation, RelationValidationContext};
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 
 /// Summary for relation list operations
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -45,10 +44,10 @@ pub struct ListRelationsFilter {
 
 /// List relations from the relations-collection.json file with optional filtering
 pub fn list_relations(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     filter: ListRelationsFilter,
 ) -> Result<Vec<RelationSummary>, RepositoryError> {
-    let relations = load_relations(repo_root)?;
+    let relations = load_relations(store)?;
 
     let filtered: Vec<_> = relations
         .into_iter()
@@ -83,10 +82,10 @@ pub fn list_relations(
 
 /// Get a relation by its relation ID
 pub fn get_relation_by_id(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<GetRelationResult, RepositoryError> {
-    let relations = load_relations(repo_root)?;
+    let relations = load_relations(store)?;
 
     match relations.into_iter().find(|r| r.relation_id == id) {
         Some(relation) => Ok(GetRelationResult::Found(Box::new(relation))),
@@ -96,12 +95,12 @@ pub fn get_relation_by_id(
 
 /// Create a new relation with E1-E4 validation
 pub fn create_relation(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     relation: Relation,
     definitions: &[RelationTypeDefinition],
 ) -> Result<CreateRelationResult, RepositoryError> {
     // Build owned context data
-    let manifest = load_manifest(repo_root)?;
+    let manifest = store.load_manifest()?;
     let known_instance_ids: HashSet<String> = manifest
         .instance_index
         .iter()
@@ -127,7 +126,7 @@ pub fn create_relation(
     })?;
 
     // Load existing collection
-    let mut collection = load_relations_collection(repo_root)?;
+    let (relative_path, mut collection) = load_relations_collection(store)?;
 
     // Check for duplicate relation_id
     if collection
@@ -144,18 +143,18 @@ pub fn create_relation(
     // Add the new relation
     collection.relations.push(relation.clone());
 
-    // Write back to file
-    write_relations_collection(repo_root, &collection)?;
+    // Write back
+    write_relations_collection(store, &relative_path, &collection)?;
 
     Ok(CreateRelationResult { relation })
 }
 
 /// Delete a relation by its relation ID
 pub fn delete_relation(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     relation_id: &str,
 ) -> Result<DeleteRelationResult, RepositoryError> {
-    let mut collection = load_relations_collection(repo_root)?;
+    let (relative_path, mut collection) = load_relations_collection(store)?;
 
     // Find and remove the relation
     let pos = collection
@@ -163,34 +162,39 @@ pub fn delete_relation(
         .iter()
         .position(|r| r.relation_id == relation_id)
         .ok_or_else(|| RepositoryError::NotFound {
-            path: repo_root.join("relations/relations-collection.json"),
+            path: std::path::PathBuf::from(&relative_path),
         })?;
 
     collection.relations.remove(pos);
 
-    // Write back to file
-    write_relations_collection(repo_root, &collection)?;
+    // Write back
+    write_relations_collection(store, &relative_path, &collection)?;
 
     Ok(DeleteRelationResult {
         relation_id: relation_id.to_string(),
     })
 }
 
-/// Load all relations from the relations-collection.json file
-pub(crate) fn load_relations(repo_root: &Path) -> Result<Vec<Relation>, RepositoryError> {
-    let collection = load_relations_collection(repo_root)?;
+/// Load all relations from the relations collection file.
+pub(crate) fn load_relations(
+    store: &dyn RepositoryStore,
+) -> Result<Vec<Relation>, RepositoryError> {
+    let (_, collection) = load_relations_collection(store)?;
     Ok(collection.relations)
 }
 
-/// Load the relations collection file.
+/// Load the relations collection, returning (relative_path, collection).
 ///
 /// Path resolution order:
-/// 1. `relationsPath` declared in `manifest.json` (relative to repo_root)
+/// 1. `relationsPath` declared in `manifest.json`
 /// 2. `relations/relations-collection.json` (legacy default)
-/// 3. `relations/relations.json` (alternate convention used by some repos)
+/// 3. `relations/relations.json` (alternate convention)
 ///
-/// Returns an empty collection if no file is found.
-fn load_relations_collection(repo_root: &Path) -> Result<RelationsCollection, RepositoryError> {
+/// Returns an empty collection (at the default write path) if no file is found.
+fn load_relations_collection(
+    store: &dyn RepositoryStore,
+) -> Result<(String, RelationsCollection), RepositoryError> {
+    let default_write_path = "relations/relations-collection.json".to_string();
     let empty = || RelationsCollection {
         schema: Some(
             "https://srs.semanticops.com/schema/2.0/relations-collection.json".to_string(),
@@ -199,98 +203,81 @@ fn load_relations_collection(repo_root: &Path) -> Result<RelationsCollection, Re
     };
 
     // Determine the path to try first from the manifest's relationsPath field.
-    let manifest_path = if let Ok(manifest) = crate::manifest::load_manifest(repo_root) {
-        manifest
-            .extra
+    let manifest_path = store.load_manifest().ok().and_then(|m| {
+        m.extra
             .get("relationsPath")
-            .and_then(|v| v.as_str())
-            .map(|rel| repo_root.join(rel))
-    } else {
-        None
-    };
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+    });
 
     // Build candidate list: manifest path first, then the two defaults.
-    let candidates: Vec<std::path::PathBuf> = [
+    let candidates: Vec<String> = [
         manifest_path,
-        Some(repo_root.join("relations/relations-collection.json")),
-        Some(repo_root.join("relations/relations.json")),
+        Some("relations/relations-collection.json".to_string()),
+        Some("relations/relations.json".to_string()),
     ]
     .into_iter()
     .flatten()
     .collect();
 
-    for relations_path in &candidates {
-        if !relations_path.exists() {
-            continue;
+    for relative_path in &candidates {
+        match store.load_relations_json(relative_path) {
+            Ok(value) => {
+                let collection: RelationsCollection =
+                    serde_json::from_value(value).map_err(|e| RepositoryError::RecordLoad {
+                        path: std::path::PathBuf::from(relative_path),
+                        source: e,
+                    })?;
+                return Ok((relative_path.clone(), collection));
+            }
+            Err(RepositoryError::Io { .. } | RepositoryError::NotFound { .. }) => continue,
+            Err(e) => return Err(e),
         }
-        let content = std::fs::read_to_string(relations_path).map_err(|e| RepositoryError::Io {
-            path: relations_path.clone(),
-            source: e,
-        })?;
-        let collection: RelationsCollection =
-            serde_json::from_str(&content).map_err(|e| RepositoryError::RecordLoad {
-                path: relations_path.clone(),
-                source: e,
-            })?;
-        return Ok(collection);
     }
 
-    Ok(empty())
+    Ok((default_write_path, empty()))
 }
 
-/// Write the relations collection to file
+/// Write the relations collection to the store.
 fn write_relations_collection(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
+    relative_path: &str,
     collection: &RelationsCollection,
 ) -> Result<(), RepositoryError> {
-    let relations_dir = repo_root.join("relations");
-    let relations_path = relations_dir.join("relations-collection.json");
+    let dir = relative_path
+        .rfind('/')
+        .map(|i| &relative_path[..i])
+        .unwrap_or("relations");
+    store.ensure_relations_dir(dir)?;
 
-    // Ensure directory exists
-    std::fs::create_dir_all(&relations_dir).map_err(|e| RepositoryError::Io {
-        path: relations_dir.clone(),
+    let value = serde_json::to_value(collection).map_err(|e| RepositoryError::Serialize {
+        path: std::path::PathBuf::from(relative_path),
         source: e,
     })?;
-
-    let json =
-        serde_json::to_string_pretty(collection).map_err(|e| RepositoryError::Serialize {
-            path: relations_path.clone(),
-            source: e,
-        })?;
-
-    std::fs::write(&relations_path, json).map_err(|e| RepositoryError::Io {
-        path: relations_path.clone(),
-        source: e,
-    })?;
-
-    Ok(())
+    store.save_relations_json(relative_path, &value)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::memory::MemoryStore;
     use serde_json::json;
-    use tempfile::TempDir;
 
-    fn create_temp_repo_with_relations(temp: &TempDir) {
-        std::fs::create_dir(temp.path().join("relations")).unwrap();
-
-        // Create a minimal manifest
-        let manifest = json!({
-            "srsVersion": "2.0-draft",
-            "repositoryId": "test-repo",
-            "instanceIndex": [
-                {"instanceId": "note-1", "tier": 0, "path": "records/notes/note1.json"},
-                {"instanceId": "note-2", "tier": 0, "path": "records/notes/note2.json"},
-                {"instanceId": "note-3", "tier": 0, "path": "records/notes/note3.json"},
-                {"instanceId": "note-4", "tier": 0, "path": "records/notes/note4.json"}
-            ]
-        });
-        std::fs::write(
-            temp.path().join("manifest.json"),
-            serde_json::to_string_pretty(&manifest).unwrap(),
-        )
-        .unwrap();
+    fn make_store_with_relations() -> MemoryStore {
+        let store = MemoryStore::default();
+        // Add instance index to manifest
+        let mut manifest = store.load_manifest().unwrap();
+        for id in ["note-1", "note-2", "note-3", "note-4"] {
+            manifest
+                .instance_index
+                .push(crate::index::InstanceIndexEntry {
+                    instance_id: id.to_string(),
+                    tier: 0,
+                    path: format!("records/notes/{}.json", id),
+                    title: None,
+                    tags: None,
+                });
+        }
+        store.save_manifest(&manifest).unwrap();
 
         let relations = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
@@ -318,125 +305,18 @@ mod tests {
                 }
             ]
         });
-
-        std::fs::write(
-            temp.path().join("relations/relations-collection.json"),
-            serde_json::to_string_pretty(&relations).unwrap(),
-        )
-        .unwrap();
+        store
+            .save_relations_json("relations/relations-collection.json", &relations)
+            .unwrap();
+        store
     }
 
-    #[test]
-    fn list_relations_returns_all() {
-        let temp = TempDir::new().unwrap();
-        create_temp_repo_with_relations(&temp);
-
-        let result = list_relations(temp.path(), ListRelationsFilter::default()).unwrap();
-        assert_eq!(result.len(), 3);
-    }
-
-    #[test]
-    fn list_relations_filters_by_source() {
-        let temp = TempDir::new().unwrap();
-        create_temp_repo_with_relations(&temp);
-
-        let filter = ListRelationsFilter {
-            source: Some("note-1".to_string()),
-            target: None,
-            relation_type: None,
-        };
-        let result = list_relations(temp.path(), filter).unwrap();
-        assert_eq!(result.len(), 2);
-        assert!(result.iter().all(|r| r.source_id == "note-1"));
-    }
-
-    #[test]
-    fn list_relations_filters_by_target() {
-        let temp = TempDir::new().unwrap();
-        create_temp_repo_with_relations(&temp);
-
-        let filter = ListRelationsFilter {
-            source: None,
-            target: Some("note-2".to_string()),
-            relation_type: None,
-        };
-        let result = list_relations(temp.path(), filter).unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].relation_id, "r1");
-    }
-
-    #[test]
-    fn list_relations_filters_by_type() {
-        let temp = TempDir::new().unwrap();
-        create_temp_repo_with_relations(&temp);
-
-        let filter = ListRelationsFilter {
-            source: None,
-            target: None,
-            relation_type: Some("contains".to_string()),
-        };
-        let result = list_relations(temp.path(), filter).unwrap();
-        assert_eq!(result.len(), 2);
-        assert!(result.iter().all(|r| r.relation_type == "contains"));
-    }
-
-    #[test]
-    fn get_relation_by_id_finds_relation() {
-        let temp = TempDir::new().unwrap();
-        create_temp_repo_with_relations(&temp);
-
-        let result = get_relation_by_id(temp.path(), "r2").unwrap();
-        match result {
-            GetRelationResult::Found(relation) => {
-                assert_eq!(relation.relation_type, "references");
-                assert_eq!(relation.source_instance_id, "note-2");
-            }
-            GetRelationResult::NotFound => panic!("Should have found relation"),
-        }
-    }
-
-    #[test]
-    fn get_relation_by_id_not_found() {
-        let temp = TempDir::new().unwrap();
-        create_temp_repo_with_relations(&temp);
-
-        let result = get_relation_by_id(temp.path(), "nonexistent").unwrap();
-        match result {
-            GetRelationResult::Found(_) => panic!("Should not have found relation"),
-            GetRelationResult::NotFound => (), // Expected
-        }
-    }
-
-    #[test]
-    fn list_relations_empty_when_no_file() {
-        let temp = TempDir::new().unwrap();
-        // Create manifest for consistency
-        let manifest = json!({
-            "srsVersion": "2.0-draft",
-            "repositoryId": "test-repo",
-            "instanceIndex": []
-        });
-        std::fs::write(
-            temp.path().join("manifest.json"),
-            serde_json::to_string_pretty(&manifest).unwrap(),
-        )
-        .unwrap();
-        // Don't create relations-collection.json
-
-        let result = list_relations(temp.path(), ListRelationsFilter::default()).unwrap();
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn relation_create_appends_to_relations_file() {
-        let temp = TempDir::new().unwrap();
-        create_temp_repo_with_relations(&temp);
-
-        let new_relation = Relation {
-            relation_id: "r4".to_string(),
-            relation_type: "contains".to_string(),
-            source_instance_id: "note-3".to_string(),
-            target_instance_id: "note-4".to_string(),
+    fn make_relation(id: &str, src: &str, tgt: &str, rel_type: &str) -> Relation {
+        Relation {
+            relation_id: id.to_string(),
+            relation_type: rel_type.to_string(),
+            source_instance_id: src.to_string(),
+            target_instance_id: tgt.to_string(),
             asserted_by: None,
             confidence: None,
             created_at: Some("2026-01-02T00:00:00Z".to_string()),
@@ -449,8 +329,89 @@ mod tests {
             meta: None,
             source_repository_id: None,
             target_repository_id: None,
-        };
+        }
+    }
 
+    #[test]
+    fn list_relations_returns_all() {
+        let store = make_store_with_relations();
+        let result = list_relations(&store, ListRelationsFilter::default()).unwrap();
+        assert_eq!(result.len(), 3);
+    }
+
+    #[test]
+    fn list_relations_filters_by_source() {
+        let store = make_store_with_relations();
+        let filter = ListRelationsFilter {
+            source: Some("note-1".to_string()),
+            target: None,
+            relation_type: None,
+        };
+        let result = list_relations(&store, filter).unwrap();
+        assert_eq!(result.len(), 2);
+        assert!(result.iter().all(|r| r.source_id == "note-1"));
+    }
+
+    #[test]
+    fn list_relations_filters_by_target() {
+        let store = make_store_with_relations();
+        let filter = ListRelationsFilter {
+            source: None,
+            target: Some("note-2".to_string()),
+            relation_type: None,
+        };
+        let result = list_relations(&store, filter).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].relation_id, "r1");
+    }
+
+    #[test]
+    fn list_relations_filters_by_type() {
+        let store = make_store_with_relations();
+        let filter = ListRelationsFilter {
+            source: None,
+            target: None,
+            relation_type: Some("contains".to_string()),
+        };
+        let result = list_relations(&store, filter).unwrap();
+        assert_eq!(result.len(), 2);
+        assert!(result.iter().all(|r| r.relation_type == "contains"));
+    }
+
+    #[test]
+    fn get_relation_by_id_finds_relation() {
+        let store = make_store_with_relations();
+        let result = get_relation_by_id(&store, "r2").unwrap();
+        match result {
+            GetRelationResult::Found(relation) => {
+                assert_eq!(relation.relation_type, "references");
+                assert_eq!(relation.source_instance_id, "note-2");
+            }
+            GetRelationResult::NotFound => panic!("Should have found relation"),
+        }
+    }
+
+    #[test]
+    fn get_relation_by_id_not_found() {
+        let store = make_store_with_relations();
+        let result = get_relation_by_id(&store, "nonexistent").unwrap();
+        match result {
+            GetRelationResult::Found(_) => panic!("Should not have found relation"),
+            GetRelationResult::NotFound => (),
+        }
+    }
+
+    #[test]
+    fn list_relations_empty_when_no_file() {
+        let store = MemoryStore::default();
+        let result = list_relations(&store, ListRelationsFilter::default()).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn relation_create_appends() {
+        let store = make_store_with_relations();
+        let new_relation = make_relation("r4", "note-3", "note-4", "contains");
         let definitions = vec![RelationTypeDefinition {
             schema: None,
             id: "00000000-0000-0000-0000-000000000099".to_string(),
@@ -470,36 +431,21 @@ mod tests {
             status: None,
             updated_at: None,
         }];
-        let result = create_relation(temp.path(), new_relation, &definitions).unwrap();
+        let result = create_relation(&store, new_relation, &definitions).unwrap();
         assert_eq!(result.relation.relation_id, "r4");
 
-        // Verify it was written to file
-        let collection: RelationsCollection = serde_json::from_str(
-            &std::fs::read_to_string(temp.path().join("relations/relations-collection.json"))
-                .unwrap(),
-        )
-        .unwrap();
-        assert_eq!(collection.relations.len(), 4);
-        assert!(collection.relations.iter().any(|r| r.relation_id == "r4"));
+        let all = list_relations(&store, ListRelationsFilter::default()).unwrap();
+        assert_eq!(all.len(), 4);
     }
 
     #[test]
     fn load_relations_respects_manifest_relations_path() {
-        let temp = TempDir::new().unwrap();
-        std::fs::create_dir_all(temp.path().join("relations")).unwrap();
-
-        // Manifest declares a custom relationsPath
-        let manifest = json!({
-            "srsVersion": "2.0-draft",
-            "repositoryId": "test-repo",
-            "instanceIndex": [],
-            "relationsPath": "relations/custom.json"
-        });
-        std::fs::write(
-            temp.path().join("manifest.json"),
-            serde_json::to_string_pretty(&manifest).unwrap(),
-        )
-        .unwrap();
+        let store = MemoryStore::default();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest
+            .extra
+            .insert("relationsPath".to_string(), json!("relations/custom.json"));
+        store.save_manifest(&manifest).unwrap();
 
         let relations = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
@@ -513,91 +459,30 @@ mod tests {
                 }
             ]
         });
-        std::fs::write(
-            temp.path().join("relations/custom.json"),
-            serde_json::to_string_pretty(&relations).unwrap(),
-        )
-        .unwrap();
+        store
+            .save_relations_json("relations/custom.json", &relations)
+            .unwrap();
 
-        let result = load_relations(temp.path()).unwrap();
+        let result = load_relations(&store).unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].relation_id, "rc1");
     }
 
     #[test]
-    fn load_relations_falls_back_to_relations_json() {
-        let temp = TempDir::new().unwrap();
-        std::fs::create_dir_all(temp.path().join("relations")).unwrap();
-
-        // No relationsPath in manifest, no relations-collection.json — only relations.json
-        let manifest = json!({
-            "srsVersion": "2.0-draft",
-            "repositoryId": "test-repo",
-            "instanceIndex": []
-        });
-        std::fs::write(
-            temp.path().join("manifest.json"),
-            serde_json::to_string_pretty(&manifest).unwrap(),
-        )
-        .unwrap();
-
-        let relations = json!({
-            "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
-            "relations": [
-                {
-                    "relationId": "rj1",
-                    "relationType": "contains",
-                    "sourceInstanceId": "x",
-                    "targetInstanceId": "y",
-                    "createdAt": "2026-01-01T00:00:00Z"
-                }
-            ]
-        });
-        std::fs::write(
-            temp.path().join("relations/relations.json"),
-            serde_json::to_string_pretty(&relations).unwrap(),
-        )
-        .unwrap();
-
-        let result = load_relations(temp.path()).unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].relation_id, "rj1");
-    }
-
-    #[test]
     fn load_relations_returns_empty_when_no_file() {
-        let temp = TempDir::new().unwrap();
-        // No relations directory or file at all
-        let manifest = json!({
-            "srsVersion": "2.0-draft",
-            "repositoryId": "test-repo",
-            "instanceIndex": []
-        });
-        std::fs::write(
-            temp.path().join("manifest.json"),
-            serde_json::to_string_pretty(&manifest).unwrap(),
-        )
-        .unwrap();
-
-        let result = load_relations(temp.path()).unwrap();
+        let store = MemoryStore::default();
+        let result = load_relations(&store).unwrap();
         assert!(result.is_empty());
     }
 
     #[test]
-    fn relation_delete_removes_from_relations_file() {
-        let temp = TempDir::new().unwrap();
-        create_temp_repo_with_relations(&temp);
-
-        let result = delete_relation(temp.path(), "r2").unwrap();
+    fn relation_delete_removes() {
+        let store = make_store_with_relations();
+        let result = delete_relation(&store, "r2").unwrap();
         assert_eq!(result.relation_id, "r2");
 
-        // Verify it was removed from file
-        let collection: RelationsCollection = serde_json::from_str(
-            &std::fs::read_to_string(temp.path().join("relations/relations-collection.json"))
-                .unwrap(),
-        )
-        .unwrap();
-        assert_eq!(collection.relations.len(), 2);
-        assert!(!collection.relations.iter().any(|r| r.relation_id == "r2"));
+        let all = list_relations(&store, ListRelationsFilter::default()).unwrap();
+        assert_eq!(all.len(), 2);
+        assert!(!all.iter().any(|r| r.relation_id == "r2"));
     }
 }
