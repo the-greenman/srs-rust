@@ -4,6 +4,7 @@ use crate::manifest::load_manifest;
 use crate::package::{load_package, Package};
 use crate::record_store::{get_record_by_id, list_records_by_type};
 use crate::relation_service::load_relations;
+use crate::store::FileStore;
 use srs_core::types::field::ValueType;
 use srs_core::types::record::Record;
 use srs_core::types::relation::Relation;
@@ -247,7 +248,7 @@ fn collect_subsections(
 
     let mut subsections = Vec::new();
     for id in target_ids {
-        if let Some(record) = get_record_by_id(repo_root, id)? {
+        if let Some(record) = get_record_by_id(&FileStore::new(repo_root), id)? {
             subsections.push(record);
         }
     }
@@ -327,7 +328,7 @@ fn resolve_section_instances(
         SectionSource::FixedInstances { instance_ids } => {
             let mut records = Vec::new();
             for id in instance_ids {
-                if let Some(record) = get_record_by_id(repo_root, id)? {
+                if let Some(record) = get_record_by_id(&FileStore::new(repo_root), id)? {
                     records.push(record);
                 }
             }
@@ -344,7 +345,7 @@ fn resolve_section_instances(
                 ));
                 return Ok(Vec::new());
             };
-            list_records_by_type(repo_root, namespace, name)
+            list_records_by_type(&FileStore::new(repo_root), namespace, name)
         }
         SectionSource::RelationQuery {
             from_instance_id,
@@ -372,7 +373,7 @@ fn resolve_section_instances(
             }
             let mut records = Vec::new();
             for id in ids {
-                if let Some(record) = get_record_by_id(repo_root, &id)? {
+                if let Some(record) = get_record_by_id(&FileStore::new(repo_root), &id)? {
                     records.push(record);
                 }
             }
@@ -385,7 +386,7 @@ fn resolve_section_instances(
             let members = list_members(repo_root, container_id)?;
             let mut records = Vec::new();
             for id in members {
-                if let Some(record) = get_record_by_id(repo_root, &id)? {
+                if let Some(record) = get_record_by_id(&FileStore::new(repo_root), &id)? {
                     records.push(record);
                 }
             }

@@ -1,6 +1,6 @@
 use crate::error::RepositoryError;
 use crate::manifest::{load_manifest, Manifest};
-use crate::writer::{new_instance_id, write_manifest};
+use crate::writer::{new_instance_id, write_manifest_compat as write_manifest};
 use serde::{Deserialize, Serialize};
 use srs_core::types::container::Container;
 use srs_core::validation::container::validate_container;

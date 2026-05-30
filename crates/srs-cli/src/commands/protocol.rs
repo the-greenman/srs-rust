@@ -9,6 +9,7 @@ use srs_repository::protocol_service::{
     GetProtocolResult,
 };
 use srs_repository::record_store::create_record;
+use srs_repository::FileStore;
 use std::io::{self, Read};
 
 pub fn dispatch(ctx: CliContext, cmd: ProtocolCommand) -> Result<String> {
@@ -247,13 +248,8 @@ fn cmd_protocol_import(ctx: CliContext) -> Result<String> {
     }
 
     // Create the protocol record
-    let record = create_record(
-        &ctx.repo,
-        "meta.protocol",
-        1,
-        field_values,
-        "package/records",
-    )?;
+    let store = FileStore::new(&ctx.repo);
+    let record = create_record(&store, "meta.protocol", 1, field_values, "package/records")?;
 
     Ok(output::ok("protocol import", json!({ "protocol": record })))
 }

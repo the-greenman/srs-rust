@@ -1,6 +1,6 @@
 use crate::error::RepositoryError;
 use crate::manifest::load_manifest;
-use crate::writer::write_manifest;
+use crate::writer::write_manifest_compat as write_manifest;
 use serde_json::json;
 use std::path::Path;
 

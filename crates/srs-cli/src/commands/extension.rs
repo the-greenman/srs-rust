@@ -5,6 +5,7 @@ use serde_json::json;
 use srs_core::types::record::FieldValue;
 use srs_repository::extension_service::{get_extension_by_id, list_extensions};
 use srs_repository::record_store::{create_record, delete_record, update_record};
+use srs_repository::FileStore;
 use std::io::{self, Read};
 
 pub fn dispatch(ctx: CliContext, cmd: ExtensionCommand) -> Result<String> {
@@ -90,8 +91,9 @@ fn cmd_extension_create(ctx: CliContext) -> Result<String> {
         .unwrap_or(1) as u32;
 
     // Create the record
+    let store = FileStore::new(&ctx.repo);
     let record = create_record(
-        &ctx.repo,
+        &store,
         type_id,
         type_version,
         field_values,
@@ -125,7 +127,8 @@ fn cmd_extension_update(ctx: CliContext, id: String) -> Result<String> {
         .collect();
 
     // Update the record
-    let record = update_record(&ctx.repo, &id, field_values)?;
+    let store = FileStore::new(&ctx.repo);
+    let record = update_record(&store, &id, field_values)?;
 
     Ok(output::ok(
         "extension update",
@@ -134,7 +137,8 @@ fn cmd_extension_update(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_extension_delete(ctx: CliContext, id: String) -> Result<String> {
-    match delete_record(&ctx.repo, &id) {
+    let store = FileStore::new(&ctx.repo);
+    match delete_record(&store, &id) {
         Ok(instance_id) => Ok(output::ok(
             "extension delete",
             json!({ "instanceId": instance_id }),

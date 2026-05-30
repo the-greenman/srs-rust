@@ -35,10 +35,11 @@ pub fn dispatch(ctx: CliContext, cmd: RecordCommand) -> Result<String> {
 }
 
 fn cmd_record_list(ctx: CliContext, type_filter: Option<String>) -> Result<String> {
+    let store = FileStore::new(&ctx.repo);
     let mut records = match type_filter {
-        None => list_all_records(&ctx.repo)?,
+        None => list_all_records(&store)?,
         Some(ref filter) => match parse_type_filter(filter) {
-            Some((namespace, name)) => list_records_by_type(&ctx.repo, &namespace, &name)?,
+            Some((namespace, name)) => list_records_by_type(&store, &namespace, &name)?,
             None => {
                 return Ok(output::err(
                     "record list",
@@ -60,7 +61,8 @@ fn cmd_record_list(ctx: CliContext, type_filter: Option<String>) -> Result<Strin
 }
 
 fn cmd_record_get(ctx: CliContext, id: String) -> Result<String> {
-    match get_record_by_id(&ctx.repo, &id)? {
+    let store = FileStore::new(&ctx.repo);
+    match get_record_by_id(&store, &id)? {
         Some(record) => Ok(output::ok("record get", json!({ "record": record }))),
         None => Ok(output::err(
             "record get",
@@ -122,8 +124,9 @@ fn cmd_record_create(
         }
     };
 
+    let store = FileStore::new(&ctx.repo);
     match create_record(
-        &ctx.repo,
+        &store,
         &record_type.id,
         record_type.version,
         field_values,
@@ -155,7 +158,8 @@ fn cmd_record_update(ctx: CliContext, id: String) -> Result<String> {
         Err(msg) => return Ok(output::err("record update", vec![msg])),
     };
 
-    match update_record(&ctx.repo, &id, field_values) {
+    let store = FileStore::new(&ctx.repo);
+    match update_record(&store, &id, field_values) {
         Ok(record) => Ok(output::ok("record update", json!({ "record": record }))),
         Err(e) => Ok(output::err("record update", vec![e.to_string()])),
     }
@@ -175,7 +179,8 @@ fn cmd_record_delete(ctx: CliContext, id: String) -> Result<String> {
         remove_member(&ctx.repo, cid, &id)?;
     }
 
-    match delete_record(&ctx.repo, &id) {
+    let store = FileStore::new(&ctx.repo);
+    match delete_record(&store, &id) {
         Ok(instance_id) => Ok(output::ok(
             "record delete",
             json!({ "instanceId": instance_id }),

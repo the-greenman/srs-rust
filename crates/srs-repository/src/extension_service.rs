@@ -4,9 +4,11 @@ use srs_core::types::record::{FieldValue, Record};
 
 use crate::error::RepositoryError;
 use crate::record_store::{get_record_by_id, list_records_by_type};
+use crate::store::FileStore;
 
 pub fn list_extensions(repo_root: &Path) -> Result<Vec<Record>, RepositoryError> {
-    let mut records = list_records_by_type(repo_root, "meta", "extension")?;
+    let store = FileStore::new(repo_root);
+    let mut records = list_records_by_type(&store, "meta", "extension")?;
     if records.is_empty() {
         records = list_records_by_type_fallback(repo_root, "meta", "extension")?;
     }
@@ -14,7 +16,8 @@ pub fn list_extensions(repo_root: &Path) -> Result<Vec<Record>, RepositoryError>
 }
 
 pub fn get_extension_by_id(repo_root: &Path, id: &str) -> Result<Option<Record>, RepositoryError> {
-    match get_record_by_id(repo_root, id)? {
+    let store = FileStore::new(repo_root);
+    match get_record_by_id(&store, id)? {
         Some(record) => {
             if is_extension_type(&record) {
                 Ok(Some(record))

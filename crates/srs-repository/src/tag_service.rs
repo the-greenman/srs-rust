@@ -2,7 +2,8 @@ use crate::error::RepositoryError;
 use crate::loader::load_tag_definition_relative;
 use crate::manifest::load_manifest;
 use crate::writer::{
-    new_instance_id, upsert_tag_definition_index_entry, write_manifest, write_tag_definition,
+    new_instance_id, upsert_tag_definition_index_entry, write_manifest_compat as write_manifest,
+    write_tag_definition_path as write_tag_definition,
 };
 use srs_core::types::tag_definition::TagDefinition;
 use srs_core::validation::tag_definition::validate_tag_definition;

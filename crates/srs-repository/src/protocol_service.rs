@@ -9,6 +9,7 @@ use srs_core::validation::protocol::validate_protocol;
 
 use crate::error::RepositoryError;
 use crate::record_store::get_record_by_id;
+use crate::store::FileStore;
 
 /// Result for protocol get operation
 #[derive(Debug, Clone)]
@@ -34,7 +35,8 @@ pub fn get_protocol_by_id(
     repo_root: &Path,
     id: &str,
 ) -> Result<GetProtocolResult, RepositoryError> {
-    match get_record_by_id(repo_root, id)? {
+    let store = FileStore::new(repo_root);
+    match get_record_by_id(&store, id)? {
         Some(record) => {
             // Check if it's a protocol type
             if !is_protocol_type(&record) {
@@ -71,7 +73,8 @@ pub fn get_protocol_by_id(
 pub fn list_protocols(repo_root: &Path) -> Result<Vec<ProtocolSummary>, RepositoryError> {
     use crate::record_store::list_records_by_type;
 
-    let mut records = list_records_by_type(repo_root, "meta", "protocol")?;
+    let store = FileStore::new(repo_root);
+    let mut records = list_records_by_type(&store, "meta", "protocol")?;
     if records.is_empty() {
         records = list_records_by_type_fallback(repo_root, "meta", "protocol")?;
     }

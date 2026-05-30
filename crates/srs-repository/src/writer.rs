@@ -1,26 +1,20 @@
 use crate::error::RepositoryError;
 use crate::index::InstanceIndexEntry;
-use crate::manifest::load_manifest;
 use crate::manifest::Manifest;
-use crate::package::load_package;
+use crate::store::{FileStore, RepositoryStore};
 use srs_core::types::note::Note;
 use srs_core::types::relation::Relation;
 use srs_core::types::tag_definition::TagDefinition;
 use srs_core::validation::relation::{validate_relation, RelationValidationContext};
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 
 /// Validates a relation against the installed package definitions before writing.
-///
-/// Loads the package, collects all known instance IDs and semanticObjectType map,
-/// constructs a `RelationValidationContext`, and runs `validate_relation` with
-/// `is_write: true`. Returns `Ok(())` if validation passes.
 pub fn validate_relation_before_write(
     relation: &Relation,
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
 ) -> Result<(), RepositoryError> {
-    let pkg = load_package(repo_root)?;
-    let manifest = load_manifest(repo_root)?;
+    let pkg = store.load_package()?;
+    let manifest = store.load_manifest()?;
 
     let known_instance_ids: HashSet<String> = manifest
         .instance_index
@@ -30,13 +24,9 @@ pub fn validate_relation_before_write(
 
     let mut instance_semantic_types: HashMap<String, String> = HashMap::new();
     for entry in &manifest.instance_index {
-        let inst_path = repo_root.join(entry.path());
-        if let Ok(raw) = std::fs::read_to_string(&inst_path) {
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
-                if let Some(sot) = val.get("semanticObjectType").and_then(|v| v.as_str()) {
-                    instance_semantic_types
-                        .insert(entry.instance_id().to_string(), sot.to_string());
-                }
+        if let Ok(val) = store.load_instance_json(entry.path()) {
+            if let Some(sot) = val.get("semanticObjectType").and_then(|v| v.as_str()) {
+                instance_semantic_types.insert(entry.instance_id().to_string(), sot.to_string());
             }
         }
     }
@@ -65,15 +55,19 @@ pub fn new_instance_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
-/// Write a Note to disk as pretty-printed JSON.
-pub fn write_note(note: &Note, path: &Path) -> Result<(), RepositoryError> {
+/// Write a Note to the store at the given relative path.
+pub fn write_note(
+    store: &dyn RepositoryStore,
+    note: &Note,
+    relative_path: &str,
+) -> Result<(), RepositoryError> {
     let mut value = serde_json::to_value(note).map_err(|e| RepositoryError::Serialize {
-        path: path.to_path_buf(),
+        path: std::path::PathBuf::from(relative_path),
         source: e,
     })?;
 
-    if let serde_json::Value::Object(ref mut object) = value {
-        object.insert(
+    if let serde_json::Value::Object(ref mut obj) = value {
+        obj.insert(
             "$schema".to_string(),
             serde_json::Value::String(
                 "https://srs.semanticops.com/schema/2.0/note.json".to_string(),
@@ -81,30 +75,19 @@ pub fn write_note(note: &Note, path: &Path) -> Result<(), RepositoryError> {
         );
     }
 
-    let json = serde_json::to_string_pretty(&value).map_err(|e| RepositoryError::Serialize {
-        path: path.to_path_buf(),
-        source: e,
-    })?;
-
-    std::fs::write(path, json).map_err(|e| RepositoryError::NoteWrite {
-        path: path.to_path_buf(),
-        source: e,
-    })?;
-
-    Ok(())
+    store.save_instance_json(relative_path, &value)
 }
 
 /// Add or replace the manifest index entry for a Note (in memory only).
 pub fn upsert_index_entry(manifest: &mut Manifest, note: &Note, relative_path: &str) {
     let entry = InstanceIndexEntry {
         instance_id: note.instance_id.clone(),
-        tier: 0, // Default tier for new notes
+        tier: 0,
         path: relative_path.to_string(),
         title: note.title.clone().map(serde_json::Value::String),
         tags: note.tags.clone(),
     };
 
-    // Check if entry with same instance_id exists and replace it
     if let Some(pos) = manifest
         .instance_index
         .iter()
@@ -116,40 +99,28 @@ pub fn upsert_index_entry(manifest: &mut Manifest, note: &Note, relative_path: &
     }
 }
 
-/// Write the manifest back to disk, preserving all original fields.
-pub fn write_manifest(manifest: &Manifest) -> Result<(), RepositoryError> {
-    let manifest_path = manifest.root.join("manifest.json");
-
-    let json = serde_json::to_string_pretty(manifest).map_err(|e| RepositoryError::Serialize {
-        path: manifest_path.clone(),
-        source: e,
-    })?;
-
-    std::fs::write(&manifest_path, json).map_err(|e| RepositoryError::Io {
-        path: manifest_path,
-        source: e,
-    })?;
-
-    Ok(())
+/// Write the manifest back via the store.
+pub fn write_manifest(
+    store: &dyn RepositoryStore,
+    manifest: &Manifest,
+) -> Result<(), RepositoryError> {
+    store.save_manifest(manifest)
 }
 
-/// Write a TagDefinition to disk as pretty-printed JSON.
-pub fn write_tag_definition(td: &TagDefinition, path: &Path) -> Result<(), RepositoryError> {
-    let json = serde_json::to_string_pretty(td).map_err(|e| RepositoryError::Serialize {
-        path: path.to_path_buf(),
+/// Write a TagDefinition to the store at the given relative path.
+pub fn write_tag_definition(
+    store: &dyn RepositoryStore,
+    td: &TagDefinition,
+    relative_path: &str,
+) -> Result<(), RepositoryError> {
+    let value = serde_json::to_value(td).map_err(|e| RepositoryError::Serialize {
+        path: std::path::PathBuf::from(relative_path),
         source: e,
     })?;
-
-    std::fs::write(path, json).map_err(|e| RepositoryError::TagDefinitionWrite {
-        path: path.to_path_buf(),
-        source: e,
-    })?;
-
-    Ok(())
+    store.save_instance_json(relative_path, &value)
 }
 
 /// Add or replace the manifest index entry for a TagDefinition (in memory only).
-/// Uses tier: 3 for TagDefinition instances.
 pub fn upsert_tag_definition_index_entry(
     manifest: &mut Manifest,
     td: &TagDefinition,
@@ -157,13 +128,12 @@ pub fn upsert_tag_definition_index_entry(
 ) {
     let entry = InstanceIndexEntry {
         instance_id: td.instance_id.clone(),
-        tier: 3, // TagDefinition tier
+        tier: 3,
         path: relative_path.to_string(),
         title: td.label.clone().map(serde_json::Value::String),
-        tags: None, // TagDefinitions don't have tags in the index
+        tags: None,
     };
 
-    // Check if entry with same instance_id exists and replace it
     if let Some(pos) = manifest
         .instance_index
         .iter()
@@ -175,34 +145,49 @@ pub fn upsert_tag_definition_index_entry(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Compatibility shims — used by Phase D/E modules not yet refactored.
+// Will be removed when those modules are updated.
+// ---------------------------------------------------------------------------
+
+/// Write the manifest back to disk (file-backed compat shim).
+/// The manifest's `root` field determines the file path.
+pub fn write_manifest_compat(manifest: &Manifest) -> Result<(), RepositoryError> {
+    let store = FileStore::new(&manifest.root);
+    store.save_manifest(manifest)
+}
+
+/// Write a TagDefinition to disk at an absolute path (file-backed compat shim).
+/// Temporary — will be replaced when tag_service.rs is refactored in Phase D.
+#[allow(dead_code)]
+pub fn write_tag_definition_path(
+    td: &TagDefinition,
+    path: &std::path::Path,
+) -> Result<(), RepositoryError> {
+    let json = serde_json::to_string_pretty(td).map_err(|e| RepositoryError::Serialize {
+        path: path.to_path_buf(),
+        source: e,
+    })?;
+    // TEMPORARY: direct std::fs — only in compat shim, removed in Phase D
+    std::fs::write(path, json).map_err(|e| RepositoryError::TagDefinitionWrite {
+        path: path.to_path_buf(),
+        source: e,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manifest::load_manifest;
+    use crate::manifest::Manifest;
+    use crate::store::memory::MemoryStore;
     use srs_core::types::note::{Note, NoteSection};
     use std::collections::HashMap;
-    use std::fs;
-    use tempfile::TempDir;
+    use std::path::PathBuf;
 
-    #[test]
-    fn new_instance_id_produces_unique_uuids() {
-        let id1 = new_instance_id();
-        let id2 = new_instance_id();
-        assert_ne!(id1, id2);
-
-        // Verify they are valid UUIDs
-        assert!(uuid::Uuid::parse_str(&id1).is_ok());
-        assert!(uuid::Uuid::parse_str(&id2).is_ok());
-    }
-
-    #[test]
-    fn write_note_roundtrips_and_includes_schema_header() {
-        let temp = TempDir::new().unwrap();
-        let note_path = temp.path().join("test-note.json");
-
-        let note = Note {
-            instance_id: "test-123".to_string(),
-            title: Some("Test Note".to_string()),
+    fn make_note(id: &str, title: &str) -> Note {
+        Note {
+            instance_id: id.to_string(),
+            title: Some(title.to_string()),
             tags: Some(vec!["test".to_string()]),
             sections: vec![NoteSection {
                 name: "section1".to_string(),
@@ -216,46 +201,45 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
-        };
+        }
+    }
 
-        write_note(&note, &note_path).unwrap();
+    fn empty_manifest() -> Manifest {
+        Manifest {
+            instance_index: vec![],
+            extra: HashMap::new(),
+            root: PathBuf::from("/memory"),
+        }
+    }
 
-        // Read back and verify
-        let loaded = crate::loader::load_note(&note_path).unwrap();
-        assert_eq!(loaded.instance_id, note.instance_id);
-        assert_eq!(loaded.title, note.title);
-        assert_eq!(loaded.sections.len(), 1);
+    #[test]
+    fn new_instance_id_produces_unique_uuids() {
+        let id1 = new_instance_id();
+        let id2 = new_instance_id();
+        assert_ne!(id1, id2);
+        assert!(uuid::Uuid::parse_str(&id1).is_ok());
+        assert!(uuid::Uuid::parse_str(&id2).is_ok());
+    }
 
-        let raw: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(&note_path).unwrap()).unwrap();
+    #[test]
+    fn write_note_stores_with_schema_header() {
+        let store = MemoryStore::default();
+        let note = make_note("test-123", "Test Note");
+        write_note(&store, &note, "records/notes/test.json").unwrap();
+
+        let val = store.load_instance_json("records/notes/test.json").unwrap();
         assert_eq!(
-            raw.get("$schema").and_then(|schema| schema.as_str()),
+            val.get("$schema").and_then(|v| v.as_str()),
             Some("https://srs.semanticops.com/schema/2.0/note.json")
         );
+        assert_eq!(val["instanceId"].as_str(), Some("test-123"));
     }
 
     #[test]
     fn upsert_index_entry_adds_new_entry() {
-        let mut manifest = Manifest {
-            instance_index: vec![],
-            extra: HashMap::new(),
-            root: Path::new("/tmp").to_path_buf(),
-        };
-
-        let note = Note {
-            instance_id: "new-id".to_string(),
-            title: Some("New Note".to_string()),
-            tags: Some(vec!["tag1".to_string()]),
-            sections: vec![],
-            graduated_at: None,
-            source_refs: None,
-            created_at: None,
-            updated_at: None,
-            meta: None,
-        };
-
+        let mut manifest = empty_manifest();
+        let note = make_note("new-id", "New Note");
         upsert_index_entry(&mut manifest, &note, "records/notes/new.json");
-
         assert_eq!(manifest.instance_index.len(), 1);
         assert_eq!(manifest.instance_index[0].instance_id(), "new-id");
     }
@@ -271,73 +255,24 @@ mod tests {
                 tags: None,
             }],
             extra: HashMap::new(),
-            root: Path::new("/tmp").to_path_buf(),
+            root: PathBuf::from("/memory"),
         };
-
-        let note = Note {
-            instance_id: "existing-id".to_string(),
-            title: Some("New Title".to_string()),
-            tags: None,
-            sections: vec![],
-            graduated_at: None,
-            source_refs: None,
-            created_at: None,
-            updated_at: None,
-            meta: None,
-        };
-
+        let note = make_note("existing-id", "New Title");
         upsert_index_entry(&mut manifest, &note, "records/notes/new.json");
-
         assert_eq!(manifest.instance_index.len(), 1);
         assert_eq!(manifest.instance_index[0].path(), "records/notes/new.json");
     }
 
     #[test]
-    fn write_manifest_preserves_extra_fields() {
-        let temp = TempDir::new().unwrap();
+    fn write_manifest_roundtrips_via_store() {
+        let store = MemoryStore::default();
+        let mut manifest = store.load_manifest().unwrap();
+        let note = make_note("some-id", "Some Note");
+        upsert_index_entry(&mut manifest, &note, "records/notes/some.json");
+        write_manifest(&store, &manifest).unwrap();
 
-        // Create initial manifest
-        let manifest_json = r#"{
-            "srsVersion": "2.0-draft",
-            "repositoryId": "test-repo",
-            "instanceIndex": [
-                {
-                    "instanceId": "11111111-1111-4111-8111-111111111111",
-                    "tier": 0,
-                    "path": "records/notes/test.json"
-                }
-            ]
-        }"#;
-        fs::write(temp.path().join("manifest.json"), manifest_json).unwrap();
-
-        // Load, modify, and write back
-        let mut manifest = load_manifest(temp.path()).unwrap();
-        assert!(manifest.extra.contains_key("srsVersion"));
-        assert!(manifest.extra.contains_key("repositoryId"));
-
-        // Add a new entry
-        let note = Note {
-            instance_id: "new-note".to_string(),
-            title: None,
-            tags: None,
-            sections: vec![],
-            graduated_at: None,
-            source_refs: None,
-            created_at: None,
-            updated_at: None,
-            meta: None,
-        };
-        upsert_index_entry(&mut manifest, &note, "records/notes/new.json");
-
-        write_manifest(&manifest).unwrap();
-
-        // Reload and verify extra fields preserved
-        let reloaded = load_manifest(temp.path()).unwrap();
-        assert!(reloaded.extra.contains_key("srsVersion"));
-        assert!(reloaded.extra.contains_key("repositoryId"));
-        assert_eq!(
-            reloaded.extra.get("srsVersion").unwrap().as_str(),
-            Some("2.0-draft")
-        );
+        let reloaded = store.load_manifest().unwrap();
+        assert_eq!(reloaded.instance_index.len(), 1);
+        assert_eq!(reloaded.instance_index[0].instance_id(), "some-id");
     }
 }

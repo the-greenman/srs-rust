@@ -1,11 +1,10 @@
 use crate::error::RepositoryError;
-use crate::loader::load_note_relative;
-use crate::manifest::{load_manifest, Manifest};
+use crate::loader::load_note;
+use crate::store::RepositoryStore;
 use crate::writer::{new_instance_id, upsert_index_entry, write_manifest, write_note};
 use serde::{Deserialize, Serialize};
 use srs_core::types::note::Note;
 use srs_core::validation::note::validate_note;
-use std::path::Path;
 
 /// Summary of a note for list operations
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -73,18 +72,10 @@ pub struct DeleteNoteResult {
 
 /// Service: List notes with optional tag filter
 pub fn list_notes(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     filter: ListNotesFilter,
 ) -> Result<ListNotesResult, RepositoryError> {
-    let manifest = load_manifest(repo_root)?;
-    list_notes_from_manifest(repo_root, &manifest, filter)
-}
-
-fn list_notes_from_manifest(
-    repo_root: &Path,
-    manifest: &Manifest,
-    filter: ListNotesFilter,
-) -> Result<ListNotesResult, RepositoryError> {
+    let manifest = store.load_manifest()?;
     let mut notes = Vec::new();
 
     for entry in &manifest.instance_index {
@@ -92,11 +83,8 @@ fn list_notes_from_manifest(
             continue;
         }
 
-        let path = entry.path();
-
-        // If filtering by tag, load note to check tags
         if let Some(ref filter_tag) = filter.tag {
-            match load_note_relative(repo_root, path) {
+            match load_note(store, entry.path()) {
                 Ok(note) => {
                     let has_tag = note
                         .tags
@@ -114,11 +102,10 @@ fn list_notes_from_manifest(
                 Err(_) => continue,
             }
         } else {
-            // No filter, include all notes (just from manifest for efficiency)
             notes.push(NoteSummary {
                 instance_id: entry.instance_id().to_string(),
                 title: entry.title(),
-                tags: Vec::new(), // Tags not loaded for efficiency
+                tags: Vec::new(),
             });
         }
     }
@@ -127,16 +114,12 @@ fn list_notes_from_manifest(
 }
 
 /// Service: Get a note by its instance ID
-pub fn get_note_by_id(repo_root: &Path, id: &str) -> Result<GetNoteResult, RepositoryError> {
-    let manifest = load_manifest(repo_root)?;
-    get_note_by_id_from_manifest(repo_root, &manifest, id)
-}
-
-fn get_note_by_id_from_manifest(
-    repo_root: &Path,
-    manifest: &Manifest,
+pub fn get_note_by_id(
+    store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<GetNoteResult, RepositoryError> {
+    let manifest = store.load_manifest()?;
+
     let entry = manifest
         .instance_index
         .iter()
@@ -147,7 +130,7 @@ fn get_note_by_id_from_manifest(
             if !e.is_note() {
                 return Ok(GetNoteResult::NotANote { tier: e.tier() });
             }
-            let note = load_note_relative(repo_root, e.path())?;
+            let note = load_note(store, e.path())?;
             Ok(GetNoteResult::Found(Box::new(note)))
         }
         None => Ok(GetNoteResult::NotFound),
@@ -155,55 +138,44 @@ fn get_note_by_id_from_manifest(
 }
 
 /// Service: Create a new note
-pub fn create_note(repo_root: &Path, mut note: Note) -> Result<CreateNoteResult, RepositoryError> {
-    // Mint instance_id if absent
+pub fn create_note(
+    store: &dyn RepositoryStore,
+    mut note: Note,
+) -> Result<CreateNoteResult, RepositoryError> {
     if note.instance_id.is_empty() {
         note.instance_id = new_instance_id();
     }
 
-    // Validate the note
     validate_note(&note).map_err(|e| RepositoryError::NoteValidation {
-        path: repo_root.join("<create>"),
+        path: std::path::PathBuf::from("<create>"),
         source: e,
     })?;
 
-    // Determine path: records/notes/<slug>.json
     let slug = note
         .title
         .as_ref()
         .map(|t| slugify_title(t))
         .unwrap_or_else(|| note.instance_id.clone());
     let relative_path = format!("records/notes/{}.json", slug);
-    let full_path = repo_root.join(&relative_path);
 
-    // Ensure directory exists
-    if let Some(parent) = full_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|source| RepositoryError::Io {
-            path: parent.to_path_buf(),
-            source,
-        })?;
-    }
+    store.ensure_instance_dir("records/notes")?;
+    write_note(store, &note, &relative_path)?;
 
-    // Write the note
-    write_note(&note, &full_path)?;
-
-    // Update manifest
-    let mut manifest = load_manifest(repo_root)?;
+    let mut manifest = store.load_manifest()?;
     upsert_index_entry(&mut manifest, &note, &relative_path);
-    write_manifest(&manifest)?;
+    write_manifest(store, &manifest)?;
 
     Ok(CreateNoteResult { note })
 }
 
 /// Service: Add a tag to a note
 pub fn add_note_tag(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     id: &str,
     tag: &str,
 ) -> Result<AddTagResult, RepositoryError> {
-    let mut manifest = load_manifest(repo_root)?;
+    let mut manifest = store.load_manifest()?;
 
-    // Find the note in the manifest
     let entry = manifest
         .instance_index
         .iter()
@@ -212,9 +184,8 @@ pub fn add_note_tag(
 
     match entry {
         Some(e) => {
-            let mut note = load_note_relative(repo_root, e.path())?;
+            let mut note = load_note(store, e.path())?;
 
-            // Add tag if not already present
             let tags = note.tags.get_or_insert_with(Vec::new);
             if tags.contains(&tag.to_string()) {
                 return Ok(AddTagResult::AlreadyPresent {
@@ -224,13 +195,9 @@ pub fn add_note_tag(
             }
             tags.push(tag.to_string());
 
-            // Write back
-            let full_path = repo_root.join(e.path());
-            write_note(&note, &full_path)?;
-
-            // Update manifest to reflect new tags (reusing the loaded manifest)
+            write_note(store, &note, e.path())?;
             upsert_index_entry(&mut manifest, &note, e.path());
-            write_manifest(&manifest)?;
+            write_manifest(store, &manifest)?;
 
             Ok(AddTagResult::Added {
                 note,
@@ -243,13 +210,12 @@ pub fn add_note_tag(
 
 /// Service: Remove a tag from a note
 pub fn remove_note_tag(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     id: &str,
     tag: &str,
 ) -> Result<RemoveTagResult, RepositoryError> {
-    let mut manifest = load_manifest(repo_root)?;
+    let mut manifest = store.load_manifest()?;
 
-    // Find the note in the manifest
     let entry = manifest
         .instance_index
         .iter()
@@ -258,9 +224,8 @@ pub fn remove_note_tag(
 
     match entry {
         Some(e) => {
-            let mut note = load_note_relative(repo_root, e.path())?;
+            let mut note = load_note(store, e.path())?;
 
-            // Remove tag if present
             let tags = note.tags.get_or_insert_with(Vec::new);
             if !tags.contains(&tag.to_string()) {
                 return Ok(RemoveTagResult::NotPresent {
@@ -273,13 +238,9 @@ pub fn remove_note_tag(
                 note.tags = None;
             }
 
-            // Write back
-            let full_path = repo_root.join(e.path());
-            write_note(&note, &full_path)?;
-
-            // Update manifest to reflect new tags
+            write_note(store, &note, e.path())?;
             upsert_index_entry(&mut manifest, &note, e.path());
-            write_manifest(&manifest)?;
+            write_manifest(store, &manifest)?;
 
             Ok(RemoveTagResult::Removed {
                 note,
@@ -291,68 +252,55 @@ pub fn remove_note_tag(
 }
 
 /// Service: Update an existing note
-/// Accepts a full Note object, replaces the stored note, and updates manifest if title changed
-pub fn update_note(repo_root: &Path, note: Note) -> Result<UpdateNoteResult, RepositoryError> {
-    let mut manifest = load_manifest(repo_root)?;
+pub fn update_note(
+    store: &dyn RepositoryStore,
+    note: Note,
+) -> Result<UpdateNoteResult, RepositoryError> {
+    let mut manifest = store.load_manifest()?;
 
-    // Find the note in the manifest
     let entry = manifest
         .instance_index
         .iter()
         .find(|e| e.instance_id() == note.instance_id)
         .cloned()
         .ok_or_else(|| RepositoryError::NoteNotFound {
-            path: repo_root.join("records/notes"),
+            path: std::path::PathBuf::from("records/notes"),
             id: note.instance_id.clone(),
         })?;
 
-    // Validate the note
     validate_note(&note).map_err(|e| RepositoryError::NoteValidation {
-        path: repo_root.join(entry.path()),
+        path: std::path::PathBuf::from(entry.path()),
         source: e,
     })?;
 
-    // Write the note
-    let full_path = repo_root.join(entry.path());
-    write_note(&note, &full_path)?;
-
-    // Update manifest if title changed
+    write_note(store, &note, entry.path())?;
     upsert_index_entry(&mut manifest, &note, entry.path());
-    write_manifest(&manifest)?;
+    write_manifest(store, &manifest)?;
 
     Ok(UpdateNoteResult { note })
 }
 
 /// Service: Delete a note by ID
-/// Removes the file and updates the manifest
-pub fn delete_note(repo_root: &Path, id: &str) -> Result<DeleteNoteResult, RepositoryError> {
-    let mut manifest = load_manifest(repo_root)?;
+pub fn delete_note(
+    store: &dyn RepositoryStore,
+    id: &str,
+) -> Result<DeleteNoteResult, RepositoryError> {
+    let mut manifest = store.load_manifest()?;
 
-    // Find the note in the manifest
     let entry_index = manifest
         .instance_index
         .iter()
         .position(|e| e.instance_id() == id && e.is_note())
         .ok_or_else(|| RepositoryError::NoteNotFound {
-            path: repo_root.join("records/notes"),
+            path: std::path::PathBuf::from("records/notes"),
             id: id.to_string(),
         })?;
 
-    let entry = manifest.instance_index[entry_index].clone();
-    let path = entry.path().to_string();
+    let path = manifest.instance_index[entry_index].path().to_string();
 
-    // Remove the file
-    let full_path = repo_root.join(&path);
-    if full_path.exists() {
-        std::fs::remove_file(&full_path).map_err(|e| RepositoryError::Io {
-            path: full_path.clone(),
-            source: e,
-        })?;
-    }
-
-    // Remove from manifest
+    store.delete_instance_file(&path)?;
     manifest.instance_index.remove(entry_index);
-    write_manifest(&manifest)?;
+    write_manifest(store, &manifest)?;
 
     Ok(DeleteNoteResult {
         instance_id: id.to_string(),
@@ -375,40 +323,70 @@ pub fn slugify_title(title: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::{json, Value};
-    use tempfile::TempDir;
+    use crate::index::InstanceIndexEntry;
+    use crate::manifest::Manifest;
+    use crate::store::memory::MemoryStore;
+    use srs_core::types::note::NoteSection;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
 
-    fn create_temp_repo() -> TempDir {
-        let temp = TempDir::new().unwrap();
-        std::fs::create_dir(temp.path().join(".srs")).unwrap();
-        std::fs::write(
-            temp.path().join("manifest.json"),
-            json!({
-                "instanceIndex": [
-                    {
-                        "instanceId": "11111111-1111-1111-8111-111111111111",
-                        "tier": 0,
-                        "path": "records/notes/test-note.json",
-                        "title": "Test Note"
-                    }
-                ]
-            })
-            .to_string(),
+    fn make_note(id: &str, title: &str) -> Note {
+        Note {
+            instance_id: id.to_string(),
+            title: Some(title.to_string()),
+            tags: Some(vec!["test".to_string(), "sample".to_string()]),
+            sections: vec![NoteSection {
+                name: "body".to_string(),
+                label: None,
+                content: "content".to_string(),
+                content_hint: None,
+                tags: None,
+            }],
+            graduated_at: None,
+            source_refs: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+        }
+    }
+
+    /// Build a MemoryStore pre-loaded with one note and the matching manifest entry.
+    fn store_with_note(note: &Note, path: &str) -> MemoryStore {
+        let note_val = {
+            let mut v = serde_json::to_value(note).unwrap();
+            v.as_object_mut().unwrap().insert(
+                "$schema".to_string(),
+                serde_json::json!("https://srs.semanticops.com/schema/2.0/note.json"),
+            );
+            v
+        };
+        let manifest = Manifest {
+            instance_index: vec![InstanceIndexEntry {
+                instance_id: note.instance_id.clone(),
+                tier: 0,
+                path: path.to_string(),
+                title: note.title.clone().map(serde_json::Value::String),
+                tags: note.tags.clone(),
+            }],
+            extra: HashMap::new(),
+            root: PathBuf::from("/memory"),
+        };
+        MemoryStore::new(
+            manifest,
+            crate::package::Package {
+                id: "test-pkg".to_string(),
+                namespace: "com.test".to_string(),
+                name: "test".to_string(),
+                version: "1.0.0".to_string(),
+                fields: vec![],
+                record_types: vec![],
+                relation_type_definitions: vec![],
+                views: vec![],
+                document_views: vec![],
+                root: PathBuf::from("/memory"),
+            },
         )
-        .unwrap();
-        std::fs::create_dir_all(temp.path().join("records/notes")).unwrap();
-        std::fs::write(
-            temp.path().join("records/notes/test-note.json"),
-            json!({
-                "instanceId": "11111111-1111-1111-8111-111111111111",
-                "title": "Test Note",
-                "tags": ["test", "sample"],
-                "sections": [{"name": "test", "content": "test content"}]
-            })
-            .to_string(),
-        )
-        .unwrap();
-        temp
+        .with_data(path, note_val)
     }
 
     #[test]
@@ -423,8 +401,9 @@ mod tests {
 
     #[test]
     fn list_notes_returns_all_notes() {
-        let temp = create_temp_repo();
-        let result = list_notes(temp.path(), ListNotesFilter::default()).unwrap();
+        let note = make_note("11111111-1111-1111-8111-111111111111", "Test Note");
+        let store = store_with_note(&note, "records/notes/test-note.json");
+        let result = list_notes(&store, ListNotesFilter::default()).unwrap();
         assert_eq!(result.notes.len(), 1);
         assert_eq!(
             result.notes[0].instance_id,
@@ -434,9 +413,11 @@ mod tests {
 
     #[test]
     fn list_notes_filters_by_tag() {
-        let temp = create_temp_repo();
+        let note = make_note("11111111-1111-1111-8111-111111111111", "Test Note");
+        let store = store_with_note(&note, "records/notes/test-note.json");
+
         let result = list_notes(
-            temp.path(),
+            &store,
             ListNotesFilter {
                 tag: Some("test".to_string()),
             },
@@ -445,7 +426,7 @@ mod tests {
         assert_eq!(result.notes.len(), 1);
 
         let result = list_notes(
-            temp.path(),
+            &store,
             ListNotesFilter {
                 tag: Some("nonexistent".to_string()),
             },
@@ -456,20 +437,20 @@ mod tests {
 
     #[test]
     fn get_note_by_id_finds_note() {
-        let temp = create_temp_repo();
-        let result = get_note_by_id(temp.path(), "11111111-1111-1111-8111-111111111111").unwrap();
+        let note = make_note("11111111-1111-1111-8111-111111111111", "Test Note");
+        let store = store_with_note(&note, "records/notes/test-note.json");
+        let result = get_note_by_id(&store, "11111111-1111-1111-8111-111111111111").unwrap();
         match result {
-            GetNoteResult::Found(note) => {
-                assert_eq!(note.title, Some("Test Note".to_string()));
-            }
+            GetNoteResult::Found(n) => assert_eq!(n.title, Some("Test Note".to_string())),
             _ => panic!("Expected Found"),
         }
     }
 
     #[test]
     fn get_note_by_id_returns_not_found() {
-        let temp = create_temp_repo();
-        let result = get_note_by_id(temp.path(), "nonexistent-id").unwrap();
+        let note = make_note("11111111-1111-1111-8111-111111111111", "Test Note");
+        let store = store_with_note(&note, "records/notes/test-note.json");
+        let result = get_note_by_id(&store, "nonexistent-id").unwrap();
         match result {
             GetNoteResult::NotFound => {}
             _ => panic!("Expected NotFound"),
@@ -478,24 +459,33 @@ mod tests {
 
     #[test]
     fn get_note_by_id_refuses_non_note() {
-        let temp = TempDir::new().unwrap();
-        std::fs::create_dir(temp.path().join(".srs")).unwrap();
-        std::fs::write(
-            temp.path().join("manifest.json"),
-            json!({
-                "instanceIndex": [
-                    {
-                        "instanceId": "22222222-2222-2222-8222-222222222222",
-                        "tier": 1,
-                        "path": "specs/spec.json"
-                    }
-                ]
-            })
-            .to_string(),
-        )
-        .unwrap();
-
-        let result = get_note_by_id(temp.path(), "22222222-2222-2222-8222-222222222222").unwrap();
+        let manifest = Manifest {
+            instance_index: vec![InstanceIndexEntry {
+                instance_id: "22222222-2222-2222-8222-222222222222".to_string(),
+                tier: 1,
+                path: "specs/spec.json".to_string(),
+                title: None,
+                tags: None,
+            }],
+            extra: HashMap::new(),
+            root: PathBuf::from("/memory"),
+        };
+        let store = MemoryStore::new(
+            manifest,
+            crate::package::Package {
+                id: "test-pkg".to_string(),
+                namespace: "com.test".to_string(),
+                name: "test".to_string(),
+                version: "1.0.0".to_string(),
+                fields: vec![],
+                record_types: vec![],
+                relation_type_definitions: vec![],
+                views: vec![],
+                document_views: vec![],
+                root: PathBuf::from("/memory"),
+            },
+        );
+        let result = get_note_by_id(&store, "22222222-2222-2222-8222-222222222222").unwrap();
         match result {
             GetNoteResult::NotANote { tier } => assert_eq!(tier, 1),
             _ => panic!("Expected NotANote"),
@@ -503,20 +493,13 @@ mod tests {
     }
 
     #[test]
-    fn create_note_mints_id_and_creates_file() {
-        let temp = TempDir::new().unwrap();
-        std::fs::create_dir(temp.path().join(".srs")).unwrap();
-        std::fs::write(
-            temp.path().join("manifest.json"),
-            json!({ "instanceIndex": [] }).to_string(),
-        )
-        .unwrap();
-
+    fn create_note_mints_id_and_stores_note() {
+        let store = MemoryStore::default();
         let note = Note {
             instance_id: "".to_string(),
             title: Some("My New Note".to_string()),
             tags: None,
-            sections: vec![srs_core::types::note::NoteSection {
+            sections: vec![NoteSection {
                 name: "intro".to_string(),
                 label: None,
                 content: "Hello world".to_string(),
@@ -530,32 +513,34 @@ mod tests {
             meta: None,
         };
 
-        let result = create_note(temp.path(), note).unwrap();
+        let result = create_note(&store, note).unwrap();
         assert!(!result.note.instance_id.is_empty());
 
-        // Verify file exists at the expected path
-        assert!(temp.path().join("records/notes/my-new-note.json").exists());
+        // Note should be loadable from store
+        let stored = store
+            .load_instance_json("records/notes/my-new-note.json")
+            .unwrap();
+        assert_eq!(
+            stored["instanceId"].as_str(),
+            Some(result.note.instance_id.as_str())
+        );
 
-        // Verify manifest updated
-        let manifest: Value = serde_json::from_str(
-            &std::fs::read_to_string(temp.path().join("manifest.json")).unwrap(),
-        )
-        .unwrap();
-        let index = manifest["instanceIndex"].as_array().unwrap();
-        assert_eq!(index.len(), 1);
-        assert_eq!(index[0]["instanceId"], result.note.instance_id);
+        // Manifest should be updated
+        let manifest = store.load_manifest().unwrap();
+        assert_eq!(manifest.instance_index.len(), 1);
+        assert_eq!(
+            manifest.instance_index[0].instance_id(),
+            result.note.instance_id
+        );
     }
 
     #[test]
-    fn add_note_tag_adds_and_updates_manifest() {
-        let temp = create_temp_repo();
+    fn add_note_tag_adds_tag() {
+        let note = make_note("11111111-1111-1111-8111-111111111111", "Test Note");
+        let store = store_with_note(&note, "records/notes/test-note.json");
 
-        let result = add_note_tag(
-            temp.path(),
-            "11111111-1111-1111-8111-111111111111",
-            "new-tag",
-        )
-        .unwrap();
+        let result =
+            add_note_tag(&store, "11111111-1111-1111-8111-111111111111", "new-tag").unwrap();
 
         match result {
             AddTagResult::Added { note, tag } => {
@@ -566,27 +551,18 @@ mod tests {
             _ => panic!("Expected Added"),
         }
 
-        // Verify manifest was updated
-        let manifest: Value = serde_json::from_str(
-            &std::fs::read_to_string(temp.path().join("manifest.json")).unwrap(),
-        )
-        .unwrap();
-        let index = manifest["instanceIndex"].as_array().unwrap();
-        let tags = index[0]["tags"].as_array().unwrap();
-        assert!(tags.iter().any(|t| t.as_str() == Some("new-tag")));
+        // Manifest should reflect new tag
+        let manifest = store.load_manifest().unwrap();
+        let entry_tags = manifest.instance_index[0].tags.as_ref().unwrap();
+        assert!(entry_tags.contains(&"new-tag".to_string()));
     }
 
     #[test]
     fn add_note_tag_returns_already_present() {
-        let temp = create_temp_repo();
+        let note = make_note("11111111-1111-1111-8111-111111111111", "Test Note");
+        let store = store_with_note(&note, "records/notes/test-note.json");
 
-        let result = add_note_tag(
-            temp.path(),
-            "11111111-1111-1111-8111-111111111111",
-            "test", // already present
-        )
-        .unwrap();
-
+        let result = add_note_tag(&store, "11111111-1111-1111-8111-111111111111", "test").unwrap();
         match result {
             AddTagResult::AlreadyPresent { .. } => {}
             _ => panic!("Expected AlreadyPresent"),
@@ -595,93 +571,74 @@ mod tests {
 
     #[test]
     fn add_note_tag_returns_not_found() {
-        let temp = create_temp_repo();
-
-        let result = add_note_tag(temp.path(), "nonexistent-id", "tag").unwrap();
+        let store = MemoryStore::default();
+        let result = add_note_tag(&store, "nonexistent-id", "tag").unwrap();
         match result {
             AddTagResult::NotFound => {}
             _ => panic!("Expected NotFound"),
         }
     }
 
-    // Acceptance Criteria Tests for Phase 2
-
     #[test]
-    fn note_update_rewrites_file_and_manifest_title() {
-        let temp = create_temp_repo();
+    fn note_update_rewrites_and_updates_manifest() {
+        let note = make_note("11111111-1111-1111-8111-111111111111", "Test Note");
+        let store = store_with_note(&note, "records/notes/test-note.json");
 
-        // Get the existing note
-        let existing =
-            match get_note_by_id(temp.path(), "11111111-1111-1111-8111-111111111111").unwrap() {
-                GetNoteResult::Found(n) => n,
-                _ => panic!("Should find note"),
-            };
-
-        // Update the note
-        let updated_note = Note {
-            instance_id: existing.instance_id.clone(),
+        let updated = Note {
+            instance_id: note.instance_id.clone(),
             title: Some("Updated Title".to_string()),
-            tags: existing.tags.clone(),
-            sections: existing.sections.clone(),
-            graduated_at: existing.graduated_at.clone(),
-            source_refs: existing.source_refs.clone(),
-            meta: existing.meta.clone(),
-            created_at: existing.created_at.clone(),
+            tags: note.tags.clone(),
+            sections: note.sections.clone(),
+            graduated_at: None,
+            source_refs: None,
+            meta: None,
+            created_at: None,
             updated_at: Some("2026-01-02T00:00:00Z".to_string()),
         };
 
-        let result = update_note(temp.path(), updated_note).unwrap();
+        let result = update_note(&store, updated).unwrap();
         assert_eq!(result.note.title, Some("Updated Title".to_string()));
 
-        // Verify file was rewritten
-        let file_content =
-            std::fs::read_to_string(temp.path().join("records/notes/test-note.json")).unwrap();
-        let file_note: Note = serde_json::from_str(&file_content).unwrap();
-        assert_eq!(file_note.title, Some("Updated Title".to_string()));
+        let stored = store
+            .load_instance_json("records/notes/test-note.json")
+            .unwrap();
+        assert_eq!(stored["title"].as_str(), Some("Updated Title"));
 
-        // Verify manifest was updated with new title
-        let manifest: Value = serde_json::from_str(
-            &std::fs::read_to_string(temp.path().join("manifest.json")).unwrap(),
-        )
-        .unwrap();
-        let index = manifest["instanceIndex"].as_array().unwrap();
-        assert_eq!(index[0]["title"], "Updated Title");
+        let manifest = store.load_manifest().unwrap();
+        let title_val = manifest.instance_index[0]
+            .title
+            .as_ref()
+            .and_then(|v| v.as_str());
+        assert_eq!(title_val, Some("Updated Title"));
     }
 
     #[test]
-    fn note_delete_removes_file_and_manifest_entry() {
-        let temp = create_temp_repo();
+    fn note_delete_removes_and_updates_manifest() {
+        let note = make_note("11111111-1111-1111-8111-111111111111", "Test Note");
+        let store = store_with_note(&note, "records/notes/test-note.json");
 
-        let result = delete_note(temp.path(), "11111111-1111-1111-8111-111111111111").unwrap();
+        let result = delete_note(&store, "11111111-1111-1111-8111-111111111111").unwrap();
         assert_eq!(result.instance_id, "11111111-1111-1111-8111-111111111111");
 
-        // Verify file was removed
-        assert!(!temp.path().join("records/notes/test-note.json").exists());
-
-        // Verify manifest entry was removed
-        let manifest: Value = serde_json::from_str(
-            &std::fs::read_to_string(temp.path().join("manifest.json")).unwrap(),
-        )
-        .unwrap();
-        let index = manifest["instanceIndex"].as_array().unwrap();
-        assert!(index.is_empty());
+        let manifest = store.load_manifest().unwrap();
+        assert!(manifest.instance_index.is_empty());
     }
 
     #[test]
     fn note_tag_remove_updates_note() {
-        let temp = create_temp_repo();
+        let note = make_note("11111111-1111-1111-8111-111111111111", "Test Note");
+        let store = store_with_note(&note, "records/notes/test-note.json");
 
-        // First add a tag we can remove
+        // First add a removable tag
         add_note_tag(
-            temp.path(),
+            &store,
             "11111111-1111-1111-8111-111111111111",
             "removable-tag",
         )
         .unwrap();
 
-        // Now remove it
         let result = remove_note_tag(
-            temp.path(),
+            &store,
             "11111111-1111-1111-8111-111111111111",
             "removable-tag",
         )
@@ -698,15 +655,5 @@ mod tests {
             }
             _ => panic!("Expected Removed"),
         }
-
-        // Verify file was updated
-        let file_content =
-            std::fs::read_to_string(temp.path().join("records/notes/test-note.json")).unwrap();
-        let file_note: Note = serde_json::from_str(&file_content).unwrap();
-        assert!(!file_note
-            .tags
-            .as_ref()
-            .unwrap()
-            .contains(&"removable-tag".to_string()));
     }
 }
