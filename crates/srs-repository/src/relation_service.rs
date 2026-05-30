@@ -203,11 +203,19 @@ fn load_relations_collection(
     };
 
     // Determine the path to try first from the manifest's relationsPath field.
-    let manifest_path = store.load_manifest().ok().and_then(|m| {
-        m.extra
+    // Only suppress NotFound/Io errors (no manifest yet); propagate all other errors.
+    let manifest_path = match store.load_manifest() {
+        Ok(m) => m
+            .extra
             .get("relationsPath")
-            .and_then(|v| v.as_str().map(|s| s.to_string()))
-    });
+            .and_then(|v| v.as_str().map(|s| s.to_string())),
+        Err(
+            RepositoryError::Io { .. }
+            | RepositoryError::NotFound { .. }
+            | RepositoryError::ManifestMissing { .. },
+        ) => None,
+        Err(e) => return Err(e),
+    };
 
     // Build candidate list: manifest path first, then the two defaults.
     let candidates: Vec<String> = [
@@ -484,5 +492,183 @@ mod tests {
         let all = list_relations(&store, ListRelationsFilter::default()).unwrap();
         assert_eq!(all.len(), 2);
         assert!(!all.iter().any(|r| r.relation_id == "r2"));
+    }
+
+    #[test]
+    fn load_relations_propagates_manifest_parse_error() {
+        // A broken manifest (ManifestParse) must not be silently swallowed —
+        // load_relations should return the error rather than falling through
+        // to default candidate paths.
+        use crate::error::RepositoryError;
+        use crate::manifest::Manifest;
+        use crate::package::Package;
+        use crate::store::RepositoryStore;
+
+        struct BrokenManifestStore;
+
+        impl RepositoryStore for BrokenManifestStore {
+            fn load_manifest(&self) -> Result<Manifest, RepositoryError> {
+                Err(RepositoryError::ManifestParse {
+                    path: std::path::PathBuf::from("manifest.json"),
+                    source: serde_json::from_str::<serde_json::Value>("not json").unwrap_err(),
+                })
+            }
+            fn save_manifest(&self, _: &Manifest) -> Result<(), RepositoryError> {
+                Ok(())
+            }
+            fn load_package(&self) -> Result<Package, RepositoryError> {
+                unimplemented!()
+            }
+            fn load_package_json(&self) -> Result<serde_json::Value, RepositoryError> {
+                unimplemented!()
+            }
+            fn save_package_json(&self, _: &serde_json::Value) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn save_field(
+                &self,
+                _: &str,
+                _: &srs_core::types::field::Field,
+            ) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn update_field_file(
+                &self,
+                _: &str,
+                _: &srs_core::types::field::Field,
+            ) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn delete_field_file(&self, _: &str) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn ensure_fields_dir(&self) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn save_type(
+                &self,
+                _: &str,
+                _: &srs_core::types::record_type::RecordType,
+            ) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn update_type_file(
+                &self,
+                _: &str,
+                _: &srs_core::types::record_type::RecordType,
+            ) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn delete_type_file(&self, _: &str) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn ensure_types_dir(&self) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn save_view(
+                &self,
+                _: &str,
+                _: &srs_core::types::view::View,
+            ) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn update_view_file(
+                &self,
+                _: &str,
+                _: &srs_core::types::view::View,
+            ) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn delete_view_file(&self, _: &str) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn ensure_views_dir(&self) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn save_document_view(
+                &self,
+                _: &str,
+                _: &srs_core::types::view::DocumentView,
+            ) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn update_document_view_file(
+                &self,
+                _: &str,
+                _: &srs_core::types::view::DocumentView,
+            ) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn delete_document_view_file(&self, _: &str) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn ensure_document_views_dir(&self) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn load_instance_json(&self, _: &str) -> Result<serde_json::Value, RepositoryError> {
+                unimplemented!()
+            }
+            fn save_instance_json(
+                &self,
+                _: &str,
+                _: &serde_json::Value,
+            ) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn delete_instance_file(&self, _: &str) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn ensure_instance_dir(&self, _: &str) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn list_instance_files(&self, _: &str) -> Result<Vec<String>, RepositoryError> {
+                unimplemented!()
+            }
+            fn load_relations_json(&self, _: &str) -> Result<serde_json::Value, RepositoryError> {
+                unimplemented!()
+            }
+            fn save_relations_json(
+                &self,
+                _: &str,
+                _: &serde_json::Value,
+            ) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn ensure_relations_dir(&self, _: &str) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn load_container_json(&self, _: &str) -> Result<serde_json::Value, RepositoryError> {
+                unimplemented!()
+            }
+            fn save_container_json(
+                &self,
+                _: &str,
+                _: &serde_json::Value,
+            ) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn delete_container_file(&self, _: &str) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn ensure_containers_dir(&self) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn list_files_recursive(&self, _: &str) -> Vec<String> {
+                unimplemented!()
+            }
+            fn load_text_file(&self, _: &str) -> Result<String, RepositoryError> {
+                unimplemented!()
+            }
+            fn validate_package_ref_path(&self, _: &str) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+        }
+
+        let result = load_relations(&BrokenManifestStore);
+        assert!(
+            matches!(result, Err(RepositoryError::ManifestParse { .. })),
+            "expected ManifestParse to propagate, got {:?}",
+            result
+        );
     }
 }

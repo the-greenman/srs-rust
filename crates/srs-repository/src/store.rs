@@ -1297,11 +1297,16 @@ pub mod memory {
             } else {
                 format!("{}/", relative_dir)
             };
+            // Direct children only: no additional '/' after the prefix (non-recursive).
             let paths = self
                 .data
                 .borrow()
                 .keys()
-                .filter(|k| k.starts_with(&prefix) && k.ends_with(".json"))
+                .filter(|k| {
+                    k.starts_with(&prefix)
+                        && k.ends_with(".json")
+                        && !k[prefix.len()..].contains('/')
+                })
                 .cloned()
                 .collect();
             Ok(paths)
@@ -1510,5 +1515,36 @@ mod tests {
         store.delete_instance_file("notes/to-delete.json").unwrap();
         let result = store.load_instance_json("notes/to-delete.json");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn memory_store_list_instance_files_direct_children_only() {
+        let root = std::path::PathBuf::from("/fake");
+        let store = MemoryStore::new(minimal_manifest(&root), empty_package(&root));
+        let v = serde_json::json!({});
+        store
+            .save_instance_json("records/notes/a.json", &v)
+            .unwrap();
+        store
+            .save_instance_json("records/notes/b.json", &v)
+            .unwrap();
+        // nested — must NOT appear when listing records/notes
+        store
+            .save_instance_json("records/notes/subdir/c.json", &v)
+            .unwrap();
+        // sibling directory — must NOT appear
+        store
+            .save_instance_json("records/other/d.json", &v)
+            .unwrap();
+
+        let mut files = store.list_instance_files("records/notes").unwrap();
+        files.sort();
+        assert_eq!(
+            files,
+            vec![
+                "records/notes/a.json".to_string(),
+                "records/notes/b.json".to_string(),
+            ]
+        );
     }
 }
