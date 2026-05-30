@@ -2,13 +2,11 @@ use crate::commands::{with_store, CliContext, ProtocolCommand};
 use crate::output;
 use anyhow::Result;
 use serde_json::json;
-use srs_core::types::record::FieldValue;
 use srs_repository::error::RepositoryError;
 use srs_repository::protocol_service::{
-    get_protocol_by_id, list_protocol_stages, list_protocols, validate_protocol_definition,
-    GetProtocolResult,
+    get_protocol_by_id, import_protocol, list_protocol_stages, list_protocols,
+    validate_protocol_definition, GetProtocolResult, ImportProtocolInput,
 };
-use srs_repository::record_store::create_record;
 use std::io::{self, Read};
 
 pub fn dispatch(ctx: CliContext, cmd: ProtocolCommand) -> Result<String> {
@@ -47,21 +45,8 @@ fn cmd_protocol_list(ctx: CliContext) -> Result<String> {
 
 fn cmd_protocol_get(ctx: CliContext, id: String) -> Result<String> {
     match with_store(&ctx, |store| Ok(get_protocol_by_id(store, &id)?))? {
-        GetProtocolResult::Found {
-            instance_id,
-            protocol,
-        } => {
-            let mut protocol_json = serde_json::to_value(&protocol)?;
-            if let Some(obj) = protocol_json.as_object_mut() {
-                obj.insert(
-                    "instanceId".to_string(),
-                    serde_json::Value::String(instance_id),
-                );
-            }
-            Ok(output::ok(
-                "protocol get",
-                json!({ "protocol": protocol_json }),
-            ))
+        GetProtocolResult::Found { protocol, .. } => {
+            Ok(output::ok("protocol get", json!({ "protocol": protocol })))
         }
         GetProtocolResult::NotFound => Ok(output::err(
             "protocol get",
@@ -143,123 +128,18 @@ fn cmd_protocol_export(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_protocol_import(ctx: CliContext) -> Result<String> {
-    // Read JSON from stdin
     let mut stdin = String::new();
     io::stdin().read_to_string(&mut stdin)?;
 
-    let json_value: serde_json::Value = serde_json::from_str(&stdin)
+    let raw: serde_json::Value = serde_json::from_str(&stdin)
         .map_err(|e| anyhow::anyhow!("Failed to parse protocol JSON: {}", e))?;
 
-    // Extract protocol fields from the JSON
-    // The import format should match the exported protocol structure
-    let protocol_json = json_value.get("protocol").unwrap_or(&json_value);
-
-    protocol_json
-        .get("fieldValues")
-        .or_else(|| protocol_json.get("protocolStages").map(|_| protocol_json))
-        .ok_or_else(|| anyhow::anyhow!("Missing protocol fields in JSON"))?
-        .as_object()
-        .ok_or_else(|| anyhow::anyhow!("Protocol fields must be an object"))?;
-
-    // Build field values from the protocol definition
-    let mut field_values: Vec<FieldValue> = vec![];
-
-    // Add standard protocol fields
-    if let Some(v) = protocol_json
-        .get("protocolId")
-        .or_else(|| protocol_json.get("protocol-id"))
-    {
-        field_values.push(FieldValue {
-            field_id: "protocol-id".to_string(),
-            value: v.clone(),
-            entries: None,
-            source: None,
-            edited_at: None,
-        });
-    }
-    if let Some(v) = protocol_json
-        .get("protocolNamespace")
-        .or_else(|| protocol_json.get("protocol-namespace"))
-    {
-        field_values.push(FieldValue {
-            field_id: "protocol-namespace".to_string(),
-            value: v.clone(),
-            entries: None,
-            source: None,
-            edited_at: None,
-        });
-    }
-    if let Some(v) = protocol_json
-        .get("protocolName")
-        .or_else(|| protocol_json.get("protocol-name"))
-    {
-        field_values.push(FieldValue {
-            field_id: "protocol-name".to_string(),
-            value: v.clone(),
-            entries: None,
-            source: None,
-            edited_at: None,
-        });
-    }
-    if let Some(v) = protocol_json
-        .get("protocolVersion")
-        .or_else(|| protocol_json.get("protocol-version"))
-    {
-        field_values.push(FieldValue {
-            field_id: "protocol-version".to_string(),
-            value: v.clone(),
-            entries: None,
-            source: None,
-            edited_at: None,
-        });
-    }
-    if let Some(v) = protocol_json
-        .get("protocolTargetType")
-        .or_else(|| protocol_json.get("protocol-target-type"))
-    {
-        field_values.push(FieldValue {
-            field_id: "protocol-target-type".to_string(),
-            value: v.clone(),
-            entries: None,
-            source: None,
-            edited_at: None,
-        });
-    }
-    if let Some(v) = protocol_json
-        .get("protocolStages")
-        .or_else(|| protocol_json.get("protocol-stages"))
-    {
-        field_values.push(FieldValue {
-            field_id: "protocol-stages".to_string(),
-            value: v.clone(),
-            entries: None,
-            source: None,
-            edited_at: None,
-        });
-    }
-    if let Some(v) = protocol_json
-        .get("protocolCreatedAt")
-        .or_else(|| protocol_json.get("protocol-created-at"))
-    {
-        field_values.push(FieldValue {
-            field_id: "protocol-created-at".to_string(),
-            value: v.clone(),
-            entries: None,
-            source: None,
-            edited_at: None,
-        });
-    }
-
-    // Create the protocol record
-    let record = with_store(&ctx, |store| {
-        Ok(create_record(
-            store,
-            "meta.protocol",
-            1,
-            field_values,
-            "package/records",
-        )?)
+    let result = with_store(&ctx, |store| {
+        Ok(import_protocol(store, ImportProtocolInput { raw })?)
     })?;
 
-    Ok(output::ok("protocol import", json!({ "protocol": record })))
+    Ok(output::ok(
+        "protocol import",
+        json!({ "protocol": result.record }),
+    ))
 }

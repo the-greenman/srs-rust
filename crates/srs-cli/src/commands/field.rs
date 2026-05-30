@@ -2,10 +2,8 @@ use crate::commands::{with_store, CliContext, FieldCommand};
 use crate::output;
 use anyhow::Result;
 use serde_json::json;
-use srs_core::types::field::Field;
 use srs_repository::package_service::{
-    create_field_in_package, get_field_by_id, list_fields, list_fields_by_namespace,
-    list_fields_by_package, GetFieldResult,
+    create_field_normalized, get_field_by_id, list_fields_filtered, FieldListFilter, GetFieldResult,
 };
 use std::io::{self, Read};
 
@@ -27,15 +25,13 @@ fn cmd_field_list(
     package: Option<String>,
 ) -> Result<String> {
     let summaries = with_store(&ctx, |store| {
-        Ok(match (&namespace, &package) {
-            (Some(ns), None) => list_fields_by_namespace(store, ns)?,
-            (None, Some(pkg)) => list_fields_by_package(store, Some(pkg.as_str()))?,
-            (Some(ns), Some(pkg)) => list_fields_by_package(store, Some(pkg.as_str()))?
-                .into_iter()
-                .filter(|f| f.namespace == *ns)
-                .collect(),
-            (None, None) => list_fields(store)?,
-        })
+        Ok(list_fields_filtered(
+            store,
+            FieldListFilter {
+                namespace: namespace.clone(),
+                package: package.as_deref().map(|p| Some(p.to_string())),
+            },
+        )?)
     })?;
 
     let fields: Vec<serde_json::Value> = summaries
@@ -71,32 +67,10 @@ fn cmd_field_create(ctx: CliContext, package: Option<String>) -> Result<String> 
 
     let raw_value: serde_json::Value = serde_json::from_str(&stdin)
         .map_err(|e| anyhow::anyhow!("Failed to parse field JSON: {}", e))?;
-    let normalized = normalize_field_input(raw_value);
-
-    let field: Field = serde_json::from_value(normalized)
-        .map_err(|e| anyhow::anyhow!("Failed to parse field JSON: {}", e))?;
 
     let result = with_store(&ctx, |store| {
-        Ok(create_field_in_package(store, field, package.clone())?)
+        Ok(create_field_normalized(store, raw_value, package.clone())?)
     })?;
 
     Ok(output::ok("field create", json!({ "field": result.field })))
-}
-
-fn normalize_field_input(value: serde_json::Value) -> serde_json::Value {
-    let mut obj = match value {
-        serde_json::Value::Object(map) => map,
-        other => return other,
-    };
-
-    // Permit a minimal payload for field create; repository service will
-    // backfill an empty createdAt with the current timestamp.
-    obj.entry("description".to_string())
-        .or_insert_with(|| serde_json::Value::String(String::new()));
-    obj.entry("aiGuidance".to_string())
-        .or_insert_with(|| json!({}));
-    obj.entry("createdAt".to_string())
-        .or_insert_with(|| serde_json::Value::String(String::new()));
-
-    serde_json::Value::Object(obj)
 }

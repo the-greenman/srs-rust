@@ -27,15 +27,24 @@ use srs_core::types::record::Record;
 use srs_core::validation::protocol::validate_protocol;
 
 use crate::error::RepositoryError;
-use crate::record_store::get_record_by_id;
+use crate::record_store::{create_record, get_record_by_id};
 use crate::store::RepositoryStore;
+
+pub struct ImportProtocolInput {
+    pub raw: serde_json::Value,
+}
+
+pub struct ImportProtocolResult {
+    pub instance_id: String,
+    pub record: Record,
+}
 
 /// Result for protocol get operation
 #[derive(Debug, Clone)]
 pub enum GetProtocolResult {
     Found {
         instance_id: String,
-        protocol: Box<Protocol>,
+        protocol: serde_json::Value,
     },
     NotFound,
 }
@@ -58,19 +67,44 @@ pub fn get_protocol_by_id(
             if !is_protocol_type(&record) {
                 return Ok(GetProtocolResult::NotFound);
             }
+            let instance_id = record.instance_id.clone();
             let protocol = record_to_protocol(&record)?;
+            let mut protocol_json =
+                serde_json::to_value(&protocol).map_err(|e| RepositoryError::Serialize {
+                    path: std::path::PathBuf::from("protocol"),
+                    source: e,
+                })?;
+            if let Some(obj) = protocol_json.as_object_mut() {
+                obj.insert(
+                    "instanceId".to_string(),
+                    serde_json::Value::String(instance_id.clone()),
+                );
+            }
             Ok(GetProtocolResult::Found {
-                instance_id: record.instance_id,
-                protocol: Box::new(protocol),
+                instance_id,
+                protocol: protocol_json,
             })
         }
         None => {
             if let Some(record) = get_record_by_id_fallback(store, id)? {
                 if is_protocol_type(&record) {
+                    let instance_id = record.instance_id.clone();
                     let protocol = record_to_protocol(&record)?;
+                    let mut protocol_json = serde_json::to_value(&protocol).map_err(|e| {
+                        RepositoryError::Serialize {
+                            path: std::path::PathBuf::from("protocol"),
+                            source: e,
+                        }
+                    })?;
+                    if let Some(obj) = protocol_json.as_object_mut() {
+                        obj.insert(
+                            "instanceId".to_string(),
+                            serde_json::Value::String(instance_id.clone()),
+                        );
+                    }
                     Ok(GetProtocolResult::Found {
-                        instance_id: record.instance_id,
-                        protocol: Box::new(protocol),
+                        instance_id,
+                        protocol: protocol_json,
                     })
                 } else {
                     Ok(GetProtocolResult::NotFound)
@@ -80,6 +114,120 @@ pub fn get_protocol_by_id(
             }
         }
     }
+}
+
+/// Import a protocol definition from a JSON payload
+pub fn import_protocol(
+    store: &dyn RepositoryStore,
+    input: ImportProtocolInput,
+) -> Result<ImportProtocolResult, RepositoryError> {
+    let json_value = input.raw;
+    let protocol_json = json_value.get("protocol").unwrap_or(&json_value);
+
+    protocol_json
+        .get("fieldValues")
+        .or_else(|| protocol_json.get("protocolStages").map(|_| protocol_json))
+        .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
+            message: "Missing protocol fields in JSON".to_string(),
+        })?
+        .as_object()
+        .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
+            message: "Protocol fields must be an object".to_string(),
+        })?;
+
+    let mut field_values: Vec<FieldValue> = vec![];
+
+    if let Some(v) = protocol_json
+        .get("protocolId")
+        .or_else(|| protocol_json.get("protocol-id"))
+    {
+        field_values.push(FieldValue {
+            field_id: "protocol-id".to_string(),
+            value: v.clone(),
+            entries: None,
+            source: None,
+            edited_at: None,
+        });
+    }
+    if let Some(v) = protocol_json
+        .get("protocolNamespace")
+        .or_else(|| protocol_json.get("protocol-namespace"))
+    {
+        field_values.push(FieldValue {
+            field_id: "protocol-namespace".to_string(),
+            value: v.clone(),
+            entries: None,
+            source: None,
+            edited_at: None,
+        });
+    }
+    if let Some(v) = protocol_json
+        .get("protocolName")
+        .or_else(|| protocol_json.get("protocol-name"))
+    {
+        field_values.push(FieldValue {
+            field_id: "protocol-name".to_string(),
+            value: v.clone(),
+            entries: None,
+            source: None,
+            edited_at: None,
+        });
+    }
+    if let Some(v) = protocol_json
+        .get("protocolVersion")
+        .or_else(|| protocol_json.get("protocol-version"))
+    {
+        field_values.push(FieldValue {
+            field_id: "protocol-version".to_string(),
+            value: v.clone(),
+            entries: None,
+            source: None,
+            edited_at: None,
+        });
+    }
+    if let Some(v) = protocol_json
+        .get("protocolTargetType")
+        .or_else(|| protocol_json.get("protocol-target-type"))
+    {
+        field_values.push(FieldValue {
+            field_id: "protocol-target-type".to_string(),
+            value: v.clone(),
+            entries: None,
+            source: None,
+            edited_at: None,
+        });
+    }
+    if let Some(v) = protocol_json
+        .get("protocolStages")
+        .or_else(|| protocol_json.get("protocol-stages"))
+    {
+        field_values.push(FieldValue {
+            field_id: "protocol-stages".to_string(),
+            value: v.clone(),
+            entries: None,
+            source: None,
+            edited_at: None,
+        });
+    }
+    if let Some(v) = protocol_json
+        .get("protocolCreatedAt")
+        .or_else(|| protocol_json.get("protocol-created-at"))
+    {
+        field_values.push(FieldValue {
+            field_id: "protocol-created-at".to_string(),
+            value: v.clone(),
+            entries: None,
+            source: None,
+            edited_at: None,
+        });
+    }
+
+    let record = create_record(store, "meta.protocol", 1, field_values, "package/records")?;
+    let instance_id = record.instance_id.clone();
+    Ok(ImportProtocolResult {
+        instance_id,
+        record,
+    })
 }
 
 /// List protocol definitions
@@ -102,13 +250,31 @@ pub fn list_protocols(
     Ok(summaries)
 }
 
+/// Internal helper: get a protocol as a typed struct (not yet enriched with instanceId).
+fn get_protocol_struct_by_id(
+    store: &dyn RepositoryStore,
+    id: &str,
+) -> Result<Option<(String, Box<Protocol>)>, RepositoryError> {
+    let record = match get_record_by_id(store, id)? {
+        Some(r) if is_protocol_type(&r) => r,
+        Some(_) => return Ok(None),
+        None => match get_record_by_id_fallback(store, id)? {
+            Some(r) if is_protocol_type(&r) => r,
+            _ => return Ok(None),
+        },
+    };
+    let instance_id = record.instance_id.clone();
+    let protocol = record_to_protocol(&record)?;
+    Ok(Some((instance_id, Box::new(protocol))))
+}
+
 /// List stages for a protocol
 pub fn list_protocol_stages(
     store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<Vec<ProtocolStageSummary>, RepositoryError> {
-    match get_protocol_by_id(store, id)? {
-        GetProtocolResult::Found { protocol, .. } => {
+    match get_protocol_struct_by_id(store, id)? {
+        Some((_instance_id, protocol)) => {
             let mut stages: Vec<ProtocolStageSummary> = protocol
                 .protocol_stages
                 .into_iter()
@@ -124,7 +290,7 @@ pub fn list_protocol_stages(
 
             Ok(stages)
         }
-        GetProtocolResult::NotFound => Err(RepositoryError::NotFound {
+        None => Err(RepositoryError::NotFound {
             path: std::path::PathBuf::from("package/records"),
         }),
     }
@@ -135,11 +301,8 @@ pub fn validate_protocol_definition(
     store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<ValidateProtocolResult, RepositoryError> {
-    match get_protocol_by_id(store, id)? {
-        GetProtocolResult::Found {
-            instance_id,
-            protocol,
-        } => {
+    match get_protocol_struct_by_id(store, id)? {
+        Some((instance_id, protocol)) => {
             let validation = validate_protocol(&protocol);
 
             let diagnostics: Vec<String> = validation
@@ -160,7 +323,7 @@ pub fn validate_protocol_definition(
                 diagnostics,
             })
         }
-        GetProtocolResult::NotFound => Err(RepositoryError::NotFound {
+        None => Err(RepositoryError::NotFound {
             path: std::path::PathBuf::from("package/records"),
         }),
     }

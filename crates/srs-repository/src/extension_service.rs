@@ -22,15 +22,127 @@
 use srs_core::types::record::{FieldValue, Record};
 
 use crate::error::RepositoryError;
-use crate::record_store::{get_record_by_id, list_records_by_type};
+use crate::record_store::{
+    create_record, delete_record, get_record_by_id, list_records_by_type, update_record,
+};
 use crate::store::RepositoryStore;
 
-pub fn list_extensions(store: &dyn RepositoryStore) -> Result<Vec<Record>, RepositoryError> {
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionSummary {
+    pub instance_id: String,
+    pub namespace: Option<serde_json::Value>,
+    pub name: Option<serde_json::Value>,
+    pub version: Option<serde_json::Value>,
+    pub extension_type: String,
+}
+
+pub struct CreateExtensionInput {
+    pub raw: serde_json::Value,
+}
+
+pub struct ExtensionResult {
+    pub record: Record,
+}
+
+pub fn list_extensions(
+    store: &dyn RepositoryStore,
+) -> Result<Vec<ExtensionSummary>, RepositoryError> {
     let mut records = list_records_by_type(store, "meta", "extension")?;
     if records.is_empty() {
         records = list_records_by_type_fallback(store, "meta", "extension")?;
     }
-    Ok(records)
+    let summaries = records
+        .into_iter()
+        .map(|r| ExtensionSummary {
+            namespace: r.extra.get("namespace").cloned(),
+            name: r.extra.get("name").cloned(),
+            version: r.extra.get("version").cloned(),
+            extension_type: format!("{}/{}", r.type_namespace, r.type_name),
+            instance_id: r.instance_id,
+        })
+        .collect();
+    Ok(summaries)
+}
+
+pub fn create_extension(
+    store: &dyn RepositoryStore,
+    input: CreateExtensionInput,
+) -> Result<ExtensionResult, RepositoryError> {
+    let json_value = input.raw;
+
+    let field_values_json = json_value
+        .get("fieldValues")
+        .or_else(|| json_value.get("field_values"))
+        .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
+            message: "Missing fieldValues in extension JSON".to_string(),
+        })?
+        .as_object()
+        .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
+            message: "fieldValues must be an object".to_string(),
+        })?;
+
+    let field_values: Vec<FieldValue> = field_values_json
+        .iter()
+        .map(|(k, v)| FieldValue {
+            field_id: k.clone(),
+            value: v.clone(),
+            entries: None,
+            source: None,
+            edited_at: None,
+        })
+        .collect();
+
+    let type_id = json_value
+        .get("typeId")
+        .or_else(|| json_value.get("type"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("meta.extension");
+
+    let type_version = json_value
+        .get("typeVersion")
+        .or_else(|| json_value.get("version"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(1) as u32;
+
+    let record = create_record(
+        store,
+        type_id,
+        type_version,
+        field_values,
+        "package/records",
+    )?;
+    Ok(ExtensionResult { record })
+}
+
+pub fn update_extension(
+    store: &dyn RepositoryStore,
+    id: &str,
+    input: CreateExtensionInput,
+) -> Result<ExtensionResult, RepositoryError> {
+    let field_values_json: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_value(input.raw).map_err(|e| RepositoryError::Serialize {
+            path: std::path::PathBuf::from("extension"),
+            source: e,
+        })?;
+
+    let field_values: Vec<FieldValue> = field_values_json
+        .into_iter()
+        .map(|(k, v)| FieldValue {
+            field_id: k,
+            value: v,
+            entries: None,
+            source: None,
+            edited_at: None,
+        })
+        .collect();
+
+    let record = update_record(store, id, field_values)?;
+    Ok(ExtensionResult { record })
+}
+
+pub fn delete_extension(store: &dyn RepositoryStore, id: &str) -> Result<String, RepositoryError> {
+    delete_record(store, id)
 }
 
 pub fn get_extension_by_id(

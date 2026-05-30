@@ -383,28 +383,33 @@ pub fn create_field_normalized(
     mut raw: serde_json::Value,
     package_selector: PackageSelector,
 ) -> Result<CreateFieldResult, RepositoryError> {
-    // Schema validation on the raw input before normalization.
-    // We validate here (not in create_field_in_package) because normalization
-    // may introduce defaults (e.g. aiGuidance: {}) that the strict schema rejects.
+    // Normalize optional fields first so that schema validation sees a complete
+    // document. The schema requires description/aiGuidance/createdAt; we supply
+    // sensible defaults for callers that omit them.
+    if raw.get("description").is_none() || raw["description"].is_null() {
+        raw["description"] = serde_json::json!("");
+    }
+    // aiGuidance requires a "purpose" property; default to empty string when absent.
+    match raw.get("aiGuidance") {
+        None | Some(serde_json::Value::Null) => {
+            raw["aiGuidance"] = serde_json::json!({ "purpose": "" });
+        }
+        Some(serde_json::Value::Object(_)) if raw["aiGuidance"].get("purpose").is_none() => {
+            raw["aiGuidance"]["purpose"] = serde_json::json!("");
+        }
+        _ => {}
+    }
+    if raw.get("createdAt").is_none() || raw["createdAt"].is_null() {
+        raw["createdAt"] = serde_json::json!(chrono::Utc::now().to_rfc3339());
+    }
+
+    // Validate after normalization so defaults satisfy the schema.
     SchemaRegistry::global()
         .validate_by_id(FIELD_SCHEMA_ID, &raw)
         .map_err(|e| RepositoryError::SchemaValidation {
             path: std::path::PathBuf::from("<stdin>"),
             message: e.to_string(),
         })?;
-
-    // Normalize description: absent → empty string
-    if raw.get("description").is_none() || raw["description"].is_null() {
-        raw["description"] = serde_json::json!("");
-    }
-    // Normalize aiGuidance: absent → {}
-    if raw.get("aiGuidance").is_none() || raw["aiGuidance"].is_null() {
-        raw["aiGuidance"] = serde_json::json!({});
-    }
-    // Normalize createdAt: absent → now
-    if raw.get("createdAt").is_none() || raw["createdAt"].is_null() {
-        raw["createdAt"] = serde_json::json!(chrono::Utc::now().to_rfc3339());
-    }
 
     let field: Field = serde_json::from_value(raw).map_err(|e| RepositoryError::Serialize {
         path: std::path::PathBuf::from("fields"),

@@ -4,8 +4,8 @@ use anyhow::Result;
 use serde_json::json;
 use srs_core::types::record_type::RecordType;
 use srs_repository::package_service::{
-    create_type_in_package, get_type_by_id_latest, list_types, list_types_by_namespace,
-    list_types_by_package, GetTypeResult,
+    create_type_in_package, get_type_by_id_latest, list_types_filtered, GetTypeResult,
+    TypeListFilter,
 };
 use std::io::{self, Read};
 
@@ -27,15 +27,13 @@ fn cmd_type_list(
     package: Option<String>,
 ) -> Result<String> {
     let summaries = with_store(&ctx, |store| {
-        Ok(match (&namespace, &package) {
-            (Some(ns), None) => list_types_by_namespace(store, ns)?,
-            (None, Some(pkg)) => list_types_by_package(store, Some(pkg.as_str()))?,
-            (Some(ns), Some(pkg)) => list_types_by_package(store, Some(pkg.as_str()))?
-                .into_iter()
-                .filter(|t| t.namespace == *ns)
-                .collect(),
-            (None, None) => list_types(store)?,
-        })
+        Ok(list_types_filtered(
+            store,
+            TypeListFilter {
+                namespace: namespace.clone(),
+                package: package.as_deref().map(|p| Some(p.to_string())),
+            },
+        )?)
     })?;
 
     let types: Vec<serde_json::Value> = summaries
