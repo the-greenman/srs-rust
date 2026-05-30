@@ -16,7 +16,7 @@ future SqlStore map those operations to their own storage representation.
 | 3: Package Lifecycle Services | Partial — create/list done; import/update missing |
 | 4: Package-Aware Definition Services | Mostly done — field/type create targeting sub-package missing |
 | 5: CLI | Partial — create/list/filters done; import/update/slice/deprecations missing |
-| Tests | Minimal — most planned tests not written |
+| 6: Test Coverage | Minimal — most planned tests not written |
 
 ---
 
@@ -39,24 +39,25 @@ See [agents.md](agents.md) for role definitions.
 |---|---|---|
 | TBD | Services address packages through logical selectors; adapters own package files/tables | proposed |
 
-The Documentation Worker must either create an ADR under `srs-rust/docs/adr/` or explicitly record
-in `ARCHITECTURE.md` why the existing rules are sufficient and no separate ADR is needed.
+The Documentation Worker must either create `docs/adr/0002-package-boundary-model.md` or add an
+explicit note to `ARCHITECTURE.md` stating why a separate ADR is not needed. This must be resolved
+before Phase 2 begins — Phase 1's milestone gate blocks Phase 2.
 
 ---
 
 ## Scope
 
-- Add package selectors and package boundary types.
-- Add `load_effective_package`, `list_package_boundaries`, `load_package_boundary`,
-  `register_package_boundary`, `save_package_boundary_metadata`, `resolve_definition_owner` to
-  `RepositoryStore`.
-- Implement new methods for FileStore and MemoryStore. JsonStore gets the same.
-- Migrate package services off raw `load_package_json` calls to the new boundary methods.
+- Add `PackageSelector`, `PackageBoundary`, `DefinitionKind`, `OwnedField`, `OwnedType` types.
+- Add `list_package_boundaries`, `load_package_boundary`, `save_package_boundary_metadata`,
+  `register_package_boundary`, `add_definition_to_boundary`, `remove_definition_from_boundary`,
+  `resolve_definition_owner` to `RepositoryStore`.
+- Implement new methods for FileStore, MemoryStore, and JsonStore.
+- Migrate package services off raw `load_package_json`/`save_package_json` calls.
 - Add `import_package_local` and `update_package_metadata` services.
 - Add field/type create targeting a specific package boundary.
 - Add CLI commands: `srs package import`, `srs package update`, `srs slice create`.
-- Deprecate `srs package enable/disable` or route them through package lifecycle services.
-- Write the tests planned in each phase that do not yet exist.
+- Deprecate `srs package enable/disable` (hide from help, leave working).
+- Write all tests specified in each phase.
 
 **Out of scope:**
 
@@ -66,6 +67,16 @@ in `ARCHITECTURE.md` why the existing rules are sufficient and no separate ADR i
 - Registry or network-backed package import.
 - Repository slice export/import from RFC-003.
 - Changing the current file-backed package layout.
+- `slice create` diverging semantically from `package create` — it is a permanent alias in this plan.
+
+---
+
+## Known Limitations
+
+**`resolve_definition_owner` is O(n×m):** The implementation walks every boundary, loads every
+definition file, and compares the `id` field. This is correct but linear. For large repos with many
+packages and definitions it will be slow. The trait method doc must note this; implementors may
+cache. A future SQL adapter may index by ID. This limitation is acceptable for v1.
 
 ---
 
@@ -73,7 +84,8 @@ in `ARCHITECTURE.md` why the existing rules are sufficient and no separate ADR i
 
 ### Phase 1: Architecture Contract
 
-**Goal:** The package boundary model is documented before implementation.
+**Goal:** The package boundary model is documented before implementation. Phase 2 does not begin
+until this phase's milestone gate passes.
 
 **Agent:** Lead Integrator + Documentation Worker
 
@@ -83,17 +95,17 @@ in `ARCHITECTURE.md` why the existing rules are sufficient and no separate ADR i
 - [x] State that package services use selectors and adapters use files/tables.
 - [x] Document packages as definition/meta boundaries.
 - [x] Document that raw `package.json`, package paths, and package file indexes must not appear in service APIs.
-- [ ] Decide whether to add or update an ADR under `srs-rust/docs/adr/`. Either create
-  `docs/adr/0002-package-boundary-model.md` or add a note to `ARCHITECTURE.md` explaining why a
-  separate ADR is not needed.
+- [ ] Resolve the ADR: either create `docs/adr/0002-package-boundary-model.md` or add a paragraph
+  to `ARCHITECTURE.md` under a new "## Why No Separate Package ADR" heading explaining that the
+  Package Boundaries section is sufficient.
 
 #### Acceptance Criteria
 
 - [x] `ARCHITECTURE.md` names packages as logical definition boundaries.
 - [x] `ARCHITECTURE.md` prohibits path-shaped package service APIs.
-- [ ] ADR decision is either created/updated or explicitly deferred with rationale.
+- [ ] ADR is created, or a written rationale for deferral exists in `ARCHITECTURE.md`.
 
-#### Milestone gate
+#### Milestone gate (blocks Phase 2)
 
 ```bash
 cargo test -p srs-repository
@@ -104,38 +116,60 @@ cargo clippy -p srs-repository -- -D warnings
 
 ### Phase 2: Package Boundary Types and Store Contract
 
-**Goal:** `RepositoryStore` exposes logical package operations. Services no longer call
-`load_package_json` directly — they call boundary methods that FileStore and MemoryStore
-translate to their own storage shape.
+**Goal:** `RepositoryStore` exposes logical package operations. After this phase, services can be
+migrated off raw `load_package_json`/`save_package_json` calls.
+
+**Prerequisite:** Phase 1 milestone gate must pass before this phase begins.
 
 **Agent:** Package Boundary Worker
 
-#### New types — add to `crates/srs-repository/src/package_types.rs` (new file)
+---
+
+#### New types — `crates/srs-repository/src/package_types.rs` (new file)
+
+These types must be in a non-test module so they can appear in `RepositoryStore` trait signatures.
+`MemoryStore` is `#[cfg(test)]` but the trait and its methods are not — the types must be
+available in production scope.
 
 ```rust
 /// Identifies a package boundary within a repository.
-/// `None` = primary package ("package/"); `Some(path)` = sub-package.
+/// `None` = primary package ("package/"); `Some(path)` = sub-package boundary path.
 pub type PackageSelector = Option<String>;
 
-/// Metadata describing one package boundary.
+/// Metadata describing one package boundary. Does not include definition content.
 #[derive(Debug, Clone)]
 pub struct PackageBoundary {
-    pub selector: PackageSelector,       // None = primary
+    pub selector: PackageSelector,   // None = primary
     pub id: String,
     pub namespace: String,
     pub name: String,
     pub version: String,
-    pub field_paths: Vec<String>,        // package-relative paths
-    pub type_paths: Vec<String>,
+    pub field_paths: Vec<String>,    // package-relative paths (e.g. "fields/foo.json")
+    pub type_paths: Vec<String>,     // package-relative paths
 }
 
-/// A field or type merged from all boundaries, carrying its source.
+/// Which definitions are tracked per boundary.
+/// `RelationType` is included so relation type definitions can be tracked if needed in future,
+/// but boundary methods are only required to handle `Field` and `Type` in this plan.
+/// `View` and `DocumentView` are tracked for completeness; implementations may treat them
+/// as no-ops if not yet needed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DefinitionKind {
+    Field,
+    Type,
+    View,
+    DocumentView,
+    RelationType,
+}
+
+/// A field carried with its source boundary. Used by merged listing services.
 #[derive(Debug, Clone)]
 pub struct OwnedField {
     pub field: srs_core::types::field::Field,
     pub owner: PackageSelector,
 }
 
+/// A type carried with its source boundary.
 #[derive(Debug, Clone)]
 pub struct OwnedType {
     pub record_type: srs_core::types::record_type::RecordType,
@@ -143,103 +177,193 @@ pub struct OwnedType {
 }
 ```
 
-Export from `lib.rs`: `pub use package_types::{PackageBoundary, PackageSelector, OwnedField, OwnedType};`
+Export from `lib.rs`:
+```rust
+pub mod package_types;
+pub use package_types::{DefinitionKind, OwnedField, OwnedType, PackageBoundary, PackageSelector};
+```
 
-#### New trait methods — add to `RepositoryStore` in `store.rs`
+---
 
-Add after the existing `// --- Package index ---` block:
+#### New `RepositoryStore` trait methods
+
+Add after the `// --- Package index ---` block in `store.rs`. The `DefinitionKind` doc must include
+the O(n×m) complexity warning on `resolve_definition_owner`.
 
 ```rust
 // --- Package boundaries ---
 
-/// Return metadata for all package boundaries (primary + all sub-packages).
+/// Return metadata for all package boundaries (primary + all registered sub-packages).
 fn list_package_boundaries(&self) -> Result<Vec<PackageBoundary>, RepositoryError>;
 
 /// Return metadata for one boundary. Returns `PackageNotFound` if missing.
 fn load_package_boundary(&self, selector: &PackageSelector) -> Result<PackageBoundary, RepositoryError>;
 
-/// Persist metadata for one boundary (id, namespace, name, version).
-/// Creates the boundary's `package.json` if it does not exist.
+/// Persist metadata fields (id, namespace, name, version) for one boundary.
+/// Creates the boundary storage (package.json / table row) if it does not exist.
+/// Must not overwrite field_paths or type_paths.
 fn save_package_boundary_metadata(&self, boundary: &PackageBoundary) -> Result<(), RepositoryError>;
 
-/// Register a new boundary in the manifest (add to packageRefs for sub-packages).
-/// No-op if already registered. For the primary package this is also a no-op.
+/// Register a boundary so it is visible in list_package_boundaries.
+/// For sub-packages: adds to manifest packageRefs if absent.
+/// For the primary package (selector = None): no-op.
+/// Idempotent — calling twice with the same selector is not an error.
 fn register_package_boundary(&self, selector: &PackageSelector) -> Result<(), RepositoryError>;
 
-/// Add a definition path to a boundary's index (e.g. "fields/foo.json").
-fn add_definition_to_boundary(&self, selector: &PackageSelector, kind: DefinitionKind, path: &str) -> Result<(), RepositoryError>;
+/// Append a definition path to the boundary's index for the given kind.
+/// Path is package-relative (e.g. "fields/foo-abc123.json").
+/// Idempotent — appending a path that is already present is not an error.
+fn add_definition_to_boundary(
+    &self,
+    selector: &PackageSelector,
+    kind: DefinitionKind,
+    path: &str,
+) -> Result<(), RepositoryError>;
 
-/// Remove a definition path from a boundary's index.
-fn remove_definition_from_boundary(&self, selector: &PackageSelector, kind: DefinitionKind, path: &str) -> Result<(), RepositoryError>;
+/// Remove a definition path from the boundary's index.
+/// No-op if the path is not present.
+fn remove_definition_from_boundary(
+    &self,
+    selector: &PackageSelector,
+    kind: DefinitionKind,
+    path: &str,
+) -> Result<(), RepositoryError>;
 
-/// Find which boundary owns a field or type by ID.
-fn resolve_definition_owner(&self, id: &str, kind: DefinitionKind) -> Result<PackageSelector, RepositoryError>;
+/// Return the selector of the boundary that owns the definition with the given id.
+/// Returns `DefinitionNotFound` if no boundary contains a definition with that id.
+///
+/// # Performance
+/// This is a linear scan: O(boundaries × definitions_per_boundary). Each definition
+/// file is loaded and its `id` field compared. Implementors may cache if performance
+/// is a concern; the trait makes no caching guarantee.
+fn resolve_definition_owner(
+    &self,
+    id: &str,
+    kind: DefinitionKind,
+) -> Result<PackageSelector, RepositoryError>;
 ```
 
-Add `DefinitionKind` enum to `package_types.rs`:
+---
+
+#### New `RepositoryError` variants — add to `error.rs`
 
 ```rust
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DefinitionKind { Field, Type, View, DocumentView, RelationType }
+/// A package boundary with the given selector was not found.
+PackageNotFound { selector: PackageSelector },
+
+/// A definition with the given id was not found in any boundary.
+DefinitionNotFound { id: String },
 ```
+
+(`PackageAlreadyRegistered` is added in Phase 3.)
+
+---
 
 #### FileStore implementation
 
-- `list_package_boundaries`: read `load_package_json()` for primary + each `packageRefs` entry.
-- `load_package_boundary(None)`: read `package/package.json`.
-- `load_package_boundary(Some(path))`: read `{path}/package.json`.
-- `save_package_boundary_metadata`: write the metadata fields into the appropriate `package.json`.
-- `register_package_boundary(None)`: no-op.
-- `register_package_boundary(Some(path))`: add `{mode:local, path}` to manifest `packageRefs` if absent.
-- `add_definition_to_boundary`: load the `package.json`, push the path into the `fields`/`types`/etc. array, write back.
-- `remove_definition_from_boundary`: load, filter out the path, write back.
-- `resolve_definition_owner`: walk each boundary in order; for each path in the matching array, load the file and compare `id` field.
+- `list_package_boundaries`: call `load_package_json()` for primary; iterate `packageRefs` from
+  manifest and call `load_instance_json("{path}/package.json")` for each. Build `PackageBoundary`
+  from each JSON object's `id`, `namespace`, `name`, `version`, `fields` array, `types` array.
+- `load_package_boundary(None)`: read `package/package.json`. Return `PackageNotFound` if missing.
+- `load_package_boundary(Some(path))`: read `{path}/package.json`. Return `PackageNotFound` if missing.
+- `save_package_boundary_metadata(b)`: load the appropriate `package.json`, overwrite `id`,
+  `namespace`, `name`, `version` keys only, write back. Must not touch `fields`/`types` arrays.
+- `register_package_boundary(None)`: no-op, return `Ok(())`.
+- `register_package_boundary(Some(path))`: load manifest, check `packageRefs` for existing entry
+  with same path, append `{mode: "local", path}` if absent, save manifest.
+- `add_definition_to_boundary(sel, kind, path)`: load the appropriate `package.json`, push path
+  into the correct array (`fields`/`types`/`views`/`documentViews`/`relationTypes`) if absent,
+  write back.
+- `remove_definition_from_boundary(sel, kind, path)`: load, filter, write back.
+- `resolve_definition_owner(id, kind)`: call `list_package_boundaries()`, iterate; for each
+  boundary, iterate paths for the given kind, call `load_instance_json` for each path (prefixed
+  with the boundary's filesystem prefix: `package/` for primary, `{path}/` for sub-packages),
+  compare `val["id"]`. Return first match. Return `DefinitionNotFound` if exhausted.
+
+---
 
 #### MemoryStore implementation
 
-- Store boundary metadata in a new `boundaries: RefCell<HashMap<Option<String>, PackageBoundary>>`.
-- `list_package_boundaries`: return all values from `boundaries`.
-- `load_package_boundary(sel)`: lookup in `boundaries`, return `PackageNotFound` if absent.
-- `save_package_boundary_metadata`: update `boundaries[sel]`.
-- `register_package_boundary`: insert entry in `boundaries` if absent; for `Some(path)` also add to manifest `packageRefs`.
-- `add_definition_to_boundary`: push to `boundaries[sel].field_paths` or `type_paths`.
-- `remove_definition_from_boundary`: filter the vec.
-- `resolve_definition_owner`: walk `boundaries`; for each path in the kind array, load `data[package/{path}]` or `data[{boundary_path}/{path}]` and compare `id`.
+MemoryStore lives in `#[cfg(test)]` in `store.rs`. Add a `boundaries` field:
+
+```rust
+boundaries: RefCell<HashMap<Option<String>, PackageBoundary>>,
+```
+
+Pre-populate in `MemoryStore::empty()` with a primary boundary (`None` → empty `PackageBoundary`).
+
+- `list_package_boundaries`: return `boundaries.borrow().values().cloned().collect()`.
+- `load_package_boundary(sel)`: lookup by key, return `PackageNotFound` if absent.
+- `save_package_boundary_metadata(b)`: update the `id`/`namespace`/`name`/`version` fields of the
+  existing entry; do not replace `field_paths`/`type_paths`.
+- `register_package_boundary(None)`: no-op.
+- `register_package_boundary(Some(path))`: insert a new empty `PackageBoundary` entry if absent;
+  also add to manifest `packageRefs`.
+- `add_definition_to_boundary(sel, kind, path)`: push to `field_paths` or `type_paths` of the
+  boundary entry if not already present. Return `PackageNotFound` if selector absent.
+- `remove_definition_from_boundary(sel, kind, path)`: filter the vec. No-op if absent.
+- `resolve_definition_owner(id, kind)`: iterate `boundaries`; for each boundary, iterate the
+  appropriate paths, load `data["package/{path}"]` (primary) or `data["{boundary_path}/{path}"]`
+  (sub-package), compare `val["id"]`. Return first match or `DefinitionNotFound`.
+
+---
 
 #### JsonStore implementation
 
-- Same pattern as FileStore (JsonStore uses `data` map, so reads/writes go through `load_instance_json`/`save_instance_json`).
+JsonStore stores everything in its `data: HashMap<String, serde_json::Value>`. It has no separate
+`boundaries` struct — boundaries are reconstructed from the `data` entries, the same way FileStore
+reconstructs from disk.
 
-#### Tasks
+- Implement all seven methods with the same logic as FileStore, but substituting
+  `self.load_instance_json(path)?` for filesystem reads and `self.save_instance_json(path, val)?`
+  for writes. The flush-on-every-mutation behavior of JsonStore handles persistence automatically.
 
-- [ ] Create `crates/srs-repository/src/package_types.rs` with `PackageSelector`, `PackageBoundary`, `OwnedField`, `OwnedType`, `DefinitionKind`.
-- [ ] Export from `lib.rs`.
-- [ ] Add the seven new methods to the `RepositoryStore` trait.
+---
+
+#### Phase 2 Tasks
+
+- [ ] Create `crates/srs-repository/src/package_types.rs` with `PackageSelector`, `PackageBoundary`,
+  `DefinitionKind`, `OwnedField`, `OwnedType`. **Not gated behind `#[cfg(test)]`.**
+- [ ] Add `pub mod package_types;` and re-exports to `lib.rs`.
+- [ ] Add `PackageNotFound` and `DefinitionNotFound` variants to `error.rs`.
+- [ ] Add the seven new methods to the `RepositoryStore` trait with the doc comments above.
 - [ ] Implement all seven methods on `FileStore`.
-- [ ] Implement all seven methods on `MemoryStore` (using `boundaries` RefCell, not path-shaped data).
+- [ ] Add `boundaries: RefCell<HashMap<Option<String>, PackageBoundary>>` to `MemoryStore` and
+  implement all seven methods. Pre-populate primary boundary in `empty()` / `with_field()` /
+  `with_type()`.
 - [ ] Implement all seven methods on `JsonStore`.
-- [ ] Add new `RepositoryError` variant `PackageNotFound { selector: PackageSelector }` to `error.rs`.
 
-#### Acceptance Criteria
+#### Phase 2 Acceptance Criteria
 
-- [ ] New package methods are sufficient for package services without calling `load_package_json`.
-- [ ] MemoryStore package state is keyed by `PackageSelector`, not fake file paths.
+- [ ] `package_types.rs` compiles outside `#[cfg(test)]`.
+- [ ] All three stores compile with no warnings after adding the seven methods.
+- [ ] MemoryStore `boundaries` is keyed by `PackageSelector`, not by path strings.
 - [ ] FileStore preserves current `package/` and `packageRefs` layout.
-- [ ] JsonStore implements all methods and passes the same tests as MemoryStore.
-- [ ] Trait remains synchronous.
-- [ ] All three implementers compile with no warnings.
+- [ ] JsonStore implements all seven methods using `load_instance_json`/`save_instance_json`.
+- [ ] `resolve_definition_owner` doc includes the O(n×m) complexity note.
+- [ ] `DefinitionKind::RelationType` is present but implementations may treat it as a no-op for
+  the `field_paths`/`type_paths` tracking arrays; this is acceptable for Phase 2.
 
-#### Testing — add to `store.rs` `#[cfg(test)]` block
+#### Phase 2 Testing — add to `store.rs` `#[cfg(test)]`
 
-- `memory_store_list_package_boundaries_returns_primary` — empty store has primary boundary.
-- `memory_store_register_sub_package_adds_to_boundaries` — `register_package_boundary(Some("pkg/ext"))` adds entry.
-- `memory_store_add_definition_to_boundary_updates_paths` — field path appears in `field_paths`.
-- `memory_store_resolve_definition_owner_primary` — field stored in primary boundary resolves to `None`.
-- `memory_store_resolve_definition_owner_sub_package` — field stored in sub-package resolves to `Some(path)`.
-- `file_store_package_boundary_maps_existing_layout` — `list_package_boundaries` on a real FileStore fixture returns primary + registered sub-packages.
-- `json_store_package_boundaries_roundtrip` — register, add definition, open new JsonStore from same file, verify boundary and path present.
+- `memory_store_package_types_are_not_cfg_test` — compile-time: `PackageBoundary` used from a
+  non-test module (if possible to assert structurally; otherwise document and skip).
+- `memory_store_list_package_boundaries_returns_primary` — fresh `MemoryStore` has one boundary
+  with selector `None`.
+- `memory_store_register_sub_package_adds_to_boundaries` — `register_package_boundary(Some("pkg/ext".into()))` makes it visible in `list_package_boundaries`.
+- `memory_store_add_definition_to_boundary_updates_field_paths` — `add_definition_to_boundary(None, Field, "fields/foo.json")` appears in `load_package_boundary(None).field_paths`.
+- `memory_store_add_definition_idempotent` — calling twice does not duplicate the path.
+- `memory_store_remove_definition_from_boundary` — path is gone after remove; no error if absent.
+- `memory_store_resolve_definition_owner_primary` — a field stored via `save_field` in primary boundary resolves to `None`.
+- `memory_store_resolve_definition_owner_sub_package` — a field registered in a sub-package resolves to `Some(path)`.
+- `memory_store_resolve_definition_not_found` — unknown id returns `DefinitionNotFound`.
+- `memory_store_save_boundary_metadata_does_not_overwrite_paths` — save metadata with different name; `field_paths` unchanged.
+- `file_store_list_package_boundaries_returns_primary` — FileStore on a minimal fixture returns at least one boundary.
+- `file_store_register_sub_package_adds_to_manifest` — after `register_package_boundary(Some("pkg/ext"))`, manifest `packageRefs` contains the entry.
+- `json_store_package_boundaries_roundtrip` — register sub-package, add field path, drop store,
+  open new `JsonStore::open`, verify boundary and path present. Use `tempfile::TempDir`.
 
-#### Milestone gate
+#### Phase 2 Milestone gate (blocks Phase 3 migration tasks and Phase 4 migration tasks)
 
 ```bash
 cargo test -p srs-repository
@@ -250,61 +374,85 @@ cargo clippy -p srs-repository -- -D warnings
 
 ### Phase 3: Package Lifecycle Services
 
-**Goal:** Package lifecycle behavior is fully implemented through `RepositoryStore` boundary methods.
-Services do not call `load_package_json` directly.
+**Goal:** Package lifecycle is fully implemented through boundary methods. `import_package_local`
+and `update_package_metadata` are added. Services do not call `load_package_json` directly.
+
+**Prerequisite:** Phase 2 milestone gate must pass before migration tasks begin. `import_package_local`
+and `update_package_metadata` may be implemented before Phase 2 using current store methods, then
+migrated once Phase 2 lands.
 
 **Agent:** Package Service Worker
 
-#### Current state
+---
 
-- `create_package` — done but calls `load_manifest`/`save_manifest` and `validate_package_ref_path` directly instead of `register_package_boundary`. Migrate after Phase 2.
-- `list_packages` — done but reads raw `load_package_json`. Migrate to `list_package_boundaries` after Phase 2.
-- `import_package_local` — not implemented.
-- `update_package_metadata` — not implemented.
+#### `import_package_local` — clarification on source_path
 
-#### Tasks
+`source_path` is a path **relative to the repository root** pointing to a directory that already
+contains a `package.json`. For FileStore this means the directory exists on disk. The service reads
+`store.load_instance_json("{source_path}/package.json")` — no filesystem operations directly.
+
+The service does **not** copy any files. It reads the existing `package.json`, validates it,
+extracts metadata, and registers the boundary. If the directory or `package.json` does not exist,
+`load_instance_json` will return an error that the service propagates.
+
+---
+
+#### `create_package` idempotency — explicit policy
+
+`create_package` with a path that is already registered should return
+`RepositoryError::PackageAlreadyRegistered { id }`. This is **not** idempotent by design — calling
+it twice is a caller error. The existing implementation checks for duplicate registration in the
+manifest ref list (silently skips) but does not check the package id. After Phase 3 migration,
+`create_package` must explicitly check via `list_package_boundaries` whether a boundary with the
+same path or same id is already registered and return `PackageAlreadyRegistered` if so.
+
+---
+
+#### Phase 3 Tasks
 
 - [ ] Migrate `create_package` to call `store.register_package_boundary` and
-  `store.save_package_boundary_metadata` instead of hand-writing manifest/packageRefs mutations.
-- [ ] Migrate `list_packages` to call `store.list_package_boundaries` and map to
+  `store.save_package_boundary_metadata`. Add explicit duplicate check (same path or id already
+  registered → `PackageAlreadyRegistered`).
+- [ ] Migrate `list_packages` to call `store.list_package_boundaries`. Map `PackageBoundary` to
   `PackageBoundaryInfo`. Remove direct `load_package_json` call.
-- [ ] Implement `import_package_local(store, input: ImportPackageLocalInput) -> Result<ImportPackageLocalResult>`:
-  - `ImportPackageLocalInput`: `{ source_path: String }` — path relative to repo root of a directory containing a `package.json`.
-  - Validate the source directory contains a valid `package.json` (read via `store.load_instance_json`).
-  - Extract `id`, `namespace`, `name`, `version` from source `package.json`.
-  - If a boundary with the same `id` is already registered, return `RepositoryError::PackageAlreadyRegistered { id }`.
-  - Copy the source `package.json` to `{source_path}/package.json` in store (it's already there for FileStore; for MemoryStore/JsonStore write via `save_instance_json`).
-  - Call `store.register_package_boundary(Some(source_path))`.
-  - Return `ImportPackageLocalResult { selector: Some(source_path), id, namespace, name }`.
-- [ ] Implement `update_package_metadata(store, selector, input: UpdatePackageMetadataInput) -> Result<UpdatePackageMetadataResult>`:
-  - `UpdatePackageMetadataInput`: `{ namespace: Option<String>, name: Option<String>, version: Option<String> }`.
-  - Load current boundary via `store.load_package_boundary(&selector)`.
-  - Apply non-None fields.
-  - Call `store.save_package_boundary_metadata(&updated)`.
-  - Return `UpdatePackageMetadataResult { boundary }`.
-  - Must not touch `fields`/`types` arrays — metadata only.
+- [ ] Implement `import_package_local`:
+  - Input: `ImportPackageLocalInput { source_path: String }`.
+  - Read `store.load_instance_json("{source_path}/package.json")` — no `std::fs`.
+  - Extract `id`, `namespace`, `name`, `version`. Return `PackageLoad` error if missing fields.
+  - Check `store.list_package_boundaries()` for an existing boundary with the same `id`. Return
+    `PackageAlreadyRegistered { id }` if found.
+  - Call `store.register_package_boundary(Some(source_path.clone()))`.
+  - Output: `ImportPackageLocalResult { selector: Some(source_path), id, namespace, name }`.
+- [ ] Implement `update_package_metadata`:
+  - Input: `UpdatePackageMetadataInput { selector: PackageSelector, namespace: Option<String>, name: Option<String>, version: Option<String> }`.
+  - Call `store.load_package_boundary(&input.selector)`. Return `PackageNotFound` if absent.
+  - Patch non-None fields onto the loaded `PackageBoundary`.
+  - Call `store.save_package_boundary_metadata(&patched)`.
+  - Output: `UpdatePackageMetadataResult { boundary: PackageBoundary }`.
+  - `field_paths` and `type_paths` must be unchanged.
 - [ ] Add `RepositoryError::PackageAlreadyRegistered { id: String }` to `error.rs`.
 
-#### Acceptance Criteria
+#### Phase 3 Acceptance Criteria
 
-- [ ] `create_package` uses boundary methods, not raw manifest/packageRefs writes.
-- [ ] `list_packages` uses `list_package_boundaries`, not `load_package_json`.
-- [ ] `import_package_local` is callable through `&dyn RepositoryStore`.
-- [ ] `update_package_metadata` only touches id/namespace/name/version — never field/type arrays.
-- [ ] No service function in this phase calls `std::fs`.
-- [ ] Duplicate import returns deterministic `PackageAlreadyRegistered` error.
+- [ ] `create_package` uses boundary methods; returns `PackageAlreadyRegistered` on duplicate.
+- [ ] `list_packages` uses `list_package_boundaries`; no direct `load_package_json` call.
+- [ ] `import_package_local` callable through `&dyn RepositoryStore`; no `std::fs` calls.
+- [ ] `update_package_metadata` only patches id/namespace/name/version; `field_paths`/`type_paths` unchanged.
+- [ ] Duplicate `create_package` or `import_package_local` returns `PackageAlreadyRegistered`.
 
-#### Testing — add to `package_service.rs` `#[cfg(test)]`
+#### Phase 3 Testing
 
 - `create_package_auto_registers_boundary` — after `create_package`, `list_package_boundaries` returns the new boundary.
 - `create_package_rejects_primary_path` — `boundary_path = "package"` returns error.
-- `import_package_local_registers_logical_package` — import a pre-seeded sub-package path; `list_packages` returns it.
-- `import_package_local_rejects_duplicate` — second import of same `id` returns `PackageAlreadyRegistered`.
-- `import_package_local_rejects_missing_source` — missing `package.json` returns error.
-- `update_package_metadata_does_not_rewrite_definitions` — add a field path, call `update_package_metadata`, verify field path still present.
-- `update_package_metadata_changes_name` — name update is visible in `list_packages`.
+- `create_package_rejects_duplicate_path` — same path twice returns `PackageAlreadyRegistered`.
+- `import_package_local_registers_logical_package` — seeded path; `list_packages` returns it after import.
+- `import_package_local_rejects_duplicate_id` — import same id twice returns `PackageAlreadyRegistered`.
+- `import_package_local_rejects_missing_source` — nonexistent path returns `PackageLoad` or `Io` error.
+- `update_package_metadata_changes_name` — new name visible in `list_packages`.
+- `update_package_metadata_does_not_rewrite_paths` — add a field path first; call update; field path still present.
+- `update_package_metadata_rejects_missing_boundary` — unknown selector returns `PackageNotFound`.
 
-#### Milestone gate
+#### Phase 3 Milestone gate
 
 ```bash
 cargo test -p srs-repository
@@ -315,53 +463,75 @@ cargo clippy -p srs-repository -- -D warnings
 
 ### Phase 4: Package-Aware Definition Services
 
-**Goal:** Field/type CRUD uses boundary methods so there are no raw filename assumptions.
+**Goal:** Field/type CRUD uses boundary methods. No raw `load_package_json`/`save_package_json`
+calls remain in definition services.
+
+**Prerequisite:** Phase 2 milestone gate must pass before migration tasks begin.
 
 **Agent:** Package Service Worker
 
-#### Current state
+---
 
-- `create_field`, `create_type` — write to primary package only; index update still calls `load_package_json`/`save_package_json` directly.
-- `find_field_path`, `find_type_path` — use `load_package_json` + `load_instance_json` walk. Migrate to `resolve_definition_owner`.
-- `update_field`, `delete_field`, `update_type`, `delete_type` — use `find_field_path`/`find_type_path`; should migrate to boundary methods after Phase 2.
-- `list_fields_internal`, `list_types_internal` — build provenance by walking `load_package_json`. Migrate to `list_package_boundaries`.
+#### `create_field` / `create_type` signature change — migration strategy
 
-#### Tasks
+Adding `selector: PackageSelector` to `create_field` and `create_type` is a breaking change for
+all existing callers. To avoid a compile flag day between Phase 4 (service) and Phase 5 (CLI):
 
-- [ ] Migrate `create_field` to accept `selector: PackageSelector` (default `None`). Use
-  `store.add_definition_to_boundary(&selector, DefinitionKind::Field, &filename)` instead of
-  directly mutating the `package.json` array.
-- [ ] Migrate `create_type` the same way.
+1. Add a new function `create_field_in_package(store, field, selector: PackageSelector)` that
+   implements the boundary-aware logic.
+2. Keep `create_field(store, field)` as a thin wrapper calling
+   `create_field_in_package(store, field, None)`.
+3. Phase 5 updates CLI handlers to call `create_field_in_package` with the user-supplied selector.
+4. After Phase 5 is complete, `create_field` can be removed or kept as a convenience wrapper.
+
+Apply the same pattern to `create_type`.
+
+---
+
+#### Phase 4 Tasks
+
+- [ ] Add `create_field_in_package(store, field, selector: PackageSelector) -> Result<CreateFieldResult>`:
+  - Call `store.ensure_fields_dir()` (or boundary-equivalent).
+  - Compute filename as today.
+  - Call `store.save_field(&filename, &field)` with the appropriate prefix for the boundary.
+  - Call `store.add_definition_to_boundary(&selector, DefinitionKind::Field, &filename)`.
+  - Return `CreateFieldResult`.
+- [ ] Add `create_type_in_package` with the same pattern.
+- [ ] Keep `create_field` and `create_type` as wrappers calling `*_in_package(..., None)`.
 - [ ] Migrate `find_field_path` to use `store.resolve_definition_owner(id, DefinitionKind::Field)`,
-  then reconstruct the path from the boundary. Remove the manual walk.
+  then reconstruct the full path from the returned selector. Remove the manual walk.
 - [ ] Migrate `find_type_path` the same way.
-- [ ] Migrate `delete_field` / `delete_type` to call
-  `store.remove_definition_from_boundary(&selector, kind, &path)` after deleting the file.
-- [ ] Migrate `list_fields_internal` provenance map to use `store.list_package_boundaries()` and
-  `boundary.field_paths` instead of calling `load_package_json`.
+- [ ] Migrate `delete_field` to call `store.remove_definition_from_boundary` after deleting the file.
+- [ ] Migrate `delete_type` the same way.
+- [ ] Migrate `list_fields_internal` to build provenance from `store.list_package_boundaries()`
+  and `boundary.field_paths` instead of calling `load_package_json`.
 - [ ] Migrate `list_types_internal` the same way.
+- [ ] Verify no field/type service function calls `load_package_json` or `save_package_json`.
 
-#### Acceptance Criteria
+#### Phase 4 Acceptance Criteria
 
-- [ ] `create_field` / `create_type` accept an optional package selector; default is primary.
-- [ ] No field/type service function calls `load_package_json` or `save_package_json` directly.
-- [ ] Field/type update/delete resolve owner through boundary methods.
-- [ ] `list_fields` / `list_types` provenance uses `list_package_boundaries`.
+- [ ] `create_field_in_package` / `create_type_in_package` exist and accept a selector.
+- [ ] `create_field` / `create_type` remain as wrappers; existing CLI callers compile unchanged.
+- [ ] No field/type service function calls `load_package_json` or `save_package_json`.
+- [ ] `find_field_path` / `find_type_path` use `resolve_definition_owner`.
+- [ ] `delete_field` / `delete_type` call `remove_definition_from_boundary`.
 - [ ] All existing tests continue to pass.
 
-#### Testing — add to `package_service.rs` `#[cfg(test)]`
+#### Phase 4 Testing
 
+- `create_field_in_sub_package` — field created with `selector = Some("pkg/ext".into())` appears
+  in that boundary's `field_paths` and not in the primary.
+- `create_field_default_selector_targets_primary` — `create_field` (no selector) goes to primary.
+- `delete_field_removes_from_boundary_index` — after delete, path gone from boundary `field_paths`.
+- `delete_type_removes_from_boundary_index` — same for types.
+- `update_field_resolves_owner_via_boundary_methods` — update a field in a sub-package succeeds.
+- `update_type_resolves_owner_via_boundary_methods` — same for types.
 - `list_fields_by_package_filters_correctly` — field in sub-package not returned for primary filter.
 - `list_types_by_package_filters_correctly` — same for types.
 - `list_fields_includes_source_package` — `source_package` in summary matches boundary path.
 - `list_types_includes_source_package` — same for types.
-- `create_field_in_sub_package` — field created with `selector = Some("pkg/ext")` appears in
-  that boundary's `field_paths` and not in the primary.
-- `delete_field_removes_from_boundary_index` — after delete, field path gone from boundary.
-- `update_field_resolves_owner_package` — field in sub-package can be updated.
-- `delete_type_resolves_owner_package` — type in sub-package can be deleted.
 
-#### Milestone gate
+#### Phase 4 Milestone gate
 
 ```bash
 cargo test -p srs-repository
@@ -372,65 +542,68 @@ cargo clippy -p srs-repository -- -D warnings
 
 ### Phase 5: CLI
 
-**Goal:** Package lifecycle and package-aware definition queries fully available through thin CLI
-handlers. Legacy `enable/disable` deprecated or routed through lifecycle services.
+**Goal:** Package lifecycle and package-aware definition queries fully available. Legacy
+`enable/disable` hidden.
+
+**Prerequisite:** Phase 4 milestone gate (all service changes complete and tested).
 
 **Agent:** CLI Worker
 
-#### Current state
+---
 
-- `srs package list` — done; output uses `PackageBoundaryInfo` JSON.
-- `srs package create` — done.
-- `srs field list --package` — done.
-- `srs type list --package` — done.
-- `srs package enable/disable` — still live; calls raw `add_package_ref`/`remove_package_ref`
-  from `manifest_service`. Needs deprecation or routing through `import_package_local` /
-  `create_package`.
-- `srs package import` — not implemented.
-- `srs package update` — not implemented.
-- `srs slice create` — not implemented.
-- `srs field create` / `srs type create` — do not yet accept `--package`.
+#### `srs slice create` — permanent alias
 
-#### Tasks
+`slice create` is a permanent CLI alias for `package create` and will not diverge semantically.
+It exists to let users think in terms of "definition slices" without exposing the word "package"
+in that context. The implementation calls the same `cmd_package_create` function directly — no
+separate service logic. This is documented in `CLAUDE.md`.
 
-- [ ] `srs package import` — add `PackageCommand::Import { path: String }` variant to `mod.rs`.
-  Handler calls `import_package_local(store, ImportPackageLocalInput { source_path: path })`.
-  Output: `{ "selector": "...", "id": "...", "namespace": "...", "name": "..." }`.
-- [ ] `srs package update` — add `PackageCommand::Update { selector: Option<String>, namespace: Option<String>, name: Option<String>, version: Option<String> }`.
-  `--selector` omitted = primary package.
-  Handler calls `update_package_metadata`. Output: updated boundary JSON.
-- [ ] `srs slice create` — add `PackageCommand::SliceCreate` as an alias variant that calls
-  `cmd_package_create` internally. Both commands appear in help. Document in `CLAUDE.md`.
-- [ ] `srs field create --package <path>` — add `--package` arg to `FieldCommand::Create`.
-  Pass `selector` to `create_field`.
-- [ ] `srs type create --package <path>` — same for `TypeCommand::Create`.
-- [ ] Deprecate `package enable/disable`: add `#[arg(hide = true)]` to both variants and add a
-  note in their help text pointing to `package import`. Keep the implementations working for now —
-  do not remove.
-- [ ] Update `CLAUDE.md` CLI reference section: add `srs package import`, `srs package update`,
-  `srs slice create`; document `--package` on `field create` and `type create`; mark
-  `enable/disable` as deprecated.
+---
 
-#### Acceptance Criteria
+#### Phase 5 Tasks
 
-- [ ] `srs package import` creates and registers a boundary from an existing local path.
-- [ ] `srs package update` changes metadata only; does not alter definition arrays.
-- [ ] `srs slice create` is callable and produces the same result as `srs package create`.
-- [ ] `srs field create --package` / `srs type create --package` route to the correct boundary.
-- [ ] `srs package enable/disable` still work but are hidden from default help.
-- [ ] All output envelopes remain stable JSON (no removed keys).
+- [ ] `srs package import`: add `PackageCommand::Import { #[arg(long)] path: String }` to `mod.rs`.
+  Handler in `package.rs` calls `import_package_local`. Output envelope:
+  `{ "selector": ..., "id": ..., "namespace": ..., "name": ... }`.
+- [ ] `srs package update`: add `PackageCommand::Update { #[arg(long)] selector: Option<String>, #[arg(long)] namespace: Option<String>, #[arg(long)] name: Option<String>, #[arg(long)] version: Option<String> }`.
+  Omitted `--selector` maps to `None` (primary package). Handler calls `update_package_metadata`.
+  Output: updated boundary as JSON object.
+- [ ] `srs slice create`: add `PackageCommand::SliceCreate { ... }` with the same args as
+  `PackageCommand::Create`. Dispatch arm calls `cmd_package_create` with the same arguments.
+- [ ] `srs field create --package`: add `#[arg(long)] package: Option<String>` to
+  `FieldCommand::Create`. Dispatch passes selector to `create_field_in_package`.
+- [ ] `srs type create --package`: same for `TypeCommand::Create` and `create_type_in_package`.
+- [ ] Deprecate `package enable/disable`: add `#[arg(hide = true)]` and update help strings to
+  "Deprecated: use `srs package import` instead." Keep implementations.
+- [ ] Update `CLAUDE.md`: add `srs package import`, `srs package update`, `srs slice create`;
+  document `--package` on `field create` and `type create`; mark `enable/disable` as deprecated.
 
-#### Testing — add to `crates/srs-cli/tests/` integration tests
+#### Phase 5 Acceptance Criteria
 
-- `package_create_happy_path` — `srs package create --id ... --namespace ... --name ... --path pkg/ext` exits 0; `ok: true`; `boundaryPath` present.
-- `package_import_local_happy_path` — seed a directory with a `package.json`, run `srs package import --path pkg/seed`, verify boundary listed in `srs package list`.
-- `package_update_metadata_only` — create package, update name, verify new name; verify field count unchanged.
-- `slice_create_matches_package_create` — same args to both commands produce equivalent output shapes.
-- `field_create_in_sub_package` — `srs field create --package pkg/ext` routes to sub-package boundary.
-- `field_list_with_package_filter` — fields in sub-package appear only with matching `--package`.
+- [ ] `srs package import --path <rel>` creates and registers a boundary from an existing path.
+- [ ] `srs package update` changes name/namespace/version only; field/type counts unchanged.
+- [ ] `srs slice create` with same args as `srs package create` produces identical output shape.
+- [ ] `srs field create --package pkg/ext` calls `create_field_in_package(..., Some("pkg/ext"))`.
+- [ ] `srs type create --package pkg/ext` calls `create_type_in_package(..., Some("pkg/ext"))`.
+- [ ] `srs package enable/disable` still exit 0 but are hidden from `--help`.
+- [ ] All output envelopes are stable JSON (no removed keys).
+- [ ] `CLAUDE.md` reflects all changes.
+
+#### Phase 5 Testing — `crates/srs-cli/tests/`
+
+- `package_create_happy_path` — exits 0; `ok: true`; `boundaryPath` present in payload.
+- `package_import_local_happy_path` — seed a directory with a valid `package.json`, import it,
+  verify it appears in `srs package list` output.
+- `package_update_metadata_only` — create package, update `--name new-name`, verify name changed
+  and `fieldCount` / `typeCount` unchanged in `srs package list`.
+- `slice_create_output_matches_package_create` — same args; both return `ok: true` with
+  `boundaryPath` present.
+- `field_create_in_sub_package` — `srs field create --package pkg/ext < field.json` routes to
+  sub-package; `srs field list --package pkg/ext` returns it.
+- `field_list_with_package_filter` — fields in sub-package absent from `srs field list` without filter; present with `--package`.
 - `type_list_with_package_filter` — same for types.
 
-#### Milestone gate
+#### Phase 5 Milestone gate
 
 ```bash
 cargo test
@@ -441,27 +614,35 @@ cargo clippy -- -D warnings
 
 ### Phase 6: Test Coverage for Existing Work
 
-**Goal:** All service and store behaviors introduced in the partial Phase 3/4 implementation have
-test coverage, not just the new Phase 2–5 work.
+**Goal:** All behaviors implemented in the partial Phase 3/4 work that landed before Phase 2 have
+explicit test coverage. This phase catches any invariants that slipped through.
+
+**Prerequisite:** Phases 3, 4, 5 milestone gates passed.
 
 **Agent:** Verification
 
-#### Tasks
+---
 
-- [ ] Verify the following tests exist and pass (write them if absent):
+#### Phase 6 Tasks
+
+- [ ] Verify or write:
   - `package_service::tests::list_packages_returns_primary_and_sub_packages`
-  - `package_service::tests::list_fields_by_package_filters_correctly`
-  - `package_service::tests::list_types_by_package_filters_correctly`
-  - `package_service::tests::list_fields_includes_source_package`
-  - `package_service::tests::list_types_includes_source_package`
-  - `package_service::tests::create_package_auto_registers_boundary`
-  - `package_service::tests::create_package_rejects_primary_path`
-  - `package_service::tests::field_delete_removes_from_package_json` (already exists, verify)
-  - `package_service::tests::type_delete_removes_from_package_json` (already exists, verify)
-  - `store::tests::memory_store_save_field_uses_package_prefix_key` — proves MemoryStore stores at `package/fields/...` not `fields/...`.
-  - `store::tests::json_store_field_roundtrip` — JsonStore create_field / list_fields roundtrip.
+  - `package_service::tests::list_fields_by_package_filters_correctly` (may be written in Phase 4)
+  - `package_service::tests::list_types_by_package_filters_correctly` (may be written in Phase 4)
+  - `package_service::tests::list_fields_includes_source_package` (may be written in Phase 4)
+  - `package_service::tests::list_types_includes_source_package` (may be written in Phase 4)
+  - `package_service::tests::create_package_auto_registers_boundary` (may be written in Phase 3)
+  - `package_service::tests::create_package_rejects_primary_path` (may be written in Phase 3)
+  - `package_service::tests::field_delete_removes_from_package_json` (exists, verify still passes)
+  - `package_service::tests::type_delete_removes_from_package_json` (exists, verify still passes)
+  - `store::tests::memory_store_save_field_uses_package_prefix_key` — asserts that after
+    `save_field("fields/foo.json", ...)`, the MemoryStore data map contains the key
+    `"package/fields/foo.json"` and not `"fields/foo.json"`. This invariant is load-bearing for
+    `resolve_definition_owner` correctness and **should be promoted to Phase 2 acceptance criteria**
+    if not already present.
+  - `store::tests::json_store_field_roundtrip` — `create_field` then `list_fields` via JsonStore.
 
-#### Milestone gate
+#### Phase 6 Milestone gate (Final Acceptance gate)
 
 ```bash
 cargo test -p srs-repository
@@ -477,16 +658,25 @@ All of the following must be true before this plan is closed:
 - [ ] `cargo test` passes with no failures.
 - [ ] `cargo clippy -- -D warnings` passes.
 - [ ] `ARCHITECTURE.md` documents logical package boundaries.
-- [ ] ADR is created or explicitly deferred with rationale in ARCHITECTURE.md.
+- [ ] ADR created or deferral explicitly documented in `ARCHITECTURE.md`.
+- [ ] `package_types.rs` is not gated behind `#[cfg(test)]`.
 - [ ] No service function calls `load_package_json` or `save_package_json` directly.
-- [ ] MemoryStore package state is keyed by `PackageSelector`, not path strings.
-- [ ] FileStore preserves current package layout.
-- [ ] JsonStore implements all boundary methods.
-- [ ] Field/type package provenance and package filtering work.
-- [ ] `srs package import`, `srs package update`, `srs slice create` are available in the CLI.
-- [ ] `srs field create --package` and `srs type create --package` are available.
-- [ ] `srs package enable/disable` are deprecated (hidden, with migration hint).
-- [ ] A future SQL adapter can implement all boundary methods without changing service APIs.
+- [ ] MemoryStore `boundaries` is keyed by `PackageSelector`, not path strings.
+- [ ] FileStore preserves current `package/` and `packageRefs` layout.
+- [ ] JsonStore implements all seven boundary methods.
+- [ ] `resolve_definition_owner` doc contains the O(n×m) complexity note.
+- [ ] `DefinitionKind::RelationType` is present in the enum; implementations may treat as no-op.
+- [ ] `create_package` returns `PackageAlreadyRegistered` on duplicate.
+- [ ] `import_package_local` is implemented and contains no `std::fs` calls.
+- [ ] `update_package_metadata` does not touch `field_paths` or `type_paths`.
+- [ ] `create_field_in_package` / `create_type_in_package` exist with selector parameter.
+- [ ] `create_field` / `create_type` remain as wrappers; all existing callers compile unchanged.
+- [ ] `srs package import`, `srs package update`, `srs slice create` available in CLI.
+- [ ] `srs field create --package` and `srs type create --package` available.
+- [ ] `srs package enable/disable` hidden from help, still functional.
+- [ ] `memory_store_save_field_uses_package_prefix_key` test exists and passes.
+- [ ] `CLAUDE.md` updated with new commands.
+- [ ] A future SQL adapter can implement all seven boundary methods without changing service APIs.
 
 ---
 
@@ -500,16 +690,25 @@ All of the following must be true before this plan is closed:
   update the plan checkboxes, then commit.
 - Verification Agent runs after each major phase and before final sign-off.
 
+## Ordering Constraints
+
+```
+Phase 1 → Phase 2 → Phase 3 (migration tasks) → Phase 4 → Phase 5 → Phase 6
+                  ↘ Phase 3 (import/update new code, no migration) can start in parallel
+```
+
+Phase 3's `import_package_local` and `update_package_metadata` implementations can be written
+against the current store interface before Phase 2 lands, then their internals migrated to boundary
+methods once Phase 2 is complete.
+
 ## Assumptions
 
-- Repository lifecycle and full-repository portability are handled by `storage-agnostic-repository-lifecycle.md`.
-- Container storage alignment is handled by `storage-agnostic-container-boundaries.md`.
-- The current file-backed package layout remains supported.
-- `package import` v1 supports local source only.
-- `package update` v1 is metadata/binding only.
-- `slice create` is a CLI alias for package creation in this phase.
+- The current file-backed package layout remains supported throughout.
+- `package import` v1 supports local source only (no registry/network).
+- `package update` v1 is metadata/binding only (no definition sync).
+- `slice create` is a permanent CLI alias for `package create`; it will not diverge semantically.
 - SQL implementation is not part of this plan.
-- Phase 2 must land before Phase 3 migration tasks and Phase 4 migration tasks begin.
-  Phase 3 `import_package_local` and `update_package_metadata` can be implemented
-  before Phase 2 if they are written to use the current `load_instance_json`/`save_instance_json`
-  interface, then migrated in Phase 3's migration tasks.
+- `DefinitionKind::View`, `DefinitionKind::DocumentView`, `DefinitionKind::RelationType` are
+  included in the enum for completeness but boundary tracking for those kinds is not required to
+  be fully functional in this plan. Implementations may return `Ok(())` for add/remove and skip
+  them in `resolve_definition_owner`.
