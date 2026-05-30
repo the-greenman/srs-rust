@@ -218,16 +218,16 @@ cargo clippy -p srs-repository -- -D warnings
 
 #### Tasks
 
-- [ ] Verify existing container CLI handlers remain thin wrappers.
-- [ ] Update handlers only if service signatures change.
-- [ ] Preserve existing JSON envelope conventions.
-- [ ] Add or update integration tests for container CRUD and membership.
+- [x] Verify existing container CLI handlers remain thin wrappers.
+- [x] Update handlers only if service signatures change.
+- [x] Preserve existing JSON envelope conventions.
+- [x] Add or update integration tests for container CRUD and membership.
 
 #### Acceptance Criteria
 
-- [ ] Container CLI output format remains compatible.
-- [ ] Container CLI handlers do not perform direct file/index manipulation.
-- [ ] Existing container workflows still pass.
+- [x] Container CLI output format remains compatible.
+- [x] Container CLI handlers do not perform direct file/index manipulation.
+- [x] Existing container workflows still pass.
 
 #### Testing
 
@@ -262,14 +262,14 @@ cargo clippy -- -D warnings
 
 All of the following must be true before this plan is closed:
 
-- [ ] `cargo test` passes with no failures.
-- [ ] `cargo clippy -- -D warnings` passes.
-- [ ] `ARCHITECTURE.md` documents logical container boundaries.
-- [ ] Container services do not expose storage paths.
-- [ ] MemoryStore stores containers by ID.
-- [ ] FileStore preserves current `containers/*.json` layout.
-- [ ] Container CLI behavior remains compatible.
-- [ ] A future SQL adapter can implement container behavior without changing service APIs.
+- [x] `cargo test` passes with no failures.
+- [x] `cargo clippy -- -D warnings` passes.
+- [x] `ARCHITECTURE.md` documents logical container boundaries.
+- [x] Container services do not expose storage paths.
+- [x] MemoryStore stores containers by ID.
+- [x] FileStore preserves current `containers/*.json` layout.
+- [x] Container CLI behavior remains compatible.
+- [x] A future SQL adapter can implement container behavior without changing service APIs.
 
 ## Coordination Rules
 
