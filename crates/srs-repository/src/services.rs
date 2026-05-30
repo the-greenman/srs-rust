@@ -27,6 +27,7 @@ use crate::writer::{new_instance_id, upsert_index_entry, write_manifest, write_n
 use serde::{Deserialize, Serialize};
 use srs_core::types::note::Note;
 use srs_core::validation::note::validate_note;
+use srs_schema::{SchemaRegistry, NOTE_SCHEMA_ID};
 
 /// Summary of a note for list operations
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -267,6 +268,18 @@ pub fn create_note(
         note.instance_id = new_instance_id();
     }
 
+    // Schema validation before core validation
+    let raw = serde_json::to_value(&note).map_err(|e| RepositoryError::Serialize {
+        path: std::path::PathBuf::from("<stdin>"),
+        source: e,
+    })?;
+    SchemaRegistry::global()
+        .validate_by_id(NOTE_SCHEMA_ID, &raw)
+        .map_err(|e| RepositoryError::SchemaValidation {
+            path: std::path::PathBuf::from("<stdin>"),
+            message: e.to_string(),
+        })?;
+
     validate_note(&note).map_err(|e| RepositoryError::NoteValidation {
         path: std::path::PathBuf::from("<create>"),
         source: e,
@@ -387,6 +400,18 @@ pub fn update_note(
         .ok_or_else(|| RepositoryError::NoteNotFound {
             path: std::path::PathBuf::from("records/notes"),
             id: note.instance_id.clone(),
+        })?;
+
+    // Schema validation before core validation
+    let raw = serde_json::to_value(&note).map_err(|e| RepositoryError::Serialize {
+        path: std::path::PathBuf::from(entry.path()),
+        source: e,
+    })?;
+    SchemaRegistry::global()
+        .validate_by_id(NOTE_SCHEMA_ID, &raw)
+        .map_err(|e| RepositoryError::SchemaValidation {
+            path: std::path::PathBuf::from(entry.path()),
+            message: e.to_string(),
         })?;
 
     validate_note(&note).map_err(|e| RepositoryError::NoteValidation {

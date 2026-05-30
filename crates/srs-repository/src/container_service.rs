@@ -28,6 +28,7 @@ use crate::writer::new_instance_id;
 use serde::{Deserialize, Serialize};
 use srs_core::types::container::Container;
 use srs_core::validation::container::validate_container;
+use srs_schema::{SchemaRegistry, CONTAINER_SCHEMA_ID};
 use std::collections::HashSet;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,6 +121,19 @@ pub fn create_container(
     if container.container_id.is_empty() {
         container.container_id = new_instance_id();
     }
+
+    // Schema validation at service boundary
+    let raw = serde_json::to_value(&container).map_err(|e| RepositoryError::Serialize {
+        path: std::path::PathBuf::from("<stdin>"),
+        source: e,
+    })?;
+    SchemaRegistry::global()
+        .validate_by_id(CONTAINER_SCHEMA_ID, &raw)
+        .map_err(|e| RepositoryError::SchemaValidation {
+            path: std::path::PathBuf::from("<stdin>"),
+            message: e.to_string(),
+        })?;
+
     validate_container(&container)
         .map_err(|source| RepositoryError::ContainerValidation { source })?;
 
@@ -161,6 +175,19 @@ pub fn update_container(
     if let Some(v) = patch.meta {
         container.meta = Some(v);
     }
+
+    // Schema validation at service boundary (after patch application)
+    let raw = serde_json::to_value(&container).map_err(|e| RepositoryError::Serialize {
+        path: std::path::PathBuf::from(format!("containers/{container_id}.json")),
+        source: e,
+    })?;
+    SchemaRegistry::global()
+        .validate_by_id(CONTAINER_SCHEMA_ID, &raw)
+        .map_err(|e| RepositoryError::SchemaValidation {
+            path: std::path::PathBuf::from(format!("containers/{container_id}.json")),
+            message: e.to_string(),
+        })?;
+
     validate_container(&container)
         .map_err(|source| RepositoryError::ContainerValidation { source })?;
 

@@ -26,6 +26,7 @@ use serde::{Deserialize, Serialize};
 use srs_core::types::field::Field;
 use srs_core::types::record_type::RecordType;
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
+use srs_schema::{SchemaRegistry, FIELD_SCHEMA_ID};
 
 /// Summary for field list operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -382,6 +383,16 @@ pub fn create_field_normalized(
     mut raw: serde_json::Value,
     package_selector: PackageSelector,
 ) -> Result<CreateFieldResult, RepositoryError> {
+    // Schema validation on the raw input before normalization.
+    // We validate here (not in create_field_in_package) because normalization
+    // may introduce defaults (e.g. aiGuidance: {}) that the strict schema rejects.
+    SchemaRegistry::global()
+        .validate_by_id(FIELD_SCHEMA_ID, &raw)
+        .map_err(|e| RepositoryError::SchemaValidation {
+            path: std::path::PathBuf::from("<stdin>"),
+            message: e.to_string(),
+        })?;
+
     // Normalize description: absent → empty string
     if raw.get("description").is_none() || raw["description"].is_null() {
         raw["description"] = serde_json::json!("");

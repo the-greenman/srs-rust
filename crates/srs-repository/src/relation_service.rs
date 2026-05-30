@@ -25,6 +25,7 @@ use crate::store::RepositoryStore;
 use srs_core::types::relation::{Relation, RelationsCollection};
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::validation::relation::{validate_relation, RelationValidationContext};
+use srs_schema::{SchemaRegistry, RELATIONS_COLLECTION_SCHEMA_ID};
 use std::collections::{HashMap, HashSet};
 
 /// Summary for relation list operations
@@ -194,6 +195,19 @@ pub fn create_relation(
 
     // Add the new relation
     collection.relations.push(relation.clone());
+
+    // Schema validation of the updated collection before writing
+    let collection_raw =
+        serde_json::to_value(&collection).map_err(|e| RepositoryError::Serialize {
+            path: std::path::PathBuf::from(&relative_path),
+            source: e,
+        })?;
+    SchemaRegistry::global()
+        .validate_by_id(RELATIONS_COLLECTION_SCHEMA_ID, &collection_raw)
+        .map_err(|e| RepositoryError::SchemaValidation {
+            path: std::path::PathBuf::from(&relative_path),
+            message: e.to_string(),
+        })?;
 
     // Write back
     write_relations_collection(store, &relative_path, &collection)?;
