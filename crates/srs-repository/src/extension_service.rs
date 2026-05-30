@@ -1,23 +1,22 @@
-use std::path::Path;
-
 use srs_core::types::record::{FieldValue, Record};
 
 use crate::error::RepositoryError;
 use crate::record_store::{get_record_by_id, list_records_by_type};
-use crate::store::FileStore;
+use crate::store::RepositoryStore;
 
-pub fn list_extensions(repo_root: &Path) -> Result<Vec<Record>, RepositoryError> {
-    let store = FileStore::new(repo_root);
-    let mut records = list_records_by_type(&store, "meta", "extension")?;
+pub fn list_extensions(store: &dyn RepositoryStore) -> Result<Vec<Record>, RepositoryError> {
+    let mut records = list_records_by_type(store, "meta", "extension")?;
     if records.is_empty() {
-        records = list_records_by_type_fallback(repo_root, "meta", "extension")?;
+        records = list_records_by_type_fallback(store, "meta", "extension")?;
     }
     Ok(records)
 }
 
-pub fn get_extension_by_id(repo_root: &Path, id: &str) -> Result<Option<Record>, RepositoryError> {
-    let store = FileStore::new(repo_root);
-    match get_record_by_id(&store, id)? {
+pub fn get_extension_by_id(
+    store: &dyn RepositoryStore,
+    id: &str,
+) -> Result<Option<Record>, RepositoryError> {
+    match get_record_by_id(store, id)? {
         Some(record) => {
             if is_extension_type(&record) {
                 Ok(Some(record))
@@ -26,7 +25,7 @@ pub fn get_extension_by_id(repo_root: &Path, id: &str) -> Result<Option<Record>,
             }
         }
         None => {
-            if let Some(record) = get_record_by_id_fallback(repo_root, id)? {
+            if let Some(record) = get_record_by_id_fallback(store, id)? {
                 if is_extension_type(&record) {
                     Ok(Some(record))
                 } else {
@@ -44,32 +43,26 @@ fn is_extension_type(record: &Record) -> bool {
 }
 
 fn list_records_by_type_fallback(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     type_namespace: &str,
     type_name: &str,
 ) -> Result<Vec<Record>, RepositoryError> {
-    let records_dir = repo_root.join("package/records");
-    if !records_dir.exists() {
-        return Ok(vec![]);
-    }
+    let paths = match store.list_instance_files("package/records") {
+        Ok(p) => p,
+        Err(RepositoryError::Io { .. } | RepositoryError::NotFound { .. }) => return Ok(vec![]),
+        Err(e) => return Err(e),
+    };
 
     let mut records = vec![];
-    for entry in std::fs::read_dir(&records_dir).map_err(|source| RepositoryError::Io {
-        path: records_dir.clone(),
-        source,
-    })? {
-        let entry = entry.map_err(|source| RepositoryError::Io {
-            path: records_dir.clone(),
-            source,
-        })?;
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+    for path in &paths {
+        if !path.ends_with(".json") {
             continue;
         }
-        let content = std::fs::read_to_string(&path).map_err(|source| RepositoryError::Io {
-            path: path.clone(),
-            source,
-        })?;
+        let value = match store.load_instance_json(path) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let content = serde_json::to_string(&value).unwrap_or_default();
         if let Some(record) = parse_record_compat(&content) {
             if record.type_namespace == type_namespace && record.type_name == type_name {
                 records.push(record);
@@ -80,22 +73,23 @@ fn list_records_by_type_fallback(
 }
 
 fn get_record_by_id_fallback(
-    repo_root: &Path,
+    store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<Option<Record>, RepositoryError> {
-    let path = repo_root.join("package/records").join(format!("{id}.json"));
-    if !path.exists() {
-        return Ok(None);
+    let path = format!("package/records/{id}.json");
+    match store.load_instance_json(&path) {
+        Ok(value) => {
+            let content = serde_json::to_string(&value).unwrap_or_default();
+            let record =
+                parse_record_compat(&content).ok_or_else(|| RepositoryError::RecordLoad {
+                    path: std::path::PathBuf::from(&path),
+                    source: json_error("Failed to parse record"),
+                })?;
+            Ok(Some(record))
+        }
+        Err(RepositoryError::Io { .. } | RepositoryError::NotFound { .. }) => Ok(None),
+        Err(e) => Err(e),
     }
-    let content = std::fs::read_to_string(&path).map_err(|source| RepositoryError::Io {
-        path: path.clone(),
-        source,
-    })?;
-    let record = parse_record_compat(&content).ok_or_else(|| RepositoryError::RecordLoad {
-        path: path.clone(),
-        source: json_error("Failed to parse record"),
-    })?;
-    Ok(Some(record))
 }
 
 fn parse_record_compat(content: &str) -> Option<Record> {

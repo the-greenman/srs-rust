@@ -7,6 +7,7 @@ use srs_repository::manifest_service::{
     add_declared_extension, list_declared_extensions, remove_declared_extension,
 };
 use srs_repository::validation::validate_repository;
+use srs_repository::FileStore;
 
 pub fn dispatch(ctx: CliContext, cmd: RepoCommand) -> Result<String> {
     match cmd {
@@ -31,7 +32,8 @@ fn cmd_repo_extensions_dispatch(ctx: CliContext, cmd: RepoExtensionsCommand) -> 
 }
 
 fn cmd_repo_extensions_list(ctx: CliContext) -> Result<String> {
-    let extensions = list_declared_extensions(&ctx.repo)?;
+    let store = FileStore::new(&ctx.repo);
+    let extensions = list_declared_extensions(&store)?;
     Ok(output::ok(
         "repo extensions list",
         json!({ "extensions": extensions }),
@@ -39,7 +41,8 @@ fn cmd_repo_extensions_list(ctx: CliContext) -> Result<String> {
 }
 
 fn cmd_repo_extensions_enable(ctx: CliContext, extension_id: String) -> Result<String> {
-    let extensions = add_declared_extension(&ctx.repo, &extension_id)?;
+    let store = FileStore::new(&ctx.repo);
+    let extensions = add_declared_extension(&store, &extension_id)?;
     Ok(output::ok(
         "repo extensions enable",
         json!({ "extensionId": extension_id, "extensions": extensions }),
@@ -47,7 +50,8 @@ fn cmd_repo_extensions_enable(ctx: CliContext, extension_id: String) -> Result<S
 }
 
 fn cmd_repo_extensions_disable(ctx: CliContext, extension_id: String) -> Result<String> {
-    let extensions = remove_declared_extension(&ctx.repo, &extension_id)?;
+    let store = FileStore::new(&ctx.repo);
+    let extensions = remove_declared_extension(&store, &extension_id)?;
     Ok(output::ok(
         "repo extensions disable",
         json!({ "extensionId": extension_id, "extensions": extensions }),

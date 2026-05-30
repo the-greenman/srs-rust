@@ -3,6 +3,7 @@ use crate::output;
 use anyhow::Result;
 use serde_json::json;
 use srs_repository::manifest_service::{add_package_ref, list_package_refs, remove_package_ref};
+use srs_repository::FileStore;
 
 pub fn dispatch(ctx: CliContext, cmd: PackageCommand) -> Result<String> {
     match cmd {
@@ -13,7 +14,8 @@ pub fn dispatch(ctx: CliContext, cmd: PackageCommand) -> Result<String> {
 }
 
 fn cmd_package_list(ctx: CliContext) -> Result<String> {
-    let refs = list_package_refs(&ctx.repo)?;
+    let store = FileStore::new(&ctx.repo);
+    let refs = list_package_refs(&store)?;
     let packages: Vec<serde_json::Value> = refs
         .iter()
         .map(|r| json!({"mode": r.mode, "path": r.path}))
@@ -22,7 +24,8 @@ fn cmd_package_list(ctx: CliContext) -> Result<String> {
 }
 
 fn cmd_package_enable(ctx: CliContext, path: String) -> Result<String> {
-    let refs = add_package_ref(&ctx.repo, &path)?;
+    let store = FileStore::new(&ctx.repo);
+    let refs = add_package_ref(&store, &path)?;
     let packages: Vec<serde_json::Value> = refs
         .iter()
         .map(|r| json!({"mode": r.mode, "path": r.path}))
@@ -34,7 +37,8 @@ fn cmd_package_enable(ctx: CliContext, path: String) -> Result<String> {
 }
 
 fn cmd_package_disable(ctx: CliContext, path: String) -> Result<String> {
-    let refs = remove_package_ref(&ctx.repo, &path)?;
+    let store = FileStore::new(&ctx.repo);
+    let refs = remove_package_ref(&store, &path)?;
     let packages: Vec<serde_json::Value> = refs
         .iter()
         .map(|r| json!({"mode": r.mode, "path": r.path}))

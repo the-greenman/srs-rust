@@ -889,12 +889,34 @@ impl RepositoryStore for FileStore {
     // --- Sub-package path validation ---
 
     fn validate_package_ref_path(&self, relative_path: &str) -> Result<(), RepositoryError> {
-        let dir = self.repo_root.join(relative_path);
-        if !dir.join("package.json").exists() {
+        let repo_root_canonical =
+            self.repo_root
+                .canonicalize()
+                .map_err(|source| RepositoryError::Io {
+                    path: self.repo_root.clone(),
+                    source,
+                })?;
+
+        let candidate = self.repo_root.join(relative_path);
+        let candidate_canonical =
+            candidate
+                .canonicalize()
+                .map_err(|_| RepositoryError::PackageRefMissing {
+                    path: relative_path.to_string(),
+                })?;
+
+        if !candidate_canonical.starts_with(&repo_root_canonical) {
+            return Err(RepositoryError::PackageRefOutsideRepo {
+                path: relative_path.to_string(),
+            });
+        }
+
+        if !candidate_canonical.join("package.json").exists() {
             return Err(RepositoryError::PackageRefMissing {
                 path: relative_path.to_string(),
             });
         }
+
         Ok(())
     }
 }

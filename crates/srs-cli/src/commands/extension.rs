@@ -19,7 +19,8 @@ pub fn dispatch(ctx: CliContext, cmd: ExtensionCommand) -> Result<String> {
 }
 
 fn cmd_extension_list(ctx: CliContext) -> Result<String> {
-    let records = list_extensions(&ctx.repo)?;
+    let store = FileStore::new(&ctx.repo);
+    let records = list_extensions(&store)?;
 
     let extensions: Vec<serde_json::Value> = records
         .into_iter()
@@ -41,7 +42,8 @@ fn cmd_extension_list(ctx: CliContext) -> Result<String> {
 }
 
 fn cmd_extension_get(ctx: CliContext, id: String) -> Result<String> {
-    match get_extension_by_id(&ctx.repo, &id)? {
+    let store = FileStore::new(&ctx.repo);
+    match get_extension_by_id(&store, &id)? {
         Some(record) => Ok(output::ok("extension get", json!({ "extension": record }))),
         None => Ok(output::err(
             "extension get",
