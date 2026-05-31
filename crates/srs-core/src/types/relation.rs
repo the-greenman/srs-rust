@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Relation {
+    #[serde(default)]
     pub relation_id: String,
     pub relation_type: String,
     pub source_instance_id: String,

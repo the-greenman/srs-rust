@@ -1,5 +1,6 @@
 mod commands;
 mod output;
+pub mod payload;
 
 use clap::Parser;
 use commands::{Cli, OutputFormat};

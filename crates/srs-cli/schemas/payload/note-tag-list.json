@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "NoteTagListPayload",
+  "type": "object",
+  "required": [
+    "tags",
+    "totalNotes"
+  ],
+  "properties": {
+    "tags": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/NoteTagEntry"
+      }
+    },
+    "totalNotes": {
+      "type": "integer",
+      "format": "uint",
+      "minimum": 0.0
+    }
+  },
+  "definitions": {
+    "NoteTagEntry": {
+      "description": "A single tag entry in a note-tag list. Mirrors `TagSummary` from srs-repository with a local type for JsonSchema derivation.",
+      "type": "object",
+      "required": [
+        "noteCount",
+        "tag"
+      ],
+      "properties": {
+        "noteCount": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "tag": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

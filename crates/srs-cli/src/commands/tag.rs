@@ -1,7 +1,7 @@
 use crate::commands::{with_store, CliContext, TagCommand};
 use crate::output;
+use crate::payload::{DeletedPayload, TagListPayload, TagPayload};
 use anyhow::Result;
-use serde_json::json;
 use srs_core::types::tag_definition::TagDefinition;
 use srs_repository::tag_service::{
     create_tag_definition_in_context, delete_tag_definition_in_context, get_tag_definition_by_id,
@@ -22,7 +22,7 @@ pub fn dispatch(ctx: CliContext, cmd: TagCommand) -> Result<String> {
 
 fn cmd_tag_list(ctx: CliContext, role: Option<String>) -> Result<String> {
     let container_id = ctx.container_id.clone();
-    let summaries = with_store(&ctx, |store| {
+    let tag_definitions = with_store(&ctx, |store| {
         Ok(if let Some(role_filter) = role {
             // Role filter: get by role first, then apply container filter manually
             let by_role = list_tag_definitions_by_role(store, &role_filter)?;
@@ -52,17 +52,17 @@ fn cmd_tag_list(ctx: CliContext, role: Option<String>) -> Result<String> {
         })
     })?;
 
-    Ok(output::ok(
-        "tag list",
-        json!({ "tagDefinitions": summaries }),
-    ))
+    output::serialize("tag list", TagListPayload { tag_definitions })
 }
 
 fn cmd_tag_get(ctx: CliContext, id: String) -> Result<String> {
     match with_store(&ctx, |store| Ok(get_tag_definition_by_id(store, &id)?))? {
-        GetTagDefinitionResult::Found(td) => {
-            Ok(output::ok("tag get", json!({ "tagDefinition": *td })))
-        }
+        GetTagDefinitionResult::Found(td) => output::serialize(
+            "tag get",
+            TagPayload {
+                tag_definition: *td,
+            },
+        ),
         GetTagDefinitionResult::NotFound => Ok(output::err(
             "tag get",
             vec![format!("TagDefinition with id '{}' not found", id)],
@@ -71,7 +71,6 @@ fn cmd_tag_get(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_tag_create(ctx: CliContext) -> Result<String> {
-    // Read JSON from stdin - expects a TagDefinition
     let mut stdin = String::new();
     io::stdin().read_to_string(&mut stdin)?;
 
@@ -86,16 +85,17 @@ fn cmd_tag_create(ctx: CliContext) -> Result<String> {
             container_id,
         )?)
     }) {
-        Ok(result) => Ok(output::ok(
+        Ok(result) => output::serialize(
             "tag create",
-            json!({ "tagDefinition": result.tag_definition }),
-        )),
+            TagPayload {
+                tag_definition: result.tag_definition,
+            },
+        ),
         Err(e) => Ok(output::err("tag create", vec![e.to_string()])),
     }
 }
 
 fn cmd_tag_update(ctx: CliContext, id: String) -> Result<String> {
-    // Read JSON from stdin
     let mut stdin = String::new();
     io::stdin().read_to_string(&mut stdin)?;
 
@@ -105,10 +105,12 @@ fn cmd_tag_update(ctx: CliContext, id: String) -> Result<String> {
     match with_store(&ctx, |store| {
         Ok(update_tag_definition_validated(store, &id, tag_definition)?)
     }) {
-        Ok(result) => Ok(output::ok(
+        Ok(result) => output::serialize(
             "tag update",
-            json!({ "tagDefinition": result.tag_definition }),
-        )),
+            TagPayload {
+                tag_definition: result.tag_definition,
+            },
+        ),
         Err(e) => Ok(output::err("tag update", vec![e.to_string()])),
     }
 }
@@ -118,10 +120,9 @@ fn cmd_tag_delete(ctx: CliContext, id: String) -> Result<String> {
     match with_store(&ctx, |store| {
         Ok(delete_tag_definition_in_context(store, id, container_id)?)
     }) {
-        Ok(DeleteTagDefinitionResult { instance_id }) => Ok(output::ok(
-            "tag delete",
-            json!({ "instanceId": instance_id }),
-        )),
+        Ok(DeleteTagDefinitionResult { instance_id }) => {
+            output::serialize("tag delete", DeletedPayload { instance_id })
+        }
         Err(e) => Ok(output::err("tag delete", vec![e.to_string()])),
     }
 }

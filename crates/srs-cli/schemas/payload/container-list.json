@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ContainerListPayload",
+  "type": "object",
+  "required": [
+    "containers"
+  ],
+  "properties": {
+    "containers": {
+      "type": "array",
+      "items": true
+    }
+  }
+}

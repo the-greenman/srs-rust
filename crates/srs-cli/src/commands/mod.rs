@@ -550,6 +550,18 @@ pub enum RelationTypeCommand {
         #[arg(long, hide = true)]
         json: bool,
     },
+    /// Create a new relation type definition (reads JSON from stdin)
+    Create {},
+    /// Update an existing relation type definition (reads JSON from stdin)
+    Update {
+        /// The UUID id of the relation type definition to update
+        id: String,
+    },
+    /// Delete a relation type definition by its UUID id
+    Delete {
+        /// The UUID id of the relation type definition to delete
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]

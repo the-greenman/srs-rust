@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ContainerMembersMutatePayload",
+  "type": "object",
+  "required": [
+    "containerId",
+    "instanceId",
+    "memberInstanceIds"
+  ],
+  "properties": {
+    "containerId": {
+      "type": "string"
+    },
+    "instanceId": {
+      "type": "string"
+    },
+    "memberInstanceIds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

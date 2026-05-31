@@ -22,6 +22,7 @@
 use crate::error::RepositoryError;
 use crate::package_types::{DefinitionKind, PackageBoundary, PackageSelector};
 use crate::store::RepositoryStore;
+use crate::writer::new_instance_id;
 use serde::{Deserialize, Serialize};
 use srs_core::types::field::Field;
 use srs_core::types::record_type::RecordType;
@@ -386,6 +387,9 @@ pub fn create_field_normalized(
     // Normalize optional fields first so that schema validation sees a complete
     // document. The schema requires description/aiGuidance/createdAt; we supply
     // sensible defaults for callers that omit them.
+    if raw["id"].as_str().is_none_or(|s| s.is_empty()) {
+        raw["id"] = serde_json::json!(new_instance_id());
+    }
     if raw.get("description").is_none() || raw["description"].is_null() {
         raw["description"] = serde_json::json!("");
     }
@@ -582,9 +586,12 @@ pub fn create_type(
 /// Pass `selector = None` for the primary package; `Some(path)` for a sub-package.
 pub fn create_type_in_package(
     store: &dyn RepositoryStore,
-    record_type: RecordType,
+    mut record_type: RecordType,
     selector: PackageSelector,
 ) -> Result<CreateTypeResult, RepositoryError> {
+    if record_type.id.trim().is_empty() {
+        record_type.id = new_instance_id();
+    }
     store.ensure_types_dir()?;
 
     let filename = format!(
@@ -652,6 +659,109 @@ fn find_type_path(
         if let Ok(val) = store.load_instance_json(&full) {
             if val["id"].as_str() == Some(id) {
                 return Ok(Some((rel_path.clone(), owner)));
+            }
+        }
+    }
+    Ok(None)
+}
+
+// ── Relation type result types ──────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateRelationTypeResult {
+    pub relation_type_definition: RelationTypeDefinition,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateRelationTypeResult {
+    pub relation_type_definition: RelationTypeDefinition,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteRelationTypeResult {
+    pub id: String,
+}
+
+// ── Relation type CRUD ───────────────────────────────────────────────────────
+
+/// Create a new relation type definition in the primary package.
+/// Writes the definition JSON file and updates the boundary index.
+/// Auto-generates `id` if empty.
+pub fn create_relation_type(
+    store: &dyn RepositoryStore,
+    mut def: RelationTypeDefinition,
+) -> Result<CreateRelationTypeResult, RepositoryError> {
+    if def.id.trim().is_empty() {
+        def.id = new_instance_id();
+    }
+    if def.created_at.trim().is_empty() {
+        def.created_at = chrono::Utc::now().to_rfc3339();
+    }
+
+    let slug = slugify(&def.relation_type);
+    let id_prefix = &def.id[..8.min(def.id.len())];
+    let filename = format!("relation-types/{slug}-{id_prefix}.json");
+
+    store.ensure_relation_types_dir()?;
+    store.save_relation_type_definition(&filename, &def)?;
+    store.add_definition_to_boundary(&None, DefinitionKind::RelationType, &filename)?;
+
+    Ok(CreateRelationTypeResult {
+        relation_type_definition: def,
+    })
+}
+
+/// Update an existing relation type definition.
+/// Re-writes the definition JSON file in place.
+pub fn update_relation_type(
+    store: &dyn RepositoryStore,
+    def: RelationTypeDefinition,
+) -> Result<UpdateRelationTypeResult, RepositoryError> {
+    let (relative_path, _owner) = find_relation_type_path(store, &def.id)?
+        .ok_or_else(|| RepositoryError::DefinitionNotFound { id: def.id.clone() })?;
+    store.save_relation_type_definition(&relative_path, &def)?;
+    Ok(UpdateRelationTypeResult {
+        relation_type_definition: def,
+    })
+}
+
+/// Delete a relation type definition.
+/// Removes the definition JSON file and updates the boundary index.
+pub fn delete_relation_type(
+    store: &dyn RepositoryStore,
+    id: &str,
+) -> Result<DeleteRelationTypeResult, RepositoryError> {
+    let (relative_path, owner) = find_relation_type_path(store, id)?
+        .ok_or_else(|| RepositoryError::DefinitionNotFound { id: id.to_string() })?;
+
+    store.delete_relation_type_file(&relative_path)?;
+    store.remove_definition_from_boundary(&owner, DefinitionKind::RelationType, &relative_path)?;
+    Ok(DeleteRelationTypeResult { id: id.to_string() })
+}
+
+/// Find the boundary-relative path and owner for a relation type definition by its ID.
+fn find_relation_type_path(
+    store: &dyn RepositoryStore,
+    id: &str,
+) -> Result<Option<(String, PackageSelector)>, RepositoryError> {
+    let owner = match store.resolve_definition_owner(id, DefinitionKind::RelationType) {
+        Ok(sel) => sel,
+        Err(RepositoryError::DefinitionNotFound { .. }) => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let pkg_json = store.load_package_json()?;
+    if let Some(paths) = pkg_json.get("relationTypes").and_then(|v| v.as_array()) {
+        for entry in paths {
+            if let Some(rel) = entry.as_str() {
+                let full = format!("package/{rel}");
+                if let Ok(val) = store.load_instance_json(&full) {
+                    if val["id"].as_str() == Some(id) {
+                        return Ok(Some((rel.to_string(), owner)));
+                    }
+                }
             }
         }
     }

@@ -11,6 +11,7 @@ pub struct RelationTypeDefinition {
     #[serde(rename = "$schema", skip_serializing_if = "Option::is_none")]
     pub schema: Option<String>,
     /// Stable UUID identity for this definition.
+    #[serde(default)]
     pub id: String,
     /// Monotonically increasing version. Starts at 1.
     pub version: u32,

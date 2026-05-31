@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RelationListPayload",
+  "type": "object",
+  "required": [
+    "relations"
+  ],
+  "properties": {
+    "relations": {
+      "description": "Uses `RelationSummary` directly — its `serde(rename_all = \"camelCase\")` produces `{ \"relationId\", \"relationType\", \"sourceId\", \"targetId\" }` which matches the previous hand-rolled `json!()` output exactly.",
+      "type": "array",
+      "items": true
+    }
+  }
+}

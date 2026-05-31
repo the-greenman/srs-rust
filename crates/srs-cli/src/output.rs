@@ -91,6 +91,15 @@ impl OutputDTO {
     }
 }
 
+/// Serialize a typed payload struct and return a compact JSON ok response.
+/// This is the preferred function for command handlers; use `ok` only for
+/// cases where a `serde_json::Value` is already constructed.
+pub fn serialize<T: serde::Serialize>(command: &str, payload: T) -> anyhow::Result<String> {
+    let value = serde_json::to_value(payload)
+        .map_err(|e| anyhow::anyhow!("Failed to serialize payload for '{}': {}", command, e))?;
+    Ok(ok(command, value))
+}
+
 /// Legacy convenience function for JSON ok output (always compact)
 pub fn ok(command: &str, payload: serde_json::Value) -> String {
     OutputDTO::ok(command, payload).render(OutputFormat::Json, false)

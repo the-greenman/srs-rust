@@ -2,8 +2,12 @@ use crate::commands::{
     with_store, CliContext, ContainerCommand, ContainerMembersCommand, ContainerRootsCommand,
 };
 use crate::output;
+use crate::payload::{
+    ContainerDeletePayload, ContainerListPayload, ContainerMembersMutatePayload,
+    ContainerMembersPayload, ContainerPayload, ContainerRootsMutatePayload, ContainerRootsPayload,
+    ContainerValidatePayload,
+};
 use anyhow::Result;
-use serde_json::json;
 use srs_core::types::container::Container;
 use srs_repository::container_service::{
     add_container_member, add_root, create_container, delete_container, get_container,
@@ -43,10 +47,7 @@ fn cmd_list(
             root_instance_id.as_deref(),
         )?)
     })?;
-    Ok(output::ok(
-        "container list",
-        json!({ "containers": containers }),
-    ))
+    output::serialize("container list", ContainerListPayload { containers })
 }
 
 fn cmd_create(ctx: CliContext) -> Result<String> {
@@ -60,20 +61,14 @@ fn cmd_create(ctx: CliContext) -> Result<String> {
         }
     };
     match with_store(&ctx, |store| Ok(create_container(store, container)?)) {
-        Ok(container) => Ok(output::ok(
-            "container create",
-            json!({ "container": container }),
-        )),
+        Ok(container) => output::serialize("container create", ContainerPayload { container }),
         Err(e) => Ok(output::err("container create", vec![e.to_string()])),
     }
 }
 
 fn cmd_get(ctx: CliContext, container_id: String) -> Result<String> {
     match with_store(&ctx, |store| Ok(get_container(store, &container_id)?)) {
-        Ok(container) => Ok(output::ok(
-            "container get",
-            json!({ "container": container }),
-        )),
+        Ok(container) => output::serialize("container get", ContainerPayload { container }),
         Err(e) => Ok(output::err("container get", vec![e.to_string()])),
     }
 }
@@ -91,17 +86,17 @@ fn cmd_update(ctx: CliContext, container_id: String) -> Result<String> {
     match with_store(&ctx, |store| {
         Ok(update_container(store, &container_id, patch)?)
     }) {
-        Ok(container) => Ok(output::ok(
-            "container update",
-            json!({ "container": container }),
-        )),
+        Ok(container) => output::serialize("container update", ContainerPayload { container }),
         Err(e) => Ok(output::err("container update", vec![e.to_string()])),
     }
 }
 
 fn cmd_delete(ctx: CliContext, container_id: String) -> Result<String> {
     match with_store(&ctx, |store| Ok(delete_container(store, &container_id)?)) {
-        Ok(id) => Ok(output::ok("container delete", json!({ "containerId": id }))),
+        Ok(id) => output::serialize(
+            "container delete",
+            ContainerDeletePayload { container_id: id },
+        ),
         Err(e) => Ok(output::err("container delete", vec![e.to_string()])),
     }
 }
@@ -109,37 +104,48 @@ fn cmd_delete(ctx: CliContext, container_id: String) -> Result<String> {
 fn dispatch_members(ctx: CliContext, cmd: ContainerMembersCommand) -> Result<String> {
     match cmd {
         ContainerMembersCommand::List { container_id } => {
-            let ids = with_store(&ctx, |store| {
+            let member_instance_ids = with_store(&ctx, |store| {
                 Ok(list_container_members(store, &container_id)?)
             })?;
-            Ok(output::ok(
+            output::serialize(
                 "container members list",
-                json!({ "containerId": container_id, "memberInstanceIds": ids }),
-            ))
+                ContainerMembersPayload {
+                    container_id,
+                    member_instance_ids,
+                },
+            )
         }
         ContainerMembersCommand::Add {
             container_id,
             instance_id,
         } => {
-            let ids = with_store(&ctx, |store| {
+            let member_instance_ids = with_store(&ctx, |store| {
                 Ok(add_container_member(store, &container_id, &instance_id)?)
             })?;
-            Ok(output::ok(
+            output::serialize(
                 "container members add",
-                json!({ "containerId": container_id, "instanceId": instance_id, "memberInstanceIds": ids }),
-            ))
+                ContainerMembersMutatePayload {
+                    container_id,
+                    instance_id,
+                    member_instance_ids,
+                },
+            )
         }
         ContainerMembersCommand::Remove {
             container_id,
             instance_id,
         } => {
-            let ids = with_store(&ctx, |store| {
+            let member_instance_ids = with_store(&ctx, |store| {
                 Ok(remove_container_member(store, &container_id, &instance_id)?)
             })?;
-            Ok(output::ok(
+            output::serialize(
                 "container members remove",
-                json!({ "containerId": container_id, "instanceId": instance_id, "memberInstanceIds": ids }),
-            ))
+                ContainerMembersMutatePayload {
+                    container_id,
+                    instance_id,
+                    member_instance_ids,
+                },
+            )
         }
     }
 }
@@ -147,35 +153,47 @@ fn dispatch_members(ctx: CliContext, cmd: ContainerMembersCommand) -> Result<Str
 fn dispatch_roots(ctx: CliContext, cmd: ContainerRootsCommand) -> Result<String> {
     match cmd {
         ContainerRootsCommand::List { container_id } => {
-            let ids = with_store(&ctx, |store| Ok(list_roots(store, &container_id)?))?;
-            Ok(output::ok(
+            let root_instance_ids =
+                with_store(&ctx, |store| Ok(list_roots(store, &container_id)?))?;
+            output::serialize(
                 "container roots list",
-                json!({ "containerId": container_id, "rootInstanceIds": ids }),
-            ))
+                ContainerRootsPayload {
+                    container_id,
+                    root_instance_ids,
+                },
+            )
         }
         ContainerRootsCommand::Add {
             container_id,
             instance_id,
         } => {
-            let ids = with_store(&ctx, |store| {
+            let root_instance_ids = with_store(&ctx, |store| {
                 Ok(add_root(store, &container_id, &instance_id)?)
             })?;
-            Ok(output::ok(
+            output::serialize(
                 "container roots add",
-                json!({ "containerId": container_id, "instanceId": instance_id, "rootInstanceIds": ids }),
-            ))
+                ContainerRootsMutatePayload {
+                    container_id,
+                    instance_id,
+                    root_instance_ids,
+                },
+            )
         }
         ContainerRootsCommand::Remove {
             container_id,
             instance_id,
         } => {
-            let ids = with_store(&ctx, |store| {
+            let root_instance_ids = with_store(&ctx, |store| {
                 Ok(remove_root(store, &container_id, &instance_id)?)
             })?;
-            Ok(output::ok(
+            output::serialize(
                 "container roots remove",
-                json!({ "containerId": container_id, "instanceId": instance_id, "rootInstanceIds": ids }),
-            ))
+                ContainerRootsMutatePayload {
+                    container_id,
+                    instance_id,
+                    root_instance_ids,
+                },
+            )
         }
     }
 }
@@ -185,10 +203,13 @@ fn cmd_validate(ctx: CliContext, container_id: String) -> Result<String> {
         Ok(validate_container_invariants(store, &container_id)?)
     })?;
     if report.ok {
-        Ok(output::ok(
+        output::serialize(
             "container validate",
-            json!({ "ok": true, "errors": [] }),
-        ))
+            ContainerValidatePayload {
+                ok: true,
+                errors: vec![],
+            },
+        )
     } else {
         Ok(output::err("container validate", report.errors))
     }

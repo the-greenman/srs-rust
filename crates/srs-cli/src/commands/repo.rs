@@ -1,7 +1,10 @@
 use crate::commands::{with_store, CliContext, RepoCommand, RepoExtensionsCommand, StoreBackend};
 use crate::output;
+use crate::payload::{
+    RepoCopyPayload, RepoCreatePayload, RepoExtensionsMutatePayload, RepoExtensionsPayload,
+    RepoMapPayload, RepoValidatePayload,
+};
 use anyhow::{Context, Result};
-use serde_json::json;
 use srs_repository::analysis::build_repo_map;
 use srs_repository::manifest_service::{
     add_declared_extension, list_declared_extensions, remove_declared_extension,
@@ -82,12 +85,12 @@ fn cmd_repo_create(
         }
     };
 
-    Ok(output::ok(
+    output::serialize(
         "repo create",
-        json!({
-            "repoRoot": result.repo_root,
-        }),
-    ))
+        RepoCreatePayload {
+            repo_root: result.repo_root,
+        },
+    )
 }
 
 fn cmd_repo_extensions_dispatch(ctx: CliContext, cmd: RepoExtensionsCommand) -> Result<String> {
@@ -106,35 +109,38 @@ fn cmd_repo_extensions_dispatch(ctx: CliContext, cmd: RepoExtensionsCommand) -> 
 
 fn cmd_repo_extensions_list(ctx: CliContext) -> Result<String> {
     let extensions = with_store(&ctx, |store| Ok(list_declared_extensions(store)?))?;
-    Ok(output::ok(
-        "repo extensions list",
-        json!({ "extensions": extensions }),
-    ))
+    output::serialize("repo extensions list", RepoExtensionsPayload { extensions })
 }
 
 fn cmd_repo_extensions_enable(ctx: CliContext, extension_id: String) -> Result<String> {
     let extensions = with_store(&ctx, |store| {
         Ok(add_declared_extension(store, &extension_id)?)
     })?;
-    Ok(output::ok(
+    output::serialize(
         "repo extensions enable",
-        json!({ "extensionId": extension_id, "extensions": extensions }),
-    ))
+        RepoExtensionsMutatePayload {
+            extension_id,
+            extensions,
+        },
+    )
 }
 
 fn cmd_repo_extensions_disable(ctx: CliContext, extension_id: String) -> Result<String> {
     let extensions = with_store(&ctx, |store| {
         Ok(remove_declared_extension(store, &extension_id)?)
     })?;
-    Ok(output::ok(
+    output::serialize(
         "repo extensions disable",
-        json!({ "extensionId": extension_id, "extensions": extensions }),
-    ))
+        RepoExtensionsMutatePayload {
+            extension_id,
+            extensions,
+        },
+    )
 }
 
 fn cmd_repo_map(ctx: CliContext) -> Result<String> {
     let repo_map = with_store(&ctx, |store| Ok(build_repo_map(store)?))?;
-    Ok(output::ok("repo map", json!({ "repoMap": repo_map })))
+    output::serialize("repo map", RepoMapPayload { repo_map })
 }
 
 fn cmd_repo_copy(
@@ -173,13 +179,7 @@ fn cmd_repo_copy(
             copy_repository(&source, &target)?;
         }
     }
-    Ok(output::ok(
-        "repo copy",
-        json!({
-            "from": from,
-            "to": to,
-        }),
-    ))
+    output::serialize("repo copy", RepoCopyPayload { from, to })
 }
 
 fn infer_copy_store(path: &std::path::Path) -> StoreBackend {
@@ -194,13 +194,7 @@ fn cmd_repo_validate(ctx: CliContext) -> Result<String> {
     let report = with_store(&ctx, |store| Ok(validate_repository(store)?))?;
 
     if report.is_ok() {
-        Ok(output::ok(
-            "repo validate",
-            json!({
-                "summary": report.summary,
-                "diagnostics": report.diagnostics,
-            }),
-        ))
+        output::serialize("repo validate", RepoValidatePayload::from(report))
     } else {
         let diagnostics: Vec<String> = report
             .diagnostics

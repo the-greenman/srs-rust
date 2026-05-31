@@ -1,7 +1,7 @@
 use crate::commands::{with_store, CliContext, RenderCommand};
 use crate::output;
+use crate::payload::RenderDocumentViewPayload;
 use anyhow::Result;
-use serde_json::json;
 use srs_repository::render_service::{render_document_view, RenderDocumentViewOptions};
 use std::path::PathBuf;
 
@@ -36,13 +36,13 @@ fn cmd_render_document_view(
                     anyhow::anyhow!("failed to write output file {:?}: {}", path, e)
                 })?;
             }
-            Ok(output::ok(
+            output::serialize(
                 "render document-view",
-                json!({
-                    "rendered": result.rendered,
-                    "diagnostics": result.diagnostics
-                }),
-            ))
+                RenderDocumentViewPayload {
+                    rendered: result.rendered,
+                    diagnostics: result.diagnostics,
+                },
+            )
         }
         Err(e) => Ok(output::err("render document-view", vec![e.to_string()])),
     }

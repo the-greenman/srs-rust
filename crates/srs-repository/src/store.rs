@@ -76,6 +76,7 @@ pub trait RepositoryStore {
         relative_path: &str,
         relation_type: &RelationTypeDefinition,
     ) -> Result<(), RepositoryError>;
+    fn delete_relation_type_file(&self, relative_path: &str) -> Result<(), RepositoryError>;
     fn ensure_relation_types_dir(&self) -> Result<(), RepositoryError>;
 
     // --- Views (L1) ---
@@ -910,6 +911,10 @@ impl RepositoryStore for FileStore {
                 source: e,
             })?;
         self.write_json(&self.pkg_abs(relative_path), &value)
+    }
+
+    fn delete_relation_type_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
+        self.delete_file(&self.pkg_abs(relative_path))
     }
 
     fn ensure_relation_types_dir(&self) -> Result<(), RepositoryError> {
@@ -1934,6 +1939,12 @@ pub mod memory {
         ) -> Result<(), RepositoryError> {
             let v = serde_json::to_value(relation_type).unwrap();
             self.data.borrow_mut().insert(relative_path.to_string(), v);
+            Ok(())
+        }
+
+        fn delete_relation_type_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
+            let key = format!("package/{relative_path}");
+            self.data.borrow_mut().remove(&key);
             Ok(())
         }
 

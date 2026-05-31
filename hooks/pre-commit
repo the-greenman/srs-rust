@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Pre-commit hook for srs-rust workspace
-# Runs formatting check, clippy lints, and cargo check
+# Runs formatting check, clippy lints, cargo check, and payload contract golden tests
 
 echo "🔍 Running pre-commit checks..."
 
@@ -27,6 +27,16 @@ echo "  → cargo check"
 if ! cargo check --workspace; then
     echo ""
     echo "❌ Compilation errors found. Fix them before committing."
+    exit 1
+fi
+
+# 4. Payload contract golden-file tests (fast, catches payload struct rename without regenerating)
+echo "  → cargo test --test payload_contracts"
+if ! cargo test --test payload_contracts; then
+    echo ""
+    echo "❌ Payload contract tests failed."
+    echo "   If you changed a payload struct, run: cargo run --bin generate-schemas"
+    echo "   then commit the updated schemas/payload/*.json files."
     exit 1
 fi
 

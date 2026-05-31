@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ContainerDeletePayload",
+  "type": "object",
+  "required": [
+    "containerId"
+  ],
+  "properties": {
+    "containerId": {
+      "type": "string"
+    }
+  }
+}

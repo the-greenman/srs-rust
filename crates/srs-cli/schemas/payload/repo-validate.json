@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RepoValidatePayload",
+  "type": "object",
+  "required": [
+    "diagnostics",
+    "summary"
+  ],
+  "properties": {
+    "diagnostics": {
+      "description": "Diagnostic entries serialized from `ValidationDiagnostic` objects. Each entry contains `severity`, `path`, `schemaId?`, and `message`.",
+      "type": "array",
+      "items": true
+    },
+    "summary": {
+      "$ref": "#/definitions/RepoValidateSummary"
+    }
+  },
+  "definitions": {
+    "RepoValidateSummary": {
+      "description": "Summary row in a repo validate payload. Mirrors `ValidationSummary` from srs-repository with a local type for JsonSchema.",
+      "type": "object",
+      "required": [
+        "checked",
+        "errors",
+        "warnings"
+      ],
+      "properties": {
+        "checked": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "errors": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "warnings": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    }
+  }
+}

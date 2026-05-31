@@ -33,6 +33,30 @@ If no new ADRs are needed, state why: _"No new architectural decisions — this 
 
 ---
 
+## Contracts
+
+Answer each question. Delete the section only if the plan touches no command handlers, service outputs, or entity schemas.
+
+### CLI output contract (ADR-011)
+
+Does this plan add or change any CLI command output shapes?
+
+- **No new/changed commands** → no action required; golden schemas stay as-is.
+- **New command added** → add a payload struct to `crates/srs-cli/src/payload.rs`, wire the handler to use `output::serialize()`, run `cargo run --bin generate-schemas`, commit the new `schemas/payload/<name>.json`.
+- **Existing command payload changed** (field renamed, added, or removed) → update the struct in `payload.rs`, run `cargo run --bin generate-schemas`, commit the updated schema file. The diff in the schema file is the explicit contract change record.
+- **Service type used in a payload changes** → if the service type is embedded via `#[schemars(with = "serde_json::Value")]` in `payload.rs`, no schema regeneration is needed (the integration tests cover internal field shape); if the type has a local mirror struct in `payload.rs`, update the mirror and regenerate.
+
+Verification: `cargo test --test payload_contracts` must pass after any payload change.
+
+### Entity schema sync (check-schema-sync.sh)
+
+Does this plan add or modify JSON Schema files under `srs/docs/schema/2.0/`?
+
+- **Yes** → copy the updated files to `crates/srs-schema/schemas/2.0/` and `srs-vscode/schemas/2.0/` and verify `bash scripts/check-schema-sync.sh` exits 0.
+- **No** → no action required.
+
+---
+
 ## Scope
 
 What is explicitly in scope. Keep it tight — list inclusions not exclusions.
@@ -107,6 +131,8 @@ All of the following must be true before this plan is closed:
 - [ ] `cargo test` passes with no failures
 - [ ] `cargo clippy -- -D warnings` passes
 - [ ] CLI output format unchanged (integration tests pass)
+- [ ] `cargo test --test payload_contracts` passes (or no payload structs were changed)
+- [ ] `bash scripts/check-schema-sync.sh` exits 0 (or no entity schemas were changed)
 - [ ] <Plan-specific criterion>
 - [ ] <Plan-specific criterion>
 

@@ -22,6 +22,7 @@
 use crate::container_service;
 use crate::error::RepositoryError;
 use crate::store::RepositoryStore;
+use crate::writer::new_instance_id;
 use srs_core::types::relation::{Relation, RelationsCollection};
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::validation::relation::{validate_relation, RelationValidationContext};
@@ -149,9 +150,12 @@ pub fn get_relation_by_id(
 /// Create a new relation with E1-E4 validation
 pub fn create_relation(
     store: &dyn RepositoryStore,
-    relation: Relation,
+    mut relation: Relation,
     definitions: &[RelationTypeDefinition],
 ) -> Result<CreateRelationResult, RepositoryError> {
+    if relation.relation_id.trim().is_empty() {
+        relation.relation_id = new_instance_id();
+    }
     // Build owned context data
     let manifest = store.load_manifest()?;
     let known_instance_ids: HashSet<String> = manifest
@@ -652,6 +656,9 @@ mod tests {
                 _: &str,
                 _: &srs_core::types::relation_type_definition::RelationTypeDefinition,
             ) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn delete_relation_type_file(&self, _: &str) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
             fn ensure_relation_types_dir(&self) -> Result<(), RepositoryError> {

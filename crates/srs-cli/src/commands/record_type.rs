@@ -1,7 +1,7 @@
 use crate::commands::{with_store, CliContext, TypeCommand};
 use crate::output;
+use crate::payload::{TypeListEntry, TypeListPayload, TypePayload};
 use anyhow::Result;
-use serde_json::json;
 use srs_core::types::record_type::RecordType;
 use srs_repository::package_service::{
     create_type_in_package, get_type_by_id_latest, list_types_filtered, GetTypeResult,
@@ -36,27 +36,25 @@ fn cmd_type_list(
         )?)
     })?;
 
-    let types: Vec<serde_json::Value> = summaries
+    let types = summaries
         .into_iter()
-        .map(|s| {
-            json!({
-                "id": s.id,
-                "namespace": s.namespace,
-                "name": s.name,
-                "version": s.version,
-                "fieldCount": s.field_count,
-                "sourcePackage": s.source_package,
-            })
+        .map(|s| TypeListEntry {
+            id: s.id,
+            namespace: s.namespace,
+            name: s.name,
+            version: s.version,
+            field_count: s.field_count,
+            source_package: s.source_package,
         })
         .collect();
 
-    Ok(output::ok("type list", json!({ "types": types })))
+    output::serialize("type list", TypeListPayload { types })
 }
 
 fn cmd_type_get(ctx: CliContext, id: String) -> Result<String> {
     match with_store(&ctx, |store| Ok(get_type_by_id_latest(store, &id)?))? {
         GetTypeResult::Found(record_type) => {
-            Ok(output::ok("type get", json!({ "type": record_type })))
+            output::serialize("type get", TypePayload { record_type })
         }
         GetTypeResult::NotFound => Ok(output::err(
             "type get",
@@ -76,8 +74,10 @@ fn cmd_type_create(ctx: CliContext, package: Option<String>) -> Result<String> {
         Ok(create_type_in_package(store, record_type, package.clone())?)
     })?;
 
-    Ok(output::ok(
+    output::serialize(
         "type create",
-        json!({ "type": result.record_type }),
-    ))
+        TypePayload {
+            record_type: result.record_type,
+        },
+    )
 }

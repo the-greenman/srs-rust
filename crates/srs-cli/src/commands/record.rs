@@ -1,7 +1,7 @@
 use crate::commands::{with_store, CliContext, RecordCommand};
 use crate::output;
+use crate::payload::{DeletedPayload, RecordListPayload, RecordPayload};
 use anyhow::Result;
-use serde_json::json;
 use srs_repository::record_store::{
     create_record_in_context, delete_record_in_context, get_record_by_id, list_records_filtered,
     update_record, CreateRecordInput, RecordListFilter,
@@ -54,12 +54,12 @@ fn cmd_record_list(ctx: CliContext, type_filter: Option<String>) -> Result<Strin
         )?)
     })?;
 
-    Ok(output::ok("record list", json!({ "records": records })))
+    output::serialize("record list", RecordListPayload { records })
 }
 
 fn cmd_record_get(ctx: CliContext, id: String) -> Result<String> {
     match with_store(&ctx, |store| Ok(get_record_by_id(store, &id)?))? {
-        Some(record) => Ok(output::ok("record get", json!({ "record": record }))),
+        Some(record) => output::serialize("record get", RecordPayload { record }),
         None => Ok(output::err(
             "record get",
             vec![format!("Record with id '{}' not found", id)],
@@ -96,10 +96,12 @@ fn cmd_record_create(
             &dir,
         )?)
     }) {
-        Ok(result) => Ok(output::ok(
+        Ok(result) => output::serialize(
             "record create",
-            json!({ "record": result.record }),
-        )),
+            RecordPayload {
+                record: result.record,
+            },
+        ),
         Err(e) => Ok(output::err("record create", vec![e.to_string()])),
     }
 }
@@ -120,7 +122,7 @@ fn cmd_record_update(ctx: CliContext, id: String) -> Result<String> {
     match with_store(&ctx, |store| {
         Ok(update_record(store, &id, input.field_values)?)
     }) {
-        Ok(record) => Ok(output::ok("record update", json!({ "record": record }))),
+        Ok(record) => output::serialize("record update", RecordPayload { record }),
         Err(e) => Ok(output::err("record update", vec![e.to_string()])),
     }
 }
@@ -130,10 +132,12 @@ fn cmd_record_delete(ctx: CliContext, id: String) -> Result<String> {
     match with_store(&ctx, |store| {
         Ok(delete_record_in_context(store, id, container_id)?)
     }) {
-        Ok(result) => Ok(output::ok(
+        Ok(result) => output::serialize(
             "record delete",
-            json!({ "instanceId": result.instance_id }),
-        )),
+            DeletedPayload {
+                instance_id: result.instance_id,
+            },
+        ),
         Err(e) => Ok(output::err("record delete", vec![e.to_string()])),
     }
 }

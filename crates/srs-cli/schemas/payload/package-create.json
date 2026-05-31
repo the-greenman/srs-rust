@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PackageCreatePayload",
+  "type": "object",
+  "required": [
+    "id"
+  ],
+  "properties": {
+    "boundaryPath": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "id": {
+      "type": "string"
+    }
+  }
+}

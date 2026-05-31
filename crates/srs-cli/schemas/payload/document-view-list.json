@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DocumentViewListPayload",
+  "type": "object",
+  "required": [
+    "documentViews"
+  ],
+  "properties": {
+    "documentViews": {
+      "type": "array",
+      "items": true
+    }
+  }
+}

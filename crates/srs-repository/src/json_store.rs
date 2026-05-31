@@ -742,6 +742,14 @@ impl RepositoryStore for JsonStore {
         self.flush()
     }
 
+    fn delete_relation_type_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
+        self.state
+            .borrow_mut()
+            .data
+            .remove(&format!("package/{relative_path}"));
+        self.flush()
+    }
+
     fn ensure_relation_types_dir(&self) -> Result<(), RepositoryError> {
         Ok(())
     }

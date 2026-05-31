@@ -1,7 +1,7 @@
 use crate::commands::{with_store, CliContext, FieldCommand};
 use crate::output;
+use crate::payload::{FieldListEntry, FieldListPayload, FieldPayload};
 use anyhow::Result;
-use serde_json::json;
 use srs_repository::package_service::{
     create_field_normalized, get_field_by_id, list_fields_filtered, FieldListFilter, GetFieldResult,
 };
@@ -34,25 +34,25 @@ fn cmd_field_list(
         )?)
     })?;
 
-    let fields: Vec<serde_json::Value> = summaries
+    let fields = summaries
         .into_iter()
-        .map(|s| {
-            json!({
-                "id": s.id,
-                "namespace": s.namespace,
-                "name": s.name,
-                "version": s.version,
-                "sourcePackage": s.source_package,
-            })
+        .map(|s| FieldListEntry {
+            id: s.id,
+            namespace: s.namespace,
+            name: s.name,
+            version: s.version,
+            source_package: s.source_package,
         })
         .collect();
 
-    Ok(output::ok("field list", json!({ "fields": fields })))
+    output::serialize("field list", FieldListPayload { fields })
 }
 
 fn cmd_field_get(ctx: CliContext, id: String) -> Result<String> {
     match with_store(&ctx, |store| Ok(get_field_by_id(store, &id)?))? {
-        GetFieldResult::Found(field) => Ok(output::ok("field get", json!({ "field": field }))),
+        GetFieldResult::Found(field) => {
+            output::serialize("field get", FieldPayload { field: *field })
+        }
         GetFieldResult::NotFound => Ok(output::err(
             "field get",
             vec![format!("Field with id '{}' not found", id)],
@@ -61,7 +61,6 @@ fn cmd_field_get(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_field_create(ctx: CliContext, package: Option<String>) -> Result<String> {
-    // Read JSON from stdin
     let mut stdin = String::new();
     io::stdin().read_to_string(&mut stdin)?;
 
@@ -72,5 +71,10 @@ fn cmd_field_create(ctx: CliContext, package: Option<String>) -> Result<String> 
         Ok(create_field_normalized(store, raw_value, package.clone())?)
     })?;
 
-    Ok(output::ok("field create", json!({ "field": result.field })))
+    output::serialize(
+        "field create",
+        FieldPayload {
+            field: result.field,
+        },
+    )
 }

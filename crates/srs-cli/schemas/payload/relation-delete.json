@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RelationDeletePayload",
+  "type": "object",
+  "required": [
+    "path",
+    "relationId"
+  ],
+  "properties": {
+    "path": {
+      "type": "string"
+    },
+    "relationId": {
+      "type": "string"
+    }
+  }
+}

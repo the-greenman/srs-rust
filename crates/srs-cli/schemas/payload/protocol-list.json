@@ -1,0 +1,53 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProtocolListPayload",
+  "type": "object",
+  "required": [
+    "protocols"
+  ],
+  "properties": {
+    "protocols": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ProtocolListEntry"
+      }
+    }
+  },
+  "definitions": {
+    "ProtocolListEntry": {
+      "description": "A single entry in a protocol list. Maps `ProtocolSummary` fields with the renaming that the prior handler applied (e.g. `protocol_namespace` → `namespace`, `protocol_version` → `version`).",
+      "type": "object",
+      "required": [
+        "instanceId",
+        "name",
+        "namespace",
+        "protocolId",
+        "stageCount",
+        "version"
+      ],
+      "properties": {
+        "instanceId": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "protocolId": {
+          "type": "string"
+        },
+        "stageCount": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "version": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    }
+  }
+}

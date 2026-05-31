@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "NoteTagRemovePayload",
+  "type": "object",
+  "required": [
+    "note",
+    "removed",
+    "tag"
+  ],
+  "properties": {
+    "note": true,
+    "removed": {
+      "type": "boolean"
+    },
+    "tag": {
+      "type": "string"
+    }
+  }
+}

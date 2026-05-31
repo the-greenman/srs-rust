@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PackageRefPayload",
+  "type": "object",
+  "required": [
+    "packages",
+    "path"
+  ],
+  "properties": {
+    "packages": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PackageRefEntry"
+      }
+    },
+    "path": {
+      "type": "string"
+    }
+  },
+  "definitions": {
+    "PackageRefEntry": {
+      "description": "A single entry in a package refs list (enable/disable output).",
+      "type": "object",
+      "required": [
+        "mode",
+        "path"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

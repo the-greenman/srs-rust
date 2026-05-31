@@ -1,7 +1,10 @@
 use crate::commands::{with_store, CliContext, PackageCommand};
 use crate::output;
+use crate::payload::{
+    PackageCreatePayload, PackageImportPayload, PackageListEntry, PackageListPayload,
+    PackageRefEntry, PackageRefPayload, PackageUpdatePayload,
+};
 use anyhow::Result;
-use serde_json::json;
 use srs_repository::manifest_service::{add_package_ref, remove_package_ref};
 use srs_repository::package_service::{
     create_package, import_package_local, list_packages, update_package_metadata,
@@ -38,22 +41,20 @@ pub fn dispatch(ctx: CliContext, cmd: PackageCommand) -> Result<String> {
 }
 
 fn cmd_package_list(ctx: CliContext) -> Result<String> {
-    let packages = with_store(&ctx, |store| Ok(list_packages(store)?))?;
-    let packages: Vec<serde_json::Value> = packages
+    let raw = with_store(&ctx, |store| Ok(list_packages(store)?))?;
+    let packages = raw
         .into_iter()
-        .map(|p| {
-            json!({
-                "id": p.id,
-                "namespace": p.namespace,
-                "name": p.name,
-                "version": p.version,
-                "boundaryPath": p.boundary_path,
-                "fieldCount": p.field_count,
-                "typeCount": p.type_count,
-            })
+        .map(|p| PackageListEntry {
+            id: p.id,
+            namespace: p.namespace,
+            name: p.name,
+            version: p.version,
+            boundary_path: p.boundary_path,
+            field_count: p.field_count,
+            type_count: p.type_count,
         })
         .collect();
-    Ok(output::ok("package list", json!({ "packages": packages })))
+    output::serialize("package list", PackageListPayload { packages })
 }
 
 fn cmd_package_create(
@@ -72,10 +73,13 @@ fn cmd_package_create(
         boundary_path: Some(boundary_path),
     };
     let result = with_store(&ctx, |store| Ok(create_package(store, input.clone())?))?;
-    Ok(output::ok(
+    output::serialize(
         "package create",
-        json!({ "id": result.id, "boundaryPath": result.boundary_path }),
-    ))
+        PackageCreatePayload {
+            id: result.id,
+            boundary_path: result.boundary_path,
+        },
+    )
 }
 
 fn cmd_package_import(ctx: CliContext, path: String) -> Result<String> {
@@ -85,15 +89,15 @@ fn cmd_package_import(ctx: CliContext, path: String) -> Result<String> {
     let result = with_store(&ctx, |store| {
         Ok(import_package_local(store, input.clone())?)
     })?;
-    Ok(output::ok(
+    output::serialize(
         "package import",
-        json!({
-            "selector": result.selector,
-            "id": result.id,
-            "namespace": result.namespace,
-            "name": result.name,
-        }),
-    ))
+        PackageImportPayload {
+            selector: result.selector,
+            id: result.id,
+            namespace: result.namespace,
+            name: result.name,
+        },
+    )
 }
 
 fn cmd_package_update(
@@ -116,38 +120,38 @@ fn cmd_package_update(
         )?)
     })?;
     let b = &result.boundary;
-    Ok(output::ok(
+    output::serialize(
         "package update",
-        json!({
-            "selector": b.selector,
-            "id": b.id,
-            "namespace": b.namespace,
-            "name": b.name,
-            "version": b.version,
-        }),
-    ))
+        PackageUpdatePayload {
+            selector: b.selector.clone(),
+            id: b.id.clone(),
+            namespace: b.namespace.clone(),
+            name: b.name.clone(),
+            version: b.version.clone(),
+        },
+    )
 }
 
 fn cmd_package_enable(ctx: CliContext, path: String) -> Result<String> {
     let refs = with_store(&ctx, |store| Ok(add_package_ref(store, &path)?))?;
-    let packages: Vec<serde_json::Value> = refs
+    let packages = refs
         .iter()
-        .map(|r| json!({"mode": r.mode, "path": r.path}))
+        .map(|r| PackageRefEntry {
+            mode: r.mode.clone(),
+            path: r.path.clone(),
+        })
         .collect();
-    Ok(output::ok(
-        "package enable",
-        json!({ "path": path, "packages": packages }),
-    ))
+    output::serialize("package enable", PackageRefPayload { path, packages })
 }
 
 fn cmd_package_disable(ctx: CliContext, path: String) -> Result<String> {
     let refs = with_store(&ctx, |store| Ok(remove_package_ref(store, &path)?))?;
-    let packages: Vec<serde_json::Value> = refs
+    let packages = refs
         .iter()
-        .map(|r| json!({"mode": r.mode, "path": r.path}))
+        .map(|r| PackageRefEntry {
+            mode: r.mode.clone(),
+            path: r.path.clone(),
+        })
         .collect();
-    Ok(output::ok(
-        "package disable",
-        json!({ "path": path, "packages": packages }),
-    ))
+    output::serialize("package disable", PackageRefPayload { path, packages })
 }

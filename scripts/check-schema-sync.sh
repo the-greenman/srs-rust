@@ -50,8 +50,35 @@ for spec_file in "$SPEC_SCHEMA_DIR"/*.json; do
   fi
 done
 
+VSCODE_SCHEMA_DIR="$(dirname "$WORKSPACE_ROOT")/srs-vscode/schemas/2.0"
+
+if [[ ! -d "$VSCODE_SCHEMA_DIR" ]]; then
+  echo "WARN: srs-vscode schema directory not found (non-monorepo environment?): $VSCODE_SCHEMA_DIR" >&2
+else
+  for spec_file in "$SPEC_SCHEMA_DIR"/*.json; do
+    filename="$(basename "$spec_file")"
+    vscode_file="$VSCODE_SCHEMA_DIR/$filename"
+
+    if [[ ! -f "$vscode_file" ]]; then
+      echo "MISSING: $filename exists in spec schemas but not in srs-vscode/schemas/2.0/" >&2
+      errors=$((errors + 1))
+      continue
+    fi
+
+    spec_sha="$(sha256sum "$spec_file" | cut -d' ' -f1)"
+    vscode_sha="$(sha256sum "$vscode_file" | cut -d' ' -f1)"
+
+    if [[ "$spec_sha" != "$vscode_sha" ]]; then
+      echo "DIVERGED: $filename — spec and srs-vscode copies have different content" >&2
+      echo "  spec:    $spec_sha  ($spec_file)" >&2
+      echo "  vscode:  $vscode_sha  ($vscode_file)" >&2
+      errors=$((errors + 1))
+    fi
+  done
+fi
+
 if [[ $errors -eq 0 ]]; then
-  echo "OK: all $(ls "$SPEC_SCHEMA_DIR"/*.json | wc -l | tr -d ' ') spec schemas are in sync with embedded copies"
+  echo "OK: all $(ls "$SPEC_SCHEMA_DIR"/*.json | wc -l | tr -d ' ') spec schemas are in sync with all embedded copies"
   exit 0
 else
   echo "FAIL: $errors schema sync error(s) found" >&2

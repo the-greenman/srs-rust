@@ -26,3 +26,4 @@ uuid = { version = "1", features = ["v4"] }
 thiserror = "1"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
+schemars = "0.8"

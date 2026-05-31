@@ -1,7 +1,7 @@
 use crate::commands::{with_store, CliContext, DocumentViewCommand};
 use crate::output;
+use crate::payload::{DocumentViewDeletePayload, DocumentViewListPayload, DocumentViewPayload};
 use anyhow::Result;
-use serde_json::json;
 use srs_core::types::view::DocumentView;
 use srs_repository::view_service::{
     create_document_view, delete_document_view, get_document_view_by_id,
@@ -29,17 +29,17 @@ fn cmd_document_view_list(
     container_type: Option<String>,
 ) -> Result<String> {
     match with_store(&ctx, |store| Ok(list_document_views_summary(store)?)) {
-        Ok(mut summaries) => {
+        Ok(mut document_views) => {
             if let Some(ns) = namespace {
-                summaries.retain(|s| s.namespace == ns);
+                document_views.retain(|s| s.namespace == ns);
             }
             if let Some(ct) = container_type {
-                summaries.retain(|s| s.container_type.as_deref() == Some(ct.as_str()));
+                document_views.retain(|s| s.container_type.as_deref() == Some(ct.as_str()));
             }
-            Ok(output::ok(
+            output::serialize(
                 "document-view list",
-                json!({ "documentViews": summaries }),
-            ))
+                DocumentViewListPayload { document_views },
+            )
         }
         Err(e) => Ok(output::err("document-view list", vec![e.to_string()])),
     }
@@ -47,10 +47,10 @@ fn cmd_document_view_list(
 
 fn cmd_document_view_get(ctx: CliContext, id: String) -> Result<String> {
     match with_store(&ctx, |store| Ok(get_document_view_by_id(store, &id)?))? {
-        GetDocumentViewResult::Found(dv) => Ok(output::ok(
+        GetDocumentViewResult::Found(dv) => output::serialize(
             "document-view get",
-            json!({ "documentView": *dv }),
-        )),
+            DocumentViewPayload { document_view: *dv },
+        ),
         GetDocumentViewResult::NotFound => Ok(output::err(
             "document-view get",
             vec![format!("document view not found: {id}")],
@@ -64,10 +64,10 @@ fn cmd_document_view_create(ctx: CliContext) -> Result<String> {
     let dv: DocumentView = serde_json::from_str(&stdin)
         .map_err(|e| anyhow::anyhow!("Failed to parse DocumentView JSON: {e}"))?;
     match with_store(&ctx, |store| Ok(create_document_view(store, dv)?)) {
-        Ok(CreateDocumentViewResult { document_view }) => Ok(output::ok(
+        Ok(CreateDocumentViewResult { document_view }) => output::serialize(
             "document-view create",
-            json!({ "documentView": document_view }),
-        )),
+            DocumentViewPayload { document_view },
+        ),
         Err(e) => Ok(output::err("document-view create", vec![e.to_string()])),
     }
 }
@@ -78,10 +78,12 @@ fn cmd_document_view_update(ctx: CliContext, id: String) -> Result<String> {
     let dv: DocumentView = serde_json::from_str(&stdin)
         .map_err(|e| anyhow::anyhow!("Failed to parse DocumentView JSON: {e}"))?;
     match with_store(&ctx, |store| Ok(update_document_view(store, &id, dv)?)) {
-        Ok(result) => Ok(output::ok(
+        Ok(result) => output::serialize(
             "document-view update",
-            json!({ "documentView": result.document_view }),
-        )),
+            DocumentViewPayload {
+                document_view: result.document_view,
+            },
+        ),
         Err(e) => Ok(output::err("document-view update", vec![e.to_string()])),
     }
 }
@@ -89,7 +91,7 @@ fn cmd_document_view_update(ctx: CliContext, id: String) -> Result<String> {
 fn cmd_document_view_delete(ctx: CliContext, id: String) -> Result<String> {
     match with_store(&ctx, |store| Ok(delete_document_view(store, &id)?)) {
         Ok(DeleteDocumentViewResult { id }) => {
-            Ok(output::ok("document-view delete", json!({ "id": id })))
+            output::serialize("document-view delete", DocumentViewDeletePayload { id })
         }
         Err(e) => Ok(output::err("document-view delete", vec![e.to_string()])),
     }

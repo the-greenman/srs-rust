@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PackageImportPayload",
+  "type": "object",
+  "required": [
+    "id",
+    "name",
+    "namespace"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "namespace": {
+      "type": "string"
+    },
+    "selector": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}
