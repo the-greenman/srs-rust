@@ -38,6 +38,7 @@ pub enum ViewProtection {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct View {
+    #[serde(default)]
     pub id: String,
     pub namespace: String,
     pub name: String,
@@ -183,6 +184,7 @@ pub struct ThemeVariant {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentView {
+    #[serde(default)]
     pub id: String,
     pub namespace: String,
     pub name: String,

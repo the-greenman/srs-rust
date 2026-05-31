@@ -4,13 +4,14 @@
 
 RFC-001 and RFC-002 have been reviewed, corrected, and are ready to apply. Before the Rust implementation can begin, the spec SRS records must reflect the accepted RFC content, and then the Rust stack needs the new types, package loading, rendering logic, and CLI command. This plan covers all three layers in sequence: spec record updates, Rust type/service implementation, and the `srs render document-view` command.
 
-## Progress Snapshot (2026-05-29)
+## Progress Snapshot (2026-05-31)
 
+- Phase 1 (Spec Record Updates in `srs` repo): mostly complete — RFC-001 and RFC-002 accepted, ext-themes-l1 created, manifest updated; one gap: ext-views-l2.json description stub needs expansion
 - Phase 2 (Rust Types): complete
 - Phase 3 (Package Loading): complete
 - Phase 4 (View Service + Render Service): complete — all 9 render_service tests passing
 - Phase 5 (CLI Command): complete
-- Phase 1 (Spec Record Updates in `srs` repo): pending
+- Phase 6 (RFC-002 Theme Application): pending — RFC-002 type stubs exist; no Theme type, no loading, no rendering
 
 ## Implementation Notes
 
@@ -70,11 +71,11 @@ This diagnostic goes into `RenderResult.diagnostics`, not as an error. The rende
 
 #### Tasks
 
-- [ ] Update `srs/srs/records/rfcs/rfc-001-views-l2-rendering.json`:
+- [x] Update `srs/srs/records/rfcs/rfc-001-views-l2-rendering.json`:
   - Set `fieldValues[status]` (`5a000002-0000-4000-a000-000000000002`) to `"accepted"`
   - Set `fieldValues[content]` (`1a000002-0000-4000-a000-000000000002`) to the full text from `srs/rfcs/rfc-001.md` (strip the top-level `# RFC-001:` heading and the `> Projection note` callout — keep everything from `**Status**: Draft (Revision 8)` onward, updating the status line to `**Status**: Accepted (Revision 8)`)
 
-- [ ] Update `srs/srs/records/rfcs/rfc-002-themes-l1.json`:
+- [x] Update `srs/srs/records/rfcs/rfc-002-themes-l1.json`:
   - Set `fieldValues[status]` to `"accepted"`
   - Set `fieldValues[content]` to the full text from `srs/rfcs/rfc-002.md` (same stripping rule, updating status line to `**Status**: Accepted (Revision 5)`)
 
@@ -85,8 +86,9 @@ This diagnostic goes into `RenderResult.diagnostics`, not as an error. The rende
     - The updated `DocumentView` definition with `depthOffset`, `format` vocabulary, `themeRef`, `themeVariants` (RFC-001 Changes B2, C, D)
     - The `ThemeReference` and `ThemeVariant` type definitions (RFC-001 Change D)
     - All conformance rules [N] through [N+8] verbatim from the RFC, including [N+4b] and [N+6b] which were added in Rev 8
+  - **Current state:** description is a 2-sentence stub; does not explicitly contain `titleFieldId`, `depthOffset`, `[N+4b]`, `[N+6b]`
 
-- [ ] Create `srs/srs/records/extensions/ext-themes-l1.json` — new extension record:
+- [x] Create `srs/srs/records/extensions/ext-themes-l1.json` — new extension record:
   ```json
   {
     "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
@@ -106,17 +108,17 @@ This diagnostic goes into `RenderResult.diagnostics`, not as an error. The rende
   ```
   The `description` value must contain all RFC-002 type definitions and conformance rules [T-1] through [T-11] at their final Rev 5 state.
 
-- [ ] Add `ext-themes-l1` to `srs/srs/manifest.json`:
+- [x] Add `ext-themes-l1` to `srs/srs/manifest.json`:
   - Add to `instanceIndex`: `{ "instanceId": "a3f7c9e1-2b4d-4f8a-9c1e-5d7b3a2f6e0c", "path": "records/extensions/ext-themes-l1.json", "title": "ext:themes-l1" }`
   - Add `"ext:themes-l1"` to `declaredExtensions` array
 
 #### Acceptance Criteria
 
-- [ ] Both RFC records have `status: "accepted"`
-- [ ] RFC-002 content reflects Rev 5 (open question 2 resolved, `{{heading-N}}` scope fixed)
+- [x] Both RFC records have `status: "accepted"`
+- [x] RFC-002 content reflects Rev 5 (open question 2 resolved, `{{heading-N}}` scope fixed)
 - [ ] `ext-views-l2.json` description contains `titleFieldId`, `depthOffset`, `ThemeReference`, `ThemeVariant`, and all conformance rules [N] through [N+8] — including [N+4b] (depthOffset warning) and [N+6b] (`{{heading-3}}` standalone suppression) introduced in Rev 8
-- [ ] `ext-themes-l1.json` exists and is listed in the manifest instanceIndex
-- [ ] `"ext:themes-l1"` appears in `declaredExtensions`
+- [x] `ext-themes-l1.json` exists and is listed in the manifest instanceIndex
+- [x] `"ext:themes-l1"` appears in `declaredExtensions`
 - [ ] `node scripts/validate-all.mjs` passes from `srs/` (if validator is available)
 
 #### Milestone gate
@@ -134,11 +136,11 @@ This diagnostic goes into `RenderResult.diagnostics`, not as an error. The rende
 
 #### Tasks
 
-- [ ] Create `srs-rust/crates/srs-core/src/types/view.rs` with all types below
-- [ ] Register in `srs-rust/crates/srs-core/src/types/mod.rs`: `pub mod view;`
-- [ ] Add new `CoreError` variants to `srs-rust/crates/srs-core/src/error.rs`
-- [ ] Create `srs-rust/crates/srs-core/src/validation/view.rs`
-- [ ] Register in `srs-rust/crates/srs-core/src/validation/mod.rs`: `pub mod view;`
+- [x] Create `srs-rust/crates/srs-core/src/types/view.rs` with all types below
+- [x] Register in `srs-rust/crates/srs-core/src/types/mod.rs`: `pub mod view;`
+- [x] Add new `CoreError` variants to `srs-rust/crates/srs-core/src/error.rs`
+- [x] Create `srs-rust/crates/srs-core/src/validation/view.rs`
+- [x] Register in `srs-rust/crates/srs-core/src/validation/mod.rs`: `pub mod view;`
 
 **Types to implement in `view.rs`** (all use `#[serde(rename_all = "camelCase")]`):
 
@@ -300,13 +302,13 @@ Add `DuplicateThemeVariantName { name: String }` to the CoreError list above.
 
 #### Acceptance Criteria
 
-- [ ] `cargo build -p srs-core` compiles clean
-- [ ] `cargo clippy -p srs-core -- -D warnings` clean
-- [ ] `DocumentView` roundtrips through `serde_json::to_string` / `from_str` without data loss
-- [ ] `SectionSource` variants deserialise correctly from `{"type": "type-query", "semanticObjectType": "ns/name"}` etc.
-- [ ] `validate_document_view` returns `EmptyDocumentViewSections` for a view with no sections
-- [ ] `validate_document_view` returns `DuplicateDocumentSectionId` for duplicate sectionIds
-- [ ] `validate_document_view` returns `DuplicateThemeVariantName` for duplicate variant names in `themeVariants`
+- [x] `cargo build -p srs-core` compiles clean
+- [x] `cargo clippy -p srs-core -- -D warnings` clean
+- [x] `DocumentView` roundtrips through `serde_json::to_string` / `from_str` without data loss
+- [x] `SectionSource` variants deserialise correctly from `{"type": "type-query", "semanticObjectType": "ns/name"}` etc.
+- [x] `validate_document_view` returns `EmptyDocumentViewSections` for a view with no sections
+- [x] `validate_document_view` returns `DuplicateDocumentSectionId` for duplicate sectionIds
+- [x] `validate_document_view` returns `DuplicateThemeVariantName` for duplicate variant names in `themeVariants`
 
 #### Testing
 
@@ -341,7 +343,7 @@ Tests to write in `view.rs`:
 
 #### Tasks
 
-- [ ] Add `RepositoryError` variants to `srs-rust/crates/srs-repository/src/error.rs`:
+- [x] Add `RepositoryError` variants to `srs-rust/crates/srs-repository/src/error.rs`:
   ```rust
   ViewLoad { path: PathBuf, source: serde_json::Error },
   ViewValidation { path: PathBuf, source: CoreError },
@@ -350,7 +352,7 @@ Tests to write in `view.rs`:
   DocumentViewNotFound { view_id: String },
   ```
 
-- [ ] Update `srs-rust/crates/srs-repository/src/package.rs`:
+- [x] Update `srs-rust/crates/srs-repository/src/package.rs`:
   - Add `views: Vec<String>` and `document_views: Vec<String>` (both `#[serde(default)]`) to `PackageMetadata`
   - Add `pub views: Vec<View>` and `pub document_views: Vec<DocumentView>` to `Package`
   - Add two loading loops to `load_package()` after relation types, following the identical pattern as types:
@@ -359,50 +361,19 @@ Tests to write in `view.rs`:
   - Add `pub fn resolve_view(&self, id: &str) -> Option<&View>` to `Package` impl
   - Add `pub fn resolve_document_view(&self, id: &str) -> Option<&DocumentView>` to `Package` impl
 
-- [ ] Create spec-compliant DocumentView JSON file:
-  - Create directory `srs/srs/package/document-views/`
-  - Create `srs/srs/package/document-views/srs-spec-document-view.json`:
-    ```json
-    {
-      "id": "ec34f54b-8636-5c8b-af5b-c9eb3df24fe6",
-      "namespace": "com.semanticops.srs",
-      "name": "srs-spec-document-view",
-      "version": 1,
-      "description": "Renders the full SRS specification as a structured markdown document",
-      "format": "markdown",
-      "sections": [
-        {
-          "sectionId": "spec-sections",
-          "title": "Specification",
-          "order": 0,
-          "source": {
-            "type": "type-query",
-            "semanticObjectType": "com.semanticops.srs/meta.section"
-          },
-          "emptyBehavior": "hide"
-        }
-      ],
-      "createdAt": "2026-05-29T00:00:00Z"
-    }
-    ```
-    The UUID reuses the one from the existing simplified view file so existing references remain valid.
+- [x] Create spec-compliant DocumentView JSON file at `srs/srs/package/document-views/srs-spec-document-view.json`
 
-- [ ] Retire the two pre-spec view files in `srs/srs/package/views/`:
-  - `srs/srs/package/views/srs-spec-document-view.json` — this was a pre-RFC placeholder using a non-conformant schema (`title`, `outputFormats`, `rootType`). It is superseded by the new spec-compliant `document-views/srs-spec-document-view.json` (which reuses the same UUID). Delete this file.
-  - `srs/srs/package/views/extension-card-view.json` — similarly pre-spec placeholder, never loaded by any Rust code. Delete this file.
-  - No Rust code references either file or either UUID; confirmed by grepping the srs-rust codebase. This is not a regression — these files were never consumed.
+- [x] Retire the two pre-spec view files in `srs/srs/package/views/` (deleted)
 
-- [ ] Update `srs/srs/package/package.json`:
-  - Set `"views": []` — the two files in `package/views/` have been deleted above; no L1 View files exist yet (follow-on work)
-  - Add `"documentViews": ["document-views/srs-spec-document-view.json"]`
+- [x] Update `srs/srs/package/package.json`: `"views": []`, `"documentViews": ["document-views/srs-spec-document-view.json"]`
 
 #### Acceptance Criteria
 
-- [ ] `cargo build -p srs-repository` compiles clean
-- [ ] `cargo clippy -p srs-repository -- -D warnings` clean
-- [ ] Existing test `load_package_from_live_repo` passes (still finds fields, types, relation types)
-- [ ] New test `load_package_loads_document_views` passes — loads the SRS package and finds the document view by ID
-- [ ] `resolve_document_view("ec34f54b-8636-5c8b-af5b-c9eb3df24fe6")` returns `Some(_)`
+- [x] `cargo build -p srs-repository` compiles clean
+- [x] `cargo clippy -p srs-repository -- -D warnings` clean
+- [x] Existing test `load_package_from_live_repo` passes (still finds fields, types, relation types)
+- [x] New test `load_package_loads_document_views` passes — loads the SRS package and finds the document view by ID
+- [x] `resolve_document_view("ec34f54b-8636-5c8b-af5b-c9eb3df24fe6")` returns `Some(_)`
 
 #### Testing
 
@@ -433,7 +404,7 @@ New tests in `package.rs`:
 
 - [ ] Expose relation loading: in `srs-rust/crates/srs-repository/src/relation_service.rs`, change `fn load_relations` to `pub(crate) fn load_relations`
 
-- [ ] Create `srs-rust/crates/srs-repository/src/view_service.rs`:
+- [x] Create `srs-rust/crates/srs-repository/src/view_service.rs`:
   ```rust
   pub enum GetDocumentViewResult { Found(Box<DocumentView>), NotFound }
   pub enum GetViewResult { Found(Box<View>), NotFound }
@@ -445,9 +416,9 @@ New tests in `package.rs`:
   ```
   All functions call `load_package(repo_root)?` and delegate to `package.resolve_*`.
 
-- [ ] Register in `srs-rust/crates/srs-repository/src/lib.rs`: `pub mod view_service;`
+- [x] Register in `srs-rust/crates/srs-repository/src/lib.rs`: `pub mod view_service;`
 
-- [ ] Create `srs-rust/crates/srs-repository/src/render_service.rs`:
+- [x] Create `srs-rust/crates/srs-repository/src/render_service.rs`:
 
   **Public API:**
   ```rust
@@ -591,33 +562,12 @@ Fixture views added to `crates/srs-cli/tests/fixtures/repeatable-fields/package/
 
 #### Tasks
 
-- [ ] Create `srs-rust/crates/srs-cli/src/commands/render.rs`:
-  ```rust
-  pub fn dispatch(ctx: CliContext, cmd: RenderCommand) -> Result<String>
-  // dispatches to cmd_render_document_view
+- [x] Create `srs-rust/crates/srs-cli/src/commands/render.rs`
 
-  fn cmd_render_document_view(ctx, view_id, format, output_path) -> Result<String>
-  // calls render_document_view(opts)
-  // if output_path provided: writes rendered string to file
-  // returns output::ok("render document-view", json!({ "rendered": ..., "diagnostics": [...] }))
-  // on RepositoryError: returns output::err("render document-view", vec![e.to_string()])
-  ```
-
-- [ ] Update `srs-rust/crates/srs-cli/src/commands/mod.rs`:
+- [x] Update `srs-rust/crates/srs-cli/src/commands/mod.rs`:
   - Add `pub mod render;`
-  - Add `RenderCommand` enum:
-    ```rust
-    #[derive(Subcommand)]
-    pub enum RenderCommand {
-        DocumentView {
-            #[arg(long = "view")]  view: String,
-            #[arg(long)]           format: Option<String>,
-            #[arg(long)]           output: Option<PathBuf>,
-        }
-    }
-    ```
-  - Add to `Commands` enum: `Render(#[command(subcommand)] RenderCommand)`
-  - Add to `dispatch()`: `Commands::Render(cmd) => render::dispatch(ctx, cmd)`
+  - Add `RenderCommand` enum with `DocumentView { view, format, output }`
+  - Add to `Commands` enum and `dispatch()`
 
 #### Output contract
 
@@ -639,13 +589,13 @@ Rendered content is at `response.payload.rendered`. Render-time diagnostics (war
 
 #### Acceptance Criteria
 
-- [ ] `cargo build -p srs-cli` compiles clean
-- [ ] `cargo clippy -p srs-cli -- -D warnings` clean
-- [ ] `srs render document-view --help` shows expected arguments
-- [ ] `srs render document-view --repo <path> --view <uuid>` returns JSON with `ok: true`
-- [ ] `srs render document-view --repo <path> --view <uuid> --format text` returns text-format output
-- [ ] `srs render document-view --repo <path> --view <unknown-uuid>` returns `ok: false` with error message
-- [ ] `srs render document-view --repo <path> --view <uuid> --output /tmp/out.md` writes file and returns JSON
+- [x] `cargo build -p srs-cli` compiles clean
+- [x] `cargo clippy -p srs-cli -- -D warnings` clean
+- [x] `srs render document-view --help` shows expected arguments
+- [x] `srs render document-view --repo <path> --view <uuid>` returns JSON with `ok: true`
+- [x] `srs render document-view --repo <path> --view <uuid> --format text` returns text-format output
+- [x] `srs render document-view --repo <path> --view <unknown-uuid>` returns `ok: false` with error message
+- [x] `srs render document-view --repo <path> --view <uuid> --output /tmp/out.md` writes file and returns JSON
 
 #### Testing
 
@@ -671,8 +621,10 @@ cargo clippy -p srs-cli -- -D warnings
 - [x] `cargo clippy -- -D warnings` passes
 - [x] `srs render document-view --repo srs/srs --view ec34f54b-8636-5c8b-af5b-c9eb3df24fe6 --pretty` produces non-empty markdown in `payload.rendered`
 - [x] All existing CLI commands continue to function (no regression)
-- [ ] RFC-001 and RFC-002 records have `status: "accepted"` in the SRS spec repo
-- [ ] `ext-themes-l1` appears in `manifest.json` `declaredExtensions`
+- [x] RFC-001 and RFC-002 records have `status: "accepted"` in the SRS spec repo
+- [x] `ext-themes-l1` appears in `manifest.json` `declaredExtensions`
+- [ ] `ext-views-l2.json` description contains full RFC-001 spec text (Phase 1 gap)
+- [ ] RFC-002 theme application implemented in renderer (Phase 6)
 
 ---
 
@@ -681,6 +633,7 @@ cargo clippy -p srs-cli -- -D warnings
 - Phases 2 and 3 depend on no changes outside `srs-core` and `srs-repository` respectively.
 - Phase 4 (render_service) must not start until Phase 3 milestone gate passes (package loading must work first).
 - Phase 5 must not start until Phase 4 milestone gate passes.
+- Phase 6 sub-phases must be completed in order: 6a → 6b → 6c → 6d. Phase 6d can start as soon as `RenderDocumentViewOptions` signature is finalized in 6c.
 - Spec Worker (Phase 1) can run in parallel with Phases 2–3 since they touch different files.
 - Workers return changed file paths and a behaviour summary when done.
 - Lead Integrator owns final API naming across crate boundaries.
@@ -692,3 +645,233 @@ cargo clippy -p srs-cli -- -D warnings
 - `list_members(repo_root, container_id)` is already public in `container_service.rs`
 - The existing simplified view files in `srs/srs/package/views/` do not need to be migrated to L1 View format in this plan — they are cleared from `package.json`'s `views` array
 - Container title resolution uses a fallback chain: containerIndex title → manifest meta title → manifest namespace. Full container-space context (where `DocumentView.containerType` drives container selection) is a follow-on.
+
+---
+
+### Phase 6: RFC-002 Theme Application
+
+**Goal:** Full RFC-002 (`ext:themes-l1`) theme application in the renderer. `srs render document-view` applies element templates from a resolved `Theme` when `DocumentView.themeRef` is set and the theme targets the output format.
+
+**Current state:** `ThemeReference`, `ThemeVariant`, `ThemeMode` types exist and deserialize correctly. No `Theme` type, no theme loading, no rendering. Theme fields on `DocumentView` are silently ignored.
+
+**Out of scope in Phase 6:** `pageTemplates` (paginated formats), stylesheet/typography application, local/remote asset resolution (assets declared, not resolved), HTML format output (full HTML rendering is a separate effort), pdf/docx formats.
+
+---
+
+#### Phase 6a: Theme type and validation (`srs-core`)
+
+**Agent:** Rust Types Worker
+
+##### Tasks
+
+- [ ] Create `srs-rust/crates/srs-core/src/types/theme.rs` with:
+  - `AssetMode` enum: `Local`, `Remote`, `Inline` (`#[serde(rename_all = "lowercase")]`)
+  - `AssetType` enum: `Image`, `Font`, `Stylesheet`, `Data` (`#[serde(rename_all = "lowercase")]`)
+  - `AssetDeclaration` struct: `asset_type` (`#[serde(rename = "type")]`), `mode`, `path`, `url`, `data`, `mime_type`
+  - `SectionWrapperOverride` struct: `section_id`, `template`
+  - `RecordWrapperOverride` struct: `type_id`, `template`
+  - `ElementTemplates` struct: `document_wrapper`, `section_wrapper`, `section_wrapper_overrides`, `record_wrapper`, `record_wrapper_overrides`, `field_row`
+  - `Theme` struct (`#[serde(rename_all = "camelCase")]`): `id`, `namespace`, `name`, `version: u32`, `description`, `targets: Vec<String>`, `assets: Option<HashMap<String, AssetDeclaration>>`, `css_class_fields: Option<Vec<String>>`, `element_templates: Option<ElementTemplates>`, `created_at: String`; out-of-scope fields (`page_templates`, `stylesheet`, `typography`) typed as `Option<serde_json::Value>` with `#[serde(default)]` so they round-trip without error
+
+- [ ] Register `pub mod theme;` in `srs-rust/crates/srs-core/src/types/mod.rs`
+
+- [ ] Create `srs-rust/crates/srs-core/src/validation/theme.rs`:
+  - `pub fn validate_theme(theme: &Theme) -> Result<(), CoreError>`
+  - Rule T-1b: `targets` non-empty → `ThemeTargetsEmpty`
+  - Rule T-7a: unique `section_id` in `section_wrapper_overrides` → `DuplicateThemeSectionOverrideId`
+  - Rule T-7b: unique `type_id` in `record_wrapper_overrides` → `DuplicateThemeRecordOverrideTypeId`
+
+- [ ] Register `pub mod theme;` in `srs-rust/crates/srs-core/src/validation/mod.rs`
+
+- [ ] Add to `srs-rust/crates/srs-core/src/error.rs`:
+  ```rust
+  ThemeTargetsEmpty,
+  DuplicateThemeAssetName { name: String },
+  DuplicateThemeSectionOverrideId { section_id: String },
+  DuplicateThemeRecordOverrideTypeId { type_id: String },
+  ```
+  Add matching `PartialEq` arms.
+
+##### Tests
+
+In `types/theme.rs`:
+- `theme_roundtrips_minimal_json`
+- `theme_roundtrips_full_element_templates`
+- `theme_deserializes_unknown_top_level_fields_silently` — `pageTemplates` present in JSON does not cause error
+
+In `validation/theme.rs`:
+- `validate_theme_empty_targets_fails`
+- `validate_theme_single_target_passes`
+- `validate_theme_duplicate_section_override_id_fails`
+- `validate_theme_unique_section_override_ids_passes`
+- `validate_theme_duplicate_record_override_type_id_fails`
+
+##### Acceptance Criteria
+
+- [ ] `cargo build -p srs-core` compiles clean
+- [ ] `cargo clippy -p srs-core -- -D warnings` clean
+- [ ] `Theme` with no `targets` fails validation with `ThemeTargetsEmpty`
+- [ ] Minimal valid `Theme` JSON deserializes without error
+- [ ] Unknown top-level fields in the JSON (e.g. `pageTemplates`) do not cause deserialization errors
+
+##### Milestone gate
+
+`cargo test -p srs-core` green. Commit.
+
+---
+
+#### Phase 6b: Theme loading (`srs-repository/package.rs`)
+
+**Agent:** Rust Types Worker
+
+##### Tasks
+
+- [ ] Add `#[serde(default)] themes: Vec<String>` to `PackageMetadata` in `package.rs`
+
+- [ ] Add `pub themes: Vec<Theme>` to `Package` struct
+
+- [ ] Add to `Package` impl:
+  - `pub fn resolve_theme(&self, theme_id: &str) -> Option<&Theme>`
+  - `pub fn themes(&self) -> &[Theme]`
+
+- [ ] Add theme loading loop to `load_package_from_dir` (mirrors `document_views` loop):
+  - read file → `serde_json::from_str::<Theme>` → `validate_theme` → push
+  - expand return type to include `Vec<Theme>`; thread through `load_package` merge loop
+
+- [ ] Add to `srs-rust/crates/srs-repository/src/error.rs`:
+  ```rust
+  ThemeLoad { path: PathBuf, source: serde_json::Error },
+  ThemeValidation { path: PathBuf, source: CoreError },
+  BundledThemeNotFound { theme_id: String },
+  ```
+
+- [ ] Create fixture `srs-rust/crates/srs-cli/tests/fixtures/themed/`:
+  - `manifest.json`, `package/package.json` with `"themes": ["themes/basic-theme.json"]`
+  - `package/themes/basic-theme.json` — `targets: ["markdown"]`, minimal `elementTemplates` with `documentWrapper`, `sectionWrapper`, `recordWrapper`, `fieldRow`
+  - `package/document-views/themed-doc-view.json` — `themeRef: {mode: "bundled", themeId: "<basic-theme-id>"}`
+  - `package/document-views/format-mismatch-view.json` — theme targets `["adoc"]`, view format `"markdown"`
+  - `package/document-views/no-theme-view.json` — no `themeRef`
+  - `package/document-views/variant-view.json` — `themeVariants` array with two named variants
+  - `records/item-1.json` — one record to render
+
+##### Tests in `package.rs`
+
+- `load_package_loads_themes`
+- `resolve_theme_finds_by_id`
+- `resolve_theme_returns_none_for_unknown`
+- `load_package_theme_validation_fails_on_empty_targets`
+
+##### Acceptance Criteria
+
+- [ ] `cargo build -p srs-repository` compiles clean
+- [ ] `cargo clippy -p srs-repository -- -D warnings` clean
+- [ ] `Package.themes` populated from `package.json`'s `themes` array
+- [ ] `Package::resolve_theme(id)` returns the correct theme
+- [ ] Package with no `themes` key loads without error
+
+##### Milestone gate
+
+`cargo test -p srs-repository` green. Commit.
+
+---
+
+#### Phase 6c: Theme application (`render_service.rs`)
+
+**Agent:** Render Worker
+
+##### Tasks
+
+- [ ] Add `pub theme_variant: Option<&'a str>` to `RenderDocumentViewOptions`
+
+- [ ] Add `active_theme: Option<Theme>` to `RenderContext`
+
+- [ ] Add all existing `RenderDocumentViewOptions` constructors in tests: add `theme_variant: None` field
+
+- [ ] Create private function `resolve_active_theme(dv, package, theme_variant, format, diagnostics) -> Option<Theme>`:
+  - Implements RFC-001 Rule [N+8] + Rules T-1, T-2, T-5
+  - Variant name given: find in `dv.theme_variants`; if not found emit diagnostic, fall back to `dv.theme_ref`
+  - Bundled ref: `package.resolve_theme()`; if missing emit `[T-5]` diagnostic, return None
+  - Local/remote refs: emit "not supported in this release" diagnostic, return None
+  - Format mismatch (T-2): emit `[T-2]` diagnostic, return None
+  - No themeRef at all: return None silently
+
+- [ ] Create private function `apply_wrapper(template: &str, vars: &[(&str, &str)]) -> String`:
+  - Substitutes `{{name}}` for each `(name, value)` pair
+  - Unknown vars pass through literally (Rule T-6)
+  - Pre-zeroes `{{heading-1}}` through `{{heading-6}}` to `""` (Rule T-6b — element wrappers only)
+  - Post-pass for `{{asset:name}}` pattern: scan and replace via `resolve_asset`
+
+- [ ] Create private function `resolve_asset<'a>(theme: &'a Theme, name: &str) -> &'a str`:
+  - inline mode: `asset.data.as_deref().unwrap_or("")`
+  - local/remote: `""` (Phase 6 scope)
+
+- [ ] Extract `format_field_row(format: &str, label: &str, value: &str) -> String` from existing inline logic
+
+- [ ] In `render_document_view`: resolve active theme after computing ctx; after all sections assembled, apply `documentWrapper` if present
+
+- [ ] In `render_section`: add `theme: Option<&Theme>` param; apply `sectionWrapperOverrides` (by `section_id`) then `sectionWrapper` after section body assembled (Rule T-7 precedence)
+
+- [ ] In `render_record_at_level`: add `theme: Option<&Theme>` param; apply `recordWrapperOverrides` (by `type_id`) then `recordWrapper` after record body assembled; compute and inject CSS classes when `format == "html"` (Rules T-8, T-9: string/text/select fields only)
+
+- [ ] In field row loop: apply `fieldRow` template to each row; preamble content NOT wrapped (Rule T-10)
+
+##### Tests (use `themed/` fixture)
+
+- `theme_document_wrapper_wraps_entire_output`
+- `theme_section_wrapper_wraps_each_section`
+- `theme_section_wrapper_override_takes_precedence`
+- `theme_record_wrapper_wraps_each_record`
+- `theme_field_row_wraps_each_field`
+- `theme_format_mismatch_skips_theme_and_emits_diagnostic`
+- `theme_bundled_ref_not_found_emits_diagnostic`
+- `theme_no_themeref_renders_without_theme`
+- `theme_unknown_template_var_passes_through_literally`
+- `theme_variant_selection_uses_matching_variant`
+- `theme_variant_not_found_falls_back_to_theme_ref`
+- `theme_heading_vars_resolve_empty_in_element_wrappers`
+- `theme_field_row_not_applied_to_preamble`
+
+##### Acceptance Criteria
+
+- [ ] `cargo build -p srs-repository` compiles clean
+- [ ] `cargo clippy -p srs-repository -- -D warnings` clean
+- [ ] Plain renders (no themeRef) produce identical output to before Phase 6
+- [ ] `documentWrapper` wraps the entire rendered body
+- [ ] `sectionWrapperOverrides` takes precedence over `sectionWrapper` for matching `sectionId`
+- [ ] Format mismatch emits `[T-2]` diagnostic; renders without theme
+- [ ] Unknown template vars pass through as literal text
+- [ ] `{{heading-N}}` in element wrapper templates resolves to `""`
+
+##### Milestone gate
+
+`cargo test -p srs-repository` green. Manual `srs render document-view` against themed fixture produces visibly wrapped output. No regression on existing integration test. Commit.
+
+---
+
+#### Phase 6d: CLI flag (`srs-cli`)
+
+**Agent:** Rust Types Worker
+
+##### Tasks
+
+- [ ] Add `#[arg(long = "theme-variant")] theme_variant: Option<String>` to `RenderCommand::DocumentView` in `commands/mod.rs`
+
+- [ ] Destructure and forward `theme_variant.as_deref()` to `RenderDocumentViewOptions` in `commands/render.rs`
+
+##### Tests
+
+- `cli_render_document_view_with_theme_variant_flag_passes_through`
+- `cli_render_document_view_without_theme_variant_works_as_before`
+- `cli_render_document_view_theme_variant_not_found_produces_diagnostic_not_error`
+
+##### Acceptance Criteria
+
+- [ ] `cargo build -p srs-cli` compiles clean
+- [ ] `cargo clippy -p srs-cli -- -D warnings` clean
+- [ ] `srs render document-view --help` shows `--theme-variant <NAME>`
+- [ ] `--theme-variant` value forwarded to `RenderDocumentViewOptions.theme_variant`
+- [ ] Variant-not-found cases produce a diagnostic in `payload.diagnostics`, not an error exit
+
+##### Milestone gate
+
+`cargo test` green across all crates. Commit.

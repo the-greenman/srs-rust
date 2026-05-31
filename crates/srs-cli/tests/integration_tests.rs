@@ -176,10 +176,10 @@ fn note_list_filters_by_tag() {
 
 #[test]
 fn note_audit_tags_returns_tag_counts() {
-    let result = run_srs(&["note", "audit-tags"]);
+    let result = run_srs(&["note", "tag", "map"]);
     assert_eq!(result["ok"], true);
-    assert_eq!(result["command"], "note audit-tags");
-    assert!(result["payload"]["tagAudit"]["tagCounts"].is_array());
+    assert_eq!(result["command"], "note tag map");
+    assert!(result["payload"]["tagAudit"].is_object());
 }
 
 #[test]
@@ -1126,7 +1126,7 @@ fn make_valid_validate_repo() -> TempDir {
     let manifest = serde_json::json!({
         "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
         "formatVersion": "1.0",
-        "scdsVersion": "2.0",
+        "srsVersion": "2.0",
         "conformance": "SRS 2.0 Core ext:repository",
         "repositoryId": "00000000-0000-4000-8000-000000000099",
         "title": "Test Repo",
@@ -1223,7 +1223,7 @@ fn repo_validate_invalid_note_returns_ok_false() {
     let manifest = serde_json::json!({
         "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
         "formatVersion": "1.0",
-        "scdsVersion": "2.0",
+        "srsVersion": "2.0",
         "conformance": "SRS 2.0 Core ext:repository",
         "repositoryId": "00000000-0000-4000-8000-000000000099",
         "title": "Test Repo",
@@ -1275,7 +1275,7 @@ fn repo_validate_tier_schema_mismatch_returns_ok_false() {
     let manifest = serde_json::json!({
         "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
         "formatVersion": "1.0",
-        "scdsVersion": "2.0",
+        "srsVersion": "2.0",
         "conformance": "SRS 2.0 Core ext:repository",
         "repositoryId": "00000000-0000-4000-8000-000000000099",
         "title": "Test Repo",

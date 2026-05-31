@@ -73,7 +73,7 @@ pub fn validate_repository(
         })?;
 
     checked += 1;
-    // TODO(phase-3): manifest.json schema requires formatVersion/scdsVersion/conformance/container
+    // TODO(phase-3): manifest.json schema requires formatVersion/srsVersion/conformance/container
     // which do not yet exist in live manifests. Re-enable once the manifest format is migrated.
     let _ = &manifest_value;
 
@@ -380,7 +380,7 @@ mod tests {
         json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "formatVersion": "1.0",
-            "scdsVersion": "2.0",
+            "srsVersion": "2.0",
             "conformance": "SRS 2.0 Core ext:repository",
             "repositoryId": "00000000-0000-4000-8000-000000000099",
             "title": "Test Repo",
