@@ -1,0 +1,78 @@
+use crate::commands::{with_store, CliContext, ViewCommand};
+use crate::output;
+use anyhow::Result;
+use serde_json::json;
+use srs_core::types::view::View;
+use srs_repository::view_service::{
+    create_view, delete_view, get_view_by_id, list_views_summary, update_view, CreateViewResult,
+    DeleteViewResult, GetViewResult,
+};
+use std::io::{self, Read};
+
+pub fn dispatch(ctx: CliContext, cmd: ViewCommand) -> Result<String> {
+    match cmd {
+        ViewCommand::List { namespace, type_id } => cmd_view_list(ctx, namespace, type_id),
+        ViewCommand::Get { id } => cmd_view_get(ctx, id),
+        ViewCommand::Create => cmd_view_create(ctx),
+        ViewCommand::Update { id } => cmd_view_update(ctx, id),
+        ViewCommand::Delete { id } => cmd_view_delete(ctx, id),
+    }
+}
+
+fn cmd_view_list(
+    ctx: CliContext,
+    namespace: Option<String>,
+    type_id: Option<String>,
+) -> Result<String> {
+    match with_store(&ctx, |store| Ok(list_views_summary(store)?)) {
+        Ok(mut summaries) => {
+            if let Some(ns) = namespace {
+                summaries.retain(|s| s.namespace == ns);
+            }
+            if let Some(tid) = type_id {
+                summaries.retain(|s| s.type_id == tid);
+            }
+            Ok(output::ok("view list", json!({ "views": summaries })))
+        }
+        Err(e) => Ok(output::err("view list", vec![e.to_string()])),
+    }
+}
+
+fn cmd_view_get(ctx: CliContext, id: String) -> Result<String> {
+    match with_store(&ctx, |store| Ok(get_view_by_id(store, &id)?))? {
+        GetViewResult::Found(view) => Ok(output::ok("view get", json!({ "view": *view }))),
+        GetViewResult::NotFound => Ok(output::err(
+            "view get",
+            vec![format!("view not found: {id}")],
+        )),
+    }
+}
+
+fn cmd_view_create(ctx: CliContext) -> Result<String> {
+    let mut stdin = String::new();
+    io::stdin().read_to_string(&mut stdin)?;
+    let view: View = serde_json::from_str(&stdin)
+        .map_err(|e| anyhow::anyhow!("Failed to parse View JSON: {e}"))?;
+    match with_store(&ctx, |store| Ok(create_view(store, view)?)) {
+        Ok(CreateViewResult { view }) => Ok(output::ok("view create", json!({ "view": view }))),
+        Err(e) => Ok(output::err("view create", vec![e.to_string()])),
+    }
+}
+
+fn cmd_view_update(ctx: CliContext, id: String) -> Result<String> {
+    let mut stdin = String::new();
+    io::stdin().read_to_string(&mut stdin)?;
+    let view: View = serde_json::from_str(&stdin)
+        .map_err(|e| anyhow::anyhow!("Failed to parse View JSON: {e}"))?;
+    match with_store(&ctx, |store| Ok(update_view(store, &id, view)?)) {
+        Ok(result) => Ok(output::ok("view update", json!({ "view": result.view }))),
+        Err(e) => Ok(output::err("view update", vec![e.to_string()])),
+    }
+}
+
+fn cmd_view_delete(ctx: CliContext, id: String) -> Result<String> {
+    match with_store(&ctx, |store| Ok(delete_view(store, &id)?)) {
+        Ok(DeleteViewResult { id }) => Ok(output::ok("view delete", json!({ "id": id }))),
+        Err(e) => Ok(output::err("view delete", vec![e.to_string()])),
+    }
+}

@@ -4269,3 +4269,405 @@ fn type_list_with_package_filter() {
         "primary-type should appear in type list"
     );
 }
+
+// ---------------------------------------------------------------------------
+// view command integration tests
+// ---------------------------------------------------------------------------
+
+fn create_temp_repo_with_views() -> TempDir {
+    let temp = TempDir::new().expect("Failed to create temp dir");
+    std::fs::create_dir_all(temp.path().join(".srs")).unwrap();
+    std::fs::write(
+        temp.path().join("manifest.json"),
+        serde_json::to_string_pretty(&serde_json::json!({ "instanceIndex": [] })).unwrap(),
+    )
+    .unwrap();
+    let package_dir = temp.path().join("package");
+    std::fs::create_dir_all(package_dir.join("views")).unwrap();
+    std::fs::create_dir_all(package_dir.join("document-views")).unwrap();
+    std::fs::write(
+        package_dir.join("package.json"),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "id": "primary-pkg",
+            "namespace": "com.test",
+            "name": "primary",
+            "version": "1.0.0",
+            "fields": [],
+            "types": [],
+            "relationTypes": [],
+            "views": [],
+            "documentViews": []
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    temp
+}
+
+fn minimal_view_json() -> String {
+    serde_json::json!({
+        "id": "",
+        "namespace": "com.test",
+        "name": "test-view",
+        "version": 1,
+        "description": "A test view",
+        "typeId": "00000000-0000-4000-a000-000000000001",
+        "typeVersion": 1,
+        "fieldViews": [{ "fieldId": "f1", "order": 0 }],
+        "createdAt": "2026-01-01T00:00:00Z"
+    })
+    .to_string()
+}
+
+fn minimal_document_view_json() -> String {
+    serde_json::json!({
+        "id": "",
+        "namespace": "com.test",
+        "name": "test-doc-view",
+        "version": 1,
+        "description": "A test document view",
+        "sections": [{
+            "sectionId": "s1",
+            "order": 0,
+            "source": { "type": "fixed-instances", "instanceIds": [] }
+        }],
+        "createdAt": "2026-01-01T00:00:00Z"
+    })
+    .to_string()
+}
+
+#[test]
+fn view_list_returns_ok_envelope() {
+    let temp = create_temp_repo_with_views();
+    let result = run_srs_in_dir(temp.path(), &["view", "list"]);
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["command"], "view list");
+    assert!(result["payload"]["views"].is_array());
+    assert_eq!(result["payload"]["views"].as_array().unwrap().len(), 0);
+}
+
+#[test]
+fn view_create_returns_view_with_id() {
+    let temp = create_temp_repo_with_views();
+    let result = run_srs_stdin_in_dir(temp.path(), &["view", "create"], &minimal_view_json());
+    assert_eq!(result["ok"], true, "view create failed: {:?}", result);
+    let id = result["payload"]["view"]["id"].as_str().unwrap();
+    assert!(!id.is_empty());
+}
+
+#[test]
+fn view_get_returns_created_view() {
+    let temp = create_temp_repo_with_views();
+    let created = run_srs_stdin_in_dir(temp.path(), &["view", "create"], &minimal_view_json());
+    let id = created["payload"]["view"]["id"].as_str().unwrap();
+
+    let result = run_srs_in_dir(temp.path(), &["view", "get", id]);
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["payload"]["view"]["name"], "test-view");
+}
+
+#[test]
+fn view_list_contains_created_view() {
+    let temp = create_temp_repo_with_views();
+    let created = run_srs_stdin_in_dir(temp.path(), &["view", "create"], &minimal_view_json());
+    let id = created["payload"]["view"]["id"].as_str().unwrap();
+
+    let result = run_srs_in_dir(temp.path(), &["view", "list"]);
+    assert_eq!(result["ok"], true);
+    let views = result["payload"]["views"].as_array().unwrap();
+    assert!(
+        views.iter().any(|v| v["id"] == id),
+        "created view should appear in list"
+    );
+}
+
+#[test]
+fn view_list_filters_by_namespace() {
+    let temp = create_temp_repo_with_views();
+
+    run_srs_stdin_in_dir(temp.path(), &["view", "create"], &minimal_view_json());
+
+    let other_view = serde_json::json!({
+        "id": "",
+        "namespace": "com.other",
+        "name": "other-view",
+        "version": 1,
+        "description": "Other namespace view",
+        "typeId": "00000000-0000-4000-a000-000000000002",
+        "typeVersion": 1,
+        "fieldViews": [{ "fieldId": "f1", "order": 0 }],
+        "createdAt": "2026-01-01T00:00:00Z"
+    })
+    .to_string();
+    run_srs_stdin_in_dir(temp.path(), &["view", "create"], &other_view);
+
+    let result = run_srs_in_dir(temp.path(), &["view", "list", "--namespace", "com.other"]);
+    assert_eq!(result["ok"], true);
+    let views = result["payload"]["views"].as_array().unwrap();
+    assert_eq!(views.len(), 1);
+    assert_eq!(views[0]["namespace"], "com.other");
+}
+
+#[test]
+fn view_update_changes_description() {
+    let temp = create_temp_repo_with_views();
+    let created = run_srs_stdin_in_dir(temp.path(), &["view", "create"], &minimal_view_json());
+    let id = created["payload"]["view"]["id"].as_str().unwrap();
+
+    let updated_json = serde_json::json!({
+        "id": id,
+        "namespace": "com.test",
+        "name": "test-view",
+        "version": 1,
+        "description": "Updated description",
+        "typeId": "00000000-0000-4000-a000-000000000001",
+        "typeVersion": 1,
+        "fieldViews": [{ "fieldId": "f1", "order": 0 }],
+        "createdAt": "2026-01-01T00:00:00Z"
+    })
+    .to_string();
+    let update_result = run_srs_stdin_in_dir(temp.path(), &["view", "update", id], &updated_json);
+    assert_eq!(
+        update_result["ok"], true,
+        "view update failed: {:?}",
+        update_result
+    );
+
+    let get_result = run_srs_in_dir(temp.path(), &["view", "get", id]);
+    assert_eq!(
+        get_result["payload"]["view"]["description"],
+        "Updated description"
+    );
+}
+
+#[test]
+fn view_delete_removes_view() {
+    let temp = create_temp_repo_with_views();
+    let created = run_srs_stdin_in_dir(temp.path(), &["view", "create"], &minimal_view_json());
+    let id = created["payload"]["view"]["id"].as_str().unwrap();
+
+    let delete_result = run_srs_in_dir(temp.path(), &["view", "delete", id]);
+    assert_eq!(delete_result["ok"], true);
+    assert_eq!(delete_result["payload"]["id"], id);
+
+    let list_result = run_srs_in_dir(temp.path(), &["view", "list"]);
+    let views = list_result["payload"]["views"].as_array().unwrap();
+    assert!(views.iter().all(|v| v["id"] != id));
+}
+
+#[test]
+fn view_get_not_found_returns_error() {
+    let temp = create_temp_repo_with_views();
+    let result = run_srs_in_dir(
+        temp.path(),
+        &["view", "get", "00000000-0000-0000-0000-000000000000"],
+    );
+    assert_eq!(result["ok"], false);
+}
+
+#[test]
+fn view_create_fails_validation() {
+    let temp = create_temp_repo_with_views();
+    let bad = serde_json::json!({
+        "id": "",
+        "namespace": "com.test",
+        "name": "bad-view",
+        "version": 1,
+        "description": "bad",
+        "typeId": "00000000-0000-4000-a000-000000000001",
+        "typeVersion": 1,
+        "fieldViews": [],
+        "createdAt": "2026-01-01T00:00:00Z"
+    })
+    .to_string();
+    let result = run_srs_stdin_in_dir(temp.path(), &["view", "create"], &bad);
+    assert_eq!(result["ok"], false);
+}
+
+// ---------------------------------------------------------------------------
+// document-view command integration tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn document_view_list_returns_ok_envelope() {
+    let temp = create_temp_repo_with_views();
+    let result = run_srs_in_dir(temp.path(), &["document-view", "list"]);
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["command"], "document-view list");
+    assert!(result["payload"]["documentViews"].is_array());
+    assert_eq!(
+        result["payload"]["documentViews"].as_array().unwrap().len(),
+        0
+    );
+}
+
+#[test]
+fn document_view_create_returns_document_view_with_id() {
+    let temp = create_temp_repo_with_views();
+    let result = run_srs_stdin_in_dir(
+        temp.path(),
+        &["document-view", "create"],
+        &minimal_document_view_json(),
+    );
+    assert_eq!(
+        result["ok"], true,
+        "document-view create failed: {:?}",
+        result
+    );
+    let id = result["payload"]["documentView"]["id"].as_str().unwrap();
+    assert!(!id.is_empty());
+}
+
+#[test]
+fn document_view_get_returns_created() {
+    let temp = create_temp_repo_with_views();
+    let created = run_srs_stdin_in_dir(
+        temp.path(),
+        &["document-view", "create"],
+        &minimal_document_view_json(),
+    );
+    let id = created["payload"]["documentView"]["id"].as_str().unwrap();
+
+    let result = run_srs_in_dir(temp.path(), &["document-view", "get", id]);
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["payload"]["documentView"]["name"], "test-doc-view");
+}
+
+#[test]
+fn document_view_list_contains_created() {
+    let temp = create_temp_repo_with_views();
+    let created = run_srs_stdin_in_dir(
+        temp.path(),
+        &["document-view", "create"],
+        &minimal_document_view_json(),
+    );
+    let id = created["payload"]["documentView"]["id"].as_str().unwrap();
+
+    let result = run_srs_in_dir(temp.path(), &["document-view", "list"]);
+    assert_eq!(result["ok"], true);
+    let dviews = result["payload"]["documentViews"].as_array().unwrap();
+    assert!(dviews.iter().any(|v| v["id"] == id));
+}
+
+#[test]
+fn document_view_list_filters_by_namespace() {
+    let temp = create_temp_repo_with_views();
+
+    run_srs_stdin_in_dir(
+        temp.path(),
+        &["document-view", "create"],
+        &minimal_document_view_json(),
+    );
+
+    let other = serde_json::json!({
+        "id": "",
+        "namespace": "com.other",
+        "name": "other-doc-view",
+        "version": 1,
+        "description": "Other namespace",
+        "sections": [{
+            "sectionId": "s1",
+            "order": 0,
+            "source": { "type": "fixed-instances", "instanceIds": [] }
+        }],
+        "createdAt": "2026-01-01T00:00:00Z"
+    })
+    .to_string();
+    run_srs_stdin_in_dir(temp.path(), &["document-view", "create"], &other);
+
+    let result = run_srs_in_dir(
+        temp.path(),
+        &["document-view", "list", "--namespace", "com.other"],
+    );
+    assert_eq!(result["ok"], true);
+    let dviews = result["payload"]["documentViews"].as_array().unwrap();
+    assert_eq!(dviews.len(), 1);
+    assert_eq!(dviews[0]["namespace"], "com.other");
+}
+
+#[test]
+fn document_view_update_replaces_description() {
+    let temp = create_temp_repo_with_views();
+    let created = run_srs_stdin_in_dir(
+        temp.path(),
+        &["document-view", "create"],
+        &minimal_document_view_json(),
+    );
+    let id = created["payload"]["documentView"]["id"].as_str().unwrap();
+
+    let updated_json = serde_json::json!({
+        "id": id,
+        "namespace": "com.test",
+        "name": "test-doc-view",
+        "version": 1,
+        "description": "Updated doc view description",
+        "sections": [{
+            "sectionId": "s1",
+            "order": 0,
+            "source": { "type": "fixed-instances", "instanceIds": [] }
+        }],
+        "createdAt": "2026-01-01T00:00:00Z"
+    })
+    .to_string();
+    let update_result =
+        run_srs_stdin_in_dir(temp.path(), &["document-view", "update", id], &updated_json);
+    assert_eq!(
+        update_result["ok"], true,
+        "document-view update failed: {:?}",
+        update_result
+    );
+    assert_eq!(
+        update_result["payload"]["documentView"]["description"],
+        "Updated doc view description"
+    );
+}
+
+#[test]
+fn document_view_delete_removes_view() {
+    let temp = create_temp_repo_with_views();
+    let created = run_srs_stdin_in_dir(
+        temp.path(),
+        &["document-view", "create"],
+        &minimal_document_view_json(),
+    );
+    let id = created["payload"]["documentView"]["id"].as_str().unwrap();
+
+    let delete_result = run_srs_in_dir(temp.path(), &["document-view", "delete", id]);
+    assert_eq!(delete_result["ok"], true);
+    assert_eq!(delete_result["payload"]["id"], id);
+
+    let list_result = run_srs_in_dir(temp.path(), &["document-view", "list"]);
+    let dviews = list_result["payload"]["documentViews"].as_array().unwrap();
+    assert!(dviews.iter().all(|v| v["id"] != id));
+}
+
+#[test]
+fn document_view_get_not_found_returns_error() {
+    let temp = create_temp_repo_with_views();
+    let result = run_srs_in_dir(
+        temp.path(),
+        &[
+            "document-view",
+            "get",
+            "00000000-0000-0000-0000-000000000000",
+        ],
+    );
+    assert_eq!(result["ok"], false);
+}
+
+#[test]
+fn document_view_create_fails_validation() {
+    let temp = create_temp_repo_with_views();
+    let bad = serde_json::json!({
+        "id": "",
+        "namespace": "com.test",
+        "name": "bad-dv",
+        "version": 1,
+        "description": "bad",
+        "sections": [],
+        "createdAt": "2026-01-01T00:00:00Z"
+    })
+    .to_string();
+    let result = run_srs_stdin_in_dir(temp.path(), &["document-view", "create"], &bad);
+    assert_eq!(result["ok"], false);
+}

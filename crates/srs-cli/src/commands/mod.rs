@@ -1,4 +1,5 @@
 pub mod container;
+pub mod document_view;
 pub mod extension;
 pub mod field;
 pub mod migrate;
@@ -12,6 +13,7 @@ pub mod relation_type;
 pub mod render;
 pub mod repo;
 pub mod tag;
+pub mod view;
 
 use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -278,6 +280,12 @@ pub enum Commands {
     /// Package management commands
     #[command(subcommand)]
     Package(PackageCommand),
+    /// View (L1 field view) definition management
+    #[command(subcommand)]
+    View(ViewCommand),
+    /// Document view (L2 render view) definition management
+    #[command(subcommand, name = "document-view")]
+    DocumentView(DocumentViewCommand),
 }
 
 #[derive(Subcommand)]
@@ -582,6 +590,66 @@ pub enum TagCommand {
         /// Deprecated: JSON output is now the default (no-op)
         #[arg(long, hide = true)]
         json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ViewCommand {
+    /// List view (L1) definitions
+    List {
+        /// Filter by namespace
+        #[arg(long)]
+        namespace: Option<String>,
+        /// Filter by bound typeId
+        #[arg(long = "type-id")]
+        type_id: Option<String>,
+    },
+    /// Get a view definition by ID
+    Get {
+        /// View ID
+        id: String,
+    },
+    /// Create a new view definition (reads JSON from stdin)
+    Create,
+    /// Update a view definition (reads full JSON from stdin)
+    Update {
+        /// View ID
+        id: String,
+    },
+    /// Delete a view definition by ID
+    Delete {
+        /// View ID
+        id: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum DocumentViewCommand {
+    /// List document view (L2) definitions
+    List {
+        /// Filter by namespace
+        #[arg(long)]
+        namespace: Option<String>,
+        /// Filter by containerType
+        #[arg(long = "container-type")]
+        container_type: Option<String>,
+    },
+    /// Get a document view definition by ID
+    Get {
+        /// DocumentView ID
+        id: String,
+    },
+    /// Create a new document view definition (reads JSON from stdin)
+    Create,
+    /// Update a document view definition (reads full JSON from stdin)
+    Update {
+        /// DocumentView ID
+        id: String,
+    },
+    /// Delete a document view definition by ID
+    Delete {
+        /// DocumentView ID
+        id: String,
     },
 }
 
@@ -966,5 +1034,7 @@ pub fn dispatch(cli: Cli) -> Result<String> {
         Commands::Container(cmd) => container::dispatch(ctx, cmd),
         Commands::Render(cmd) => render::dispatch(ctx, cmd),
         Commands::Package(pkg_cmd) => package::dispatch(ctx, pkg_cmd),
+        Commands::View(view_cmd) => view::dispatch(ctx, view_cmd),
+        Commands::DocumentView(dv_cmd) => document_view::dispatch(ctx, dv_cmd),
     }
 }

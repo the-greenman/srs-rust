@@ -160,6 +160,12 @@ pub enum RepositoryError {
     #[error("document view not found: {view_id}")]
     DocumentViewNotFound { view_id: String },
 
+    #[error("view not found: {view_id}")]
+    ViewNotFound { view_id: String },
+
+    #[error("document view not found: {document_view_id}")]
+    DocumentViewNotFoundById { document_view_id: String },
+
     #[error("package ref path '{path}' is outside the repository root")]
     PackageRefOutsideRepo { path: String },
 
@@ -382,6 +388,18 @@ impl PartialEq for RepositoryError {
             (
                 RepositoryError::DocumentViewNotFound { view_id: a },
                 RepositoryError::DocumentViewNotFound { view_id: b },
+            ) => a == b,
+            (
+                RepositoryError::ViewNotFound { view_id: a },
+                RepositoryError::ViewNotFound { view_id: b },
+            ) => a == b,
+            (
+                RepositoryError::DocumentViewNotFoundById {
+                    document_view_id: a,
+                },
+                RepositoryError::DocumentViewNotFoundById {
+                    document_view_id: b,
+                },
             ) => a == b,
             (
                 RepositoryError::PackageRefOutsideRepo { path: a },

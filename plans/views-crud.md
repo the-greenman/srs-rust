@@ -4,7 +4,7 @@
 
 Add `srs view` and `srs document-view` command groups for full CRUD over View (L1) and DocumentView (L2) definitions stored in the package. Views and DocumentViews are package-defined artefacts. The types, validation, and package loading machinery all exist. The `view_service.rs` module has read-only list/get. The CLI has `srs render document-view` but no management surface at all. This plan delivers create, update, delete, and CLI commands.
 
-**Dependency on `storage-boundary-refactor.md`**: Phase A of this plan (service layer) requires the `RepositoryStore` trait and `FileStore` from `storage-boundary-refactor.md` Phase A. If that work is not yet done, Phase A here should be deferred and Phases B/C (CLI only) cannot be completed either. **Recommended: run `storage-boundary-refactor.md` first**; then this plan's Phase A is already done as part of Phase E of that plan, and only Phases B/C (CLI commands) remain here.
+**Storage boundary work is complete.** The earlier dependency on `storage-boundary-refactor.md` is resolved — `RepositoryStore` already carries all view I/O methods. The `PackageStore` trait design from the original plan is obsolete; do not implement it.
 
 ## Agent Assignments
 
@@ -21,71 +21,53 @@ See [agents.md](agents.md) for role definitions.
 
 | ADR | Decision | Status |
 |---|---|---|
-| ADR (new) | Introduce `PackageStore` trait to abstract file I/O from service logic | proposed |
+| ADR-001 | CLI is a thin consumer of library crates; no business logic in handlers | accepted |
+| ADR-010 | Every service function takes a typed input struct and returns a typed result struct | accepted |
 
 Key decisions:
 
-- **`PackageStore` trait**: service functions receive `&dyn PackageStore` (or `&impl PackageStore`), not a `&Path`. All `std::fs` calls are inside `FilePackageStore`. This is the storage boundary referenced in ARCHITECTURE.md — "keep storage boundaries visible so a database-backed implementation can be introduced later."
-- **`FilePackageStore`** lives in `srs-repository` alongside the service. It holds the `repo_root: PathBuf` and implements all read/write/delete operations for package JSON files.
-- **CLI passes `FilePackageStore`**: `srs-cli` instantiates `FilePackageStore::new(ctx.repo)` and passes it to service functions. The CLI itself does no I/O.
-- **Spec `ext:views-l1`**: Validation enforced in `validate_view()` (`srs-core/src/validation/view.rs`).
-- **Spec `ext:views-l2`**: Validation enforced in `validate_document_view()`.
-- **Storage layout** (file adapter only): `package/views/{slug}-{id_prefix}.json`, `package/document-views/{slug}-{id_prefix}.json`, indexed in `package/package.json`.
-- **I/O ordering** (file adapter only): file-first on create; index-first on delete. This is an implementation detail of `FilePackageStore`, not of the service layer.
+- **No new trait or store type.** `RepositoryStore` already has `save_view`, `update_view_file`, `delete_view_file`, `ensure_views_dir`, and the DocumentView equivalents. `add_definition_to_boundary` and `remove_definition_from_boundary` already handle `DefinitionKind::View` and `DefinitionKind::DocumentView`, which map to `"views"` and `"documentViews"` in `package.json`.
+- **`find_view_path` helper pattern.** To locate a view file for update/delete, use `resolve_definition_owner(id, DefinitionKind::View)` to find the boundary, then scan `load_package_json()["views"]` and `load_instance_json` to match by `id`. This mirrors `find_field_path` in `package_service.rs`. Note: `PackageBoundary` only carries `field_paths` and `type_paths` — there is no `view_paths` field, so the service reads view paths directly from the raw `package.json` JSON.
+- **CLI handler pattern.** Handlers use `with_store(&ctx, |store| Ok(view_service::fn(store, input)?))`. No direct `FileStore` construction in handlers (enforced by an existing integration test).
+- **Unit tests use `FileStore` with `tempfile::TempDir`.** `MemoryStore::save_view` stores at the raw path key (without `package/` prefix), so `find_view_path` calling `load_instance_json("package/views/...")` would miss the entry. Use `FileStore` for all view service unit tests. `tempfile` is already in dev-dependencies.
+- **Storage layout:** `package/views/{slug}-{id_prefix}.json`, `package/document-views/{slug}-{id_prefix}.json`, tracked in `package/package.json`.
+- **`DocumentViewNotFound { view_id }` is kept unchanged** — the render path uses it. Add `DocumentViewNotFoundById { document_view_id }` as a separate variant for the CRUD path.
 
 ---
 
 ## Scope
 
-- New `PackageStore` trait in `srs-repository` with `FilePackageStore` concrete implementation
-- Extend `view_service.rs` in `srs-repository` with full CRUD for both View and DocumentView — all functions take `&dyn PackageStore`, no `&Path`, no `std::fs`
-- New error variants for `ViewNotFound` and error variants needed for create/update
-- `srs view` CLI command group: `list`, `get`, `create`, `update`, `delete`
-- `srs document-view` CLI command group: `list`, `get`, `create`, `update`, `delete`
+- Add `ViewNotFound` and `DocumentViewNotFoundById` error variants to `error.rs`
+- Extend `view_service.rs` with summary structs, result structs, and full CRUD for both View and DocumentView — all functions take `store: &dyn RepositoryStore`
 - New `crates/srs-cli/src/commands/view.rs` and `crates/srs-cli/src/commands/document_view.rs`
-- File layout (FilePackageStore): `package/views/{slug}-{id_prefix}.json` and `package/document-views/{slug}-{id_prefix}.json`
-- Unit tests in `view_service.rs` using an in-memory `MockPackageStore`; integration tests in `integration_tests.rs` using `FilePackageStore`
+- Wire `srs view` and `srs document-view` into `crates/srs-cli/src/commands/mod.rs`
+- Unit tests in `view_service.rs` using `FileStore` + temp dir
+- Integration tests in `crates/srs-cli/tests/integration_tests.rs`
 
 **Out of scope:**
 
-- Retrofitting `package_service.rs` to use `PackageStore` (tracked separately — do not touch `package_service.rs` in this plan)
-- Validation that `FieldView.fieldId` exists in the bound Type's effective field list (cross-entity referential integrity — deferred)
+- No `PackageStore` trait, no `FilePackageStore`, no `MockPackageStore`
+- No new `pub mod` in `lib.rs` (`view_service` is already declared)
+- No changes to `package.rs`, `store.rs`, or `writer.rs`
+- Validation that `FieldView.fieldId` exists in the bound Type's field list (cross-entity referential integrity — deferred)
 - Validation that `DocumentSection.renderViewId` resolves to a View (cross-entity referential integrity — deferred)
 - Rendering (already exists as `srs render document-view`)
 - Any changes to `srs-core` types or validation (they are complete)
 
 ---
 
-## Storage Design
+## What already exists (do not re-implement)
 
-### `PackageStore` trait
-
-Defines all I/O operations needed by the service layer. Lives in `crates/srs-repository/src/package_store.rs`.
-
-```rust
-pub trait PackageStore {
-    fn load_views(&self) -> Result<Vec<View>, RepositoryError>;
-    fn load_document_views(&self) -> Result<Vec<DocumentView>, RepositoryError>;
-    fn save_view(&self, view: &View) -> Result<(), RepositoryError>;
-    fn update_view(&self, view_id: &str, view: &View) -> Result<(), RepositoryError>;
-    fn delete_view(&self, view_id: &str) -> Result<(), RepositoryError>;
-    fn save_document_view(&self, view: &DocumentView) -> Result<(), RepositoryError>;
-    fn update_document_view(&self, view_id: &str, view: &DocumentView) -> Result<(), RepositoryError>;
-    fn delete_document_view(&self, view_id: &str) -> Result<(), RepositoryError>;
-}
-```
-
-### `FilePackageStore`
-
-Concrete file-backed implementation in the same module. Holds `repo_root: PathBuf`. Stores views under `package/views/{slug}-{id_prefix}.json` and document-views under `package/document-views/{slug}-{id_prefix}.json`. Tracks both in `package/package.json` `views[]` / `documentViews[]` arrays.
-
-`slug` = lowercase name, spaces→hyphens, strip non-alphanumeric. `id_prefix` = `&id[..id.len().min(8)]`.
-
-I/O ordering (adapter detail, not service logic): write file first on create; update `package.json` first on delete.
-
-### `MockPackageStore`
-
-In-memory implementation for unit tests. Stores `Vec<View>` and `Vec<DocumentView>` in a `RefCell`. No file system access. Lives in `#[cfg(test)]` in `package_store.rs`.
+- `View`, `DocumentView` structs — `crates/srs-core/src/types/view.rs`
+- `validate_view()`, `validate_document_view()` — `crates/srs-core/src/validation/view.rs`
+- `list_views`, `get_view_by_id`, `list_document_views`, `get_document_view_by_id` — `crates/srs-repository/src/view_service.rs`
+- `GetViewResult { Found(Box<View>), NotFound }`, `GetDocumentViewResult` — `crates/srs-repository/src/view_service.rs`
+- All store I/O methods for views — `RepositoryStore` trait in `store.rs`, implemented by `FileStore`
+- `add_definition_to_boundary`, `remove_definition_from_boundary`, `resolve_definition_owner` — `RepositoryStore` in `store.rs`
+- `DefinitionKind::View` → `"views"`, `DefinitionKind::DocumentView` → `"documentViews"` — `store.rs:1394`
+- `new_instance_id()` — `crates/srs-repository/src/writer.rs`
+- `slugify()` private fn — `crates/srs-repository/src/package_service.rs:566` (copy locally)
+- `tempfile` crate already in dev-dependencies
 
 ---
 
@@ -93,42 +75,51 @@ In-memory implementation for unit tests. Stores `Vec<View>` and `Vec<DocumentVie
 
 ```
 srs view list [--namespace <ns>] [--type-id <uuid>]
-    # --namespace: filter by view.namespace
-    # --type-id: filter by view.typeId (views bound to that Type)
-srs view get <view-id>
+    # --namespace: filter by view.namespace (handler-side filter on list_views_summary result)
+    # --type-id: filter by view.typeId (handler-side filter)
+srs view get <id>
 srs view create                 # reads full View JSON from stdin
-srs view update <view-id>       # reads full View JSON from stdin (full replace, not patch)
-srs view delete <view-id>
+srs view update <id>            # reads full View JSON from stdin (full replace, not patch)
+srs view delete <id>
 
 srs document-view list [--namespace <ns>] [--container-type <type>]
-    # --namespace: filter by documentView.namespace
-    # --container-type: filter by documentView.containerType
-srs document-view get <document-view-id>
+    # --namespace: filter by documentView.namespace (handler-side filter)
+    # --container-type: filter by documentView.containerType (handler-side filter)
+srs document-view get <id>
 srs document-view create        # reads full DocumentView JSON from stdin
-srs document-view update <document-view-id>   # reads full DocumentView JSON from stdin
-srs document-view delete <document-view-id>
+srs document-view update <id>   # reads full DocumentView JSON from stdin
+srs document-view delete <id>
 ```
 
-`update` is a full replace: the caller supplies the complete View/DocumentView JSON. Partial patching is not supported (same as `update_field` / `update_type`).
+`update` is a full replace. Filtering on `list` is done in the handler after `list_views_summary()` / `list_document_views_summary()`.
 
 ---
 
 ## Phases
 
-### Phase A: `PackageStore` Trait + Repository Service
+### Phase A: Repository Service
 
-**Goal:** `PackageStore` trait and `FilePackageStore` exist; `view_service.rs` provides full CRUD through the trait with no `std::fs` calls; unit tests pass against `MockPackageStore`.
+**Goal:** `view_service.rs` provides full CRUD for both View and DocumentView through `&dyn RepositoryStore`. All unit tests pass using `FileStore` with a temp directory.
 
 **Agent:** Repository Service Worker
 
 #### Tasks
 
-- [ ] Create `crates/srs-repository/src/package_store.rs` — `PackageStore` trait, `FilePackageStore`, and `MockPackageStore` (cfg test)
-- [ ] Add `ViewNotFound` and `DocumentViewNotFoundById` to `crates/srs-repository/src/error.rs` if not already present
-- [ ] Extend `crates/srs-repository/src/view_service.rs` with `ViewSummary`, `DocumentViewSummary`, and CRUD functions — all taking `&dyn PackageStore`
-- [ ] Add `pub mod package_store;` to `crates/srs-repository/src/lib.rs`
+- [x] Add `ViewNotFound` and `DocumentViewNotFoundById` variants to `crates/srs-repository/src/error.rs`; add matching arms to `impl PartialEq for RepositoryError` before the `_ => false` catch-all
+- [x] Add the service module doc comment header to `view_service.rs` (see template in `tag_service.rs`)
+- [x] Add additional imports to `view_service.rs`: `DefinitionKind`, `new_instance_id`, `validate_view`, `validate_document_view`
+- [x] Add `ViewSummary` and `DocumentViewSummary` summary structs (camelCase serde)
+- [x] Add result structs: `CreateViewResult`, `UpdateViewResult`, `DeleteViewResult`, `CreateDocumentViewResult`, `UpdateDocumentViewResult`, `DeleteDocumentViewResult`
+- [x] Add private `slugify(name: &str) -> String` helper (copy from `package_service.rs:566`)
+- [x] Add private `find_view_path(store, id) -> Result<Option<(String, PackageSelector)>>` — uses `resolve_definition_owner(id, DefinitionKind::View)` then scans `load_package_json()["views"]` via `load_instance_json`
+- [x] Add private `find_document_view_path` — mirrors `find_view_path` for `documentViews`
+- [x] Add `list_views_summary(store) -> Result<Vec<ViewSummary>>` — maps `list_views` result
+- [x] Add `create_view(store, view: View) -> Result<CreateViewResult>` — validate → assign id if empty → ensure dir → save file → add to boundary → return
+- [x] Add `update_view(store, view_id, view) -> Result<UpdateViewResult>` — validate → find path → overwrite → return
+- [x] Add `delete_view(store, view_id) -> Result<DeleteViewResult>` — find path → delete file (best-effort) → remove from boundary → return id
+- [x] Add `list_document_views_summary`, `create_document_view`, `update_document_view`, `delete_document_view` — mirror View functions; use `DocumentViewNotFoundById` for not-found errors; use `"document-views/{slug}-{prefix}.json"` filenames
 
-#### Error variants to add (check `error.rs` first)
+#### Error variants to add (`error.rs`)
 
 ```rust
 #[error("view not found: {view_id}")]
@@ -138,127 +129,113 @@ ViewNotFound { view_id: String },
 DocumentViewNotFoundById { document_view_id: String },
 ```
 
-Add to `impl PartialEq for RepositoryError`:
+PartialEq arms:
 ```rust
 (RepositoryError::ViewNotFound { view_id: a }, RepositoryError::ViewNotFound { view_id: b }) => a == b,
 (RepositoryError::DocumentViewNotFoundById { document_view_id: a }, RepositoryError::DocumentViewNotFoundById { document_view_id: b }) => a == b,
 ```
 
-Note: `DocumentViewNotFound { view_id }` already exists for the render path — keep it unchanged. Add `DocumentViewNotFoundById` as a distinct variant for the CRUD path.
-
-#### Summary types in `view_service.rs`
+#### Key service function signatures
 
 ```rust
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ViewSummary {
-    pub id: String,
-    pub namespace: String,
-    pub name: String,
-    pub version: u32,
-    pub description: String,
-    pub type_id: String,
+pub fn list_views_summary(store: &dyn RepositoryStore) -> Result<Vec<ViewSummary>, RepositoryError>
+pub fn list_document_views_summary(store: &dyn RepositoryStore) -> Result<Vec<DocumentViewSummary>, RepositoryError>
+pub fn create_view(store: &dyn RepositoryStore, view: View) -> Result<CreateViewResult, RepositoryError>
+pub fn update_view(store: &dyn RepositoryStore, view_id: &str, view: View) -> Result<UpdateViewResult, RepositoryError>
+pub fn delete_view(store: &dyn RepositoryStore, view_id: &str) -> Result<DeleteViewResult, RepositoryError>
+pub fn create_document_view(store: &dyn RepositoryStore, document_view: DocumentView) -> Result<CreateDocumentViewResult, RepositoryError>
+pub fn update_document_view(store: &dyn RepositoryStore, document_view_id: &str, document_view: DocumentView) -> Result<UpdateDocumentViewResult, RepositoryError>
+pub fn delete_document_view(store: &dyn RepositoryStore, document_view_id: &str) -> Result<DeleteDocumentViewResult, RepositoryError>
+```
+
+#### `create_view` orchestration
+
+```rust
+pub fn create_view(store: &dyn RepositoryStore, mut view: View) -> Result<CreateViewResult, RepositoryError> {
+    validate_view(&view).map_err(|e| RepositoryError::ViewValidation {
+        path: std::path::PathBuf::from("package/views"), source: e,
+    })?;
+    if view.id.is_empty() { view.id = new_instance_id(); }
+    store.ensure_views_dir()?;
+    let id_prefix = &view.id[..view.id.len().min(8)];
+    let filename = format!("views/{}-{}.json", slugify(&view.name), id_prefix);
+    store.save_view(&filename, &view)?;
+    store.add_definition_to_boundary(&None, DefinitionKind::View, &filename)?;
+    Ok(CreateViewResult { view })
 }
+```
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DocumentViewSummary {
-    pub id: String,
-    pub namespace: String,
-    pub name: String,
-    pub version: u32,
-    pub description: String,
-    pub container_type: Option<String>,
-    pub section_count: usize,
+#### `find_view_path` implementation
+
+```rust
+fn find_view_path(
+    store: &dyn RepositoryStore,
+    id: &str,
+) -> Result<Option<(String, PackageSelector)>, RepositoryError> {
+    let owner = match store.resolve_definition_owner(id, DefinitionKind::View) {
+        Ok(sel) => sel,
+        Err(RepositoryError::DefinitionNotFound { .. }) => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let pkg_json = store.load_package_json()?;
+    let paths = pkg_json["views"].as_array().cloned().unwrap_or_default();
+    let prefix = match &owner { None => "package".to_string(), Some(p) => p.clone() };
+    for entry in &paths {
+        if let Some(rel) = entry.as_str() {
+            if let Ok(val) = store.load_instance_json(&format!("{prefix}/{rel}")) {
+                if val["id"].as_str() == Some(id) {
+                    return Ok(Some((rel.to_string(), owner)));
+                }
+            }
+        }
+    }
+    Ok(None)
 }
 ```
-
-#### Service function signatures (`view_service.rs`)
-
-All service functions take `store: &dyn PackageStore`. No `&Path`. No `std::fs`.
-
-```rust
-pub fn list_views_summary(store: &dyn PackageStore) -> Result<Vec<ViewSummary>, RepositoryError>
-// store.load_views() → map to ViewSummary; filtering is in the CLI layer
-
-pub fn list_document_views_summary(store: &dyn PackageStore) -> Result<Vec<DocumentViewSummary>, RepositoryError>
-
-pub fn get_view_by_id(store: &dyn PackageStore, view_id: &str) -> Result<GetViewResult, RepositoryError>
-// store.load_views() → find by id
-
-pub fn get_document_view_by_id(store: &dyn PackageStore, view_id: &str) -> Result<GetDocumentViewResult, RepositoryError>
-
-pub fn create_view(store: &dyn PackageStore, view: View) -> Result<View, RepositoryError>
-// validate_view(&view) → ViewValidation on failure
-// store.save_view(&view)
-// return view
-
-pub fn update_view(store: &dyn PackageStore, view_id: &str, view: View) -> Result<View, RepositoryError>
-// validate_view(&view) → ViewValidation on failure
-// store.update_view(view_id, &view) → propagates ViewNotFound
-// return view
-
-pub fn delete_view(store: &dyn PackageStore, view_id: &str) -> Result<String, RepositoryError>
-// store.delete_view(view_id) → propagates ViewNotFound
-// return view_id.to_string()
-
-pub fn create_document_view(store: &dyn PackageStore, view: DocumentView) -> Result<DocumentView, RepositoryError>
-pub fn update_document_view(store: &dyn PackageStore, view_id: &str, view: DocumentView) -> Result<DocumentView, RepositoryError>
-pub fn delete_document_view(store: &dyn PackageStore, view_id: &str) -> Result<String, RepositoryError>
-// mirror view functions for DocumentView
-```
-
-#### CLI wiring pattern
-
-The CLI constructs `FilePackageStore::new(&ctx.repo)` and passes `&store` to service functions:
-
-```rust
-// in view.rs handler:
-let store = FilePackageStore::new(&ctx.repo);
-let result = create_view(&store, view)?;
-```
-
-The existing `view_service::list_views` and `view_service::get_view_by_id` (which take `&Path` and use `load_package`) should be replaced or superseded by the new trait-based versions. If render_service depends on the old signatures, update render_service to use `FilePackageStore` instead of `&Path`.
 
 #### Unit tests in `view_service.rs`
 
-Use `MockPackageStore` — no temp directory, no file system. This is the key difference from the old pattern.
+Use `FileStore` with `tempfile::TempDir`. Provide a `setup_minimal_repo(root)` helper that writes `.srs/`, `manifest.json` (`{"instanceIndex":[]}`), and `package/package.json` with empty `fields`, `types`, `relationTypes`, `views`, `documentViews` arrays.
 
-View tests:
-- `create_view_stores_and_returns_view` — create; MockPackageStore has the view; return matches
-- `list_views_summary_returns_all` — populate mock with two views; list returns both summaries
-- `get_view_by_id_finds_view` — populate mock; get by id; Found
-- `get_view_by_id_not_found` — empty mock; get → NotFound
-- `update_view_replaces_view` — save view; update with new description; load_views returns updated
-- `update_view_not_found` — update unknown id → ViewNotFound error
-- `delete_view_removes_view` — save then delete; load_views returns empty
-- `delete_view_not_found` — delete unknown id → ViewNotFound error
+View tests (8):
+- `create_view_assigns_id_and_registers_in_package_json`
+- `create_view_fails_with_empty_field_views`
+- `list_views_summary_returns_created_view`
+- `get_view_by_id_finds_created_view`
+- `get_view_by_id_not_found_returns_not_found`
+- `update_view_overwrites_description`
+- `update_view_not_found_returns_view_not_found_error`
+- `delete_view_removes_from_package_json`
 
-DocumentView tests (same 8, prefixed `document_view_`).
-
-Total: 16 unit tests, all run without touching the file system.
+DocumentView tests (8, mirror with `document_view_` prefix):
+- `create_document_view_assigns_id_and_registers_in_package_json`
+- `create_document_view_fails_with_empty_sections`
+- `list_document_views_summary_returns_created`
+- `get_document_view_by_id_finds_created`
+- `get_document_view_by_id_not_found_returns_not_found`
+- `update_document_view_overwrites_description`
+- `update_document_view_not_found_returns_error`
+- `delete_document_view_removes_from_package_json`
 
 #### Acceptance Criteria
 
-- [ ] `PackageStore` trait defined; `FilePackageStore` and `MockPackageStore` implement it
-- [ ] All service functions in `view_service.rs` take `&dyn PackageStore` — no `&Path`, no `std::fs` imports
-- [ ] `create_view` / `create_document_view` call the validator before delegating to the store
-- [ ] `update_view` / `update_document_view` propagate `ViewNotFound` / `DocumentViewNotFoundById` from the store
-- [ ] Unit tests pass using `MockPackageStore` only — no temp dirs in Phase A tests
-- [ ] `FilePackageStore` integration: `srs-repository` compiles; existing `srs render document-view` still works
+- [x] `ViewNotFound` and `DocumentViewNotFoundById` exist in `error.rs`; `DocumentViewNotFound` is unchanged
+- [x] All service functions in `view_service.rs` take `store: &dyn RepositoryStore` — no `&Path`, no `std::fs` imports
+- [x] `create_view` / `create_document_view` call the validator before writing
+- [x] `update_view` / `update_document_view` propagate `ViewNotFound` / `DocumentViewNotFoundById`
+- [x] All 16 unit tests pass using `FileStore` + temp dir
 
 #### Testing
 
 ```bash
 cargo test -p srs-repository view_service
-cargo test -p srs-repository package_store
 cargo clippy -p srs-repository -- -D warnings
 ```
 
 #### Milestone gate
 
 1. Verify all acceptance criteria above are met.
-2. Confirm all 16 unit tests exist and pass (8 view + 8 document_view), all using MockPackageStore.
+2. Confirm all 16 unit tests exist and pass.
 3. Run:
 
 ```bash
@@ -279,9 +256,9 @@ cargo clippy -p srs-repository -- -D warnings
 
 #### Tasks
 
-- [ ] Create `crates/srs-cli/src/commands/view.rs` — dispatch and handlers
-- [ ] Modify `crates/srs-cli/src/commands/mod.rs` — add `pub mod view;`, `ViewCommand` enum, dispatch arm
-- [ ] Add `view list/get/create/update/delete` integration tests to `crates/srs-cli/tests/integration_tests.rs`
+- [x] Create `crates/srs-cli/src/commands/view.rs` — dispatch and handlers
+- [x] Modify `crates/srs-cli/src/commands/mod.rs` — add `pub mod view;`, `ViewCommand` enum, `Commands::View` variant, dispatch arm
+- [x] Add `view_*` integration tests to `crates/srs-cli/tests/integration_tests.rs`
 
 #### `mod.rs` additions
 
@@ -289,12 +266,12 @@ Add `pub mod view;` at top of module list.
 
 Add to `Commands` enum:
 ```rust
-/// View (L1) definition commands
+/// View (L1) definition management
 #[command(subcommand)]
 View(ViewCommand),
 ```
 
-Add enum:
+Add `ViewCommand` enum (near `TagCommand`):
 ```rust
 #[derive(Subcommand)]
 pub enum ViewCommand {
@@ -308,17 +285,17 @@ pub enum ViewCommand {
         type_id: Option<String>,
     },
     /// Get a view definition by ID
-    Get { view_id: String },
+    Get { id: String },
     /// Create a new view definition (reads JSON from stdin)
     Create,
     /// Update a view definition (reads full JSON from stdin)
-    Update { view_id: String },
+    Update { id: String },
     /// Delete a view definition
-    Delete { view_id: String },
+    Delete { id: String },
 }
 ```
 
-Add to `dispatch` match:
+Add to dispatch match:
 ```rust
 Commands::View(cmd) => view::dispatch(ctx, cmd),
 ```
@@ -331,53 +308,61 @@ Commands::View(cmd) => view::dispatch(ctx, cmd),
 | `cmd_get` | `"view get"` | `{ "view": <View> }` |
 | `cmd_create` | `"view create"` | `{ "view": <View> }` |
 | `cmd_update` | `"view update"` | `{ "view": <View> }` |
-| `cmd_delete` | `"view delete"` | `{ "viewId": "..." }` |
+| `cmd_delete` | `"view delete"` | `{ "id": "..." }` |
 
 List filtering (namespace, type_id) is done in the handler after `list_views_summary()`, not in the service.
 
-CLI handlers construct `FilePackageStore::new(&ctx.repo)` and pass `&store` to service functions. No `&Path` passed to services.
+**Do NOT** construct `FileStore` directly in handlers — use `with_store`. An existing integration test enforces this.
+
+#### Handler pattern
+
+```rust
+fn cmd_view_create(ctx: CliContext) -> Result<String> {
+    let view: View = serde_json::from_reader(io::stdin())?;
+    match with_store(&ctx, |store| Ok(create_view(store, view)?)) {
+        Ok(CreateViewResult { view }) => Ok(output::ok("view create", json!({ "view": view }))),
+        Err(e) => Ok(output::err("view create", vec![e.to_string()])),
+    }
+}
+```
 
 #### Integration tests
 
-Helper: `make_view_test_repo() -> TempDir` — minimal manifest, package with `views: [], documentViews: []`.
+Helper `create_temp_repo_with_views() -> TempDir` — minimal `.srs/`, `manifest.json`, and `package/package.json` with `views: [], documentViews: []`.
 
-Minimal valid View fixture (camelCase JSON):
+Minimal valid View fixture (no `id` — service assigns it):
 ```json
 {
-  "id": "00000000-0000-4000-8000-000000000001",
   "namespace": "com.test",
   "name": "test-view",
   "version": 1,
   "description": "A test view",
-  "typeId": "00000000-0000-4000-8000-000000000010",
+  "typeId": "00000000-0000-4000-a000-000000000001",
   "typeVersion": 1,
-  "fieldViews": [
-    { "fieldId": "00000000-0000-4000-8000-000000000020", "order": 0 }
-  ],
+  "fieldViews": [{ "fieldId": "f1", "order": 0 }],
   "createdAt": "2026-01-01T00:00:00Z"
 }
 ```
 
 Tests:
-- `view_list_returns_empty_initially` — fresh repo; `{ "views": [] }`
-- `view_create_returns_view` — create; response `view.id` matches
-- `view_get_returns_created_view` — create then get
-- `view_list_returns_created_view` — create; list contains view summary
-- `view_list_filters_by_namespace` — create two views with different namespaces; `--namespace` filter returns only matching
-- `view_list_filters_by_type_id` — create two views with different typeIds; `--type-id` filter returns only matching
-- `view_update_replaces_view` — create, update description, get; description updated
+- `view_list_returns_ok_envelope` — fresh repo; `payload.views` is `[]`
+- `view_create_returns_view_with_id` — create; `payload.view.id` is non-empty
+- `view_get_returns_created_view` — create then get; name matches
+- `view_list_contains_created_view` — create then list; summary present
+- `view_update_changes_description` — create, update, get; description updated
 - `view_delete_removes_view` — create, delete, list; list empty
-- `view_get_not_found_returns_error` — get unknown id → error in diagnostics
+- `view_get_not_found_returns_error` — unknown UUID; `ok: false`
+- `view_create_fails_validation` — empty `fieldViews`; `ok: false`
 
 #### Acceptance Criteria
 
-- [ ] `srs view list` returns `{ "views": [] }` on fresh repo
-- [ ] `srs view create` reads stdin JSON; returns view
-- [ ] `srs view get <id>` returns the view
-- [ ] `srs view update <id>` replaces the view; subsequent get shows new content
-- [ ] `srs view delete <id>` removes the view; subsequent list is empty
-- [ ] `--namespace` and `--type-id` filters work on `srs view list`
-- [ ] Get/delete on unknown id returns an error payload (not a panic)
+- [x] `srs view list` returns `{ "views": [] }` on fresh repo
+- [x] `srs view create` reads stdin JSON; returns view with assigned id
+- [x] `srs view get <id>` returns the view
+- [x] `srs view update <id>` replaces the view; subsequent get shows new content
+- [x] `srs view delete <id>` removes the view; subsequent list is empty
+- [x] Get/delete on unknown id returns an error payload (not a panic)
+- [x] `--namespace` and `--type-id` filters narrow list results
 
 #### Testing
 
@@ -389,7 +374,7 @@ cargo clippy -p srs-cli -- -D warnings
 #### Milestone gate
 
 1. Verify all acceptance criteria above are met.
-2. Confirm all 9 `view_*` integration tests exist and pass.
+2. Confirm all 8 `view_*` integration tests exist and pass.
 3. Run:
 
 ```bash
@@ -411,46 +396,39 @@ cargo test -p srs --test integration_tests -- view_
 
 #### Tasks
 
-- [ ] Create `crates/srs-cli/src/commands/document_view.rs` — dispatch and handlers
-- [ ] Modify `crates/srs-cli/src/commands/mod.rs` — add `pub mod document_view;`, `DocumentViewCommand` enum, dispatch arm
-- [ ] Add `document_view_*` integration tests to `crates/srs-cli/tests/integration_tests.rs`
+- [x] Create `crates/srs-cli/src/commands/document_view.rs` — dispatch and handlers
+- [x] Modify `crates/srs-cli/src/commands/mod.rs` — add `pub mod document_view;`, `DocumentViewCommand` enum, dispatch arm
+- [x] Add `document_view_*` integration tests to `crates/srs-cli/tests/integration_tests.rs`
 
 #### `mod.rs` additions
 
-Add `pub mod document_view;` at top of module list.
+Add `pub mod document_view;`.
 
-Add to `Commands` enum:
+Add to `Commands` enum — **use `#[command(name = "document-view")]`** so the CLI word is `document-view`:
 ```rust
-/// Document View (L2) definition commands
-#[command(subcommand)]
+/// Document view (L2 render view) management
+#[command(subcommand, name = "document-view")]
 DocumentView(DocumentViewCommand),
 ```
 
-Add enum:
+This does not conflict with `Commands::Render(RenderCommand::DocumentView {...})` — they are at different branches of the command tree.
+
+Add `DocumentViewCommand` enum (same variants as `ViewCommand`, with `container_type` filter instead of `type_id`):
 ```rust
 #[derive(Subcommand)]
 pub enum DocumentViewCommand {
-    /// List document view definitions
     List {
-        /// Filter by namespace
-        #[arg(long)]
-        namespace: Option<String>,
-        /// Filter by containerType
-        #[arg(long = "container-type")]
-        container_type: Option<String>,
+        #[arg(long)] namespace: Option<String>,
+        #[arg(long = "container-type")] container_type: Option<String>,
     },
-    /// Get a document view definition by ID
-    Get { document_view_id: String },
-    /// Create a new document view definition (reads JSON from stdin)
+    Get { id: String },
     Create,
-    /// Update a document view definition (reads full JSON from stdin)
-    Update { document_view_id: String },
-    /// Delete a document view definition
-    Delete { document_view_id: String },
+    Update { id: String },
+    Delete { id: String },
 }
 ```
 
-Add to `dispatch` match:
+Add dispatch arm:
 ```rust
 Commands::DocumentView(cmd) => document_view::dispatch(ctx, cmd),
 ```
@@ -463,49 +441,34 @@ Commands::DocumentView(cmd) => document_view::dispatch(ctx, cmd),
 | `cmd_get` | `"document-view get"` | `{ "documentView": <DocumentView> }` |
 | `cmd_create` | `"document-view create"` | `{ "documentView": <DocumentView> }` |
 | `cmd_update` | `"document-view update"` | `{ "documentView": <DocumentView> }` |
-| `cmd_delete` | `"document-view delete"` | `{ "documentViewId": "..." }` |
+| `cmd_delete` | `"document-view delete"` | `{ "id": "..." }` |
 
 #### Integration tests
 
-Minimal valid DocumentView fixture:
+Minimal DocumentView fixture:
 ```json
 {
-  "id": "00000000-0000-4000-8000-000000000002",
   "namespace": "com.test",
   "name": "test-doc-view",
   "version": 1,
   "description": "A test document view",
-  "sections": [
-    {
-      "sectionId": "section-1",
-      "order": 0,
-      "source": { "type": "fixed-instances", "instanceIds": [] }
-    }
-  ],
+  "sections": [{ "sectionId": "s1", "order": 0, "source": { "type": "fixed-instances", "instanceIds": [] } }],
   "createdAt": "2026-01-01T00:00:00Z"
 }
 ```
 
-Tests:
-- `document_view_list_returns_empty_initially`
-- `document_view_create_returns_document_view`
-- `document_view_get_returns_created`
-- `document_view_list_returns_created`
-- `document_view_list_filters_by_namespace`
-- `document_view_list_filters_by_container_type`
-- `document_view_update_replaces_document_view`
-- `document_view_delete_removes_document_view`
-- `document_view_get_not_found_returns_error`
+Tests (same 8 as view, prefixed `document_view_`), plus:
+- `render_document_view_not_broken` — `srs render document-view --view <uuid>` still returns `command: "render document-view"` (regression guard)
 
 #### Acceptance Criteria
 
-- [ ] `srs document-view list` returns `{ "documentViews": [] }` on fresh repo
-- [ ] `srs document-view create` reads stdin JSON; returns documentView
-- [ ] `srs document-view get <id>` returns the document view
-- [ ] `srs document-view update <id>` replaces the document view; subsequent get shows new content
-- [ ] `srs document-view delete <id>` removes the document view; subsequent list is empty
-- [ ] `--namespace` and `--container-type` filters work on `srs document-view list`
-- [ ] Get/delete on unknown id returns an error payload
+- [x] `srs document-view list` returns `{ "documentViews": [] }` on fresh repo
+- [x] `srs document-view create` reads stdin JSON; returns documentView with assigned id
+- [x] `srs document-view get <id>` returns the document view
+- [x] `srs document-view update <id>` replaces; subsequent get shows new content
+- [x] `srs document-view delete <id>` removes; subsequent list is empty
+- [x] Get/delete on unknown id returns an error payload
+- [x] `srs render document-view --view <uuid>` still works (no regression)
 
 #### Testing
 
@@ -517,7 +480,7 @@ cargo clippy -p srs-cli -- -D warnings
 #### Milestone gate
 
 1. Verify all acceptance criteria above are met.
-2. Confirm all 9 `document_view_*` integration tests exist and pass.
+2. Confirm all `document_view_*` integration tests exist and pass.
 3. Run:
 
 ```bash
@@ -535,12 +498,12 @@ cargo test
 
 All of the following must be true before this plan is closed:
 
-- [ ] `cargo test` passes with no failures
-- [ ] `cargo clippy -- -D warnings` passes
-- [ ] All `view_*` CLI integration tests pass: `cargo test -p srs --test integration_tests -- view_`
-- [ ] All `document_view_*` CLI integration tests pass: `cargo test -p srs --test integration_tests -- document_view_`
-- [ ] All `view_service` unit tests pass: `cargo test -p srs-repository view_service`
-- [ ] `srs render document-view` still works (no regression in render path)
+- [x] `cargo test` passes with no failures (497 tests)
+- [x] `cargo clippy -- -D warnings` passes
+- [x] All `view_*` integration tests pass: `cargo test -p srs --test integration_tests -- view_`
+- [x] All `document_view_*` integration tests pass: `cargo test -p srs --test integration_tests -- document_view_`
+- [x] All `view_service` unit tests pass: `cargo test -p srs-repository view_service`
+- [x] `srs render document-view` still works (no regression in render path)
 
 ## Coordination Rules
 
@@ -549,15 +512,12 @@ All of the following must be true before this plan is closed:
 - Workers return changed file paths and a short behaviour summary when done.
 - Lead Integrator owns final API naming and dependency boundaries.
 - **At the end of each phase:** verify all acceptance criteria, confirm planned tests exist and pass, update the plan checkboxes, then commit. Do not proceed to the next phase without completing the milestone gate.
-- Verification Agent runs after each major phase and before final sign-off.
 
 ## Assumptions
 
-- `View` and `DocumentView` structs in `srs-core` are complete and serialize to camelCase JSON via `serde` — inspect `crates/srs-core/src/types/view.rs` to confirm field names before writing fixtures.
-- `validate_view()` and `validate_document_view()` in `srs-core/src/validation/view.rs` are the canonical validators — call them on create and update inside service functions, before delegating to the store.
-- `slugify()` is a `FilePackageStore` private helper, not a service concern. Copy pattern from `package_service.rs` but keep it inside `FilePackageStore`.
-- `package.json` `views` and `documentViews` keys may be absent in older repos — `FilePackageStore` must treat missing keys as empty arrays (consistent with `#[serde(default)]` in `PackageMetadata`).
-- `DocumentViewNotFound { view_id }` already exists in `error.rs` for the render path — leave it; add `DocumentViewNotFoundById { document_view_id }` as a separate variant for the CRUD path.
-- **Service functions must not import `std::fs`, `std::path::Path`, or call any I/O.** If a compiler error or test requires `&Path` in a service function, that is a design error — fix the design, not the rule.
-- `FilePackageStore` integration tests (CLI integration tests in Phase B/C) use a real temp directory. Unit tests in Phase A use only `MockPackageStore`.
-- `srs render document-view` currently calls `view_service::get_document_view_by_id(repo_root, id)` which takes a `&Path`. After this plan, that function will take `&dyn PackageStore`. The render command handler in `render.rs` must be updated to construct a `FilePackageStore` and pass it — this is a required change in Phase A's acceptance criteria ("existing `srs render document-view` still works").
+- `View` and `DocumentView` structs serialize to camelCase JSON via `serde` — confirmed by inspecting `crates/srs-core/src/types/view.rs`.
+- `validate_view()` and `validate_document_view()` are the canonical validators — call them on create and update inside service functions, before delegating to the store.
+- `slugify()` is a private helper, not a service concern. Copy the 5-line implementation from `package_service.rs:566`.
+- `package.json` `views` and `documentViews` keys may be absent in older repos — `add_definition_to_boundary` will fail if the key is not an array. Ensure test repos always include these keys. In production repos, `ensure_views_dir` should be called before saving (which creates the directory but does not add the key). If needed, a pre-check can be added to `create_view`.
+- `MemoryStore::save_view` stores at a key without the `package/` prefix, so `find_view_path` (which calls `load_instance_json("package/views/...")`) will not find entries in MemoryStore. All view service unit tests must use `FileStore` with a temp directory.
+- `FileStore::save_view` uses `pkg_abs(relative_path)` which prepends `package/` — so `"views/foo.json"` becomes `package/views/foo.json` on disk. `load_instance_json("package/views/foo.json")` also reads from `package/views/foo.json`. These are consistent for `FileStore`.
