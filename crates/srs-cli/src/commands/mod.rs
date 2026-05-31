@@ -394,12 +394,6 @@ pub enum NoteCommand {
     /// Tag management commands
     #[command(subcommand)]
     Tag(NoteTagCommand),
-    /// Audit note tag usage
-    AuditTags {
-        /// Deprecated: JSON output is now the default (no-op)
-        #[arg(long, hide = true)]
-        json: bool,
-    },
     /// List foundation notes selected by deterministic tag signals
     Foundations {
         /// Deprecated: JSON output is now the default (no-op)
@@ -429,6 +423,14 @@ pub enum NoteTagCommand {
         /// Deprecated: JSON output is now the default (no-op)
         #[arg(long, hide = true)]
         json: bool,
+    },
+    /// List all distinct tags used across tier-0 notes, with note counts
+    List,
+    /// Audit note tag usage (replaces audit-tags); optionally scoped to a note's tags
+    Map {
+        /// Scope audit to notes sharing tags with this note ID
+        #[arg(long)]
+        id: Option<String>,
     },
 }
 

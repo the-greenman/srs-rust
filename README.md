@@ -29,7 +29,7 @@ semanticops/
 
 ## Spec To Implementation Map (Current)
 
-As of 2026-05-29.
+As of 2026-05-31.
 
 | Area | Spec Status | Rust Implementation Status |
 |---|---|---|
@@ -44,8 +44,8 @@ As of 2026-05-29.
 | Extensions (`extension`) | Defined | Implemented (CRUD) |
 | Protocols (`protocol`) | Defined | Implemented (CRUD, validation, stages, import/export) |
 | Package refs (`srs package`) | Defined | Implemented (list, enable, disable — with scope + existence validation) |
-| Views L1 (`ext:views-l1`) | RFC-001 acceptance in progress | Implemented in model + render pipeline; no CLI CRUD (views are package-defined) |
-| Views L2 / Document Views (`ext:views-l2`) | RFC-001 acceptance in progress | Implemented — `srs render document-view` works; section sourcing via TypeQuery/RelationQuery/FixedInstances/ContainerSubset; repeatable fields and field groups rendered |
+| Views L1 (`ext:views-l1`) | RFC-001 acceptance in progress | Implemented — `srs view list/get/create/update/delete`; views stored in package |
+| Views L2 / Document Views (`ext:views-l2`) | RFC-001 acceptance in progress | Implemented — `srs document-view list/get/create/update/delete` and `srs render document-view`; section sourcing via TypeQuery/RelationQuery/FixedInstances/ContainerSubset; repeatable fields and field groups rendered |
 | Repeatable field entries (`ext:repeatable-fields`) | In schema/spec | Implemented (typed model, validation constraints, rendering) |
 | Field groups (`ext:field-groups`) | In schema/spec | Implemented (typed model, required/group-count validation, rendering) |
 | Lifecycle state machine (`ext:lifecycle`) | In progress | Stub — `lifecycleState` field parsed but not enforced; no state transition logic |
@@ -54,7 +54,7 @@ As of 2026-05-29.
 | Addressability (`ext:addressability`) | Declared | Not implemented |
 | Recommended relations (`ext:recommended-relations`) | Declared | Not implemented |
 | Federation (`ext:federation`) | Not declared | Not implemented |
-| Subsection nesting in renders | In spec (via relations) | Not implemented — renders are one level deep (section → records); subsection-of relation traversal not implemented |
+| Subsection nesting in renders | In spec (via relations) | Implemented — `contains` relations traversed recursively; subsections rendered at `heading_level + 1`; ordered via `precedes` chain; requires `titleFieldId` on the section to activate structured mode |
 | Table value type | Mentioned in planning | Not implemented (not in `ValueType` enum or field schemas) |
 
 ## Current CLI Surface
@@ -74,6 +74,8 @@ Top-level command groups currently available:
 - `protocol` — CRUD, validation, stages, import/export
 - `container` — CRUD, members, roots, validate
 - `package` — list, enable, disable
+- `view` — CRUD
+- `document-view` — CRUD
 - `render` — `document-view` (render to stdout or `--output <file>`)
 
 Global flags:
@@ -137,7 +139,6 @@ scripts/check-schema-drift.sh
 ## Near-Term Roadmap
 
 - Land RFC-001/RFC-002 record acceptance updates in `../srs/srs`
-- Implement subsection nesting in document view renders (traverse subsection-of relations to produce multi-level hierarchy)
 - Implement lifecycle state enforcement (`ext:lifecycle` state machine)
 - Decide and implement table-like value modeling (if kept in spec scope)
 

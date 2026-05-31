@@ -3,11 +3,13 @@ use crate::output;
 use anyhow::Result;
 use serde_json::json;
 use srs_core::types::note::Note;
-use srs_repository::analysis::{audit_note_tags, collect_foundation_notes};
+use srs_repository::analysis::{
+    audit_note_tags, audit_note_tags_for_note, collect_foundation_notes,
+};
 use srs_repository::services::{
-    add_note_tag, create_note_in_context, delete_note_in_context, get_note_by_id, list_notes,
-    remove_note_tag, update_note_validated, AddTagResult, CreateNoteInput, DeleteNoteInput,
-    DeleteNoteResult, GetNoteResult, ListNotesFilter, RemoveTagResult,
+    add_note_tag, create_note_in_context, delete_note_in_context, get_note_by_id, list_note_tags,
+    list_notes, remove_note_tag, update_note_validated, AddTagResult, CreateNoteInput,
+    DeleteNoteInput, DeleteNoteResult, GetNoteResult, ListNotesFilter, RemoveTagResult,
 };
 use srs_repository::tag_service::get_foundation_signal_tags;
 use std::io::{self, Read};
@@ -20,7 +22,6 @@ pub fn dispatch(ctx: CliContext, cmd: NoteCommand) -> Result<String> {
         NoteCommand::Update { id, json: _ } => cmd_note_update(ctx, id),
         NoteCommand::Delete { id, json: _ } => cmd_note_delete(ctx, id),
         NoteCommand::Tag(tag_cmd) => cmd_note_tag_dispatch(ctx, tag_cmd),
-        NoteCommand::AuditTags { json: _ } => cmd_note_audit_tags(ctx),
         NoteCommand::Foundations { json: _ } => cmd_note_foundations(ctx),
     }
 }
@@ -83,6 +84,8 @@ fn cmd_note_tag_dispatch(ctx: CliContext, cmd: NoteTagCommand) -> Result<String>
     match cmd {
         NoteTagCommand::Add { id, tag, json: _ } => cmd_note_tag_add(ctx, id, tag),
         NoteTagCommand::Remove { id, tag, json: _ } => cmd_note_tag_remove(ctx, id, tag),
+        NoteTagCommand::List => cmd_note_tag_list(ctx),
+        NoteTagCommand::Map { id } => cmd_note_tag_map(ctx, id),
     }
 }
 
@@ -144,9 +147,26 @@ fn cmd_note_delete(ctx: CliContext, id: String) -> Result<String> {
     }
 }
 
-fn cmd_note_audit_tags(ctx: CliContext) -> Result<String> {
-    let audit = with_store(&ctx, |store| Ok(audit_note_tags(store)?))?;
-    Ok(output::ok("note audit-tags", json!({ "tagAudit": audit })))
+fn cmd_note_tag_list(ctx: CliContext) -> Result<String> {
+    let container_id = ctx.container_id.clone();
+    let result = with_store(&ctx, |store| {
+        Ok(list_note_tags(store, container_id.as_deref())?)
+    })?;
+    Ok(output::ok(
+        "note tag list",
+        json!({ "totalNotes": result.total_notes, "tags": result.tags }),
+    ))
+}
+
+fn cmd_note_tag_map(ctx: CliContext, id: Option<String>) -> Result<String> {
+    let audit = with_store(&ctx, |store| {
+        Ok(if let Some(ref note_id) = id {
+            audit_note_tags_for_note(store, note_id)?
+        } else {
+            audit_note_tags(store)?
+        })
+    })?;
+    Ok(output::ok("note tag map", json!({ "tagAudit": audit })))
 }
 
 fn cmd_note_foundations(ctx: CliContext) -> Result<String> {

@@ -111,6 +111,22 @@ pub struct DeleteNoteResult {
     pub instance_id: String,
 }
 
+/// Summary of a tag across all tier-0 notes (note-level only)
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagSummary {
+    pub tag: String,
+    pub note_count: usize,
+}
+
+/// Result of listing note tags
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListNoteTagsResult {
+    pub total_notes: usize,
+    pub tags: Vec<TagSummary>,
+}
+
 /// Service: List notes with optional tag and container filter
 pub fn list_notes(
     store: &dyn RepositoryStore,
@@ -168,6 +184,49 @@ pub fn list_notes(
     }
 
     Ok(ListNotesResult { notes })
+}
+
+/// Service: List distinct tags used across tier-0 notes, with per-tag note counts.
+///
+/// Uses the manifest index (note-level tags only — section tags are not cached in the index).
+/// No note files are loaded. Tags are returned sorted alphabetically.
+/// Container scoping is respected when `container_id` is `Some`.
+pub fn list_note_tags(
+    store: &dyn RepositoryStore,
+    container_id: Option<&str>,
+) -> Result<ListNoteTagsResult, RepositoryError> {
+    let member_ids: Option<std::collections::HashSet<String>> = if let Some(cid) = container_id {
+        let members = container_service::list_members(store, cid)?;
+        Some(members.into_iter().collect())
+    } else {
+        None
+    };
+
+    let manifest = store.load_manifest()?;
+    let mut counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    let mut total_notes = 0;
+
+    for entry in &manifest.instance_index {
+        if !entry.is_note() {
+            continue;
+        }
+        if let Some(ref m) = member_ids {
+            if !m.contains(entry.instance_id()) {
+                continue;
+            }
+        }
+        total_notes += 1;
+        for tag in entry.tags.iter().flatten() {
+            *counts.entry(tag.clone()).or_insert(0) += 1;
+        }
+    }
+
+    let tags = counts
+        .into_iter()
+        .map(|(tag, note_count)| TagSummary { tag, note_count })
+        .collect();
+
+    Ok(ListNoteTagsResult { total_notes, tags })
 }
 
 /// Service: Create a note and optionally add it to a container atomically.
@@ -533,6 +592,180 @@ mod tests {
             },
         )
         .with_data(path, note_val)
+    }
+
+    fn store_with_two_notes(
+        note_a: &Note,
+        path_a: &str,
+        note_b: &Note,
+        path_b: &str,
+    ) -> MemoryStore {
+        let make_val = |n: &Note| {
+            let mut v = serde_json::to_value(n).unwrap();
+            v.as_object_mut().unwrap().insert(
+                "$schema".to_string(),
+                serde_json::json!("https://srs.semanticops.com/schema/2.0/note.json"),
+            );
+            v
+        };
+        let manifest = Manifest {
+            instance_index: vec![
+                InstanceIndexEntry {
+                    instance_id: note_a.instance_id.clone(),
+                    tier: 0,
+                    path: path_a.to_string(),
+                    title: note_a.title.clone().map(serde_json::Value::String),
+                    tags: note_a.tags.clone(),
+                },
+                InstanceIndexEntry {
+                    instance_id: note_b.instance_id.clone(),
+                    tier: 0,
+                    path: path_b.to_string(),
+                    title: note_b.title.clone().map(serde_json::Value::String),
+                    tags: note_b.tags.clone(),
+                },
+            ],
+            extra: HashMap::new(),
+            root: PathBuf::from("/memory"),
+        };
+        MemoryStore::new(
+            manifest,
+            crate::package::Package {
+                id: "test-pkg".to_string(),
+                namespace: "com.test".to_string(),
+                name: "test".to_string(),
+                version: "1.0.0".to_string(),
+                fields: vec![],
+                record_types: vec![],
+                relation_type_definitions: vec![],
+                views: vec![],
+                document_views: vec![],
+                root: PathBuf::from("/memory"),
+            },
+        )
+        .with_data(path_a, make_val(note_a))
+        .with_data(path_b, make_val(note_b))
+    }
+
+    #[test]
+    fn list_note_tags_empty_store() {
+        let store = MemoryStore::default();
+        let result = list_note_tags(&store, None).unwrap();
+        assert_eq!(result.total_notes, 0);
+        assert!(result.tags.is_empty());
+    }
+
+    #[test]
+    fn list_note_tags_single_note() {
+        let note = make_note("11111111-1111-4111-8111-111111111111", "Test");
+        let store = store_with_note(&note, "records/notes/test.json");
+        let result = list_note_tags(&store, None).unwrap();
+        assert_eq!(result.total_notes, 1);
+        // make_note sets tags ["test", "sample"] — sorted alphabetically
+        assert_eq!(result.tags.len(), 2);
+        assert_eq!(result.tags[0].tag, "sample");
+        assert_eq!(result.tags[0].note_count, 1);
+        assert_eq!(result.tags[1].tag, "test");
+        assert_eq!(result.tags[1].note_count, 1);
+    }
+
+    #[test]
+    fn list_note_tags_shared_tag_counts_correctly() {
+        let mut note_a = make_note("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", "Alpha");
+        note_a.tags = Some(vec!["shared".to_string(), "only-a".to_string()]);
+        let mut note_b = make_note("bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb", "Beta");
+        note_b.tags = Some(vec!["shared".to_string(), "only-b".to_string()]);
+
+        let store = store_with_two_notes(
+            &note_a,
+            "records/notes/alpha.json",
+            &note_b,
+            "records/notes/beta.json",
+        );
+        let result = list_note_tags(&store, None).unwrap();
+        assert_eq!(result.total_notes, 2);
+        let shared = result.tags.iter().find(|t| t.tag == "shared").unwrap();
+        assert_eq!(shared.note_count, 2);
+        let only_a = result.tags.iter().find(|t| t.tag == "only-a").unwrap();
+        assert_eq!(only_a.note_count, 1);
+    }
+
+    #[test]
+    fn list_note_tags_note_with_no_tags_counted_in_total() {
+        let mut note = make_note("11111111-1111-4111-8111-111111111111", "Untagged");
+        note.tags = None;
+        let manifest = Manifest {
+            instance_index: vec![InstanceIndexEntry {
+                instance_id: note.instance_id.clone(),
+                tier: 0,
+                path: "records/notes/untagged.json".to_string(),
+                title: note.title.clone().map(serde_json::Value::String),
+                tags: None,
+            }],
+            extra: HashMap::new(),
+            root: PathBuf::from("/memory"),
+        };
+        let store = MemoryStore::new(
+            manifest,
+            crate::package::Package {
+                id: "test-pkg".to_string(),
+                namespace: "com.test".to_string(),
+                name: "test".to_string(),
+                version: "1.0.0".to_string(),
+                fields: vec![],
+                record_types: vec![],
+                relation_type_definitions: vec![],
+                views: vec![],
+                document_views: vec![],
+                root: PathBuf::from("/memory"),
+            },
+        );
+        let result = list_note_tags(&store, None).unwrap();
+        assert_eq!(result.total_notes, 1);
+        assert!(result.tags.is_empty());
+    }
+
+    #[test]
+    fn list_note_tags_non_note_entries_excluded() {
+        let note = make_note("11111111-1111-4111-8111-111111111111", "Note");
+        let manifest = Manifest {
+            instance_index: vec![
+                InstanceIndexEntry {
+                    instance_id: note.instance_id.clone(),
+                    tier: 0,
+                    path: "records/notes/note.json".to_string(),
+                    title: note.title.clone().map(serde_json::Value::String),
+                    tags: note.tags.clone(),
+                },
+                InstanceIndexEntry {
+                    instance_id: "22222222-2222-4222-8222-222222222222".to_string(),
+                    tier: 1,
+                    path: "records/typed.json".to_string(),
+                    title: None,
+                    tags: Some(vec!["not-counted".to_string()]),
+                },
+            ],
+            extra: HashMap::new(),
+            root: PathBuf::from("/memory"),
+        };
+        let store = MemoryStore::new(
+            manifest,
+            crate::package::Package {
+                id: "test-pkg".to_string(),
+                namespace: "com.test".to_string(),
+                name: "test".to_string(),
+                version: "1.0.0".to_string(),
+                fields: vec![],
+                record_types: vec![],
+                relation_type_definitions: vec![],
+                views: vec![],
+                document_views: vec![],
+                root: PathBuf::from("/memory"),
+            },
+        );
+        let result = list_note_tags(&store, None).unwrap();
+        assert_eq!(result.total_notes, 1);
+        assert!(!result.tags.iter().any(|t| t.tag == "not-counted"));
     }
 
     #[test]

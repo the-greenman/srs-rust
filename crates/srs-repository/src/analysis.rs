@@ -1,3 +1,4 @@
+use crate::container_service;
 use crate::error::RepositoryError;
 use crate::loader::load_note;
 use crate::manifest::Manifest;
@@ -24,8 +25,16 @@ pub struct RepoMap {
     pub schemas: SchemaSummary,
     pub source_documents: SourceDocumentsSummary,
     pub relations_summary: RelationsSummary,
+    pub containers_summary: ContainersSummary,
     pub ai_guidance: Option<Value>,
     pub entry_points: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainersSummary {
+    pub count: usize,
+    pub types: BTreeMap<String, usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -166,6 +175,7 @@ fn build_repo_map_from_manifest(
     let relations_summary = summarize_relations(store, manifest)?;
     let schemas = summarize_schemas(store);
     let source_documents = summarize_source_documents(manifest);
+    let containers_summary = summarize_containers(store)?;
     let ai_guidance = manifest.extra.get("aiGuidance").cloned();
     let entry_points = ai_guidance
         .as_ref()
@@ -185,6 +195,7 @@ fn build_repo_map_from_manifest(
         schemas,
         source_documents,
         relations_summary,
+        containers_summary,
         ai_guidance,
         entry_points,
     })
@@ -193,6 +204,48 @@ fn build_repo_map_from_manifest(
 pub fn audit_note_tags(store: &dyn RepositoryStore) -> Result<TagAudit, RepositoryError> {
     let manifest = store.load_manifest()?;
     audit_note_tags_from_manifest(store, &manifest)
+}
+
+/// Audit note tag usage scoped to notes sharing tags with the given note ID.
+///
+/// Loads the target note to collect its full tag set (note-level + section-level),
+/// then restricts the audit to notes that share at least one of those tags
+/// (matched via the manifest index). The target note itself is always included.
+pub fn audit_note_tags_for_note(
+    store: &dyn RepositoryStore,
+    note_id: &str,
+) -> Result<TagAudit, RepositoryError> {
+    let manifest = store.load_manifest()?;
+
+    let target_entry = manifest
+        .instance_index
+        .iter()
+        .find(|e| e.is_note() && e.instance_id() == note_id)
+        .ok_or_else(|| crate::error::RepositoryError::NoteNotFound {
+            path: std::path::PathBuf::from("records/notes"),
+            id: note_id.to_string(),
+        })?;
+
+    let target_note = load_note(store, target_entry.path())?;
+    let mut scope_tags: BTreeSet<String> = target_note.tags.iter().flatten().cloned().collect();
+    for section in &target_note.sections {
+        for tag in section.tags.iter().flatten() {
+            scope_tags.insert(tag.clone());
+        }
+    }
+
+    let mut scoped_manifest = manifest.clone();
+    scoped_manifest.instance_index.retain(|entry| {
+        if !entry.is_note() {
+            return false;
+        }
+        if entry.instance_id() == note_id {
+            return true;
+        }
+        entry.tags.iter().flatten().any(|t| scope_tags.contains(t))
+    });
+
+    audit_note_tags_from_manifest(store, &scoped_manifest)
 }
 
 fn audit_note_tags_from_manifest(
@@ -542,6 +595,20 @@ fn find_singular_plural_duplicates(tag_counts: &[TagCount]) -> Vec<TagDuplicate>
     duplicates
 }
 
+fn summarize_containers(store: &dyn RepositoryStore) -> Result<ContainersSummary, RepositoryError> {
+    let summaries = container_service::list_containers(store, None, None, None)?;
+    let mut types: BTreeMap<String, usize> = BTreeMap::new();
+    for summary in &summaries {
+        if let Some(ct) = &summary.container_type {
+            *types.entry(ct.clone()).or_default() += 1;
+        }
+    }
+    Ok(ContainersSummary {
+        count: summaries.len(),
+        types,
+    })
+}
+
 fn string_extra(manifest: &Manifest, key: &str) -> Option<String> {
     manifest
         .extra
@@ -671,6 +738,59 @@ mod tests {
         assert_eq!(map.counts.records, 1);
         assert_eq!(map.relations_summary.relation_count, 2);
         assert_eq!(map.entry_points, vec!["records/notes/foundation.json"]);
+        assert_eq!(map.containers_summary.count, 0);
+    }
+
+    #[test]
+    fn repo_map_containers_summary_counts_and_types() {
+        use srs_core::types::container::Container;
+        use std::collections::HashMap;
+
+        fn make_container(id: &str, title: &str, container_type: &str) -> Container {
+            Container {
+                container_id: id.to_string(),
+                title: title.to_string(),
+                container_type: Some(container_type.to_string()),
+                namespace: None,
+                name: None,
+                description: None,
+                root_instance_ids: None,
+                member_instance_ids: None,
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: HashMap::new(),
+            }
+        }
+
+        let store = fixture_store();
+        store
+            .save_container(&make_container(
+                "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+                "Alpha",
+                "feature-set",
+            ))
+            .unwrap();
+        store
+            .save_container(&make_container(
+                "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb",
+                "Beta",
+                "feature-set",
+            ))
+            .unwrap();
+        store
+            .save_container(&make_container(
+                "cccccccc-cccc-4ccc-cccc-cccccccccccc",
+                "Gamma",
+                "release",
+            ))
+            .unwrap();
+
+        let map = build_repo_map(&store).unwrap();
+        assert_eq!(map.containers_summary.count, 3);
+        assert_eq!(map.containers_summary.types["feature-set"], 2);
+        assert_eq!(map.containers_summary.types["release"], 1);
     }
 
     #[test]
@@ -713,5 +833,76 @@ mod tests {
         assert_eq!(packet.foundation_notes.notes.len(), 2);
         assert!(packet.ai_handoff_guidance.contains("external AI"));
         assert_eq!(packet.source_reference_summary.total_source_refs, 1);
+    }
+
+    #[test]
+    fn audit_for_note_unknown_id_returns_error() {
+        let store = fixture_store();
+        let result = audit_note_tags_for_note(&store, "nonexistent-id");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn audit_for_note_scopes_to_shared_tags() {
+        // fixture_store has foundation (tags: meaning-first, projection) and
+        // problem (tags: problems). They share no tags, so scoping to foundation
+        // should include only foundation itself.
+        let store = fixture_store();
+        let audit =
+            audit_note_tags_for_note(&store, "11111111-1111-4111-8111-111111111111").unwrap();
+        assert_eq!(audit.total_notes, 1);
+        // Should contain foundation's tags (note-level + section-level)
+        assert!(audit.tag_counts.iter().any(|t| t.tag == "meaning-first"));
+    }
+
+    #[test]
+    fn audit_for_note_includes_notes_sharing_a_tag() {
+        // Add a third note that shares a tag with foundation
+        let store = fixture_store();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest
+            .instance_index
+            .push(crate::index::InstanceIndexEntry {
+                instance_id: "44444444-4444-4444-8444-444444444444".to_string(),
+                tier: 0,
+                path: "records/notes/sibling.json".to_string(),
+                title: Some(json!("Sibling")),
+                tags: Some(vec!["meaning-first".to_string()]),
+            });
+        store.save_manifest(&manifest).unwrap();
+        store
+            .save_instance_json(
+                "records/notes/sibling.json",
+                &json!({
+                    "instanceId": "44444444-4444-4444-8444-444444444444",
+                    "title": "Sibling",
+                    "tags": ["meaning-first"],
+                    "sections": []
+                }),
+            )
+            .unwrap();
+
+        let audit =
+            audit_note_tags_for_note(&store, "11111111-1111-4111-8111-111111111111").unwrap();
+        // foundation + sibling both have meaning-first → 2 notes in scope
+        assert_eq!(audit.total_notes, 2);
+        let meaning_count = audit
+            .tag_counts
+            .iter()
+            .find(|t| t.tag == "meaning-first")
+            .map(|t| t.count)
+            .unwrap_or(0);
+        assert_eq!(meaning_count, 2);
+    }
+
+    #[test]
+    fn audit_for_note_excludes_unrelated_notes() {
+        // problem note has tags: ["problems"] — no overlap with foundation
+        // Scoping to foundation should not include problem
+        let store = fixture_store();
+        let audit =
+            audit_note_tags_for_note(&store, "11111111-1111-4111-8111-111111111111").unwrap();
+        // problem note should be excluded
+        assert!(!audit.tag_counts.iter().any(|t| t.tag == "problems"));
     }
 }
