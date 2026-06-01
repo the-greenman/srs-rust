@@ -153,11 +153,39 @@ fn ordinary_commands_do_not_construct_concrete_stores() {
 
 // Read-only tests against live srs repo
 
+fn srs_spec_repo_dir() -> std::path::PathBuf {
+    // Allow override via env var for local development (e.g. when running from a worktree).
+    // In CI: srs-rust and srs are checked out as siblings; CARGO_MANIFEST_DIR is
+    // srs-rust/crates/srs-cli, so three ".." levels up reaches the parent, then srs/srs.
+    if let Ok(path) = std::env::var("SRS_SPEC_REPO") {
+        return std::path::PathBuf::from(path);
+    }
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    // Walk up the directory tree until we find the parent that contains both
+    // a Cargo.toml (workspace root) and a sibling srs directory.
+    let mut dir = manifest_dir.to_path_buf();
+    loop {
+        let candidate = dir.join("../srs/srs");
+        if let Ok(canonical) = candidate.canonicalize() {
+            if canonical.join(".srs").exists() {
+                return canonical;
+            }
+        }
+        let parent = match dir.parent() {
+            Some(p) => p.to_path_buf(),
+            None => break,
+        };
+        if parent == dir {
+            break;
+        }
+        dir = parent;
+    }
+    // Fallback: standard CI layout (srs-rust/crates/srs-cli → ../../.. → parent → srs/srs)
+    manifest_dir.join("../../../srs/srs")
+}
+
 fn run_srs(args: &[&str]) -> Value {
-    run_srs_in_dir(
-        std::path::Path::new("/home/greenman/dev/semanticops/srs/srs"),
-        args,
-    )
+    run_srs_in_dir(&srs_spec_repo_dir(), args)
 }
 
 /// Run srs from a directory that is NOT an SRS repo, passing explicit args (may exit non-zero)
