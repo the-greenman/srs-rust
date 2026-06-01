@@ -486,9 +486,11 @@ pub fn create_field_in_package(
     field: Field,
     selector: PackageSelector,
 ) -> Result<CreateFieldResult, RepositoryError> {
-    let filename = format!("fields/{}-{}.json", slugify(&field.name), &field.id[..8]);
+    let boundary_path = selector.as_deref().unwrap_or("package");
+    let rel_filename = format!("fields/{}-{}.json", slugify(&field.name), &field.id[..8]);
+    let full_path = format!("{boundary_path}/{rel_filename}");
 
-    store.ensure_fields_dir()?;
+    store.ensure_fields_dir(&format!("{boundary_path}/fields"))?;
 
     let created_at = if field.created_at.trim().is_empty() {
         chrono::Utc::now().to_rfc3339()
@@ -501,8 +503,8 @@ pub fn create_field_in_package(
         ..field
     };
 
-    store.save_field(&filename, &field_with_timestamp)?;
-    store.add_definition_to_boundary(&selector, DefinitionKind::Field, &filename)?;
+    store.save_field(&full_path, &field_with_timestamp)?;
+    store.add_definition_to_boundary(&selector, DefinitionKind::Field, &rel_filename)?;
 
     Ok(CreateFieldResult {
         field: field_with_timestamp,
@@ -529,17 +531,22 @@ pub fn delete_field(
     store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<DeleteFieldResult, RepositoryError> {
-    let (relative_path, owner) =
+    let (full_path, owner) =
         find_field_path(store, id)?.ok_or_else(|| RepositoryError::FieldNotFound {
             field_id: id.to_string(),
         })?;
+    let boundary_prefix = owner.as_deref().unwrap_or("package");
+    let rel_path = full_path
+        .strip_prefix(&format!("{boundary_prefix}/"))
+        .unwrap_or(&full_path)
+        .to_string();
 
-    store.delete_field_file(&relative_path)?;
-    store.remove_definition_from_boundary(&owner, DefinitionKind::Field, &relative_path)?;
+    store.delete_field_file(&full_path)?;
+    store.remove_definition_from_boundary(&owner, DefinitionKind::Field, &rel_path)?;
     Ok(DeleteFieldResult { id: id.to_string() })
 }
 
-/// Find the package-relative path and owner boundary for a field by its ID.
+/// Find the repo-root-relative path and owner boundary for a field by its ID.
 fn find_field_path(
     store: &dyn RepositoryStore,
     id: &str,
@@ -551,15 +558,12 @@ fn find_field_path(
     };
     // Walk the boundary's field_paths to find the matching path
     let boundary = store.load_package_boundary(&owner)?;
+    let prefix = owner.as_deref().unwrap_or("package");
     for rel_path in &boundary.field_paths {
-        let prefix = match &owner {
-            None => "package".to_string(),
-            Some(p) => p.clone(),
-        };
         let full = format!("{prefix}/{rel_path}");
         if let Ok(val) = store.load_instance_json(&full) {
             if val["id"].as_str() == Some(id) {
-                return Ok(Some((rel_path.clone(), owner)));
+                return Ok(Some((full, owner)));
             }
         }
     }
@@ -592,16 +596,18 @@ pub fn create_type_in_package(
     if record_type.id.trim().is_empty() {
         record_type.id = new_instance_id();
     }
-    store.ensure_types_dir()?;
-
-    let filename = format!(
+    let boundary_path = selector.as_deref().unwrap_or("package");
+    let rel_filename = format!(
         "types/{}-{}.json",
         slugify(&record_type.name),
         &record_type.id[..8]
     );
+    let full_path = format!("{boundary_path}/{rel_filename}");
 
-    store.save_type(&filename, &record_type)?;
-    store.add_definition_to_boundary(&selector, DefinitionKind::Type, &filename)?;
+    store.ensure_types_dir(&format!("{boundary_path}/types"))?;
+
+    store.save_type(&full_path, &record_type)?;
+    store.add_definition_to_boundary(&selector, DefinitionKind::Type, &rel_filename)?;
 
     Ok(CreateTypeResult { record_type })
 }
@@ -628,18 +634,23 @@ pub fn delete_type(
     id: &str,
     version: u32,
 ) -> Result<DeleteTypeResult, RepositoryError> {
-    let (relative_path, owner) =
+    let (full_path, owner) =
         find_type_path(store, id)?.ok_or_else(|| RepositoryError::TypeNotFound {
             type_id: id.to_string(),
             version,
         })?;
+    let boundary_prefix = owner.as_deref().unwrap_or("package");
+    let rel_path = full_path
+        .strip_prefix(&format!("{boundary_prefix}/"))
+        .unwrap_or(&full_path)
+        .to_string();
 
-    store.delete_type_file(&relative_path)?;
-    store.remove_definition_from_boundary(&owner, DefinitionKind::Type, &relative_path)?;
+    store.delete_type_file(&full_path)?;
+    store.remove_definition_from_boundary(&owner, DefinitionKind::Type, &rel_path)?;
     Ok(DeleteTypeResult { id: id.to_string() })
 }
 
-/// Find the boundary-relative path and owner for a type by its ID.
+/// Find the repo-root-relative path and owner for a type by its ID.
 fn find_type_path(
     store: &dyn RepositoryStore,
     id: &str,
@@ -650,15 +661,12 @@ fn find_type_path(
         Err(e) => return Err(e),
     };
     let boundary = store.load_package_boundary(&owner)?;
+    let prefix = owner.as_deref().unwrap_or("package");
     for rel_path in &boundary.type_paths {
-        let prefix = match &owner {
-            None => "package".to_string(),
-            Some(p) => p.clone(),
-        };
         let full = format!("{prefix}/{rel_path}");
         if let Ok(val) = store.load_instance_json(&full) {
             if val["id"].as_str() == Some(id) {
-                return Ok(Some((rel_path.clone(), owner)));
+                return Ok(Some((full, owner)));
             }
         }
     }
@@ -703,11 +711,12 @@ pub fn create_relation_type(
 
     let slug = slugify(&def.relation_type);
     let id_prefix = &def.id[..8.min(def.id.len())];
-    let filename = format!("relation-types/{slug}-{id_prefix}.json");
+    let rel_filename = format!("relation-types/{slug}-{id_prefix}.json");
+    let full_path = format!("package/{rel_filename}");
 
-    store.ensure_relation_types_dir()?;
-    store.save_relation_type_definition(&filename, &def)?;
-    store.add_definition_to_boundary(&None, DefinitionKind::RelationType, &filename)?;
+    store.ensure_relation_types_dir("package/relation-types")?;
+    store.save_relation_type_definition(&full_path, &def)?;
+    store.add_definition_to_boundary(&None, DefinitionKind::RelationType, &rel_filename)?;
 
     Ok(CreateRelationTypeResult {
         relation_type_definition: def,
@@ -734,15 +743,20 @@ pub fn delete_relation_type(
     store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<DeleteRelationTypeResult, RepositoryError> {
-    let (relative_path, owner) = find_relation_type_path(store, id)?
+    let (full_path, owner) = find_relation_type_path(store, id)?
         .ok_or_else(|| RepositoryError::DefinitionNotFound { id: id.to_string() })?;
+    let boundary_prefix = owner.as_deref().unwrap_or("package");
+    let rel_path = full_path
+        .strip_prefix(&format!("{boundary_prefix}/"))
+        .unwrap_or(&full_path)
+        .to_string();
 
-    store.delete_relation_type_file(&relative_path)?;
-    store.remove_definition_from_boundary(&owner, DefinitionKind::RelationType, &relative_path)?;
+    store.delete_relation_type_file(&full_path)?;
+    store.remove_definition_from_boundary(&owner, DefinitionKind::RelationType, &rel_path)?;
     Ok(DeleteRelationTypeResult { id: id.to_string() })
 }
 
-/// Find the boundary-relative path and owner for a relation type definition by its ID.
+/// Find the repo-root-relative path and owner for a relation type definition by its ID.
 fn find_relation_type_path(
     store: &dyn RepositoryStore,
     id: &str,
@@ -759,7 +773,7 @@ fn find_relation_type_path(
                 let full = format!("package/{rel}");
                 if let Ok(val) = store.load_instance_json(&full) {
                     if val["id"].as_str() == Some(id) {
-                        return Ok(Some((rel.to_string(), owner)));
+                        return Ok(Some((full, owner)));
                     }
                 }
             }

@@ -628,7 +628,7 @@ mod tests {
             fn delete_field_file(&self, _: &str) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
-            fn ensure_fields_dir(&self) -> Result<(), RepositoryError> {
+            fn ensure_fields_dir(&self, _: &str) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
             fn save_type(
@@ -648,7 +648,7 @@ mod tests {
             fn delete_type_file(&self, _: &str) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
-            fn ensure_types_dir(&self) -> Result<(), RepositoryError> {
+            fn ensure_types_dir(&self, _: &str) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
             fn save_relation_type_definition(
@@ -661,7 +661,7 @@ mod tests {
             fn delete_relation_type_file(&self, _: &str) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
-            fn ensure_relation_types_dir(&self) -> Result<(), RepositoryError> {
+            fn ensure_relation_types_dir(&self, _: &str) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
             fn save_view(
@@ -681,7 +681,7 @@ mod tests {
             fn delete_view_file(&self, _: &str) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
-            fn ensure_views_dir(&self) -> Result<(), RepositoryError> {
+            fn ensure_views_dir(&self, _: &str) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
             fn save_document_view(
@@ -701,7 +701,7 @@ mod tests {
             fn delete_document_view_file(&self, _: &str) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
-            fn ensure_document_views_dir(&self) -> Result<(), RepositoryError> {
+            fn ensure_document_views_dir(&self, _: &str) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
             fn load_instance_json(&self, _: &str) -> Result<serde_json::Value, RepositoryError> {

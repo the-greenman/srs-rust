@@ -54,7 +54,7 @@ pub trait RepositoryStore {
     fn save_field(&self, relative_path: &str, field: &Field) -> Result<(), RepositoryError>;
     fn update_field_file(&self, relative_path: &str, field: &Field) -> Result<(), RepositoryError>;
     fn delete_field_file(&self, relative_path: &str) -> Result<(), RepositoryError>;
-    fn ensure_fields_dir(&self) -> Result<(), RepositoryError>;
+    fn ensure_fields_dir(&self, relative_dir: &str) -> Result<(), RepositoryError>;
 
     // --- Types ---
 
@@ -69,7 +69,7 @@ pub trait RepositoryStore {
         record_type: &RecordType,
     ) -> Result<(), RepositoryError>;
     fn delete_type_file(&self, relative_path: &str) -> Result<(), RepositoryError>;
-    fn ensure_types_dir(&self) -> Result<(), RepositoryError>;
+    fn ensure_types_dir(&self, relative_dir: &str) -> Result<(), RepositoryError>;
 
     // --- Relation type definitions ---
 
@@ -79,14 +79,14 @@ pub trait RepositoryStore {
         relation_type: &RelationTypeDefinition,
     ) -> Result<(), RepositoryError>;
     fn delete_relation_type_file(&self, relative_path: &str) -> Result<(), RepositoryError>;
-    fn ensure_relation_types_dir(&self) -> Result<(), RepositoryError>;
+    fn ensure_relation_types_dir(&self, relative_dir: &str) -> Result<(), RepositoryError>;
 
     // --- Views (L1) ---
 
     fn save_view(&self, relative_path: &str, view: &View) -> Result<(), RepositoryError>;
     fn update_view_file(&self, relative_path: &str, view: &View) -> Result<(), RepositoryError>;
     fn delete_view_file(&self, relative_path: &str) -> Result<(), RepositoryError>;
-    fn ensure_views_dir(&self) -> Result<(), RepositoryError>;
+    fn ensure_views_dir(&self, relative_dir: &str) -> Result<(), RepositoryError>;
 
     // --- Document Views (L2) ---
 
@@ -101,7 +101,7 @@ pub trait RepositoryStore {
         view: &DocumentView,
     ) -> Result<(), RepositoryError>;
     fn delete_document_view_file(&self, relative_path: &str) -> Result<(), RepositoryError>;
-    fn ensure_document_views_dir(&self) -> Result<(), RepositoryError>;
+    fn ensure_document_views_dir(&self, relative_dir: &str) -> Result<(), RepositoryError>;
 
     // --- Instances (Notes, TypedRecords, Records) ---
 
@@ -267,11 +267,6 @@ impl FileStore {
 
     fn abs(&self, relative_path: &str) -> PathBuf {
         self.repo_root.join(relative_path)
-    }
-
-    /// Resolve a path relative to the package/ subdirectory.
-    fn pkg_abs(&self, relative_path: &str) -> PathBuf {
-        self.repo_root.join("package").join(relative_path)
     }
 
     fn read_json(&self, path: &std::path::Path) -> Result<serde_json::Value, RepositoryError> {
@@ -909,10 +904,10 @@ impl RepositoryStore for FileStore {
 
     fn save_field(&self, relative_path: &str, field: &Field) -> Result<(), RepositoryError> {
         let value = serde_json::to_value(field).map_err(|e| RepositoryError::Serialize {
-            path: self.pkg_abs(relative_path),
+            path: self.abs(relative_path),
             source: e,
         })?;
-        self.write_json(&self.pkg_abs(relative_path), &value)
+        self.write_json(&self.abs(relative_path), &value)
     }
 
     fn update_field_file(&self, relative_path: &str, field: &Field) -> Result<(), RepositoryError> {
@@ -920,11 +915,11 @@ impl RepositoryStore for FileStore {
     }
 
     fn delete_field_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-        self.delete_file(&self.pkg_abs(relative_path))
+        self.delete_file(&self.abs(relative_path))
     }
 
-    fn ensure_fields_dir(&self) -> Result<(), RepositoryError> {
-        self.ensure_dir(&self.pkg_abs("fields"))
+    fn ensure_fields_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
+        self.ensure_dir(&self.abs(relative_dir))
     }
 
     // --- Types ---
@@ -935,10 +930,10 @@ impl RepositoryStore for FileStore {
         record_type: &RecordType,
     ) -> Result<(), RepositoryError> {
         let value = serde_json::to_value(record_type).map_err(|e| RepositoryError::Serialize {
-            path: self.pkg_abs(relative_path),
+            path: self.abs(relative_path),
             source: e,
         })?;
-        self.write_json(&self.pkg_abs(relative_path), &value)
+        self.write_json(&self.abs(relative_path), &value)
     }
 
     fn update_type_file(
@@ -950,11 +945,11 @@ impl RepositoryStore for FileStore {
     }
 
     fn delete_type_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-        self.delete_file(&self.pkg_abs(relative_path))
+        self.delete_file(&self.abs(relative_path))
     }
 
-    fn ensure_types_dir(&self) -> Result<(), RepositoryError> {
-        self.ensure_dir(&self.pkg_abs("types"))
+    fn ensure_types_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
+        self.ensure_dir(&self.abs(relative_dir))
     }
 
     fn save_relation_type_definition(
@@ -964,28 +959,28 @@ impl RepositoryStore for FileStore {
     ) -> Result<(), RepositoryError> {
         let value =
             serde_json::to_value(relation_type).map_err(|e| RepositoryError::Serialize {
-                path: self.pkg_abs(relative_path),
+                path: self.abs(relative_path),
                 source: e,
             })?;
-        self.write_json(&self.pkg_abs(relative_path), &value)
+        self.write_json(&self.abs(relative_path), &value)
     }
 
     fn delete_relation_type_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-        self.delete_file(&self.pkg_abs(relative_path))
+        self.delete_file(&self.abs(relative_path))
     }
 
-    fn ensure_relation_types_dir(&self) -> Result<(), RepositoryError> {
-        self.ensure_dir(&self.pkg_abs("relation-types"))
+    fn ensure_relation_types_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
+        self.ensure_dir(&self.abs(relative_dir))
     }
 
     // --- Views (L1) ---
 
     fn save_view(&self, relative_path: &str, view: &View) -> Result<(), RepositoryError> {
         let value = serde_json::to_value(view).map_err(|e| RepositoryError::Serialize {
-            path: self.pkg_abs(relative_path),
+            path: self.abs(relative_path),
             source: e,
         })?;
-        self.write_json(&self.pkg_abs(relative_path), &value)
+        self.write_json(&self.abs(relative_path), &value)
     }
 
     fn update_view_file(&self, relative_path: &str, view: &View) -> Result<(), RepositoryError> {
@@ -993,11 +988,11 @@ impl RepositoryStore for FileStore {
     }
 
     fn delete_view_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-        self.delete_file(&self.pkg_abs(relative_path))
+        self.delete_file(&self.abs(relative_path))
     }
 
-    fn ensure_views_dir(&self) -> Result<(), RepositoryError> {
-        self.ensure_dir(&self.pkg_abs("views"))
+    fn ensure_views_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
+        self.ensure_dir(&self.abs(relative_dir))
     }
 
     // --- Document Views (L2) ---
@@ -1008,10 +1003,10 @@ impl RepositoryStore for FileStore {
         view: &DocumentView,
     ) -> Result<(), RepositoryError> {
         let value = serde_json::to_value(view).map_err(|e| RepositoryError::Serialize {
-            path: self.pkg_abs(relative_path),
+            path: self.abs(relative_path),
             source: e,
         })?;
-        self.write_json(&self.pkg_abs(relative_path), &value)
+        self.write_json(&self.abs(relative_path), &value)
     }
 
     fn update_document_view_file(
@@ -1023,11 +1018,11 @@ impl RepositoryStore for FileStore {
     }
 
     fn delete_document_view_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-        self.delete_file(&self.pkg_abs(relative_path))
+        self.delete_file(&self.abs(relative_path))
     }
 
-    fn ensure_document_views_dir(&self) -> Result<(), RepositoryError> {
-        self.ensure_dir(&self.pkg_abs("document-views"))
+    fn ensure_document_views_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
+        self.ensure_dir(&self.abs(relative_dir))
     }
 
     // --- Instances ---
@@ -1931,9 +1926,8 @@ pub mod memory {
         }
 
         fn save_field(&self, relative_path: &str, field: &Field) -> Result<(), RepositoryError> {
-            let key = format!("package/{relative_path}");
             let v = serde_json::to_value(field).unwrap();
-            self.data.borrow_mut().insert(key, v);
+            self.data.borrow_mut().insert(relative_path.to_string(), v);
             Ok(())
         }
 
@@ -1942,20 +1936,18 @@ pub mod memory {
             relative_path: &str,
             field: &Field,
         ) -> Result<(), RepositoryError> {
-            let key = format!("package/{relative_path}");
-            if !self.data.borrow().contains_key(&key) {
+            if !self.data.borrow().contains_key(relative_path) {
                 return Err(not_found(relative_path));
             }
             self.save_field(relative_path, field)
         }
 
         fn delete_field_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-            let key = format!("package/{relative_path}");
-            self.data.borrow_mut().remove(&key);
+            self.data.borrow_mut().remove(relative_path);
             Ok(())
         }
 
-        fn ensure_fields_dir(&self) -> Result<(), RepositoryError> {
+        fn ensure_fields_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
             Ok(())
         }
 
@@ -1964,9 +1956,8 @@ pub mod memory {
             relative_path: &str,
             record_type: &RecordType,
         ) -> Result<(), RepositoryError> {
-            let key = format!("package/{relative_path}");
             let v = serde_json::to_value(record_type).unwrap();
-            self.data.borrow_mut().insert(key, v);
+            self.data.borrow_mut().insert(relative_path.to_string(), v);
             Ok(())
         }
 
@@ -1975,20 +1966,18 @@ pub mod memory {
             relative_path: &str,
             record_type: &RecordType,
         ) -> Result<(), RepositoryError> {
-            let key = format!("package/{relative_path}");
-            if !self.data.borrow().contains_key(&key) {
+            if !self.data.borrow().contains_key(relative_path) {
                 return Err(not_found(relative_path));
             }
             self.save_type(relative_path, record_type)
         }
 
         fn delete_type_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-            let key = format!("package/{relative_path}");
-            self.data.borrow_mut().remove(&key);
+            self.data.borrow_mut().remove(relative_path);
             Ok(())
         }
 
-        fn ensure_types_dir(&self) -> Result<(), RepositoryError> {
+        fn ensure_types_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
             Ok(())
         }
 
@@ -2008,7 +1997,7 @@ pub mod memory {
             Ok(())
         }
 
-        fn ensure_relation_types_dir(&self) -> Result<(), RepositoryError> {
+        fn ensure_relation_types_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
             Ok(())
         }
 
@@ -2034,7 +2023,7 @@ pub mod memory {
             Ok(())
         }
 
-        fn ensure_views_dir(&self) -> Result<(), RepositoryError> {
+        fn ensure_views_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
             Ok(())
         }
 
@@ -2064,7 +2053,7 @@ pub mod memory {
             Ok(())
         }
 
-        fn ensure_document_views_dir(&self) -> Result<(), RepositoryError> {
+        fn ensure_document_views_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
             Ok(())
         }
 

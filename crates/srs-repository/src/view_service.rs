@@ -119,16 +119,13 @@ fn find_view_path(
     // Read view paths directly from the raw package.json.
     let pkg_json = store.load_package_json()?;
     let paths = pkg_json["views"].as_array().cloned().unwrap_or_default();
-    let prefix = match &owner {
-        None => "package".to_string(),
-        Some(p) => p.clone(),
-    };
+    let prefix = owner.as_deref().unwrap_or("package");
     for entry in &paths {
         if let Some(rel) = entry.as_str() {
             let full = format!("{prefix}/{rel}");
             if let Ok(val) = store.load_instance_json(&full) {
                 if val["id"].as_str() == Some(id) {
-                    return Ok(Some((rel.to_string(), owner)));
+                    return Ok(Some((full, owner)));
                 }
             }
         }
@@ -151,16 +148,13 @@ fn find_document_view_path(
         .as_array()
         .cloned()
         .unwrap_or_default();
-    let prefix = match &owner {
-        None => "package".to_string(),
-        Some(p) => p.clone(),
-    };
+    let prefix = owner.as_deref().unwrap_or("package");
     for entry in &paths {
         if let Some(rel) = entry.as_str() {
             let full = format!("{prefix}/{rel}");
             if let Ok(val) = store.load_instance_json(&full) {
                 if val["id"].as_str() == Some(id) {
-                    return Ok(Some((rel.to_string(), owner)));
+                    return Ok(Some((full, owner)));
                 }
             }
         }
@@ -250,11 +244,12 @@ pub fn create_view(
     if view.id.is_empty() {
         view.id = new_instance_id();
     }
-    store.ensure_views_dir()?;
+    store.ensure_views_dir("package/views")?;
     let id_prefix = &view.id[..view.id.len().min(8)];
-    let filename = format!("views/{}-{}.json", slugify(&view.name), id_prefix);
-    store.save_view(&filename, &view)?;
-    store.add_definition_to_boundary(&None, DefinitionKind::View, &filename)?;
+    let rel_filename = format!("views/{}-{}.json", slugify(&view.name), id_prefix);
+    let full_path = format!("package/{rel_filename}");
+    store.save_view(&full_path, &view)?;
+    store.add_definition_to_boundary(&None, DefinitionKind::View, &rel_filename)?;
     Ok(CreateViewResult { view })
 }
 
@@ -281,12 +276,17 @@ pub fn delete_view(
     store: &dyn RepositoryStore,
     view_id: &str,
 ) -> Result<DeleteViewResult, RepositoryError> {
-    let (path, owner) =
+    let (full_path, owner) =
         find_view_path(store, view_id)?.ok_or_else(|| RepositoryError::ViewNotFound {
             view_id: view_id.to_string(),
         })?;
-    let _ = store.delete_view_file(&path); // best-effort; ignore if already gone
-    store.remove_definition_from_boundary(&owner, DefinitionKind::View, &path)?;
+    let boundary_prefix = owner.as_deref().unwrap_or("package");
+    let rel_path = full_path
+        .strip_prefix(&format!("{boundary_prefix}/"))
+        .unwrap_or(&full_path)
+        .to_string();
+    let _ = store.delete_view_file(&full_path); // best-effort; ignore if already gone
+    store.remove_definition_from_boundary(&owner, DefinitionKind::View, &rel_path)?;
     Ok(DeleteViewResult {
         id: view_id.to_string(),
     })
@@ -308,15 +308,16 @@ pub fn create_document_view(
     if document_view.id.is_empty() {
         document_view.id = new_instance_id();
     }
-    store.ensure_document_views_dir()?;
+    store.ensure_document_views_dir("package/document-views")?;
     let id_prefix = &document_view.id[..document_view.id.len().min(8)];
-    let filename = format!(
+    let rel_filename = format!(
         "document-views/{}-{}.json",
         slugify(&document_view.name),
         id_prefix
     );
-    store.save_document_view(&filename, &document_view)?;
-    store.add_definition_to_boundary(&None, DefinitionKind::DocumentView, &filename)?;
+    let full_path = format!("package/{rel_filename}");
+    store.save_document_view(&full_path, &document_view)?;
+    store.add_definition_to_boundary(&None, DefinitionKind::DocumentView, &rel_filename)?;
     Ok(CreateDocumentViewResult { document_view })
 }
 
@@ -346,13 +347,19 @@ pub fn delete_document_view(
     store: &dyn RepositoryStore,
     document_view_id: &str,
 ) -> Result<DeleteDocumentViewResult, RepositoryError> {
-    let (path, owner) = find_document_view_path(store, document_view_id)?.ok_or_else(|| {
-        RepositoryError::DocumentViewNotFoundById {
-            document_view_id: document_view_id.to_string(),
-        }
-    })?;
-    let _ = store.delete_document_view_file(&path); // best-effort
-    store.remove_definition_from_boundary(&owner, DefinitionKind::DocumentView, &path)?;
+    let (full_path, owner) =
+        find_document_view_path(store, document_view_id)?.ok_or_else(|| {
+            RepositoryError::DocumentViewNotFoundById {
+                document_view_id: document_view_id.to_string(),
+            }
+        })?;
+    let boundary_prefix = owner.as_deref().unwrap_or("package");
+    let rel_path = full_path
+        .strip_prefix(&format!("{boundary_prefix}/"))
+        .unwrap_or(&full_path)
+        .to_string();
+    let _ = store.delete_document_view_file(&full_path); // best-effort
+    store.remove_definition_from_boundary(&owner, DefinitionKind::DocumentView, &rel_path)?;
     Ok(DeleteDocumentViewResult {
         id: document_view_id.to_string(),
     })
