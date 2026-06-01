@@ -1,0 +1,24 @@
+name: Schema Drift
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check-schema-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout srs-rust
+        uses: actions/checkout@v4
+        with:
+          path: srs-rust
+
+      - name: Checkout srs
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/srs
+          path: srs
+
+      - name: Run schema drift check
+        working-directory: srs-rust
+        run: scripts/check-schema-drift.sh ../srs

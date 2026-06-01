@@ -40,4 +40,13 @@ if ! cargo test --test payload_contracts; then
     exit 1
 fi
 
+# 5. Ensure embedded schemas match canonical spec repo schemas
+echo "  → scripts/check-schema-drift.sh"
+if ! scripts/check-schema-drift.sh; then
+    echo ""
+    echo "❌ Schema mirror drift detected."
+    echo "   Run scripts/sync-schemas-from-spec.sh and commit updated schema files."
+    exit 1
+fi
+
 echo "✅ All pre-commit checks passed."

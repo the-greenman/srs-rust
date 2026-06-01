@@ -44,13 +44,13 @@ As of 2026-05-31.
 | Extensions (`extension`) | Defined | Implemented (CRUD) |
 | Protocols (`protocol`) | Defined | Implemented (CRUD, validation, stages, import/export) |
 | Package refs (`srs package`) | Defined | Implemented (list, enable, disable — with scope + existence validation) |
-| Views L1 (`ext:views-l1`) | RFC-001 acceptance in progress | Implemented — `srs view list/get/create/update/delete`; views stored in package |
-| Views L2 / Document Views (`ext:views-l2`) | RFC-001 acceptance in progress | Implemented — `srs document-view list/get/create/update/delete` and `srs render document-view`; section sourcing via TypeQuery/RelationQuery/FixedInstances/ContainerSubset; repeatable fields and field groups rendered |
+| Views L1 (`ext:views-l1`) | RFC-001 accepted | Implemented — `srs view list/get/create/update/delete`; views stored in package |
+| Views L2 / Document Views (`ext:views-l2`) | RFC-001 accepted | Implemented — `srs document-view list/get/create/update/delete` and `srs render document-view`; section sourcing via TypeQuery/RelationQuery/FixedInstances/ContainerSubset; repeatable fields and field groups rendered |
 | Repeatable field entries (`ext:repeatable-fields`) | In schema/spec | Implemented (typed model, validation constraints, rendering) |
 | Field groups (`ext:field-groups`) | In schema/spec | Implemented (typed model, required/group-count validation, rendering) |
 | Lifecycle state machine (`ext:lifecycle`) | In progress | Stub — `lifecycleState` field parsed but not enforced; no state transition logic |
 | Type inheritance (`ext:type-inheritance`) | In planning | Not implemented — `fieldOrder` present in model but ignored at render time |
-| Themes (`ext:themes-l1`) | RFC-002 in progress | Not implemented |
+| Themes (`ext:themes-l1`) | RFC-002 accepted | Implemented — renderer resolves `themeRef`/`themeVariants` for matching output formats and supports CLI `--theme-variant` |
 | Addressability (`ext:addressability`) | Declared | Not implemented |
 | Recommended relations (`ext:recommended-relations`) | Declared | Not implemented |
 | Federation (`ext:federation`) | Not declared | Not implemented |
@@ -134,11 +134,16 @@ Sync into embedded Rust schema crate:
 ```bash
 scripts/sync-schemas-from-spec.sh
 scripts/check-schema-drift.sh
+
+Pre-commit should run schema drift checks before commit:
+
+```bash
+hooks/pre-commit
+```
 ```
 
 ## Near-Term Roadmap
 
-- Land RFC-001/RFC-002 record acceptance updates in `../srs/srs`
 - Implement lifecycle state enforcement (`ext:lifecycle` state machine)
 - Decide and implement table-like value modeling (if kept in spec scope)
 
