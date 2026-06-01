@@ -57,7 +57,7 @@ fn cmd_view_create(ctx: CliContext) -> Result<String> {
     io::stdin().read_to_string(&mut stdin)?;
     let view: View = serde_json::from_str(&stdin)
         .map_err(|e| anyhow::anyhow!("Failed to parse View JSON: {e}"))?;
-    match with_store(&ctx, |store| Ok(create_view(store, view)?)) {
+    match with_store(&ctx, |store| Ok(create_view(store, view, None)?)) {
         Ok(CreateViewResult { view }) => output::serialize("view create", ViewPayload { view }),
         Err(e) => Ok(output::err("view create", vec![e.to_string()])),
     }
