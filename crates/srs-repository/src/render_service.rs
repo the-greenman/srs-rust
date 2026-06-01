@@ -1079,15 +1079,18 @@ fn render_record_at_level(
                         .collect();
                 }
             }
+            // Always collect display labels from field_views, regardless of field_order.
+            let mut field_views = view.field_views.clone();
+            field_views.sort_by_key(|fv| fv.order);
+            for fv in &field_views {
+                if let Some(label) = &fv.display_label {
+                    display_labels.insert(fv.field_id.clone(), label.clone());
+                }
+            }
             if fields_to_render.is_empty() {
-                let mut field_views = view.field_views.clone();
-                field_views.sort_by_key(|fv| fv.order);
                 for fv in field_views {
                     if fv.visible == Some(false) {
                         continue;
-                    }
-                    if let Some(label) = fv.display_label {
-                        display_labels.insert(fv.field_id.clone(), label);
                     }
                     fields_to_render.push(ResolvedFieldRender {
                         field_id: fv.field_id,

@@ -208,7 +208,15 @@ pub(crate) fn list_members(
     container_id: &str,
 ) -> Result<Vec<String>, RepositoryError> {
     let container = get_container(store, container_id)?;
-    Ok(container.member_instance_ids.unwrap_or_default())
+    let roots = container.root_instance_ids.unwrap_or_default();
+    let members = container.member_instance_ids.unwrap_or_default();
+    let mut combined: Vec<String> = roots;
+    for id in members {
+        if !combined.contains(&id) {
+            combined.push(id);
+        }
+    }
+    Ok(combined)
 }
 
 pub(crate) fn add_member(
