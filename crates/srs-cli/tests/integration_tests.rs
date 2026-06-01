@@ -3299,177 +3299,361 @@ fn extension_get_returns_extension_by_id() {
 
 // --- Phase 4: Protocol command group ---
 
+// Field UUIDs matching srs/srs/package/types/meta.protocol.json
+const PROTO_FIELD_ID: &str = "6c66d06c-3f95-4d17-8ecf-e1046a6f2ec1";
+const PROTO_FIELD_NAMESPACE: &str = "8d0f55f9-80e3-4dd6-a05c-10c4b6b6cc87";
+const PROTO_FIELD_NAME: &str = "09c5e389-cf6c-4f72-aad6-8cf26bce0b78";
+const PROTO_FIELD_VERSION: &str = "f7d28d9d-f90c-4a01-a3eb-2ff4cad54ff6";
+const PROTO_FIELD_TARGET_TYPE: &str = "4939a29b-7f70-481f-bf6b-bf693f8bd67f";
+const PROTO_FIELD_STAGES: &str = "0f1232c6-0db5-4383-b91d-64d81195f1c4";
+const PROTO_FIELD_CREATED_AT: &str = "b953f716-383a-4218-bebf-96e93c4747a4";
+const PROTO_TYPE_UUID: &str = "48a03f5d-4f27-42f4-b791-999f6c22f8d2";
+
+/// Create a temp repo whose package declares the meta.protocol type with all
+/// required field definitions. Required for any protocol import/list/get test.
+fn create_temp_repo_with_protocol_type() -> TempDir {
+    let temp = TempDir::new().expect("Failed to create temp dir");
+    std::fs::create_dir_all(temp.path().join(".srs")).unwrap();
+
+    let manifest = serde_json::json!({ "instanceIndex": [] });
+    std::fs::write(
+        temp.path().join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    let pkg = temp.path().join("package");
+    std::fs::create_dir_all(pkg.join("fields")).unwrap();
+    std::fs::create_dir_all(pkg.join("types")).unwrap();
+    std::fs::create_dir_all(pkg.join("records/protocols")).unwrap();
+
+    // Write the 7 required field definitions (description/tags are optional, skip for brevity)
+    let fields = [
+        (PROTO_FIELD_ID, "protocol-id", "string"),
+        (PROTO_FIELD_NAMESPACE, "protocol-namespace", "string"),
+        (PROTO_FIELD_NAME, "protocol-name", "string"),
+        (PROTO_FIELD_VERSION, "protocol-version", "number"),
+        (PROTO_FIELD_TARGET_TYPE, "protocol-target-type", "string"),
+        (PROTO_FIELD_STAGES, "protocol-stages", "text"),
+        (PROTO_FIELD_CREATED_AT, "protocol-created-at", "date"),
+    ];
+    let mut field_paths = vec![];
+    let mut field_assignments = vec![];
+    for (i, (uuid, name, value_type)) in fields.iter().enumerate() {
+        let fname = format!("fields/{}.json", name);
+        std::fs::write(
+            pkg.join(&fname),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "id": uuid,
+                "namespace": "com.semanticops.srs",
+                "name": name,
+                "version": 1,
+                "valueType": value_type
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        field_paths.push(fname);
+        field_assignments.push(serde_json::json!({
+            "fieldId": uuid,
+            "order": i,
+            "required": true
+        }));
+    }
+
+    // Write the meta.protocol type
+    std::fs::write(
+        pkg.join("types/meta.protocol.json"),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "id": PROTO_TYPE_UUID,
+            "namespace": "com.semanticops.srs",
+            "name": "meta.protocol",
+            "version": 1,
+            "fields": field_assignments
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    // Write package.json referencing all the above
+    std::fs::write(
+        pkg.join("package.json"),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "id": "test-proto-pkg",
+            "namespace": "com.test",
+            "name": "test-with-protocol",
+            "version": "1.0.0",
+            "fields": field_paths,
+            "types": ["types/meta.protocol.json"]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    temp
+}
+
+/// Canonical minimal protocol JSON for use with `srs protocol import`
+fn minimal_protocol_json(id: &str, name: &str) -> String {
+    serde_json::to_string(&serde_json::json!({
+        "protocolId": id,
+        "protocolNamespace": "com.test",
+        "protocolName": name,
+        "protocolVersion": 1,
+        "protocolTargetType": "meta.extension",
+        "protocolStages": [
+            {"stageId": "s1", "name": "Draft", "order": 1, "dependsOn": []},
+            {"stageId": "s2", "name": "Review", "order": 2, "dependsOn": ["s1"]}
+        ],
+        "protocolCreatedAt": "2026-05-29T00:00:00Z"
+    }))
+    .unwrap()
+}
+
 #[test]
 fn protocol_list_returns_protocols() {
-    let temp = create_temp_repo();
-
-    let package_dir = temp.path().join("package");
-    std::fs::create_dir_all(&package_dir).unwrap();
-    std::fs::create_dir_all(package_dir.join("records")).unwrap();
-
-    let package_json = serde_json::json!({
-        "id": "test-pkg",
-        "namespace": "com.test",
-        "name": "test",
-        "version": "1.0.0",
-        "fields": [],
-        "types": []
-    });
-    std::fs::write(
-        package_dir.join("package.json"),
-        serde_json::to_string_pretty(&package_json).unwrap(),
-    )
-    .unwrap();
-
-    // Create a protocol record
-    let protocol = serde_json::json!({
-        "instanceId": "proto-001",
-        "type": "meta.protocol",
-        "namespace": "com.test",
-        "name": "test-protocol",
-        "version": 1,
-        "fieldValues": {
-            "protocol-id": "com.test/test-protocol@1",
-            "protocol-namespace": "com.test",
-            "protocol-name": "test-protocol",
-            "protocol-version": 1,
-            "protocol-target-type": "meta.extension",
-            "protocol-stages": [
-                {"stageId": "stage-1", "name": "Draft", "order": 1, "dependsOn": []},
-                {"stageId": "stage-2", "name": "Review", "order": 2, "dependsOn": ["stage-1"]}
-            ],
-            "protocol-created-at": "2026-05-29T00:00:00Z"
-        }
-    });
-    std::fs::write(
-        package_dir.join("records/proto-001.json"),
-        serde_json::to_string_pretty(&protocol).unwrap(),
-    )
-    .unwrap();
+    let temp = create_temp_repo_with_protocol_type();
+    let stdin = minimal_protocol_json("com.test/test-protocol@1", "test-protocol");
+    let import = run_srs_stdin_in_dir(temp.path(), &["protocol", "import"], &stdin);
+    assert_eq!(import["ok"], true, "import failed: {:?}", import);
 
     let result = run_srs_in_dir(temp.path(), &["protocol", "list"]);
     assert_eq!(
         result["ok"], true,
-        "protocol list should succeed: {:?}",
+        "list failed: {:?}",
         result["diagnostics"]
     );
     let protocols = result["payload"]["protocols"].as_array().unwrap();
     assert_eq!(protocols.len(), 1);
+    assert_eq!(protocols[0]["protocolId"], "com.test/test-protocol@1");
+    assert_eq!(protocols[0]["stageCount"], 2);
 }
 
 #[test]
 fn protocol_get_returns_protocol_by_id() {
-    let temp = create_temp_repo();
+    let temp = create_temp_repo_with_protocol_type();
+    let stdin = minimal_protocol_json("com.test/get-test@1", "get-test");
+    let import = run_srs_stdin_in_dir(temp.path(), &["protocol", "import"], &stdin);
+    assert_eq!(import["ok"], true, "import failed: {:?}", import);
+    let instance_id = import["payload"]["protocol"]["instanceId"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
-    let package_dir = temp.path().join("package");
-    std::fs::create_dir_all(&package_dir).unwrap();
-    std::fs::create_dir_all(package_dir.join("records")).unwrap();
-
-    let package_json = serde_json::json!({
-        "id": "test-pkg",
-        "namespace": "com.test",
-        "name": "test",
-        "version": "1.0.0",
-        "fields": [],
-        "types": []
-    });
-    std::fs::write(
-        package_dir.join("package.json"),
-        serde_json::to_string_pretty(&package_json).unwrap(),
-    )
-    .unwrap();
-
-    let protocol = serde_json::json!({
-        "instanceId": "proto-002",
-        "type": "meta.protocol",
-        "namespace": "com.test",
-        "name": "another-protocol",
-        "version": 1,
-        "fieldValues": {
-            "protocol-id": "com.test/another@1",
-            "protocol-namespace": "com.test",
-            "protocol-name": "another-protocol",
-            "protocol-version": 1,
-            "protocol-target-type": "meta.extension",
-            "protocol-stages": [],
-            "protocol-created-at": "2026-05-29T00:00:00Z"
-        }
-    });
-    std::fs::write(
-        package_dir.join("records/proto-002.json"),
-        serde_json::to_string_pretty(&protocol).unwrap(),
-    )
-    .unwrap();
-
-    let result = run_srs_in_dir(temp.path(), &["protocol", "get", "proto-002"]);
+    let result = run_srs_in_dir(temp.path(), &["protocol", "get", &instance_id]);
     assert_eq!(
         result["ok"], true,
-        "protocol get should succeed: {:?}",
+        "get failed: {:?}",
         result["diagnostics"]
     );
-    assert_eq!(result["payload"]["protocol"]["instanceId"], "proto-002");
+    assert_eq!(result["payload"]["protocol"]["instanceId"], instance_id);
+    assert_eq!(
+        result["payload"]["protocol"]["protocolId"],
+        "com.test/get-test@1"
+    );
 }
 
 #[test]
 fn protocol_stages_returns_ordered_stages() {
-    let temp = create_temp_repo();
-
-    let package_dir = temp.path().join("package");
-    std::fs::create_dir_all(&package_dir).unwrap();
-    std::fs::create_dir_all(package_dir.join("records")).unwrap();
-
-    let package_json = serde_json::json!({
-        "id": "test-pkg",
-        "namespace": "com.test",
-        "name": "test",
-        "version": "1.0.0",
-        "fields": [],
-        "types": []
-    });
-    std::fs::write(
-        package_dir.join("package.json"),
-        serde_json::to_string_pretty(&package_json).unwrap(),
-    )
+    let temp = create_temp_repo_with_protocol_type();
+    let stdin = serde_json::to_string(&serde_json::json!({
+        "protocolId": "com.test/staged@1",
+        "protocolNamespace": "com.test",
+        "protocolName": "staged",
+        "protocolVersion": 1,
+        "protocolTargetType": "meta.extension",
+        "protocolStages": [
+            {"stageId": "s3", "name": "Published", "order": 3, "dependsOn": ["s2"]},
+            {"stageId": "s1", "name": "Draft", "order": 1, "dependsOn": []},
+            {"stageId": "s2", "name": "Review", "order": 2, "dependsOn": ["s1"]}
+        ],
+        "protocolCreatedAt": "2026-05-29T00:00:00Z"
+    }))
     .unwrap();
+    let import = run_srs_stdin_in_dir(temp.path(), &["protocol", "import"], &stdin);
+    assert_eq!(import["ok"], true, "import failed: {:?}", import);
+    let instance_id = import["payload"]["protocol"]["instanceId"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
-    let protocol = serde_json::json!({
-        "instanceId": "proto-003",
-        "type": "meta.protocol",
-        "namespace": "com.test",
-        "name": "staged-protocol",
-        "version": 1,
-        "fieldValues": {
-            "protocol-id": "com.test/staged@1",
-            "protocol-namespace": "com.test",
-            "protocol-name": "staged-protocol",
-            "protocol-version": 1,
-            "protocol-target-type": "meta.extension",
-            "protocol-stages": [
-                {"stageId": "s3", "name": "Published", "order": 3, "dependsOn": ["s2"]},
-                {"stageId": "s1", "name": "Draft", "order": 1, "dependsOn": []},
-                {"stageId": "s2", "name": "Review", "order": 2, "dependsOn": ["s1"]}
-            ],
-            "protocol-created-at": "2026-05-29T00:00:00Z"
-        }
-    });
-    std::fs::write(
-        package_dir.join("records/proto-003.json"),
-        serde_json::to_string_pretty(&protocol).unwrap(),
-    )
-    .unwrap();
-
-    let result = run_srs_in_dir(temp.path(), &["protocol", "stages", "proto-003"]);
+    let result = run_srs_in_dir(temp.path(), &["protocol", "stages", &instance_id]);
     assert_eq!(
         result["ok"], true,
-        "protocol stages should succeed: {:?}",
+        "stages failed: {:?}",
         result["diagnostics"]
     );
     let stages = result["payload"]["stages"].as_array().unwrap();
     assert_eq!(stages.len(), 3);
-    // Should be ordered by order field
     assert_eq!(stages[0]["stageId"], "s1");
     assert_eq!(stages[1]["stageId"], "s2");
     assert_eq!(stages[2]["stageId"], "s3");
+}
+
+#[test]
+fn protocol_import_fails_without_type_declaration() {
+    let temp = create_temp_repo();
+    // create a minimal package.json with NO meta.protocol type
+    let pkg = temp.path().join("package");
+    std::fs::create_dir_all(&pkg).unwrap();
+    std::fs::write(
+        pkg.join("package.json"),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "id": "empty-pkg", "namespace": "com.test",
+            "name": "empty", "version": "1.0.0",
+            "fields": [], "types": []
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let stdin = minimal_protocol_json("com.test/x@1", "x");
+    let (_ok, result) =
+        run_srs_stdin_any_status_in_dir(temp.path(), &["protocol", "import"], &stdin);
+    assert_eq!(result["ok"], false, "should fail without type declaration");
+    let diag = result["diagnostics"].to_string();
+    assert!(
+        diag.contains("Add it to your package before importing protocols"),
+        "expected actionable message, got: {}",
+        diag
+    );
+}
+
+#[test]
+fn protocol_import_rejects_missing_required_field() {
+    let temp = create_temp_repo_with_protocol_type();
+    // omit protocolTargetType
+    let bad = serde_json::to_string(&serde_json::json!({
+        "protocolId": "com.test/x@1",
+        "protocolNamespace": "com.test",
+        "protocolName": "x",
+        "protocolVersion": 1,
+        "protocolStages": [],
+        "protocolCreatedAt": "2026-05-29T00:00:00Z"
+    }))
+    .unwrap();
+    let (_ok, result) = run_srs_stdin_any_status_in_dir(temp.path(), &["protocol", "import"], &bad);
+    assert_eq!(
+        result["ok"], false,
+        "should fail with missing required field"
+    );
+}
+
+#[test]
+fn protocol_import_rejects_invalid_version() {
+    let temp = create_temp_repo_with_protocol_type();
+    let bad = serde_json::to_string(&serde_json::json!({
+        "protocolId": "com.test/x@1",
+        "protocolNamespace": "com.test",
+        "protocolName": "x",
+        "protocolVersion": 0,
+        "protocolTargetType": "meta.extension",
+        "protocolStages": [],
+        "protocolCreatedAt": "2026-05-29T00:00:00Z"
+    }))
+    .unwrap();
+    let (_ok, result) = run_srs_stdin_any_status_in_dir(temp.path(), &["protocol", "import"], &bad);
+    assert_eq!(result["ok"], false, "should reject version 0");
+}
+
+#[test]
+fn protocol_import_rejects_malformed_created_at() {
+    let temp = create_temp_repo_with_protocol_type();
+    let bad = serde_json::to_string(&serde_json::json!({
+        "protocolId": "com.test/x@1",
+        "protocolNamespace": "com.test",
+        "protocolName": "x",
+        "protocolVersion": 1,
+        "protocolTargetType": "meta.extension",
+        "protocolStages": [],
+        "protocolCreatedAt": "not-a-date"
+    }))
+    .unwrap();
+    let (_ok, result) = run_srs_stdin_any_status_in_dir(temp.path(), &["protocol", "import"], &bad);
+    assert_eq!(result["ok"], false, "should reject malformed createdAt");
+}
+
+#[test]
+fn protocol_import_rejects_stage_with_bad_depends_on() {
+    let temp = create_temp_repo_with_protocol_type();
+    let bad = serde_json::to_string(&serde_json::json!({
+        "protocolId": "com.test/x@1",
+        "protocolNamespace": "com.test",
+        "protocolName": "x",
+        "protocolVersion": 1,
+        "protocolTargetType": "meta.extension",
+        "protocolStages": [
+            {"stageId": "s1", "name": "A", "order": 1, "dependsOn": ["nonexistent"]}
+        ],
+        "protocolCreatedAt": "2026-05-29T00:00:00Z"
+    }))
+    .unwrap();
+    let (_ok, result) = run_srs_stdin_any_status_in_dir(temp.path(), &["protocol", "import"], &bad);
+    assert_eq!(result["ok"], false, "should reject unknown dependsOn stage");
+}
+
+#[test]
+fn protocol_export_import_roundtrip() {
+    let src = create_temp_repo_with_protocol_type();
+    let dst = create_temp_repo_with_protocol_type();
+
+    // Import into source repo
+    let stdin = serde_json::to_string(&serde_json::json!({
+        "protocolId": "com.test/roundtrip@1",
+        "protocolNamespace": "com.test",
+        "protocolName": "roundtrip",
+        "protocolVersion": 1,
+        "protocolTargetType": "meta.extension",
+        "protocolStages": [
+            {"stageId": "a", "name": "Alpha", "order": 1, "dependsOn": []},
+            {"stageId": "b", "name": "Beta", "order": 2, "dependsOn": ["a"]}
+        ],
+        "protocolCreatedAt": "2026-05-29T00:00:00Z"
+    }))
+    .unwrap();
+    let import1 = run_srs_stdin_in_dir(src.path(), &["protocol", "import"], &stdin);
+    assert_eq!(import1["ok"], true);
+    let instance_id = import1["payload"]["protocol"]["instanceId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Export from source
+    let export = run_srs_in_dir(src.path(), &["protocol", "export", &instance_id]);
+    assert_eq!(export["ok"], true);
+    let exported = &export["payload"]["protocol"];
+    // Export must NOT contain instanceId
+    assert!(
+        exported["instanceId"].is_null(),
+        "export should not contain instanceId"
+    );
+
+    // Import exported JSON into destination repo
+    let export_str = serde_json::to_string(exported).unwrap();
+    let import2 = run_srs_stdin_in_dir(dst.path(), &["protocol", "import"], &export_str);
+    assert_eq!(
+        import2["ok"], true,
+        "round-trip import failed: {:?}",
+        import2
+    );
+
+    // Verify field-by-field equality
+    let dst_instance_id = import2["payload"]["protocol"]["instanceId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let got = run_srs_in_dir(dst.path(), &["protocol", "get", &dst_instance_id]);
+    assert_eq!(
+        got["payload"]["protocol"]["protocolId"],
+        "com.test/roundtrip@1"
+    );
+    let stages = run_srs_in_dir(dst.path(), &["protocol", "stages", &dst_instance_id]);
+    let s = stages["payload"]["stages"].as_array().unwrap();
+    assert_eq!(s.len(), 2);
+    assert_eq!(s[0]["stageId"], "a");
+    assert_eq!(s[0]["name"], "Alpha");
+    assert_eq!(s[1]["stageId"], "b");
+    assert_eq!(s[1]["name"], "Beta");
 }
 
 fn make_container_test_repo() -> TempDir {

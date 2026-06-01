@@ -7,7 +7,7 @@ use crate::payload::{
 use anyhow::Result;
 use srs_repository::error::RepositoryError;
 use srs_repository::protocol_service::{
-    get_protocol_by_id, import_protocol, list_protocol_stages, list_protocols,
+    export_protocol, get_protocol_by_id, import_protocol, list_protocol_stages, list_protocols,
     validate_protocol_definition, GetProtocolResult, ImportProtocolInput,
 };
 use std::io::{self, Read};
@@ -43,7 +43,17 @@ fn cmd_protocol_list(ctx: CliContext) -> Result<String> {
 
 fn cmd_protocol_get(ctx: CliContext, id: String) -> Result<String> {
     match with_store(&ctx, |store| Ok(get_protocol_by_id(store, &id)?))? {
-        GetProtocolResult::Found { protocol, .. } => {
+        GetProtocolResult::Found {
+            instance_id,
+            mut protocol,
+        } => {
+            // Inject instanceId into the get response for consumer convenience
+            if let Some(obj) = protocol.as_object_mut() {
+                obj.insert(
+                    "instanceId".to_string(),
+                    serde_json::Value::String(instance_id),
+                );
+            }
             output::serialize("protocol get", ProtocolPayload { protocol })
         }
         GetProtocolResult::NotFound => Ok(output::err(
@@ -105,7 +115,8 @@ fn cmd_protocol_validate(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_protocol_export(ctx: CliContext, id: String) -> Result<String> {
-    match with_store(&ctx, |store| Ok(get_protocol_by_id(store, &id)?))? {
+    // export_protocol omits instanceId — output is the canonical import format
+    match with_store(&ctx, |store| Ok(export_protocol(store, &id)?))? {
         GetProtocolResult::Found { protocol, .. } => {
             output::serialize("protocol export", ProtocolPayload { protocol })
         }
@@ -127,7 +138,30 @@ fn cmd_protocol_import(ctx: CliContext) -> Result<String> {
         Ok(import_protocol(store, ImportProtocolInput { raw })?)
     })?;
 
-    let protocol = serde_json::to_value(result.record)
-        .map_err(|e| anyhow::anyhow!("Failed to serialize protocol record: {}", e))?;
-    output::serialize("protocol import", ProtocolPayload { protocol })
+    // Return the protocol struct (camelCase), not the raw record
+    let protocol = with_store(&ctx, |store| {
+        Ok(get_protocol_by_id(store, &result.instance_id)?)
+    })?;
+
+    match protocol {
+        GetProtocolResult::Found {
+            instance_id,
+            mut protocol,
+        } => {
+            if let Some(obj) = protocol.as_object_mut() {
+                obj.insert(
+                    "instanceId".to_string(),
+                    serde_json::Value::String(instance_id),
+                );
+            }
+            output::serialize("protocol import", ProtocolPayload { protocol })
+        }
+        GetProtocolResult::NotFound => {
+            // Should not happen — we just created it
+            Err(anyhow::anyhow!(
+                "Protocol was created but could not be retrieved (instance_id: {})",
+                result.instance_id
+            ))
+        }
+    }
 }
