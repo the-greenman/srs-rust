@@ -907,7 +907,7 @@ fn note_get_unknown_id_returns_ok_false() {
     let exe = env!("CARGO_BIN_EXE_srs");
     let output = Command::new(exe)
         .args(["note", "get", "nonexistent-id-12345"])
-        .current_dir("/home/greenman/dev/semanticops/srs/srs")
+        .current_dir(srs_spec_repo_dir())
         .output()
         .expect("Failed to execute srs command");
 
@@ -1359,7 +1359,7 @@ fn relation_type_get_not_found() {
             "get",
             "00000000-0000-0000-0000-000000000000",
         ])
-        .current_dir("/home/greenman/dev/semanticops/srs/srs")
+        .current_dir(srs_spec_repo_dir())
         .output()
         .expect("Failed to execute srs command");
 
@@ -1375,7 +1375,7 @@ fn repo_validate_migrated_relations_use_only_canonical_types() {
     let exe = env!("CARGO_BIN_EXE_srs");
     let output = Command::new(exe)
         .args(["repo", "validate"])
-        .current_dir("/home/greenman/dev/semanticops/srs/srs")
+        .current_dir(srs_spec_repo_dir())
         .output()
         .expect("Failed to execute srs command");
 
@@ -1668,10 +1668,12 @@ fn field_groups_fixture_missing_required_group_in_diagnostics() {
 fn global_repo_option_resolves_repo() {
     // Run from a temp dir that is NOT an SRS repo, pointing --repo at the live srs spec repo
     let temp = TempDir::new().unwrap();
-    let repo_path = "/home/greenman/dev/semanticops/srs/srs";
+    let repo_path = srs_spec_repo_dir();
     let exe = env!("CARGO_BIN_EXE_srs");
     let output = Command::new(exe)
-        .args(["--repo", repo_path, "repo", "map"])
+        .arg("--repo")
+        .arg(&repo_path)
+        .args(["repo", "map"])
         .current_dir(temp.path())
         .output()
         .expect("Failed to execute srs command");
@@ -1714,12 +1716,14 @@ fn format_json_is_default() {
 #[test]
 fn pretty_outputs_multiline_json() {
     let temp = TempDir::new().unwrap();
-    let repo_path = "/home/greenman/dev/semanticops/srs/srs";
+    let repo_path = srs_spec_repo_dir();
     let exe = env!("CARGO_BIN_EXE_srs");
 
     // Run with --pretty
     let output = Command::new(exe)
-        .args(["--repo", repo_path, "--pretty", "repo", "map"])
+        .arg("--repo")
+        .arg(&repo_path)
+        .args(["--pretty", "repo", "map"])
         .current_dir(temp.path())
         .output()
         .expect("Failed to execute srs command");
@@ -1738,12 +1742,14 @@ fn pretty_outputs_multiline_json() {
 #[test]
 fn format_text_returns_planned_diagnostic_until_renderer_exists() {
     let temp = TempDir::new().unwrap();
-    let repo_path = "/home/greenman/dev/semanticops/srs/srs";
+    let repo_path = srs_spec_repo_dir();
     let exe = env!("CARGO_BIN_EXE_srs");
 
     // --format text must not panic; it returns a planned diagnostic message
     let output = Command::new(exe)
-        .args(["--repo", repo_path, "--format", "text", "repo", "map"])
+        .arg("--repo")
+        .arg(&repo_path)
+        .args(["--format", "text", "repo", "map"])
         .current_dir(temp.path())
         .output()
         .expect("Failed to execute srs command");
@@ -4186,7 +4192,7 @@ fn render_document_view_returns_rendered_payload() {
 #[test]
 fn render_document_view_unknown_id_returns_ok_false() {
     let (ok, stdout) = run_srs_raw(
-        std::path::Path::new("/home/greenman/dev/semanticops/srs/srs"),
+        &srs_spec_repo_dir(),
         &[
             "render",
             "document-view",
