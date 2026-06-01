@@ -368,6 +368,27 @@ mod tests {
     use std::path::Path;
     use tempfile::TempDir;
 
+    fn srs_spec_repo() -> std::path::PathBuf {
+        if let Ok(p) = std::env::var("SRS_SPEC_REPO") {
+            return std::path::PathBuf::from(p);
+        }
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut dir = manifest.to_path_buf();
+        loop {
+            let candidate = dir.join("../srs/srs");
+            if let Ok(c) = candidate.canonicalize() {
+                if c.join(".srs").exists() {
+                    return c;
+                }
+            }
+            match dir.parent() {
+                Some(p) if p != dir => dir = p.to_path_buf(),
+                _ => break,
+            }
+        }
+        manifest.join("../../../srs/srs")
+    }
+
     fn write_json(dir: &Path, rel: &str, value: &Value) {
         let path = dir.join(rel);
         if let Some(parent) = path.parent() {
@@ -499,8 +520,7 @@ mod tests {
 
     #[test]
     fn live_srs_repo_validates_cleanly() {
-        use std::path::PathBuf;
-        let repo_root = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
+        let repo_root = srs_spec_repo();
         if !repo_root.join("manifest.json").exists() {
             println!("Skipping: live repo not found");
             return;

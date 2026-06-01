@@ -1421,6 +1421,27 @@ mod tests {
     use super::*;
     use crate::store::FileStore;
 
+    fn srs_spec_repo() -> std::path::PathBuf {
+        if let Ok(p) = std::env::var("SRS_SPEC_REPO") {
+            return std::path::PathBuf::from(p);
+        }
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut dir = manifest.to_path_buf();
+        loop {
+            let candidate = dir.join("../srs/srs");
+            if let Ok(c) = candidate.canonicalize() {
+                if c.join(".srs").exists() {
+                    return c;
+                }
+            }
+            match dir.parent() {
+                Some(p) if p != dir => dir = p.to_path_buf(),
+                _ => break,
+            }
+        }
+        manifest.join("../../../srs/srs")
+    }
+
     #[test]
     fn heading_prefix_markdown() {
         assert_eq!(heading_prefix(2, "markdown"), "## ");
@@ -1433,7 +1454,7 @@ mod tests {
 
     #[test]
     fn render_document_view_produces_output() {
-        let repo_root = std::path::Path::new("/home/greenman/dev/semanticops/srs/srs");
+        let repo_root = srs_spec_repo();
         if !repo_root.join("manifest.json").exists() {
             return;
         }
@@ -1456,7 +1477,7 @@ mod tests {
 
     #[test]
     fn render_document_view_unknown_id_returns_error() {
-        let repo_root = std::path::Path::new("/home/greenman/dev/semanticops/srs/srs");
+        let repo_root = srs_spec_repo();
         if !repo_root.join("manifest.json").exists() {
             return;
         }
