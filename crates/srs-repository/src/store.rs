@@ -2334,8 +2334,18 @@ pub mod memory {
                     type_paths: vec![],
                 }
             });
-            // Also update manifest packageRefs
             drop(boundaries);
+            // Seed the sub-package's package.json in data so memory_store_sync_pkg_json
+            // can update its arrays and find_view_path can read from it.
+            let data_key = format!("{path}/package.json");
+            self.data.borrow_mut().entry(data_key).or_insert_with(|| {
+                serde_json::json!({
+                    "id": "", "namespace": "", "name": "", "version": "",
+                    "fields": [], "types": [], "relationTypes": [],
+                    "views": [], "documentViews": []
+                })
+            });
+            // Also update manifest packageRefs
             let mut manifest = self.manifest.borrow().clone();
             let mut refs: Vec<serde_json::Value> = manifest
                 .extra
@@ -2415,22 +2425,54 @@ pub mod memory {
             id: &str,
             kind: crate::package_types::DefinitionKind,
         ) -> Result<PackageSelector, RepositoryError> {
+            use crate::store::definition_kind_key;
             let boundaries = self.boundaries.borrow();
             for (selector, boundary) in boundaries.iter() {
-                let paths = match kind {
-                    crate::package_types::DefinitionKind::Field => &boundary.field_paths,
-                    crate::package_types::DefinitionKind::Type => &boundary.type_paths,
-                    _ => continue,
+                let prefix = match selector {
+                    None => "package".to_string(),
+                    Some(p) => p.clone(),
                 };
-                for rel_path in paths {
-                    // Data is stored at "package/{rel_path}" for primary, "{boundary_path}/{rel_path}" for sub
-                    let data_key = match selector {
-                        None => format!("package/{rel_path}"),
-                        Some(p) => format!("{p}/{rel_path}"),
-                    };
-                    if let Some(val) = self.data.borrow().get(&data_key) {
-                        if val["id"].as_str() == Some(id) {
-                            return Ok(selector.clone());
+                // For Field/Type use the in-memory boundary paths (fast path).
+                // For View/DocumentView/RelationType, read from the boundary's package.json in data.
+                match kind {
+                    crate::package_types::DefinitionKind::Field => {
+                        for rel_path in &boundary.field_paths {
+                            let data_key = format!("{prefix}/{rel_path}");
+                            if let Some(val) = self.data.borrow().get(&data_key) {
+                                if val["id"].as_str() == Some(id) {
+                                    return Ok(selector.clone());
+                                }
+                            }
+                        }
+                    }
+                    crate::package_types::DefinitionKind::Type => {
+                        for rel_path in &boundary.type_paths {
+                            let data_key = format!("{prefix}/{rel_path}");
+                            if let Some(val) = self.data.borrow().get(&data_key) {
+                                if val["id"].as_str() == Some(id) {
+                                    return Ok(selector.clone());
+                                }
+                            }
+                        }
+                    }
+                    _ => {
+                        // For View, DocumentView, RelationType: scan the boundary's package.json
+                        let pkg_key = format!("{prefix}/package.json");
+                        let array_key = definition_kind_key(kind);
+                        let data = self.data.borrow();
+                        if let Some(pkg_json) = data.get(&pkg_key) {
+                            if let Some(paths) = pkg_json[array_key].as_array() {
+                                for entry in paths {
+                                    if let Some(rel) = entry.as_str() {
+                                        let def_key = format!("{prefix}/{rel}");
+                                        if let Some(val) = data.get(&def_key) {
+                                            if val["id"].as_str() == Some(id) {
+                                                return Ok(selector.clone());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

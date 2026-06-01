@@ -83,10 +83,12 @@ pub struct CreateViewResult {
     pub view: View,
 }
 
+#[derive(Debug)]
 pub struct UpdateViewResult {
     pub view: View,
 }
 
+#[derive(Debug)]
 pub struct DeleteViewResult {
     pub id: String,
 }
@@ -124,10 +126,10 @@ fn find_view_path(
         Err(e) => return Err(e),
     };
     // PackageBoundary only carries field_paths/type_paths, not view_paths.
-    // Read view paths directly from the raw package.json.
-    let pkg_json = store.load_package_json()?;
-    let paths = pkg_json["views"].as_array().cloned().unwrap_or_default();
+    // Load the *owner's* package.json (not always the primary one).
     let prefix = owner.as_deref().unwrap_or("package");
+    let pkg_json = store.load_instance_json(&format!("{prefix}/package.json"))?;
+    let paths = pkg_json["views"].as_array().cloned().unwrap_or_default();
     for entry in &paths {
         if let Some(rel) = entry.as_str() {
             let full = format!("{prefix}/{rel}");
@@ -151,12 +153,13 @@ fn find_document_view_path(
         Err(RepositoryError::DefinitionNotFound { .. }) => return Ok(None),
         Err(e) => return Err(e),
     };
-    let pkg_json = store.load_package_json()?;
+    // Load the *owner's* package.json (not always the primary one).
+    let prefix = owner.as_deref().unwrap_or("package");
+    let pkg_json = store.load_instance_json(&format!("{prefix}/package.json"))?;
     let paths = pkg_json["documentViews"]
         .as_array()
         .cloned()
         .unwrap_or_default();
-    let prefix = owner.as_deref().unwrap_or("package");
     for entry in &paths {
         if let Some(rel) = entry.as_str() {
             let full = format!("{prefix}/{rel}");
@@ -892,6 +895,43 @@ mod tests {
         assert!(
             summaries.iter().any(|s| s.source_package.is_none()),
             "primary package document views should have source_package = None"
+        );
+    }
+
+    // ── Regression: find_view_path must read owner's package.json, not primary ─
+
+    #[test]
+    fn update_view_in_sub_package_finds_correct_file() {
+        // Regression for find_view_path reading only primary package/package.json.
+        // A view in a sub-package must be findable for update/delete.
+        let store = MemoryStore::default();
+        let selector = Some("package/ext".to_string());
+        store.register_package_boundary(&selector).unwrap();
+
+        let created = create_view(&store, minimal_view("sub-view"), selector).unwrap();
+        let mut updated = created.view.clone();
+        updated.description = "updated description".to_string();
+
+        let result = update_view(&store, &created.view.id, updated);
+        assert!(
+            result.is_ok(),
+            "update_view should find view in sub-package: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn delete_view_in_sub_package_finds_correct_file() {
+        let store = MemoryStore::default();
+        let selector = Some("package/ext".to_string());
+        store.register_package_boundary(&selector).unwrap();
+
+        let created = create_view(&store, minimal_view("del-sub-view"), selector).unwrap();
+        let result = delete_view(&store, &created.view.id);
+        assert!(
+            result.is_ok(),
+            "delete_view should find view in sub-package: {:?}",
+            result
         );
     }
 }
