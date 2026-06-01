@@ -89,6 +89,38 @@ fn run_srs_any_status_in_dir(dir: &std::path::Path, args: &[&str]) -> (bool, Val
     (output.status.success(), json)
 }
 
+fn run_srs_stdin_any_status_in_dir(
+    dir: &std::path::Path,
+    args: &[&str],
+    stdin: &str,
+) -> (bool, Value) {
+    let exe = env!("CARGO_BIN_EXE_srs");
+    let mut child = Command::new(exe)
+        .args(args)
+        .current_dir(dir)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn srs command");
+
+    use std::io::Write;
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(stdin.as_bytes())
+        .unwrap();
+
+    let output = child
+        .wait_with_output()
+        .expect("Failed to wait for srs command");
+
+    let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8 in output");
+    let json: Value = serde_json::from_str(&stdout).expect("Failed to parse JSON output");
+    (output.status.success(), json)
+}
+
 #[test]
 fn ordinary_commands_do_not_construct_concrete_stores() {
     let commands_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/commands");
@@ -4997,4 +5029,179 @@ fn document_view_create_fails_validation() {
     .to_string();
     let result = run_srs_stdin_in_dir(temp.path(), &["document-view", "create"], &bad);
     assert_eq!(result["ok"], false);
+}
+
+// ── Phase C: global --package flag integration tests ──────────────────────────
+
+fn make_repo_with_sub_package() -> TempDir {
+    let temp = create_temp_repo_with_package();
+    // Create sub-package directory and register it via CLI
+    std::fs::create_dir_all(temp.path().join("package/sub")).unwrap();
+    run_srs_in_dir(
+        temp.path(),
+        &[
+            "package",
+            "create",
+            "--id",
+            "sub-pkg-001",
+            "--namespace",
+            "com.sub",
+            "--name",
+            "sub",
+            "--version",
+            "1.0.0",
+            "--path",
+            "package/sub",
+        ],
+    );
+    temp
+}
+
+fn minimal_field_json(id: &str, name: &str) -> String {
+    serde_json::json!({
+        "id": id,
+        "namespace": "com.test",
+        "name": name,
+        "version": 1,
+        "valueType": "string"
+    })
+    .to_string()
+}
+
+#[test]
+fn field_create_without_package_flag_writes_to_primary() {
+    let temp = create_temp_repo_with_package();
+    let field = minimal_field_json("00000000-0000-0000-0000-primary00001", "primary-field");
+
+    let result = run_srs_stdin_in_dir(temp.path(), &["field", "create"], &field);
+    assert_eq!(
+        result["ok"], true,
+        "field create should succeed: {:?}",
+        result
+    );
+
+    let primary_pkg: Value = serde_json::from_str(
+        &std::fs::read_to_string(temp.path().join("package/package.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        primary_pkg["fields"].as_array().unwrap().len(),
+        1,
+        "field should appear in primary package.json"
+    );
+    assert!(
+        temp.path()
+            .join("package/fields")
+            .read_dir()
+            .unwrap()
+            .count()
+            > 0,
+        "field file should exist under package/fields/"
+    );
+}
+
+#[test]
+fn field_create_with_undeclared_package_flag_errors() {
+    let temp = create_temp_repo_with_package();
+    let field = minimal_field_json("00000000-0000-0000-0000-ghost0000001", "ghost-field");
+
+    let (_ok, result) = run_srs_stdin_any_status_in_dir(
+        temp.path(),
+        &["field", "create", "--package", "package/ghost"],
+        &field,
+    );
+    assert_eq!(
+        result["ok"], false,
+        "field create with undeclared --package should fail: {:?}",
+        result
+    );
+    // No files should have been created under package/ghost/
+    assert!(
+        !temp.path().join("package/ghost").exists(),
+        "no files should be created under undeclared boundary"
+    );
+}
+
+#[test]
+fn field_list_includes_source_package() {
+    let temp = make_repo_with_sub_package();
+
+    // Create a field in the primary package
+    let primary_field = minimal_field_json("00000000-0000-0000-0000-primary00002", "p-field");
+    run_srs_stdin_in_dir(temp.path(), &["field", "create"], &primary_field);
+
+    // Create a field in the sub-package
+    let sub_field = minimal_field_json("00000000-0000-0000-0000-sub000000002", "s-field");
+    run_srs_stdin_in_dir(
+        temp.path(),
+        &["field", "create", "--package", "package/sub"],
+        &sub_field,
+    );
+
+    let result = run_srs_in_dir(temp.path(), &["field", "list"]);
+    assert_eq!(result["ok"], true);
+
+    let fields = result["payload"]["fields"].as_array().unwrap();
+    assert_eq!(fields.len(), 2, "should list both fields");
+
+    // Primary field should have no sourcePackage (omitted when None)
+    let primary = fields
+        .iter()
+        .find(|f| f["name"] == "p-field")
+        .expect("primary field not found in list");
+    assert!(
+        primary.get("sourcePackage").is_none() || primary["sourcePackage"].is_null(),
+        "primary field should have no sourcePackage"
+    );
+
+    // Sub field should have sourcePackage set
+    let sub = fields
+        .iter()
+        .find(|f| f["name"] == "s-field")
+        .expect("sub field not found in list");
+    assert_eq!(
+        sub["sourcePackage"], "package/sub",
+        "sub field sourcePackage should be 'package/sub'"
+    );
+}
+
+#[test]
+fn field_create_in_sub_package_file_lands_under_sub_path() {
+    // Verifies the standard package/sub boundary: file lands in the correct directory
+    // and the primary package.json is unchanged.
+    let temp = make_repo_with_sub_package();
+
+    let sub_field = minimal_field_json("00000000-0000-0000-0000-sub000000003", "sub-only-field");
+    let result = run_srs_stdin_in_dir(
+        temp.path(),
+        &["field", "create", "--package", "package/sub"],
+        &sub_field,
+    );
+    assert_eq!(
+        result["ok"], true,
+        "field create in sub-package should succeed: {:?}",
+        result
+    );
+
+    // Field file should exist under package/sub/fields/
+    let sub_fields_dir = temp.path().join("package/sub/fields");
+    assert!(
+        sub_fields_dir.exists(),
+        "package/sub/fields/ should be created"
+    );
+    assert!(
+        sub_fields_dir.read_dir().unwrap().count() > 0,
+        "field file should exist under package/sub/fields/"
+    );
+
+    // Primary package.json fields array should still be empty
+    let primary_pkg: Value = serde_json::from_str(
+        &std::fs::read_to_string(temp.path().join("package/package.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        primary_pkg["fields"].as_array().unwrap().len(),
+        0,
+        "primary package.json should not be modified"
+    );
 }

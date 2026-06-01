@@ -305,6 +305,9 @@ pub fn create_view(
     mut view: View,
     selector: PackageSelector,
 ) -> Result<CreateViewResult, RepositoryError> {
+    // Validate the boundary exists before touching the filesystem.
+    store.load_package_boundary(&selector)?;
+
     let boundary_path = selector.as_deref().unwrap_or("package");
     validate_view(&view).map_err(|e| RepositoryError::ViewValidation {
         path: std::path::PathBuf::from(format!("{boundary_path}/views")),
@@ -370,6 +373,9 @@ pub fn create_document_view(
     mut document_view: DocumentView,
     selector: PackageSelector,
 ) -> Result<CreateDocumentViewResult, RepositoryError> {
+    // Validate the boundary exists before touching the filesystem.
+    store.load_package_boundary(&selector)?;
+
     let boundary_path = selector.as_deref().unwrap_or("package");
     validate_document_view(&document_view).map_err(|e| {
         RepositoryError::DocumentViewValidation {

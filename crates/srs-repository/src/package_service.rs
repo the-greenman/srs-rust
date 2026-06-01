@@ -486,6 +486,9 @@ pub fn create_field_in_package(
     field: Field,
     selector: PackageSelector,
 ) -> Result<CreateFieldResult, RepositoryError> {
+    // Validate the boundary exists before touching the filesystem.
+    store.load_package_boundary(&selector)?;
+
     let boundary_path = selector.as_deref().unwrap_or("package");
     let rel_filename = format!("fields/{}-{}.json", slugify(&field.name), &field.id[..8]);
     let full_path = format!("{boundary_path}/{rel_filename}");
@@ -593,6 +596,9 @@ pub fn create_type_in_package(
     mut record_type: RecordType,
     selector: PackageSelector,
 ) -> Result<CreateTypeResult, RepositoryError> {
+    // Validate the boundary exists before touching the filesystem.
+    store.load_package_boundary(&selector)?;
+
     if record_type.id.trim().is_empty() {
         record_type.id = new_instance_id();
     }
