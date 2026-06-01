@@ -94,6 +94,8 @@ fn main() {
     write_schema!("protocol-create", ProtocolPayload);
     write_schema!("protocol-stages", ProtocolStagesPayload);
     write_schema!("protocol-validate", ProtocolValidatePayload);
+    write_schema!("protocol-update", ProtocolPayload);
+    write_schema!("protocol-delete", ProtocolDeletePayload);
 
     // View payloads
     write_schema!("view-list", ViewListPayload);

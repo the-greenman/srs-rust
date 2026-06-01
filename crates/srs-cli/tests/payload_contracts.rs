@@ -238,6 +238,16 @@ fn protocol_validate() {
     check::<ProtocolValidatePayload>("protocol-validate");
 }
 
+#[test]
+fn protocol_update() {
+    check::<ProtocolPayload>("protocol-update");
+}
+
+#[test]
+fn protocol_delete() {
+    check::<ProtocolDeletePayload>("protocol-delete");
+}
+
 // ── View ──────────────────────────────────────────────────────────────────────
 
 #[test]

@@ -1,14 +1,15 @@
 use crate::commands::{with_store, CliContext, ProtocolCommand};
 use crate::output;
 use crate::payload::{
-    ProtocolListEntry, ProtocolListPayload, ProtocolPayload, ProtocolStageEntry,
-    ProtocolStagesPayload, ProtocolValidatePayload,
+    ProtocolDeletePayload, ProtocolListEntry, ProtocolListPayload, ProtocolPayload,
+    ProtocolStageEntry, ProtocolStagesPayload, ProtocolValidatePayload,
 };
 use anyhow::Result;
 use srs_repository::error::RepositoryError;
 use srs_repository::protocol_service::{
-    export_protocol, get_protocol_by_id, import_protocol, list_protocol_stages, list_protocols,
-    validate_protocol_definition, GetProtocolResult, ImportProtocolInput,
+    delete_protocol, export_protocol, get_protocol_by_id, import_protocol, list_protocol_stages,
+    list_protocols, update_protocol, validate_protocol_definition, GetProtocolResult,
+    ImportProtocolInput, UpdateProtocolInput,
 };
 use std::io::{self, Read};
 
@@ -20,6 +21,8 @@ pub fn dispatch(ctx: CliContext, cmd: ProtocolCommand) -> Result<String> {
         ProtocolCommand::Validate { id, json: _ } => cmd_protocol_validate(ctx, id),
         ProtocolCommand::Export { id, json: _ } => cmd_protocol_export(ctx, id),
         ProtocolCommand::Import { json: _ } => cmd_protocol_import(ctx),
+        ProtocolCommand::Update { id } => cmd_protocol_update(ctx, id),
+        ProtocolCommand::Delete { id } => cmd_protocol_delete(ctx, id),
     }
 }
 
@@ -47,7 +50,6 @@ fn cmd_protocol_get(ctx: CliContext, id: String) -> Result<String> {
             instance_id,
             mut protocol,
         } => {
-            // Inject instanceId into the get response for consumer convenience
             if let Some(obj) = protocol.as_object_mut() {
                 obj.insert(
                     "instanceId".to_string(),
@@ -115,7 +117,6 @@ fn cmd_protocol_validate(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_protocol_export(ctx: CliContext, id: String) -> Result<String> {
-    // export_protocol omits instanceId — output is the canonical import format
     match with_store(&ctx, |store| Ok(export_protocol(store, &id)?))? {
         GetProtocolResult::Found { protocol, .. } => {
             output::serialize("protocol export", ProtocolPayload { protocol })
@@ -138,7 +139,6 @@ fn cmd_protocol_import(ctx: CliContext) -> Result<String> {
         Ok(import_protocol(store, ImportProtocolInput { raw })?)
     })?;
 
-    // Return the protocol struct (camelCase), not the raw record
     let protocol = with_store(&ctx, |store| {
         Ok(get_protocol_by_id(store, &result.instance_id)?)
     })?;
@@ -156,12 +156,75 @@ fn cmd_protocol_import(ctx: CliContext) -> Result<String> {
             }
             output::serialize("protocol import", ProtocolPayload { protocol })
         }
-        GetProtocolResult::NotFound => {
-            // Should not happen — we just created it
-            Err(anyhow::anyhow!(
-                "Protocol was created but could not be retrieved (instance_id: {})",
-                result.instance_id
-            ))
+        GetProtocolResult::NotFound => Err(anyhow::anyhow!(
+            "Protocol was created but could not be retrieved (instance_id: {})",
+            result.instance_id
+        )),
+    }
+}
+
+fn cmd_protocol_update(ctx: CliContext, id: String) -> Result<String> {
+    let mut stdin = String::new();
+    io::stdin().read_to_string(&mut stdin)?;
+
+    let raw: serde_json::Value = serde_json::from_str(&stdin)
+        .map_err(|e| anyhow::anyhow!("Failed to parse protocol JSON: {}", e))?;
+
+    let result = match with_store(&ctx, |store| {
+        Ok(update_protocol(store, &id, UpdateProtocolInput { raw })?)
+    }) {
+        Ok(r) => r,
+        Err(e) => {
+            if let Some(RepositoryError::NotFound { .. }) = e.downcast_ref::<RepositoryError>() {
+                return Ok(output::err(
+                    "protocol update",
+                    vec![format!("Protocol '{}' not found", id)],
+                ));
+            }
+            return Err(e);
+        }
+    };
+
+    let protocol = with_store(&ctx, |store| {
+        Ok(get_protocol_by_id(store, &result.instance_id)?)
+    })?;
+
+    match protocol {
+        GetProtocolResult::Found {
+            instance_id,
+            mut protocol,
+        } => {
+            if let Some(obj) = protocol.as_object_mut() {
+                obj.insert(
+                    "instanceId".to_string(),
+                    serde_json::Value::String(instance_id),
+                );
+            }
+            output::serialize("protocol update", ProtocolPayload { protocol })
+        }
+        GetProtocolResult::NotFound => Err(anyhow::anyhow!(
+            "Protocol was updated but could not be retrieved (instance_id: {})",
+            result.instance_id
+        )),
+    }
+}
+
+fn cmd_protocol_delete(ctx: CliContext, id: String) -> Result<String> {
+    match with_store(&ctx, |store| Ok(delete_protocol(store, &id)?)) {
+        Ok(result) => output::serialize(
+            "protocol delete",
+            ProtocolDeletePayload {
+                instance_id: result.instance_id,
+            },
+        ),
+        Err(e) => {
+            if let Some(RepositoryError::NotFound { .. }) = e.downcast_ref::<RepositoryError>() {
+                return Ok(output::err(
+                    "protocol delete",
+                    vec![format!("Protocol '{}' not found", id)],
+                ));
+            }
+            Err(e)
         }
     }
 }

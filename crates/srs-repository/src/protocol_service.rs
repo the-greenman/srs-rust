@@ -77,6 +77,19 @@ pub struct ValidateProtocolResult {
     pub diagnostics: Vec<String>,
 }
 
+pub struct UpdateProtocolInput {
+    pub raw: serde_json::Value,
+}
+
+pub struct UpdateProtocolResult {
+    pub instance_id: String,
+    pub record: Record,
+}
+
+pub struct DeleteProtocolResult {
+    pub instance_id: String,
+}
+
 /// Summary of a protocol for list operations
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -293,6 +306,100 @@ pub fn export_protocol(
     }
 }
 
+/// Update mutable fields of an existing protocol definition.
+///
+/// Immutable fields (protocolId, protocolNamespace, protocolName, protocolVersion,
+/// protocolCreatedAt) are always preserved from the existing record regardless of
+/// what the input contains.
+pub fn update_protocol(
+    store: &dyn RepositoryStore,
+    id: &str,
+    input: UpdateProtocolInput,
+) -> Result<UpdateProtocolResult, RepositoryError> {
+    use crate::record_store::update_record;
+
+    let existing = get_record_by_id(store, id)?.ok_or_else(|| RepositoryError::NotFound {
+        path: std::path::PathBuf::from(PROTOCOL_STORAGE_DIR),
+    })?;
+    if !is_protocol_type(&existing) {
+        return Err(RepositoryError::NotFound {
+            path: std::path::PathBuf::from(PROTOCOL_STORAGE_DIR),
+        });
+    }
+
+    let pj = input.raw.get("protocol").unwrap_or(&input.raw);
+
+    // Build updated field_values: start from existing, overwrite only mutable fields
+    let mut field_values = existing.field_values.clone();
+
+    // Helper: replace or append a field value by UUID
+    let mut set_field = |uuid: &str, value: serde_json::Value| {
+        if let Some(fv) = field_values.iter_mut().find(|f| f.field_id == uuid) {
+            fv.value = value;
+        } else {
+            field_values.push(FieldValue {
+                field_id: uuid.to_string(),
+                value,
+                entries: None,
+                source: None,
+                edited_at: None,
+            });
+        }
+    };
+
+    // Mutable: description, target-type, stages, tags
+    if let Some(v) = pj
+        .get("protocolDescription")
+        .or_else(|| pj.get("protocol-description"))
+    {
+        set_field(FIELD_PROTOCOL_DESCRIPTION, v.clone());
+    }
+    if let Some(v) = pj
+        .get("protocolTargetType")
+        .or_else(|| pj.get("protocol-target-type"))
+    {
+        set_field(FIELD_PROTOCOL_TARGET_TYPE, v.clone());
+    }
+    if let Some(stages_raw) = pj
+        .get("protocolStages")
+        .or_else(|| pj.get("protocol-stages"))
+    {
+        // Validate stages before accepting
+        let validated = require_stages_value(stages_raw)?;
+        set_field(FIELD_PROTOCOL_STAGES, validated);
+    }
+    if let Some(v) = pj.get("protocolTags").or_else(|| pj.get("protocol-tags")) {
+        set_field(FIELD_PROTOCOL_TAGS, v.clone());
+    }
+
+    let updated = update_record(store, id, field_values)?;
+    let instance_id = updated.instance_id.clone();
+    Ok(UpdateProtocolResult {
+        instance_id,
+        record: updated,
+    })
+}
+
+/// Delete a protocol definition by instance ID.
+pub fn delete_protocol(
+    store: &dyn RepositoryStore,
+    id: &str,
+) -> Result<DeleteProtocolResult, RepositoryError> {
+    use crate::record_store::delete_record;
+
+    let existing = get_record_by_id(store, id)?.ok_or_else(|| RepositoryError::NotFound {
+        path: std::path::PathBuf::from(PROTOCOL_STORAGE_DIR),
+    })?;
+    if !is_protocol_type(&existing) {
+        return Err(RepositoryError::NotFound {
+            path: std::path::PathBuf::from(PROTOCOL_STORAGE_DIR),
+        });
+    }
+
+    let instance_id = delete_record(store, id)?;
+    Ok(DeleteProtocolResult { instance_id })
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -495,7 +602,10 @@ fn require_stages(pj: &serde_json::Value) -> Result<serde_json::Value, Repositor
         .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
             message: "Missing required field 'protocolStages' in protocol input".to_string(),
         })?;
+    require_stages_value(stages)
+}
 
+fn require_stages_value(stages: &serde_json::Value) -> Result<serde_json::Value, RepositoryError> {
     let arr =
         stages
             .as_array()

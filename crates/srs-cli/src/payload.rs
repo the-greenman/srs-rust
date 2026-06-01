@@ -431,6 +431,12 @@ pub struct ProtocolValidatePayload {
     pub diagnostics: Vec<String>,
 }
 
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProtocolDeletePayload {
+    pub instance_id: String,
+}
+
 // ── View payloads ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]
