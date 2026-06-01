@@ -7,8 +7,9 @@ use crate::store::RepositoryStore;
 use srs_core::types::field::ValueType;
 use srs_core::types::record::Record;
 use srs_core::types::relation::Relation;
+use srs_core::types::theme::{AssetMode, Theme};
 use srs_core::types::view::{
-    DocumentSection, DocumentView, RelationDirection, SectionSource, SortDirection,
+    DocumentSection, DocumentView, RelationDirection, SectionSource, SortDirection, ThemeMode,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -16,6 +17,7 @@ pub struct RenderDocumentViewOptions<'a> {
     pub store: &'a dyn RepositoryStore,
     pub view_id: &'a str,
     pub format: Option<&'a str>,
+    pub theme_variant: Option<&'a str>,
 }
 
 pub struct RenderResult {
@@ -35,6 +37,7 @@ struct RenderContext<'a> {
     depth_offset: u32,
     format: &'a str,
     status_field_id: Option<String>,
+    active_theme: Option<Theme>,
 }
 
 pub fn render_document_view(
@@ -61,6 +64,8 @@ pub fn render_document_view(
             "[N+4b] depthOffset {depth_offset} exceeds 4; heading levels may exceed what standard renderers support"
         ));
     }
+    let active_theme =
+        resolve_active_theme(&dv, &package, opts.theme_variant, format, &mut diagnostics);
 
     let ctx = RenderContext {
         package: &package,
@@ -68,6 +73,7 @@ pub fn render_document_view(
         depth_offset,
         format,
         status_field_id: package.find_field_by_name("status").map(|f| f.id.clone()),
+        active_theme,
     };
 
     let mut rendered = String::new();
@@ -94,10 +100,178 @@ pub fn render_document_view(
         )?);
     }
 
+    if let Some(theme) = ctx.active_theme.as_ref() {
+        if let Some(element_templates) = &theme.element_templates {
+            if let Some(document_wrapper) = &element_templates.document_wrapper {
+                rendered = apply_wrapper(
+                    document_wrapper,
+                    &rendered,
+                    &[
+                        ("container-title", &ctx.container_title),
+                        ("date", &chrono::Utc::now().format("%Y-%m-%d").to_string()),
+                    ],
+                    Some(theme),
+                );
+            }
+        }
+    }
+
     Ok(RenderResult {
         rendered,
         diagnostics,
     })
+}
+
+fn resolve_active_theme(
+    dv: &DocumentView,
+    package: &Package,
+    theme_variant: Option<&str>,
+    format: &str,
+    diagnostics: &mut Vec<String>,
+) -> Option<Theme> {
+    let theme_ref = if let Some(variant_name) = theme_variant {
+        match dv
+            .theme_variants
+            .as_ref()
+            .and_then(|variants| variants.iter().find(|variant| variant.name == variant_name))
+        {
+            Some(variant) => Some(&variant.theme_ref),
+            None => {
+                diagnostics.push(format!(
+                    "[theme-variant] view {} theme variant '{}' not found; falling back to themeRef",
+                    dv.id, variant_name
+                ));
+                dv.theme_ref.as_ref()
+            }
+        }
+    } else {
+        dv.theme_ref.as_ref()
+    }?;
+
+    let theme = match theme_ref.mode {
+        ThemeMode::Bundled => {
+            let Some(theme_id) = theme_ref.theme_id.as_deref() else {
+                diagnostics.push(format!(
+                    "[T-5] view {} bundled theme reference is missing themeId",
+                    dv.id
+                ));
+                return None;
+            };
+            match package.resolve_theme(theme_id) {
+                Some(theme) => theme.clone(),
+                None => {
+                    diagnostics.push(format!(
+                        "[T-5] view {} bundled theme '{}' was not found in the package",
+                        dv.id, theme_id
+                    ));
+                    return None;
+                }
+            }
+        }
+        ThemeMode::Local | ThemeMode::Remote => {
+            diagnostics.push(format!(
+                "[theme] view {} theme reference mode {:?} is not supported in this release",
+                dv.id, theme_ref.mode
+            ));
+            return None;
+        }
+    };
+
+    if !theme.targets.iter().any(|target| target == format) {
+        diagnostics.push(format!(
+            "[T-2] view {} theme {} does not target format {}; skipping theme",
+            dv.id, theme.id, format
+        ));
+        return None;
+    }
+
+    Some(theme)
+}
+
+fn select_section_wrapper<'a>(theme: &'a Theme, section_id: &str) -> Option<&'a str> {
+    let element_templates = theme.element_templates.as_ref()?;
+    if let Some(overrides) = element_templates.section_wrapper_overrides.as_ref() {
+        if let Some(override_template) = overrides
+            .iter()
+            .find(|override_entry| override_entry.section_id == section_id)
+        {
+            return Some(override_template.template.as_str());
+        }
+    }
+    element_templates.section_wrapper.as_deref()
+}
+
+fn select_record_wrapper<'a>(theme: &'a Theme, type_id: &str) -> Option<&'a str> {
+    let element_templates = theme.element_templates.as_ref()?;
+    if let Some(overrides) = element_templates.record_wrapper_overrides.as_ref() {
+        if let Some(override_template) = overrides
+            .iter()
+            .find(|override_entry| override_entry.type_id == type_id)
+        {
+            return Some(override_template.template.as_str());
+        }
+    }
+    element_templates.record_wrapper.as_deref()
+}
+
+fn apply_wrapper(
+    template: &str,
+    content: &str,
+    vars: &[(&str, &str)],
+    theme: Option<&Theme>,
+) -> String {
+    let mut out = template.to_string();
+    for level in 1..=6 {
+        out = out.replace(&format!("{{{{heading-{level}}}}}"), "");
+    }
+    if let Some(theme) = theme {
+        out = replace_asset_placeholders(&out, theme);
+    }
+    for (name, value) in vars {
+        out = out.replace(&format!("{{{{{name}}}}}"), value);
+    }
+    out.replace("{{content}}", content)
+}
+
+fn replace_asset_placeholders(template: &str, theme: &Theme) -> String {
+    let mut out = String::with_capacity(template.len());
+    let mut remaining = template;
+
+    while let Some(start) = remaining.find("{{asset:") {
+        out.push_str(&remaining[..start]);
+        let after = &remaining[start + "{{asset:".len()..];
+        let Some(end) = after.find("}}") else {
+            out.push_str(&remaining[start..]);
+            return out;
+        };
+        let name = &after[..end];
+        out.push_str(resolve_asset(theme, name));
+        remaining = &after[end + 2..];
+    }
+
+    out.push_str(remaining);
+    out
+}
+
+fn resolve_asset<'a>(theme: &'a Theme, name: &str) -> &'a str {
+    let Some(assets) = theme.assets.as_ref() else {
+        return "";
+    };
+    let Some(asset) = assets.get(name) else {
+        return "";
+    };
+    match asset.mode {
+        AssetMode::Inline => asset.data.as_deref().unwrap_or(""),
+        AssetMode::Local | AssetMode::Remote => "",
+    }
+}
+
+fn format_field_row(format: &str, label: &str, value: &str) -> String {
+    if format == "markdown" {
+        format!("**{}**: {}", label, value)
+    } else {
+        format!("{}: {}", label, value)
+    }
 }
 
 fn resolve_container_title(dv: &DocumentView, manifest: &crate::manifest::Manifest) -> String {
@@ -319,6 +493,21 @@ fn render_section(
             diagnostics,
         )?);
     }
+
+    if let Some(theme) = ctx.active_theme.as_ref() {
+        if let Some(section_wrapper) = select_section_wrapper(theme, &section.section_id) {
+            let section_title = section.title.as_deref().unwrap_or("");
+            out = apply_wrapper(
+                section_wrapper,
+                &out,
+                &[
+                    ("section-title", section_title),
+                    ("section-id", section.section_id.as_str()),
+                ],
+                Some(theme),
+            );
+        }
+    }
     Ok(out)
 }
 
@@ -408,16 +597,18 @@ fn render_record_at_level(
     relations: &[Relation],
     diagnostics: &mut Vec<String>,
 ) -> Result<String, RepositoryError> {
-    let mut out = String::new();
     let rt = ctx
         .package
         .resolve_type(&record.type_id, record.type_version)
         .cloned();
 
     let structured = section.title_field_id.is_some();
+    let mut out = String::new();
+    let mut record_heading_value = String::new();
 
     if let Some(title_field_id) = &section.title_field_id {
         if let Some(title) = record.get_field_value_str(title_field_id) {
+            record_heading_value = title.to_string();
             out.push_str(&format!(
                 "{}{}\n\n",
                 heading_prefix(heading_level, ctx.format),
@@ -533,6 +724,12 @@ fn render_record_at_level(
 
         let value_text = rendered_value.unwrap_or_else(|| "(empty)".to_string());
 
+        let field_name = ctx
+            .package
+            .resolve_field(&field_id)
+            .map(|f| f.name.clone())
+            .unwrap_or_else(|| field_id.clone());
+
         let label = display_labels
             .get(&field_id)
             .cloned()
@@ -541,14 +738,30 @@ fn render_record_at_level(
                     .and_then(|t| t.find_field_assignment(&field_id))
                     .and_then(|fa| fa.display_label.clone())
             })
-            .or_else(|| ctx.package.resolve_field(&field_id).map(|f| f.name.clone()))
+            .or_else(|| Some(field_name.clone()))
             .unwrap_or_else(|| field_id.clone());
 
-        if ctx.format == "markdown" {
-            out.push_str(&format!("**{}**: {}\n", label, value_text));
-        } else {
-            out.push_str(&format!("{}: {}\n", label, value_text));
+        let row_content = format_field_row(ctx.format, &label, &value_text);
+        if let Some(theme) = ctx.active_theme.as_ref() {
+            if let Some(element_templates) = &theme.element_templates {
+                if let Some(field_row) = &element_templates.field_row {
+                    out.push_str(&apply_wrapper(
+                        field_row,
+                        &row_content,
+                        &[
+                            ("field-label", &label),
+                            ("field-value", &value_text),
+                            ("field-name", &field_name),
+                        ],
+                        Some(theme),
+                    ));
+                    out.push('\n');
+                    continue;
+                }
+            }
         }
+        out.push_str(&row_content);
+        out.push('\n');
     }
     if let Some(rt) = &rt {
         if let Some(field_groups) = &rt.field_groups {
@@ -569,6 +782,21 @@ fn render_record_at_level(
                 relations,
                 diagnostics,
             )?);
+        }
+    }
+
+    if let Some(theme) = ctx.active_theme.as_ref() {
+        if let Some(record_wrapper) = select_record_wrapper(theme, &record.type_id) {
+            out = apply_wrapper(
+                record_wrapper,
+                &out,
+                &[
+                    ("record-heading", &record_heading_value),
+                    ("type-namespace", &record.type_namespace),
+                    ("type-name", &record.type_name),
+                ],
+                Some(theme),
+            );
         }
     }
 
@@ -634,11 +862,8 @@ fn render_field_groups(
                             .map(|f| f.name.clone())
                     })
                     .unwrap_or_else(|| assignment.field_id.clone());
-                if ctx.format == "markdown" {
-                    out.push_str(&format!("**{}**: {}\n", label, value_text));
-                } else {
-                    out.push_str(&format!("{}: {}\n", label, value_text));
-                }
+                out.push_str(&format_field_row(ctx.format, &label, &value_text));
+                out.push('\n');
             }
         }
     }
@@ -775,6 +1000,7 @@ mod tests {
             store: &store,
             view_id: "ec34f54b-8636-5c8b-af5b-c9eb3df24fe6",
             format: None,
+            theme_variant: None,
         })
         .expect("render should work");
 
@@ -797,6 +1023,7 @@ mod tests {
             store: &store,
             view_id: "00000000-0000-0000-0000-000000000000",
             format: None,
+            theme_variant: None,
         });
         assert!(matches!(
             result,
@@ -817,6 +1044,7 @@ mod tests {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000981",
             format: None,
+            theme_variant: None,
         })
         .expect("render should succeed");
         // The valid record has entries ["first", "second"]; both must appear in output
@@ -849,6 +1077,7 @@ mod tests {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000982",
             format: None,
+            theme_variant: None,
         })
         .expect("render should succeed");
         assert!(
@@ -866,6 +1095,7 @@ mod tests {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000983",
             format: None,
+            theme_variant: None,
         })
         .expect("render should succeed");
         // titleFieldId points to the repeatable title field; first entry value is "first"
@@ -886,6 +1116,7 @@ mod tests {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000981",
             format: None,
+            theme_variant: None,
         })
         .expect("render should succeed");
         // Section title "Items" produces an H2; no H3 should appear between it and field rows
@@ -904,6 +1135,7 @@ mod tests {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000986",
             format: None,
+            theme_variant: None,
         })
         .expect("render should succeed");
 
@@ -922,6 +1154,7 @@ mod tests {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000986",
             format: None,
+            theme_variant: None,
         })
         .expect("render should succeed");
 
@@ -950,6 +1183,7 @@ mod tests {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000984",
             format: None,
+            theme_variant: None,
         })
         .expect("render should succeed without error");
         assert!(
@@ -970,6 +1204,170 @@ mod tests {
             lines_with_content.is_empty(),
             "expected empty section output, got: {:?}",
             lines_with_content
+        );
+    }
+
+    #[test]
+    fn themed_document_view_wraps_content_and_keeps_unknown_vars_literal() {
+        let repo_root = repeatable_fixture_root();
+        let store = FileStore::new(&repo_root);
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "00000000-0000-4000-8000-000000000987",
+            format: None,
+            theme_variant: None,
+        })
+        .expect("render should succeed");
+
+        assert!(
+            result.rendered.contains("DOC{{unknown}}[|"),
+            "expected document wrapper to keep unknown vars literal and blank heading vars, got: {}",
+            result.rendered
+        );
+        assert!(
+            result.rendered.contains("OVERRIDESECTION[items|"),
+            "expected section wrapper, got: {}",
+            result.rendered
+        );
+        assert!(
+            result.rendered.contains("OVERRIDERECORD[first|"),
+            "expected record wrapper, got: {}",
+            result.rendered
+        );
+        assert!(
+            result
+                .rendered
+                .contains("ROW[Body Label=body text|**Body Label**: body text]"),
+            "expected fieldRow wrapper, got: {}",
+            result.rendered
+        );
+        assert!(
+            result
+                .rendered
+                .contains("Preamble: Repeatable Fields Fixture"),
+            "expected preamble to render outside field rows, got: {}",
+            result.rendered
+        );
+    }
+
+    #[test]
+    fn theme_variant_selection_uses_matching_variant() {
+        let repo_root = repeatable_fixture_root();
+        let store = FileStore::new(&repo_root);
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "00000000-0000-4000-8000-000000000987",
+            format: None,
+            theme_variant: Some("print"),
+        })
+        .expect("render should succeed");
+
+        assert!(
+            result.rendered.contains("PRINTDOC["),
+            "expected print variant wrapper, got: {}",
+            result.rendered
+        );
+        assert!(
+            !result.rendered.contains("DOC{{unknown}}["),
+            "expected variant theme to replace base theme output, got: {}",
+            result.rendered
+        );
+    }
+
+    #[test]
+    fn theme_variant_not_found_falls_back_to_theme_ref() {
+        let repo_root = repeatable_fixture_root();
+        let store = FileStore::new(&repo_root);
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "00000000-0000-4000-8000-000000000987",
+            format: None,
+            theme_variant: Some("missing"),
+        })
+        .expect("render should succeed");
+
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.contains("theme variant 'missing' not found")),
+            "expected missing variant diagnostic, got: {:?}",
+            result.diagnostics
+        );
+        assert!(
+            result.rendered.contains("DOC{{unknown}}["),
+            "expected fallback to base theme, got: {}",
+            result.rendered
+        );
+    }
+
+    #[test]
+    fn theme_format_mismatch_skips_theme_and_emits_diagnostic() {
+        let repo_root = repeatable_fixture_root();
+        let store = FileStore::new(&repo_root);
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "00000000-0000-4000-8000-000000000987",
+            format: Some("text"),
+            theme_variant: None,
+        })
+        .expect("render should succeed");
+
+        assert!(
+            result.diagnostics.iter().any(|d| d.contains("[T-2]")),
+            "expected [T-2] diagnostic, got: {:?}",
+            result.diagnostics
+        );
+        assert!(
+            !result.rendered.contains("DOC{{unknown}}["),
+            "expected plain render without theme, got: {}",
+            result.rendered
+        );
+    }
+
+    #[test]
+    fn theme_bundled_ref_not_found_emits_diagnostic() {
+        let repo_root = repeatable_fixture_root();
+        let store = FileStore::new(&repo_root);
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "00000000-0000-4000-8000-000000000988",
+            format: None,
+            theme_variant: None,
+        })
+        .expect("render should succeed");
+
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.contains("[T-5]") && d.contains("00000000-0000-4000-8000-000000000999")),
+            "expected missing theme diagnostic, got: {:?}",
+            result.diagnostics
+        );
+        assert!(
+            !result.rendered.contains("DOC{{unknown}}["),
+            "expected plain render without theme, got: {}",
+            result.rendered
+        );
+    }
+
+    #[test]
+    fn theme_no_themeref_renders_without_theme() {
+        let repo_root = repeatable_fixture_root();
+        let store = FileStore::new(&repo_root);
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "00000000-0000-4000-8000-000000000981",
+            format: None,
+            theme_variant: None,
+        })
+        .expect("render should succeed");
+
+        assert!(
+            !result.rendered.contains("DOC{{unknown}}[") && !result.rendered.contains("PRINTDOC["),
+            "expected render without theme wrappers, got: {}",
+            result.rendered
         );
     }
 }

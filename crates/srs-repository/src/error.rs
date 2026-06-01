@@ -157,6 +157,18 @@ pub enum RepositoryError {
         source: srs_core::error::CoreError,
     },
 
+    #[error("failed to load theme at {path:?}: {source}")]
+    ThemeLoad {
+        path: PathBuf,
+        source: serde_json::Error,
+    },
+
+    #[error("theme validation failed at {path:?}: {source}")]
+    ThemeValidation {
+        path: PathBuf,
+        source: srs_core::error::CoreError,
+    },
+
     #[error("document view not found: {view_id}")]
     DocumentViewNotFound { view_id: String },
 
@@ -381,6 +393,26 @@ impl PartialEq for RepositoryError {
                     source: sa,
                 },
                 RepositoryError::DocumentViewValidation {
+                    path: b,
+                    source: sb,
+                },
+            ) => a == b && sa == sb,
+            (
+                RepositoryError::ThemeLoad {
+                    path: a,
+                    source: sa,
+                },
+                RepositoryError::ThemeLoad {
+                    path: b,
+                    source: sb,
+                },
+            ) => a == b && sa.to_string() == sb.to_string(),
+            (
+                RepositoryError::ThemeValidation {
+                    path: a,
+                    source: sa,
+                },
+                RepositoryError::ThemeValidation {
                     path: b,
                     source: sb,
                 },

@@ -7,8 +7,10 @@ use serde::de::Error as SerdeDeError;
 use srs_core::types::field::{Field, ValueType};
 use srs_core::types::record_type::{FieldAssignment, FieldGroup, RecordType};
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
+use srs_core::types::theme::Theme;
 use srs_core::types::view::{DocumentView, View};
 use srs_core::validation::relation_type_definition::validate_relation_type_definition;
+use srs_core::validation::theme::validate_theme;
 use srs_core::validation::view::{validate_document_view, validate_view};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -335,6 +337,8 @@ struct PackageMetadata {
     views: Vec<String>,
     #[serde(default)]
     document_views: Vec<String>,
+    #[serde(default)]
+    themes: Vec<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -420,7 +424,16 @@ fn parse_value_type(s: &str, path: &std::path::Path) -> Result<ValueType, Reposi
 fn load_package_from_dir(
     package_dir: &std::path::Path,
     rt_by_type: &mut HashMap<String, (RelationTypeDefinition, PathBuf)>,
-) -> Result<(Vec<Field>, Vec<RecordType>, Vec<View>, Vec<DocumentView>), RepositoryError> {
+) -> Result<
+    (
+        Vec<Field>,
+        Vec<RecordType>,
+        Vec<View>,
+        Vec<DocumentView>,
+        Vec<Theme>,
+    ),
+    RepositoryError,
+> {
     let package_json_path = package_dir.join("package.json");
     let package_content =
         std::fs::read_to_string(&package_json_path).map_err(|e| RepositoryError::Io {
@@ -594,7 +607,26 @@ fn load_package_from_dir(
         document_views.push(dv);
     }
 
-    Ok((fields, record_types, views, document_views))
+    let mut themes = Vec::new();
+    for theme_path in &metadata.themes {
+        let full_path = package_dir.join(theme_path);
+        let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
+            path: full_path.clone(),
+            source: e,
+        })?;
+        let theme: Theme =
+            serde_json::from_str(&content).map_err(|source| RepositoryError::ThemeLoad {
+                path: full_path.clone(),
+                source,
+            })?;
+        validate_theme(&theme).map_err(|source| RepositoryError::ThemeValidation {
+            path: full_path.clone(),
+            source,
+        })?;
+        themes.push(theme);
+    }
+
+    Ok((fields, record_types, views, document_views, themes))
 }
 
 impl RepositoryStore for FileStore {
@@ -702,7 +734,7 @@ impl RepositoryStore for FileStore {
             })?;
 
         let mut rt_by_type: HashMap<String, (RelationTypeDefinition, PathBuf)> = HashMap::new();
-        let (mut fields, mut record_types, mut views, mut document_views) =
+        let (mut fields, mut record_types, mut views, mut document_views, mut themes) =
             load_package_from_dir(&package_dir, &mut rt_by_type)?;
 
         // Merge sub-packages from manifest packageRefs
@@ -712,6 +744,7 @@ impl RepositoryStore for FileStore {
             let mut type_sources: HashMap<(String, u32), PathBuf> = HashMap::new();
             let mut view_sources: HashMap<String, PathBuf> = HashMap::new();
             let mut doc_view_sources: HashMap<String, PathBuf> = HashMap::new();
+            let mut theme_sources: HashMap<String, PathBuf> = HashMap::new();
             for f in &fields {
                 field_sources.insert(f.id.clone(), package_dir.clone());
             }
@@ -723,6 +756,9 @@ impl RepositoryStore for FileStore {
             }
             for dv in &document_views {
                 doc_view_sources.insert(dv.id.clone(), package_dir.clone());
+            }
+            for theme in &themes {
+                theme_sources.insert(theme.id.clone(), package_dir.clone());
             }
 
             for pkg_ref in pkg_refs {
@@ -740,7 +776,7 @@ impl RepositoryStore for FileStore {
                         path: rel_path.to_string(),
                     });
                 }
-                let (sub_fields, sub_types, sub_views, sub_doc_views) =
+                let (sub_fields, sub_types, sub_views, sub_doc_views, sub_themes) =
                     load_package_from_dir(&sub_dir, &mut rt_by_type)?;
 
                 for field in sub_fields {
@@ -818,6 +854,26 @@ impl RepositoryStore for FileStore {
                         document_views.push(dv);
                     }
                 }
+                for theme in sub_themes {
+                    if let Some(first_path) = theme_sources.get(&theme.id) {
+                        let existing = themes.iter().find(|t| t.id == theme.id).unwrap();
+                        if existing.namespace != theme.namespace
+                            || existing.name != theme.name
+                            || existing.version != theme.version
+                        {
+                            return Err(RepositoryError::PackageRefConflict {
+                                path: rel_path.to_string(),
+                                kind: "theme".to_string(),
+                                id: theme.id.clone(),
+                                first_path: first_path.clone(),
+                                second_path: sub_dir.clone(),
+                            });
+                        }
+                    } else {
+                        theme_sources.insert(theme.id.clone(), sub_dir.clone());
+                        themes.push(theme);
+                    }
+                }
             }
         }
 
@@ -834,6 +890,7 @@ impl RepositoryStore for FileStore {
             relation_type_definitions,
             views,
             document_views,
+            themes,
             root: self.repo_root.clone(),
         })
     }
@@ -1582,6 +1639,7 @@ pub mod memory {
                 relation_type_definitions: vec![],
                 views: vec![],
                 document_views: vec![],
+                themes: vec![],
                 root: PathBuf::from("/memory"),
             };
             Self::new(manifest, package)
@@ -1709,6 +1767,7 @@ pub mod memory {
                 relation_type_definitions: vec![],
                 views: vec![],
                 document_views: vec![],
+                themes: vec![],
                 root: PathBuf::from("/memory"),
             };
             Self {
@@ -1818,6 +1877,7 @@ pub mod memory {
                 relation_type_definitions: vec![],
                 views: vec![],
                 document_views: vec![],
+                themes: vec![],
                 root: PathBuf::from("/memory"),
             };
 
@@ -2420,6 +2480,7 @@ mod tests {
             relation_type_definitions: vec![],
             views: vec![],
             document_views: vec![],
+            themes: vec![],
             root: repo_root.to_path_buf(),
         }
     }

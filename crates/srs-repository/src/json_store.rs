@@ -645,6 +645,7 @@ impl RepositoryStore for JsonStore {
             relation_type_definitions: rt_by_type.into_values().map(|(def, _)| def).collect(),
             views,
             document_views,
+            themes: vec![],
             root: self.repository_root(),
         })
     }
@@ -1115,7 +1116,8 @@ impl RepositoryStore for JsonStore {
                 "types": [],
                 "relationTypes": [],
                 "views": [],
-                "documentViews": []
+                "documentViews": [],
+                "themes": []
             })
         });
         if let Some(obj) = pkg_json.as_object_mut() {

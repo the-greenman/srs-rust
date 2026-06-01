@@ -924,6 +924,9 @@ pub enum RenderCommand {
         /// Optional render format override (markdown, text, adoc)
         #[arg(long = "view-format")]
         view_format: Option<String>,
+        /// Optional named theme variant defined on the DocumentView
+        #[arg(long = "theme-variant")]
+        theme_variant: Option<String>,
         /// Optional output file path for rendered content
         #[arg(long)]
         output: Option<PathBuf>,

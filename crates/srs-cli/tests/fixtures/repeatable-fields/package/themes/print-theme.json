@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/theme.json",
+  "id": "00000000-0000-4000-8000-000000000991",
+  "namespace": "fixture.repeatable",
+  "name": "print-theme",
+  "version": 1,
+  "description": "Print variant for wrapper rendering tests.",
+  "targets": ["markdown"],
+  "elementTemplates": {
+    "documentWrapper": "PRINTDOC[{{content}}]",
+    "sectionWrapper": "PRINTSEC[{{content}}]",
+    "recordWrapper": "PRINTREC[{{content}}]",
+    "fieldRow": "PRINTROW[{{content}}]"
+  },
+  "createdAt": "2026-01-01T00:00:00Z"
+}

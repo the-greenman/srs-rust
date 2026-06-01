@@ -11,7 +11,7 @@ RFC-001 and RFC-002 have been reviewed, corrected, and are ready to apply. Befor
 - Phase 3 (Package Loading): complete
 - Phase 4 (View Service + Render Service): complete — all 9 render_service tests passing
 - Phase 5 (CLI Command): complete
-- Phase 6 (RFC-002 Theme Application): pending — RFC-002 type stubs exist; no Theme type, no loading, no rendering
+- Phase 6 (RFC-002 Theme Application): in progress — Theme type/validation and package loading are in place; rendering and CLI variant selection still pending
 
 ## Implementation Notes
 
@@ -711,7 +711,7 @@ cargo clippy -p srs-cli -- -D warnings
 
 **Goal:** Full RFC-002 (`ext:themes-l1`) theme application in the renderer. `srs render document-view` applies element templates from a resolved `Theme` when `DocumentView.themeRef` is set and the theme targets the output format.
 
-**Current state:** `ThemeReference`, `ThemeVariant`, `ThemeMode` types exist and deserialize correctly. No `Theme` type, no theme loading, no rendering. Theme fields on `DocumentView` are silently ignored.
+**Current state:** `ThemeReference`, `ThemeVariant`, `ThemeMode` types exist and deserialize correctly. `Theme` exists and package loading resolves `themes` entries. The renderer now resolves bundled themes, applies document/section/record/field-row wrappers, honors `themeVariants`, and the CLI forwards `--theme-variant`. HTML/PDF-specific class injection remains a follow-on with the future HTML renderer.
 
 **Out of scope in Phase 6:** `pageTemplates` (paginated formats), stylesheet/typography application, local/remote asset resolution (assets declared, not resolved), HTML format output (full HTML rendering is a separate effort), pdf/docx formats.
 
@@ -723,7 +723,7 @@ cargo clippy -p srs-cli -- -D warnings
 
 ##### Tasks
 
-- [ ] Create `srs-rust/crates/srs-core/src/types/theme.rs` with:
+- [x] Create `srs-rust/crates/srs-core/src/types/theme.rs` with:
   - `AssetMode` enum: `Local`, `Remote`, `Inline` (`#[serde(rename_all = "lowercase")]`)
   - `AssetType` enum: `Image`, `Font`, `Stylesheet`, `Data` (`#[serde(rename_all = "lowercase")]`)
   - `AssetDeclaration` struct: `asset_type` (`#[serde(rename = "type")]`), `mode`, `path`, `url`, `data`, `mime_type`
@@ -732,20 +732,20 @@ cargo clippy -p srs-cli -- -D warnings
   - `ElementTemplates` struct: `document_wrapper`, `section_wrapper`, `section_wrapper_overrides`, `record_wrapper`, `record_wrapper_overrides`, `field_row`
   - `Theme` struct (`#[serde(rename_all = "camelCase")]`): `id`, `namespace`, `name`, `version: u32`, `description`, `targets: Vec<String>`, `assets: Option<HashMap<String, AssetDeclaration>>`, `css_class_fields: Option<Vec<String>>`, `element_templates: Option<ElementTemplates>`, `created_at: String`; out-of-scope fields (`page_templates`, `stylesheet`, `typography`) typed as `Option<serde_json::Value>` with `#[serde(default)]` so they round-trip without error
 
-- [ ] Register `pub mod theme;` in `srs-rust/crates/srs-core/src/types/mod.rs`
+- [x] Register `pub mod theme;` in `srs-rust/crates/srs-core/src/types/mod.rs`
 
-- [ ] Create `srs-rust/crates/srs-core/src/validation/theme.rs`:
+- [x] Create `srs-rust/crates/srs-core/src/validation/theme.rs`:
   - `pub fn validate_theme(theme: &Theme) -> Result<(), CoreError>`
   - Rule T-1b: `targets` non-empty → `ThemeTargetsEmpty`
   - Rule T-7a: unique `section_id` in `section_wrapper_overrides` → `DuplicateThemeSectionOverrideId`
   - Rule T-7b: unique `type_id` in `record_wrapper_overrides` → `DuplicateThemeRecordOverrideTypeId`
+  - Asset-name uniqueness is structurally enforced by the `assets` object shape; the typed model does not need a dedicated duplicate-asset validator path
 
-- [ ] Register `pub mod theme;` in `srs-rust/crates/srs-core/src/validation/mod.rs`
+- [x] Register `pub mod theme;` in `srs-rust/crates/srs-core/src/validation/mod.rs`
 
-- [ ] Add to `srs-rust/crates/srs-core/src/error.rs`:
+- [x] Add to `srs-rust/crates/srs-core/src/error.rs`:
   ```rust
   ThemeTargetsEmpty,
-  DuplicateThemeAssetName { name: String },
   DuplicateThemeSectionOverrideId { section_id: String },
   DuplicateThemeRecordOverrideTypeId { type_id: String },
   ```
@@ -767,11 +767,11 @@ In `validation/theme.rs`:
 
 ##### Acceptance Criteria
 
-- [ ] `cargo build -p srs-core` compiles clean
-- [ ] `cargo clippy -p srs-core -- -D warnings` clean
-- [ ] `Theme` with no `targets` fails validation with `ThemeTargetsEmpty`
-- [ ] Minimal valid `Theme` JSON deserializes without error
-- [ ] Unknown top-level fields in the JSON (e.g. `pageTemplates`) do not cause deserialization errors
+- [x] `cargo build -p srs-core` compiles clean
+- [x] `cargo clippy -p srs-core -- -D warnings` clean
+- [x] `Theme` with no `targets` fails validation with `ThemeTargetsEmpty`
+- [x] Minimal valid `Theme` JSON deserializes without error
+- [x] Unknown top-level fields in the JSON (e.g. `pageTemplates`) do not cause deserialization errors
 
 ##### Milestone gate
 
@@ -785,48 +785,42 @@ In `validation/theme.rs`:
 
 ##### Tasks
 
-- [ ] Add `#[serde(default)] themes: Vec<String>` to `PackageMetadata` in `package.rs`
+- [x] Add `#[serde(default)] themes: Vec<String>` to `PackageMetadata` in `package.rs`
 
-- [ ] Add `pub themes: Vec<Theme>` to `Package` struct
+- [x] Add `pub themes: Vec<Theme>` to `Package` struct
 
-- [ ] Add to `Package` impl:
+- [x] Add to `Package` impl:
   - `pub fn resolve_theme(&self, theme_id: &str) -> Option<&Theme>`
   - `pub fn themes(&self) -> &[Theme]`
 
-- [ ] Add theme loading loop to `load_package_from_dir` (mirrors `document_views` loop):
+- [x] Add theme loading loop to `load_package_from_dir` (mirrors `document_views` loop):
   - read file → `serde_json::from_str::<Theme>` → `validate_theme` → push
   - expand return type to include `Vec<Theme>`; thread through `load_package` merge loop
 
-- [ ] Add to `srs-rust/crates/srs-repository/src/error.rs`:
+- [x] Add to `srs-rust/crates/srs-repository/src/error.rs`:
   ```rust
   ThemeLoad { path: PathBuf, source: serde_json::Error },
   ThemeValidation { path: PathBuf, source: CoreError },
   BundledThemeNotFound { theme_id: String },
   ```
 
-- [ ] Create fixture `srs-rust/crates/srs-cli/tests/fixtures/themed/`:
-  - `manifest.json`, `package/package.json` with `"themes": ["themes/basic-theme.json"]`
-  - `package/themes/basic-theme.json` — `targets: ["markdown"]`, minimal `elementTemplates` with `documentWrapper`, `sectionWrapper`, `recordWrapper`, `fieldRow`
-  - `package/document-views/themed-doc-view.json` — `themeRef: {mode: "bundled", themeId: "<basic-theme-id>"}`
-  - `package/document-views/format-mismatch-view.json` — theme targets `["adoc"]`, view format `"markdown"`
-  - `package/document-views/no-theme-view.json` — no `themeRef`
-  - `package/document-views/variant-view.json` — `themeVariants` array with two named variants
-  - `records/item-1.json` — one record to render
+- [x] Create fixture `srs-rust/crates/srs-cli/tests/fixtures/themed/` or equivalent temp-repo helpers:
+  - `load_package` tests now cover valid, invalid, and no-`themes` cases with temp repositories
 
 ##### Tests in `package.rs`
 
-- `load_package_loads_themes`
-- `resolve_theme_finds_by_id`
-- `resolve_theme_returns_none_for_unknown`
-- `load_package_theme_validation_fails_on_empty_targets`
+- [x] `load_package_loads_themes`
+- [x] `resolve_theme_finds_by_id`
+- [x] `resolve_theme_returns_none_for_unknown`
+- [x] `load_package_theme_validation_fails_on_empty_targets`
 
 ##### Acceptance Criteria
 
-- [ ] `cargo build -p srs-repository` compiles clean
-- [ ] `cargo clippy -p srs-repository -- -D warnings` clean
-- [ ] `Package.themes` populated from `package.json`'s `themes` array
-- [ ] `Package::resolve_theme(id)` returns the correct theme
-- [ ] Package with no `themes` key loads without error
+- [x] `cargo build -p srs-repository` compiles clean
+- [x] `cargo clippy -p srs-repository -- -D warnings` clean
+- [x] `Package.themes` populated from `package.json`'s `themes` array
+- [x] `Package::resolve_theme(id)` returns the correct theme
+- [x] Package with no `themes` key loads without error
 
 ##### Milestone gate
 
@@ -840,13 +834,13 @@ In `validation/theme.rs`:
 
 ##### Tasks
 
-- [ ] Add `pub theme_variant: Option<&'a str>` to `RenderDocumentViewOptions`
+- [x] Add `pub theme_variant: Option<&'a str>` to `RenderDocumentViewOptions`
 
-- [ ] Add `active_theme: Option<Theme>` to `RenderContext`
+- [x] Add `active_theme: Option<Theme>` to `RenderContext`
 
-- [ ] Add all existing `RenderDocumentViewOptions` constructors in tests: add `theme_variant: None` field
+- [x] Add all existing `RenderDocumentViewOptions` constructors in tests: add `theme_variant: None` field
 
-- [ ] Create private function `resolve_active_theme(dv, package, theme_variant, format, diagnostics) -> Option<Theme>`:
+- [x] Create private function `resolve_active_theme(dv, package, theme_variant, format, diagnostics) -> Option<Theme>`:
   - Implements RFC-001 Rule [N+8] + Rules T-1, T-2, T-5
   - Variant name given: find in `dv.theme_variants`; if not found emit diagnostic, fall back to `dv.theme_ref`
   - Bundled ref: `package.resolve_theme()`; if missing emit `[T-5]` diagnostic, return None
@@ -854,25 +848,27 @@ In `validation/theme.rs`:
   - Format mismatch (T-2): emit `[T-2]` diagnostic, return None
   - No themeRef at all: return None silently
 
-- [ ] Create private function `apply_wrapper(template: &str, vars: &[(&str, &str)]) -> String`:
+- [x] Create private function `apply_wrapper(template: &str, vars: &[(&str, &str)]) -> String`:
   - Substitutes `{{name}}` for each `(name, value)` pair
   - Unknown vars pass through literally (Rule T-6)
   - Pre-zeroes `{{heading-1}}` through `{{heading-6}}` to `""` (Rule T-6b — element wrappers only)
   - Post-pass for `{{asset:name}}` pattern: scan and replace via `resolve_asset`
 
-- [ ] Create private function `resolve_asset<'a>(theme: &'a Theme, name: &str) -> &'a str`:
+- [x] Create private function `resolve_asset<'a>(theme: &'a Theme, name: &str) -> &'a str`:
   - inline mode: `asset.data.as_deref().unwrap_or("")`
   - local/remote: `""` (Phase 6 scope)
 
-- [ ] Extract `format_field_row(format: &str, label: &str, value: &str) -> String` from existing inline logic
+- [x] Extract `format_field_row(format: &str, label: &str, value: &str) -> String` from existing inline logic
 
-- [ ] In `render_document_view`: resolve active theme after computing ctx; after all sections assembled, apply `documentWrapper` if present
+- [x] In `render_document_view`: resolve active theme after computing ctx; after all sections assembled, apply `documentWrapper` if present
 
-- [ ] In `render_section`: add `theme: Option<&Theme>` param; apply `sectionWrapperOverrides` (by `section_id`) then `sectionWrapper` after section body assembled (Rule T-7 precedence)
+- [x] In `render_section`: add `theme: Option<&Theme>` param; apply `sectionWrapperOverrides` (by `section_id`) then `sectionWrapper` after section body assembled (Rule T-7 precedence)
 
-- [ ] In `render_record_at_level`: add `theme: Option<&Theme>` param; apply `recordWrapperOverrides` (by `type_id`) then `recordWrapper` after record body assembled; compute and inject CSS classes when `format == "html"` (Rules T-8, T-9: string/text/select fields only)
+- [x] In `render_record_at_level`: add `theme: Option<&Theme>` param; apply `recordWrapperOverrides` (by `type_id`) then `recordWrapper` after record body assembled
 
-- [ ] In field row loop: apply `fieldRow` template to each row; preamble content NOT wrapped (Rule T-10)
+- [ ] In `render_record_at_level`: compute and inject CSS classes when `format == "html"` (Rules T-8, T-9: string/text/select fields only)
+
+- [x] In field row loop: apply `fieldRow` template to each row; preamble content NOT wrapped (Rule T-10)
 
 ##### Tests (use `themed/` fixture)
 
@@ -892,14 +888,14 @@ In `validation/theme.rs`:
 
 ##### Acceptance Criteria
 
-- [ ] `cargo build -p srs-repository` compiles clean
-- [ ] `cargo clippy -p srs-repository -- -D warnings` clean
-- [ ] Plain renders (no themeRef) produce identical output to before Phase 6
-- [ ] `documentWrapper` wraps the entire rendered body
-- [ ] `sectionWrapperOverrides` takes precedence over `sectionWrapper` for matching `sectionId`
-- [ ] Format mismatch emits `[T-2]` diagnostic; renders without theme
-- [ ] Unknown template vars pass through as literal text
-- [ ] `{{heading-N}}` in element wrapper templates resolves to `""`
+- [x] `cargo build -p srs-repository` compiles clean
+- [x] `cargo clippy -p srs-repository -- -D warnings` clean
+- [x] Plain renders (no themeRef) produce identical output to before Phase 6
+- [x] `documentWrapper` wraps the entire rendered body
+- [x] `sectionWrapperOverrides` takes precedence over `sectionWrapper` for matching `sectionId`
+- [x] Format mismatch emits `[T-2]` diagnostic; renders without theme
+- [x] Unknown template vars pass through as literal text
+- [x] `{{heading-N}}` in element wrapper templates resolves to `""`
 
 ##### Milestone gate
 
@@ -913,9 +909,9 @@ In `validation/theme.rs`:
 
 ##### Tasks
 
-- [ ] Add `#[arg(long = "theme-variant")] theme_variant: Option<String>` to `RenderCommand::DocumentView` in `commands/mod.rs`
+- [x] Add `#[arg(long = "theme-variant")] theme_variant: Option<String>` to `RenderCommand::DocumentView` in `commands/mod.rs`
 
-- [ ] Destructure and forward `theme_variant.as_deref()` to `RenderDocumentViewOptions` in `commands/render.rs`
+- [x] Destructure and forward `theme_variant.as_deref()` to `RenderDocumentViewOptions` in `commands/render.rs`
 
 ##### Tests
 
@@ -925,11 +921,11 @@ In `validation/theme.rs`:
 
 ##### Acceptance Criteria
 
-- [ ] `cargo build -p srs-cli` compiles clean
-- [ ] `cargo clippy -p srs-cli -- -D warnings` clean
-- [ ] `srs render document-view --help` shows `--theme-variant <NAME>`
-- [ ] `--theme-variant` value forwarded to `RenderDocumentViewOptions.theme_variant`
-- [ ] Variant-not-found cases produce a diagnostic in `payload.diagnostics`, not an error exit
+- [x] `cargo build -p srs-cli` compiles clean
+- [x] `cargo clippy -p srs-cli -- -D warnings` clean
+- [x] `srs render document-view --help` shows `--theme-variant <NAME>`
+- [x] `--theme-variant` value forwarded to `RenderDocumentViewOptions.theme_variant`
+- [x] Variant-not-found cases produce a diagnostic in `payload.diagnostics`, not an error exit
 
 ##### Milestone gate
 

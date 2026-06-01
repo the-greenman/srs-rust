@@ -520,6 +520,7 @@ mod tests {
             relation_type_definitions: vec![],
             views: vec![],
             document_views: vec![],
+            themes: vec![],
             root: PathBuf::from("/memory"),
         };
         MemoryStore::new(manifest, package)

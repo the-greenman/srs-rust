@@ -1,0 +1,28 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/theme.json",
+  "id": "00000000-0000-4000-8000-000000000990",
+  "namespace": "fixture.repeatable",
+  "name": "base-theme",
+  "version": 1,
+  "description": "Base theme for wrapper rendering tests.",
+  "targets": ["markdown"],
+  "elementTemplates": {
+    "documentWrapper": "DOC{{unknown}}[{{heading-1}}|{{content}}]",
+    "sectionWrapper": "SECTION[{{section-id}}|{{content}}]",
+    "sectionWrapperOverrides": [
+      {
+        "sectionId": "items",
+        "template": "OVERRIDESECTION[{{section-id}}|{{content}}]"
+      }
+    ],
+    "recordWrapper": "RECORD[{{record-heading}}|{{content}}]",
+    "recordWrapperOverrides": [
+      {
+        "typeId": "00000000-0000-4000-8000-000000000902",
+        "template": "OVERRIDERECORD[{{record-heading}}|{{content}}]"
+      }
+    ],
+    "fieldRow": "ROW[{{field-label}}={{field-value}}|{{content}}]"
+  },
+  "createdAt": "2026-01-01T00:00:00Z"
+}

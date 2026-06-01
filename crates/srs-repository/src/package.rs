@@ -3,13 +3,15 @@ use crate::manifest::load_manifest;
 use srs_core::types::field::{Field, ValueType};
 use srs_core::types::record_type::{FieldAssignment, FieldGroup, RecordType};
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
+use srs_core::types::theme::Theme;
 use srs_core::types::view::{DocumentView, View};
 use srs_core::validation::relation_type_definition::validate_relation_type_definition;
+use srs_core::validation::theme::validate_theme;
 use srs_core::validation::view::{validate_document_view, validate_view};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-/// A loaded package containing field definitions and record types.
+/// A loaded package containing field definitions, record types, views, and themes.
 ///
 /// The `root` field contains the repository root path (not the package/ subdirectory).
 #[derive(Debug, Clone)]
@@ -23,6 +25,7 @@ pub struct Package {
     pub relation_type_definitions: Vec<RelationTypeDefinition>,
     pub views: Vec<View>,
     pub document_views: Vec<DocumentView>,
+    pub themes: Vec<Theme>,
     pub root: PathBuf,
 }
 
@@ -44,6 +47,8 @@ struct PackageMetadata {
     views: Vec<String>,
     #[serde(default)]
     document_views: Vec<String>,
+    #[serde(default)]
+    themes: Vec<String>,
 }
 
 /// Field JSON format from package/fields/*.json
@@ -143,6 +148,16 @@ impl Package {
         self.document_views.iter().find(|v| v.id == id)
     }
 
+    /// Resolve a theme by its UUID id.
+    pub fn resolve_theme(&self, theme_id: &str) -> Option<&Theme> {
+        self.themes.iter().find(|theme| theme.id == theme_id)
+    }
+
+    /// Get all themes as a slice.
+    pub fn themes(&self) -> &[Theme] {
+        &self.themes
+    }
+
     /// Resolve a record type by its ID and version.
     pub fn resolve_type(&self, type_id: &str, version: u32) -> Option<&RecordType> {
         self.record_types
@@ -185,7 +200,16 @@ impl Package {
 fn load_package_from_dir(
     package_dir: &Path,
     rt_by_type: &mut HashMap<String, (RelationTypeDefinition, PathBuf)>,
-) -> Result<(Vec<Field>, Vec<RecordType>, Vec<View>, Vec<DocumentView>), RepositoryError> {
+) -> Result<
+    (
+        Vec<Field>,
+        Vec<RecordType>,
+        Vec<View>,
+        Vec<DocumentView>,
+        Vec<Theme>,
+    ),
+    RepositoryError,
+> {
     let package_json_path = package_dir.join("package.json");
 
     let package_content =
@@ -379,7 +403,27 @@ fn load_package_from_dir(
         document_views.push(document_view);
     }
 
-    Ok((fields, record_types, views, document_views))
+    // Load all themes (ext:themes-l1)
+    let mut themes = Vec::new();
+    for theme_path in &metadata.themes {
+        let full_path = package_dir.join(theme_path);
+        let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
+            path: full_path.clone(),
+            source: e,
+        })?;
+        let theme: Theme =
+            serde_json::from_str(&content).map_err(|source| RepositoryError::ThemeLoad {
+                path: full_path.clone(),
+                source,
+            })?;
+        validate_theme(&theme).map_err(|source| RepositoryError::ThemeValidation {
+            path: full_path.clone(),
+            source,
+        })?;
+        themes.push(theme);
+    }
+
+    Ok((fields, record_types, views, document_views, themes))
 }
 
 /// Load a package from a repository's `package/` directory, merging any sub-packages
@@ -406,7 +450,7 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
     let mut rt_by_type: HashMap<String, (RelationTypeDefinition, PathBuf)> = HashMap::new();
 
     // Load the primary package.
-    let (mut fields, mut record_types, mut views, mut document_views) =
+    let (mut fields, mut record_types, mut views, mut document_views, mut themes) =
         load_package_from_dir(&package_dir, &mut rt_by_type)?;
 
     // Merge sub-packages declared in manifest.json packageRefs.
@@ -418,6 +462,7 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
         let mut type_sources: HashMap<(String, u32), PathBuf> = HashMap::new();
         let mut view_sources: HashMap<String, PathBuf> = HashMap::new();
         let mut doc_view_sources: HashMap<String, PathBuf> = HashMap::new();
+        let mut theme_sources: HashMap<String, PathBuf> = HashMap::new();
 
         // Seed with items already loaded from the primary package.
         for f in &fields {
@@ -431,6 +476,9 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
         }
         for dv in &document_views {
             doc_view_sources.insert(dv.id.clone(), package_dir.clone());
+        }
+        for theme in &themes {
+            theme_sources.insert(theme.id.clone(), package_dir.clone());
         }
 
         for pkg_ref in pkg_refs {
@@ -449,7 +497,7 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
                     path: rel_path.to_string(),
                 });
             }
-            let (sub_fields, sub_types, sub_views, sub_doc_views) =
+            let (sub_fields, sub_types, sub_views, sub_doc_views, sub_themes) =
                 load_package_from_dir(&sub_package_dir, &mut rt_by_type)?;
 
             // Merge fields — conflict if same id but different content
@@ -533,6 +581,27 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
                     document_views.push(dv);
                 }
             }
+            // Merge themes — conflict if same id but different identity fields.
+            for theme in sub_themes {
+                if let Some(first_path) = theme_sources.get(&theme.id) {
+                    let existing = themes.iter().find(|t| t.id == theme.id).unwrap();
+                    if existing.namespace != theme.namespace
+                        || existing.name != theme.name
+                        || existing.version != theme.version
+                    {
+                        return Err(RepositoryError::PackageRefConflict {
+                            path: rel_path.to_string(),
+                            kind: "theme".to_string(),
+                            id: theme.id.clone(),
+                            first_path: first_path.clone(),
+                            second_path: sub_package_dir.clone(),
+                        });
+                    }
+                } else {
+                    theme_sources.insert(theme.id.clone(), sub_package_dir.clone());
+                    themes.push(theme);
+                }
+            }
         }
     }
 
@@ -549,6 +618,7 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
         relation_type_definitions,
         views,
         document_views,
+        themes,
         root: repo_root.to_path_buf(),
     })
 }
@@ -680,6 +750,203 @@ mod tests {
         assert!(package
             .resolve_document_view("00000000-0000-0000-0000-000000000000")
             .is_none());
+    }
+
+    #[test]
+    fn load_package_loads_themes() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = temp.path();
+        create_minimal_repo(root);
+
+        let themes_dir = root.join("package/themes");
+        std::fs::create_dir_all(&themes_dir).unwrap();
+        std::fs::write(
+            themes_dir.join("basic-theme.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/theme.json",
+                "id": "00000000-0000-4000-8000-000000000950",
+                "namespace": "fixture.theme",
+                "name": "basic-theme",
+                "version": 1,
+                "description": "Basic theme",
+                "targets": ["markdown"],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        std::fs::write(
+            root.join("package/package.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "id": "primary-pkg-id",
+                "namespace": "com.test",
+                "name": "primary",
+                "version": "1.0.0",
+                "fields": [],
+                "types": [],
+                "relationTypes": [],
+                "views": [],
+                "documentViews": [],
+                "themes": ["themes/basic-theme.json"]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let package = load_package(root).expect("should load themed package");
+        assert_eq!(package.themes.len(), 1);
+        assert_eq!(package.themes[0].name, "basic-theme");
+    }
+
+    #[test]
+    fn resolve_theme_finds_known_theme() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = temp.path();
+        create_minimal_repo(root);
+
+        std::fs::create_dir_all(root.join("package/themes")).unwrap();
+        std::fs::write(
+            root.join("package/themes/basic-theme.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/theme.json",
+                "id": "00000000-0000-4000-8000-000000000951",
+                "namespace": "fixture.theme",
+                "name": "basic-theme",
+                "version": 1,
+                "description": "Basic theme",
+                "targets": ["markdown"],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("package/package.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "id": "primary-pkg-id",
+                "namespace": "com.test",
+                "name": "primary",
+                "version": "1.0.0",
+                "fields": [],
+                "types": [],
+                "relationTypes": [],
+                "views": [],
+                "documentViews": [],
+                "themes": ["themes/basic-theme.json"]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let package = load_package(root).expect("should load themed package");
+        let theme = package
+            .resolve_theme("00000000-0000-4000-8000-000000000951")
+            .expect("should resolve theme by id");
+        assert_eq!(theme.name, "basic-theme");
+    }
+
+    #[test]
+    fn resolve_theme_returns_none_for_unknown() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = temp.path();
+        create_minimal_repo(root);
+
+        std::fs::create_dir_all(root.join("package/themes")).unwrap();
+        std::fs::write(
+            root.join("package/themes/basic-theme.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/theme.json",
+                "id": "00000000-0000-4000-8000-000000000952",
+                "namespace": "fixture.theme",
+                "name": "basic-theme",
+                "version": 1,
+                "description": "Basic theme",
+                "targets": ["markdown"],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("package/package.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "id": "primary-pkg-id",
+                "namespace": "com.test",
+                "name": "primary",
+                "version": "1.0.0",
+                "fields": [],
+                "types": [],
+                "relationTypes": [],
+                "views": [],
+                "documentViews": [],
+                "themes": ["themes/basic-theme.json"]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let package = load_package(root).expect("should load themed package");
+        assert!(package
+            .resolve_theme("00000000-0000-4000-8000-000000000000")
+            .is_none());
+    }
+
+    #[test]
+    fn load_package_without_themes_key_loads_without_error() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = temp.path();
+        create_minimal_repo(root);
+
+        let package = load_package(root).expect("should load package without themes key");
+        assert!(package.themes.is_empty());
+    }
+
+    #[test]
+    fn load_package_theme_validation_fails_on_empty_targets() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = temp.path();
+        create_minimal_repo(root);
+
+        std::fs::create_dir_all(root.join("package/themes")).unwrap();
+        std::fs::write(
+            root.join("package/themes/invalid-theme.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/theme.json",
+                "id": "00000000-0000-4000-8000-000000000953",
+                "namespace": "fixture.theme",
+                "name": "invalid-theme",
+                "version": 1,
+                "description": "Invalid theme",
+                "targets": [],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("package/package.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "id": "primary-pkg-id",
+                "namespace": "com.test",
+                "name": "primary",
+                "version": "1.0.0",
+                "fields": [],
+                "types": [],
+                "relationTypes": [],
+                "views": [],
+                "documentViews": [],
+                "themes": ["themes/invalid-theme.json"]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let result = load_package(root);
+        assert!(
+            matches!(result, Err(RepositoryError::ThemeValidation { .. })),
+            "expected theme validation error, got {result:?}"
+        );
     }
 
     #[test]

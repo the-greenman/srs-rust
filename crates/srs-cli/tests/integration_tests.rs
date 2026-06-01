@@ -3947,6 +3947,83 @@ fn render_document_view_view_format_text_overrides_markup() {
     );
 }
 
+fn repeatable_fixture_root() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/repeatable-fields")
+}
+
+#[test]
+fn cli_render_document_view_with_theme_variant_flag_passes_through() {
+    let result = run_srs_in_dir(
+        &repeatable_fixture_root(),
+        &[
+            "render",
+            "document-view",
+            "--view",
+            "00000000-0000-4000-8000-000000000987",
+            "--theme-variant",
+            "print",
+        ],
+    );
+    assert_eq!(result["ok"], true);
+    let rendered = result["payload"]["rendered"].as_str().unwrap_or("");
+    assert!(
+        rendered.contains("PRINTDOC["),
+        "expected print theme wrapper in CLI output, got: {}",
+        rendered
+    );
+}
+
+#[test]
+fn cli_render_document_view_without_theme_variant_works_as_before() {
+    let result = run_srs_in_dir(
+        &repeatable_fixture_root(),
+        &[
+            "render",
+            "document-view",
+            "--view",
+            "00000000-0000-4000-8000-000000000987",
+        ],
+    );
+    assert_eq!(result["ok"], true);
+    let rendered = result["payload"]["rendered"].as_str().unwrap_or("");
+    assert!(
+        rendered.contains("DOC{{unknown}}["),
+        "expected base theme wrapper in CLI output, got: {}",
+        rendered
+    );
+}
+
+#[test]
+fn cli_render_document_view_theme_variant_not_found_produces_diagnostic_not_error() {
+    let result = run_srs_in_dir(
+        &repeatable_fixture_root(),
+        &[
+            "render",
+            "document-view",
+            "--view",
+            "00000000-0000-4000-8000-000000000987",
+            "--theme-variant",
+            "missing",
+        ],
+    );
+    assert_eq!(result["ok"], true);
+    let diagnostics = result["payload"]["diagnostics"].as_array().unwrap();
+    assert!(
+        diagnostics.iter().any(|d| d
+            .as_str()
+            .unwrap_or("")
+            .contains("theme variant 'missing' not found")),
+        "expected missing variant diagnostic, got: {:?}",
+        diagnostics
+    );
+    let rendered = result["payload"]["rendered"].as_str().unwrap_or("");
+    assert!(
+        rendered.contains("DOC{{unknown}}["),
+        "expected fallback to base theme, got: {}",
+        rendered
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Phase 5: package command integration tests
 // ---------------------------------------------------------------------------

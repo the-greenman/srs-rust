@@ -41,6 +41,15 @@ pub enum CoreError {
     #[error("duplicate theme variant name: {name}")]
     DuplicateThemeVariantName { name: String },
 
+    #[error("theme must declare at least one target")]
+    ThemeTargetsEmpty,
+
+    #[error("duplicate theme section wrapper override id: {section_id}")]
+    DuplicateThemeSectionOverrideId { section_id: String },
+
+    #[error("duplicate theme record wrapper override type id: {type_id}")]
+    DuplicateThemeRecordOverrideTypeId { type_id: String },
+
     #[error("repeatable field {field_id} has {count} entries but minItems is {min}")]
     TooFewEntries {
         field_id: String,
@@ -121,6 +130,15 @@ impl PartialEq for CoreError {
             (
                 CoreError::DuplicateThemeVariantName { name: a },
                 CoreError::DuplicateThemeVariantName { name: b },
+            ) => a == b,
+            (CoreError::ThemeTargetsEmpty, CoreError::ThemeTargetsEmpty) => true,
+            (
+                CoreError::DuplicateThemeSectionOverrideId { section_id: a },
+                CoreError::DuplicateThemeSectionOverrideId { section_id: b },
+            ) => a == b,
+            (
+                CoreError::DuplicateThemeRecordOverrideTypeId { type_id: a },
+                CoreError::DuplicateThemeRecordOverrideTypeId { type_id: b },
             ) => a == b,
             (
                 CoreError::TooFewEntries {
