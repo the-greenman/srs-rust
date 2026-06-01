@@ -589,6 +589,7 @@ mod tests {
                 views: vec![],
                 document_views: vec![],
                 themes: vec![],
+                blueprints: vec![],
                 root: PathBuf::from("/memory"),
             },
         )
@@ -642,6 +643,7 @@ mod tests {
                 views: vec![],
                 document_views: vec![],
                 themes: vec![],
+                blueprints: vec![],
                 root: PathBuf::from("/memory"),
             },
         )
@@ -720,6 +722,7 @@ mod tests {
                 views: vec![],
                 document_views: vec![],
                 themes: vec![],
+                blueprints: vec![],
                 root: PathBuf::from("/memory"),
             },
         );
@@ -764,6 +767,7 @@ mod tests {
                 views: vec![],
                 document_views: vec![],
                 themes: vec![],
+                blueprints: vec![],
                 root: PathBuf::from("/memory"),
             },
         );
@@ -868,6 +872,7 @@ mod tests {
                 views: vec![],
                 document_views: vec![],
                 themes: vec![],
+                blueprints: vec![],
                 root: PathBuf::from("/memory"),
             },
         );

@@ -1,3 +1,4 @@
+pub mod blueprint;
 pub mod container;
 pub mod document_view;
 pub mod extension;
@@ -271,6 +272,9 @@ pub enum Commands {
     /// Protocol definition commands
     #[command(subcommand)]
     Protocol(ProtocolCommand),
+    /// Blueprint definition commands (ext:blueprint)
+    #[command(subcommand)]
+    Blueprint(BlueprintCommand),
     /// Container grouping and membership commands
     #[command(subcommand)]
     Container(ContainerCommand),
@@ -933,6 +937,43 @@ pub enum ProtocolCommand {
 }
 
 #[derive(Subcommand)]
+pub enum BlueprintCommand {
+    /// List blueprint definitions
+    List,
+    /// Get a blueprint definition by ID
+    Get {
+        /// Blueprint definition ID (UUID)
+        id: String,
+    },
+    /// Create a new blueprint definition (reads JSON from stdin)
+    Create {
+        /// Target sub-package path, e.g. "package/ext". Defaults to primary package.
+        #[arg(long)]
+        package: Option<String>,
+    },
+    /// Update an existing blueprint definition (reads JSON from stdin)
+    Update {
+        /// Blueprint definition ID (UUID)
+        id: String,
+    },
+    /// Delete a blueprint definition by ID
+    Delete {
+        /// Blueprint definition ID (UUID)
+        id: String,
+    },
+    /// Validate a blueprint definition
+    Validate {
+        /// Blueprint definition ID (UUID)
+        id: String,
+    },
+    /// List the relation structure declared by a blueprint
+    Structure {
+        /// Blueprint definition ID (UUID)
+        id: String,
+    },
+}
+
+#[derive(Subcommand)]
 pub enum RenderCommand {
     /// Render a document view
     DocumentView {
@@ -1066,6 +1107,7 @@ pub fn dispatch(cli: Cli) -> Result<String> {
         Commands::Relation(relation_cmd) => relation::dispatch(ctx, relation_cmd),
         Commands::Extension(ext_cmd) => extension::dispatch(ctx, ext_cmd),
         Commands::Protocol(proto_cmd) => protocol::dispatch(ctx, proto_cmd),
+        Commands::Blueprint(bp_cmd) => blueprint::dispatch(ctx, bp_cmd),
         Commands::Container(cmd) => container::dispatch(ctx, cmd),
         Commands::Render(cmd) => render::dispatch(ctx, cmd),
         Commands::Package(pkg_cmd) => package::dispatch(ctx, pkg_cmd),

@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BlueprintValidatePayload",
+  "type": "object",
+  "required": [
+    "diagnostics",
+    "id",
+    "valid"
+  ],
+  "properties": {
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "id": {
+      "type": "string"
+    },
+    "valid": {
+      "type": "boolean"
+    }
+  }
+}

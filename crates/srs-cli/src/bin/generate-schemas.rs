@@ -97,6 +97,15 @@ fn main() {
     write_schema!("protocol-update", ProtocolPayload);
     write_schema!("protocol-delete", ProtocolDeletePayload);
 
+    // Blueprint payloads
+    write_schema!("blueprint-list", BlueprintListPayload);
+    write_schema!("blueprint-get", BlueprintPayload);
+    write_schema!("blueprint-create", BlueprintPayload);
+    write_schema!("blueprint-update", BlueprintPayload);
+    write_schema!("blueprint-delete", BlueprintDeletePayload);
+    write_schema!("blueprint-validate", BlueprintValidatePayload);
+    write_schema!("blueprint-structure", BlueprintStructurePayload);
+
     // View payloads
     write_schema!("view-list", ViewListPayload);
     write_schema!("view-get", ViewPayload);

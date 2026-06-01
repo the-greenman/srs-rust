@@ -1,5 +1,6 @@
 use crate::error::RepositoryError;
 use crate::manifest::load_manifest;
+use srs_core::types::blueprint::Blueprint;
 use srs_core::types::field::{Field, ValueType};
 use srs_core::types::record_type::{FieldAssignment, FieldGroup, RecordType};
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
@@ -11,7 +12,7 @@ use srs_core::validation::view::{validate_document_view, validate_view};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-/// A loaded package containing field definitions, record types, views, and themes.
+/// A loaded package containing field definitions, record types, views, themes, and blueprints.
 ///
 /// The `root` field contains the repository root path (not the package/ subdirectory).
 #[derive(Debug, Clone)]
@@ -26,6 +27,7 @@ pub struct Package {
     pub views: Vec<View>,
     pub document_views: Vec<DocumentView>,
     pub themes: Vec<Theme>,
+    pub blueprints: Vec<Blueprint>,
     pub root: PathBuf,
 }
 
@@ -49,6 +51,8 @@ struct PackageMetadata {
     document_views: Vec<String>,
     #[serde(default)]
     themes: Vec<String>,
+    #[serde(default)]
+    blueprints: Vec<String>,
 }
 
 /// Field JSON format from package/fields/*.json
@@ -207,6 +211,7 @@ fn load_package_from_dir(
         Vec<View>,
         Vec<DocumentView>,
         Vec<Theme>,
+        Vec<Blueprint>,
     ),
     RepositoryError,
 > {
@@ -423,7 +428,30 @@ fn load_package_from_dir(
         themes.push(theme);
     }
 
-    Ok((fields, record_types, views, document_views, themes))
+    // Load all blueprints
+    let mut blueprints = Vec::new();
+    for blueprint_path in &metadata.blueprints {
+        let full_path = package_dir.join(blueprint_path);
+        let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
+            path: full_path.clone(),
+            source: e,
+        })?;
+        let blueprint: Blueprint =
+            serde_json::from_str(&content).map_err(|source| RepositoryError::PackageLoad {
+                path: full_path.clone(),
+                source,
+            })?;
+        blueprints.push(blueprint);
+    }
+
+    Ok((
+        fields,
+        record_types,
+        views,
+        document_views,
+        themes,
+        blueprints,
+    ))
 }
 
 /// Load a package from a repository's `package/` directory, merging any sub-packages
@@ -450,7 +478,7 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
     let mut rt_by_type: HashMap<String, (RelationTypeDefinition, PathBuf)> = HashMap::new();
 
     // Load the primary package.
-    let (mut fields, mut record_types, mut views, mut document_views, mut themes) =
+    let (mut fields, mut record_types, mut views, mut document_views, mut themes, mut blueprints) =
         load_package_from_dir(&package_dir, &mut rt_by_type)?;
 
     // Merge sub-packages declared in manifest.json packageRefs.
@@ -463,6 +491,8 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
         let mut view_sources: HashMap<String, PathBuf> = HashMap::new();
         let mut doc_view_sources: HashMap<String, PathBuf> = HashMap::new();
         let mut theme_sources: HashMap<String, PathBuf> = HashMap::new();
+
+        let mut blueprint_sources: HashMap<String, PathBuf> = HashMap::new();
 
         // Seed with items already loaded from the primary package.
         for f in &fields {
@@ -479,6 +509,9 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
         }
         for theme in &themes {
             theme_sources.insert(theme.id.clone(), package_dir.clone());
+        }
+        for bp in &blueprints {
+            blueprint_sources.insert(bp.id.clone(), package_dir.clone());
         }
 
         for pkg_ref in pkg_refs {
@@ -497,7 +530,7 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
                     path: rel_path.to_string(),
                 });
             }
-            let (sub_fields, sub_types, sub_views, sub_doc_views, sub_themes) =
+            let (sub_fields, sub_types, sub_views, sub_doc_views, sub_themes, sub_blueprints) =
                 load_package_from_dir(&sub_package_dir, &mut rt_by_type)?;
 
             // Merge fields — conflict if same id but different content
@@ -581,6 +614,24 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
                     document_views.push(dv);
                 }
             }
+            // Merge blueprints — conflict if same id but different name
+            for bp in sub_blueprints {
+                if let Some(first_path) = blueprint_sources.get(&bp.id) {
+                    let existing = blueprints.iter().find(|b| b.id == bp.id).unwrap();
+                    if existing.name != bp.name {
+                        return Err(RepositoryError::PackageRefConflict {
+                            path: rel_path.to_string(),
+                            kind: "blueprint".to_string(),
+                            id: bp.id.clone(),
+                            first_path: first_path.clone(),
+                            second_path: sub_package_dir.clone(),
+                        });
+                    }
+                } else {
+                    blueprint_sources.insert(bp.id.clone(), sub_package_dir.clone());
+                    blueprints.push(bp);
+                }
+            }
             // Merge themes — conflict if same id but different identity fields.
             for theme in sub_themes {
                 if let Some(first_path) = theme_sources.get(&theme.id) {
@@ -619,6 +670,7 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
         views,
         document_views,
         themes,
+        blueprints,
         root: repo_root.to_path_buf(),
     })
 }

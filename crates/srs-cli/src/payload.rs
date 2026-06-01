@@ -108,6 +108,33 @@ pub struct ProtocolStageEntry {
     pub depends_on: Vec<String>,
 }
 
+/// A single entry in a blueprint list.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BlueprintListEntry {
+    pub blueprint_id: String,
+    pub namespace: String,
+    pub name: String,
+    pub version: u32,
+    pub description: String,
+    pub root_type_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_package: Option<String>,
+}
+
+/// A single entry in a blueprint structure list (RelationSpec).
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RelationSpecEntry {
+    pub relation_type: String,
+    pub source_type_id: String,
+    pub target_type_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cardinality: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required: Option<bool>,
+}
+
 /// A single entry in a package list.
 /// Maps `PackageBoundaryInfo` with `boundary_path` renamed to `boundaryPath`.
 #[derive(Debug, Serialize, JsonSchema)]
@@ -435,6 +462,42 @@ pub struct ProtocolValidatePayload {
 #[serde(rename_all = "camelCase")]
 pub struct ProtocolDeletePayload {
     pub instance_id: String,
+}
+
+// ── Blueprint payloads ────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BlueprintListPayload {
+    pub blueprints: Vec<BlueprintListEntry>,
+    pub diagnostics: Vec<String>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BlueprintPayload {
+    #[schemars(with = "serde_json::Value")]
+    pub blueprint: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BlueprintDeletePayload {
+    pub id: String,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BlueprintValidatePayload {
+    pub id: String,
+    pub valid: bool,
+    pub diagnostics: Vec<String>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BlueprintStructurePayload {
+    pub relation_specs: Vec<RelationSpecEntry>,
 }
 
 // ── View payloads ─────────────────────────────────────────────────────────────

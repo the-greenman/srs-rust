@@ -36,9 +36,6 @@ pub struct OwnedType {
 }
 
 /// Discriminates the kind of definition stored in a package boundary.
-///
-/// `View`, `DocumentView`, and `RelationType` are included for completeness.
-/// Implementations in the current plan may treat them as no-ops.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DefinitionKind {
     Field,
@@ -46,4 +43,5 @@ pub enum DefinitionKind {
     View,
     DocumentView,
     RelationType,
+    Blueprint,
 }
