@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: srs-rust
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/srs
+          path: srs
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: srs-rust
+
+      - name: Build
+        working-directory: srs-rust
+        run: cargo build --all
+
+      - name: Test
+        working-directory: srs-rust
+        run: cargo test --all
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Format
+        run: cargo fmt --check
+
+  schema-drift:
+    name: Schema Drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: srs-rust
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/srs
+          path: srs
+
+      - name: Run schema drift check
+        working-directory: srs-rust
+        run: scripts/check-schema-drift.sh ../srs
