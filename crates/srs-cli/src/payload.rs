@@ -477,11 +477,77 @@ pub struct DocumentViewDeletePayload {
 
 // ── Render payloads ───────────────────────────────────────────────────────────
 
+/// A single field-group entry in a JSON projection record.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectedGroupEntry {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entry_id: Option<String>,
+    pub fields: serde_json::Value,
+}
+
+/// A projected field group (one group definition + its record data).
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectedFieldGroup {
+    pub group_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    pub entries: Vec<ProjectedGroupEntry>,
+}
+
+/// A single record in a JSON projection section.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectedRecord {
+    pub instance_id: String,
+    pub type_id: String,
+    pub type_namespace: String,
+    pub type_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub record_heading: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preamble: Option<String>,
+    pub fields: serde_json::Value,
+    pub ordered_field_keys: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field_groups: Option<Vec<ProjectedFieldGroup>>,
+}
+
+/// A single section in a JSON projection document.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectedSection {
+    pub section_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub order: i32,
+    pub records: Vec<ProjectedRecord>,
+}
+
+/// The top-level JSON projection object for a rendered document view.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentViewProjection {
+    #[serde(rename = "$schema")]
+    #[schemars(rename = "$schema")]
+    pub schema: String,
+    pub document_view_id: String,
+    pub container_id: Option<String>,
+    pub generated_at: String,
+    pub container_title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preamble: Option<String>,
+    pub sections: Vec<ProjectedSection>,
+}
+
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RenderDocumentViewPayload {
     pub rendered: String,
     pub diagnostics: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub projection: Option<DocumentViewProjection>,
 }
 
 // ── Repo payloads ─────────────────────────────────────────────────────────────

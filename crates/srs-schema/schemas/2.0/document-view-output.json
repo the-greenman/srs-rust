@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/document-view-output.json",
+  "title": "SRS Document View JSON Projection Output (ext:views-l2)",
+  "description": "Machine-readable projection produced by rendering a DocumentView with format 'json'. Contains document metadata, ordered sections, and typed record data. Not a rendered markup document.",
+  "type": "object",
+  "required": ["$schema", "documentViewId", "containerId", "generatedAt", "sections"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://srs.semanticops.com/schema/2.0/document-view-output.json"
+    },
+    "documentViewId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "ID of the DocumentView that produced this projection."
+    },
+    "containerId": {
+      "type": ["string", "null"],
+      "description": "Container ID derived from the first ContainerSubset section source. Null when no ContainerSubset source is present in the view."
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp of when this projection was generated."
+    },
+    "containerTitle": {
+      "type": "string",
+      "description": "Human-readable container title resolved at render time."
+    },
+    "preamble": {
+      "type": "string",
+      "description": "Evaluated DocumentView.preamble string. Heading variables ({{heading-N}}) are substituted as empty strings."
+    },
+    "sections": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ProjectedSection" },
+      "description": "Ordered sections (by DocumentSection.order)."
+    }
+  },
+  "$defs": {
+    "ProjectedSection": {
+      "type": "object",
+      "required": ["sectionId", "order", "records"],
+      "additionalProperties": false,
+      "properties": {
+        "sectionId": { "type": "string" },
+        "title": { "type": "string" },
+        "order": { "type": "integer", "minimum": 0 },
+        "records": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ProjectedRecord" }
+        }
+      }
+    },
+    "ProjectedRecord": {
+      "type": "object",
+      "required": ["instanceId", "typeId", "typeNamespace", "typeName", "fields", "orderedFieldKeys"],
+      "additionalProperties": false,
+      "properties": {
+        "instanceId": { "type": "string", "format": "uuid" },
+        "typeId": { "type": "string", "format": "uuid" },
+        "typeNamespace": { "type": "string" },
+        "typeName": { "type": "string" },
+        "recordHeading": {
+          "type": "string",
+          "description": "Value of the titleFieldId field, if the section declares one and the record has it."
+        },
+        "preamble": {
+          "type": "string",
+          "description": "Evaluated export_config.preamble for this record. Heading variables substituted as empty strings. Present only when the section's render view has an ExportConfig.preamble."
+        },
+        "fields": {
+          "type": "object",
+          "description": "Typed field values keyed by fieldId. Values are raw JSON (string, number, boolean, array, or null). Empty/absent fields are omitted when omitEmptyFields is true.",
+          "additionalProperties": true
+        },
+        "orderedFieldKeys": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Field IDs in the effective render order (ExportConfig.fieldOrder or fallback order). Covers top-level fields only."
+        },
+        "fieldGroups": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ProjectedFieldGroup" },
+          "description": "Structured field group data. Present only when the record's type defines fieldGroups and the record has matching groupValues. Omitted entirely when no groups have data."
+        }
+      }
+    },
+    "ProjectedFieldGroup": {
+      "type": "object",
+      "required": ["groupId", "entries"],
+      "additionalProperties": false,
+      "properties": {
+        "groupId": { "type": "string" },
+        "label": { "type": "string" },
+        "entries": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ProjectedGroupEntry" }
+        }
+      }
+    },
+    "ProjectedGroupEntry": {
+      "type": "object",
+      "required": ["fields"],
+      "additionalProperties": false,
+      "properties": {
+        "entryId": { "type": "string" },
+        "fields": {
+          "type": "object",
+          "description": "Field values for this group entry, keyed by fieldId. Raw JSON values.",
+          "additionalProperties": true
+        }
+      }
+    }
+  }
+}

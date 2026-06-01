@@ -11,6 +11,6 @@
   "types": ["types/grouped-type.json"],
   "relationTypes": [],
   "views": [],
-  "documentViews": [],
+  "documentViews": ["document-views/json-projection-view.json"],
   "createdAt": "2026-05-01T00:00:00Z"
 }

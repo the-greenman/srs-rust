@@ -6,6 +6,8 @@ use thiserror::Error;
 pub const CONTAINER_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/container.json";
 pub const DOCUMENT_VIEW_SCHEMA_ID: &str =
     "https://srs.semanticops.com/schema/2.0/document-view.json";
+pub const DOCUMENT_VIEW_OUTPUT_SCHEMA_ID: &str =
+    "https://srs.semanticops.com/schema/2.0/document-view-output.json";
 pub const FIELD_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/field.json";
 pub const FEDERATION_EVENTS_SCHEMA_ID: &str =
     "https://srs.semanticops.com/schema/2.0/federation-events.json";
@@ -32,6 +34,7 @@ pub const VIEW_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/view.js
 pub const ALL_SCHEMA_IDS: &[&str] = &[
     CONTAINER_SCHEMA_ID,
     DOCUMENT_VIEW_SCHEMA_ID,
+    DOCUMENT_VIEW_OUTPUT_SCHEMA_ID,
     FIELD_SCHEMA_ID,
     FEDERATION_EVENTS_SCHEMA_ID,
     FEDERATION_REGISTRY_SCHEMA_ID,
@@ -60,6 +63,10 @@ static SCHEMA_SOURCES: &[(&str, &str)] = &[
     (
         DOCUMENT_VIEW_SCHEMA_ID,
         include_schema!("document-view.json"),
+    ),
+    (
+        DOCUMENT_VIEW_OUTPUT_SCHEMA_ID,
+        include_schema!("document-view-output.json"),
     ),
     (FIELD_SCHEMA_ID, include_schema!("field.json")),
     (
@@ -203,7 +210,7 @@ mod tests {
     #[test]
     fn registry_builds_and_has_all_schema_ids() {
         let reg = SchemaRegistry::global();
-        assert_eq!(reg.schema_ids().len(), 17);
+        assert_eq!(reg.schema_ids().len(), 18);
         for id in ALL_SCHEMA_IDS {
             assert!(reg.schema_ids().contains(id), "missing: {id}");
         }

@@ -4,6 +4,7 @@ use crate::package::Package;
 use crate::record_store::{get_record_by_id, list_records_by_type};
 use crate::relation_service::load_relations;
 use crate::store::RepositoryStore;
+use serde_json::json;
 use srs_core::types::field::ValueType;
 use srs_core::types::record::Record;
 use srs_core::types::relation::Relation;
@@ -23,6 +24,67 @@ pub struct RenderDocumentViewOptions<'a> {
 pub struct RenderResult {
     pub rendered: String,
     pub diagnostics: Vec<String>,
+    pub projection: Option<DocumentViewProjection>,
+}
+
+// ── JSON projection output types ──────────────────────────────────────────────
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectedGroupEntry {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entry_id: Option<String>,
+    pub fields: serde_json::Value,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectedFieldGroup {
+    pub group_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    pub entries: Vec<ProjectedGroupEntry>,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectedRecord {
+    pub instance_id: String,
+    pub type_id: String,
+    pub type_namespace: String,
+    pub type_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub record_heading: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preamble: Option<String>,
+    pub fields: serde_json::Value,
+    pub ordered_field_keys: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field_groups: Option<Vec<ProjectedFieldGroup>>,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectedSection {
+    pub section_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub order: i32,
+    pub records: Vec<ProjectedRecord>,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentViewProjection {
+    #[serde(rename = "$schema")]
+    pub schema: String,
+    pub document_view_id: String,
+    pub container_id: Option<String>,
+    pub generated_at: String,
+    pub container_title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preamble: Option<String>,
+    pub sections: Vec<ProjectedSection>,
 }
 
 #[derive(Clone)]
@@ -66,6 +128,23 @@ pub fn render_document_view(
     }
     let active_theme =
         resolve_active_theme(&dv, &package, opts.theme_variant, format, &mut diagnostics);
+
+    if format == "json" {
+        let projection = project_document_view_json(
+            opts.store,
+            &package,
+            &dv,
+            &manifest,
+            &container_title,
+            &relations,
+            &mut diagnostics,
+        )?;
+        return Ok(RenderResult {
+            rendered: String::new(),
+            diagnostics,
+            projection: Some(projection),
+        });
+    }
 
     let ctx = RenderContext {
         package: &package,
@@ -119,7 +198,367 @@ pub fn render_document_view(
     Ok(RenderResult {
         rendered,
         diagnostics,
+        projection: None,
     })
+}
+
+// ── JSON projection engine ─────────────────────────────────────────────────────
+
+#[allow(clippy::too_many_arguments)]
+fn project_document_view_json(
+    store: &dyn RepositoryStore,
+    package: &Package,
+    dv: &DocumentView,
+    manifest: &crate::manifest::Manifest,
+    container_title: &str,
+    relations: &[Relation],
+    diagnostics: &mut Vec<String>,
+) -> Result<DocumentViewProjection, RepositoryError> {
+    let container_id = resolve_container_id_from_sections(&dv.sections);
+    if container_id.is_none() {
+        let subset_ids: Vec<String> = dv
+            .sections
+            .iter()
+            .filter_map(|s| {
+                if let SectionSource::ContainerSubset { container_id, .. } = &s.source {
+                    Some(container_id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if subset_ids.len() > 1 {
+            diagnostics.push(format!(
+                "[json-projection] view {} has multiple ContainerSubset sections with different container IDs; using first ({})",
+                dv.id, subset_ids[0]
+            ));
+        }
+    }
+
+    let doc_preamble = dv
+        .preamble
+        .as_ref()
+        .map(|p| substitute_vars_json_blanked(p, container_title, manifest));
+
+    let mut sections = dv.sections.clone();
+    sections.sort_by_key(|s| s.order);
+
+    let mut projected_sections = Vec::new();
+    for section in &sections {
+        let projected = project_section_json(store, package, section, relations, diagnostics)?;
+        projected_sections.push(projected);
+    }
+
+    Ok(DocumentViewProjection {
+        schema: "https://srs.semanticops.com/schema/2.0/document-view-output.json".to_string(),
+        document_view_id: dv.id.clone(),
+        container_id,
+        generated_at: chrono::Utc::now().to_rfc3339(),
+        container_title: container_title.to_string(),
+        preamble: doc_preamble,
+        sections: projected_sections,
+    })
+}
+
+fn resolve_container_id_from_sections(sections: &[DocumentSection]) -> Option<String> {
+    sections.iter().find_map(|s| {
+        if let SectionSource::ContainerSubset { container_id, .. } = &s.source {
+            Some(container_id.clone())
+        } else {
+            None
+        }
+    })
+}
+
+fn substitute_vars_json_blanked(
+    template: &str,
+    container_title: &str,
+    manifest: &crate::manifest::Manifest,
+) -> String {
+    let mut out = template.to_string();
+    for level in 1..=6 {
+        out = out.replace(&format!("{{{{heading-{level}}}}}"), "");
+    }
+    out = out.replace("{{container-title}}", container_title);
+    let date = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    out = out.replace("{{date}}", &date);
+    let namespace = manifest
+        .extra
+        .get("namespace")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    out = out.replace("{{container-id}}", namespace);
+    out
+}
+
+fn project_section_json(
+    store: &dyn RepositoryStore,
+    package: &Package,
+    section: &DocumentSection,
+    relations: &[Relation],
+    diagnostics: &mut Vec<String>,
+) -> Result<ProjectedSection, RepositoryError> {
+    let mut records = resolve_section_instances(store, section, relations, diagnostics)?;
+
+    if let Some(ordering) = &section.ordering {
+        if let Some(field_id) = &ordering.field_id {
+            records.sort_by(|a, b| {
+                let av = a.get_field_value_str(field_id).unwrap_or("");
+                let bv = b.get_field_value_str(field_id).unwrap_or("");
+                av.cmp(bv)
+            });
+            if matches!(ordering.direction, Some(SortDirection::Desc)) {
+                records.reverse();
+            }
+        }
+    } else if matches!(&section.source, SectionSource::TypeQuery { .. }) {
+        records = sort_by_precedes_chain(records, relations);
+    }
+
+    let projected_records = records
+        .iter()
+        .map(|record| project_record_json(package, section, record, diagnostics))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(ProjectedSection {
+        section_id: section.section_id.clone(),
+        title: section.title.clone(),
+        order: section.order,
+        records: projected_records,
+    })
+}
+
+fn project_record_json(
+    package: &Package,
+    section: &DocumentSection,
+    record: &Record,
+    diagnostics: &mut Vec<String>,
+) -> Result<ProjectedRecord, RepositoryError> {
+    let rt = package
+        .resolve_type(&record.type_id, record.type_version)
+        .cloned();
+
+    let record_heading = section
+        .title_field_id
+        .as_ref()
+        .and_then(|fid| record.get_field_value_str(fid).map(|v| v.to_string()));
+
+    let mut fields_to_render: Vec<ResolvedFieldRender> = Vec::new();
+    let mut omit_empty = false;
+    let mut record_preamble: Option<String> = None;
+
+    if let Some(view_id) = &section.render_view_id {
+        if let Some(view) = package.resolve_view(view_id) {
+            if let Some(export_config) = &view.export_config {
+                if let Some(preamble_tmpl) = &export_config.preamble {
+                    record_preamble = Some(substitute_vars_record_json(preamble_tmpl, record));
+                }
+                omit_empty = export_config.omit_empty_fields == Some(true);
+                if let Some(order) = &export_config.field_order {
+                    fields_to_render = order
+                        .iter()
+                        .cloned()
+                        .map(|field_id| ResolvedFieldRender {
+                            field_id,
+                            required: false,
+                        })
+                        .collect();
+                }
+            }
+            if fields_to_render.is_empty() {
+                let mut field_views = view.field_views.clone();
+                field_views.sort_by_key(|fv| fv.order);
+                for fv in field_views {
+                    if fv.visible == Some(false) {
+                        continue;
+                    }
+                    fields_to_render.push(ResolvedFieldRender {
+                        field_id: fv.field_id,
+                        required: fv.required == Some(true),
+                    });
+                }
+            }
+        }
+    } else if let Some(rt) = &rt {
+        let mut assignments = rt.fields.clone();
+        assignments.sort_by_key(|fa| fa.order);
+        for fa in assignments {
+            fields_to_render.push(ResolvedFieldRender {
+                field_id: fa.field_id,
+                required: fa.required,
+            });
+        }
+    } else {
+        for fv in &record.field_values {
+            fields_to_render.push(ResolvedFieldRender {
+                field_id: fv.field_id.clone(),
+                required: false,
+            });
+        }
+    }
+
+    let ordered_field_keys: Vec<String> = fields_to_render
+        .iter()
+        .map(|f| f.field_id.clone())
+        .collect();
+    let mut fields_map = serde_json::Map::new();
+
+    for field in &fields_to_render {
+        let field_id = &field.field_id;
+        let field_value = record.find_field_value(field_id);
+        let field_def = package.resolve_field(field_id);
+        let field_type = field_def.map(|f| f.value_type);
+        let json_val = field_value.and_then(|fv| field_value_to_json(fv, field_type));
+
+        if field.required && json_val.is_none() {
+            diagnostics.push(format!(
+                "[view-required] view {} record {} is missing required field {} for rendered view",
+                section
+                    .render_view_id
+                    .as_deref()
+                    .unwrap_or("<no-render-view-id>"),
+                record.instance_id,
+                field_id
+            ));
+        }
+
+        match json_val {
+            Some(v) => {
+                fields_map.insert(field_id.clone(), v);
+            }
+            None => {
+                if !omit_empty {
+                    fields_map.insert(field_id.clone(), serde_json::Value::Null);
+                }
+            }
+        }
+    }
+
+    let field_groups = project_field_groups_json(package, record, &rt);
+
+    Ok(ProjectedRecord {
+        instance_id: record.instance_id.clone(),
+        type_id: record.type_id.clone(),
+        type_namespace: record.type_namespace.clone(),
+        type_name: record.type_name.clone(),
+        record_heading,
+        preamble: record_preamble,
+        fields: serde_json::Value::Object(fields_map),
+        ordered_field_keys,
+        field_groups,
+    })
+}
+
+fn substitute_vars_record_json(template: &str, record: &Record) -> String {
+    let mut out = template.to_string();
+    for level in 1..=6 {
+        out = out.replace(&format!("{{{{heading-{level}}}}}"), "");
+    }
+    out = out.replace("{{instance-id}}", &record.instance_id);
+    out = out.replace("{{type-name}}", &record.type_name);
+    out = out.replace("{{type-namespace}}", &record.type_namespace);
+    out
+}
+
+fn project_field_groups_json(
+    package: &Package,
+    record: &Record,
+    rt: &Option<srs_core::types::record_type::RecordType>,
+) -> Option<Vec<ProjectedFieldGroup>> {
+    let rt = rt.as_ref()?;
+    let field_groups_def = rt.field_groups.as_ref()?;
+
+    let mut groups_def = field_groups_def.clone();
+    groups_def.sort_by_key(|g| g.order);
+
+    let mut result = Vec::new();
+    for group_def in &groups_def {
+        let group_value = match record.find_group_value(&group_def.group_id) {
+            Some(gv) if !gv.entries.is_empty() => gv,
+            _ => continue,
+        };
+
+        let mut field_assignments = group_def.fields.clone();
+        field_assignments.sort_by_key(|fa| fa.order);
+
+        let entries = group_value
+            .entries
+            .iter()
+            .map(|entry| {
+                let mut entry_fields = serde_json::Map::new();
+                for assignment in &field_assignments {
+                    let fv = entry
+                        .field_values
+                        .iter()
+                        .find(|v| v.field_id == assignment.field_id);
+                    if let Some(fv) = fv {
+                        let field_type = package
+                            .resolve_field(&assignment.field_id)
+                            .map(|f| f.value_type);
+                        let json_val =
+                            field_value_to_json(fv, field_type).unwrap_or(serde_json::Value::Null);
+                        entry_fields.insert(assignment.field_id.clone(), json_val);
+                    }
+                }
+                ProjectedGroupEntry {
+                    entry_id: entry.entry_id.clone(),
+                    fields: serde_json::Value::Object(entry_fields),
+                }
+            })
+            .collect();
+
+        result.push(ProjectedFieldGroup {
+            group_id: group_def.group_id.clone(),
+            label: group_def.label.clone(),
+            entries,
+        });
+    }
+
+    if result.is_empty() {
+        None
+    } else {
+        Some(result)
+    }
+}
+
+fn field_value_to_json(
+    field_value: &srs_core::types::record::FieldValue,
+    value_type: Option<ValueType>,
+) -> Option<serde_json::Value> {
+    if let Some(entries) = &field_value.entries {
+        if entries.is_empty() {
+            return None;
+        }
+        let vals: Vec<serde_json::Value> = entries
+            .iter()
+            .map(|e| coerce_json_value(&e.value, value_type))
+            .collect();
+        return Some(serde_json::Value::Array(vals));
+    }
+    if field_value.value.is_null() {
+        return None;
+    }
+    Some(coerce_json_value(&field_value.value, value_type))
+}
+
+fn coerce_json_value(raw: &serde_json::Value, value_type: Option<ValueType>) -> serde_json::Value {
+    match value_type {
+        Some(ValueType::Number) => {
+            if let Some(n) = raw.as_str().and_then(|s| s.parse::<i64>().ok()) {
+                return json!(n);
+            }
+            if let Some(f) = raw.as_str().and_then(|s| s.parse::<f64>().ok()) {
+                return json!(f);
+            }
+        }
+        Some(ValueType::Boolean) => match raw.as_str() {
+            Some("true") => return json!(true),
+            Some("false") => return json!(false),
+            _ => {}
+        },
+        _ => {}
+    }
+    raw.clone()
 }
 
 fn resolve_active_theme(
@@ -1349,6 +1788,196 @@ mod tests {
             !result.rendered.contains("DOC{{unknown}}["),
             "expected plain render without theme, got: {}",
             result.rendered
+        );
+    }
+
+    fn field_groups_fixture_root() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../srs-cli/tests/fixtures/field-groups")
+    }
+
+    #[test]
+    fn json_projection_returns_projection_not_rendered_string() {
+        let repo_root = field_groups_fixture_root();
+        let store = FileStore::new(&repo_root);
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "00000000-0000-4000-8000-000000000971",
+            format: Some("json"),
+            theme_variant: None,
+        })
+        .expect("render should succeed");
+        assert!(
+            result.projection.is_some(),
+            "expected projection to be populated"
+        );
+        assert!(
+            result.rendered.is_empty(),
+            "expected rendered string to be empty for json mode"
+        );
+    }
+
+    #[test]
+    fn json_projection_schema_and_view_id_fields() {
+        let repo_root = field_groups_fixture_root();
+        let store = FileStore::new(&repo_root);
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "00000000-0000-4000-8000-000000000971",
+            format: Some("json"),
+            theme_variant: None,
+        })
+        .expect("render should succeed");
+        let proj = result.projection.unwrap();
+        assert_eq!(
+            proj.schema,
+            "https://srs.semanticops.com/schema/2.0/document-view-output.json"
+        );
+        assert_eq!(
+            proj.document_view_id,
+            "00000000-0000-4000-8000-000000000971"
+        );
+        assert!(!proj.generated_at.is_empty(), "generatedAt must be set");
+    }
+
+    #[test]
+    fn json_projection_container_id_is_null_for_type_query_section() {
+        let repo_root = field_groups_fixture_root();
+        let store = FileStore::new(&repo_root);
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "00000000-0000-4000-8000-000000000971",
+            format: Some("json"),
+            theme_variant: None,
+        })
+        .expect("render should succeed");
+        let proj = result.projection.unwrap();
+        assert!(
+            proj.container_id.is_none(),
+            "containerId should be null when no ContainerSubset section: {:?}",
+            proj.container_id
+        );
+    }
+
+    #[test]
+    fn json_projection_preamble_blanks_heading_vars() {
+        let repo_root = field_groups_fixture_root();
+        let store = FileStore::new(&repo_root);
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "00000000-0000-4000-8000-000000000971",
+            format: Some("json"),
+            theme_variant: None,
+        })
+        .expect("render should succeed");
+        let proj = result.projection.unwrap();
+        let preamble = proj.preamble.expect("preamble should be present");
+        assert!(
+            preamble.contains("Groups Fixture"),
+            "preamble should contain container-title, got: {preamble}"
+        );
+        assert!(
+            !preamble.contains("{{heading-"),
+            "heading vars must be blanked, got: {preamble}"
+        );
+        assert!(
+            preamble.contains("exported"),
+            "static text after heading var should remain, got: {preamble}"
+        );
+    }
+
+    #[test]
+    fn json_projection_sections_ordered_and_records_present() {
+        let repo_root = field_groups_fixture_root();
+        let store = FileStore::new(&repo_root);
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "00000000-0000-4000-8000-000000000971",
+            format: Some("json"),
+            theme_variant: None,
+        })
+        .expect("render should succeed");
+        let proj = result.projection.unwrap();
+        assert_eq!(proj.sections.len(), 1, "expected 1 section");
+        let section = &proj.sections[0];
+        assert_eq!(section.section_id, "all-groups");
+        assert_eq!(section.order, 0);
+        assert!(!section.records.is_empty(), "section should have records");
+    }
+
+    #[test]
+    fn json_projection_record_has_identity_fields() {
+        let repo_root = field_groups_fixture_root();
+        let store = FileStore::new(&repo_root);
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "00000000-0000-4000-8000-000000000971",
+            format: Some("json"),
+            theme_variant: None,
+        })
+        .expect("render should succeed");
+        let proj = result.projection.unwrap();
+        let record = proj.sections[0]
+            .records
+            .iter()
+            .find(|r| r.instance_id == "00000000-0000-4000-8000-000000000981")
+            .expect("valid record should be present");
+        assert_eq!(record.type_id, "00000000-0000-4000-8000-000000000913");
+        assert_eq!(record.type_namespace, "fixture.groups");
+        assert_eq!(record.type_name, "grouped-item");
+    }
+
+    #[test]
+    fn json_projection_record_field_groups_populated() {
+        let repo_root = field_groups_fixture_root();
+        let store = FileStore::new(&repo_root);
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "00000000-0000-4000-8000-000000000971",
+            format: Some("json"),
+            theme_variant: None,
+        })
+        .expect("render should succeed");
+        let proj = result.projection.unwrap();
+        let record = proj.sections[0]
+            .records
+            .iter()
+            .find(|r| r.instance_id == "00000000-0000-4000-8000-000000000981")
+            .expect("valid record should be present");
+        let groups = record
+            .field_groups
+            .as_ref()
+            .expect("fieldGroups must be present for valid record");
+        assert_eq!(groups.len(), 1, "expected 1 field group");
+        let group = &groups[0];
+        assert_eq!(group.group_id, "people");
+        assert_eq!(group.entries.len(), 2, "expected 2 entries (alice, bob)");
+        let alice = &group.entries[0];
+        assert_eq!(
+            alice.fields.get("00000000-0000-4000-8000-000000000911"),
+            Some(&serde_json::Value::String("alice".to_string())),
+            "first entry should have name=alice"
+        );
+    }
+
+    #[test]
+    fn json_projection_format_override_uses_json_branch() {
+        let repo_root = repeatable_fixture_root();
+        let store = FileStore::new(&repo_root);
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "00000000-0000-4000-8000-000000000981",
+            format: Some("json"),
+            theme_variant: None,
+        })
+        .expect("render should succeed");
+        assert!(
+            result.projection.is_some(),
+            "projection must be present when format=json overrides view format"
+        );
+        assert!(
+            result.rendered.is_empty(),
+            "rendered must be empty in json mode"
         );
     }
 

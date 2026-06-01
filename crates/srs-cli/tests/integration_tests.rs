@@ -1009,6 +1009,235 @@ fn tag_create_and_retrieve_in_temp_repo() {
     assert_eq!(foundation_defs[0]["tagKey"], "test-purpose");
 }
 
+// ---------- render document-view tests ----------
+
+fn field_groups_fixture_dir() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/field-groups")
+}
+
+fn repeatable_fields_fixture_dir() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/repeatable-fields")
+}
+
+#[test]
+fn render_document_view_json_returns_projection_payload() {
+    let fixture = field_groups_fixture_dir();
+    let result = run_srs_in_dir(
+        &fixture,
+        &[
+            "render",
+            "document-view",
+            "--view",
+            "00000000-0000-4000-8000-000000000971",
+            "--view-format",
+            "json",
+        ],
+    );
+
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["command"], "render document-view");
+
+    let payload = &result["payload"];
+    assert!(
+        payload["projection"].is_object(),
+        "payload.projection should be an object, got: {:?}",
+        payload
+    );
+
+    let proj = &payload["projection"];
+    assert_eq!(
+        proj["$schema"],
+        "https://srs.semanticops.com/schema/2.0/document-view-output.json"
+    );
+    assert_eq!(
+        proj["documentViewId"],
+        "00000000-0000-4000-8000-000000000971"
+    );
+    assert!(proj["generatedAt"].is_string());
+    assert!(proj["sections"].is_array());
+    assert_eq!(proj["containerId"], Value::Null);
+}
+
+#[test]
+fn render_document_view_json_projection_sections_and_records() {
+    let fixture = field_groups_fixture_dir();
+    let result = run_srs_in_dir(
+        &fixture,
+        &[
+            "render",
+            "document-view",
+            "--view",
+            "00000000-0000-4000-8000-000000000971",
+            "--view-format",
+            "json",
+        ],
+    );
+
+    assert_eq!(result["ok"], true);
+    let sections = result["payload"]["projection"]["sections"]
+        .as_array()
+        .unwrap();
+    assert_eq!(sections.len(), 1);
+
+    let section = &sections[0];
+    assert_eq!(section["sectionId"], "all-groups");
+    assert_eq!(section["order"], 0);
+
+    let records = section["records"].as_array().unwrap();
+    let valid_record = records
+        .iter()
+        .find(|r| r["instanceId"] == "00000000-0000-4000-8000-000000000981")
+        .expect("valid record should be present");
+
+    assert_eq!(valid_record["typeNamespace"], "fixture.groups");
+    assert_eq!(valid_record["typeName"], "grouped-item");
+
+    let groups = valid_record["fieldGroups"].as_array().unwrap();
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0]["groupId"], "people");
+    assert_eq!(groups[0]["entries"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn render_document_view_json_rendered_string_is_empty() {
+    let fixture = field_groups_fixture_dir();
+    let result = run_srs_in_dir(
+        &fixture,
+        &[
+            "render",
+            "document-view",
+            "--view",
+            "00000000-0000-4000-8000-000000000971",
+            "--view-format",
+            "json",
+        ],
+    );
+
+    assert_eq!(result["ok"], true);
+    assert_eq!(
+        result["payload"]["rendered"], "",
+        "rendered should be empty string in json mode"
+    );
+}
+
+#[test]
+fn render_document_view_json_writes_output_file() {
+    let fixture = field_groups_fixture_dir();
+    let temp = tempfile::TempDir::new().unwrap();
+    let out_path = temp.path().join("output.json");
+    let out_str = out_path.to_str().unwrap();
+
+    let result = run_srs_in_dir(
+        &fixture,
+        &[
+            "render",
+            "document-view",
+            "--view",
+            "00000000-0000-4000-8000-000000000971",
+            "--view-format",
+            "json",
+            "--output",
+            out_str,
+        ],
+    );
+
+    assert_eq!(result["ok"], true, "render command failed: {:?}", result);
+    assert!(out_path.exists(), "--output file should have been created");
+
+    let file_content = std::fs::read_to_string(&out_path).expect("output file should be readable");
+    let parsed: Value =
+        serde_json::from_str(&file_content).expect("output file should be valid JSON");
+
+    assert_eq!(
+        parsed["$schema"],
+        "https://srs.semanticops.com/schema/2.0/document-view-output.json"
+    );
+    assert_eq!(
+        parsed["documentViewId"],
+        "00000000-0000-4000-8000-000000000971"
+    );
+    assert!(parsed["sections"].is_array());
+}
+
+#[test]
+fn render_document_view_markup_writes_markup_to_output_file() {
+    let fixture = repeatable_fields_fixture_dir();
+    let temp = tempfile::TempDir::new().unwrap();
+    let out_path = temp.path().join("output.md");
+    let out_str = out_path.to_str().unwrap();
+
+    let result = run_srs_in_dir(
+        &fixture,
+        &[
+            "render",
+            "document-view",
+            "--view",
+            "00000000-0000-4000-8000-000000000981",
+            "--output",
+            out_str,
+        ],
+    );
+
+    assert_eq!(result["ok"], true, "render command failed: {:?}", result);
+    assert!(out_path.exists(), "--output file should have been created");
+
+    let file_content = std::fs::read_to_string(&out_path).expect("output file should be readable");
+    assert!(
+        !file_content.is_empty(),
+        "markup output file should not be empty"
+    );
+    assert!(
+        !file_content.contains("$schema"),
+        "markup output should not contain $schema"
+    );
+}
+
+#[test]
+fn render_document_view_markup_no_projection_in_payload() {
+    let fixture = repeatable_fields_fixture_dir();
+    let result = run_srs_in_dir(
+        &fixture,
+        &[
+            "render",
+            "document-view",
+            "--view",
+            "00000000-0000-4000-8000-000000000981",
+        ],
+    );
+
+    assert_eq!(result["ok"], true);
+    assert!(
+        result["payload"]["projection"].is_null(),
+        "markup mode should not include projection field, got: {:?}",
+        result["payload"]["projection"]
+    );
+    assert!(
+        !result["payload"]["rendered"]
+            .as_str()
+            .unwrap_or("")
+            .is_empty(),
+        "markup mode should have non-empty rendered string"
+    );
+}
+
+#[test]
+fn render_document_view_unknown_view_id_returns_error() {
+    let fixture = field_groups_fixture_dir();
+    let (ok, raw) = run_srs_raw(
+        &fixture,
+        &[
+            "render",
+            "document-view",
+            "--view",
+            "00000000-0000-0000-0000-000000000000",
+        ],
+    );
+    assert!(ok, "command should exit 0 with JSON envelope");
+    let result: Value = serde_json::from_str(&raw).expect("json output");
+    assert_eq!(result["ok"], false);
+    assert_eq!(result["command"], "render document-view");
+}
+
 // ---------- relation-type tests ----------
 
 #[test]

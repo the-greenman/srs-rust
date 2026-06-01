@@ -1,0 +1,22 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json",
+  "id": "00000000-0000-4000-8000-000000000971",
+  "namespace": "fixture.groups",
+  "name": "json-projection-view",
+  "version": 1,
+  "description": "JSON projection for grouped-item records",
+  "format": "json",
+  "preamble": "Groups Fixture — {{container-title}} — {{heading-1}}exported",
+  "sections": [
+    {
+      "sectionId": "all-groups",
+      "title": "All Groups",
+      "order": 0,
+      "source": {
+        "type": "type-query",
+        "semanticObjectType": "fixture.groups/grouped-item"
+      }
+    }
+  ],
+  "createdAt": "2026-01-01T00:00:00Z"
+}

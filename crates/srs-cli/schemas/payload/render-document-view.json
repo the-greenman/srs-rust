@@ -13,8 +13,188 @@
         "type": "string"
       }
     },
+    "projection": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/DocumentViewProjection"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "rendered": {
       "type": "string"
+    }
+  },
+  "definitions": {
+    "DocumentViewProjection": {
+      "description": "The top-level JSON projection object for a rendered document view.",
+      "type": "object",
+      "required": [
+        "$schema",
+        "containerTitle",
+        "documentViewId",
+        "generatedAt",
+        "sections"
+      ],
+      "properties": {
+        "$schema": {
+          "type": "string"
+        },
+        "containerId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "containerTitle": {
+          "type": "string"
+        },
+        "documentViewId": {
+          "type": "string"
+        },
+        "generatedAt": {
+          "type": "string"
+        },
+        "preamble": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sections": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ProjectedSection"
+          }
+        }
+      }
+    },
+    "ProjectedFieldGroup": {
+      "description": "A projected field group (one group definition + its record data).",
+      "type": "object",
+      "required": [
+        "entries",
+        "groupId"
+      ],
+      "properties": {
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ProjectedGroupEntry"
+          }
+        },
+        "groupId": {
+          "type": "string"
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "ProjectedGroupEntry": {
+      "description": "A single field-group entry in a JSON projection record.",
+      "type": "object",
+      "required": [
+        "fields"
+      ],
+      "properties": {
+        "entryId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fields": true
+      }
+    },
+    "ProjectedRecord": {
+      "description": "A single record in a JSON projection section.",
+      "type": "object",
+      "required": [
+        "fields",
+        "instanceId",
+        "orderedFieldKeys",
+        "typeId",
+        "typeName",
+        "typeNamespace"
+      ],
+      "properties": {
+        "fieldGroups": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/definitions/ProjectedFieldGroup"
+          }
+        },
+        "fields": true,
+        "instanceId": {
+          "type": "string"
+        },
+        "orderedFieldKeys": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "preamble": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recordHeading": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "typeId": {
+          "type": "string"
+        },
+        "typeName": {
+          "type": "string"
+        },
+        "typeNamespace": {
+          "type": "string"
+        }
+      }
+    },
+    "ProjectedSection": {
+      "description": "A single section in a JSON projection document.",
+      "type": "object",
+      "required": [
+        "order",
+        "records",
+        "sectionId"
+      ],
+      "properties": {
+        "order": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ProjectedRecord"
+          }
+        },
+        "sectionId": {
+          "type": "string"
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
     }
   }
 }
