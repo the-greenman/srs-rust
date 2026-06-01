@@ -213,6 +213,14 @@ pub enum RepositoryError {
 
     #[error("definition not found: {id}")]
     DefinitionNotFound { id: String },
+
+    #[error("cannot delete {entity_type} '{id}': still referenced by [{used_by}]",
+            used_by = used_by.join(", "))]
+    CannotDeleteInUse {
+        entity_type: String,
+        id: String,
+        used_by: Vec<String>,
+    },
 }
 
 impl PartialEq for RepositoryError {
@@ -483,6 +491,18 @@ impl PartialEq for RepositoryError {
                 RepositoryError::DefinitionNotFound { id: a },
                 RepositoryError::DefinitionNotFound { id: b },
             ) => a == b,
+            (
+                RepositoryError::CannotDeleteInUse {
+                    entity_type: eta,
+                    id: ia,
+                    used_by: ua,
+                },
+                RepositoryError::CannotDeleteInUse {
+                    entity_type: etb,
+                    id: ib,
+                    used_by: ub,
+                },
+            ) => eta == etb && ia == ib && ua == ub,
             _ => false,
         }
     }

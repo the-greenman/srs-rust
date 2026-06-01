@@ -21,6 +21,7 @@
 
 use crate::error::RepositoryError;
 use crate::package_types::{DefinitionKind, PackageBoundary, PackageSelector};
+use crate::relation_service;
 use crate::store::RepositoryStore;
 use crate::writer::new_instance_id;
 use serde::{Deserialize, Serialize};
@@ -745,12 +746,48 @@ pub fn update_relation_type(
 
 /// Delete a relation type definition.
 /// Removes the definition JSON file and updates the boundary index.
+/// Returns the IDs of any Relations whose `relationType` matches `type_name`.
+fn find_relations_of_type(
+    store: &dyn RepositoryStore,
+    type_name: &str,
+) -> Result<Vec<String>, RepositoryError> {
+    let refs: Vec<String> = relation_service::load_relations(store)?
+        .into_iter()
+        .filter(|r| r.relation_type == type_name)
+        .map(|r| r.relation_id)
+        .collect();
+    Ok(refs)
+}
+
+/// Delete a RelationTypeDefinition by ID.
+/// Returns `CannotDeleteInUse` if any Relations use this type.
 pub fn delete_relation_type(
     store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<DeleteRelationTypeResult, RepositoryError> {
     let (full_path, owner) = find_relation_type_path(store, id)?
         .ok_or_else(|| RepositoryError::DefinitionNotFound { id: id.to_string() })?;
+
+    // Resolve the type's name so we can match against relation_type strings
+    let type_name = {
+        if let Ok(val) = store.load_instance_json(&full_path) {
+            val["relationType"].as_str().unwrap_or("").to_string()
+        } else {
+            String::new()
+        }
+    };
+
+    if !type_name.is_empty() {
+        let refs = find_relations_of_type(store, &type_name)?;
+        if !refs.is_empty() {
+            return Err(RepositoryError::CannotDeleteInUse {
+                entity_type: "relation-type".to_string(),
+                id: id.to_string(),
+                used_by: refs,
+            });
+        }
+    }
+
     let boundary_prefix = owner.as_deref().unwrap_or("package");
     let rel_path = full_path
         .strip_prefix(&format!("{boundary_prefix}/"))
@@ -1647,6 +1684,100 @@ mod tests {
             !boundary.field_paths.is_empty(),
             "field_paths must be preserved after save_package_boundary_metadata"
         );
+    }
+
+    #[test]
+    fn relation_type_delete_blocked_when_instances_exist() {
+        use crate::relation_service::load_relations;
+        use srs_core::types::relation_type_definition::{
+            RelationTypeCategory, RelationTypeDefinition,
+        };
+
+        let store = MemoryStore::default();
+
+        let def = RelationTypeDefinition {
+            schema: None,
+            id: "rt-001".to_string(),
+            version: 1,
+            relation_type: "test-link".to_string(),
+            namespace: "com.test".to_string(),
+            label: "Test Link".to_string(),
+            description: "A test relation type".to_string(),
+            category: RelationTypeCategory::Dependency,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            status: None,
+            canonical_direction: None,
+            inverse_type: None,
+            irreflexive: None,
+            allowed_source_types: None,
+            allowed_target_types: None,
+            require_same_semantic_object_type: None,
+            updated_at: None,
+        };
+        create_relation_type(&store, def).unwrap();
+
+        // Write a relation of this type directly, bypassing instance-existence validation
+        let rel_json = serde_json::json!({
+            "relations": [{
+                "relationId": "rel-test-rt-001",
+                "relationType": "test-link",
+                "sourceInstanceId": "source-001",
+                "targetInstanceId": "target-001"
+            }]
+        });
+        store
+            .save_relations_json("relations/relations-collection.json", &rel_json)
+            .unwrap();
+
+        let result = delete_relation_type(&store, "rt-001");
+        match result {
+            Err(RepositoryError::CannotDeleteInUse {
+                entity_type,
+                id,
+                used_by,
+            }) => {
+                assert_eq!(entity_type, "relation-type");
+                assert_eq!(id, "rt-001");
+                assert!(used_by.contains(&"rel-test-rt-001".to_string()));
+            }
+            other => panic!("expected CannotDeleteInUse, got {:?}", other),
+        }
+
+        // Relations unchanged
+        let remaining = load_relations(&store).unwrap();
+        assert_eq!(remaining.len(), 1);
+    }
+
+    #[test]
+    fn relation_type_delete_succeeds_when_no_instances_exist() {
+        use srs_core::types::relation_type_definition::{
+            RelationTypeCategory, RelationTypeDefinition,
+        };
+
+        let store = MemoryStore::default();
+
+        let def = RelationTypeDefinition {
+            schema: None,
+            id: "rt-002".to_string(),
+            version: 1,
+            relation_type: "unused-link".to_string(),
+            namespace: "com.test".to_string(),
+            label: "Unused Link".to_string(),
+            description: "A relation type with no instances".to_string(),
+            category: RelationTypeCategory::Dependency,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            status: None,
+            canonical_direction: None,
+            inverse_type: None,
+            irreflexive: None,
+            allowed_source_types: None,
+            allowed_target_types: None,
+            require_same_semantic_object_type: None,
+            updated_at: None,
+        };
+        create_relation_type(&store, def).unwrap();
+
+        delete_relation_type(&store, "rt-002").unwrap();
     }
 
     #[test]

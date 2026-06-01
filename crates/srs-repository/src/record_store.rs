@@ -24,6 +24,7 @@ use crate::error::RepositoryError;
 use crate::index::InstanceIndexEntry;
 use crate::manifest::Manifest;
 use crate::package_service::{get_type_by_name, GetTypeResult};
+use crate::relation_service;
 use crate::store::RepositoryStore;
 use crate::writer::{new_instance_id, write_manifest};
 use serde::Deserialize;
@@ -218,11 +219,34 @@ pub fn update_record(
     Ok(updated_record)
 }
 
+/// Returns the IDs of any Relations that reference `instance_id` as source or target.
+fn find_relations_referencing_instance(
+    store: &dyn RepositoryStore,
+    instance_id: &str,
+) -> Result<Vec<String>, RepositoryError> {
+    let refs: Vec<String> = relation_service::load_relations(store)?
+        .into_iter()
+        .filter(|r| r.source_instance_id == instance_id || r.target_instance_id == instance_id)
+        .map(|r| r.relation_id)
+        .collect();
+    Ok(refs)
+}
+
 /// Delete a Tier 2 record by its instance ID.
+/// Returns `CannotDeleteInUse` if any Relation references this record as source or target.
 pub fn delete_record(
     store: &dyn RepositoryStore,
     instance_id: &str,
 ) -> Result<String, RepositoryError> {
+    let refs = find_relations_referencing_instance(store, instance_id)?;
+    if !refs.is_empty() {
+        return Err(RepositoryError::CannotDeleteInUse {
+            entity_type: "record".to_string(),
+            id: instance_id.to_string(),
+            used_by: refs,
+        });
+    }
+
     let mut manifest = store.load_manifest()?;
 
     let entry_index = manifest
@@ -767,6 +791,98 @@ mod tests {
             edited_at: None,
         }];
         assert!(update_record(&store, &instance_id, invalid_values).is_err());
+    }
+
+    #[test]
+    fn record_delete_blocked_when_relation_references_it() {
+        use crate::relation_service::load_relations;
+
+        let store = make_store_with_package();
+
+        let record_a = create_record(
+            &store,
+            "type-test-001",
+            1,
+            vec![FieldValue {
+                field_id: "field-name-001".to_string(),
+                value: json!("Record A"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            }],
+            "records/test-items",
+        )
+        .unwrap();
+
+        let record_b = create_record(
+            &store,
+            "type-test-001",
+            1,
+            vec![FieldValue {
+                field_id: "field-name-001".to_string(),
+                value: json!("Record B"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            }],
+            "records/test-items",
+        )
+        .unwrap();
+
+        // Write a relation directly to the store, bypassing type-definition validation
+        // (the guard only checks existence, not type validity).
+        let rel_json = json!({
+            "relations": [{
+                "relationId": "rel-test-001",
+                "relationType": "depends-on",
+                "sourceInstanceId": record_a.instance_id,
+                "targetInstanceId": record_b.instance_id
+            }]
+        });
+        store
+            .save_relations_json("relations/relations-collection.json", &rel_json)
+            .unwrap();
+
+        // Deleting record_b (the target) should be blocked
+        let result = delete_record(&store, &record_b.instance_id);
+        match result {
+            Err(RepositoryError::CannotDeleteInUse {
+                entity_type,
+                id,
+                used_by,
+            }) => {
+                assert_eq!(entity_type, "record");
+                assert_eq!(id, record_b.instance_id);
+                assert!(used_by.contains(&"rel-test-001".to_string()));
+            }
+            other => panic!("expected CannotDeleteInUse, got {:?}", other),
+        }
+
+        // Relation still exists — nothing was deleted
+        let remaining = load_relations(&store).unwrap();
+        assert_eq!(remaining.len(), 1);
+    }
+
+    #[test]
+    fn record_delete_succeeds_when_no_relations_reference_it() {
+        let store = make_store_with_package();
+
+        let record = create_record(
+            &store,
+            "type-test-001",
+            1,
+            vec![FieldValue {
+                field_id: "field-name-001".to_string(),
+                value: json!("Isolated Record"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            }],
+            "records/test-items",
+        )
+        .unwrap();
+
+        delete_record(&store, &record.instance_id).unwrap();
     }
 
     #[test]

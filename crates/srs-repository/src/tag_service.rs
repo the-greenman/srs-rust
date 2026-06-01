@@ -55,6 +55,7 @@ pub struct UpdateTagDefinitionResult {
 }
 
 /// Result type for delete_tag_definition
+#[derive(Debug)]
 pub struct DeleteTagDefinitionResult {
     pub instance_id: String,
 }
@@ -309,7 +310,28 @@ pub fn update_tag_definition_validated(
     update_tag_definition(store, tag)
 }
 
+/// Returns instance IDs of any manifest entries whose `tags` list contains `tag_key`.
+fn find_instances_using_tag(
+    store: &dyn RepositoryStore,
+    tag_key: &str,
+) -> Result<Vec<String>, RepositoryError> {
+    let manifest = store.load_manifest()?;
+    let refs: Vec<String> = manifest
+        .instance_index
+        .iter()
+        .filter(|e| {
+            e.tags
+                .as_ref()
+                .map(|tags| tags.iter().any(|t| t == tag_key))
+                .unwrap_or(false)
+        })
+        .map(|e| e.instance_id().to_string())
+        .collect();
+    Ok(refs)
+}
+
 /// Delete a TagDefinition by ID.
+/// Returns `CannotDeleteInUse` if any instance's manifest entry references this tag key.
 pub fn delete_tag_definition(
     store: &dyn RepositoryStore,
     id: &str,
@@ -325,6 +347,22 @@ pub fn delete_tag_definition(
         })?;
 
     let path = manifest.instance_index[entry_index].path().to_string();
+
+    // Resolve the tag key before deletion so we can check usage
+    let tag_key = load_tag_definition(store, &path)
+        .map(|td| td.tag_key)
+        .unwrap_or_default();
+
+    if !tag_key.is_empty() {
+        let refs = find_instances_using_tag(store, &tag_key)?;
+        if !refs.is_empty() {
+            return Err(RepositoryError::CannotDeleteInUse {
+                entity_type: "tag".to_string(),
+                id: id.to_string(),
+                used_by: refs,
+            });
+        }
+    }
 
     let _ = store.delete_instance_file(&path); // best-effort; ignore if file missing
 
@@ -478,6 +516,59 @@ mod tests {
             }
             _ => panic!("Should find updated tag"),
         }
+    }
+
+    #[test]
+    fn tag_delete_blocked_when_note_uses_slug() {
+        use crate::services::create_note;
+        use srs_core::types::note::{Note, NoteSection};
+
+        let store = make_store();
+        let td = create_test_td("my-tag");
+        let created_td = create_tag_definition(&store, td).unwrap();
+
+        // Create a note that carries the tag slug in its top-level tags array
+        let note = Note {
+            instance_id: String::new(),
+            title: Some("Tagged Note".to_string()),
+            tags: Some(vec!["my-tag".to_string()]),
+            sections: vec![NoteSection {
+                name: "body".to_string(),
+                content: "content".to_string(),
+                label: None,
+                content_hint: None,
+                tags: None,
+            }],
+            created_at: Some("2026-01-01T00:00:00Z".to_string()),
+            graduated_at: None,
+            meta: None,
+            source_refs: None,
+            updated_at: None,
+        };
+        create_note(&store, note).unwrap();
+
+        let result = delete_tag_definition(&store, &created_td.tag_definition.instance_id);
+        match result {
+            Err(RepositoryError::CannotDeleteInUse {
+                entity_type,
+                id,
+                used_by,
+            }) => {
+                assert_eq!(entity_type, "tag");
+                assert_eq!(id, created_td.tag_definition.instance_id);
+                assert!(!used_by.is_empty());
+            }
+            other => panic!("expected CannotDeleteInUse, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn tag_delete_succeeds_when_no_usage() {
+        let store = make_store();
+        let td = create_test_td("unused-tag");
+        let created = create_tag_definition(&store, td).unwrap();
+
+        delete_tag_definition(&store, &created.tag_definition.instance_id).unwrap();
     }
 
     #[test]

@@ -346,11 +346,37 @@ pub fn update_view(
     Ok(UpdateViewResult { view })
 }
 
+/// Returns the IDs of any DocumentViews whose sections reference `view_id` via `render_view_id`.
+fn find_document_views_referencing_view(
+    store: &dyn RepositoryStore,
+    view_id: &str,
+) -> Result<Vec<String>, RepositoryError> {
+    let refs: Vec<String> = list_document_views(store)?
+        .into_iter()
+        .filter(|dv| {
+            dv.sections
+                .iter()
+                .any(|s| s.render_view_id.as_deref() == Some(view_id))
+        })
+        .map(|dv| dv.id)
+        .collect();
+    Ok(refs)
+}
+
 /// Delete a View by ID. Removes the file and unregisters from `package.json` views array.
+/// Returns `CannotDeleteInUse` if any DocumentView section references this view.
 pub fn delete_view(
     store: &dyn RepositoryStore,
     view_id: &str,
 ) -> Result<DeleteViewResult, RepositoryError> {
+    let refs = find_document_views_referencing_view(store, view_id)?;
+    if !refs.is_empty() {
+        return Err(RepositoryError::CannotDeleteInUse {
+            entity_type: "view".to_string(),
+            id: view_id.to_string(),
+            used_by: refs,
+        });
+    }
     let (full_path, owner) =
         find_view_path(store, view_id)?.ok_or_else(|| RepositoryError::ViewNotFound {
             view_id: view_id.to_string(),
@@ -676,6 +702,47 @@ mod tests {
             matches!(result, Err(RepositoryError::ViewNotFound { .. })),
             "expected ViewNotFound"
         );
+    }
+
+    #[test]
+    fn delete_view_blocked_when_document_view_references_it() {
+        let temp = tempfile::TempDir::new().unwrap();
+        setup_minimal_repo(temp.path());
+        let store = FileStore::new(temp.path());
+
+        let view = create_view(&store, minimal_view("ref-target"), None).unwrap();
+        let view_id = view.view.id.clone();
+
+        let mut dv = minimal_document_view("referencing-dv");
+        dv.sections[0].render_view_id = Some(view_id.clone());
+        let dv_result = create_document_view(&store, dv, None).unwrap();
+
+        let result = delete_view(&store, &view_id);
+        match result {
+            Err(RepositoryError::CannotDeleteInUse {
+                entity_type,
+                id,
+                used_by,
+            }) => {
+                assert_eq!(entity_type, "view");
+                assert_eq!(id, view_id);
+                assert!(used_by.contains(&dv_result.document_view.id));
+            }
+            other => panic!("expected CannotDeleteInUse, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn delete_view_succeeds_when_no_document_view_references_it() {
+        let temp = tempfile::TempDir::new().unwrap();
+        setup_minimal_repo(temp.path());
+        let store = FileStore::new(temp.path());
+
+        // A document view with no render_view_id — should not block deletion
+        create_document_view(&store, minimal_document_view("unrelated-dv"), None).unwrap();
+
+        let view = create_view(&store, minimal_view("free-view"), None).unwrap();
+        delete_view(&store, &view.view.id).unwrap();
     }
 
     // ── DocumentView tests ────────────────────────────────────────────────────
