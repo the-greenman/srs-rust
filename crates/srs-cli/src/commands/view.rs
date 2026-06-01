@@ -30,7 +30,11 @@ fn cmd_view_list(
                 views.retain(|s| s.namespace == ns);
             }
             if let Some(tid) = type_id {
-                views.retain(|s| s.type_id == tid);
+                views.retain(|s| {
+                    s.compatible_types
+                        .as_ref()
+                        .is_some_and(|types| types.iter().any(|t| t == &tid))
+                });
             }
             output::serialize("view list", ViewListPayload { views })
         }

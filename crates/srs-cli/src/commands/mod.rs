@@ -614,7 +614,7 @@ pub enum ViewCommand {
         /// Filter by namespace
         #[arg(long)]
         namespace: Option<String>,
-        /// Filter by bound typeId
+        /// Filter by compatible semantic object type hint
         #[arg(long = "type-id")]
         type_id: Option<String>,
     },

@@ -79,8 +79,6 @@ mod tests {
             name: "test-view".to_string(),
             version: 1,
             description: "desc".to_string(),
-            type_id: "2a000002-0000-4000-a000-000000000002".to_string(),
-            type_version: 1,
             field_views: vec![FieldView {
                 field_id: "f1".to_string(),
                 order: 0,
@@ -88,6 +86,7 @@ mod tests {
                 visible: None,
                 display_label: None,
             }],
+            compatible_types: None,
             protection: None,
             export_config: None,
             tags: None,

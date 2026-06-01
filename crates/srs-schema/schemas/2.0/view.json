@@ -2,9 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://srs.semanticops.com/schema/2.0/view.json",
   "title": "SRS View Definition (ext:views-l1)",
-  "description": "A versioned presentation and export configuration over a specific Type. Multiple Views may exist for the same Type, serving different audiences or purposes.",
+  "description": "A versioned presentation and export configuration over a field set. A View is compatible with any record containing its required fields.",
   "type": "object",
-  "required": ["$schema", "id", "namespace", "name", "version", "description", "typeId", "typeVersion", "fieldViews", "createdAt"],
+  "required": ["$schema", "id", "namespace", "name", "version", "description", "fieldViews", "createdAt"],
   "additionalProperties": false,
   "properties": {
     "$schema": {
@@ -32,14 +32,10 @@
       "type": "string",
       "description": "When to use this View; what workflow or audience it serves."
     },
-    "typeId": {
-      "type": "string",
-      "format": "uuid",
-      "description": "References the Type this View is bound to."
-    },
-    "typeVersion": {
-      "type": "integer",
-      "minimum": 1
+    "compatibleTypes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Optional semanticObjectType hints this View was designed for. Informational only; not a compatibility constraint."
     },
     "fieldViews": {
       "type": "array",
@@ -87,7 +83,7 @@
         "fieldId": {
           "type": "string",
           "format": "uuid",
-          "description": "Must appear in the bound Type's effective field list."
+          "description": "Must reference a valid Field.id in the effective package set."
         },
         "order": {
           "type": "integer",

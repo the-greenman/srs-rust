@@ -14,6 +14,12 @@
       "repeatable": true,
       "minItems": 1,
       "maxItems": 3
+    },
+    {
+      "fieldId": "00000000-0000-4000-8000-000000000903",
+      "order": 1,
+      "required": false,
+      "displayLabel": "Body"
     }
   ],
   "createdAt": "2026-01-01T00:00:00Z"

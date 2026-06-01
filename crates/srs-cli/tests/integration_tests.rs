@@ -4311,8 +4311,7 @@ fn minimal_view_json() -> String {
         "name": "test-view",
         "version": 1,
         "description": "A test view",
-        "typeId": "00000000-0000-4000-a000-000000000001",
-        "typeVersion": 1,
+        "compatibleTypes": ["core/decision"],
         "fieldViews": [{ "fieldId": "f1", "order": 0 }],
         "createdAt": "2026-01-01T00:00:00Z"
     })
@@ -4393,8 +4392,7 @@ fn view_list_filters_by_namespace() {
         "name": "other-view",
         "version": 1,
         "description": "Other namespace view",
-        "typeId": "00000000-0000-4000-a000-000000000002",
-        "typeVersion": 1,
+        "compatibleTypes": ["org.coop/governance_decision"],
         "fieldViews": [{ "fieldId": "f1", "order": 0 }],
         "createdAt": "2026-01-01T00:00:00Z"
     })
@@ -4409,6 +4407,32 @@ fn view_list_filters_by_namespace() {
 }
 
 #[test]
+fn view_list_filters_by_compatible_type_hint() {
+    let temp = create_temp_repo_with_views();
+
+    run_srs_stdin_in_dir(temp.path(), &["view", "create"], &minimal_view_json());
+
+    let other_view = serde_json::json!({
+        "id": "",
+        "namespace": "com.test",
+        "name": "other-view",
+        "version": 1,
+        "description": "Other view",
+        "compatibleTypes": ["org.coop/governance_decision"],
+        "fieldViews": [{ "fieldId": "f1", "order": 0 }],
+        "createdAt": "2026-01-01T00:00:00Z"
+    })
+    .to_string();
+    run_srs_stdin_in_dir(temp.path(), &["view", "create"], &other_view);
+
+    let result = run_srs_in_dir(temp.path(), &["view", "list", "--type-id", "core/decision"]);
+    assert_eq!(result["ok"], true);
+    let views = result["payload"]["views"].as_array().unwrap();
+    assert_eq!(views.len(), 1);
+    assert_eq!(views[0]["name"], "test-view");
+}
+
+#[test]
 fn view_update_changes_description() {
     let temp = create_temp_repo_with_views();
     let created = run_srs_stdin_in_dir(temp.path(), &["view", "create"], &minimal_view_json());
@@ -4420,8 +4444,7 @@ fn view_update_changes_description() {
         "name": "test-view",
         "version": 1,
         "description": "Updated description",
-        "typeId": "00000000-0000-4000-a000-000000000001",
-        "typeVersion": 1,
+        "compatibleTypes": ["core/decision", "org.coop/emergency_decision"],
         "fieldViews": [{ "fieldId": "f1", "order": 0 }],
         "createdAt": "2026-01-01T00:00:00Z"
     })
@@ -4474,8 +4497,6 @@ fn view_create_fails_validation() {
         "name": "bad-view",
         "version": 1,
         "description": "bad",
-        "typeId": "00000000-0000-4000-a000-000000000001",
-        "typeVersion": 1,
         "fieldViews": [],
         "createdAt": "2026-01-01T00:00:00Z"
     })

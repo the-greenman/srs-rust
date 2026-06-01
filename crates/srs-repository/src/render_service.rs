@@ -23,6 +23,12 @@ pub struct RenderResult {
     pub diagnostics: Vec<String>,
 }
 
+#[derive(Clone)]
+struct ResolvedFieldRender {
+    field_id: String,
+    required: bool,
+}
+
 struct RenderContext<'a> {
     package: &'a Package,
     container_title: String,
@@ -420,7 +426,7 @@ fn render_record_at_level(
         }
     }
 
-    let mut field_ids: Vec<String> = Vec::new();
+    let mut fields_to_render: Vec<ResolvedFieldRender> = Vec::new();
     let mut display_labels = std::collections::HashMap::new();
     let mut omit_empty = false;
 
@@ -433,10 +439,17 @@ fn render_record_at_level(
                 }
                 omit_empty = export_config.omit_empty_fields == Some(true);
                 if let Some(order) = &export_config.field_order {
-                    field_ids = order.clone();
+                    fields_to_render = order
+                        .iter()
+                        .cloned()
+                        .map(|field_id| ResolvedFieldRender {
+                            field_id,
+                            required: false,
+                        })
+                        .collect();
                 }
             }
-            if field_ids.is_empty() {
+            if fields_to_render.is_empty() {
                 let mut field_views = view.field_views.clone();
                 field_views.sort_by_key(|fv| fv.order);
                 for fv in field_views {
@@ -446,7 +459,10 @@ fn render_record_at_level(
                     if let Some(label) = fv.display_label {
                         display_labels.insert(fv.field_id.clone(), label);
                     }
-                    field_ids.push(fv.field_id);
+                    fields_to_render.push(ResolvedFieldRender {
+                        field_id: fv.field_id,
+                        required: fv.required == Some(true),
+                    });
                 }
             }
         }
@@ -463,15 +479,22 @@ fn render_record_at_level(
             if let Some(label) = fa.display_label {
                 display_labels.insert(fa.field_id.clone(), label);
             }
-            field_ids.push(fa.field_id);
+            fields_to_render.push(ResolvedFieldRender {
+                field_id: fa.field_id,
+                required: fa.required,
+            });
         }
     } else {
         for fv in &record.field_values {
-            field_ids.push(fv.field_id.clone());
+            fields_to_render.push(ResolvedFieldRender {
+                field_id: fv.field_id.clone(),
+                required: false,
+            });
         }
     }
 
-    for field_id in field_ids {
+    for field in fields_to_render {
+        let field_id = field.field_id;
         // In structured mode (titleFieldId set), skip the title field — already emitted as heading.
         if structured {
             if let Some(title_fid) = &section.title_field_id {
@@ -485,6 +508,17 @@ fn render_record_at_level(
         let field_def = ctx.package.resolve_field(&field_id);
         let field_type = field_def.map(|field| field.value_type);
         let rendered_value = field_value.and_then(|fv| render_field_value(fv, field_type));
+        if field.required && rendered_value.is_none() {
+            diagnostics.push(format!(
+                "[view-required] view {} record {} is missing required field {} for rendered view",
+                section
+                    .render_view_id
+                    .as_deref()
+                    .unwrap_or("<no-render-view-id>"),
+                record.instance_id,
+                field_id
+            ));
+        }
         if rendered_value.is_none() && omit_empty {
             continue;
         }
@@ -498,20 +532,6 @@ fn render_record_at_level(
         }
 
         let value_text = rendered_value.unwrap_or_else(|| "(empty)".to_string());
-
-        // In structured mode, Text/Multiselect fields render as plain prose (no label prefix).
-        if structured
-            && matches!(
-                field_type,
-                Some(ValueType::Text) | Some(ValueType::Multiselect)
-            )
-        {
-            if !value_text.is_empty() {
-                out.push_str(&value_text);
-                out.push_str("\n\n");
-            }
-            continue;
-        }
 
         let label = display_labels
             .get(&field_id)
@@ -872,6 +892,52 @@ mod tests {
         assert!(
             !result.rendered.contains("### "),
             "expected no H3 record heading when titleFieldId is absent, got: {}",
+            result.rendered
+        );
+    }
+
+    #[test]
+    fn l1_view_display_label_renders_in_structured_section() {
+        let repo_root = repeatable_fixture_root();
+        let store = FileStore::new(&repo_root);
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "00000000-0000-4000-8000-000000000986",
+            format: None,
+        })
+        .expect("render should succeed");
+
+        assert!(
+            result.rendered.contains("**Body Label**: body text"),
+            "expected FieldView.displayLabel in rendered output, got: {}",
+            result.rendered
+        );
+    }
+
+    #[test]
+    fn missing_required_field_view_emits_soft_diagnostic() {
+        let repo_root = repeatable_fixture_root();
+        let store = FileStore::new(&repo_root);
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "00000000-0000-4000-8000-000000000986",
+            format: None,
+        })
+        .expect("render should succeed");
+
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.contains("[view-required]")
+                    && d.contains("00000000-0000-4000-8000-000000000992")
+                    && d.contains("00000000-0000-4000-8000-000000000903")),
+            "expected missing required FieldView diagnostic, got: {:?}",
+            result.diagnostics
+        );
+        assert!(
+            result.rendered.contains("## Items"),
+            "expected section to keep rendering, got: {}",
             result.rendered
         );
     }

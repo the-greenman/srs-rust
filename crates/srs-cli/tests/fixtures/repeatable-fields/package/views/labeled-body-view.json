@@ -1,0 +1,18 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/view.json",
+  "id": "00000000-0000-4000-8000-000000000985",
+  "namespace": "fixture.repeatable",
+  "name": "labeled-body-view",
+  "version": 1,
+  "description": "L1 View that verifies FieldView displayLabel rendering.",
+  "fieldViews": [
+    {
+      "fieldId": "00000000-0000-4000-8000-000000000903",
+      "order": 0,
+      "required": true,
+      "visible": true,
+      "displayLabel": "Body Label"
+    }
+  ],
+  "createdAt": "2026-01-01T00:00:00Z"
+}

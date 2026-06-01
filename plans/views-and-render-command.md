@@ -2,7 +2,7 @@
 
 ## Summary
 
-RFC-001 and RFC-002 have been reviewed, corrected, and are ready to apply. Before the Rust implementation can begin, the spec SRS records must reflect the accepted RFC content, and then the Rust stack needs the new types, package loading, rendering logic, and CLI command. This plan covers all three layers in sequence: spec record updates, Rust type/service implementation, and the `srs render document-view` command.
+RFC-001 and RFC-002 have been reviewed, corrected, and are ready to apply. Before the Rust implementation can begin, the spec SRS records must reflect the accepted RFC content. Because View semantics are changing, schema parity must be maintained across both schema authorities (`srs/docs/schema/2.0/` and `srs-rust/crates/srs-schema/schemas/2.0/`), and the VS Code extension must ship matching schema/editor behavior. This plan therefore covers five synchronized layers: spec records, canonical schemas, Rust implementation, VS Code extension updates, and the `srs render document-view` command.
 
 ## Progress Snapshot (2026-05-31)
 
@@ -38,11 +38,16 @@ No new ADRs — this plan implements the decisions recorded in RFC-001 (Rev 8) a
 ## Scope
 
 - Accept RFC-001 and RFC-002 into the spec SRS records (status → "accepted", content updated to final revision, ext-views-l2 and new ext-themes-l1 record updated)
+- Adopt field-centric View semantics (remove `View.typeId`/`View.typeVersion`, add optional `compatibleTypes`, and change compatibility invariant to field-presence)
+- Keep schema parity between:
+  - `srs/docs/schema/2.0/`
+  - `srs-rust/crates/srs-schema/schemas/2.0/`
 - Rust types for `View`, `DocumentView`, `ExportConfig`, `FieldView`, `SectionSource`, `DocumentSection`, `NavigationLink`, `ThemeReference`, `ThemeVariant` in `srs-core`
 - Validation rules for those types
 - Package loading for `views` (L1) and `documentViews` (L2) in `srs-repository`
 - `view_service` and `render_service` in `srs-repository`
 - `srs render document-view` CLI command
+- `srs-vscode` schema copies and extension behavior aligned with new View semantics
 - One spec-compliant `DocumentView` JSON file for the SRS spec document to enable end-to-end testing
 
 **Out of scope:**
@@ -128,6 +133,31 @@ This diagnostic goes into `RenderResult.diagnostics`, not as an error. The rende
 
 ---
 
+### Phase 1.5: Schema Synchronization (Normative + Runtime)
+
+**Goal:** `view.json` and related schema constraints are synchronized between spec docs and Rust runtime schema bundle, reflecting field-centric View semantics.
+
+**Agent:** Spec Worker + Rust Types Worker
+
+#### Tasks
+
+- [x] Update `srs/docs/schema/2.0/view.json`:
+  - Remove required/properties entries for `typeId` and `typeVersion`
+  - Add optional `compatibleTypes` (`array<string>`)
+  - Keep `fieldViews` as the normative compatibility surface
+- [x] Mirror the same changes in `srs-rust/crates/srs-schema/schemas/2.0/view.json`
+- [x] Diff both files to verify semantic parity (ordering may differ; constraints must not)
+- [x] Validate schema references still resolve for package-level schemas using `view.json`
+
+#### Acceptance Criteria
+
+- [x] `view.json` in both locations has no `typeId`/`typeVersion`
+- [x] `compatibleTypes` exists and is optional in both locations
+- [x] Both schema trees validate without unresolved refs
+- [x] A sample field-centric View instance validates against both schema sets
+
+---
+
 ### Phase 2: Rust Types
 
 **Goal:** All View/DocumentView types compile in `srs-core` with serde roundtrip tests passing.
@@ -170,9 +200,8 @@ pub struct View {
     pub name: String,
     pub version: u32,
     pub description: String,
-    pub type_id: String,
-    pub type_version: u32,
     pub field_views: Vec<FieldView>,
+    pub compatible_types: Option<Vec<String>>, // informational hint only
     pub protection: Option<ViewProtection>,
     pub export_config: Option<ExportConfig>,
     pub tags: Option<Vec<String>>,
@@ -645,6 +674,36 @@ cargo clippy -p srs-cli -- -D warnings
 - `list_members(repo_root, container_id)` is already public in `container_service.rs`
 - The existing simplified view files in `srs/srs/package/views/` do not need to be migrated to L1 View format in this plan — they are cleared from `package.json`'s `views` array
 - Container title resolution uses a fallback chain: containerIndex title → manifest meta title → manifest namespace. Full container-space context (where `DocumentView.containerType` drives container selection) is a follow-on.
+
+---
+
+### Phase 5.5: VS Code Extension Alignment (`srs-vscode`)
+
+**Goal:** VS Code authoring/validation UX reflects the field-centric View model and remains in lockstep with canonical schemas.
+
+**Agent:** VS Code Worker
+
+#### Tasks
+
+- [x] Update `srs-vscode/schemas/2.0/view.json` to match canonical schema changes:
+  - remove `typeId`/`typeVersion`
+  - add optional `compatibleTypes`
+- [x] Ensure schema registration paths in `srs-vscode` still map View documents to updated schema
+- [x] Update any editor form/payload assumptions in:
+  - `src/webview/forms.ts`
+  - `src/webview/EntityEditorPanel.ts`
+  - `test/suite/payload-contracts.test.ts`
+  so View create/edit flows do not require type binding fields
+  - **Implementation note:** no dedicated View create/edit form currently exists in these paths; no code changes required for this migration.
+- [x] Add/adjust diagnostics messaging (if present) to report field-compatibility issues rather than type mismatch
+- [x] Verify preview/editor roundtrip for a mixed-type, shared-field View
+
+#### Acceptance Criteria
+
+- [x] VS Code View JSON validation passes without `typeId`/`typeVersion`
+- [x] View editor UI no longer prompts for bound Type/version
+- [x] Payload contract tests pass with new View shape
+- [x] A single View can be used across records of different types sharing required fields
 
 ---
 

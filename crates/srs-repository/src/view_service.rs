@@ -53,7 +53,8 @@ pub struct ViewSummary {
     pub name: String,
     pub version: u32,
     pub description: String,
-    pub type_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compatible_types: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -214,7 +215,7 @@ pub fn list_views_summary(
             name: v.name,
             version: v.version,
             description: v.description,
-            type_id: v.type_id,
+            compatible_types: v.compatible_types,
         })
         .collect())
 }
@@ -395,8 +396,6 @@ mod tests {
             name: name.to_string(),
             version: 1,
             description: "test view".to_string(),
-            type_id: "00000000-0000-4000-a000-000000000001".to_string(),
-            type_version: 1,
             field_views: vec![FieldView {
                 field_id: "f1".to_string(),
                 order: 0,
@@ -404,6 +403,7 @@ mod tests {
                 visible: None,
                 display_label: None,
             }],
+            compatible_types: None,
             protection: None,
             export_config: None,
             tags: None,

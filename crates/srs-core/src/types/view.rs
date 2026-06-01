@@ -44,9 +44,9 @@ pub struct View {
     pub name: String,
     pub version: u32,
     pub description: String,
-    pub type_id: String,
-    pub type_version: u32,
     pub field_views: Vec<FieldView>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compatible_types: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protection: Option<ViewProtection>,
     #[serde(skip_serializing_if = "Option::is_none")]

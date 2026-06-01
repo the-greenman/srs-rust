@@ -1,0 +1,11 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "00000000-0000-4000-8000-000000000903",
+  "namespace": "fixture.repeatable",
+  "name": "body",
+  "version": 1,
+  "description": "Text body used to verify View display labels.",
+  "aiGuidance": {"purpose": "capture body text"},
+  "valueType": "text",
+  "createdAt": "2026-01-01T00:00:00Z"
+}
