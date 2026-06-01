@@ -103,6 +103,21 @@ pub trait RepositoryStore {
     fn delete_document_view_file(&self, relative_path: &str) -> Result<(), RepositoryError>;
     fn ensure_document_views_dir(&self, relative_dir: &str) -> Result<(), RepositoryError>;
 
+    // --- Blueprints ---
+
+    fn save_blueprint(
+        &self,
+        relative_path: &str,
+        blueprint: &srs_core::types::blueprint::Blueprint,
+    ) -> Result<(), RepositoryError>;
+    fn update_blueprint_file(
+        &self,
+        relative_path: &str,
+        blueprint: &srs_core::types::blueprint::Blueprint,
+    ) -> Result<(), RepositoryError>;
+    fn delete_blueprint_file(&self, relative_path: &str) -> Result<(), RepositoryError>;
+    fn ensure_blueprints_dir(&self, relative_dir: &str) -> Result<(), RepositoryError>;
+
     // --- Instances (Notes, TypedRecords, Records) ---
 
     fn load_instance_json(&self, relative_path: &str)
@@ -334,6 +349,8 @@ struct PackageMetadata {
     document_views: Vec<String>,
     #[serde(default)]
     themes: Vec<String>,
+    #[serde(default)]
+    blueprints: Vec<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -426,6 +443,7 @@ fn load_package_from_dir(
         Vec<View>,
         Vec<DocumentView>,
         Vec<Theme>,
+        Vec<srs_core::types::blueprint::Blueprint>,
     ),
     RepositoryError,
 > {
@@ -621,7 +639,29 @@ fn load_package_from_dir(
         themes.push(theme);
     }
 
-    Ok((fields, record_types, views, document_views, themes))
+    let mut blueprints: Vec<srs_core::types::blueprint::Blueprint> = Vec::new();
+    for blueprint_path in &metadata.blueprints {
+        let full_path = package_dir.join(blueprint_path);
+        let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
+            path: full_path.clone(),
+            source: e,
+        })?;
+        let blueprint: srs_core::types::blueprint::Blueprint = serde_json::from_str(&content)
+            .map_err(|source| RepositoryError::PackageLoad {
+                path: full_path.clone(),
+                source,
+            })?;
+        blueprints.push(blueprint);
+    }
+
+    Ok((
+        fields,
+        record_types,
+        views,
+        document_views,
+        themes,
+        blueprints,
+    ))
 }
 
 impl RepositoryStore for FileStore {
@@ -729,8 +769,14 @@ impl RepositoryStore for FileStore {
             })?;
 
         let mut rt_by_type: HashMap<String, (RelationTypeDefinition, PathBuf)> = HashMap::new();
-        let (mut fields, mut record_types, mut views, mut document_views, mut themes) =
-            load_package_from_dir(&package_dir, &mut rt_by_type)?;
+        let (
+            mut fields,
+            mut record_types,
+            mut views,
+            mut document_views,
+            mut themes,
+            mut blueprints,
+        ) = load_package_from_dir(&package_dir, &mut rt_by_type)?;
 
         // Merge sub-packages from manifest packageRefs
         let manifest = self.load_manifest()?;
@@ -740,6 +786,7 @@ impl RepositoryStore for FileStore {
             let mut view_sources: HashMap<String, PathBuf> = HashMap::new();
             let mut doc_view_sources: HashMap<String, PathBuf> = HashMap::new();
             let mut theme_sources: HashMap<String, PathBuf> = HashMap::new();
+            let mut blueprint_sources: HashMap<String, PathBuf> = HashMap::new();
             for f in &fields {
                 field_sources.insert(f.id.clone(), package_dir.clone());
             }
@@ -754,6 +801,9 @@ impl RepositoryStore for FileStore {
             }
             for theme in &themes {
                 theme_sources.insert(theme.id.clone(), package_dir.clone());
+            }
+            for bp in &blueprints {
+                blueprint_sources.insert(bp.id.clone(), package_dir.clone());
             }
 
             for pkg_ref in pkg_refs {
@@ -771,7 +821,7 @@ impl RepositoryStore for FileStore {
                         path: rel_path.to_string(),
                     });
                 }
-                let (sub_fields, sub_types, sub_views, sub_doc_views, sub_themes) =
+                let (sub_fields, sub_types, sub_views, sub_doc_views, sub_themes, sub_blueprints) =
                     load_package_from_dir(&sub_dir, &mut rt_by_type)?;
 
                 for field in sub_fields {
@@ -869,6 +919,23 @@ impl RepositoryStore for FileStore {
                         themes.push(theme);
                     }
                 }
+                for bp in sub_blueprints {
+                    if let Some(first_path) = blueprint_sources.get(&bp.id) {
+                        let existing = blueprints.iter().find(|b| b.id == bp.id).unwrap();
+                        if existing.name != bp.name {
+                            return Err(RepositoryError::PackageRefConflict {
+                                path: rel_path.to_string(),
+                                kind: "blueprint".to_string(),
+                                id: bp.id.clone(),
+                                first_path: first_path.clone(),
+                                second_path: sub_dir.clone(),
+                            });
+                        }
+                    } else {
+                        blueprint_sources.insert(bp.id.clone(), sub_dir.clone());
+                        blueprints.push(bp);
+                    }
+                }
             }
         }
 
@@ -886,6 +953,7 @@ impl RepositoryStore for FileStore {
             views,
             document_views,
             themes,
+            blueprints,
             root: self.repo_root.clone(),
         })
     }
@@ -1022,6 +1090,36 @@ impl RepositoryStore for FileStore {
     }
 
     fn ensure_document_views_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
+        self.ensure_dir(&self.abs(relative_dir))
+    }
+
+    // --- Blueprints ---
+
+    fn save_blueprint(
+        &self,
+        relative_path: &str,
+        blueprint: &srs_core::types::blueprint::Blueprint,
+    ) -> Result<(), RepositoryError> {
+        let value = serde_json::to_value(blueprint).map_err(|e| RepositoryError::Serialize {
+            path: self.abs(relative_path),
+            source: e,
+        })?;
+        self.write_json(&self.abs(relative_path), &value)
+    }
+
+    fn update_blueprint_file(
+        &self,
+        relative_path: &str,
+        blueprint: &srs_core::types::blueprint::Blueprint,
+    ) -> Result<(), RepositoryError> {
+        self.save_blueprint(relative_path, blueprint)
+    }
+
+    fn delete_blueprint_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
+        self.delete_file(&self.abs(relative_path))
+    }
+
+    fn ensure_blueprints_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
         self.ensure_dir(&self.abs(relative_dir))
     }
 
@@ -1248,7 +1346,8 @@ impl RepositoryStore for FileStore {
                 "types": [],
                 "relationTypes": [],
                 "views": [],
-                "documentViews": []
+                "documentViews": [],
+                "blueprints": []
             })
         };
         if let Some(obj) = pkg_json.as_object_mut() {
@@ -1455,6 +1554,7 @@ pub(crate) fn definition_kind_key(kind: DefinitionKind) -> &'static str {
         DefinitionKind::View => "views",
         DefinitionKind::DocumentView => "documentViews",
         DefinitionKind::RelationType => "relationTypes",
+        DefinitionKind::Blueprint => "blueprints",
     }
 }
 
@@ -1635,6 +1735,7 @@ pub mod memory {
                 views: vec![],
                 document_views: vec![],
                 themes: vec![],
+                blueprints: vec![],
                 root: PathBuf::from("/memory"),
             };
             Self::new(manifest, package)
@@ -1736,7 +1837,8 @@ pub mod memory {
                 "types": [],
                 "relationTypes": [],
                 "views": [],
-                "documentViews": []
+                "documentViews": [],
+                "blueprints": []
             })
         }
 
@@ -1763,6 +1865,7 @@ pub mod memory {
                 views: vec![],
                 document_views: vec![],
                 themes: vec![],
+                blueprints: vec![],
                 root: PathBuf::from("/memory"),
             };
             Self {
@@ -1873,6 +1976,7 @@ pub mod memory {
                 views: vec![],
                 document_views: vec![],
                 themes: vec![],
+                blueprints: vec![],
                 root: PathBuf::from("/memory"),
             };
 
@@ -1885,7 +1989,8 @@ pub mod memory {
                 "types": [],
                 "relationTypes": [],
                 "views": [],
-                "documentViews": []
+                "documentViews": [],
+                "blueprints": []
             });
             self.data
                 .borrow_mut()
@@ -2054,6 +2159,36 @@ pub mod memory {
         }
 
         fn ensure_document_views_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
+            Ok(())
+        }
+
+        fn save_blueprint(
+            &self,
+            relative_path: &str,
+            blueprint: &srs_core::types::blueprint::Blueprint,
+        ) -> Result<(), RepositoryError> {
+            let v = serde_json::to_value(blueprint).unwrap();
+            self.data.borrow_mut().insert(relative_path.to_string(), v);
+            Ok(())
+        }
+
+        fn update_blueprint_file(
+            &self,
+            relative_path: &str,
+            blueprint: &srs_core::types::blueprint::Blueprint,
+        ) -> Result<(), RepositoryError> {
+            if !self.data.borrow().contains_key(relative_path) {
+                return Err(not_found(relative_path));
+            }
+            self.save_blueprint(relative_path, blueprint)
+        }
+
+        fn delete_blueprint_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
+            self.data.borrow_mut().remove(relative_path);
+            Ok(())
+        }
+
+        fn ensure_blueprints_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
             Ok(())
         }
 
@@ -2342,7 +2477,7 @@ pub mod memory {
                 serde_json::json!({
                     "id": "", "namespace": "", "name": "", "version": "",
                     "fields": [], "types": [], "relationTypes": [],
-                    "views": [], "documentViews": []
+                    "views": [], "documentViews": [], "blueprints": []
                 })
             });
             // Also update manifest packageRefs
@@ -2512,6 +2647,7 @@ mod tests {
             views: vec![],
             document_views: vec![],
             themes: vec![],
+            blueprints: vec![],
             root: repo_root.to_path_buf(),
         }
     }

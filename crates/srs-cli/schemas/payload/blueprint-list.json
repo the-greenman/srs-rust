@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BlueprintListPayload",
+  "type": "object",
+  "required": [
+    "blueprints",
+    "diagnostics"
+  ],
+  "properties": {
+    "blueprints": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/BlueprintListEntry"
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "definitions": {
+    "BlueprintListEntry": {
+      "description": "A single entry in a blueprint list.",
+      "type": "object",
+      "required": [
+        "blueprintId",
+        "description",
+        "name",
+        "namespace",
+        "rootTypeCount",
+        "version"
+      ],
+      "properties": {
+        "blueprintId": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "rootTypeCount": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "sourcePackage": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      }
+    }
+  }
+}

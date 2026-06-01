@@ -704,6 +704,26 @@ mod tests {
             fn ensure_document_views_dir(&self, _: &str) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
+            fn save_blueprint(
+                &self,
+                _: &str,
+                _: &srs_core::types::blueprint::Blueprint,
+            ) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn update_blueprint_file(
+                &self,
+                _: &str,
+                _: &srs_core::types::blueprint::Blueprint,
+            ) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn delete_blueprint_file(&self, _: &str) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn ensure_blueprints_dir(&self, _: &str) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
             fn load_instance_json(&self, _: &str) -> Result<serde_json::Value, RepositoryError> {
                 unimplemented!()
             }

@@ -646,6 +646,7 @@ impl RepositoryStore for JsonStore {
             views,
             document_views,
             themes: vec![],
+            blueprints: vec![],
             root: self.repository_root(),
         })
     }
@@ -801,6 +802,39 @@ impl RepositoryStore for JsonStore {
     }
 
     fn ensure_document_views_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
+        Ok(())
+    }
+
+    fn save_blueprint(
+        &self,
+        relative_path: &str,
+        blueprint: &srs_core::types::blueprint::Blueprint,
+    ) -> Result<(), RepositoryError> {
+        let v = serde_json::to_value(blueprint).map_err(|source| RepositoryError::Serialize {
+            path: PathBuf::from(relative_path),
+            source,
+        })?;
+        self.state
+            .borrow_mut()
+            .data
+            .insert(relative_path.to_string(), v);
+        self.flush()
+    }
+
+    fn update_blueprint_file(
+        &self,
+        relative_path: &str,
+        blueprint: &srs_core::types::blueprint::Blueprint,
+    ) -> Result<(), RepositoryError> {
+        self.save_blueprint(relative_path, blueprint)
+    }
+
+    fn delete_blueprint_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
+        self.state.borrow_mut().data.remove(relative_path);
+        self.flush()
+    }
+
+    fn ensure_blueprints_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
         Ok(())
     }
 

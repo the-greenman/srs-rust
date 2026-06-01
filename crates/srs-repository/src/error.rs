@@ -175,6 +175,18 @@ pub enum RepositoryError {
     #[error("view not found: {view_id}")]
     ViewNotFound { view_id: String },
 
+    #[error("blueprint not found: {blueprint_id}")]
+    BlueprintNotFound { blueprint_id: String },
+
+    #[error("blueprint validation failed at {path:?}: {source}")]
+    BlueprintValidation {
+        path: PathBuf,
+        source: srs_core::error::CoreError,
+    },
+
+    #[error("invalid package selector: {message}")]
+    InvalidPackageSelector { message: String },
+
     #[error("document view not found: {document_view_id}")]
     DocumentViewNotFoundById { document_view_id: String },
 

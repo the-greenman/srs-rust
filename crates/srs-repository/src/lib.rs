@@ -1,4 +1,5 @@
 pub mod analysis;
+pub mod blueprint_service;
 pub mod container_service;
 pub mod detect;
 pub mod error;

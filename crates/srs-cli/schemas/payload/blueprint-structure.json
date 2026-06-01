@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BlueprintStructurePayload",
+  "type": "object",
+  "required": [
+    "relationSpecs"
+  ],
+  "properties": {
+    "relationSpecs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/RelationSpecEntry"
+      }
+    }
+  },
+  "definitions": {
+    "RelationSpecEntry": {
+      "description": "A single entry in a blueprint structure list (RelationSpec).",
+      "type": "object",
+      "required": [
+        "relationType",
+        "sourceTypeId",
+        "targetTypeId"
+      ],
+      "properties": {
+        "cardinality": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "relationType": {
+          "type": "string"
+        },
+        "required": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "sourceTypeId": {
+          "type": "string"
+        },
+        "targetTypeId": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
