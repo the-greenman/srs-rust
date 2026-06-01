@@ -156,7 +156,10 @@ pub fn import_protocol(
             FIELD_PROTOCOL_NAMESPACE,
             serde_json::Value::String(protocol_namespace),
         ),
-        fv(FIELD_PROTOCOL_NAME, serde_json::Value::String(protocol_name)),
+        fv(
+            FIELD_PROTOCOL_NAME,
+            serde_json::Value::String(protocol_name),
+        ),
         fv(
             FIELD_PROTOCOL_VERSION,
             serde_json::Value::Number(protocol_version.into()),
@@ -179,10 +182,7 @@ pub fn import_protocol(
     {
         field_values.push(fv(FIELD_PROTOCOL_DESCRIPTION, desc.clone()));
     }
-    if let Some(tags) = pj
-        .get("protocolTags")
-        .or_else(|| pj.get("protocol-tags"))
-    {
+    if let Some(tags) = pj.get("protocolTags").or_else(|| pj.get("protocol-tags")) {
         field_values.push(fv(FIELD_PROTOCOL_TAGS, tags.clone()));
     }
 
@@ -194,16 +194,14 @@ pub fn import_protocol(
         PROTOCOL_STORAGE_DIR,
     )
     .map_err(|e| match e {
-        RepositoryError::TypeNotFound { .. } => {
-            RepositoryError::InvalidRepositoryInitialization {
-                message: format!(
-                    "Repository package does not declare type \
+        RepositoryError::TypeNotFound { .. } => RepositoryError::InvalidRepositoryInitialization {
+            message: format!(
+                "Repository package does not declare type \
                      'com.semanticops.srs/meta.protocol@1' (UUID {}). \
                      Add it to your package before importing protocols.",
-                    PROTOCOL_TYPE_ID
-                ),
-            }
-        }
+                PROTOCOL_TYPE_ID
+            ),
+        },
         other => other,
     })?;
 
@@ -320,17 +318,18 @@ fn is_protocol_type(record: &Record) -> bool {
 fn record_to_protocol(record: &Record) -> Result<Protocol, RepositoryError> {
     let fv = &record.field_values;
 
-    let stages_json = find_fv(fv, FIELD_PROTOCOL_STAGES).ok_or_else(|| {
-        RepositoryError::ManifestParse {
+    let stages_json =
+        find_fv(fv, FIELD_PROTOCOL_STAGES).ok_or_else(|| RepositoryError::ManifestParse {
             path: std::path::PathBuf::from("protocol"),
             source: json_error("Missing protocol-stages field"),
-        }
-    })?;
+        })?;
 
     let protocol_stages: Vec<ProtocolStage> =
-        serde_json::from_value(stages_json.clone()).map_err(|e| RepositoryError::ManifestParse {
-            path: std::path::PathBuf::from("protocol"),
-            source: e,
+        serde_json::from_value(stages_json.clone()).map_err(|e| {
+            RepositoryError::ManifestParse {
+                path: std::path::PathBuf::from("protocol"),
+                source: e,
+            }
         })?;
 
     Ok(Protocol {
@@ -379,9 +378,7 @@ fn record_to_protocol_summary(record: &Record) -> Result<ProtocolSummary, Reposi
 // ---------------------------------------------------------------------------
 
 fn find_fv<'a>(fv: &'a [FieldValue], uuid: &str) -> Option<&'a serde_json::Value> {
-    fv.iter()
-        .find(|f| f.field_id == uuid)
-        .map(|f| &f.value)
+    fv.iter().find(|f| f.field_id == uuid).map(|f| &f.value)
 }
 
 fn get_string_fv(fv: &[FieldValue], uuid: &str, label: &str) -> Result<String, RepositoryError> {
@@ -452,11 +449,10 @@ fn require_version(pj: &serde_json::Value) -> Result<i64, RepositoryError> {
     let n = if let Some(n) = v.as_i64() {
         n
     } else if let Some(s) = v.as_str() {
-        s.parse::<i64>().map_err(|_| {
-            RepositoryError::InvalidRepositoryInitialization {
+        s.parse::<i64>()
+            .map_err(|_| RepositoryError::InvalidRepositoryInitialization {
                 message: "Field 'protocolVersion' must be a positive integer".to_string(),
-            }
-        })?
+            })?
     } else {
         return Err(RepositoryError::InvalidRepositoryInitialization {
             message: "Field 'protocolVersion' must be a positive integer".to_string(),
@@ -465,10 +461,7 @@ fn require_version(pj: &serde_json::Value) -> Result<i64, RepositoryError> {
 
     if n < 1 {
         return Err(RepositoryError::InvalidRepositoryInitialization {
-            message: format!(
-                "Field 'protocolVersion' must be >= 1, got {}",
-                n
-            ),
+            message: format!("Field 'protocolVersion' must be >= 1, got {}", n),
         });
     }
     Ok(n)
@@ -503,30 +496,29 @@ fn require_stages(pj: &serde_json::Value) -> Result<serde_json::Value, Repositor
             message: "Missing required field 'protocolStages' in protocol input".to_string(),
         })?;
 
-    let arr = stages
-        .as_array()
-        .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
-            message: "Field 'protocolStages' must be an array".to_string(),
-        })?;
+    let arr =
+        stages
+            .as_array()
+            .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
+                message: "Field 'protocolStages' must be an array".to_string(),
+            })?;
 
     // Collect all stage IDs for dependsOn validation
     let mut stage_ids = std::collections::HashSet::new();
     for (i, stage) in arr.iter().enumerate() {
-        let obj = stage.as_object().ok_or_else(|| {
-            RepositoryError::InvalidRepositoryInitialization {
-                message: format!("protocolStages[{}] must be an object", i),
-            }
-        })?;
+        let obj =
+            stage
+                .as_object()
+                .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
+                    message: format!("protocolStages[{}] must be an object", i),
+                })?;
 
         let stage_id = obj
             .get("stageId")
             .and_then(|v| v.as_str())
             .filter(|s| !s.trim().is_empty())
             .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
-                message: format!(
-                    "protocolStages[{}].stageId must be a non-empty string",
-                    i
-                ),
+                message: format!("protocolStages[{}].stageId must be a non-empty string", i),
             })?;
         stage_ids.insert(stage_id.to_string());
 
@@ -543,15 +535,14 @@ fn require_stages(pj: &serde_json::Value) -> Result<serde_json::Value, Repositor
             })?;
 
         // Validate order
-        let order = obj
-            .get("order")
-            .and_then(|v| v.as_i64())
-            .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
+        let order = obj.get("order").and_then(|v| v.as_i64()).ok_or_else(|| {
+            RepositoryError::InvalidRepositoryInitialization {
                 message: format!(
                     "protocolStages[{}] ('{}') .order must be a non-negative integer",
                     i, stage_id
                 ),
-            })?;
+            }
+        })?;
         if order < 0 {
             return Err(RepositoryError::InvalidRepositoryInitialization {
                 message: format!(
@@ -567,14 +558,14 @@ fn require_stages(pj: &serde_json::Value) -> Result<serde_json::Value, Repositor
         let obj = stage.as_object().unwrap();
         let stage_id = obj.get("stageId").and_then(|v| v.as_str()).unwrap();
         if let Some(deps) = obj.get("dependsOn") {
-            let dep_arr = deps
-                .as_array()
-                .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
+            let dep_arr = deps.as_array().ok_or_else(|| {
+                RepositoryError::InvalidRepositoryInitialization {
                     message: format!(
                         "protocolStages[{}] ('{}') .dependsOn must be an array",
                         i, stage_id
                     ),
-                })?;
+                }
+            })?;
             for dep in dep_arr {
                 let dep_id = dep.as_str().ok_or_else(|| {
                     RepositoryError::InvalidRepositoryInitialization {

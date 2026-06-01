@@ -3418,7 +3418,11 @@ fn protocol_list_returns_protocols() {
     assert_eq!(import["ok"], true, "import failed: {:?}", import);
 
     let result = run_srs_in_dir(temp.path(), &["protocol", "list"]);
-    assert_eq!(result["ok"], true, "list failed: {:?}", result["diagnostics"]);
+    assert_eq!(
+        result["ok"], true,
+        "list failed: {:?}",
+        result["diagnostics"]
+    );
     let protocols = result["payload"]["protocols"].as_array().unwrap();
     assert_eq!(protocols.len(), 1);
     assert_eq!(protocols[0]["protocolId"], "com.test/test-protocol@1");
@@ -3437,9 +3441,16 @@ fn protocol_get_returns_protocol_by_id() {
         .to_string();
 
     let result = run_srs_in_dir(temp.path(), &["protocol", "get", &instance_id]);
-    assert_eq!(result["ok"], true, "get failed: {:?}", result["diagnostics"]);
+    assert_eq!(
+        result["ok"], true,
+        "get failed: {:?}",
+        result["diagnostics"]
+    );
     assert_eq!(result["payload"]["protocol"]["instanceId"], instance_id);
-    assert_eq!(result["payload"]["protocol"]["protocolId"], "com.test/get-test@1");
+    assert_eq!(
+        result["payload"]["protocol"]["protocolId"],
+        "com.test/get-test@1"
+    );
 }
 
 #[test]
@@ -3467,7 +3478,11 @@ fn protocol_stages_returns_ordered_stages() {
         .to_string();
 
     let result = run_srs_in_dir(temp.path(), &["protocol", "stages", &instance_id]);
-    assert_eq!(result["ok"], true, "stages failed: {:?}", result["diagnostics"]);
+    assert_eq!(
+        result["ok"], true,
+        "stages failed: {:?}",
+        result["diagnostics"]
+    );
     let stages = result["payload"]["stages"].as_array().unwrap();
     assert_eq!(stages.len(), 3);
     assert_eq!(stages[0]["stageId"], "s1");
@@ -3493,7 +3508,8 @@ fn protocol_import_fails_without_type_declaration() {
     .unwrap();
 
     let stdin = minimal_protocol_json("com.test/x@1", "x");
-    let (_ok, result) = run_srs_stdin_any_status_in_dir(temp.path(), &["protocol", "import"], &stdin);
+    let (_ok, result) =
+        run_srs_stdin_any_status_in_dir(temp.path(), &["protocol", "import"], &stdin);
     assert_eq!(result["ok"], false, "should fail without type declaration");
     let diag = result["diagnostics"].to_string();
     assert!(
@@ -3517,7 +3533,10 @@ fn protocol_import_rejects_missing_required_field() {
     }))
     .unwrap();
     let (_ok, result) = run_srs_stdin_any_status_in_dir(temp.path(), &["protocol", "import"], &bad);
-    assert_eq!(result["ok"], false, "should fail with missing required field");
+    assert_eq!(
+        result["ok"], false,
+        "should fail with missing required field"
+    );
 }
 
 #[test]
@@ -3604,12 +3623,19 @@ fn protocol_export_import_roundtrip() {
     assert_eq!(export["ok"], true);
     let exported = &export["payload"]["protocol"];
     // Export must NOT contain instanceId
-    assert!(exported["instanceId"].is_null(), "export should not contain instanceId");
+    assert!(
+        exported["instanceId"].is_null(),
+        "export should not contain instanceId"
+    );
 
     // Import exported JSON into destination repo
     let export_str = serde_json::to_string(exported).unwrap();
     let import2 = run_srs_stdin_in_dir(dst.path(), &["protocol", "import"], &export_str);
-    assert_eq!(import2["ok"], true, "round-trip import failed: {:?}", import2);
+    assert_eq!(
+        import2["ok"], true,
+        "round-trip import failed: {:?}",
+        import2
+    );
 
     // Verify field-by-field equality
     let dst_instance_id = import2["payload"]["protocol"]["instanceId"]
@@ -3617,7 +3643,10 @@ fn protocol_export_import_roundtrip() {
         .unwrap()
         .to_string();
     let got = run_srs_in_dir(dst.path(), &["protocol", "get", &dst_instance_id]);
-    assert_eq!(got["payload"]["protocol"]["protocolId"], "com.test/roundtrip@1");
+    assert_eq!(
+        got["payload"]["protocol"]["protocolId"],
+        "com.test/roundtrip@1"
+    );
     let stages = run_srs_in_dir(dst.path(), &["protocol", "stages", &dst_instance_id]);
     let s = stages["payload"]["stages"].as_array().unwrap();
     assert_eq!(s.len(), 2);
