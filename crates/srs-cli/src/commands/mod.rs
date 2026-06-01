@@ -920,6 +920,16 @@ pub enum ProtocolCommand {
         #[arg(long, hide = true)]
         json: bool,
     },
+    /// Update mutable fields of a protocol definition (reads JSON from stdin)
+    Update {
+        /// Protocol instance ID
+        id: String,
+    },
+    /// Delete a protocol definition
+    Delete {
+        /// Protocol instance ID
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]
