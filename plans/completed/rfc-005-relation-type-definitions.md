@@ -127,7 +127,7 @@ No new ADRs — this plan implements RFC-005, which was reviewed and approved in
 
 - [x] `scripts/check-schema-drift.sh` exits 0
 - [x] `cargo test -p srs-schema` passes (schema self-validation tests)
-- [ ] `node scripts/validate-all.mjs` passes from `srs/`
+- [x] `node scripts/validate-all.mjs` passes from `srs/`
 
 #### Testing
 
@@ -492,7 +492,7 @@ cd ../srs && node scripts/validate-all.mjs
 - [x] E1 coalescing: two identical canonical definitions in the effective package set produce no conflict
 - [x] E1 conflict: two definitions with same `relationType` but different `id` produce a conflict error
 - [x] CLI integration tests pass
-- [ ] `node scripts/validate-all.mjs` passes from `srs/`
+- [x] `node scripts/validate-all.mjs` passes from `srs/`
 
 ## Coordination Rules
 
