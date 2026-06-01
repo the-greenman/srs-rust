@@ -444,6 +444,27 @@ mod tests {
     use serde_json::json;
     use std::path::PathBuf;
 
+    fn srs_spec_repo() -> PathBuf {
+        if let Ok(p) = std::env::var("SRS_SPEC_REPO") {
+            return PathBuf::from(p);
+        }
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut dir = manifest.to_path_buf();
+        loop {
+            let candidate = dir.join("../srs/srs");
+            if let Ok(c) = candidate.canonicalize() {
+                if c.join(".srs").exists() {
+                    return c;
+                }
+            }
+            match dir.parent() {
+                Some(p) if p != dir => dir = p.to_path_buf(),
+                _ => break,
+            }
+        }
+        manifest.join("../../../srs/srs")
+    }
+
     fn make_store_with_package() -> MemoryStore {
         use crate::package::Package;
         use srs_core::types::field::{Field, ValueType};
@@ -533,7 +554,7 @@ mod tests {
     #[test]
     fn list_records_by_type_from_live_repo() {
         use crate::FileStore;
-        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
+        let srs_repo = srs_spec_repo();
         if !srs_repo.exists() {
             println!("Skipping test: live repo not found");
             return;
@@ -553,7 +574,7 @@ mod tests {
     #[test]
     fn get_record_by_id_returns_known_record() {
         use crate::FileStore;
-        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
+        let srs_repo = srs_spec_repo();
         if !srs_repo.exists() {
             println!("Skipping test: live repo not found");
             return;
@@ -579,7 +600,7 @@ mod tests {
     #[test]
     fn get_record_by_id_returns_none_for_unknown() {
         use crate::FileStore;
-        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
+        let srs_repo = srs_spec_repo();
         let store = FileStore::new(&srs_repo);
         let result = get_record_by_id(&store, "00000000-0000-0000-0000-000000000000")
             .expect("should not error");

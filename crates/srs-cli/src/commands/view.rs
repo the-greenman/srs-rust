@@ -13,7 +13,7 @@ pub fn dispatch(ctx: CliContext, cmd: ViewCommand) -> Result<String> {
     match cmd {
         ViewCommand::List { namespace, type_id } => cmd_view_list(ctx, namespace, type_id),
         ViewCommand::Get { id } => cmd_view_get(ctx, id),
-        ViewCommand::Create => cmd_view_create(ctx),
+        ViewCommand::Create { package } => cmd_view_create(ctx, package),
         ViewCommand::Update { id } => cmd_view_update(ctx, id),
         ViewCommand::Delete { id } => cmd_view_delete(ctx, id),
     }
@@ -52,12 +52,12 @@ fn cmd_view_get(ctx: CliContext, id: String) -> Result<String> {
     }
 }
 
-fn cmd_view_create(ctx: CliContext) -> Result<String> {
+fn cmd_view_create(ctx: CliContext, package: Option<String>) -> Result<String> {
     let mut stdin = String::new();
     io::stdin().read_to_string(&mut stdin)?;
     let view: View = serde_json::from_str(&stdin)
         .map_err(|e| anyhow::anyhow!("Failed to parse View JSON: {e}"))?;
-    match with_store(&ctx, |store| Ok(create_view(store, view)?)) {
+    match with_store(&ctx, |store| Ok(create_view(store, view, package.clone())?)) {
         Ok(CreateViewResult { view }) => output::serialize("view create", ViewPayload { view }),
         Err(e) => Ok(output::err("view create", vec![e.to_string()])),
     }

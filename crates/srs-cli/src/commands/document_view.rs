@@ -17,7 +17,7 @@ pub fn dispatch(ctx: CliContext, cmd: DocumentViewCommand) -> Result<String> {
             container_type,
         } => cmd_document_view_list(ctx, namespace, container_type),
         DocumentViewCommand::Get { id } => cmd_document_view_get(ctx, id),
-        DocumentViewCommand::Create => cmd_document_view_create(ctx),
+        DocumentViewCommand::Create { package } => cmd_document_view_create(ctx, package),
         DocumentViewCommand::Update { id } => cmd_document_view_update(ctx, id),
         DocumentViewCommand::Delete { id } => cmd_document_view_delete(ctx, id),
     }
@@ -58,12 +58,14 @@ fn cmd_document_view_get(ctx: CliContext, id: String) -> Result<String> {
     }
 }
 
-fn cmd_document_view_create(ctx: CliContext) -> Result<String> {
+fn cmd_document_view_create(ctx: CliContext, package: Option<String>) -> Result<String> {
     let mut stdin = String::new();
     io::stdin().read_to_string(&mut stdin)?;
     let dv: DocumentView = serde_json::from_str(&stdin)
         .map_err(|e| anyhow::anyhow!("Failed to parse DocumentView JSON: {e}"))?;
-    match with_store(&ctx, |store| Ok(create_document_view(store, dv)?)) {
+    match with_store(&ctx, |store| {
+        Ok(create_document_view(store, dv, package.clone())?)
+    }) {
         Ok(CreateDocumentViewResult { document_view }) => output::serialize(
             "document-view create",
             DocumentViewPayload { document_view },

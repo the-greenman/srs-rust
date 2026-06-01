@@ -624,7 +624,11 @@ pub enum ViewCommand {
         id: String,
     },
     /// Create a new view definition (reads JSON from stdin)
-    Create,
+    Create {
+        /// Package boundary path (omit for primary package, pass path for sub-package)
+        #[arg(long)]
+        package: Option<String>,
+    },
     /// Update a view definition (reads full JSON from stdin)
     Update {
         /// View ID
@@ -654,7 +658,11 @@ pub enum DocumentViewCommand {
         id: String,
     },
     /// Create a new document view definition (reads JSON from stdin)
-    Create,
+    Create {
+        /// Package boundary path (omit for primary package, pass path for sub-package)
+        #[arg(long)]
+        package: Option<String>,
+    },
     /// Update a document view definition (reads full JSON from stdin)
     Update {
         /// DocumentView ID

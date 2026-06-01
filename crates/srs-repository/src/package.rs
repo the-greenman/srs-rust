@@ -644,9 +644,30 @@ fn parse_value_type(s: &str, path: &Path) -> Result<ValueType, RepositoryError> 
 mod tests {
     use super::*;
 
+    fn srs_spec_repo() -> PathBuf {
+        if let Ok(p) = std::env::var("SRS_SPEC_REPO") {
+            return PathBuf::from(p);
+        }
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut dir = manifest.to_path_buf();
+        loop {
+            let candidate = dir.join("../srs/srs");
+            if let Ok(c) = candidate.canonicalize() {
+                if c.join(".srs").exists() {
+                    return c;
+                }
+            }
+            match dir.parent() {
+                Some(p) if p != dir => dir = p.to_path_buf(),
+                _ => break,
+            }
+        }
+        manifest.join("../../../srs/srs")
+    }
+
     #[test]
     fn load_package_from_live_repo() {
-        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
+        let srs_repo = srs_spec_repo();
         let package = load_package(&srs_repo).expect("should load live srs package");
 
         assert_eq!(package.namespace, "com.semanticops.srs");
@@ -664,7 +685,7 @@ mod tests {
 
     #[test]
     fn resolve_type_by_name_finds_known_type() {
-        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
+        let srs_repo = srs_spec_repo();
         let package = load_package(&srs_repo).expect("should load live srs package");
 
         // Use name-based lookup to avoid hardcoding UUIDs
@@ -680,7 +701,7 @@ mod tests {
 
     #[test]
     fn find_field_by_name_finds_status() {
-        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
+        let srs_repo = srs_spec_repo();
         let package = load_package(&srs_repo).expect("should load live srs package");
 
         let status_field = package
@@ -693,7 +714,7 @@ mod tests {
 
     #[test]
     fn resolve_type_by_name_returns_none_for_unknown() {
-        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
+        let srs_repo = srs_spec_repo();
         let package = load_package(&srs_repo).expect("should load live srs package");
 
         assert!(package
@@ -703,7 +724,7 @@ mod tests {
 
     #[test]
     fn resolve_field_returns_none_for_unknown() {
-        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
+        let srs_repo = srs_spec_repo();
         let package = load_package(&srs_repo).expect("should load live srs package");
 
         assert!(package
@@ -713,7 +734,7 @@ mod tests {
 
     #[test]
     fn load_package_loads_relation_types() {
-        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
+        let srs_repo = srs_spec_repo();
         let package = load_package(&srs_repo).expect("should load live srs package");
 
         assert!(
@@ -725,7 +746,7 @@ mod tests {
 
     #[test]
     fn load_package_loads_document_views() {
-        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
+        let srs_repo = srs_spec_repo();
         let package = load_package(&srs_repo).expect("should load live srs package");
         assert!(
             !package.document_views.is_empty(),
@@ -735,7 +756,7 @@ mod tests {
 
     #[test]
     fn resolve_document_view_finds_srs_spec_view() {
-        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
+        let srs_repo = srs_spec_repo();
         let package = load_package(&srs_repo).expect("should load live srs package");
         let view = package
             .resolve_document_view("ec34f54b-8636-5c8b-af5b-c9eb3df24fe6")
@@ -745,7 +766,7 @@ mod tests {
 
     #[test]
     fn resolve_document_view_returns_none_for_unknown() {
-        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
+        let srs_repo = srs_spec_repo();
         let package = load_package(&srs_repo).expect("should load live srs package");
         assert!(package
             .resolve_document_view("00000000-0000-0000-0000-000000000000")
@@ -951,7 +972,7 @@ mod tests {
 
     #[test]
     fn resolve_canonical_relation_type_precedes() {
-        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
+        let srs_repo = srs_spec_repo();
         let package = load_package(&srs_repo).expect("should load live srs package");
 
         let rt = package
@@ -1157,7 +1178,7 @@ mod tests {
 
     #[test]
     fn deprecated_relation_types_loaded_with_correct_status() {
-        let srs_repo = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
+        let srs_repo = srs_spec_repo();
         let package = load_package(&srs_repo).expect("should load live srs package");
 
         let deprecated: Vec<_> = package

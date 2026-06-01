@@ -23,7 +23,7 @@
 //! ```
 
 use crate::error::RepositoryError;
-use crate::package_types::DefinitionKind;
+use crate::package_types::{DefinitionKind, PackageSelector};
 use crate::store::RepositoryStore;
 use crate::writer::new_instance_id;
 use srs_core::types::view::{DocumentView, View};
@@ -55,6 +55,10 @@ pub struct ViewSummary {
     pub description: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compatible_types: Option<Vec<String>>,
+    /// Boundary path of the package that owns this view.
+    /// `None` = primary package (`package/`); `Some(path)` = sub-package path.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_package: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -67,6 +71,10 @@ pub struct DocumentViewSummary {
     pub description: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub container_type: Option<String>,
+    /// Boundary path of the package that owns this document view.
+    /// `None` = primary package (`package/`); `Some(path)` = sub-package path.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_package: Option<String>,
 }
 
 // ── Result structs (mutating operations) ─────────────────────────────────────
@@ -75,10 +83,12 @@ pub struct CreateViewResult {
     pub view: View,
 }
 
+#[derive(Debug)]
 pub struct UpdateViewResult {
     pub view: View,
 }
 
+#[derive(Debug)]
 pub struct DeleteViewResult {
     pub id: String,
 }
@@ -116,19 +126,16 @@ fn find_view_path(
         Err(e) => return Err(e),
     };
     // PackageBoundary only carries field_paths/type_paths, not view_paths.
-    // Read view paths directly from the raw package.json.
-    let pkg_json = store.load_package_json()?;
+    // Load the *owner's* package.json (not always the primary one).
+    let prefix = owner.as_deref().unwrap_or("package");
+    let pkg_json = store.load_instance_json(&format!("{prefix}/package.json"))?;
     let paths = pkg_json["views"].as_array().cloned().unwrap_or_default();
-    let prefix = match &owner {
-        None => "package".to_string(),
-        Some(p) => p.clone(),
-    };
     for entry in &paths {
         if let Some(rel) = entry.as_str() {
             let full = format!("{prefix}/{rel}");
             if let Ok(val) = store.load_instance_json(&full) {
                 if val["id"].as_str() == Some(id) {
-                    return Ok(Some((rel.to_string(), owner)));
+                    return Ok(Some((full, owner)));
                 }
             }
         }
@@ -146,21 +153,19 @@ fn find_document_view_path(
         Err(RepositoryError::DefinitionNotFound { .. }) => return Ok(None),
         Err(e) => return Err(e),
     };
-    let pkg_json = store.load_package_json()?;
+    // Load the *owner's* package.json (not always the primary one).
+    let prefix = owner.as_deref().unwrap_or("package");
+    let pkg_json = store.load_instance_json(&format!("{prefix}/package.json"))?;
     let paths = pkg_json["documentViews"]
         .as_array()
         .cloned()
         .unwrap_or_default();
-    let prefix = match &owner {
-        None => "package".to_string(),
-        Some(p) => p.clone(),
-    };
     for entry in &paths {
         if let Some(rel) = entry.as_str() {
             let full = format!("{prefix}/{rel}");
             if let Ok(val) = store.load_instance_json(&full) {
                 if val["id"].as_str() == Some(id) {
-                    return Ok(Some((rel.to_string(), owner)));
+                    return Ok(Some((full, owner)));
                 }
             }
         }
@@ -207,15 +212,44 @@ pub fn get_view_by_id(
 pub fn list_views_summary(
     store: &dyn RepositoryStore,
 ) -> Result<Vec<ViewSummary>, RepositoryError> {
+    // Build provenance map: view id → boundary selector by scanning each boundary's package.json
+    let mut provenance: std::collections::HashMap<String, Option<String>> =
+        std::collections::HashMap::new();
+    let boundaries = store.list_package_boundaries()?;
+    for boundary in &boundaries {
+        let prefix = boundary.selector.as_deref().unwrap_or("package");
+        let pkg_json_path = format!("{prefix}/package.json");
+        if let Ok(pkg_json) = store.load_instance_json(&pkg_json_path) {
+            if let Some(paths) = pkg_json["views"].as_array() {
+                for entry in paths {
+                    if let Some(rel) = entry.as_str() {
+                        let full = format!("{prefix}/{rel}");
+                        if let Ok(val) = store.load_instance_json(&full) {
+                            if let Some(id) = val["id"].as_str() {
+                                provenance
+                                    .entry(id.to_string())
+                                    .or_insert_with(|| boundary.selector.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     Ok(list_views(store)?
         .into_iter()
-        .map(|v| ViewSummary {
-            id: v.id,
-            namespace: v.namespace,
-            name: v.name,
-            version: v.version,
-            description: v.description,
-            compatible_types: v.compatible_types,
+        .map(|v| {
+            let source_package = provenance.get(&v.id).cloned().flatten();
+            ViewSummary {
+                id: v.id,
+                namespace: v.namespace,
+                name: v.name,
+                version: v.version,
+                description: v.description,
+                compatible_types: v.compatible_types,
+                source_package,
+            }
         })
         .collect())
 }
@@ -223,38 +257,74 @@ pub fn list_views_summary(
 pub fn list_document_views_summary(
     store: &dyn RepositoryStore,
 ) -> Result<Vec<DocumentViewSummary>, RepositoryError> {
+    // Build provenance map: document view id → boundary selector
+    let mut provenance: std::collections::HashMap<String, Option<String>> =
+        std::collections::HashMap::new();
+    let boundaries = store.list_package_boundaries()?;
+    for boundary in &boundaries {
+        let prefix = boundary.selector.as_deref().unwrap_or("package");
+        let pkg_json_path = format!("{prefix}/package.json");
+        if let Ok(pkg_json) = store.load_instance_json(&pkg_json_path) {
+            if let Some(paths) = pkg_json["documentViews"].as_array() {
+                for entry in paths {
+                    if let Some(rel) = entry.as_str() {
+                        let full = format!("{prefix}/{rel}");
+                        if let Ok(val) = store.load_instance_json(&full) {
+                            if let Some(id) = val["id"].as_str() {
+                                provenance
+                                    .entry(id.to_string())
+                                    .or_insert_with(|| boundary.selector.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     Ok(list_document_views(store)?
         .into_iter()
-        .map(|v| DocumentViewSummary {
-            id: v.id,
-            namespace: v.namespace,
-            name: v.name,
-            version: v.version,
-            description: v.description,
-            container_type: v.container_type,
+        .map(|v| {
+            let source_package = provenance.get(&v.id).cloned().flatten();
+            DocumentViewSummary {
+                id: v.id,
+                namespace: v.namespace,
+                name: v.name,
+                version: v.version,
+                description: v.description,
+                container_type: v.container_type,
+                source_package,
+            }
         })
         .collect())
 }
 
 // ── View CRUD ─────────────────────────────────────────────────────────────────
 
-/// Create a new View. Validates, writes file, registers in `package.json` views array.
+/// Create a new View. Validates, writes file, registers in the boundary's `package.json` views array.
+/// Pass `selector = None` for the primary package; `Some(path)` for a sub-package.
 pub fn create_view(
     store: &dyn RepositoryStore,
     mut view: View,
+    selector: PackageSelector,
 ) -> Result<CreateViewResult, RepositoryError> {
+    // Validate the boundary exists before touching the filesystem.
+    store.load_package_boundary(&selector)?;
+
+    let boundary_path = selector.as_deref().unwrap_or("package");
     validate_view(&view).map_err(|e| RepositoryError::ViewValidation {
-        path: std::path::PathBuf::from("package/views"),
+        path: std::path::PathBuf::from(format!("{boundary_path}/views")),
         source: e,
     })?;
     if view.id.is_empty() {
         view.id = new_instance_id();
     }
-    store.ensure_views_dir()?;
+    store.ensure_views_dir(&format!("{boundary_path}/views"))?;
     let id_prefix = &view.id[..view.id.len().min(8)];
-    let filename = format!("views/{}-{}.json", slugify(&view.name), id_prefix);
-    store.save_view(&filename, &view)?;
-    store.add_definition_to_boundary(&None, DefinitionKind::View, &filename)?;
+    let rel_filename = format!("views/{}-{}.json", slugify(&view.name), id_prefix);
+    let full_path = format!("{boundary_path}/{rel_filename}");
+    store.save_view(&full_path, &view)?;
+    store.add_definition_to_boundary(&selector, DefinitionKind::View, &rel_filename)?;
     Ok(CreateViewResult { view })
 }
 
@@ -281,12 +351,17 @@ pub fn delete_view(
     store: &dyn RepositoryStore,
     view_id: &str,
 ) -> Result<DeleteViewResult, RepositoryError> {
-    let (path, owner) =
+    let (full_path, owner) =
         find_view_path(store, view_id)?.ok_or_else(|| RepositoryError::ViewNotFound {
             view_id: view_id.to_string(),
         })?;
-    let _ = store.delete_view_file(&path); // best-effort; ignore if already gone
-    store.remove_definition_from_boundary(&owner, DefinitionKind::View, &path)?;
+    let boundary_prefix = owner.as_deref().unwrap_or("package");
+    let rel_path = full_path
+        .strip_prefix(&format!("{boundary_prefix}/"))
+        .unwrap_or(&full_path)
+        .to_string();
+    let _ = store.delete_view_file(&full_path); // best-effort; ignore if already gone
+    store.remove_definition_from_boundary(&owner, DefinitionKind::View, &rel_path)?;
     Ok(DeleteViewResult {
         id: view_id.to_string(),
     })
@@ -294,29 +369,36 @@ pub fn delete_view(
 
 // ── DocumentView CRUD ─────────────────────────────────────────────────────────
 
-/// Create a new DocumentView. Validates, writes file, registers in `package.json` documentViews array.
+/// Create a new DocumentView. Validates, writes file, registers in the boundary's `package.json` documentViews array.
+/// Pass `selector = None` for the primary package; `Some(path)` for a sub-package.
 pub fn create_document_view(
     store: &dyn RepositoryStore,
     mut document_view: DocumentView,
+    selector: PackageSelector,
 ) -> Result<CreateDocumentViewResult, RepositoryError> {
+    // Validate the boundary exists before touching the filesystem.
+    store.load_package_boundary(&selector)?;
+
+    let boundary_path = selector.as_deref().unwrap_or("package");
     validate_document_view(&document_view).map_err(|e| {
         RepositoryError::DocumentViewValidation {
-            path: std::path::PathBuf::from("package/document-views"),
+            path: std::path::PathBuf::from(format!("{boundary_path}/document-views")),
             source: e,
         }
     })?;
     if document_view.id.is_empty() {
         document_view.id = new_instance_id();
     }
-    store.ensure_document_views_dir()?;
+    store.ensure_document_views_dir(&format!("{boundary_path}/document-views"))?;
     let id_prefix = &document_view.id[..document_view.id.len().min(8)];
-    let filename = format!(
+    let rel_filename = format!(
         "document-views/{}-{}.json",
         slugify(&document_view.name),
         id_prefix
     );
-    store.save_document_view(&filename, &document_view)?;
-    store.add_definition_to_boundary(&None, DefinitionKind::DocumentView, &filename)?;
+    let full_path = format!("{boundary_path}/{rel_filename}");
+    store.save_document_view(&full_path, &document_view)?;
+    store.add_definition_to_boundary(&selector, DefinitionKind::DocumentView, &rel_filename)?;
     Ok(CreateDocumentViewResult { document_view })
 }
 
@@ -346,13 +428,19 @@ pub fn delete_document_view(
     store: &dyn RepositoryStore,
     document_view_id: &str,
 ) -> Result<DeleteDocumentViewResult, RepositoryError> {
-    let (path, owner) = find_document_view_path(store, document_view_id)?.ok_or_else(|| {
-        RepositoryError::DocumentViewNotFoundById {
-            document_view_id: document_view_id.to_string(),
-        }
-    })?;
-    let _ = store.delete_document_view_file(&path); // best-effort
-    store.remove_definition_from_boundary(&owner, DefinitionKind::DocumentView, &path)?;
+    let (full_path, owner) =
+        find_document_view_path(store, document_view_id)?.ok_or_else(|| {
+            RepositoryError::DocumentViewNotFoundById {
+                document_view_id: document_view_id.to_string(),
+            }
+        })?;
+    let boundary_prefix = owner.as_deref().unwrap_or("package");
+    let rel_path = full_path
+        .strip_prefix(&format!("{boundary_prefix}/"))
+        .unwrap_or(&full_path)
+        .to_string();
+    let _ = store.delete_document_view_file(&full_path); // best-effort
+    store.remove_definition_from_boundary(&owner, DefinitionKind::DocumentView, &rel_path)?;
     Ok(DeleteDocumentViewResult {
         id: document_view_id.to_string(),
     })
@@ -363,7 +451,8 @@ pub fn delete_document_view(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::FileStore;
+    use crate::store::memory::MemoryStore;
+    use crate::store::{FileStore, RepositoryStore};
     use srs_core::types::view::{DocumentSection, FieldView, SectionSource};
     use std::collections::HashMap;
 
@@ -454,7 +543,7 @@ mod tests {
         setup_minimal_repo(temp.path());
         let store = FileStore::new(temp.path());
 
-        let result = create_view(&store, minimal_view("my-view")).unwrap();
+        let result = create_view(&store, minimal_view("my-view"), None).unwrap();
         assert!(!result.view.id.is_empty());
 
         let pkg_json = store.load_package_json().unwrap();
@@ -475,7 +564,7 @@ mod tests {
 
         let mut v = minimal_view("bad");
         v.field_views = vec![];
-        assert!(create_view(&store, v).is_err());
+        assert!(create_view(&store, v, None).is_err());
     }
 
     #[test]
@@ -484,7 +573,7 @@ mod tests {
         setup_minimal_repo(temp.path());
         let store = FileStore::new(temp.path());
 
-        let created = create_view(&store, minimal_view("listed-view")).unwrap();
+        let created = create_view(&store, minimal_view("listed-view"), None).unwrap();
         let summaries = list_views_summary(&store).unwrap();
         assert!(
             summaries.iter().any(|s| s.id == created.view.id),
@@ -498,7 +587,7 @@ mod tests {
         setup_minimal_repo(temp.path());
         let store = FileStore::new(temp.path());
 
-        let created = create_view(&store, minimal_view("get-me")).unwrap();
+        let created = create_view(&store, minimal_view("get-me"), None).unwrap();
         match get_view_by_id(&store, &created.view.id).unwrap() {
             GetViewResult::Found(v) => assert_eq!(v.name, "get-me"),
             GetViewResult::NotFound => panic!("expected Found"),
@@ -523,7 +612,7 @@ mod tests {
         setup_minimal_repo(temp.path());
         let store = FileStore::new(temp.path());
 
-        let created = create_view(&store, minimal_view("update-me")).unwrap();
+        let created = create_view(&store, minimal_view("update-me"), None).unwrap();
         let mut updated = created.view.clone();
         updated.description = "updated description".to_string();
 
@@ -561,7 +650,7 @@ mod tests {
         setup_minimal_repo(temp.path());
         let store = FileStore::new(temp.path());
 
-        let created = create_view(&store, minimal_view("delete-me")).unwrap();
+        let created = create_view(&store, minimal_view("delete-me"), None).unwrap();
         let id = created.view.id.clone();
 
         delete_view(&store, &id).unwrap();
@@ -597,7 +686,8 @@ mod tests {
         setup_minimal_repo(temp.path());
         let store = FileStore::new(temp.path());
 
-        let result = create_document_view(&store, minimal_document_view("my-doc-view")).unwrap();
+        let result =
+            create_document_view(&store, minimal_document_view("my-doc-view"), None).unwrap();
         assert!(!result.document_view.id.is_empty());
 
         let pkg_json = store.load_package_json().unwrap();
@@ -618,7 +708,7 @@ mod tests {
 
         let mut dv = minimal_document_view("bad");
         dv.sections = vec![];
-        assert!(create_document_view(&store, dv).is_err());
+        assert!(create_document_view(&store, dv, None).is_err());
     }
 
     #[test]
@@ -627,7 +717,8 @@ mod tests {
         setup_minimal_repo(temp.path());
         let store = FileStore::new(temp.path());
 
-        let created = create_document_view(&store, minimal_document_view("listed-dv")).unwrap();
+        let created =
+            create_document_view(&store, minimal_document_view("listed-dv"), None).unwrap();
         let summaries = list_document_views_summary(&store).unwrap();
         assert!(summaries.iter().any(|s| s.id == created.document_view.id));
     }
@@ -638,7 +729,8 @@ mod tests {
         setup_minimal_repo(temp.path());
         let store = FileStore::new(temp.path());
 
-        let created = create_document_view(&store, minimal_document_view("get-me-dv")).unwrap();
+        let created =
+            create_document_view(&store, minimal_document_view("get-me-dv"), None).unwrap();
         match get_document_view_by_id(&store, &created.document_view.id).unwrap() {
             GetDocumentViewResult::Found(dv) => assert_eq!(dv.name, "get-me-dv"),
             GetDocumentViewResult::NotFound => panic!("expected Found"),
@@ -663,7 +755,8 @@ mod tests {
         setup_minimal_repo(temp.path());
         let store = FileStore::new(temp.path());
 
-        let created = create_document_view(&store, minimal_document_view("update-dv")).unwrap();
+        let created =
+            create_document_view(&store, minimal_document_view("update-dv"), None).unwrap();
         let mut updated = created.document_view.clone();
         updated.description = "updated dv description".to_string();
 
@@ -697,7 +790,8 @@ mod tests {
         setup_minimal_repo(temp.path());
         let store = FileStore::new(temp.path());
 
-        let created = create_document_view(&store, minimal_document_view("delete-dv")).unwrap();
+        let created =
+            create_document_view(&store, minimal_document_view("delete-dv"), None).unwrap();
         let id = created.document_view.id.clone();
 
         delete_document_view(&store, &id).unwrap();
@@ -720,5 +814,124 @@ mod tests {
             result,
             Err(RepositoryError::DocumentViewNotFoundById { .. })
         ));
+    }
+
+    // ── Phase B: sub-package selector + provenance tests ─────────────────────
+
+    #[test]
+    fn create_view_in_sub_package() {
+        let store = MemoryStore::default();
+        let selector = Some("package/ext".to_string());
+        store.register_package_boundary(&selector).unwrap();
+
+        let result = create_view(&store, minimal_view("sub-view"), selector.clone()).unwrap();
+        assert!(!result.view.id.is_empty());
+
+        // File should be stored at sub-package path
+        let data = store.all_data();
+        let has_sub_path = data
+            .keys()
+            .any(|k| k.starts_with("package/ext/views/") && k.contains("sub-view"));
+        assert!(
+            has_sub_path,
+            "view should be stored under package/ext/views/; keys: {:?}",
+            data.keys().collect::<Vec<_>>()
+        );
+
+        // Primary boundary should NOT have it
+        let primary = store.load_package_boundary(&None).unwrap();
+        assert!(
+            primary.field_paths.is_empty(),
+            "primary boundary should be unaffected"
+        );
+    }
+
+    #[test]
+    fn create_document_view_in_sub_package() {
+        let store = MemoryStore::default();
+        let selector = Some("package/ext".to_string());
+        store.register_package_boundary(&selector).unwrap();
+
+        let result =
+            create_document_view(&store, minimal_document_view("sub-dv"), selector.clone())
+                .unwrap();
+        assert!(!result.document_view.id.is_empty());
+
+        let data = store.all_data();
+        let has_sub_path = data
+            .keys()
+            .any(|k| k.starts_with("package/ext/document-views/") && k.contains("sub-dv"));
+        assert!(
+            has_sub_path,
+            "document view should be stored under package/ext/document-views/; keys: {:?}",
+            data.keys().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn list_views_includes_source_package() {
+        let temp = tempfile::TempDir::new().unwrap();
+        setup_minimal_repo(temp.path());
+        let store = FileStore::new(temp.path());
+
+        create_view(&store, minimal_view("primary-view"), None).unwrap();
+
+        let summaries = list_views_summary(&store).unwrap();
+        assert!(
+            summaries.iter().any(|s| s.source_package.is_none()),
+            "primary package views should have source_package = None"
+        );
+    }
+
+    #[test]
+    fn list_document_views_includes_source_package() {
+        let temp = tempfile::TempDir::new().unwrap();
+        setup_minimal_repo(temp.path());
+        let store = FileStore::new(temp.path());
+
+        create_document_view(&store, minimal_document_view("primary-dv"), None).unwrap();
+
+        let summaries = list_document_views_summary(&store).unwrap();
+        assert!(
+            summaries.iter().any(|s| s.source_package.is_none()),
+            "primary package document views should have source_package = None"
+        );
+    }
+
+    // ── Regression: find_view_path must read owner's package.json, not primary ─
+
+    #[test]
+    fn update_view_in_sub_package_finds_correct_file() {
+        // Regression for find_view_path reading only primary package/package.json.
+        // A view in a sub-package must be findable for update/delete.
+        let store = MemoryStore::default();
+        let selector = Some("package/ext".to_string());
+        store.register_package_boundary(&selector).unwrap();
+
+        let created = create_view(&store, minimal_view("sub-view"), selector).unwrap();
+        let mut updated = created.view.clone();
+        updated.description = "updated description".to_string();
+
+        let result = update_view(&store, &created.view.id, updated);
+        assert!(
+            result.is_ok(),
+            "update_view should find view in sub-package: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn delete_view_in_sub_package_finds_correct_file() {
+        let store = MemoryStore::default();
+        let selector = Some("package/ext".to_string());
+        store.register_package_boundary(&selector).unwrap();
+
+        let created = create_view(&store, minimal_view("del-sub-view"), selector).unwrap();
+        let result = delete_view(&store, &created.view.id);
+        assert!(
+            result.is_ok(),
+            "delete_view should find view in sub-package: {:?}",
+            result
+        );
     }
 }

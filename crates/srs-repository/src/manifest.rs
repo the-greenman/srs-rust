@@ -44,9 +44,31 @@ pub fn load_manifest(repo_root: &Path) -> Result<Manifest, RepositoryError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn srs_spec_repo() -> PathBuf {
+        if let Ok(p) = std::env::var("SRS_SPEC_REPO") {
+            return PathBuf::from(p);
+        }
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut dir = manifest.to_path_buf();
+        loop {
+            let candidate = dir.join("../srs/srs");
+            if let Ok(c) = candidate.canonicalize() {
+                if c.join(".srs").exists() {
+                    return c;
+                }
+            }
+            match dir.parent() {
+                Some(p) if p != dir => dir = p.to_path_buf(),
+                _ => break,
+            }
+        }
+        manifest.join("../../../srs/srs")
+    }
+
     #[test]
     fn live_manifest_loads_and_has_correct_first_entry() {
-        let repo_root = PathBuf::from("/home/greenman/dev/semanticops/srs/srs");
+        let repo_root = srs_spec_repo();
         let manifest = load_manifest(&repo_root).unwrap();
 
         assert!(!manifest.instance_index.is_empty());

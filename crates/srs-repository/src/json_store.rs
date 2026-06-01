@@ -670,7 +670,7 @@ impl RepositoryStore for JsonStore {
         self.state
             .borrow_mut()
             .data
-            .insert(format!("package/{relative_path}"), v);
+            .insert(relative_path.to_string(), v);
         self.flush()
     }
 
@@ -679,14 +679,11 @@ impl RepositoryStore for JsonStore {
     }
 
     fn delete_field_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-        self.state
-            .borrow_mut()
-            .data
-            .remove(&format!("package/{relative_path}"));
+        self.state.borrow_mut().data.remove(relative_path);
         self.flush()
     }
 
-    fn ensure_fields_dir(&self) -> Result<(), RepositoryError> {
+    fn ensure_fields_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
         Ok(())
     }
 
@@ -702,7 +699,7 @@ impl RepositoryStore for JsonStore {
         self.state
             .borrow_mut()
             .data
-            .insert(format!("package/{relative_path}"), v);
+            .insert(relative_path.to_string(), v);
         self.flush()
     }
 
@@ -715,14 +712,11 @@ impl RepositoryStore for JsonStore {
     }
 
     fn delete_type_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-        self.state
-            .borrow_mut()
-            .data
-            .remove(&format!("package/{relative_path}"));
+        self.state.borrow_mut().data.remove(relative_path);
         self.flush()
     }
 
-    fn ensure_types_dir(&self) -> Result<(), RepositoryError> {
+    fn ensure_types_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
         Ok(())
     }
 
@@ -739,19 +733,16 @@ impl RepositoryStore for JsonStore {
         self.state
             .borrow_mut()
             .data
-            .insert(format!("package/{relative_path}"), v);
+            .insert(relative_path.to_string(), v);
         self.flush()
     }
 
     fn delete_relation_type_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-        self.state
-            .borrow_mut()
-            .data
-            .remove(&format!("package/{relative_path}"));
+        self.state.borrow_mut().data.remove(relative_path);
         self.flush()
     }
 
-    fn ensure_relation_types_dir(&self) -> Result<(), RepositoryError> {
+    fn ensure_relation_types_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
         Ok(())
     }
 
@@ -763,7 +754,7 @@ impl RepositoryStore for JsonStore {
         self.state
             .borrow_mut()
             .data
-            .insert(format!("package/{relative_path}"), v);
+            .insert(relative_path.to_string(), v);
         self.flush()
     }
 
@@ -772,14 +763,11 @@ impl RepositoryStore for JsonStore {
     }
 
     fn delete_view_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-        self.state
-            .borrow_mut()
-            .data
-            .remove(&format!("package/{relative_path}"));
+        self.state.borrow_mut().data.remove(relative_path);
         self.flush()
     }
 
-    fn ensure_views_dir(&self) -> Result<(), RepositoryError> {
+    fn ensure_views_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
         Ok(())
     }
 
@@ -795,7 +783,7 @@ impl RepositoryStore for JsonStore {
         self.state
             .borrow_mut()
             .data
-            .insert(format!("package/{relative_path}"), v);
+            .insert(relative_path.to_string(), v);
         self.flush()
     }
 
@@ -808,14 +796,11 @@ impl RepositoryStore for JsonStore {
     }
 
     fn delete_document_view_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-        self.state
-            .borrow_mut()
-            .data
-            .remove(&format!("package/{relative_path}"));
+        self.state.borrow_mut().data.remove(relative_path);
         self.flush()
     }
 
-    fn ensure_document_views_dir(&self) -> Result<(), RepositoryError> {
+    fn ensure_document_views_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
         Ok(())
     }
 
