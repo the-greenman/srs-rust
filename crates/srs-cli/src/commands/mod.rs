@@ -710,6 +710,16 @@ pub enum FieldCommand {
         #[arg(long, hide = true)]
         json: bool,
     },
+    /// Update an existing field definition by ID (reads full field JSON from stdin)
+    Update {
+        /// Field definition ID
+        id: String,
+    },
+    /// Delete a field definition by ID
+    Delete {
+        /// Field definition ID
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -742,6 +752,19 @@ pub enum TypeCommand {
         /// Deprecated: JSON output is now the default (no-op)
         #[arg(long, hide = true)]
         json: bool,
+    },
+    /// Update an existing type definition by ID (reads full type JSON from stdin)
+    Update {
+        /// Type definition ID
+        id: String,
+    },
+    /// Delete a type definition by ID
+    Delete {
+        /// Type definition ID
+        id: String,
+        /// Version to delete (defaults to latest)
+        #[arg(long)]
+        version: Option<u32>,
     },
 }
 

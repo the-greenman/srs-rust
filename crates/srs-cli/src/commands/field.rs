@@ -1,9 +1,11 @@
 use crate::commands::{with_store, CliContext, FieldCommand};
 use crate::output;
-use crate::payload::{FieldListEntry, FieldListPayload, FieldPayload};
+use crate::payload::{FieldDeletePayload, FieldListEntry, FieldListPayload, FieldPayload};
 use anyhow::Result;
+use srs_core::types::field::Field;
 use srs_repository::package_service::{
-    create_field_normalized, get_field_by_id, list_fields_filtered, FieldListFilter, GetFieldResult,
+    create_field_normalized, delete_field, get_field_by_id, list_fields_filtered, update_field,
+    FieldListFilter, GetFieldResult,
 };
 use std::io::{self, Read};
 
@@ -16,6 +18,8 @@ pub fn dispatch(ctx: CliContext, cmd: FieldCommand) -> Result<String> {
         } => cmd_field_list(ctx, namespace, package),
         FieldCommand::Get { id, json: _ } => cmd_field_get(ctx, id),
         FieldCommand::Create { package, json: _ } => cmd_field_create(ctx, package),
+        FieldCommand::Update { id } => cmd_field_update(ctx, id),
+        FieldCommand::Delete { id } => cmd_field_delete(ctx, id),
     }
 }
 
@@ -77,4 +81,39 @@ fn cmd_field_create(ctx: CliContext, package: Option<String>) -> Result<String> 
             field: result.field,
         },
     )
+}
+
+fn cmd_field_update(ctx: CliContext, id: String) -> Result<String> {
+    let mut stdin = String::new();
+    io::stdin().read_to_string(&mut stdin)?;
+
+    let field: Field = serde_json::from_str(&stdin)
+        .map_err(|e| anyhow::anyhow!("Failed to parse field JSON: {}", e))?;
+
+    if field.id != id {
+        return Ok(output::err(
+            "field update",
+            vec![format!(
+                "Field ID in body ('{}') does not match --id argument ('{}')",
+                field.id, id
+            )],
+        ));
+    }
+
+    match with_store(&ctx, |store| Ok(update_field(store, field)?)) {
+        Ok(result) => output::serialize(
+            "field update",
+            FieldPayload {
+                field: result.field,
+            },
+        ),
+        Err(e) => Ok(output::err("field update", vec![e.to_string()])),
+    }
+}
+
+fn cmd_field_delete(ctx: CliContext, id: String) -> Result<String> {
+    match with_store(&ctx, |store| Ok(delete_field(store, &id)?)) {
+        Ok(result) => output::serialize("field delete", FieldDeletePayload { id: result.id }),
+        Err(e) => Ok(output::err("field delete", vec![e.to_string()])),
+    }
 }

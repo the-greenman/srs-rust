@@ -396,6 +396,12 @@ pub struct FieldPayload {
     pub field: srs_core::types::field::Field,
 }
 
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldDeletePayload {
+    pub id: String,
+}
+
 // ── Type payloads ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -412,6 +418,12 @@ pub struct TypePayload {
     #[schemars(rename = "type")]
     #[schemars(with = "serde_json::Value")]
     pub record_type: RecordType,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TypeDeletePayload {
+    pub id: String,
 }
 
 // ── Extension payloads ────────────────────────────────────────────────────────
