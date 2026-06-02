@@ -255,6 +255,9 @@ fn parse_record_compat(content: &str) -> Option<Record> {
         type_name: type_name.to_string(),
         field_values,
         group_values: None,
+        lifecycle_state: obj
+            .get("lifecycleState")
+            .and_then(|v| v.as_str().map(|s| s.to_string())),
         created_at: obj
             .get("createdAt")
             .and_then(|v| v.as_str().map(|s| s.to_string())),

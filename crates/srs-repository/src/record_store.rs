@@ -29,7 +29,8 @@ use crate::store::RepositoryStore;
 use crate::writer::{new_instance_id, write_manifest};
 use serde::Deserialize;
 use srs_core::types::record::{FieldValue, Record};
-use srs_core::validation::record::validate_record;
+use srs_core::types::relation::Relation;
+use srs_core::validation::record::{validate_record, validate_type_lifecycle};
 use std::collections::HashMap;
 
 /// List all Tier 2 records in the repository, regardless of type.
@@ -106,6 +107,19 @@ pub fn create_record(
         }
     })?;
 
+    // Invariants 4+5: validate Type's lifecycle definition before using it.
+    if let Some(lc) = &record_type.lifecycle {
+        validate_type_lifecycle(lc).map_err(|e| RepositoryError::RecordValidation {
+            path: std::path::PathBuf::from(relative_dir),
+            source: e,
+        })?;
+    }
+
+    let initial_lifecycle_state = record_type
+        .lifecycle
+        .as_ref()
+        .map(|lc| lc.initial_state.clone());
+
     let mut record = Record {
         instance_id: String::new(),
         type_id: type_id.to_string(),
@@ -114,6 +128,7 @@ pub fn create_record(
         type_name: record_type.name.clone(),
         field_values,
         group_values: None,
+        lifecycle_state: initial_lifecycle_state,
         created_at: Some(chrono::Utc::now().to_rfc3339()),
         updated_at: Some(chrono::Utc::now().to_rfc3339()),
         extra: HashMap::new(),
@@ -193,6 +208,7 @@ pub fn update_record(
         type_name: record.type_name,
         field_values,
         group_values: record.group_values,
+        lifecycle_state: record.lifecycle_state,
         created_at: record.created_at,
         updated_at: Some(chrono::Utc::now().to_rfc3339()),
         extra: record.extra,
@@ -443,6 +459,231 @@ pub fn delete_record_in_context(
     Ok(DeleteRecordResult { instance_id })
 }
 
+/// Input for transitioning a record's lifecycle state.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransitionLifecycleInput {
+    /// Target state name (use either `to` or `by_transition`, not both).
+    pub to: Option<String>,
+    /// Named transition (e.g., "promote") — resolved to its `to` state.
+    pub by_transition: Option<String>,
+}
+
+/// Result for transition_record_lifecycle — includes warnings for final-state transitions.
+#[derive(Debug, Clone)]
+pub struct TransitionLifecycleResult {
+    pub record: Record,
+    pub warnings: Vec<String>,
+}
+
+/// Input for creating a successor record.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateRecordSuccessorInput {
+    /// "supersedes" or "refines"
+    pub relation_type: String,
+    pub field_values: Vec<FieldValue>,
+    /// Optional initial lifecycle state for the successor (defaults to Type.initialState).
+    pub lifecycle_state: Option<String>,
+    /// Optional type version override (defaults to same as predecessor).
+    pub type_version: Option<u32>,
+}
+
+/// Result for create_record_successor.
+#[derive(Debug, Clone)]
+pub struct CreateRecordSuccessorResult {
+    pub record: Record,
+    pub relation: Relation,
+}
+
+/// Transition a record's lifecycle state.
+///
+/// Validates that the transition exists in the Type's lifecycle.transitions[].
+/// If the target state has isFinal: true, the transition succeeds but a warning is returned.
+pub fn transition_record_lifecycle(
+    store: &dyn RepositoryStore,
+    instance_id: &str,
+    input: TransitionLifecycleInput,
+) -> Result<TransitionLifecycleResult, RepositoryError> {
+    let record =
+        get_record_by_id(store, instance_id)?.ok_or_else(|| RepositoryError::NotFound {
+            path: std::path::PathBuf::from("records"),
+        })?;
+
+    let package = store.load_package()?;
+    let record_type = package
+        .resolve_type(&record.type_id, record.type_version)
+        .ok_or_else(|| RepositoryError::TypeNotFound {
+            type_id: record.type_id.clone(),
+            version: record.type_version,
+        })?;
+
+    let lifecycle =
+        record_type
+            .lifecycle
+            .as_ref()
+            .ok_or_else(|| RepositoryError::LifecycleNotDefined {
+                id: instance_id.to_string(),
+            })?;
+
+    // Resolve target state name from either `to` or `by_transition`
+    let target_state = match (&input.to, &input.by_transition) {
+        (Some(to), None) => to.clone(),
+        (None, Some(transition_name)) => lifecycle
+            .transitions
+            .iter()
+            .find(|t| &t.name == transition_name)
+            .map(|t| t.to.clone())
+            .ok_or_else(|| RepositoryError::LifecycleTransitionNotAllowed {
+                from: record.lifecycle_state.clone().unwrap_or_default(),
+                to: transition_name.clone(),
+            })?,
+        _ => {
+            return Err(RepositoryError::InvalidRepositoryInitialization {
+                message: "exactly one of 'to' or 'byTransition' must be provided".to_string(),
+            })
+        }
+    };
+
+    // Validate target state exists in lifecycle
+    if !lifecycle.states.iter().any(|s| s.name == target_state) {
+        return Err(RepositoryError::LifecycleStateNotDefined {
+            state: target_state,
+        });
+    }
+
+    // Validate a transition path from current → target exists
+    let current_state = record.lifecycle_state.clone().unwrap_or_default();
+    let transition_allowed = lifecycle
+        .transitions
+        .iter()
+        .any(|t| t.from == current_state && t.to == target_state);
+    if !transition_allowed {
+        return Err(RepositoryError::LifecycleTransitionNotAllowed {
+            from: current_state,
+            to: target_state.clone(),
+        });
+    }
+
+    // Check if target state is final → emit warning
+    let mut warnings = Vec::new();
+    if let Some(state_def) = lifecycle.states.iter().find(|s| s.name == target_state) {
+        if state_def.is_final == Some(true) {
+            warnings.push(format!(
+                "LIFECYCLE_FINAL_STATE: Target state '{}' is a final state — no further transitions are expected",
+                target_state
+            ));
+        }
+    }
+
+    // Build updated record
+    let manifest = store.load_manifest()?;
+    let entry = manifest
+        .instance_index
+        .iter()
+        .find(|e| e.instance_id() == instance_id)
+        .cloned()
+        .ok_or_else(|| RepositoryError::NotFound {
+            path: std::path::PathBuf::from("records"),
+        })?;
+
+    let updated = Record {
+        lifecycle_state: Some(target_state),
+        updated_at: Some(chrono::Utc::now().to_rfc3339()),
+        ..record
+    };
+
+    write_record(store, &updated, entry.path())?;
+
+    Ok(TransitionLifecycleResult {
+        record: updated,
+        warnings,
+    })
+}
+
+/// Create a successor record (supersedes or refines an existing record).
+///
+/// Creates a new Record with the same typeId+typeVersion (or a specified version),
+/// then automatically adds a Relation from the successor to the predecessor.
+pub fn create_record_successor(
+    store: &dyn RepositoryStore,
+    predecessor_id: &str,
+    input: CreateRecordSuccessorInput,
+    relative_dir: &str,
+) -> Result<CreateRecordSuccessorResult, RepositoryError> {
+    let predecessor =
+        get_record_by_id(store, predecessor_id)?.ok_or_else(|| RepositoryError::NotFound {
+            path: std::path::PathBuf::from("records"),
+        })?;
+
+    let type_version = input.type_version.unwrap_or(predecessor.type_version);
+
+    // Validate the requested type version exists before writing anything.
+    {
+        let package = store.load_package()?;
+        package
+            .resolve_type(&predecessor.type_id, type_version)
+            .ok_or_else(|| RepositoryError::TypeVersionNotFound {
+                type_id: predecessor.type_id.clone(),
+                version: type_version,
+            })?;
+    }
+
+    // Create the successor record (lifecycle_state auto-set from Type.initialState).
+    let mut successor = create_record(
+        store,
+        &predecessor.type_id,
+        type_version,
+        input.field_values,
+        relative_dir,
+    )?;
+
+    // If caller supplied an explicit lifecycle_state, patch it.
+    if let Some(explicit_state) = input.lifecycle_state {
+        if successor.lifecycle_state.as_deref() != Some(explicit_state.as_str()) {
+            let manifest = store.load_manifest()?;
+            let entry = manifest
+                .instance_index
+                .iter()
+                .find(|e| e.instance_id() == successor.instance_id)
+                .cloned()
+                .ok_or_else(|| RepositoryError::NotFound {
+                    path: std::path::PathBuf::from("records"),
+                })?;
+            successor.lifecycle_state = Some(explicit_state);
+            write_record(store, &successor, entry.path())?;
+        }
+    }
+
+    // Create the relation: successor → predecessor
+    let rel_result = relation_service::create_relation_auto(
+        store,
+        Relation {
+            relation_id: String::new(),
+            relation_type: input.relation_type,
+            source_instance_id: successor.instance_id.clone(),
+            target_instance_id: predecessor_id.to_string(),
+            asserted_by: None,
+            confidence: None,
+            created_at: Some(chrono::Utc::now().to_rfc3339()),
+            created_by: None,
+            status: None,
+            valid_from: None,
+            valid_until: None,
+            notes: None,
+            source_refs: None,
+            meta: None,
+            source_repository_id: None,
+            target_repository_id: None,
+        },
+    )?;
+
+    Ok(CreateRecordSuccessorResult {
+        record: successor,
+        relation: rel_result.relation,
+    })
+}
+
 /// Add or replace the manifest index entry for a Record (in memory only).
 fn upsert_record_index_entry(manifest: &mut Manifest, record: &Record, relative_path: &str) {
     let entry = InstanceIndexEntry {
@@ -555,6 +796,7 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+            lifecycle: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -938,5 +1180,344 @@ mod tests {
             .instance_index
             .iter()
             .all(|e| e.instance_id() != instance_id));
+    }
+
+    fn make_store_with_lifecycle() -> MemoryStore {
+        use crate::package::Package;
+        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::record_type::{
+            FieldAssignment, LifecycleState, LifecycleTransition, RecordType, TypeLifecycle,
+        };
+        use srs_core::types::relation_type_definition::{
+            RelationTypeCategory, RelationTypeDefinition,
+        };
+
+        let title_field = Field {
+            id: "field-title-lc".to_string(),
+            namespace: "com.test".to_string(),
+            name: "title".to_string(),
+            version: 1,
+            value_type: ValueType::String,
+            description: "Title".to_string(),
+            ai_guidance: json!(null),
+            allowed_values: None,
+            default_value: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let lc_type = RecordType {
+            id: "type-lc-001".to_string(),
+            namespace: "com.test".to_string(),
+            name: "lifecycle-type".to_string(),
+            version: 1,
+            description: "Type with lifecycle".to_string(),
+            fields: vec![FieldAssignment {
+                field_id: "field-title-lc".to_string(),
+                order: 0,
+                required: true,
+                display_label: None,
+                repeatable: false,
+                min_items: None,
+                max_items: None,
+            }],
+            field_groups: None,
+            lifecycle: Some(TypeLifecycle {
+                states: vec![
+                    LifecycleState {
+                        name: "draft".to_string(),
+                        description: None,
+                        is_initial: Some(true),
+                        is_final: None,
+                    },
+                    LifecycleState {
+                        name: "active".to_string(),
+                        description: None,
+                        is_initial: None,
+                        is_final: None,
+                    },
+                    LifecycleState {
+                        name: "archived".to_string(),
+                        description: None,
+                        is_initial: None,
+                        is_final: Some(true),
+                    },
+                ],
+                transitions: vec![
+                    LifecycleTransition {
+                        name: "promote".to_string(),
+                        from: "draft".to_string(),
+                        to: "active".to_string(),
+                        description: None,
+                    },
+                    LifecycleTransition {
+                        name: "archive".to_string(),
+                        from: "active".to_string(),
+                        to: "archived".to_string(),
+                        description: None,
+                    },
+                ],
+                initial_state: "draft".to_string(),
+            }),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let supersedes_def = RelationTypeDefinition {
+            schema: None,
+            id: "rtd-supersedes-001".to_string(),
+            version: 1,
+            relation_type: "supersedes".to_string(),
+            namespace: "com.semanticops.srs".to_string(),
+            label: "Supersedes".to_string(),
+            description: "The source record supersedes the target.".to_string(),
+            category: RelationTypeCategory::Refinement,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            canonical_direction: None,
+            inverse_type: None,
+            irreflexive: Some(true),
+            allowed_source_types: None,
+            allowed_target_types: None,
+            require_same_semantic_object_type: None,
+            status: None,
+            updated_at: None,
+        };
+
+        let refines_def = RelationTypeDefinition {
+            schema: None,
+            id: "rtd-refines-001".to_string(),
+            version: 1,
+            relation_type: "refines".to_string(),
+            namespace: "com.semanticops.srs".to_string(),
+            label: "Refines".to_string(),
+            description: "The source record refines the target.".to_string(),
+            category: RelationTypeCategory::Refinement,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            canonical_direction: None,
+            inverse_type: None,
+            irreflexive: Some(true),
+            allowed_source_types: None,
+            allowed_target_types: None,
+            require_same_semantic_object_type: None,
+            status: None,
+            updated_at: None,
+        };
+
+        let manifest = Manifest {
+            instance_index: vec![],
+            extra: HashMap::new(),
+            root: PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "test-package-lc".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test-package-lc".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![title_field],
+            record_types: vec![lc_type],
+            relation_type_definitions: vec![supersedes_def, refines_def],
+            views: vec![],
+            document_views: vec![],
+            themes: vec![],
+            blueprints: vec![],
+            root: PathBuf::from("/memory"),
+        };
+        MemoryStore::new(manifest, package)
+    }
+
+    fn create_lc_record(store: &MemoryStore) -> Record {
+        create_record(
+            store,
+            "type-lc-001",
+            1,
+            vec![FieldValue {
+                field_id: "field-title-lc".to_string(),
+                value: json!("Test Item"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            }],
+            "records/lc-items",
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn create_record_sets_initial_lifecycle_state() {
+        let store = make_store_with_lifecycle();
+        let record = create_lc_record(&store);
+        assert_eq!(record.lifecycle_state.as_deref(), Some("draft"));
+    }
+
+    #[test]
+    fn transition_by_state_name_succeeds() {
+        let store = make_store_with_lifecycle();
+        let record = create_lc_record(&store);
+        let result = transition_record_lifecycle(
+            &store,
+            &record.instance_id,
+            TransitionLifecycleInput {
+                to: Some("active".to_string()),
+                by_transition: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(result.record.lifecycle_state.as_deref(), Some("active"));
+        assert!(result.warnings.is_empty());
+    }
+
+    #[test]
+    fn transition_by_named_transition_succeeds() {
+        let store = make_store_with_lifecycle();
+        let record = create_lc_record(&store);
+        let result = transition_record_lifecycle(
+            &store,
+            &record.instance_id,
+            TransitionLifecycleInput {
+                to: None,
+                by_transition: Some("promote".to_string()),
+            },
+        )
+        .unwrap();
+        assert_eq!(result.record.lifecycle_state.as_deref(), Some("active"));
+    }
+
+    #[test]
+    fn transition_to_final_state_emits_warning() {
+        let store = make_store_with_lifecycle();
+        let record = create_lc_record(&store);
+        // Promote to active first
+        transition_record_lifecycle(
+            &store,
+            &record.instance_id,
+            TransitionLifecycleInput {
+                to: Some("active".to_string()),
+                by_transition: None,
+            },
+        )
+        .unwrap();
+        // Then archive (final state)
+        let result = transition_record_lifecycle(
+            &store,
+            &record.instance_id,
+            TransitionLifecycleInput {
+                to: Some("archived".to_string()),
+                by_transition: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(result.record.lifecycle_state.as_deref(), Some("archived"));
+        assert!(!result.warnings.is_empty());
+        assert!(result.warnings[0].contains("LIFECYCLE_FINAL_STATE"));
+    }
+
+    #[test]
+    fn transition_not_in_transitions_list_fails() {
+        let store = make_store_with_lifecycle();
+        let record = create_lc_record(&store);
+        // Attempt draft → archived (no such transition defined)
+        let result = transition_record_lifecycle(
+            &store,
+            &record.instance_id,
+            TransitionLifecycleInput {
+                to: Some("archived".to_string()),
+                by_transition: None,
+            },
+        );
+        assert!(matches!(
+            result,
+            Err(RepositoryError::LifecycleTransitionNotAllowed { .. })
+        ));
+    }
+
+    #[test]
+    fn create_record_successor_supersedes() {
+        let store = make_store_with_lifecycle();
+        let predecessor = create_lc_record(&store);
+
+        let result = create_record_successor(
+            &store,
+            &predecessor.instance_id,
+            CreateRecordSuccessorInput {
+                relation_type: "supersedes".to_string(),
+                field_values: vec![FieldValue {
+                    field_id: "field-title-lc".to_string(),
+                    value: json!("Updated Item"),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                }],
+                lifecycle_state: None,
+                type_version: None,
+            },
+            "records/lc-items",
+        )
+        .unwrap();
+
+        // Successor has initial lifecycle state
+        assert_eq!(result.record.lifecycle_state.as_deref(), Some("draft"));
+        // Relation points from successor to predecessor
+        assert_eq!(result.relation.relation_type, "supersedes");
+        assert_eq!(
+            result.relation.source_instance_id,
+            result.record.instance_id
+        );
+        assert_eq!(result.relation.target_instance_id, predecessor.instance_id);
+    }
+
+    #[test]
+    fn full_lifecycle_create_transition_successor() {
+        let store = make_store_with_lifecycle();
+
+        // Create in draft
+        let original = create_lc_record(&store);
+        assert_eq!(original.lifecycle_state.as_deref(), Some("draft"));
+
+        // Transition to active
+        let promoted = transition_record_lifecycle(
+            &store,
+            &original.instance_id,
+            TransitionLifecycleInput {
+                to: Some("active".to_string()),
+                by_transition: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(promoted.record.lifecycle_state.as_deref(), Some("active"));
+
+        // Create a superseding successor
+        let result = create_record_successor(
+            &store,
+            &original.instance_id,
+            CreateRecordSuccessorInput {
+                relation_type: "supersedes".to_string(),
+                field_values: vec![FieldValue {
+                    field_id: "field-title-lc".to_string(),
+                    value: json!("Next Version"),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                }],
+                lifecycle_state: None,
+                type_version: None,
+            },
+            "records/lc-items",
+        )
+        .unwrap();
+
+        // Successor is in draft, original still active
+        assert_eq!(result.record.lifecycle_state.as_deref(), Some("draft"));
+        let original_now = get_record_by_id(&store, &original.instance_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(original_now.lifecycle_state.as_deref(), Some("active"));
+
+        // Verify relation
+        assert_eq!(result.relation.relation_type, "supersedes");
+        assert_eq!(
+            result.relation.source_instance_id,
+            result.record.instance_id
+        );
+        assert_eq!(result.relation.target_instance_id, original.instance_id);
     }
 }

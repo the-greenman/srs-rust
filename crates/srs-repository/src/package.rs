@@ -3,7 +3,7 @@ use crate::manifest::load_manifest;
 use srs_core::types::blueprint::Blueprint;
 use srs_core::types::field::{Field, ValueType};
 use srs_core::types::record_type::{
-    FieldAssignment, FieldAssignmentOverride, FieldGroup, RecordType,
+    FieldAssignment, FieldAssignmentOverride, FieldGroup, RecordType, TypeLifecycle,
 };
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::types::theme::Theme;
@@ -109,6 +109,8 @@ struct TypeJson {
     field_order: Option<Vec<String>>,
     #[serde(default)]
     field_assignment_overrides: Option<Vec<FieldAssignmentOverrideJson>>,
+    #[serde(default)]
+    lifecycle: Option<TypeLifecycle>,
     created_at: Option<String>,
     #[serde(flatten)]
     _extra: HashMap<String, serde_json::Value>,
@@ -546,6 +548,7 @@ fn load_package_from_dir(
             extends_type_version: type_json.extends_type_version,
             field_order: type_json.field_order,
             field_assignment_overrides,
+            lifecycle: type_json.lifecycle,
             created_at: type_json.created_at.unwrap_or_default(),
             extra: HashMap::new(),
         });

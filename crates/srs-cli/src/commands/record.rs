@@ -1,10 +1,11 @@
 use crate::commands::{with_store, CliContext, RecordCommand};
-use crate::output;
-use crate::payload::{DeletedPayload, RecordListPayload, RecordPayload};
+use crate::output::{self, OutputDTO};
+use crate::payload::{DeletedPayload, RecordListPayload, RecordPayload, RecordSuccessorPayload};
 use anyhow::Result;
 use srs_repository::record_store::{
-    create_record_in_context, delete_record_in_context, get_record_by_id, list_records_filtered,
-    update_record, CreateRecordInput, RecordListFilter,
+    create_record_in_context, create_record_successor, delete_record_in_context, get_record_by_id,
+    list_records_filtered, transition_record_lifecycle, update_record, CreateRecordInput,
+    CreateRecordSuccessorInput, RecordListFilter, TransitionLifecycleInput,
 };
 use std::io::{self, Read};
 
@@ -23,6 +24,8 @@ pub fn dispatch(ctx: CliContext, cmd: RecordCommand) -> Result<String> {
         } => cmd_record_create(ctx, type_filter, version, dir),
         RecordCommand::Update { id, json: _ } => cmd_record_update(ctx, id),
         RecordCommand::Delete { id, json: _ } => cmd_record_delete(ctx, id),
+        RecordCommand::Transition { id } => cmd_record_transition(ctx, id),
+        RecordCommand::Successor { id, dir } => cmd_record_successor(ctx, id, dir),
     }
 }
 
@@ -139,6 +142,70 @@ fn cmd_record_delete(ctx: CliContext, id: String) -> Result<String> {
             },
         ),
         Err(e) => Ok(output::err("record delete", vec![e.to_string()])),
+    }
+}
+
+fn cmd_record_transition(ctx: CliContext, id: String) -> Result<String> {
+    let mut stdin = String::new();
+    io::stdin().read_to_string(&mut stdin)?;
+    let input: TransitionLifecycleInput = match serde_json::from_str(&stdin) {
+        Ok(v) => v,
+        Err(e) => {
+            return Ok(output::err(
+                "record transition",
+                vec![format!("Failed to parse transition JSON from stdin: {}", e)],
+            ))
+        }
+    };
+
+    match with_store(&ctx, |store| {
+        Ok(transition_record_lifecycle(store, &id, input)?)
+    }) {
+        Ok(result) => {
+            let payload = serde_json::to_value(RecordPayload {
+                record: result.record,
+            })?;
+            let dto = OutputDTO {
+                ok: true,
+                command: "record transition".to_string(),
+                version: output::VERSION.to_string(),
+                payload: Some(payload),
+                diagnostics: if result.warnings.is_empty() {
+                    None
+                } else {
+                    Some(result.warnings)
+                },
+            };
+            Ok(dto.render(ctx.format, ctx.pretty))
+        }
+        Err(e) => Ok(output::err("record transition", vec![e.to_string()])),
+    }
+}
+
+fn cmd_record_successor(ctx: CliContext, id: String, dir: String) -> Result<String> {
+    let mut stdin = String::new();
+    io::stdin().read_to_string(&mut stdin)?;
+    let input: CreateRecordSuccessorInput = match serde_json::from_str(&stdin) {
+        Ok(v) => v,
+        Err(e) => {
+            return Ok(output::err(
+                "record successor",
+                vec![format!("Failed to parse successor JSON from stdin: {}", e)],
+            ))
+        }
+    };
+
+    match with_store(&ctx, |store| {
+        Ok(create_record_successor(store, &id, input, &dir)?)
+    }) {
+        Ok(result) => output::serialize(
+            "record successor",
+            RecordSuccessorPayload {
+                record: result.record,
+                relation: result.relation,
+            },
+        ),
+        Err(e) => Ok(output::err("record successor", vec![e.to_string()])),
     }
 }
 
