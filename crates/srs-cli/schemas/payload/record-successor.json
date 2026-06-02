@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RecordSuccessorPayload",
+  "description": "Payload for `record successor` — the new Record and the Relation to the predecessor.",
+  "type": "object",
+  "required": [
+    "record",
+    "relation"
+  ],
+  "properties": {
+    "record": true,
+    "relation": true
+  }
+}

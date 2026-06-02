@@ -1,6 +1,6 @@
 use crate::error::CoreError;
 use crate::types::record::Record;
-use crate::types::record_type::RecordType;
+use crate::types::record_type::{RecordType, TypeLifecycle};
 use std::collections::HashSet;
 
 /// Validates a record against its record type definition.
@@ -105,6 +105,62 @@ pub fn validate_record(record: &Record, record_type: &RecordType) -> Result<(), 
         }
     }
 
+    // Invariant 6 (ext:lifecycle): Record.lifecycleState must name a state in the
+    // associated Type's lifecycle.states[] when the Type declares a lifecycle.
+    if let (Some(state), Some(lc)) = (&record.lifecycle_state, &record_type.lifecycle) {
+        let valid = lc.states.iter().any(|s| &s.name == state);
+        if !valid {
+            return Err(CoreError::InvalidLifecycleState {
+                state: state.clone(),
+            });
+        }
+    }
+
+    Ok(())
+}
+
+/// Validate a Type's lifecycle definition (Invariants 4 and 5, ext:lifecycle).
+///
+/// - Invariant 4: `initialState` must name a state with `isInitial: true`.
+/// - Invariant 5: All `from`/`to` in `transitions[]` must name valid states.
+pub fn validate_type_lifecycle(lifecycle: &TypeLifecycle) -> Result<(), CoreError> {
+    let state_names: HashSet<&str> = lifecycle.states.iter().map(|s| s.name.as_str()).collect();
+
+    // Invariant 4
+    let initial_state = lifecycle
+        .states
+        .iter()
+        .find(|s| s.name == lifecycle.initial_state);
+    match initial_state {
+        None => {
+            return Err(CoreError::InvalidLifecycleInitialState {
+                state: lifecycle.initial_state.clone(),
+            })
+        }
+        Some(s) if s.is_initial != Some(true) => {
+            return Err(CoreError::InvalidLifecycleInitialState {
+                state: lifecycle.initial_state.clone(),
+            })
+        }
+        _ => {}
+    }
+
+    // Invariant 5
+    for transition in &lifecycle.transitions {
+        if !state_names.contains(transition.from.as_str()) {
+            return Err(CoreError::InvalidLifecycleTransitionState {
+                state: transition.from.clone(),
+                transition_name: transition.name.clone(),
+            });
+        }
+        if !state_names.contains(transition.to.as_str()) {
+            return Err(CoreError::InvalidLifecycleTransitionState {
+                state: transition.to.clone(),
+                transition_name: transition.name.clone(),
+            });
+        }
+    }
+
     Ok(())
 }
 
@@ -155,6 +211,7 @@ mod tests {
                 },
             ],
             field_groups: None,
+            lifecycle: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         }
@@ -169,6 +226,7 @@ mod tests {
             type_name: "test-type".to_string(),
             field_values,
             group_values: None,
+            lifecycle_state: None,
             created_at: None,
             updated_at: None,
             extra: HashMap::new(),
@@ -460,6 +518,7 @@ mod tests {
                 min_items,
                 max_items,
             }]),
+            lifecycle: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         }
@@ -472,13 +531,12 @@ mod tests {
                 entry_id: None,
             })
             .collect();
-        Record {
-            group_values: Some(vec![FieldGroupValue {
-                group_id: "group-1".to_string(),
-                entries,
-            }]),
-            ..create_record_with_fields(vec![])
-        }
+        let mut record = create_record_with_fields(vec![]);
+        record.group_values = Some(vec![FieldGroupValue {
+            group_id: "group-1".to_string(),
+            entries,
+        }]);
+        record
     }
 
     #[test]

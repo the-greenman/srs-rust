@@ -83,6 +83,22 @@ pub enum CoreError {
         count: usize,
         max: u32,
     },
+
+    // ── ext:lifecycle errors ──────────────────────────────────────────────────
+    /// Invariant 6: Record.lifecycleState names a state not in the Type's lifecycle.
+    #[error("invalid lifecycle state '{state}': not defined in the Type's lifecycle")]
+    InvalidLifecycleState { state: String },
+
+    /// Invariant 4: Type.lifecycle.initialState does not reference a state with isInitial: true.
+    #[error("invalid lifecycle initialState '{state}': must name a state with isInitial: true")]
+    InvalidLifecycleInitialState { state: String },
+
+    /// Invariant 5: A transition from/to references a state name not in lifecycle.states[].
+    #[error("invalid lifecycle transition '{transition_name}': state '{state}' is not defined")]
+    InvalidLifecycleTransitionState {
+        state: String,
+        transition_name: String,
+    },
 }
 
 impl PartialEq for CoreError {
@@ -196,6 +212,24 @@ impl PartialEq for CoreError {
                     max: bm,
                 },
             ) => ag == bg && ac == bc && am == bm,
+            (
+                CoreError::InvalidLifecycleState { state: a },
+                CoreError::InvalidLifecycleState { state: b },
+            ) => a == b,
+            (
+                CoreError::InvalidLifecycleInitialState { state: a },
+                CoreError::InvalidLifecycleInitialState { state: b },
+            ) => a == b,
+            (
+                CoreError::InvalidLifecycleTransitionState {
+                    state: sa,
+                    transition_name: ta,
+                },
+                CoreError::InvalidLifecycleTransitionState {
+                    state: sb,
+                    transition_name: tb,
+                },
+            ) => sa == sb && ta == tb,
             _ => false,
         }
     }

@@ -1100,6 +1100,7 @@ mod tests {
             description: "A test type".to_string(),
             fields: vec![],
             field_groups: None,
+            lifecycle: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         }

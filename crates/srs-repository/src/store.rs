@@ -5,7 +5,7 @@ use crate::package_types::{DefinitionKind, PackageBoundary, PackageSelector};
 use crate::repository_lifecycle::{CreateRepositoryResult, InitializeRepositoryInput};
 use serde::de::Error as SerdeDeError;
 use srs_core::types::field::{Field, ValueType};
-use srs_core::types::record_type::{FieldAssignment, FieldGroup, RecordType};
+use srs_core::types::record_type::{FieldAssignment, FieldGroup, RecordType, TypeLifecycle};
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::types::theme::Theme;
 use srs_core::types::view::{DocumentView, View};
@@ -381,6 +381,8 @@ struct TypeJson {
     fields: Vec<FieldAssignmentJson>,
     #[serde(default)]
     field_groups: Option<Vec<FieldGroupJson>>,
+    #[serde(default)]
+    lifecycle: Option<TypeLifecycle>,
     created_at: Option<String>,
     #[serde(flatten)]
     _extra: HashMap<String, serde_json::Value>,
@@ -547,6 +549,7 @@ fn load_package_from_dir(
             description: tj.description.unwrap_or_default(),
             fields: type_fields,
             field_groups,
+            lifecycle: tj.lifecycle,
             created_at: tj.created_at.unwrap_or_default(),
             extra: HashMap::new(),
         });

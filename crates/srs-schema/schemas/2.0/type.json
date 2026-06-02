@@ -51,6 +51,10 @@
       "items": { "$ref": "#/$defs/FieldGroup" },
       "description": "ext:field-groups — grouped, potentially repeatable field sets."
     },
+    "lifecycle": {
+      "$ref": "#/$defs/TypeLifecycle",
+      "description": "ext:lifecycle — state machine declaration for records of this Type."
+    },
     "tags": {
       "type": "array",
       "items": { "type": "string" }
@@ -61,6 +65,48 @@
     }
   },
   "$defs": {
+    "TypeLifecycle": {
+      "type": "object",
+      "required": ["states", "transitions", "initialState"],
+      "additionalProperties": false,
+      "properties": {
+        "states": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/LifecycleState" }
+        },
+        "transitions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/LifecycleTransition" }
+        },
+        "initialState": {
+          "type": "string",
+          "description": "Must reference a state name with isInitial: true (Invariant 4)."
+        }
+      }
+    },
+    "LifecycleState": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "isInitial": { "type": "boolean" },
+        "isFinal": { "type": "boolean" }
+      }
+    },
+    "LifecycleTransition": {
+      "type": "object",
+      "required": ["name", "from", "to"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "from": { "type": "string" },
+        "to": { "type": "string" },
+        "description": { "type": "string" }
+      }
+    },
     "FieldAssignment": {
       "type": "object",
       "required": ["fieldId", "order", "required"],

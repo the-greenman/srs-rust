@@ -12,9 +12,42 @@ pub struct RecordType {
     pub fields: Vec<FieldAssignment>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub field_groups: Option<Vec<FieldGroup>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lifecycle: Option<TypeLifecycle>,
     pub created_at: String,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// ext:lifecycle — state machine declaration on a Type.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TypeLifecycle {
+    pub states: Vec<LifecycleState>,
+    pub transitions: Vec<LifecycleTransition>,
+    pub initial_state: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LifecycleState {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_initial: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_final: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LifecycleTransition {
+    pub name: String,
+    pub from: String,
+    pub to: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,6 +139,7 @@ mod tests {
                 },
             ],
             field_groups: None,
+            lifecycle: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -165,6 +199,7 @@ mod tests {
                 max_items: None,
             }],
             field_groups: None,
+            lifecycle: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -194,6 +229,7 @@ mod tests {
                 max_items: None,
             }],
             field_groups: None,
+            lifecycle: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -315,6 +351,7 @@ mod tests {
                 min_items: Some(1),
                 max_items: None,
             }]),
+            lifecycle: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -333,6 +370,7 @@ mod tests {
             description: "d".to_string(),
             fields: vec![],
             field_groups: None,
+            lifecycle: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -349,6 +387,7 @@ mod tests {
             version: 1,
             description: "d".to_string(),
             fields: vec![],
+            lifecycle: None,
             field_groups: Some(vec![
                 FieldGroup {
                     group_id: "g-1".to_string(),
@@ -392,6 +431,7 @@ mod tests {
             description: "d".to_string(),
             fields: vec![],
             field_groups: Some(vec![]),
+            lifecycle: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -408,6 +448,7 @@ mod tests {
             description: "d".to_string(),
             fields: vec![],
             field_groups: None,
+            lifecycle: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };

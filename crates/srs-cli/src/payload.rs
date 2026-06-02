@@ -280,6 +280,16 @@ pub struct RecordPayload {
     pub record: Record,
 }
 
+/// Payload for `record successor` — the new Record and the Relation to the predecessor.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordSuccessorPayload {
+    #[schemars(with = "serde_json::Value")]
+    pub record: Record,
+    #[schemars(with = "serde_json::Value")]
+    pub relation: Relation,
+}
+
 // ── Relation payloads ─────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]

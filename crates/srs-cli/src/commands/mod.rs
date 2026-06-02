@@ -818,6 +818,21 @@ pub enum RecordCommand {
         #[arg(long, hide = true)]
         json: bool,
     },
+    /// Transition a record's lifecycle state (ext:lifecycle)
+    Transition {
+        /// Record instance ID
+        #[arg(long)]
+        id: String,
+    },
+    /// Create a successor record that supersedes or refines this one (ext:lifecycle)
+    Successor {
+        /// Record instance ID of the predecessor
+        #[arg(long)]
+        id: String,
+        /// Optional output directory relative to repo root
+        #[arg(long, default_value = "package/records")]
+        dir: String,
+    },
 }
 
 #[derive(Subcommand)]

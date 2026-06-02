@@ -12,6 +12,10 @@ pub struct Record {
     pub field_values: Vec<FieldValue>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group_values: Option<Vec<FieldGroupValue>>,
+    /// ext:lifecycle — current lifecycle state. Must name a state in the associated
+    /// Type's lifecycle.states[] when the Type declares a lifecycle (Invariant 6).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lifecycle_state: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -92,6 +96,7 @@ mod tests {
             type_name: "test-type".to_string(),
             field_values: vec![],
             group_values: None,
+            lifecycle_state: None,
             created_at: None,
             updated_at: None,
             extra: HashMap::new(),
@@ -185,6 +190,27 @@ mod tests {
         assert_eq!(arr.len(), 2);
         assert_eq!(arr[0], json!("foundation"));
         assert_eq!(arr[1], json!("navigation"));
+    }
+
+    #[test]
+    fn lifecycle_state_roundtrips_and_not_in_extra() {
+        let record = Record {
+            lifecycle_state: Some("active".to_string()),
+            ..minimal_record()
+        };
+        let value = serde_json::to_value(&record).unwrap();
+        assert_eq!(value["lifecycleState"], json!("active"));
+
+        let parsed: Record = serde_json::from_value(value).unwrap();
+        assert_eq!(parsed.lifecycle_state.as_deref(), Some("active"));
+        assert!(!parsed.extra.contains_key("lifecycleState"));
+    }
+
+    #[test]
+    fn lifecycle_state_absent_omits_key() {
+        let record = minimal_record();
+        let value = serde_json::to_value(&record).unwrap();
+        assert!(value.get("lifecycleState").is_none());
     }
 
     #[test]
