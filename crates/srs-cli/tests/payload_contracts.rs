@@ -109,6 +109,16 @@ fn record_successor() {
     check::<RecordSuccessorPayload>("record-successor");
 }
 
+#[test]
+fn record_revision_list() {
+    check::<RevisionListPayload>("record-revision-list");
+}
+
+#[test]
+fn record_revision_get() {
+    check::<RevisionPayload>("record-revision-get");
+}
+
 // ── Relation ──────────────────────────────────────────────────────────────────
 
 #[test]

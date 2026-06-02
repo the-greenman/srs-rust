@@ -25,11 +25,13 @@ use crate::index::InstanceIndexEntry;
 use crate::manifest::Manifest;
 use crate::package_service::{get_type_by_name, GetTypeResult};
 use crate::relation_service;
+use crate::revision_service;
 use crate::store::RepositoryStore;
 use crate::writer::{new_instance_id, write_manifest};
 use serde::Deserialize;
 use srs_core::types::record::{FieldValue, Record};
 use srs_core::types::relation::Relation;
+use srs_core::types::revision::{Revision, RevisionAgent, RevisionProvenance};
 use srs_core::validation::record::{validate_record, validate_type_lifecycle};
 use std::collections::HashMap;
 
@@ -280,6 +282,8 @@ pub fn delete_record(
     let path = manifest.instance_index[entry_index].path().to_string();
 
     store.delete_instance_file(&path)?;
+    // Best-effort: delete the revision sidecar co-located with this record.
+    let _ = revision_service::delete_sidecar(store, &path);
     manifest.instance_index.remove(entry_index);
     write_manifest(store, &manifest)?;
 
@@ -469,7 +473,8 @@ pub struct TransitionLifecycleInput {
     pub by_transition: Option<String>,
 }
 
-/// Result for transition_record_lifecycle — includes warnings for final-state transitions.
+/// Result for transition_record_lifecycle — includes warnings for final-state transitions
+/// and any diagnostics from the best-effort revision append step.
 #[derive(Debug, Clone)]
 pub struct TransitionLifecycleResult {
     pub record: Record,
@@ -595,10 +600,59 @@ pub fn transition_record_lifecycle(
 
     write_record(store, &updated, entry.path())?;
 
+    // Best-effort: append one Revision per field value, tagged with the lifecycle transition.
+    // Transition is already committed at this point — if append fails we emit a diagnostic
+    // rather than returning an error (the file store has no cross-entity transactions).
+    let now = updated
+        .updated_at
+        .clone()
+        .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+    let provenance = RevisionProvenance {
+        lifecycle_transition: Some(updated.lifecycle_state.clone().unwrap_or_default()),
+        transitioned_at: Some(now.clone()),
+        import_source: None,
+    };
+    for field_value in &updated.field_values {
+        let prior_revision_id = find_latest_revision_id(
+            store,
+            entry.path(),
+            &updated.instance_id,
+            &field_value.field_id,
+        );
+        let revision = Revision {
+            revision_id: new_instance_id(),
+            record_id: updated.instance_id.clone(),
+            field_id: field_value.field_id.clone(),
+            value: field_value.value.clone(),
+            prior_revision_id,
+            agent: RevisionAgent::Ai,
+            provenance: Some(provenance.clone()),
+            created_at: now.clone(),
+        };
+        if let Err(_e) = revision_service::append(store, entry.path(), revision) {
+            warnings.push(format!(
+                "REVISION_APPEND_FAILED: could not append revision for field '{}'",
+                field_value.field_id
+            ));
+        }
+    }
+
     Ok(TransitionLifecycleResult {
         record: updated,
         warnings,
     })
+}
+
+/// Find the most recent revision_id for a (record, field) pair, if any.
+fn find_latest_revision_id(
+    store: &dyn RepositoryStore,
+    record_path: &str,
+    record_id: &str,
+    field_id: &str,
+) -> Option<String> {
+    revision_service::list(store, record_path, record_id, Some(field_id), None, None)
+        .ok()
+        .and_then(|revs| revs.into_iter().last().map(|r| r.revision_id))
 }
 
 /// Create a successor record (supersedes or refines an existing record).
@@ -682,6 +736,44 @@ pub fn create_record_successor(
         record: successor,
         relation: rel_result.relation,
     })
+}
+
+/// List revisions for a record, optionally filtered by field_id.
+///
+/// Returns revisions in append order (oldest first).
+pub fn list_record_revisions(
+    store: &dyn RepositoryStore,
+    instance_id: &str,
+    field_id: Option<&str>,
+    limit: Option<usize>,
+    offset: Option<usize>,
+) -> Result<Vec<Revision>, RepositoryError> {
+    let manifest = store.load_manifest()?;
+    let entry = manifest
+        .instance_index
+        .iter()
+        .find(|e| e.instance_id() == instance_id && e.tier() == 2)
+        .ok_or_else(|| RepositoryError::NotFound {
+            path: std::path::PathBuf::from("records"),
+        })?;
+    revision_service::list(store, entry.path(), instance_id, field_id, limit, offset)
+}
+
+/// Get a single revision by its revision_id, scoped to a specific record.
+pub fn get_record_revision(
+    store: &dyn RepositoryStore,
+    instance_id: &str,
+    revision_id: &str,
+) -> Result<Option<Revision>, RepositoryError> {
+    let manifest = store.load_manifest()?;
+    let entry = manifest
+        .instance_index
+        .iter()
+        .find(|e| e.instance_id() == instance_id && e.tier() == 2)
+        .ok_or_else(|| RepositoryError::NotFound {
+            path: std::path::PathBuf::from("records"),
+        })?;
+    revision_service::get(store, entry.path(), instance_id, revision_id)
 }
 
 /// Add or replace the manifest index entry for a Record (in memory only).

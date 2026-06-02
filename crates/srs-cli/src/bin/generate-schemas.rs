@@ -45,6 +45,8 @@ fn main() {
     write_schema!("record-delete", DeletedPayload);
     write_schema!("record-transition", RecordPayload);
     write_schema!("record-successor", RecordSuccessorPayload);
+    write_schema!("record-revision-list", RevisionListPayload);
+    write_schema!("record-revision-get", RevisionPayload);
 
     // Relation payloads
     write_schema!("relation-list", RelationListPayload);

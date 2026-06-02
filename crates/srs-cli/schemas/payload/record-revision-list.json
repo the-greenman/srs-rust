@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RevisionListPayload",
+  "type": "object",
+  "required": [
+    "instanceId",
+    "revisions"
+  ],
+  "properties": {
+    "instanceId": {
+      "type": "string"
+    },
+    "revisions": {
+      "type": "array",
+      "items": true
+    }
+  }
+}

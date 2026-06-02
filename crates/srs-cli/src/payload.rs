@@ -699,6 +699,23 @@ pub struct RepoExtensionsMutatePayload {
     pub extensions: Vec<String>,
 }
 
+// ── Revision payloads ─────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RevisionListPayload {
+    pub instance_id: String,
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub revisions: Vec<srs_core::types::revision::Revision>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RevisionPayload {
+    #[schemars(with = "serde_json::Value")]
+    pub revision: srs_core::types::revision::Revision,
+}
+
 // ── Package payloads ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]

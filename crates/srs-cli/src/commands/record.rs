@@ -1,11 +1,15 @@
-use crate::commands::{with_store, CliContext, RecordCommand};
+use crate::commands::{with_store, CliContext, RecordCommand, RecordRevisionCommand};
 use crate::output::{self, OutputDTO};
-use crate::payload::{DeletedPayload, RecordListPayload, RecordPayload, RecordSuccessorPayload};
+use crate::payload::{
+    DeletedPayload, RecordListPayload, RecordPayload, RecordSuccessorPayload, RevisionListPayload,
+    RevisionPayload,
+};
 use anyhow::Result;
 use srs_repository::record_store::{
     create_record_in_context, create_record_successor, delete_record_in_context, get_record_by_id,
-    list_records_filtered, transition_record_lifecycle, update_record, CreateRecordInput,
-    CreateRecordSuccessorInput, RecordListFilter, TransitionLifecycleInput,
+    get_record_revision, list_record_revisions, list_records_filtered, transition_record_lifecycle,
+    update_record, CreateRecordInput, CreateRecordSuccessorInput, RecordListFilter,
+    TransitionLifecycleInput,
 };
 use std::io::{self, Read};
 
@@ -26,6 +30,19 @@ pub fn dispatch(ctx: CliContext, cmd: RecordCommand) -> Result<String> {
         RecordCommand::Delete { id, json: _ } => cmd_record_delete(ctx, id),
         RecordCommand::Transition { id } => cmd_record_transition(ctx, id),
         RecordCommand::Successor { id, dir } => cmd_record_successor(ctx, id, dir),
+        RecordCommand::Revision(rev_cmd) => dispatch_revision(ctx, rev_cmd),
+    }
+}
+
+fn dispatch_revision(ctx: CliContext, cmd: RecordRevisionCommand) -> Result<String> {
+    match cmd {
+        RecordRevisionCommand::List {
+            id,
+            field_id,
+            limit,
+            offset,
+        } => cmd_revision_list(ctx, id, field_id, limit, offset),
+        RecordRevisionCommand::Get { id, revision_id } => cmd_revision_get(ctx, id, revision_id),
     }
 }
 
@@ -206,6 +223,51 @@ fn cmd_record_successor(ctx: CliContext, id: String, dir: String) -> Result<Stri
             },
         ),
         Err(e) => Ok(output::err("record successor", vec![e.to_string()])),
+    }
+}
+
+fn cmd_revision_list(
+    ctx: CliContext,
+    id: String,
+    field_id: Option<String>,
+    limit: Option<usize>,
+    offset: Option<usize>,
+) -> Result<String> {
+    match with_store(&ctx, |store| {
+        Ok(list_record_revisions(
+            store,
+            &id,
+            field_id.as_deref(),
+            limit,
+            offset,
+        )?)
+    }) {
+        Ok(revisions) => output::serialize(
+            "record revision list",
+            RevisionListPayload {
+                instance_id: id,
+                revisions,
+            },
+        ),
+        Err(e) => Ok(output::err("record revision list", vec![e.to_string()])),
+    }
+}
+
+fn cmd_revision_get(ctx: CliContext, id: String, revision_id: String) -> Result<String> {
+    match with_store(&ctx, |store| {
+        Ok(get_record_revision(store, &id, &revision_id)?)
+    }) {
+        Ok(Some(revision)) => {
+            output::serialize("record revision get", RevisionPayload { revision })
+        }
+        Ok(None) => Ok(output::err(
+            "record revision get",
+            vec![format!(
+                "Revision '{}' not found for record '{}'",
+                revision_id, id
+            )],
+        )),
+        Err(e) => Ok(output::err("record revision get", vec![e.to_string()])),
     }
 }
 
