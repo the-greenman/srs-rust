@@ -1,11 +1,11 @@
 use crate::commands::{with_store, CliContext, TypeCommand};
 use crate::output;
-use crate::payload::{TypeListEntry, TypeListPayload, TypePayload};
+use crate::payload::{TypeDeletePayload, TypeListEntry, TypeListPayload, TypePayload};
 use anyhow::Result;
 use srs_core::types::record_type::RecordType;
 use srs_repository::package_service::{
-    create_type_in_package, get_type_by_id_latest, list_types_filtered, GetTypeResult,
-    TypeListFilter,
+    create_type_in_package, delete_type, get_type_by_id_latest, list_types_filtered, update_type,
+    GetTypeResult, TypeListFilter,
 };
 use std::io::{self, Read};
 
@@ -18,6 +18,8 @@ pub fn dispatch(ctx: CliContext, cmd: TypeCommand) -> Result<String> {
         } => cmd_type_list(ctx, namespace, package),
         TypeCommand::Get { id, json: _ } => cmd_type_get(ctx, id),
         TypeCommand::Create { package, json: _ } => cmd_type_create(ctx, package),
+        TypeCommand::Update { id } => cmd_type_update(ctx, id),
+        TypeCommand::Delete { id, version } => cmd_type_delete(ctx, id, version),
     }
 }
 
@@ -80,4 +82,53 @@ fn cmd_type_create(ctx: CliContext, package: Option<String>) -> Result<String> {
             record_type: result.record_type,
         },
     )
+}
+
+fn cmd_type_update(ctx: CliContext, id: String) -> Result<String> {
+    let mut stdin = String::new();
+    io::stdin().read_to_string(&mut stdin)?;
+
+    let record_type: RecordType = serde_json::from_str(&stdin)
+        .map_err(|e| anyhow::anyhow!("Failed to parse type JSON: {}", e))?;
+
+    if record_type.id != id {
+        return Ok(output::err(
+            "type update",
+            vec![format!(
+                "Type ID in body ('{}') does not match --id argument ('{}')",
+                record_type.id, id
+            )],
+        ));
+    }
+
+    match with_store(&ctx, |store| Ok(update_type(store, record_type)?)) {
+        Ok(result) => output::serialize(
+            "type update",
+            TypePayload {
+                record_type: result.record_type,
+            },
+        ),
+        Err(e) => Ok(output::err("type update", vec![e.to_string()])),
+    }
+}
+
+fn cmd_type_delete(ctx: CliContext, id: String, version: Option<u32>) -> Result<String> {
+    // Resolve version: use provided value, or look up the latest.
+    let resolved_version = match version {
+        Some(v) => v,
+        None => match with_store(&ctx, |store| Ok(get_type_by_id_latest(store, &id)?))? {
+            GetTypeResult::Found(rt) => rt.version,
+            GetTypeResult::NotFound => {
+                return Ok(output::err(
+                    "type delete",
+                    vec![format!("Type with id '{}' not found", id)],
+                ))
+            }
+        },
+    };
+
+    match with_store(&ctx, |store| Ok(delete_type(store, &id, resolved_version)?)) {
+        Ok(result) => output::serialize("type delete", TypeDeletePayload { id: result.id }),
+        Err(e) => Ok(output::err("type delete", vec![e.to_string()])),
+    }
 }

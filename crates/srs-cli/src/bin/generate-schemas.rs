@@ -75,11 +75,15 @@ fn main() {
     write_schema!("field-list", FieldListPayload);
     write_schema!("field-get", FieldPayload);
     write_schema!("field-create", FieldPayload);
+    write_schema!("field-update", FieldPayload);
+    write_schema!("field-delete", FieldDeletePayload);
 
     // Type payloads
     write_schema!("type-list", TypeListPayload);
     write_schema!("type-get", TypePayload);
     write_schema!("type-create", TypePayload);
+    write_schema!("type-update", TypePayload);
+    write_schema!("type-delete", TypeDeletePayload);
 
     // Extension payloads
     write_schema!("extension-list", ExtensionListPayload);
