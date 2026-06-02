@@ -320,26 +320,35 @@ impl Package {
         // Inv 42: apply fieldAssignmentOverrides
         if let Some(overrides) = &record_type.field_assignment_overrides {
             for ovr in overrides {
-                // Override must target an inherited field, not an own field
                 if own_field_ids.contains(&ovr.field_id) {
+                    // Override targets an own field, not an inherited one
                     return Err(RepositoryError::OverrideTargetsOwnField {
                         type_id: record_type.id.clone(),
                         field_id: ovr.field_id.clone(),
                     });
                 }
                 let fa = merged.iter_mut().find(|fa| fa.field_id == ovr.field_id);
-                if let Some(fa) = fa {
-                    if ovr.required == Some(false) && fa.required {
-                        return Err(RepositoryError::OverrideRelaxesRequired {
+                match fa {
+                    None => {
+                        // Override targets a field that is neither inherited nor owned — Inv 42
+                        return Err(RepositoryError::OverrideTargetsOwnField {
                             type_id: record_type.id.clone(),
                             field_id: ovr.field_id.clone(),
                         });
                     }
-                    if let Some(req) = ovr.required {
-                        fa.required = req;
-                    }
-                    if let Some(label) = &ovr.display_label {
-                        fa.display_label = Some(label.clone());
+                    Some(fa) => {
+                        if ovr.required == Some(false) && fa.required {
+                            return Err(RepositoryError::OverrideRelaxesRequired {
+                                type_id: record_type.id.clone(),
+                                field_id: ovr.field_id.clone(),
+                            });
+                        }
+                        if let Some(req) = ovr.required {
+                            fa.required = req;
+                        }
+                        if let Some(label) = &ovr.display_label {
+                            fa.display_label = Some(label.clone());
+                        }
                     }
                 }
             }
@@ -347,15 +356,40 @@ impl Package {
 
         // Inv 41: apply fieldOrder if present
         if let Some(field_order) = &record_type.field_order {
-            // Every field in merged must appear in fieldOrder
+            let effective_ids: HashSet<&str> =
+                merged.iter().map(|fa| fa.field_id.as_str()).collect();
+
+            // Detect duplicates in fieldOrder
+            let mut seen_in_order: HashSet<&str> = HashSet::new();
+            for fid in field_order {
+                if !seen_in_order.insert(fid.as_str()) {
+                    return Err(RepositoryError::FieldOrderMismatch {
+                        type_id: record_type.id.clone(),
+                        field_id: fid.clone(),
+                    });
+                }
+            }
+
+            // Every effective field must appear in fieldOrder (no missing fields)
             for fa in &merged {
-                if !field_order.contains(&fa.field_id) {
+                if !seen_in_order.contains(fa.field_id.as_str()) {
                     return Err(RepositoryError::FieldOrderMismatch {
                         type_id: record_type.id.clone(),
                         field_id: fa.field_id.clone(),
                     });
                 }
             }
+
+            // fieldOrder must not reference unknown fields (not in effective set)
+            for fid in field_order {
+                if !effective_ids.contains(fid.as_str()) {
+                    return Err(RepositoryError::FieldOrderMismatch {
+                        type_id: record_type.id.clone(),
+                        field_id: fid.clone(),
+                    });
+                }
+            }
+
             // Reorder merged according to fieldOrder
             let mut reordered: Vec<FieldAssignment> = Vec::with_capacity(merged.len());
             for fid in field_order {
@@ -363,8 +397,6 @@ impl Package {
                     reordered.push(merged.remove(pos));
                 }
             }
-            // Any remaining entries that weren't in fieldOrder (shouldn't happen after check above)
-            reordered.extend(merged);
             return Ok(reordered);
         }
 
@@ -1669,6 +1701,84 @@ mod tests {
                 Err(crate::error::RepositoryError::FieldOrderMismatch { .. })
             ),
             "expected FieldOrderMismatch, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn effective_fields_field_order_duplicate_entry_errors() {
+        let base = make_type("base", vec![fa("f1", 0, true)]);
+        // fieldOrder contains f2 twice — Inv 41 violation
+        let child = make_child_type(
+            "child",
+            vec![fa("f2", 0, false)],
+            "base",
+            Some(vec!["f1".to_string(), "f2".to_string(), "f2".to_string()]),
+            None,
+        );
+        let pkg = make_package_with_types(vec![base, child.clone()]);
+        let result = pkg.effective_fields(&child);
+        assert!(
+            matches!(
+                result,
+                Err(crate::error::RepositoryError::FieldOrderMismatch { .. })
+            ),
+            "expected FieldOrderMismatch for duplicate fieldOrder entry, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn effective_fields_field_order_unknown_id_errors() {
+        let base = make_type("base", vec![fa("f1", 0, true)]);
+        // fieldOrder contains "bogus" which is not in the effective set — Inv 41 violation
+        let child = make_child_type(
+            "child",
+            vec![fa("f2", 0, false)],
+            "base",
+            Some(vec![
+                "f1".to_string(),
+                "f2".to_string(),
+                "bogus".to_string(),
+            ]),
+            None,
+        );
+        let pkg = make_package_with_types(vec![base, child.clone()]);
+        let result = pkg.effective_fields(&child);
+        assert!(
+            matches!(
+                result,
+                Err(crate::error::RepositoryError::FieldOrderMismatch { .. })
+            ),
+            "expected FieldOrderMismatch for unknown fieldOrder entry, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn effective_fields_override_targets_unknown_field_errors() {
+        let base = make_type("base", vec![fa("f1", 0, false)]);
+        // override targets "bogus" which is neither inherited nor owned
+        let child = make_child_type(
+            "child",
+            vec![fa("f2", 0, false)],
+            "base",
+            None,
+            Some(vec![FieldAssignmentOverride {
+                field_id: "bogus".to_string(),
+                display_label: None,
+                display_hint: None,
+                required: Some(true),
+            }]),
+        );
+        let pkg = make_package_with_types(vec![base, child.clone()]);
+        let result = pkg.effective_fields(&child);
+        assert!(
+            matches!(
+                result,
+                Err(crate::error::RepositoryError::OverrideTargetsOwnField { .. })
+            ),
+            "expected OverrideTargetsOwnField for unknown override target, got {:?}",
             result
         );
     }

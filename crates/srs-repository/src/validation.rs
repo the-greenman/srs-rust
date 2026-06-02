@@ -200,15 +200,29 @@ pub fn validate_repository(
             if let Some(base_id) = &rt.extends_type_id {
                 let base_version = rt.extends_type_version.unwrap_or(1);
                 if pkg.resolve_type(base_id, base_version).is_none() {
-                    diagnostics.push(ValidationDiagnostic {
-                        severity: DiagnosticSeverity::Warning,
-                        relative_path: "package/package.json".to_string(),
-                        schema_id: None,
-                        message: format!(
-                            "ext:type-inheritance (Inv 43): type '{}' extends base type '{}@{}' which is not found in this package; declare it in dependencyRefs for cross-package inheritance",
-                            rt.id, base_id, base_version
-                        ),
+                    // The base type is not local. Check whether the specializing type's
+                    // namespace (a proxy for its package) is covered by any dependency_refs entry.
+                    // Cross-package base type resolution is V2 work (RFC-003); for now we warn
+                    // only when no dependencyRefs entry matches the specializing type's namespace,
+                    // which indicates the package has not declared its external dependency at all.
+                    let covered_by_dep = pkg.dependency_refs.iter().any(|dep| {
+                        dep.namespace == rt.namespace
+                            || pkg
+                                .record_types()
+                                .iter()
+                                .any(|t| &t.id == base_id && dep.namespace == t.namespace)
                     });
+                    if !covered_by_dep {
+                        diagnostics.push(ValidationDiagnostic {
+                            severity: DiagnosticSeverity::Warning,
+                            relative_path: "package/package.json".to_string(),
+                            schema_id: None,
+                            message: format!(
+                                "ext:type-inheritance (Inv 43): type '{}' extends base type '{}@{}' which is not in this package; add a dependencyRefs entry for the external package",
+                                rt.id, base_id, base_version
+                            ),
+                        });
+                    }
                 }
             }
         }
