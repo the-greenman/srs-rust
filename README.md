@@ -29,7 +29,7 @@ semanticops/
 
 ## Spec To Implementation Map (Current)
 
-As of 2026-05-31.
+As of 2026-06-02.
 
 | Area | Spec Status | Rust Implementation Status |
 |---|---|---|
@@ -37,22 +37,23 @@ As of 2026-05-31.
 | Tags (`tag`) | Defined and stable | Implemented (CRUD) |
 | Records (`record`) | Defined and stable | Implemented (CRUD with type validation) |
 | Relations (`relation`) | Defined and stable | Implemented (CRUD + validation paths) |
-| Relation Types (`relation-type`) | RFC-005 aligned | Implemented (status lifecycle + resolver behavior) |
+| Relation Types (`relation-type`) | Incorporated (RFC-005) | Implemented (status lifecycle + resolver behavior; mandatory resolution per RFC-005) |
 | Containers (`container`) | Defined + invariants | Implemented (CRUD, members, roots, invariant validation, `--container` scoping for list/create/delete on note/tag/record) |
 | Fields (`field`) | Defined | Implemented (list, get, create — update/delete not exposed) |
 | Types (`type`) | Defined | Read-only via CLI (list, get); authoring is via package files |
 | Extensions (`extension`) | Defined | Implemented (CRUD) |
 | Protocols (`protocol`) | Defined | Implemented (CRUD, validation, stages, import/export) |
-| Package refs (`srs package`) | Defined | Implemented (list, enable, disable — with scope + existence validation) |
-| Views L1 (`ext:views-l1`) | RFC-001 accepted | Implemented — `srs view list/get/create/update/delete`; views stored in package |
-| Views L2 / Document Views (`ext:views-l2`) | RFC-001 accepted | Implemented — `srs document-view list/get/create/update/delete` and `srs render document-view`; section sourcing via TypeQuery/RelationQuery/FixedInstances/ContainerSubset; repeatable fields and field groups rendered |
+| Package refs (`srs package`) | Defined | Implemented (list, create, import, update, slice alias; enable/disable deprecated) |
+| Views L1 (`ext:views-l1`) | Incorporated (RFC-001) | Implemented — `srs view list/get/create/update/delete`; views stored in package |
+| Views L2 / Document Views (`ext:views-l2`) | Incorporated (RFC-001) | Implemented — `srs document-view list/get/create/update/delete` and `srs render document-view`; section sourcing via TypeQuery/RelationQuery/FixedInstances/ContainerSubset; repeatable fields and field groups rendered |
 | Repeatable field entries (`ext:repeatable-fields`) | In schema/spec | Implemented (typed model, validation constraints, rendering) |
 | Field groups (`ext:field-groups`) | In schema/spec | Implemented (typed model, required/group-count validation, rendering) |
+| Blueprints (`ext:blueprint`) | Defined | Implemented (CRUD, validate, structure listing) |
 | Lifecycle state machine (`ext:lifecycle`) | In progress | Stub — `lifecycleState` field parsed but not enforced; no state transition logic |
 | Type inheritance (`ext:type-inheritance`) | In planning | Not implemented — `fieldOrder` present in model but ignored at render time |
-| Themes (`ext:themes-l1`) | RFC-002 accepted | Implemented — renderer resolves `themeRef`/`themeVariants` for matching output formats and supports CLI `--theme-variant` |
+| Themes (`ext:themes-l1`) | Incorporated (RFC-002) | Implemented — renderer resolves `themeRef`/`themeVariants` for matching output formats and supports CLI `--theme-variant` |
 | Addressability (`ext:addressability`) | Declared | Not implemented |
-| Recommended relations (`ext:recommended-relations`) | Declared | Not implemented |
+| Recommended relations (`ext:recommended-relations`) | Retired (RFC-005, incorporated) | Retired — canonical vocabulary now provided as `RelationTypeDefinition` records in the `com.semanticops.srs` package |
 | Federation (`ext:federation`) | Not declared | Not implemented |
 | Subsection nesting in renders | In spec (via relations) | Implemented — `contains` relations traversed recursively; subsections rendered at `heading_level + 1`; ordered via `precedes` chain; requires `titleFieldId` on the section to activate structured mode |
 | Table value type | Mentioned in planning | Not implemented (not in `ValueType` enum or field schemas) |
@@ -73,7 +74,8 @@ Top-level command groups currently available:
 - `extension` — CRUD
 - `protocol` — CRUD, validation, stages, import/export
 - `container` — CRUD, members, roots, validate
-- `package` — list, enable, disable
+- `package` — list, create, import, update, slice (alias for create); enable/disable deprecated
+- `blueprint` — CRUD, validate, structure (`ext:blueprint`)
 - `view` — CRUD
 - `document-view` — CRUD
 - `render` — `document-view` (render to stdout or `--output <file>`)
@@ -134,12 +136,12 @@ Sync into embedded Rust schema crate:
 ```bash
 scripts/sync-schemas-from-spec.sh
 scripts/check-schema-drift.sh
+```
 
 Pre-commit should run schema drift checks before commit:
 
 ```bash
 hooks/pre-commit
-```
 ```
 
 ## Near-Term Roadmap
