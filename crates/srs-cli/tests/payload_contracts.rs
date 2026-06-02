@@ -99,6 +99,16 @@ fn record_delete() {
     check::<DeletedPayload>("record-delete");
 }
 
+#[test]
+fn record_transition() {
+    check::<RecordPayload>("record-transition");
+}
+
+#[test]
+fn record_successor() {
+    check::<RecordSuccessorPayload>("record-successor");
+}
+
 // ── Relation ──────────────────────────────────────────────────────────────────
 
 #[test]

@@ -280,6 +280,16 @@ pub struct RecordPayload {
     pub record: Record,
 }
 
+/// Payload for `record successor` — the new Record and the Relation to the predecessor.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordSuccessorPayload {
+    #[schemars(with = "serde_json::Value")]
+    pub record: Record,
+    #[schemars(with = "serde_json::Value")]
+    pub relation: Relation,
+}
+
 // ── Relation payloads ─────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -396,6 +406,12 @@ pub struct FieldPayload {
     pub field: srs_core::types::field::Field,
 }
 
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldDeletePayload {
+    pub id: String,
+}
+
 // ── Type payloads ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -412,6 +428,12 @@ pub struct TypePayload {
     #[schemars(rename = "type")]
     #[schemars(with = "serde_json::Value")]
     pub record_type: RecordType,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TypeDeletePayload {
+    pub id: String,
 }
 
 // ── Extension payloads ────────────────────────────────────────────────────────

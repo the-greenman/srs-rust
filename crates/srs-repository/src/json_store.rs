@@ -6,7 +6,7 @@ use crate::store::RepositoryStore;
 use serde::de::Error as SerdeDeError;
 use srs_core::types::field::{Field, ValueType};
 use srs_core::types::record_type::{
-    FieldAssignment, FieldAssignmentOverride, FieldGroup, RecordType,
+    FieldAssignment, FieldAssignmentOverride, FieldGroup, RecordType, TypeLifecycle,
 };
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::types::view::{DocumentView, View};
@@ -89,6 +89,8 @@ struct TypeJson {
     field_order: Option<Vec<String>>,
     #[serde(default)]
     field_assignment_overrides: Option<Vec<FieldAssignmentOverrideJson>>,
+    #[serde(default)]
+    lifecycle: Option<TypeLifecycle>,
     created_at: Option<String>,
     #[serde(flatten)]
     _extra: HashMap<String, serde_json::Value>,
@@ -407,6 +409,7 @@ impl JsonStore {
                 extends_type_version: tj.extends_type_version,
                 field_order: tj.field_order,
                 field_assignment_overrides,
+                lifecycle: tj.lifecycle,
                 created_at: tj.created_at.unwrap_or_default(),
                 extra: HashMap::new(),
             });

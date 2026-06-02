@@ -1104,6 +1104,7 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+            lifecycle: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         }

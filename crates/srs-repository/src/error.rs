@@ -261,6 +261,19 @@ pub enum RepositoryError {
         "fieldAssignmentOverride in type '{type_id}' tries to relax required on field '{field_id}' (base: required=true, override: required=false)"
     )]
     OverrideRelaxesRequired { type_id: String, field_id: String },
+
+    // ── ext:lifecycle errors ──────────────────────────────────────────────────
+    #[error("record '{id}' has no lifecycle defined on its Type")]
+    LifecycleNotDefined { id: String },
+
+    #[error("no transition from '{from}' to '{to}' in Type lifecycle")]
+    LifecycleTransitionNotAllowed { from: String, to: String },
+
+    #[error("lifecycle state '{state}' is not defined in Type lifecycle")]
+    LifecycleStateNotDefined { state: String },
+
+    #[error("type version {version} not found for type '{type_id}'")]
+    TypeVersionNotFound { type_id: String, version: u32 },
 }
 
 impl PartialEq for RepositoryError {
@@ -589,6 +602,28 @@ impl PartialEq for RepositoryError {
                     field_id: fb,
                 },
             ) => ta == tb && fa == fb,
+            (
+                RepositoryError::LifecycleNotDefined { id: a },
+                RepositoryError::LifecycleNotDefined { id: b },
+            ) => a == b,
+            (
+                RepositoryError::LifecycleTransitionNotAllowed { from: fa, to: ta },
+                RepositoryError::LifecycleTransitionNotAllowed { from: fb, to: tb },
+            ) => fa == fb && ta == tb,
+            (
+                RepositoryError::LifecycleStateNotDefined { state: a },
+                RepositoryError::LifecycleStateNotDefined { state: b },
+            ) => a == b,
+            (
+                RepositoryError::TypeVersionNotFound {
+                    type_id: ia,
+                    version: va,
+                },
+                RepositoryError::TypeVersionNotFound {
+                    type_id: ib,
+                    version: vb,
+                },
+            ) => ia == ib && va == vb,
             _ => false,
         }
     }
