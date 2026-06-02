@@ -19,6 +19,7 @@ pub mod render_service;
 pub mod repository_lifecycle;
 pub mod repository_portability;
 pub mod resolver;
+pub mod revision_service;
 pub mod services;
 pub mod store;
 pub mod tag_service;
