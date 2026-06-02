@@ -233,6 +233,34 @@ pub enum RepositoryError {
         id: String,
         used_by: Vec<String>,
     },
+
+    // ── ext:type-inheritance errors ───────────────────────────────────────────
+    #[error("type inheritance cycle detected involving type '{type_id}'")]
+    TypeInheritanceCycle { type_id: String },
+
+    #[error(
+        "inherited field duplicate: field '{field_id}' appears in both base type '{base_type_id}' and specializing type '{type_id}'"
+    )]
+    InheritedFieldDuplicate {
+        type_id: String,
+        base_type_id: String,
+        field_id: String,
+    },
+
+    #[error(
+        "fieldOrder for type '{type_id}' is incomplete: field '{field_id}' is in the effective field set but not in fieldOrder"
+    )]
+    FieldOrderMismatch { type_id: String, field_id: String },
+
+    #[error(
+        "fieldAssignmentOverride in type '{type_id}' targets field '{field_id}' which is in the type's own fields[], not an inherited field"
+    )]
+    OverrideTargetsOwnField { type_id: String, field_id: String },
+
+    #[error(
+        "fieldAssignmentOverride in type '{type_id}' tries to relax required on field '{field_id}' (base: required=true, override: required=false)"
+    )]
+    OverrideRelaxesRequired { type_id: String, field_id: String },
 }
 
 impl PartialEq for RepositoryError {
@@ -515,6 +543,52 @@ impl PartialEq for RepositoryError {
                     used_by: ub,
                 },
             ) => eta == etb && ia == ib && ua == ub,
+            (
+                RepositoryError::TypeInheritanceCycle { type_id: a },
+                RepositoryError::TypeInheritanceCycle { type_id: b },
+            ) => a == b,
+            (
+                RepositoryError::InheritedFieldDuplicate {
+                    type_id: ta,
+                    base_type_id: ba,
+                    field_id: fa,
+                },
+                RepositoryError::InheritedFieldDuplicate {
+                    type_id: tb,
+                    base_type_id: bb,
+                    field_id: fb,
+                },
+            ) => ta == tb && ba == bb && fa == fb,
+            (
+                RepositoryError::FieldOrderMismatch {
+                    type_id: ta,
+                    field_id: fa,
+                },
+                RepositoryError::FieldOrderMismatch {
+                    type_id: tb,
+                    field_id: fb,
+                },
+            ) => ta == tb && fa == fb,
+            (
+                RepositoryError::OverrideTargetsOwnField {
+                    type_id: ta,
+                    field_id: fa,
+                },
+                RepositoryError::OverrideTargetsOwnField {
+                    type_id: tb,
+                    field_id: fb,
+                },
+            ) => ta == tb && fa == fb,
+            (
+                RepositoryError::OverrideRelaxesRequired {
+                    type_id: ta,
+                    field_id: fa,
+                },
+                RepositoryError::OverrideRelaxesRequired {
+                    type_id: tb,
+                    field_id: fb,
+                },
+            ) => ta == tb && fa == fb,
             _ => false,
         }
     }

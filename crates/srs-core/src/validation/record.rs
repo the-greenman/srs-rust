@@ -1,16 +1,19 @@
 use crate::error::CoreError;
 use crate::types::record::Record;
-use crate::types::record_type::RecordType;
+use crate::types::record_type::{FieldAssignment, RecordType};
 use std::collections::HashSet;
 
 /// Validates a record against its record type definition.
 ///
-/// Checks:
-/// - All FieldAssignments where `required` is `true` have a matching FieldValue
-/// - All FieldValues reference a `field_id` that exists in the RecordType's `fields`
-pub fn validate_record(record: &Record, record_type: &RecordType) -> Result<(), CoreError> {
-    let valid_field_ids: HashSet<&str> = record_type
-        .fields
+/// `effective_fields` is the pre-computed merged field list (base + own for
+/// inheriting types, or simply `record_type.fields` for non-inheriting types).
+/// The caller is responsible for computing this via `Package::effective_fields()`.
+pub fn validate_record(
+    record: &Record,
+    record_type: &RecordType,
+    effective_fields: &[FieldAssignment],
+) -> Result<(), CoreError> {
+    let valid_field_ids: HashSet<&str> = effective_fields
         .iter()
         .map(|fa| fa.field_id.as_str())
         .collect();
@@ -29,7 +32,7 @@ pub fn validate_record(record: &Record, record_type: &RecordType) -> Result<(), 
         .map(|fv| fv.field_id.as_str())
         .collect();
 
-    for field_assignment in &record_type.fields {
+    for field_assignment in effective_fields {
         if field_assignment.is_required()
             && !present_field_ids.contains(field_assignment.field_id.as_str())
         {
@@ -39,7 +42,7 @@ pub fn validate_record(record: &Record, record_type: &RecordType) -> Result<(), 
         }
     }
 
-    for field_assignment in &record_type.fields {
+    for field_assignment in effective_fields {
         let Some(field_value) = record.find_field_value(&field_assignment.field_id) else {
             continue;
         };
@@ -155,6 +158,10 @@ mod tests {
                 },
             ],
             field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         }
@@ -195,7 +202,7 @@ mod tests {
             },
         ]);
 
-        assert!(validate_record(&record, &record_type).is_ok());
+        assert!(validate_record(&record, &record_type, &record_type.fields).is_ok());
     }
 
     #[test]
@@ -209,7 +216,7 @@ mod tests {
             edited_at: None,
         }]);
 
-        let result = validate_record(&record, &record_type);
+        let result = validate_record(&record, &record_type, &record_type.fields);
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
@@ -237,7 +244,7 @@ mod tests {
             },
         ]);
 
-        assert!(validate_record(&record, &record_type).is_ok());
+        assert!(validate_record(&record, &record_type, &record_type.fields).is_ok());
     }
 
     #[test]
@@ -267,7 +274,7 @@ mod tests {
             },
         ]);
 
-        let result = validate_record(&record, &record_type);
+        let result = validate_record(&record, &record_type, &record_type.fields);
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
@@ -305,7 +312,7 @@ mod tests {
             source: None,
             edited_at: None,
         }]);
-        assert!(validate_record(&record, &record_type).is_ok());
+        assert!(validate_record(&record, &record_type, &record_type.fields).is_ok());
     }
 
     #[test]
@@ -332,7 +339,7 @@ mod tests {
             edited_at: None,
         }]);
         assert!(matches!(
-            validate_record(&record, &record_type),
+            validate_record(&record, &record_type, &record_type.fields),
             Err(CoreError::TooFewEntries {
                 count: 1,
                 min: 2,
@@ -377,7 +384,7 @@ mod tests {
             edited_at: None,
         }]);
         assert!(matches!(
-            validate_record(&record, &record_type),
+            validate_record(&record, &record_type, &record_type.fields),
             Err(CoreError::TooManyEntries {
                 count: 3,
                 max: 2,
@@ -410,7 +417,7 @@ mod tests {
             edited_at: None,
         }]);
         assert!(matches!(
-            validate_record(&record, &record_type),
+            validate_record(&record, &record_type, &record_type.fields),
             Err(CoreError::EntriesOnNonRepeatableField { field_id }) if field_id == "single"
         ));
     }
@@ -434,7 +441,7 @@ mod tests {
             source: None,
             edited_at: None,
         }]);
-        assert!(validate_record(&record, &record_type).is_ok());
+        assert!(validate_record(&record, &record_type, &record_type.fields).is_ok());
     }
 
     fn create_field_group_rt(
@@ -460,6 +467,10 @@ mod tests {
                 min_items,
                 max_items,
             }]),
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         }
@@ -485,7 +496,7 @@ mod tests {
     fn validate_required_field_group_present_ok() {
         let rt = create_field_group_rt(true, Some(1), None);
         let record = create_group_record(1);
-        assert!(validate_record(&record, &rt).is_ok());
+        assert!(validate_record(&record, &rt, &rt.fields).is_ok());
     }
 
     #[test]
@@ -494,7 +505,7 @@ mod tests {
         let mut record = create_record_with_fields(vec![]);
         record.group_values = None;
         assert!(matches!(
-            validate_record(&record, &rt),
+            validate_record(&record, &rt, &rt.fields),
             Err(CoreError::MissingRequiredFieldGroup { group_id }) if group_id == "group-1"
         ));
     }
@@ -504,7 +515,7 @@ mod tests {
         let rt = create_field_group_rt(false, None, None);
         let mut record = create_record_with_fields(vec![]);
         record.group_values = None;
-        assert!(validate_record(&record, &rt).is_ok());
+        assert!(validate_record(&record, &rt, &rt.fields).is_ok());
     }
 
     #[test]
@@ -512,7 +523,7 @@ mod tests {
         let rt = create_field_group_rt(false, Some(2), None);
         let record = create_group_record(1);
         assert!(matches!(
-            validate_record(&record, &rt),
+            validate_record(&record, &rt, &rt.fields),
             Err(CoreError::TooFewGroupEntries {
                 count: 1,
                 min: 2,
@@ -526,7 +537,7 @@ mod tests {
         let rt = create_field_group_rt(false, None, Some(1));
         let record = create_group_record(2);
         assert!(matches!(
-            validate_record(&record, &rt),
+            validate_record(&record, &rt, &rt.fields),
             Err(CoreError::TooManyGroupEntries {
                 count: 2,
                 max: 1,
@@ -539,6 +550,6 @@ mod tests {
     fn validate_field_group_no_min_max_any_count_ok() {
         let rt = create_field_group_rt(false, None, None);
         let record = create_group_record(3);
-        assert!(validate_record(&record, &rt).is_ok());
+        assert!(validate_record(&record, &rt, &rt.fields).is_ok());
     }
 }

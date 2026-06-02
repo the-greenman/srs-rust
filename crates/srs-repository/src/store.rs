@@ -5,7 +5,9 @@ use crate::package_types::{DefinitionKind, PackageBoundary, PackageSelector};
 use crate::repository_lifecycle::{CreateRepositoryResult, InitializeRepositoryInput};
 use serde::de::Error as SerdeDeError;
 use srs_core::types::field::{Field, ValueType};
-use srs_core::types::record_type::{FieldAssignment, FieldGroup, RecordType};
+use srs_core::types::record_type::{
+    FieldAssignment, FieldAssignmentOverride, FieldGroup, RecordType,
+};
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::types::theme::Theme;
 use srs_core::types::view::{DocumentView, View};
@@ -351,6 +353,8 @@ struct PackageMetadata {
     themes: Vec<String>,
     #[serde(default)]
     blueprints: Vec<String>,
+    #[serde(default)]
+    dependency_refs: Vec<crate::package::DependencyRef>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -381,6 +385,14 @@ struct TypeJson {
     fields: Vec<FieldAssignmentJson>,
     #[serde(default)]
     field_groups: Option<Vec<FieldGroupJson>>,
+    #[serde(default)]
+    extends_type_id: Option<String>,
+    #[serde(default)]
+    extends_type_version: Option<u32>,
+    #[serde(default)]
+    field_order: Option<Vec<String>>,
+    #[serde(default)]
+    field_assignment_overrides: Option<Vec<FieldAssignmentOverrideJson>>,
     created_at: Option<String>,
     #[serde(flatten)]
     _extra: HashMap<String, serde_json::Value>,
@@ -413,6 +425,15 @@ struct FieldGroupJson {
     repeatable: bool,
     min_items: Option<u32>,
     max_items: Option<u32>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FieldAssignmentOverrideJson {
+    field_id: String,
+    display_label: Option<String>,
+    display_hint: Option<String>,
+    required: Option<bool>,
 }
 
 fn parse_value_type(s: &str, path: &std::path::Path) -> Result<ValueType, RepositoryError> {
@@ -539,6 +560,17 @@ fn load_package_from_dir(
                 })
                 .collect()
         });
+        let field_assignment_overrides = tj.field_assignment_overrides.map(|overrides| {
+            overrides
+                .into_iter()
+                .map(|o| FieldAssignmentOverride {
+                    field_id: o.field_id,
+                    display_label: o.display_label,
+                    display_hint: o.display_hint,
+                    required: o.required,
+                })
+                .collect()
+        });
         record_types.push(RecordType {
             id: tj.id,
             namespace: tj.namespace,
@@ -547,6 +579,10 @@ fn load_package_from_dir(
             description: tj.description.unwrap_or_default(),
             fields: type_fields,
             field_groups,
+            extends_type_id: tj.extends_type_id,
+            extends_type_version: tj.extends_type_version,
+            field_order: tj.field_order,
+            field_assignment_overrides,
             created_at: tj.created_at.unwrap_or_default(),
             extra: HashMap::new(),
         });
@@ -955,6 +991,7 @@ impl RepositoryStore for FileStore {
             themes,
             blueprints,
             root: self.repo_root.clone(),
+            dependency_refs: metadata.dependency_refs.clone(),
         })
     }
 
@@ -1737,6 +1774,7 @@ pub mod memory {
                 themes: vec![],
                 blueprints: vec![],
                 root: PathBuf::from("/memory"),
+                dependency_refs: vec![],
             };
             Self::new(manifest, package)
         }
@@ -1867,6 +1905,7 @@ pub mod memory {
                 themes: vec![],
                 blueprints: vec![],
                 root: PathBuf::from("/memory"),
+                dependency_refs: vec![],
             };
             Self {
                 manifest: RefCell::new(manifest),
@@ -1978,6 +2017,7 @@ pub mod memory {
                 themes: vec![],
                 blueprints: vec![],
                 root: PathBuf::from("/memory"),
+                dependency_refs: vec![],
             };
 
             let package_json = serde_json::json!({
@@ -2649,6 +2689,7 @@ mod tests {
             themes: vec![],
             blueprints: vec![],
             root: repo_root.to_path_buf(),
+            dependency_refs: vec![],
         }
     }
 

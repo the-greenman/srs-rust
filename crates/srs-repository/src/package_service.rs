@@ -1100,6 +1100,10 @@ mod tests {
             description: "A test type".to_string(),
             fields: vec![],
             field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         }

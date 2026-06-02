@@ -55,6 +55,26 @@
       "type": "array",
       "items": { "type": "string" }
     },
+    "extendsTypeId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "ext:type-inheritance — the UUID of the base Type this Type specializes."
+    },
+    "extendsTypeVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "ext:type-inheritance — the version of the base Type being extended."
+    },
+    "fieldOrder": {
+      "type": "array",
+      "items": { "type": "string", "format": "uuid" },
+      "description": "ext:type-inheritance — explicit ordering for the merged field list (base + own). Must contain every fieldId from the effective field set exactly once."
+    },
+    "fieldAssignmentOverrides": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/FieldAssignmentOverride" },
+      "description": "ext:type-inheritance — per-field overrides applied to inherited FieldAssignments."
+    },
     "createdAt": {
       "type": "string",
       "format": "date-time"
@@ -98,6 +118,31 @@
         },
         "defaultValue": {
           "description": "Optional default value to pre-populate the field."
+        }
+      }
+    },
+    "FieldAssignmentOverride": {
+      "type": "object",
+      "required": ["fieldId"],
+      "additionalProperties": false,
+      "description": "ext:type-inheritance — overrides for a single inherited FieldAssignment.",
+      "properties": {
+        "fieldId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The fieldId of the inherited field being overridden."
+        },
+        "displayLabel": {
+          "type": "string",
+          "description": "Rendering-only label override."
+        },
+        "displayHint": {
+          "type": "string",
+          "description": "Rendering-only hint text override."
+        },
+        "required": {
+          "type": "boolean",
+          "description": "May tighten (false→true) but not relax (true→false) the base field's required status."
         }
       }
     },
