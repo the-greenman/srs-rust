@@ -1586,6 +1586,7 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+            lifecycle: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::HashMap::new(),
         }
@@ -1610,6 +1611,7 @@ mod tests {
             extends_type_version: Some(1),
             field_order,
             field_assignment_overrides: overrides,
+            lifecycle: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::HashMap::new(),
         }
@@ -1902,6 +1904,7 @@ mod tests {
                 edited_at: None,
             }],
             group_values: None,
+            lifecycle_state: None,
             created_at: None,
             updated_at: None,
             extra: std::collections::HashMap::new(),

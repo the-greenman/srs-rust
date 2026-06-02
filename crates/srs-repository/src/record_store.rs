@@ -1222,6 +1222,10 @@ mod tests {
                 max_items: None,
             }],
             field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
             lifecycle: Some(TypeLifecycle {
                 states: vec![
                     LifecycleState {
@@ -1320,6 +1324,7 @@ mod tests {
             document_views: vec![],
             themes: vec![],
             blueprints: vec![],
+            dependency_refs: vec![],
             root: PathBuf::from("/memory"),
         };
         MemoryStore::new(manifest, package)
