@@ -5,7 +5,9 @@ use crate::repository_lifecycle::{CreateRepositoryResult, InitializeRepositoryIn
 use crate::store::RepositoryStore;
 use serde::de::Error as SerdeDeError;
 use srs_core::types::field::{Field, ValueType};
-use srs_core::types::record_type::{FieldAssignment, FieldGroup, RecordType};
+use srs_core::types::record_type::{
+    FieldAssignment, FieldAssignmentOverride, FieldGroup, RecordType,
+};
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::types::view::{DocumentView, View};
 use srs_core::validation::relation_type_definition::validate_relation_type_definition;
@@ -79,6 +81,14 @@ struct TypeJson {
     fields: Vec<FieldAssignmentJson>,
     #[serde(default)]
     field_groups: Option<Vec<FieldGroupJson>>,
+    #[serde(default)]
+    extends_type_id: Option<String>,
+    #[serde(default)]
+    extends_type_version: Option<u32>,
+    #[serde(default)]
+    field_order: Option<Vec<String>>,
+    #[serde(default)]
+    field_assignment_overrides: Option<Vec<FieldAssignmentOverrideJson>>,
     created_at: Option<String>,
     #[serde(flatten)]
     _extra: HashMap<String, serde_json::Value>,
@@ -111,6 +121,15 @@ struct FieldGroupJson {
     repeatable: bool,
     min_items: Option<u32>,
     max_items: Option<u32>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FieldAssignmentOverrideJson {
+    field_id: String,
+    display_label: Option<String>,
+    display_hint: Option<String>,
+    required: Option<bool>,
 }
 
 fn json_store_boundary_from_json(
@@ -365,6 +384,17 @@ impl JsonStore {
                     })
                     .collect()
             });
+            let field_assignment_overrides = tj.field_assignment_overrides.map(|overrides| {
+                overrides
+                    .into_iter()
+                    .map(|o| FieldAssignmentOverride {
+                        field_id: o.field_id,
+                        display_label: o.display_label,
+                        display_hint: o.display_hint,
+                        required: o.required,
+                    })
+                    .collect()
+            });
             record_types.push(RecordType {
                 id: tj.id,
                 namespace: tj.namespace,
@@ -373,6 +403,10 @@ impl JsonStore {
                 description: tj.description.unwrap_or_default(),
                 fields: type_fields,
                 field_groups,
+                extends_type_id: tj.extends_type_id,
+                extends_type_version: tj.extends_type_version,
+                field_order: tj.field_order,
+                field_assignment_overrides,
                 created_at: tj.created_at.unwrap_or_default(),
                 extra: HashMap::new(),
             });
@@ -648,6 +682,7 @@ impl RepositoryStore for JsonStore {
             themes: vec![],
             blueprints: vec![],
             root: self.repository_root(),
+            dependency_refs: vec![],
         })
     }
 

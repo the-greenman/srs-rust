@@ -119,9 +119,12 @@ pub fn create_record(
         extra: HashMap::new(),
     };
 
-    validate_record(&record, record_type).map_err(|e| RepositoryError::RecordValidation {
-        path: std::path::PathBuf::from(relative_dir),
-        source: e,
+    let effective_fields = package.effective_fields(record_type)?;
+    validate_record(&record, record_type, &effective_fields).map_err(|e| {
+        RepositoryError::RecordValidation {
+            path: std::path::PathBuf::from(relative_dir),
+            source: e,
+        }
     })?;
 
     record.instance_id = new_instance_id();
@@ -195,7 +198,8 @@ pub fn update_record(
         extra: record.extra,
     };
 
-    validate_record(&updated_record, record_type).map_err(|e| {
+    let effective_fields = package.effective_fields(record_type)?;
+    validate_record(&updated_record, record_type, &effective_fields).map_err(|e| {
         RepositoryError::RecordValidation {
             path: std::path::PathBuf::from("records"),
             source: e,
@@ -547,6 +551,10 @@ mod tests {
                 },
             ],
             field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -568,6 +576,7 @@ mod tests {
             themes: vec![],
             blueprints: vec![],
             root: PathBuf::from("/memory"),
+            dependency_refs: vec![],
         };
         MemoryStore::new(manifest, package)
     }

@@ -1100,22 +1100,21 @@ fn render_record_at_level(
             }
         }
     } else if let Some(rt) = &rt {
-        if rt.extra.contains_key("fieldOrder") {
-            diagnostics.push(
-                "[partial] ext:type-inheritance fieldOrder ignored; using FieldAssignment.order"
-                    .to_string(),
-            );
-        }
-        let mut assignments = rt.fields.clone();
-        assignments.sort_by_key(|fa| fa.order);
-        for fa in assignments {
-            if let Some(label) = fa.display_label {
-                display_labels.insert(fa.field_id.clone(), label);
+        match ctx.package.effective_fields(rt) {
+            Ok(assignments) => {
+                for fa in assignments {
+                    if let Some(label) = fa.display_label {
+                        display_labels.insert(fa.field_id.clone(), label);
+                    }
+                    fields_to_render.push(ResolvedFieldRender {
+                        field_id: fa.field_id,
+                        required: fa.required,
+                    });
+                }
             }
-            fields_to_render.push(ResolvedFieldRender {
-                field_id: fa.field_id,
-                required: fa.required,
-            });
+            Err(e) => {
+                diagnostics.push(format!("ext:type-inheritance: {e}"));
+            }
         }
     } else {
         for fv in &record.field_values {

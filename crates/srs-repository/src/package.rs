@@ -2,7 +2,9 @@ use crate::error::RepositoryError;
 use crate::manifest::load_manifest;
 use srs_core::types::blueprint::Blueprint;
 use srs_core::types::field::{Field, ValueType};
-use srs_core::types::record_type::{FieldAssignment, FieldGroup, RecordType};
+use srs_core::types::record_type::{
+    FieldAssignment, FieldAssignmentOverride, FieldGroup, RecordType,
+};
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::types::theme::Theme;
 use srs_core::types::view::{DocumentView, View};
@@ -29,6 +31,8 @@ pub struct Package {
     pub themes: Vec<Theme>,
     pub blueprints: Vec<Blueprint>,
     pub root: PathBuf,
+    /// ext:type-inheritance — external package dependencies declared in dependencyRefs.
+    pub dependency_refs: Vec<DependencyRef>,
 }
 
 /// Package metadata as defined in package.json
@@ -53,6 +57,18 @@ struct PackageMetadata {
     themes: Vec<String>,
     #[serde(default)]
     blueprints: Vec<String>,
+    /// ext:type-inheritance — external package references declared as dependencies.
+    #[serde(default)]
+    dependency_refs: Vec<DependencyRef>,
+}
+
+/// ext:type-inheritance — a declared external package dependency reference.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DependencyRef {
+    pub namespace: String,
+    pub name: String,
+    pub version: String,
 }
 
 /// Field JSON format from package/fields/*.json
@@ -85,6 +101,14 @@ struct TypeJson {
     fields: Vec<FieldAssignmentJson>,
     #[serde(default)]
     field_groups: Option<Vec<FieldGroupJson>>,
+    #[serde(default)]
+    extends_type_id: Option<String>,
+    #[serde(default)]
+    extends_type_version: Option<u32>,
+    #[serde(default)]
+    field_order: Option<Vec<String>>,
+    #[serde(default)]
+    field_assignment_overrides: Option<Vec<FieldAssignmentOverrideJson>>,
     created_at: Option<String>,
     #[serde(flatten)]
     _extra: HashMap<String, serde_json::Value>,
@@ -122,6 +146,15 @@ struct FieldGroupJson {
     repeatable: bool,
     min_items: Option<u32>,
     max_items: Option<u32>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FieldAssignmentOverrideJson {
+    field_id: String,
+    display_label: Option<String>,
+    display_hint: Option<String>,
+    required: Option<bool>,
 }
 
 impl Package {
@@ -196,6 +229,146 @@ impl Package {
     /// Get all record types as a slice.
     pub fn record_types(&self) -> &[RecordType] {
         &self.record_types
+    }
+
+    /// ext:type-inheritance — resolve the effective field list for a RecordType.
+    ///
+    /// For non-inheriting types, returns a clone of `record_type.fields` sorted by `order`.
+    /// For inheriting types, walks the chain, merges base + own fields (Inv 39-42),
+    /// and applies `fieldOrder` and `fieldAssignmentOverrides` if present.
+    pub fn effective_fields(
+        &self,
+        record_type: &RecordType,
+    ) -> Result<Vec<FieldAssignment>, crate::error::RepositoryError> {
+        use crate::error::RepositoryError;
+        use std::collections::HashSet;
+
+        let extends_type_id = match &record_type.extends_type_id {
+            None => {
+                let mut fields = record_type.fields.clone();
+                fields.sort_by_key(|fa| fa.order);
+                return Ok(fields);
+            }
+            Some(id) => id.clone(),
+        };
+        let extends_version = record_type.extends_type_version.unwrap_or(1);
+
+        // Walk the inheritance chain iteratively, collecting type IDs to detect cycles.
+        let mut chain: Vec<Vec<FieldAssignment>> = vec![record_type.fields.clone()];
+        let mut visited: HashSet<String> = HashSet::new();
+        visited.insert(record_type.id.clone());
+
+        let mut current_id = extends_type_id;
+        let mut current_version = extends_version;
+
+        loop {
+            if visited.contains(&current_id) {
+                return Err(RepositoryError::TypeInheritanceCycle {
+                    type_id: current_id,
+                });
+            }
+            let base = self
+                .resolve_type(&current_id, current_version)
+                .ok_or_else(|| RepositoryError::TypeNotFound {
+                    type_id: current_id.clone(),
+                    version: current_version,
+                })?;
+            visited.insert(current_id.clone());
+            chain.push(base.fields.clone());
+            match &base.extends_type_id {
+                None => break,
+                Some(next_id) => {
+                    current_id = next_id.clone();
+                    current_version = base.extends_type_version.unwrap_or(1);
+                }
+            }
+        }
+
+        // Build the merged list: base fields first, then own fields (chain is reversed).
+        chain.reverse();
+        let mut merged: Vec<FieldAssignment> = Vec::new();
+        let own_field_ids: HashSet<String> = record_type
+            .fields
+            .iter()
+            .map(|fa| fa.field_id.clone())
+            .collect();
+
+        let mut seen_ids: HashSet<String> = HashSet::new();
+        for level_fields in &chain[..chain.len() - 1] {
+            for fa in level_fields {
+                // Inv 40: own fields must not duplicate inherited fields
+                if own_field_ids.contains(&fa.field_id) {
+                    return Err(RepositoryError::InheritedFieldDuplicate {
+                        type_id: record_type.id.clone(),
+                        base_type_id: "ancestor".to_string(),
+                        field_id: fa.field_id.clone(),
+                    });
+                }
+                if seen_ids.insert(fa.field_id.clone()) {
+                    merged.push(fa.clone());
+                }
+            }
+        }
+        // Add own fields
+        let mut own_fields = record_type.fields.clone();
+        own_fields.sort_by_key(|fa| fa.order);
+        for fa in own_fields {
+            seen_ids.insert(fa.field_id.clone());
+            merged.push(fa);
+        }
+
+        // Inv 42: apply fieldAssignmentOverrides
+        if let Some(overrides) = &record_type.field_assignment_overrides {
+            for ovr in overrides {
+                // Override must target an inherited field, not an own field
+                if own_field_ids.contains(&ovr.field_id) {
+                    return Err(RepositoryError::OverrideTargetsOwnField {
+                        type_id: record_type.id.clone(),
+                        field_id: ovr.field_id.clone(),
+                    });
+                }
+                let fa = merged.iter_mut().find(|fa| fa.field_id == ovr.field_id);
+                if let Some(fa) = fa {
+                    if ovr.required == Some(false) && fa.required {
+                        return Err(RepositoryError::OverrideRelaxesRequired {
+                            type_id: record_type.id.clone(),
+                            field_id: ovr.field_id.clone(),
+                        });
+                    }
+                    if let Some(req) = ovr.required {
+                        fa.required = req;
+                    }
+                    if let Some(label) = &ovr.display_label {
+                        fa.display_label = Some(label.clone());
+                    }
+                }
+            }
+        }
+
+        // Inv 41: apply fieldOrder if present
+        if let Some(field_order) = &record_type.field_order {
+            // Every field in merged must appear in fieldOrder
+            for fa in &merged {
+                if !field_order.contains(&fa.field_id) {
+                    return Err(RepositoryError::FieldOrderMismatch {
+                        type_id: record_type.id.clone(),
+                        field_id: fa.field_id.clone(),
+                    });
+                }
+            }
+            // Reorder merged according to fieldOrder
+            let mut reordered: Vec<FieldAssignment> = Vec::with_capacity(merged.len());
+            for fid in field_order {
+                if let Some(pos) = merged.iter().position(|fa| &fa.field_id == fid) {
+                    reordered.push(merged.remove(pos));
+                }
+            }
+            // Any remaining entries that weren't in fieldOrder (shouldn't happen after check above)
+            reordered.extend(merged);
+            return Ok(reordered);
+        }
+
+        Ok(merged)
     }
 }
 
@@ -318,6 +491,17 @@ fn load_package_from_dir(
                 .collect()
         });
 
+        let field_assignment_overrides = type_json.field_assignment_overrides.map(|overrides| {
+            overrides
+                .into_iter()
+                .map(|o| FieldAssignmentOverride {
+                    field_id: o.field_id,
+                    display_label: o.display_label,
+                    display_hint: o.display_hint,
+                    required: o.required,
+                })
+                .collect()
+        });
         record_types.push(RecordType {
             id: type_json.id,
             namespace: type_json.namespace,
@@ -326,6 +510,10 @@ fn load_package_from_dir(
             description: type_json.description.unwrap_or_default(),
             fields: type_fields,
             field_groups,
+            extends_type_id: type_json.extends_type_id,
+            extends_type_version: type_json.extends_type_version,
+            field_order: type_json.field_order,
+            field_assignment_overrides,
             created_at: type_json.created_at.unwrap_or_default(),
             extra: HashMap::new(),
         });
@@ -672,6 +860,7 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
         themes,
         blueprints,
         root: repo_root.to_path_buf(),
+        dependency_refs: metadata.dependency_refs,
     })
 }
 
@@ -715,6 +904,72 @@ mod tests {
             }
         }
         manifest.join("../../../srs/srs")
+    }
+
+    #[test]
+    fn load_package_preserves_extends_type_id() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = temp.path();
+        create_minimal_repo(root);
+
+        let types_dir = root.join("package/types");
+        std::fs::create_dir_all(&types_dir).unwrap();
+        std::fs::write(
+            types_dir.join("base.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "id": "00000000-0000-4000-8000-000000000030",
+                "namespace": "com.test",
+                "name": "base",
+                "version": 1,
+                "description": "Base type",
+                "fields": [],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            types_dir.join("child.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "id": "00000000-0000-4000-8000-000000000031",
+                "namespace": "com.test",
+                "name": "child",
+                "version": 1,
+                "description": "Child type",
+                "fields": [],
+                "extendsTypeId": "00000000-0000-4000-8000-000000000030",
+                "extendsTypeVersion": 1,
+                "createdAt": "2026-01-01T00:00:00Z"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        write_package_json(
+            &root.join("package"),
+            "primary-pkg-id",
+            "com.test",
+            "primary",
+            &[],
+            &["types/base.json", "types/child.json"],
+        );
+
+        let package = load_package(root).expect("should load package with inheritance");
+        let child = package
+            .record_types
+            .iter()
+            .find(|t| t.name == "child")
+            .expect("child type must be loaded");
+        assert_eq!(
+            child.extends_type_id.as_deref(),
+            Some("00000000-0000-4000-8000-000000000030"),
+            "extends_type_id must survive load_package; extra = {:?}",
+            child.extra
+        );
+        assert!(
+            child.extra.is_empty(),
+            "extends_type_id must not fall into extra after load_package"
+        );
     }
 
     #[test]
@@ -1249,5 +1504,310 @@ mod tests {
                 "deprecated/tombstone types should still resolve"
             );
         }
+    }
+
+    // ── effective_fields tests ────────────────────────────────────────────────
+
+    fn make_package_with_types(types: Vec<RecordType>) -> Package {
+        Package {
+            id: "pkg".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![],
+            record_types: types,
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![],
+            themes: vec![],
+            blueprints: vec![],
+            root: PathBuf::from("/test"),
+            dependency_refs: vec![],
+        }
+    }
+
+    fn fa(field_id: &str, order: u32, required: bool) -> FieldAssignment {
+        FieldAssignment {
+            field_id: field_id.to_string(),
+            order,
+            required,
+            display_label: None,
+            repeatable: false,
+            min_items: None,
+            max_items: None,
+        }
+    }
+
+    fn make_type(id: &str, fields: Vec<FieldAssignment>) -> RecordType {
+        RecordType {
+            id: id.to_string(),
+            namespace: "com.test".to_string(),
+            name: id.to_string(),
+            version: 1,
+            description: "test".to_string(),
+            fields,
+            field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: std::collections::HashMap::new(),
+        }
+    }
+
+    fn make_child_type(
+        id: &str,
+        fields: Vec<FieldAssignment>,
+        parent_id: &str,
+        field_order: Option<Vec<String>>,
+        overrides: Option<Vec<FieldAssignmentOverride>>,
+    ) -> RecordType {
+        RecordType {
+            id: id.to_string(),
+            namespace: "com.test".to_string(),
+            name: id.to_string(),
+            version: 1,
+            description: "test".to_string(),
+            fields,
+            field_groups: None,
+            extends_type_id: Some(parent_id.to_string()),
+            extends_type_version: Some(1),
+            field_order,
+            field_assignment_overrides: overrides,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: std::collections::HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn effective_fields_non_inheriting_returns_sorted_own_fields() {
+        let rt = make_type("base", vec![fa("f2", 1, false), fa("f1", 0, true)]);
+        let pkg = make_package_with_types(vec![rt.clone()]);
+        let result = pkg.effective_fields(&rt).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].field_id, "f1");
+        assert_eq!(result[1].field_id, "f2");
+    }
+
+    #[test]
+    fn effective_fields_single_level_inheritance() {
+        let base = make_type("base", vec![fa("f1", 0, true)]);
+        let child = make_child_type("child", vec![fa("f2", 0, false)], "base", None, None);
+        let pkg = make_package_with_types(vec![base, child.clone()]);
+        let result = pkg.effective_fields(&child).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].field_id, "f1", "base field first");
+        assert_eq!(result[1].field_id, "f2", "own field second");
+    }
+
+    #[test]
+    fn effective_fields_two_level_chain() {
+        let grandparent = make_type("gp", vec![fa("f1", 0, true)]);
+        let mut parent = make_child_type("parent", vec![fa("f2", 0, false)], "gp", None, None);
+        parent.extends_type_id = Some("gp".to_string());
+        let mut child = make_child_type("child", vec![fa("f3", 0, false)], "parent", None, None);
+        child.extends_type_id = Some("parent".to_string());
+        let pkg = make_package_with_types(vec![grandparent, parent, child.clone()]);
+        let result = pkg.effective_fields(&child).unwrap();
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].field_id, "f1", "grandparent field first");
+        assert_eq!(result[1].field_id, "f2", "parent field second");
+        assert_eq!(result[2].field_id, "f3", "own field third");
+    }
+
+    #[test]
+    fn effective_fields_detects_cycle() {
+        let mut a = make_child_type("a", vec![], "b", None, None);
+        let mut b = make_child_type("b", vec![], "a", None, None);
+        a.extends_type_id = Some("b".to_string());
+        b.extends_type_id = Some("a".to_string());
+        let pkg = make_package_with_types(vec![a.clone(), b]);
+        let result = pkg.effective_fields(&a);
+        assert!(
+            matches!(
+                result,
+                Err(crate::error::RepositoryError::TypeInheritanceCycle { .. })
+            ),
+            "expected TypeInheritanceCycle, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn effective_fields_field_order_reorders() {
+        let base = make_type("base", vec![fa("f1", 0, true)]);
+        let child = make_child_type(
+            "child",
+            vec![fa("f2", 0, false)],
+            "base",
+            Some(vec!["f2".to_string(), "f1".to_string()]),
+            None,
+        );
+        let pkg = make_package_with_types(vec![base, child.clone()]);
+        let result = pkg.effective_fields(&child).unwrap();
+        assert_eq!(result[0].field_id, "f2", "fieldOrder: f2 first");
+        assert_eq!(result[1].field_id, "f1", "fieldOrder: f1 second");
+    }
+
+    #[test]
+    fn effective_fields_field_order_incomplete_errors() {
+        let base = make_type("base", vec![fa("f1", 0, true)]);
+        // fieldOrder only lists f2, missing f1
+        let child = make_child_type(
+            "child",
+            vec![fa("f2", 0, false)],
+            "base",
+            Some(vec!["f2".to_string()]),
+            None,
+        );
+        let pkg = make_package_with_types(vec![base, child.clone()]);
+        let result = pkg.effective_fields(&child);
+        assert!(
+            matches!(
+                result,
+                Err(crate::error::RepositoryError::FieldOrderMismatch { .. })
+            ),
+            "expected FieldOrderMismatch, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn effective_fields_detects_duplicate_field() {
+        let base = make_type("base", vec![fa("f1", 0, true)]);
+        // own fields contains f1 which is also in base — Inv 40 violation
+        let child = make_child_type("child", vec![fa("f1", 0, false)], "base", None, None);
+        let pkg = make_package_with_types(vec![base, child.clone()]);
+        let result = pkg.effective_fields(&child);
+        assert!(
+            matches!(
+                result,
+                Err(crate::error::RepositoryError::InheritedFieldDuplicate { .. })
+            ),
+            "expected InheritedFieldDuplicate, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn effective_fields_override_relaxes_required_errors() {
+        let base = make_type("base", vec![fa("f1", 0, true)]);
+        let child = make_child_type(
+            "child",
+            vec![fa("f2", 0, false)],
+            "base",
+            None,
+            Some(vec![FieldAssignmentOverride {
+                field_id: "f1".to_string(),
+                display_label: None,
+                display_hint: None,
+                required: Some(false),
+            }]),
+        );
+        let pkg = make_package_with_types(vec![base, child.clone()]);
+        let result = pkg.effective_fields(&child);
+        assert!(
+            matches!(
+                result,
+                Err(crate::error::RepositoryError::OverrideRelaxesRequired { .. })
+            ),
+            "expected OverrideRelaxesRequired, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn effective_fields_override_tightens_required_ok() {
+        let base = make_type("base", vec![fa("f1", 0, false)]);
+        let child = make_child_type(
+            "child",
+            vec![fa("f2", 0, false)],
+            "base",
+            None,
+            Some(vec![FieldAssignmentOverride {
+                field_id: "f1".to_string(),
+                display_label: None,
+                display_hint: None,
+                required: Some(true),
+            }]),
+        );
+        let pkg = make_package_with_types(vec![base, child.clone()]);
+        let result = pkg.effective_fields(&child).unwrap();
+        let f1 = result.iter().find(|fa| fa.field_id == "f1").unwrap();
+        assert!(f1.required, "override tightened required: false → true");
+    }
+
+    #[test]
+    fn effective_fields_override_targets_own_field_errors() {
+        let base = make_type("base", vec![fa("f1", 0, false)]);
+        let child = make_child_type(
+            "child",
+            vec![fa("f2", 0, false)],
+            "base",
+            None,
+            Some(vec![FieldAssignmentOverride {
+                field_id: "f2".to_string(),
+                display_label: None,
+                display_hint: None,
+                required: Some(true),
+            }]),
+        );
+        let pkg = make_package_with_types(vec![base, child.clone()]);
+        let result = pkg.effective_fields(&child);
+        assert!(
+            matches!(
+                result,
+                Err(crate::error::RepositoryError::OverrideTargetsOwnField { .. })
+            ),
+            "expected OverrideTargetsOwnField, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn validate_record_uses_effective_fields() {
+        use srs_core::types::record::{FieldValue, Record};
+        use srs_core::validation::record::validate_record;
+
+        let base = make_type("base", vec![fa("f1", 0, true)]);
+        let child = make_child_type("child", vec![fa("f2", 0, false)], "base", None, None);
+        let pkg = make_package_with_types(vec![base, child.clone()]);
+        let effective = pkg.effective_fields(&child).unwrap();
+
+        let record = Record {
+            instance_id: "r1".to_string(),
+            type_id: "child".to_string(),
+            type_version: 1,
+            type_namespace: "com.test".to_string(),
+            type_name: "child".to_string(),
+            field_values: vec![FieldValue {
+                field_id: "f1".to_string(),
+                value: serde_json::json!("hello"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            }],
+            group_values: None,
+            created_at: None,
+            updated_at: None,
+            extra: std::collections::HashMap::new(),
+        };
+
+        // f1 is inherited (required) and present → should pass
+        assert!(
+            validate_record(&record, &child, &effective).is_ok(),
+            "record with inherited required field present should pass"
+        );
+
+        // without f1 → should fail (inherited required field missing)
+        let record_no_f1 = Record {
+            field_values: vec![],
+            ..record
+        };
+        assert!(
+            validate_record(&record_no_f1, &child, &effective).is_err(),
+            "record missing inherited required field should fail"
+        );
     }
 }

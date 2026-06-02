@@ -151,13 +151,27 @@ pub fn validate_repository(
                         if let Some(record_type) =
                             package.resolve_type(&record.type_id, record.type_version)
                         {
-                            if let Err(err) = validate_record(&record, record_type) {
-                                diagnostics.push(ValidationDiagnostic {
-                                    severity: DiagnosticSeverity::Error,
-                                    relative_path: rel_path.clone(),
-                                    schema_id: None,
-                                    message: err.to_string(),
-                                });
+                            match package.effective_fields(record_type) {
+                                Ok(effective_fields) => {
+                                    if let Err(err) =
+                                        validate_record(&record, record_type, &effective_fields)
+                                    {
+                                        diagnostics.push(ValidationDiagnostic {
+                                            severity: DiagnosticSeverity::Error,
+                                            relative_path: rel_path.clone(),
+                                            schema_id: None,
+                                            message: err.to_string(),
+                                        });
+                                    }
+                                }
+                                Err(err) => {
+                                    diagnostics.push(ValidationDiagnostic {
+                                        severity: DiagnosticSeverity::Error,
+                                        relative_path: rel_path.clone(),
+                                        schema_id: None,
+                                        message: format!("type inheritance error: {err}"),
+                                    });
+                                }
                             }
                         }
                     }
@@ -176,6 +190,26 @@ pub fn validate_repository(
                     schema_id: None,
                     message: "failed to load package for tier-2 semantic validation".to_string(),
                 }),
+            }
+        }
+    }
+
+    // --- Inv 43: warn about cross-package base type references ---
+    if let Some(Some(pkg)) = &package_for_tier2 {
+        for rt in pkg.record_types() {
+            if let Some(base_id) = &rt.extends_type_id {
+                let base_version = rt.extends_type_version.unwrap_or(1);
+                if pkg.resolve_type(base_id, base_version).is_none() {
+                    diagnostics.push(ValidationDiagnostic {
+                        severity: DiagnosticSeverity::Warning,
+                        relative_path: "package/package.json".to_string(),
+                        schema_id: None,
+                        message: format!(
+                            "ext:type-inheritance (Inv 43): type '{}' extends base type '{}@{}' which is not found in this package; declare it in dependencyRefs for cross-package inheritance",
+                            rt.id, base_id, base_version
+                        ),
+                    });
+                }
             }
         }
     }

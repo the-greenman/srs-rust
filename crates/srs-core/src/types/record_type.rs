@@ -12,9 +12,30 @@ pub struct RecordType {
     pub fields: Vec<FieldAssignment>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub field_groups: Option<Vec<FieldGroup>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extends_type_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extends_type_version: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field_order: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field_assignment_overrides: Option<Vec<FieldAssignmentOverride>>,
     pub created_at: String,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// ext:type-inheritance — per-field overrides for inherited FieldAssignments.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldAssignmentOverride {
+    pub field_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_hint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,6 +127,10 @@ mod tests {
                 },
             ],
             field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -165,6 +190,10 @@ mod tests {
                 max_items: None,
             }],
             field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -194,6 +223,10 @@ mod tests {
                 max_items: None,
             }],
             field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -315,6 +348,10 @@ mod tests {
                 min_items: Some(1),
                 max_items: None,
             }]),
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -333,6 +370,10 @@ mod tests {
             description: "d".to_string(),
             fields: vec![],
             field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -373,6 +414,10 @@ mod tests {
                     max_items: None,
                 },
             ]),
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -392,10 +437,76 @@ mod tests {
             description: "d".to_string(),
             fields: vec![],
             field_groups: Some(vec![]),
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
         assert!(rt.find_field_group("missing").is_none());
+    }
+
+    #[test]
+    fn record_type_with_inheritance_fields_roundtrips() {
+        let json = serde_json::json!({
+            "id": "00000000-0000-4000-8000-000000000020",
+            "namespace": "com.test",
+            "name": "specializer",
+            "version": 1,
+            "description": "A specializing type",
+            "fields": [],
+            "extendsTypeId": "00000000-0000-4000-8000-000000000021",
+            "extendsTypeVersion": 1,
+            "fieldOrder": ["00000000-0000-4000-8000-000000000010"],
+            "fieldAssignmentOverrides": [
+                { "fieldId": "00000000-0000-4000-8000-000000000010", "required": true }
+            ],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        let rt: RecordType = serde_json::from_value(json).unwrap();
+        assert_eq!(
+            rt.extends_type_id.as_deref(),
+            Some("00000000-0000-4000-8000-000000000021")
+        );
+        assert_eq!(rt.extends_type_version, Some(1));
+        assert_eq!(
+            rt.field_order.as_ref().map(|v| v[0].as_str()),
+            Some("00000000-0000-4000-8000-000000000010")
+        );
+        assert!(rt.field_assignment_overrides.is_some());
+        assert!(
+            rt.extra.is_empty(),
+            "inheritance fields must not fall into extra; extra = {:?}",
+            rt.extra
+        );
+    }
+
+    #[test]
+    fn type_with_inheritance_passes_schema() {
+        let reg = srs_schema::SchemaRegistry::global();
+        let value = serde_json::json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+            "id": "00000000-0000-4000-8000-000000000020",
+            "namespace": "com.test",
+            "name": "specializer",
+            "version": 1,
+            "description": "A specializing type",
+            "fields": [],
+            "extendsTypeId": "00000000-0000-4000-8000-000000000021",
+            "extendsTypeVersion": 1,
+            "fieldOrder": ["00000000-0000-4000-8000-000000000010"],
+            "fieldAssignmentOverrides": [
+                {
+                    "fieldId": "00000000-0000-4000-8000-000000000010",
+                    "displayLabel": "Override Label",
+                    "required": true
+                }
+            ],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        reg.validate_by_id(srs_schema::TYPE_SCHEMA_ID, &value)
+            .expect("type with inheritance fields must pass type.json schema");
     }
 
     #[test]
@@ -408,6 +519,10 @@ mod tests {
             description: "d".to_string(),
             fields: vec![],
             field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
