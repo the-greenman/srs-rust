@@ -561,6 +561,7 @@ impl RepositoryStore for JsonStore {
             repo_root: self.repository_root(),
             repository_id: input.repository.repository_id.clone(),
             package_id: input.primary_package.id.clone(),
+            root_note_id: None,
         })
     }
 

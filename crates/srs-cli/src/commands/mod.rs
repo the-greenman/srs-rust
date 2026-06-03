@@ -584,11 +584,8 @@ pub enum RelationTypeCommand {
 
 #[derive(Subcommand)]
 pub enum TagCommand {
-    /// List tag definitions
+    /// List tag terms from package vocabularies (RFC-006)
     List {
-        /// Filter by role
-        #[arg(long)]
-        role: Option<String>,
         /// Deprecated: JSON output is now the default (no-op)
         #[arg(long, hide = true)]
         json: bool,

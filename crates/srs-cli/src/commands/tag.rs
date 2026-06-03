@@ -1,5 +1,3 @@
-#![allow(deprecated)]
-
 use crate::commands::{with_store, CliContext, TagCommand};
 use crate::output;
 use crate::payload::{TagListPayload, TagPayload};
@@ -8,7 +6,7 @@ use srs_repository::tag_service;
 
 pub fn dispatch(ctx: CliContext, cmd: TagCommand) -> Result<String> {
     match cmd {
-        TagCommand::List { role: _, json: _ } => cmd_tag_list(ctx),
+        TagCommand::List { json: _ } => cmd_tag_list(ctx),
         TagCommand::Get { id, json: _ } => cmd_tag_get(ctx, id),
         TagCommand::Create { json: _ } => cmd_tag_write_error("tag create"),
         TagCommand::Update { id: _, json: _ } => cmd_tag_write_error("tag update"),

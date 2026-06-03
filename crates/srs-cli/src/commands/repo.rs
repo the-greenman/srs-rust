@@ -5,16 +5,15 @@ use crate::payload::{
     RepoMapPayload, RepoValidatePayload,
 };
 use anyhow::{Context, Result};
-use srs_core::types::note::{Note, NoteSection};
 use srs_repository::analysis::build_repo_map;
 use srs_repository::manifest_service::{
     add_declared_extension, list_declared_extensions, remove_declared_extension,
 };
 use srs_repository::repository_lifecycle::{
-    create_repository, InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
+    create_repository_with_intent, InitializeRepositoryInput, PrimaryPackageMetadata,
+    RepositoryMetadata,
 };
 use srs_repository::repository_portability::copy_repository;
-use srs_repository::services::create_note;
 use srs_repository::validation::validate_repository;
 use srs_repository::{FileStore, JsonStore};
 
@@ -75,30 +74,26 @@ fn cmd_repo_create(
             repository_id,
             namespace: namespace.clone(),
             srs_version,
-            name: name.clone(),
-            description: description.clone(),
+            name,
+            description,
         },
         primary_package: PrimaryPackageMetadata {
             id: package_id,
-            namespace: package_namespace.unwrap_or(namespace.clone()),
+            namespace: package_namespace.unwrap_or(namespace),
             name: package_name,
             version: package_version,
         },
     };
 
-    let (result, root_note_id) = match ctx.store {
+    let result = match ctx.store {
         StoreBackend::File => {
             let store = FileStore::new(&ctx.repo);
-            let result = create_repository(&store, &input)?;
-            let note_id = maybe_create_intent_note(&store, name, description)?;
-            (result, note_id)
+            create_repository_with_intent(&store, &input)?
         }
         StoreBackend::Json => {
             let store = JsonStore::create(&ctx.repo)
                 .with_context(|| format!("Failed to create JsonStore at {}", ctx.repo.display()))?;
-            let result = create_repository(&store, &input)?;
-            let note_id = maybe_create_intent_note(&store, name, description)?;
-            (result, note_id)
+            create_repository_with_intent(&store, &input)?
         }
     };
 
@@ -108,42 +103,9 @@ fn cmd_repo_create(
             repo_root: result.repo_root,
             repository_id: result.repository_id,
             package_id: result.package_id,
-            root_note_id,
+            root_note_id: result.root_note_id,
         },
     )
-}
-
-fn maybe_create_intent_note(
-    store: &dyn srs_repository::RepositoryStore,
-    name: Option<String>,
-    description: Option<String>,
-) -> Result<Option<String>> {
-    if name.is_none() && description.is_none() {
-        return Ok(None);
-    }
-    let title = name
-        .clone()
-        .unwrap_or_else(|| "Repository Intent".to_string());
-    let content = description.clone().unwrap_or_default();
-    let note = Note {
-        instance_id: String::new(),
-        title: Some(title),
-        tags: Some(vec!["intent".to_string()]),
-        sections: vec![NoteSection {
-            name: "intent".to_string(),
-            label: None,
-            content,
-            content_hint: None,
-            tags: None,
-        }],
-        graduated_at: None,
-        source_refs: None,
-        created_at: None,
-        updated_at: None,
-        meta: None,
-    };
-    let result = create_note(store, note)?;
-    Ok(Some(result.note.instance_id))
 }
 
 fn cmd_repo_extensions_dispatch(ctx: CliContext, cmd: RepoExtensionsCommand) -> Result<String> {

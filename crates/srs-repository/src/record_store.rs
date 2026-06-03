@@ -32,6 +32,7 @@ use serde::Deserialize;
 use srs_core::types::record::{FieldValue, Record};
 use srs_core::types::relation::Relation;
 use srs_core::types::revision::{Revision, RevisionAgent, RevisionProvenance};
+use srs_core::validation::lifecycle::validate_type_lifecycle_v9;
 use srs_core::validation::record::{validate_record, validate_type_lifecycle};
 use std::collections::HashMap;
 
@@ -115,6 +116,16 @@ pub fn create_record(
             path: std::path::PathBuf::from(relative_dir),
             source: e,
         })?;
+        // V9 invariants: final-state outgoing transitions, duplicate IDs, etc.
+        let v9_diags = validate_type_lifecycle_v9(&lc.states, &lc.transitions, &record_type.name);
+        if !v9_diags.is_empty() {
+            let msg = v9_diags
+                .iter()
+                .map(|d| d.message.as_str())
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(RepositoryError::InvalidRepositoryInitialization { message: msg });
+        }
     }
 
     let initial_lifecycle_state = record_type
