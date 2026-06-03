@@ -1,6 +1,8 @@
 use crate::error::RepositoryError;
+use crate::services::create_note;
 use crate::store::RepositoryStore;
 use serde::{Deserialize, Serialize};
+use srs_core::types::note::{Note, NoteSection};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -9,6 +11,8 @@ pub struct RepositoryMetadata {
     pub repository_id: String,
     pub namespace: String,
     pub srs_version: String,
+    pub name: Option<String>,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,6 +35,9 @@ pub struct InitializeRepositoryInput {
 #[serde(rename_all = "camelCase")]
 pub struct CreateRepositoryResult {
     pub repo_root: PathBuf,
+    pub repository_id: String,
+    pub package_id: String,
+    pub root_note_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -52,6 +59,48 @@ pub fn create_repository(
     }
 
     store.initialize_repository(input)
+}
+
+/// Create a repository and optionally create a root intent note when name or
+/// description is provided. Both operations share the same store so they are
+/// executed atomically from the store's perspective. The repository is written
+/// first; if note creation fails the caller receives the error and the repo
+/// directory will exist (no rollback), which is the intended behaviour — the
+/// caller can retry the note creation separately.
+pub fn create_repository_with_intent(
+    store: &dyn RepositoryStore,
+    input: &InitializeRepositoryInput,
+) -> Result<CreateRepositoryResult, RepositoryError> {
+    let mut result = create_repository(store, input)?;
+
+    let name = input.repository.name.clone();
+    let description = input.repository.description.clone();
+
+    if name.is_some() || description.is_some() {
+        let title = name.unwrap_or_else(|| "Repository Intent".to_string());
+        let content = description.unwrap_or_default();
+        let note = Note {
+            instance_id: String::new(),
+            title: Some(title),
+            tags: Some(vec!["intent".to_string()]),
+            sections: vec![NoteSection {
+                name: "intent".to_string(),
+                label: None,
+                content,
+                content_hint: None,
+                tags: None,
+            }],
+            graduated_at: None,
+            source_refs: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+        };
+        let note_result = create_note(store, note)?;
+        result.root_note_id = Some(note_result.note.instance_id);
+    }
+
+    Ok(result)
 }
 
 pub fn get_repository_status(
@@ -107,6 +156,8 @@ mod tests {
                 repository_id: "repo-1".to_string(),
                 namespace: "com.semanticops.test".to_string(),
                 srs_version: "2.0-draft".to_string(),
+                name: None,
+                description: None,
             },
             primary_package: PrimaryPackageMetadata {
                 id: "pkg-1".to_string(),

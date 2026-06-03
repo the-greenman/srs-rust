@@ -450,20 +450,26 @@ pub enum NoteTagCommand {
 pub enum RepoCommand {
     /// Create a new repository at the target path
     Create {
-        /// Repository ID (UUID/string)
+        /// Repository ID (UUID); auto-generated if omitted
         #[arg(long = "repository-id")]
-        repository_id: String,
+        repository_id: Option<String>,
         /// Repository namespace
         #[arg(long)]
         namespace: String,
+        /// Repository display name
+        #[arg(long)]
+        name: Option<String>,
+        /// Repository description
+        #[arg(long)]
+        description: Option<String>,
         /// SRS version stored in manifest
         #[arg(long = "srs-version", default_value = "2.0-draft")]
         srs_version: String,
-        /// Primary package ID
+        /// Primary package ID (UUID); auto-generated if omitted
         #[arg(long = "package-id")]
-        package_id: String,
+        package_id: Option<String>,
         /// Primary package name
-        #[arg(long = "package-name")]
+        #[arg(long = "package-name", default_value = "primary")]
         package_name: String,
         /// Primary package version
         #[arg(long = "package-version", default_value = "1.0.0")]
@@ -578,11 +584,8 @@ pub enum RelationTypeCommand {
 
 #[derive(Subcommand)]
 pub enum TagCommand {
-    /// List tag definitions
+    /// List tag terms from package vocabularies (RFC-006)
     List {
-        /// Filter by role
-        #[arg(long)]
-        role: Option<String>,
         /// Deprecated: JSON output is now the default (no-op)
         #[arg(long, hide = true)]
         json: bool,

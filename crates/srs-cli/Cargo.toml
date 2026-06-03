@@ -23,6 +23,7 @@ serde_yaml = "0.9"
 schemars = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

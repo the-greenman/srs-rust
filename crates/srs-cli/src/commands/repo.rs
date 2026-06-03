@@ -10,7 +10,8 @@ use srs_repository::manifest_service::{
     add_declared_extension, list_declared_extensions, remove_declared_extension,
 };
 use srs_repository::repository_lifecycle::{
-    create_repository, InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
+    create_repository_with_intent, InitializeRepositoryInput, PrimaryPackageMetadata,
+    RepositoryMetadata,
 };
 use srs_repository::repository_portability::copy_repository;
 use srs_repository::validation::validate_repository;
@@ -21,6 +22,8 @@ pub fn dispatch(ctx: CliContext, cmd: RepoCommand) -> Result<String> {
         RepoCommand::Create {
             repository_id,
             namespace,
+            name,
+            description,
             srs_version,
             package_id,
             package_name,
@@ -30,6 +33,8 @@ pub fn dispatch(ctx: CliContext, cmd: RepoCommand) -> Result<String> {
             ctx,
             repository_id,
             namespace,
+            name,
+            description,
             srs_version,
             package_id,
             package_name,
@@ -51,19 +56,26 @@ pub fn dispatch(ctx: CliContext, cmd: RepoCommand) -> Result<String> {
 #[allow(clippy::too_many_arguments)]
 fn cmd_repo_create(
     ctx: CliContext,
-    repository_id: String,
+    repository_id: Option<String>,
     namespace: String,
+    name: Option<String>,
+    description: Option<String>,
     srs_version: String,
-    package_id: String,
+    package_id: Option<String>,
     package_name: String,
     package_version: String,
     package_namespace: Option<String>,
 ) -> Result<String> {
+    let repository_id = repository_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let package_id = package_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
     let input = InitializeRepositoryInput {
         repository: RepositoryMetadata {
             repository_id,
             namespace: namespace.clone(),
             srs_version,
+            name,
+            description,
         },
         primary_package: PrimaryPackageMetadata {
             id: package_id,
@@ -76,12 +88,12 @@ fn cmd_repo_create(
     let result = match ctx.store {
         StoreBackend::File => {
             let store = FileStore::new(&ctx.repo);
-            create_repository(&store, &input)?
+            create_repository_with_intent(&store, &input)?
         }
         StoreBackend::Json => {
             let store = JsonStore::create(&ctx.repo)
                 .with_context(|| format!("Failed to create JsonStore at {}", ctx.repo.display()))?;
-            create_repository(&store, &input)?
+            create_repository_with_intent(&store, &input)?
         }
     };
 
@@ -89,6 +101,9 @@ fn cmd_repo_create(
         "repo create",
         RepoCreatePayload {
             repo_root: result.repo_root,
+            repository_id: result.repository_id,
+            package_id: result.package_id,
+            root_note_id: result.root_note_id,
         },
     )
 }

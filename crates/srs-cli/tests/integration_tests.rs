@@ -298,9 +298,64 @@ fn repo_create_happy_path() {
 
     assert_eq!(result["ok"], true);
     assert_eq!(result["command"], "repo create");
+    assert_eq!(result["payload"]["repositoryId"], "repo-123");
+    assert_eq!(result["payload"]["packageId"], "pkg-123");
+    assert!(
+        result["payload"]["rootNoteId"].is_null(),
+        "rootNoteId should be absent when no name/description given"
+    );
     assert!(repo_dir.join(".srs").is_dir());
     assert!(repo_dir.join("manifest.json").is_file());
     assert!(repo_dir.join("package/package.json").is_file());
+}
+
+#[test]
+fn repo_create_with_name_and_description_creates_root_note() {
+    let temp = TempDir::new().unwrap();
+    let repo_dir = temp.path().join("intent-repo");
+    std::fs::create_dir_all(&repo_dir).unwrap();
+    let repo_dir_str = repo_dir.to_str().unwrap();
+
+    let result = run_srs_in_dir(
+        temp.path(),
+        &[
+            "--repo",
+            repo_dir_str,
+            "repo",
+            "create",
+            "--namespace",
+            "com.semanticops.test",
+            "--name",
+            "My Project",
+            "--description",
+            "Captures design intent.",
+        ],
+    );
+
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["command"], "repo create");
+    let repo_id = result["payload"]["repositoryId"].as_str().unwrap();
+    let pkg_id = result["payload"]["packageId"].as_str().unwrap();
+    assert!(!repo_id.is_empty(), "repositoryId must be auto-generated");
+    assert!(!pkg_id.is_empty(), "packageId must be auto-generated");
+    let root_note_id = result["payload"]["rootNoteId"]
+        .as_str()
+        .expect("rootNoteId should be present when --name is given");
+    assert!(!root_note_id.is_empty());
+
+    // Verify the note actually exists in the repo
+    let notes = run_srs_in_dir(repo_dir.as_path(), &["note", "list"]);
+    assert_eq!(notes["ok"], true);
+    let note_ids: Vec<&str> = notes["payload"]["notes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|n| n["instanceId"].as_str())
+        .collect();
+    assert!(
+        note_ids.contains(&root_note_id),
+        "intent note must appear in note list"
+    );
 }
 
 #[test]
@@ -767,6 +822,10 @@ fn json_store_cli_schema_record_and_roundtrip_workflow() {
         .to_string(),
     );
     assert_eq!(tag_created["command"], "tag create");
+    assert_eq!(
+        tag_created["ok"], false,
+        "tag create should return ok:false (RFC-006 stub)"
+    );
 
     let container_created = run_srs_stdin_in_dir(
         temp.path(),

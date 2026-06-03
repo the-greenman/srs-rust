@@ -5,12 +5,14 @@ use crate::package_types::{DefinitionKind, PackageBoundary, PackageSelector};
 use crate::repository_lifecycle::{CreateRepositoryResult, InitializeRepositoryInput};
 use serde::de::Error as SerdeDeError;
 use srs_core::types::field::{Field, ValueType};
+use srs_core::types::lifecycle::Lifecycle;
 use srs_core::types::record_type::{
     FieldAssignment, FieldAssignmentOverride, FieldGroup, RecordType, TypeLifecycle,
 };
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::types::theme::Theme;
 use srs_core::types::view::{DocumentView, View};
+use srs_core::types::vocabulary::Vocabulary;
 use srs_core::validation::relation_type_definition::validate_relation_type_definition;
 use srs_core::validation::theme::validate_theme;
 use srs_core::validation::view::{validate_document_view, validate_view};
@@ -355,6 +357,10 @@ struct PackageMetadata {
     blueprints: Vec<String>,
     #[serde(default)]
     dependency_refs: Vec<crate::package::DependencyRef>,
+    #[serde(default)]
+    vocabularies: Vec<String>,
+    #[serde(default)]
+    lifecycles: Vec<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -734,12 +740,18 @@ impl RepositoryStore for FileStore {
         self.ensure_dir(&self.repo_root.join(".srs"))?;
         self.ensure_dir(&self.repo_root.join("package"))?;
 
-        let manifest = serde_json::json!({
+        let mut manifest = serde_json::json!({
             "instanceIndex": [],
             "srsVersion": input.repository.srs_version,
             "repositoryId": input.repository.repository_id,
             "namespace": input.repository.namespace
         });
+        if let Some(name) = &input.repository.name {
+            manifest["name"] = serde_json::Value::String(name.clone());
+        }
+        if let Some(desc) = &input.repository.description {
+            manifest["description"] = serde_json::Value::String(desc.clone());
+        }
         self.write_json(&self.repo_root.join("manifest.json"), &manifest)?;
 
         let package = serde_json::json!({
@@ -762,6 +774,9 @@ impl RepositoryStore for FileStore {
 
         Ok(CreateRepositoryResult {
             repo_root: self.repo_root.clone(),
+            repository_id: input.repository.repository_id.clone(),
+            package_id: input.primary_package.id.clone(),
+            root_note_id: None,
         })
     }
 
@@ -987,6 +1002,36 @@ impl RepositoryStore for FileStore {
         let relation_type_definitions: Vec<RelationTypeDefinition> =
             rt_by_type.into_values().map(|(def, _)| def).collect();
 
+        let mut vocabularies: Vec<Vocabulary> = Vec::new();
+        for vocab_path in &metadata.vocabularies {
+            let full_path = package_dir.join(vocab_path);
+            let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
+                path: full_path.clone(),
+                source: e,
+            })?;
+            let vocab: Vocabulary =
+                serde_json::from_str(&content).map_err(|e| RepositoryError::PackageLoad {
+                    path: full_path,
+                    source: e,
+                })?;
+            vocabularies.push(vocab);
+        }
+
+        let mut lifecycles: Vec<Lifecycle> = Vec::new();
+        for lc_path in &metadata.lifecycles {
+            let full_path = package_dir.join(lc_path);
+            let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
+                path: full_path.clone(),
+                source: e,
+            })?;
+            let lc: Lifecycle =
+                serde_json::from_str(&content).map_err(|e| RepositoryError::PackageLoad {
+                    path: full_path,
+                    source: e,
+                })?;
+            lifecycles.push(lc);
+        }
+
         Ok(Package {
             id: metadata.id,
             namespace: metadata.namespace,
@@ -1001,8 +1046,8 @@ impl RepositoryStore for FileStore {
             blueprints,
             root: self.repo_root.clone(),
             dependency_refs: metadata.dependency_refs.clone(),
-            vocabularies: vec![],
-            lifecycles: vec![],
+            vocabularies,
+            lifecycles,
         })
     }
 
@@ -2012,6 +2057,15 @@ pub mod memory {
                 "namespace".to_string(),
                 serde_json::Value::String(input.repository.namespace.clone()),
             );
+            if let Some(name) = &input.repository.name {
+                manifest_extra.insert("name".to_string(), serde_json::Value::String(name.clone()));
+            }
+            if let Some(desc) = &input.repository.description {
+                manifest_extra.insert(
+                    "description".to_string(),
+                    serde_json::Value::String(desc.clone()),
+                );
+            }
 
             *self.manifest.borrow_mut() = Manifest {
                 instance_index: vec![],
@@ -2056,6 +2110,9 @@ pub mod memory {
 
             Ok(CreateRepositoryResult {
                 repo_root: PathBuf::from("/memory"),
+                repository_id: input.repository.repository_id.clone(),
+                package_id: input.primary_package.id.clone(),
+                root_note_id: None,
             })
         }
 
