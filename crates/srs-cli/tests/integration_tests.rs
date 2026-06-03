@@ -754,6 +754,7 @@ fn json_store_cli_schema_record_and_roundtrip_workflow() {
         .as_str()
         .unwrap();
 
+    // RFC-006: tag create returns a descriptive error (terms are package definitions now)
     let tag_created = run_srs_stdin_in_dir(
         temp.path(),
         &["--repo", json_repo_str, "tag", "create"],
@@ -765,7 +766,7 @@ fn json_store_cli_schema_record_and_roundtrip_workflow() {
         })
         .to_string(),
     );
-    assert_eq!(tag_created["ok"], true);
+    assert_eq!(tag_created["command"], "tag create");
 
     let container_created = run_srs_stdin_in_dir(
         temp.path(),
@@ -1007,66 +1008,37 @@ fn note_tag_adds_tag_and_updates_manifest() {
 
 #[test]
 fn tag_list_returns_ok_envelope() {
-    // Against live repo - may be empty until TagDefinition records are created
+    // RFC-006: tag list now returns terms[] from package vocabularies
     let result = run_srs(&["tag", "list"]);
     assert_eq!(result["ok"], true);
     assert_eq!(result["command"], "tag list");
-    assert!(result["payload"]["tagDefinitions"].is_array());
+    assert!(result["payload"]["terms"].is_array());
 }
 
 #[test]
 fn tag_create_and_retrieve_in_temp_repo() {
+    // RFC-006: tag create/update/delete return descriptive errors; terms come from package vocabularies
     let temp = create_temp_repo();
     let repo_path = temp.path();
 
-    // Create a TagDefinition with foundation role
-    let td_json = serde_json::json!({
-        "tagKey": "test-purpose",
-        "label": "Test Purpose",
-        "description": "A test tag definition",
-        "roles": ["foundation"],
-        "status": "active"
-    })
-    .to_string();
+    let td_json = serde_json::json!({"key": "test-purpose"}).to_string();
 
     let created = run_srs_stdin_in_dir(repo_path, &["tag", "create"], &td_json);
-    assert_eq!(
-        created["ok"], true,
-        "tag create failed: {:?}",
-        created["errors"]
+    // tag create now returns diagnostics explaining the RFC-006 change
+    assert_eq!(created["command"], "tag create");
+    assert!(
+        created["diagnostics"]
+            .as_array()
+            .map(|a| !a.is_empty())
+            .unwrap_or(false),
+        "tag create should return a descriptive error: {:?}",
+        created
     );
 
-    let id = created["payload"]["tagDefinition"]["instanceId"]
-        .as_str()
-        .unwrap();
-    let tag_key = created["payload"]["tagDefinition"]["tagKey"]
-        .as_str()
-        .unwrap();
-    assert_eq!(tag_key, "test-purpose");
-
-    // Retrieve by ID
-    let retrieved = run_srs_in_dir(repo_path, &["tag", "get", id]);
-    assert_eq!(retrieved["ok"], true);
-    assert_eq!(
-        retrieved["payload"]["tagDefinition"]["tagKey"],
-        "test-purpose"
-    );
-
-    // List and verify it appears
+    // List returns empty terms (no vocabularies in fresh repo)
     let listed = run_srs_in_dir(repo_path, &["tag", "list"]);
     assert_eq!(listed["ok"], true);
-    let defs = listed["payload"]["tagDefinitions"].as_array().unwrap();
-    assert!(
-        defs.iter().any(|d| d["tagKey"] == "test-purpose"),
-        "Created tag definition should appear in list"
-    );
-
-    // Filter by role
-    let foundation = run_srs_in_dir(repo_path, &["tag", "list", "--role", "foundation"]);
-    assert_eq!(foundation["ok"], true);
-    let foundation_defs = foundation["payload"]["tagDefinitions"].as_array().unwrap();
-    assert_eq!(foundation_defs.len(), 1);
-    assert_eq!(foundation_defs[0]["tagKey"], "test-purpose");
+    assert!(listed["payload"]["terms"].is_array());
 }
 
 // ---------- render document-view tests ----------
@@ -2110,120 +2082,38 @@ fn old_note_tag_positional_form_fails_with_parse_error() {
     );
 }
 
-// --- tag update/delete commands ---
+// --- tag update/delete commands (RFC-006: now return descriptive errors) ---
 
 #[test]
 fn tag_update_rewrites_tag_definition() {
+    // RFC-006: tag update now returns a descriptive error
     let temp = create_temp_repo();
-
-    // Create a tag definition
-    let tag_id = "bbbbbbbb-bbbb-bbbb-8bbb-bbbbbbbbbbbb";
-    let tag_def = serde_json::json!({
-        "instanceId": tag_id,
-        "tagKey": "test-tag",
-        "label": "Original Label",
-        "description": "Original description"
-    });
-
-    std::fs::create_dir_all(temp.path().join("records/tag-definitions")).unwrap();
-    std::fs::write(
-        temp.path().join("records/tag-definitions/test-tag.json"),
-        serde_json::to_string_pretty(&tag_def).unwrap(),
-    )
-    .unwrap();
-
-    let manifest: Value = serde_json::json!({
-        "srsVersion": "2.0-draft",
-        "repositoryId": "test-repo",
-        "instanceIndex": [{
-            "instanceId": tag_id,
-            "tier": 3,
-            "path": "records/tag-definitions/test-tag.json"
-        }]
-    });
-    std::fs::write(
-        temp.path().join("manifest.json"),
-        serde_json::to_string_pretty(&manifest).unwrap(),
-    )
-    .unwrap();
-
-    // Update the tag
-    let updated = serde_json::json!({
-        "instanceId": tag_id,
-        "tagKey": "test-tag",
-        "label": "Updated Label",
-        "description": "Updated description"
-    });
-
-    let result = run_srs_stdin_in_dir(
-        temp.path(),
-        &["tag", "update", tag_id],
-        &serde_json::to_string(&updated).unwrap(),
-    );
-    assert_eq!(
-        result["ok"], true,
-        "tag update should succeed: {:?}",
+    let result = run_srs_stdin_in_dir(temp.path(), &["tag", "update", "some-id"], "{}");
+    assert_eq!(result["command"], "tag update");
+    assert!(
         result["diagnostics"]
+            .as_array()
+            .map(|a| !a.is_empty())
+            .unwrap_or(false),
+        "tag update should return a descriptive error: {:?}",
+        result
     );
-    assert_eq!(result["payload"]["tagDefinition"]["label"], "Updated Label");
-
-    // Verify file was rewritten
-    let file_tag: Value = serde_json::from_str(
-        &std::fs::read_to_string(temp.path().join("records/tag-definitions/test-tag.json"))
-            .unwrap(),
-    )
-    .unwrap();
-    assert_eq!(file_tag["label"], "Updated Label");
 }
 
 #[test]
 fn tag_delete_removes_tag_definition() {
+    // RFC-006: tag delete now returns a descriptive error
     let temp = create_temp_repo();
-
-    // Create a tag definition
-    let tag_id = "bbbbbbbb-bbbb-bbbb-8bbb-bbbbbbbbbbbb";
-    let tag_def = serde_json::json!({
-        "instanceId": tag_id,
-        "tagKey": "delete-me",
-        "label": "Delete Me"
-    });
-
-    std::fs::create_dir_all(temp.path().join("records/tag-definitions")).unwrap();
-    std::fs::write(
-        temp.path().join("records/tag-definitions/delete-me.json"),
-        serde_json::to_string_pretty(&tag_def).unwrap(),
-    )
-    .unwrap();
-
-    let manifest: Value = serde_json::json!({
-        "srsVersion": "2.0-draft",
-        "repositoryId": "test-repo",
-        "instanceIndex": [{
-            "instanceId": tag_id,
-            "tier": 3,
-            "path": "records/tag-definitions/delete-me.json"
-        }]
-    });
-    std::fs::write(
-        temp.path().join("manifest.json"),
-        serde_json::to_string_pretty(&manifest).unwrap(),
-    )
-    .unwrap();
-
-    // Delete the tag
-    let result = run_srs_in_dir(temp.path(), &["tag", "delete", tag_id]);
-    assert_eq!(
-        result["ok"], true,
-        "tag delete should succeed: {:?}",
+    let result = run_srs_in_dir(temp.path(), &["tag", "delete", "some-id"]);
+    assert_eq!(result["command"], "tag delete");
+    assert!(
         result["diagnostics"]
+            .as_array()
+            .map(|a| !a.is_empty())
+            .unwrap_or(false),
+        "tag delete should return a descriptive error: {:?}",
+        result
     );
-    assert_eq!(result["payload"]["instanceId"], tag_id);
-
-    // Verify file was removed
-    assert!(!temp
-        .path()
-        .join("records/tag-definitions/delete-me.json")
-        .exists());
 }
 
 // --- field command group ---
@@ -4305,39 +4195,15 @@ fn container_scope_note_delete_removes_membership() {
 
 #[test]
 fn container_scope_tag_list_filters_to_members() {
+    // RFC-006: tag list returns terms from package vocabularies.
+    // Container-scoped tag list returns an empty terms array for repos without vocabulary files.
     let temp = create_temp_repo();
     let cid = "00000000-0000-4000-8000-000000000001";
     create_container_for_scope(&temp, cid);
 
-    let t1 = serde_json::json!({
-        "instanceId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1",
-        "tagKey":"in",
-        "label":"In"
-    })
-    .to_string();
-    run_srs_stdin_in_dir(temp.path(), &["tag", "create"], &t1);
-    let t2 = serde_json::json!({
-        "instanceId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2",
-        "tagKey":"out",
-        "label":"Out"
-    })
-    .to_string();
-    run_srs_stdin_in_dir(temp.path(), &["tag", "create"], &t2);
-
-    run_srs_in_dir(
-        temp.path(),
-        &[
-            "container",
-            "members",
-            "add",
-            cid,
-            "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1",
-        ],
-    );
     let listed = run_srs_in_dir(temp.path(), &["--container", cid, "tag", "list"]);
-    let arr = listed["payload"]["tagDefinitions"].as_array().unwrap();
-    assert_eq!(arr.len(), 1);
-    assert_eq!(arr[0]["instanceId"], "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1");
+    assert_eq!(listed["ok"], true);
+    assert!(listed["payload"]["terms"].is_array());
 }
 
 #[test]

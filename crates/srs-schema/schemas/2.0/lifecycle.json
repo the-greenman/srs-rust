@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/lifecycle.json",
+  "title": "SRS Lifecycle",
+  "description": "A standalone, installable, referenceable lifecycle container. A specialized closed vocabulary of states plus transitions and an initial state.",
+  "type": "object",
+  "required": ["id", "version", "namespace", "name", "states", "transitions", "initialState", "createdAt"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "namespace": { "type": "string" },
+    "name": { "type": "string" },
+    "states": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/LifecycleState" }
+    },
+    "transitions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/LifecycleTransition" }
+    },
+    "initialState": {
+      "type": "string",
+      "description": "The key of the state with isInitial: true."
+    },
+    "extendsLifecycleId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "extendsLifecycleVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "description": { "type": "string" },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "createdAt": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "LifecycleState": {
+      "type": "object",
+      "required": ["key"],
+      "additionalProperties": false,
+      "description": "A state in the lifecycle (VocabularyEntry specialization).",
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "version": { "type": "integer", "minimum": 1 },
+        "namespace": { "type": "string" },
+        "key": {
+          "type": "string",
+          "description": "Machine-readable state key. Was name pre-RFC-006."
+        },
+        "label": { "type": "string" },
+        "description": { "type": "string" },
+        "aliases": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "isInitial": { "type": "boolean" },
+        "isFinal": { "type": "boolean" },
+        "status": {
+          "type": "string",
+          "enum": ["active", "deprecated", "tombstone", "retired"]
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "LifecycleTransition": {
+      "type": "object",
+      "required": ["name", "from", "to"],
+      "additionalProperties": false,
+      "description": "A directed edge between lifecycle state keys.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable UUID identity for this transition edge."
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable display label (e.g. promote, approve). Not renamed to key."
+        },
+        "from": { "type": "string", "description": "Source state key." },
+        "to": { "type": "string", "description": "Target state key." },
+        "description": { "type": "string" },
+        "properties": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    }
+  }
+}

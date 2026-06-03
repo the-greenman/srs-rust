@@ -36,12 +36,16 @@ impl InstanceIndexEntry {
         self.tier == 0
     }
 
+    #[deprecated(
+        note = "Use Term resolution via Package::resolve_term_by_key instead. tier: 3 is retired per ADR-012."
+    )]
     pub fn is_tag_definition(&self) -> bool {
         self.tier == 3
     }
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
 

@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "VocabularyGetPayload",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "result",
+        "vocabulary"
+      ],
+      "properties": {
+        "result": {
+          "type": "string",
+          "enum": [
+            "found"
+          ]
+        },
+        "vocabulary": true
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "id",
+        "result"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "result": {
+          "type": "string",
+          "enum": [
+            "not_found"
+          ]
+        }
+      }
+    }
+  ]
+}

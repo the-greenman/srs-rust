@@ -20,7 +20,7 @@ pub fn validate_relation_type_definition(rtd: &RelationTypeDefinition) -> Result
         });
     }
 
-    if rtd.relation_type.is_empty() {
+    if rtd.key.is_empty() {
         return Err(CoreError::MissingRequiredField {
             field_id: "relationType".to_string(),
         });
@@ -51,11 +51,11 @@ pub fn validate_relation_type_definition(rtd: &RelationTypeDefinition) -> Result
     }
 
     // If relationType contains '/', validate namespace/name form
-    if rtd.relation_type.contains('/') {
-        let parts: Vec<&str> = rtd.relation_type.split('/').collect();
+    if rtd.key.contains('/') {
+        let parts: Vec<&str> = rtd.key.split('/').collect();
         if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
             return Err(CoreError::InvalidRelationType {
-                relation_type: rtd.relation_type.clone(),
+                relation_type: rtd.key.clone(),
             });
         }
     }
@@ -65,7 +65,7 @@ pub fn validate_relation_type_definition(rtd: &RelationTypeDefinition) -> Result
         for t in src_types {
             if t.is_empty() {
                 return Err(CoreError::InvalidRelationType {
-                    relation_type: rtd.relation_type.clone(),
+                    relation_type: rtd.key.clone(),
                 });
             }
         }
@@ -76,7 +76,7 @@ pub fn validate_relation_type_definition(rtd: &RelationTypeDefinition) -> Result
         for t in tgt_types {
             if t.is_empty() {
                 return Err(CoreError::InvalidRelationType {
-                    relation_type: rtd.relation_type.clone(),
+                    relation_type: rtd.key.clone(),
                 });
             }
         }
@@ -105,7 +105,7 @@ mod tests {
             schema: None,
             id: "f7a8b9c0-d1e2-4f3a-8b4c-5d6e7f8a9b0c".to_string(),
             version: 1,
-            relation_type: relation_type.to_string(),
+            key: relation_type.to_string(),
             namespace: "com.semanticops.srs".to_string(),
             label: "Test".to_string(),
             description: "Test relation type.".to_string(),
@@ -119,6 +119,7 @@ mod tests {
             require_same_semantic_object_type: None,
             status: None,
             updated_at: None,
+            properties: None,
         }
     }
 

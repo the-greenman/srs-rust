@@ -111,7 +111,7 @@ pub fn validate_record(
     // Invariant 6 (ext:lifecycle): Record.lifecycleState must name a state in the
     // associated Type's lifecycle.states[] when the Type declares a lifecycle.
     if let (Some(state), Some(lc)) = (&record.lifecycle_state, &record_type.lifecycle) {
-        let valid = lc.states.iter().any(|s| &s.name == state);
+        let valid = lc.states.iter().any(|s| &s.key == state);
         if !valid {
             return Err(CoreError::InvalidLifecycleState {
                 state: state.clone(),
@@ -127,13 +127,13 @@ pub fn validate_record(
 /// - Invariant 4: `initialState` must name a state with `isInitial: true`.
 /// - Invariant 5: All `from`/`to` in `transitions[]` must name valid states.
 pub fn validate_type_lifecycle(lifecycle: &TypeLifecycle) -> Result<(), CoreError> {
-    let state_names: HashSet<&str> = lifecycle.states.iter().map(|s| s.name.as_str()).collect();
+    let state_names: HashSet<&str> = lifecycle.states.iter().map(|s| s.key.as_str()).collect();
 
     // Invariant 4
     let initial_state = lifecycle
         .states
         .iter()
-        .find(|s| s.name == lifecycle.initial_state);
+        .find(|s| s.key == lifecycle.initial_state);
     match initial_state {
         None => {
             return Err(CoreError::InvalidLifecycleInitialState {
@@ -219,6 +219,7 @@ mod tests {
             field_order: None,
             field_assignment_overrides: None,
             lifecycle: None,
+            lifecycle_ref: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         }
@@ -530,6 +531,7 @@ mod tests {
             field_order: None,
             field_assignment_overrides: None,
             lifecycle: None,
+            lifecycle_ref: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         }

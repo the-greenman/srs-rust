@@ -53,7 +53,11 @@
     },
     "lifecycle": {
       "$ref": "#/$defs/TypeLifecycle",
-      "description": "ext:lifecycle — state machine declaration for records of this Type."
+      "description": "ext:lifecycle — inline state machine declaration. Mutually exclusive with lifecycleRef."
+    },
+    "lifecycleRef": {
+      "type": "string",
+      "description": "ext:lifecycle — reference to an installed Lifecycle by id. Mutually exclusive with lifecycle."
     },
     "tags": {
       "type": "array",
@@ -107,13 +111,27 @@
     },
     "LifecycleState": {
       "type": "object",
-      "required": ["name"],
+      "required": ["key"],
       "additionalProperties": false,
+      "description": "A lifecycle state (VocabularyEntry specialization). key is the unified substrate field (was name pre-RFC-006).",
       "properties": {
-        "name": { "type": "string" },
+        "id": { "type": "string", "format": "uuid" },
+        "version": { "type": "integer", "minimum": 1 },
+        "namespace": { "type": "string" },
+        "key": {
+          "type": "string",
+          "description": "Machine-readable state key. Unified substrate field (was name)."
+        },
+        "label": { "type": "string" },
         "description": { "type": "string" },
+        "aliases": { "type": "array", "items": { "type": "string" } },
         "isInitial": { "type": "boolean" },
-        "isFinal": { "type": "boolean" }
+        "isFinal": { "type": "boolean" },
+        "status": {
+          "type": "string",
+          "enum": ["active", "deprecated", "tombstone", "retired"]
+        },
+        "properties": { "type": "object", "additionalProperties": true }
       }
     },
     "LifecycleTransition": {
@@ -121,10 +139,16 @@
       "required": ["name", "from", "to"],
       "additionalProperties": false,
       "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable UUID identity for this transition edge."
+        },
         "name": { "type": "string" },
         "from": { "type": "string" },
         "to": { "type": "string" },
-        "description": { "type": "string" }
+        "description": { "type": "string" },
+        "properties": { "type": "object", "additionalProperties": true }
       }
     },
     "FieldAssignment": {

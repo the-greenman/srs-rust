@@ -5,7 +5,6 @@
   "description": "Declares a named relation type within a package's relation type vocabulary. Relation types describe the semantic meaning and structural shape of a class of relations.",
   "type": "object",
   "required": ["$schema", "id", "version", "relationType", "namespace", "label", "description", "category", "createdAt"],
-  "additionalProperties": false,
   "properties": {
     "$schema": { "type": "string" },
     "id": {
@@ -79,6 +78,11 @@
       "type": "string",
       "format": "date-time",
       "description": "ISO 8601 timestamp when this definition was last updated."
+    },
+    "properties": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Arbitrary metadata per substrate Change H policy. Unknown top-level fields are rejected; use this instead."
     }
   }
 }

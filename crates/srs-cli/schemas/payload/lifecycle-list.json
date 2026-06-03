@@ -1,12 +1,12 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "TagListPayload",
+  "title": "LifecycleListPayload",
   "type": "object",
   "required": [
-    "terms"
+    "lifecycles"
   ],
   "properties": {
-    "terms": {
+    "lifecycles": {
       "type": "array",
       "items": true
     }

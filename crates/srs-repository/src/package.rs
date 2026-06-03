@@ -2,12 +2,15 @@ use crate::error::RepositoryError;
 use crate::manifest::load_manifest;
 use srs_core::types::blueprint::Blueprint;
 use srs_core::types::field::{Field, ValueType};
+use srs_core::types::lifecycle::Lifecycle;
 use srs_core::types::record_type::{
     FieldAssignment, FieldAssignmentOverride, FieldGroup, RecordType, TypeLifecycle,
 };
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
+use srs_core::types::term::Term;
 use srs_core::types::theme::Theme;
 use srs_core::types::view::{DocumentView, View};
+use srs_core::types::vocabulary::Vocabulary;
 use srs_core::validation::relation_type_definition::validate_relation_type_definition;
 use srs_core::validation::theme::validate_theme;
 use srs_core::validation::view::{validate_document_view, validate_view};
@@ -33,6 +36,8 @@ pub struct Package {
     pub root: PathBuf,
     /// ext:type-inheritance — external package dependencies declared in dependencyRefs.
     pub dependency_refs: Vec<DependencyRef>,
+    pub vocabularies: Vec<Vocabulary>,
+    pub lifecycles: Vec<Lifecycle>,
 }
 
 /// Package metadata as defined in package.json
@@ -60,6 +65,10 @@ struct PackageMetadata {
     /// ext:type-inheritance — external package references declared as dependencies.
     #[serde(default)]
     dependency_refs: Vec<DependencyRef>,
+    #[serde(default)]
+    vocabularies: Vec<String>,
+    #[serde(default)]
+    lifecycles: Vec<String>,
 }
 
 /// ext:type-inheritance — a declared external package dependency reference.
@@ -83,6 +92,8 @@ struct FieldJson {
     description: Option<String>,
     ai_guidance: Option<serde_json::Value>,
     allowed_values: Option<Vec<String>>,
+    #[serde(default)]
+    vocabulary_ref: Option<String>,
     default_value: Option<serde_json::Value>,
     created_at: Option<String>,
     #[serde(flatten)]
@@ -111,6 +122,8 @@ struct TypeJson {
     field_assignment_overrides: Option<Vec<FieldAssignmentOverrideJson>>,
     #[serde(default)]
     lifecycle: Option<TypeLifecycle>,
+    #[serde(default)]
+    lifecycle_ref: Option<String>,
     created_at: Option<String>,
     #[serde(flatten)]
     _extra: HashMap<String, serde_json::Value>,
@@ -169,7 +182,7 @@ impl Package {
     pub fn resolve_relation_type(&self, relation_type: &str) -> Option<&RelationTypeDefinition> {
         self.relation_type_definitions
             .iter()
-            .find(|rt| rt.relation_type == relation_type)
+            .find(|rt| rt.key == relation_type)
     }
 
     /// Get all relation type definitions as a slice.
@@ -404,6 +417,29 @@ impl Package {
 
         Ok(merged)
     }
+
+    /// Resolve a Vocabulary by its UUID id.
+    pub fn resolve_vocabulary(&self, id: &str) -> Option<&Vocabulary> {
+        self.vocabularies.iter().find(|v| v.id == id)
+    }
+
+    /// Resolve a Lifecycle by its UUID id.
+    pub fn resolve_lifecycle(&self, id: &str) -> Option<&Lifecycle> {
+        self.lifecycles.iter().find(|lc| lc.id == id)
+    }
+
+    /// Resolve a Lifecycle by namespace and name.
+    pub fn resolve_lifecycle_by_name(&self, namespace: &str, name: &str) -> Option<&Lifecycle> {
+        self.lifecycles
+            .iter()
+            .find(|lc| lc.namespace == namespace && lc.name == name)
+    }
+
+    /// Resolve a Term by vocabulary id and key (or alias).
+    pub fn resolve_term_by_key(&self, vocabulary_id: &str, key: &str) -> Option<&Term> {
+        self.resolve_vocabulary(vocabulary_id)
+            .and_then(|v| v.resolve_term_by_key(key))
+    }
 }
 
 /// Load raw package content from a directory containing a package.json.
@@ -461,6 +497,7 @@ fn load_package_from_dir(
             description: field_json.description.unwrap_or_default(),
             ai_guidance: field_json.ai_guidance.unwrap_or(serde_json::Value::Null),
             allowed_values: field_json.allowed_values,
+            vocabulary_ref: field_json.vocabulary_ref,
             default_value: field_json.default_value,
             created_at: field_json.created_at.unwrap_or_default(),
             extra: HashMap::new(),
@@ -549,6 +586,7 @@ fn load_package_from_dir(
             field_order: type_json.field_order,
             field_assignment_overrides,
             lifecycle: type_json.lifecycle,
+            lifecycle_ref: type_json.lifecycle_ref,
             created_at: type_json.created_at.unwrap_or_default(),
             extra: HashMap::new(),
         });
@@ -575,17 +613,17 @@ fn load_package_from_dir(
             }
         })?;
 
-        if let Some((existing, existing_path)) = rt_by_type.get(&def.relation_type) {
+        if let Some((existing, existing_path)) = rt_by_type.get(&def.key) {
             if existing != &def {
                 return Err(RepositoryError::RelationTypeDefinitionConflict {
-                    relation_type: def.relation_type.clone(),
+                    relation_type: def.key.clone(),
                     path_a: existing_path.clone(),
                     path_b: full_path,
                 });
             }
             // Coalesce: keep existing, skip duplicate
         } else {
-            rt_by_type.insert(def.relation_type.clone(), (def, full_path));
+            rt_by_type.insert(def.key.clone(), (def, full_path));
         }
     }
 
@@ -882,6 +920,38 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
     let relation_type_definitions: Vec<RelationTypeDefinition> =
         rt_by_type.into_values().map(|(def, _)| def).collect();
 
+    // Load vocabularies from path array in package.json
+    let mut vocabularies: Vec<Vocabulary> = Vec::new();
+    for vocab_path in &metadata.vocabularies {
+        let full_path = package_dir.join(vocab_path);
+        let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
+            path: full_path.clone(),
+            source: e,
+        })?;
+        let vocab: Vocabulary =
+            serde_json::from_str(&content).map_err(|e| RepositoryError::PackageLoad {
+                path: full_path,
+                source: e,
+            })?;
+        vocabularies.push(vocab);
+    }
+
+    // Load lifecycles from path array in package.json
+    let mut lifecycles: Vec<Lifecycle> = Vec::new();
+    for lc_path in &metadata.lifecycles {
+        let full_path = package_dir.join(lc_path);
+        let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
+            path: full_path.clone(),
+            source: e,
+        })?;
+        let lc: Lifecycle =
+            serde_json::from_str(&content).map_err(|e| RepositoryError::PackageLoad {
+                path: full_path,
+                source: e,
+            })?;
+        lifecycles.push(lc);
+    }
+
     Ok(Package {
         id: metadata.id,
         namespace: metadata.namespace,
@@ -896,6 +966,8 @@ pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
         blueprints,
         root: repo_root.to_path_buf(),
         dependency_refs: metadata.dependency_refs,
+        vocabularies,
+        lifecycles,
     })
 }
 
@@ -1558,6 +1630,8 @@ mod tests {
             blueprints: vec![],
             root: PathBuf::from("/test"),
             dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
         }
     }
 
@@ -1587,6 +1661,7 @@ mod tests {
             field_order: None,
             field_assignment_overrides: None,
             lifecycle: None,
+            lifecycle_ref: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::HashMap::new(),
         }
@@ -1612,6 +1687,7 @@ mod tests {
             field_order,
             field_assignment_overrides: overrides,
             lifecycle: None,
+            lifecycle_ref: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::HashMap::new(),
         }

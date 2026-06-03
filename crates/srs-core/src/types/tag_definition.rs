@@ -12,6 +12,7 @@ pub struct TagDefinition {
     pub instance_id: String,
     /// The raw tag string this definition describes. Must be non-empty.
     /// Matches the string used in Note.tags / NoteSection.tags.
+    #[serde(alias = "key")]
     pub tag_key: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,

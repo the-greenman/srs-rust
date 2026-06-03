@@ -363,7 +363,7 @@ fn import_package_boundary(
     for relation_type in &package.relation_type_definitions {
         let path = format!(
             "relation-types/{}-{}.json",
-            slugify(&relation_type.relation_type),
+            slugify(&relation_type.key),
             id_prefix(&relation_type.id)?
         );
         write_repo_json(target, &base_prefix, &path, relation_type)?;
@@ -593,6 +593,7 @@ mod tests {
             description: "".to_string(),
             ai_guidance: serde_json::Value::Null,
             allowed_values: None,
+            vocabulary_ref: None,
             default_value: None,
             created_at: "".to_string(),
             extra: std::collections::HashMap::new(),

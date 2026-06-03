@@ -14,6 +14,8 @@ pub struct Field {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allowed_values: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub vocabulary_ref: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub default_value: Option<serde_json::Value>,
     pub created_at: String,
     #[serde(flatten)]
@@ -49,6 +51,7 @@ mod tests {
             ai_guidance: json!({"purpose": "captures test data"}),
             value_type: ValueType::Select,
             allowed_values: Some(vec!["a".to_string(), "b".to_string()]),
+            vocabulary_ref: None,
             default_value: Some(json!("a")),
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
@@ -116,6 +119,7 @@ mod tests {
             ai_guidance: json!({"purpose": "captures the summary"}),
             value_type: ValueType::Text,
             allowed_values: None,
+            vocabulary_ref: None,
             default_value: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),

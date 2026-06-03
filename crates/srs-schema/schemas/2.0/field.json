@@ -44,7 +44,11 @@
     "allowedValues": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Required when valueType is 'select' or 'multiselect'. Defines the semantic constraint on the value; presentation/rendering is separate."
+      "description": "Inline anonymous closed vocabulary. When valueType is select/multiselect, declare exactly one of allowedValues or vocabularyRef."
+    },
+    "vocabularyRef": {
+      "type": "string",
+      "description": "Reference to a named Vocabulary (id). Mutually exclusive with allowedValues. Must resolve to a mode: closed Vocabulary."
     },
     "defaultValue": {
       "description": "Default value applied when no value is supplied. Must conform to valueType."

@@ -367,3 +367,27 @@ fn package_update() {
 fn package_refs() {
     check::<PackageRefPayload>("package-refs");
 }
+
+// ── Vocabulary (RFC-006) ──────────────────────────────────────────────────────
+
+#[test]
+fn vocabulary_list() {
+    check::<VocabularyListPayload>("vocabulary-list");
+}
+
+#[test]
+fn vocabulary_get() {
+    check::<VocabularyGetPayload>("vocabulary-get");
+}
+
+// ── Lifecycle (RFC-006) ───────────────────────────────────────────────────────
+
+#[test]
+fn lifecycle_list() {
+    check::<LifecycleListPayload>("lifecycle-list");
+}
+
+#[test]
+fn lifecycle_get() {
+    check::<LifecycleGetPayload>("lifecycle-get");
+}
