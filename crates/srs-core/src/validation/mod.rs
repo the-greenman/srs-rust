@@ -1,10 +1,14 @@
 pub mod blueprint;
 pub mod container;
+pub mod field;
+pub mod lifecycle;
 pub mod note;
 pub mod protocol;
 pub mod record;
+pub mod record_type;
 pub mod relation;
 pub mod relation_type_definition;
 pub mod tag_definition;
 pub mod theme;
 pub mod view;
+pub mod vocabulary;

@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/term.json",
+  "title": "SRS Term",
+  "description": "A defined entry within a Vocabulary. Terms are the vocabulary-entry substrate: they carry stable identity, a key, optional enrichment, and status.",
+  "type": "object",
+  "required": ["id", "version", "namespace", "key"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Stable UUID identity for this term (definition id, not instance id)."
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "namespace": { "type": "string" },
+    "key": {
+      "type": "string",
+      "description": "The string that appears in instance data. Unified substrate key field."
+    },
+    "label": { "type": "string" },
+    "description": { "type": "string" },
+    "aliases": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Alternate keys that resolve to this term."
+    },
+    "roles": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Semantic roles. Well-known values: foundation, navigation."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "deprecated", "tombstone", "retired"],
+      "description": "Absent means active."
+    },
+    "properties": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Arbitrary metadata per substrate Change H policy."
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  }
+}

@@ -21,11 +21,14 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use srs_core::types::{
     container::Container,
+    lifecycle::Lifecycle,
     note::Note,
     record::Record,
     record_type::RecordType,
     relation::Relation,
+    term::Term,
     view::{DocumentView, View},
+    vocabulary::Vocabulary,
 };
 use srs_repository::{
     analysis::{FoundationNoteSet, RepoMap, TagAudit},
@@ -33,7 +36,6 @@ use srs_repository::{
     extension_service::ExtensionSummary,
     relation_service::RelationSummary,
     services::{ListNoteTagsResult, NoteSummary, TagSummary},
-    tag_service::TagDefinitionSummary,
     validation::{RepositoryValidationReport, ValidationSummary},
     view_service::{DocumentViewSummary, ViewSummary},
 };
@@ -381,14 +383,56 @@ pub struct ContainerValidatePayload {
 #[serde(rename_all = "camelCase")]
 pub struct TagListPayload {
     #[schemars(with = "Vec<serde_json::Value>")]
-    pub tag_definitions: Vec<TagDefinitionSummary>,
+    pub terms: Vec<Term>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TagPayload {
     #[schemars(with = "serde_json::Value")]
-    pub tag_definition: srs_core::types::tag_definition::TagDefinition,
+    pub term: Term,
+}
+
+// ── Vocabulary payloads ───────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct VocabularyListPayload {
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub vocabularies: Vec<Vocabulary>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase", tag = "result")]
+pub enum VocabularyGetPayload {
+    #[serde(rename = "found")]
+    Found {
+        #[schemars(with = "serde_json::Value")]
+        vocabulary: Box<Vocabulary>,
+    },
+    #[serde(rename = "not_found")]
+    NotFound { id: String },
+}
+
+// ── Lifecycle payloads ────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LifecycleListPayload {
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub lifecycles: Vec<Lifecycle>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase", tag = "result")]
+pub enum LifecycleGetPayload {
+    #[serde(rename = "found")]
+    Found {
+        #[schemars(with = "serde_json::Value")]
+        lifecycle: Box<Lifecycle>,
+    },
+    #[serde(rename = "not_found")]
+    NotFound { id: String },
 }
 
 // ── Field payloads ────────────────────────────────────────────────────────────

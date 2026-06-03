@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Defines a named relation type within a package's relation type vocabulary.
 ///
@@ -6,7 +7,7 @@ use serde::{Deserialize, Serialize};
 /// validation rules to a class of relations. Definitions are loaded from package
 /// `relationTypes[]` entries and resolved into the effective installed set.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct RelationTypeDefinition {
     #[serde(rename = "$schema", skip_serializing_if = "Option::is_none")]
     pub schema: Option<String>,
@@ -16,7 +17,9 @@ pub struct RelationTypeDefinition {
     /// Monotonically increasing version. Starts at 1.
     pub version: u32,
     /// Canonical bare string (e.g. `precedes`) or namespaced `namespace/name` form.
-    pub relation_type: String,
+    /// Serialized as `relationType`; also accepts `key` for RFC-006 forward compat.
+    #[serde(rename = "relationType", alias = "key")]
+    pub key: String,
     /// Package namespace this definition belongs to.
     pub namespace: String,
     /// Short human-readable label.
@@ -48,6 +51,9 @@ pub struct RelationTypeDefinition {
     pub status: Option<RelationTypeStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<String>,
+    /// Arbitrary metadata per substrate Change H policy. Unknown top-level fields are rejected; use this.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub properties: Option<HashMap<String, serde_json::Value>>,
 }
 
 /// Structural category of a relation type.
@@ -134,7 +140,7 @@ mod tests {
             schema: None,
             id: "f7a8b9c0-d1e2-4f3a-8b4c-5d6e7f8a9b0c".to_string(),
             version: 1,
-            relation_type: "precedes".to_string(),
+            key: "precedes".to_string(),
             namespace: "com.semanticops.srs".to_string(),
             label: "Precedes".to_string(),
             description: "Source comes before target in a sequence.".to_string(),
@@ -148,6 +154,7 @@ mod tests {
             require_same_semantic_object_type: None,
             status: None,
             updated_at: None,
+            properties: None,
         }
     }
 
@@ -156,7 +163,7 @@ mod tests {
         let rtd = canonical_precedes();
         let json_str = serde_json::to_string(&rtd).unwrap();
         let parsed: RelationTypeDefinition = serde_json::from_str(&json_str).unwrap();
-        assert_eq!(parsed.relation_type, "precedes");
+        assert_eq!(parsed.key, "precedes");
         assert_eq!(parsed.category, RelationTypeCategory::Sequence);
         assert_eq!(parsed.irreflexive, Some(true));
         assert_eq!(parsed.status, None);
@@ -245,7 +252,7 @@ mod tests {
             rtd.schema.as_deref(),
             Some("https://srs.semanticops.com/schema/2.0/relation-type.json")
         );
-        assert_eq!(rtd.relation_type, "precedes");
+        assert_eq!(rtd.key, "precedes");
         assert_eq!(rtd.category, RelationTypeCategory::Sequence);
         assert!(rtd.is_irreflexive());
         assert!(rtd.is_active());

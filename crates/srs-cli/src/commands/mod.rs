@@ -3,6 +3,7 @@ pub mod container;
 pub mod document_view;
 pub mod extension;
 pub mod field;
+pub mod lifecycle;
 pub mod migrate;
 pub mod note;
 pub mod package;
@@ -15,6 +16,7 @@ pub mod render;
 pub mod repo;
 pub mod tag;
 pub mod view;
+pub mod vocabulary;
 
 use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -290,6 +292,12 @@ pub enum Commands {
     /// Document view (L2 render view) definition management
     #[command(subcommand, name = "document-view")]
     DocumentView(DocumentViewCommand),
+    /// Vocabulary definition commands (RFC-006)
+    #[command(subcommand)]
+    Vocabulary(VocabularyCommand),
+    /// Lifecycle definition commands (RFC-006)
+    #[command(subcommand)]
+    Lifecycle(LifecycleCommand),
 }
 
 #[derive(Subcommand)]
@@ -606,6 +614,38 @@ pub enum TagCommand {
         /// TagDefinition instance ID
         id: String,
         /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum VocabularyCommand {
+    /// List all vocabularies in the package
+    List {
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+    /// Get a vocabulary by id
+    Get {
+        /// Vocabulary UUID id
+        id: String,
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum LifecycleCommand {
+    /// List all lifecycles in the package
+    List {
+        #[arg(long, hide = true)]
+        json: bool,
+    },
+    /// Get a lifecycle by id
+    Get {
+        /// Lifecycle UUID id
+        id: String,
         #[arg(long, hide = true)]
         json: bool,
     },
@@ -1182,5 +1222,7 @@ pub fn dispatch(cli: Cli) -> Result<String> {
         Commands::Package(pkg_cmd) => package::dispatch(ctx, pkg_cmd),
         Commands::View(view_cmd) => view::dispatch(ctx, view_cmd),
         Commands::DocumentView(dv_cmd) => document_view::dispatch(ctx, dv_cmd),
+        Commands::Vocabulary(vocab_cmd) => vocabulary::dispatch(ctx, vocab_cmd),
+        Commands::Lifecycle(lc_cmd) => lifecycle::dispatch(ctx, lc_cmd),
     }
 }

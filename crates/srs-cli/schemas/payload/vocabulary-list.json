@@ -1,12 +1,12 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "TagListPayload",
+  "title": "VocabularyListPayload",
   "type": "object",
   "required": [
-    "terms"
+    "vocabularies"
   ],
   "properties": {
-    "terms": {
+    "vocabularies": {
       "type": "array",
       "items": true
     }

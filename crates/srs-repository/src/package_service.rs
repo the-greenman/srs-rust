@@ -716,7 +716,7 @@ pub fn create_relation_type(
         def.created_at = chrono::Utc::now().to_rfc3339();
     }
 
-    let slug = slugify(&def.relation_type);
+    let slug = slugify(&def.key);
     let id_prefix = &def.id[..8.min(def.id.len())];
     let rel_filename = format!("relation-types/{slug}-{id_prefix}.json");
     let full_path = format!("package/{rel_filename}");
@@ -1085,6 +1085,7 @@ mod tests {
             description: "A test field".to_string(),
             ai_guidance: serde_json::json!(null),
             allowed_values: None,
+            vocabulary_ref: None,
             default_value: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
@@ -1105,6 +1106,7 @@ mod tests {
             field_order: None,
             field_assignment_overrides: None,
             lifecycle: None,
+            lifecycle_ref: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         }
@@ -1704,7 +1706,7 @@ mod tests {
             schema: None,
             id: "rt-001".to_string(),
             version: 1,
-            relation_type: "test-link".to_string(),
+            key: "test-link".to_string(),
             namespace: "com.test".to_string(),
             label: "Test Link".to_string(),
             description: "A test relation type".to_string(),
@@ -1718,6 +1720,7 @@ mod tests {
             allowed_target_types: None,
             require_same_semantic_object_type: None,
             updated_at: None,
+            properties: None,
         };
         create_relation_type(&store, def).unwrap();
 
@@ -1765,7 +1768,7 @@ mod tests {
             schema: None,
             id: "rt-002".to_string(),
             version: 1,
-            relation_type: "unused-link".to_string(),
+            key: "unused-link".to_string(),
             namespace: "com.test".to_string(),
             label: "Unused Link".to_string(),
             description: "A relation type with no instances".to_string(),
@@ -1779,6 +1782,7 @@ mod tests {
             allowed_target_types: None,
             require_same_semantic_object_type: None,
             updated_at: None,
+            properties: None,
         };
         create_relation_type(&store, def).unwrap();
 

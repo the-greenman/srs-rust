@@ -368,6 +368,8 @@ struct FieldJson {
     description: Option<String>,
     ai_guidance: Option<serde_json::Value>,
     allowed_values: Option<Vec<String>>,
+    #[serde(default)]
+    vocabulary_ref: Option<String>,
     default_value: Option<serde_json::Value>,
     created_at: Option<String>,
     #[serde(flatten)]
@@ -395,6 +397,8 @@ struct TypeJson {
     field_assignment_overrides: Option<Vec<FieldAssignmentOverrideJson>>,
     #[serde(default)]
     lifecycle: Option<TypeLifecycle>,
+    #[serde(default)]
+    lifecycle_ref: Option<String>,
     created_at: Option<String>,
     #[serde(flatten)]
     _extra: HashMap<String, serde_json::Value>,
@@ -503,6 +507,7 @@ fn load_package_from_dir(
             description: fj.description.unwrap_or_default(),
             ai_guidance: fj.ai_guidance.unwrap_or(serde_json::Value::Null),
             allowed_values: fj.allowed_values,
+            vocabulary_ref: fj.vocabulary_ref,
             default_value: fj.default_value,
             created_at: fj.created_at.unwrap_or_default(),
             extra: HashMap::new(),
@@ -586,6 +591,7 @@ fn load_package_from_dir(
             field_order: tj.field_order,
             field_assignment_overrides,
             lifecycle: tj.lifecycle,
+            lifecycle_ref: tj.lifecycle_ref,
             created_at: tj.created_at.unwrap_or_default(),
             extra: HashMap::new(),
         });
@@ -608,16 +614,16 @@ fn load_package_from_dir(
                 source,
             }
         })?;
-        if let Some((existing, existing_path)) = rt_by_type.get(&def.relation_type) {
+        if let Some((existing, existing_path)) = rt_by_type.get(&def.key) {
             if existing != &def {
                 return Err(RepositoryError::RelationTypeDefinitionConflict {
-                    relation_type: def.relation_type.clone(),
+                    relation_type: def.key.clone(),
                     path_a: existing_path.clone(),
                     path_b: full_path,
                 });
             }
         } else {
-            rt_by_type.insert(def.relation_type.clone(), (def, full_path));
+            rt_by_type.insert(def.key.clone(), (def, full_path));
         }
     }
 
@@ -995,6 +1001,8 @@ impl RepositoryStore for FileStore {
             blueprints,
             root: self.repo_root.clone(),
             dependency_refs: metadata.dependency_refs.clone(),
+            vocabularies: vec![],
+            lifecycles: vec![],
         })
     }
 
@@ -1778,6 +1786,8 @@ pub mod memory {
                 blueprints: vec![],
                 root: PathBuf::from("/memory"),
                 dependency_refs: vec![],
+                vocabularies: vec![],
+                lifecycles: vec![],
             };
             Self::new(manifest, package)
         }
@@ -1909,6 +1919,8 @@ pub mod memory {
                 blueprints: vec![],
                 root: PathBuf::from("/memory"),
                 dependency_refs: vec![],
+                vocabularies: vec![],
+                lifecycles: vec![],
             };
             Self {
                 manifest: RefCell::new(manifest),
@@ -2021,6 +2033,8 @@ pub mod memory {
                 blueprints: vec![],
                 root: PathBuf::from("/memory"),
                 dependency_refs: vec![],
+                vocabularies: vec![],
+                lifecycles: vec![],
             };
 
             let package_json = serde_json::json!({
@@ -2693,6 +2707,8 @@ mod tests {
             blueprints: vec![],
             root: repo_root.to_path_buf(),
             dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
         }
     }
 
@@ -2922,6 +2938,7 @@ mod tests {
             description: String::new(),
             ai_guidance: serde_json::Value::Null,
             allowed_values: None,
+            vocabulary_ref: None,
             default_value: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::HashMap::new(),
@@ -3003,6 +3020,7 @@ mod tests {
             description: String::new(),
             ai_guidance: serde_json::Value::Null,
             allowed_values: None,
+            vocabulary_ref: None,
             default_value: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::HashMap::new(),
@@ -3047,6 +3065,7 @@ mod tests {
             description: String::new(),
             ai_guidance: serde_json::Value::Null,
             allowed_values: None,
+            vocabulary_ref: None,
             default_value: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::HashMap::new(),

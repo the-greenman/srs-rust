@@ -147,5 +147,13 @@ fn main() {
     write_schema!("package-update", PackageUpdatePayload);
     write_schema!("package-refs", PackageRefPayload);
 
+    // Vocabulary payloads (RFC-006)
+    write_schema!("vocabulary-list", VocabularyListPayload);
+    write_schema!("vocabulary-get", VocabularyGetPayload);
+
+    // Lifecycle payloads (RFC-006)
+    write_schema!("lifecycle-list", LifecycleListPayload);
+    write_schema!("lifecycle-get", LifecycleGetPayload);
+
     println!("done.");
 }

@@ -551,7 +551,7 @@ pub fn transition_record_lifecycle(
     };
 
     // Validate target state exists in lifecycle
-    if !lifecycle.states.iter().any(|s| s.name == target_state) {
+    if !lifecycle.states.iter().any(|s| s.key == target_state) {
         return Err(RepositoryError::LifecycleStateNotDefined {
             state: target_state,
         });
@@ -572,7 +572,7 @@ pub fn transition_record_lifecycle(
 
     // Check if target state is final → emit warning
     let mut warnings = Vec::new();
-    if let Some(state_def) = lifecycle.states.iter().find(|s| s.name == target_state) {
+    if let Some(state_def) = lifecycle.states.iter().find(|s| s.key == target_state) {
         if state_def.is_final == Some(true) {
             warnings.push(format!(
                 "LIFECYCLE_FINAL_STATE: Target state '{}' is a final state — no further transitions are expected",
@@ -840,6 +840,7 @@ mod tests {
             description: "Name field".to_string(),
             ai_guidance: json!(null),
             allowed_values: None,
+            vocabulary_ref: None,
             default_value: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
@@ -853,6 +854,7 @@ mod tests {
             description: "Status field".to_string(),
             ai_guidance: json!(null),
             allowed_values: Some(vec!["active".to_string(), "inactive".to_string()]),
+            vocabulary_ref: None,
             default_value: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
@@ -889,6 +891,7 @@ mod tests {
             field_order: None,
             field_assignment_overrides: None,
             lifecycle: None,
+            lifecycle_ref: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -911,6 +914,8 @@ mod tests {
             blueprints: vec![],
             root: PathBuf::from("/memory"),
             dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
         };
         MemoryStore::new(manifest, package)
     }
@@ -1293,6 +1298,7 @@ mod tests {
             description: "Title".to_string(),
             ai_guidance: json!(null),
             allowed_values: None,
+            vocabulary_ref: None,
             default_value: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
@@ -1321,40 +1327,66 @@ mod tests {
             lifecycle: Some(TypeLifecycle {
                 states: vec![
                     LifecycleState {
-                        name: "draft".to_string(),
+                        id: None,
+                        version: None,
+                        namespace: None,
+                        key: "draft".to_string(),
+                        label: None,
                         description: None,
+                        aliases: None,
                         is_initial: Some(true),
                         is_final: None,
+                        status: None,
+                        properties: None,
                     },
                     LifecycleState {
-                        name: "active".to_string(),
+                        id: None,
+                        version: None,
+                        namespace: None,
+                        key: "active".to_string(),
+                        label: None,
                         description: None,
+                        aliases: None,
                         is_initial: None,
                         is_final: None,
+                        status: None,
+                        properties: None,
                     },
                     LifecycleState {
-                        name: "archived".to_string(),
+                        id: None,
+                        version: None,
+                        namespace: None,
+                        key: "archived".to_string(),
+                        label: None,
                         description: None,
+                        aliases: None,
                         is_initial: None,
                         is_final: Some(true),
+                        status: None,
+                        properties: None,
                     },
                 ],
                 transitions: vec![
                     LifecycleTransition {
+                        id: None,
                         name: "promote".to_string(),
                         from: "draft".to_string(),
                         to: "active".to_string(),
                         description: None,
+                        properties: None,
                     },
                     LifecycleTransition {
+                        id: None,
                         name: "archive".to_string(),
                         from: "active".to_string(),
                         to: "archived".to_string(),
                         description: None,
+                        properties: None,
                     },
                 ],
                 initial_state: "draft".to_string(),
             }),
+            lifecycle_ref: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -1363,7 +1395,7 @@ mod tests {
             schema: None,
             id: "rtd-supersedes-001".to_string(),
             version: 1,
-            relation_type: "supersedes".to_string(),
+            key: "supersedes".to_string(),
             namespace: "com.semanticops.srs".to_string(),
             label: "Supersedes".to_string(),
             description: "The source record supersedes the target.".to_string(),
@@ -1377,13 +1409,14 @@ mod tests {
             require_same_semantic_object_type: None,
             status: None,
             updated_at: None,
+            properties: None,
         };
 
         let refines_def = RelationTypeDefinition {
             schema: None,
             id: "rtd-refines-001".to_string(),
             version: 1,
-            relation_type: "refines".to_string(),
+            key: "refines".to_string(),
             namespace: "com.semanticops.srs".to_string(),
             label: "Refines".to_string(),
             description: "The source record refines the target.".to_string(),
@@ -1397,6 +1430,7 @@ mod tests {
             require_same_semantic_object_type: None,
             status: None,
             updated_at: None,
+            properties: None,
         };
 
         let manifest = Manifest {
@@ -1417,6 +1451,8 @@ mod tests {
             themes: vec![],
             blueprints: vec![],
             dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
             root: PathBuf::from("/memory"),
         };
         MemoryStore::new(manifest, package)

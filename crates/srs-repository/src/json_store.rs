@@ -64,6 +64,8 @@ struct FieldJson {
     description: Option<String>,
     ai_guidance: Option<serde_json::Value>,
     allowed_values: Option<Vec<String>>,
+    #[serde(default)]
+    vocabulary_ref: Option<String>,
     default_value: Option<serde_json::Value>,
     created_at: Option<String>,
     #[serde(flatten)]
@@ -91,6 +93,8 @@ struct TypeJson {
     field_assignment_overrides: Option<Vec<FieldAssignmentOverrideJson>>,
     #[serde(default)]
     lifecycle: Option<TypeLifecycle>,
+    #[serde(default)]
+    lifecycle_ref: Option<String>,
     created_at: Option<String>,
     #[serde(flatten)]
     _extra: HashMap<String, serde_json::Value>,
@@ -330,6 +334,7 @@ impl JsonStore {
                 description: fj.description.unwrap_or_default(),
                 ai_guidance: fj.ai_guidance.unwrap_or(serde_json::Value::Null),
                 allowed_values: fj.allowed_values,
+                vocabulary_ref: fj.vocabulary_ref,
                 default_value: fj.default_value,
                 created_at: fj.created_at.unwrap_or_default(),
                 extra: HashMap::new(),
@@ -410,6 +415,7 @@ impl JsonStore {
                 field_order: tj.field_order,
                 field_assignment_overrides,
                 lifecycle: tj.lifecycle,
+                lifecycle_ref: tj.lifecycle_ref,
                 created_at: tj.created_at.unwrap_or_default(),
                 extra: HashMap::new(),
             });
@@ -428,16 +434,16 @@ impl JsonStore {
                     source,
                 }
             })?;
-            if let Some((existing, existing_path)) = rt_by_type.get(&def.relation_type) {
+            if let Some((existing, existing_path)) = rt_by_type.get(&def.key) {
                 if existing != &def {
                     return Err(RepositoryError::RelationTypeDefinitionConflict {
-                        relation_type: def.relation_type.clone(),
+                        relation_type: def.key.clone(),
                         path_a: existing_path.clone(),
                         path_b: PathBuf::from(full),
                     });
                 }
             } else {
-                rt_by_type.insert(def.relation_type.clone(), (def, PathBuf::from(full)));
+                rt_by_type.insert(def.key.clone(), (def, PathBuf::from(full)));
             }
         }
 
@@ -686,6 +692,8 @@ impl RepositoryStore for JsonStore {
             blueprints: vec![],
             root: self.repository_root(),
             dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
         })
     }
 

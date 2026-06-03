@@ -118,7 +118,7 @@ fn resolve_definition<'a>(
     let matching: Vec<&RelationTypeDefinition> = ctx
         .definitions
         .iter()
-        .filter(|d| d.relation_type == relation.relation_type)
+        .filter(|d| d.key == relation.relation_type)
         .collect();
 
     match matching.len() {
@@ -273,7 +273,7 @@ mod tests {
             schema: None,
             id: "f7a8b9c0-d1e2-4f3a-8b4c-5d6e7f8a9b0c".to_string(),
             version: 1,
-            relation_type: relation_type.to_string(),
+            key: relation_type.to_string(),
             namespace: "com.semanticops.srs".to_string(),
             label: "Test".to_string(),
             description: "desc".to_string(),
@@ -287,6 +287,7 @@ mod tests {
             require_same_semantic_object_type: None,
             status: None,
             updated_at: None,
+            properties: None,
         }
     }
 

@@ -71,6 +71,16 @@
       "items": { "type": "string" },
       "description": "Relative paths from this package directory to relation-type definition files. Omit if the package defines no relation types."
     },
+    "vocabularies": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Relative paths from this package directory to Vocabulary definition files (RFC-006)."
+    },
+    "lifecycles": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Relative paths from this package directory to Lifecycle definition files (RFC-006)."
+    },
     "dependencyRefs": {
       "type": "array",
       "items": { "$ref": "#/$defs/DependencyRef" },

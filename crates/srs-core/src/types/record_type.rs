@@ -1,3 +1,4 @@
+pub use crate::types::lifecycle::{LifecycleState, LifecycleTransition};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -22,6 +23,8 @@ pub struct RecordType {
     pub field_assignment_overrides: Option<Vec<FieldAssignmentOverride>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lifecycle: Option<TypeLifecycle>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lifecycle_ref: Option<String>,
     pub created_at: String,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
@@ -49,27 +52,7 @@ pub struct TypeLifecycle {
     pub initial_state: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct LifecycleState {
-    pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_initial: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_final: Option<bool>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct LifecycleTransition {
-    pub name: String,
-    pub from: String,
-    pub to: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-}
+// LifecycleState and LifecycleTransition are now defined in lifecycle.rs and re-exported above.
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -165,6 +148,7 @@ mod tests {
             field_order: None,
             field_assignment_overrides: None,
             lifecycle: None,
+            lifecycle_ref: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -229,6 +213,7 @@ mod tests {
             field_order: None,
             field_assignment_overrides: None,
             lifecycle: None,
+            lifecycle_ref: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -263,6 +248,7 @@ mod tests {
             field_order: None,
             field_assignment_overrides: None,
             lifecycle: None,
+            lifecycle_ref: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -389,6 +375,7 @@ mod tests {
             field_order: None,
             field_assignment_overrides: None,
             lifecycle: None,
+            lifecycle_ref: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -412,6 +399,7 @@ mod tests {
             field_order: None,
             field_assignment_overrides: None,
             lifecycle: None,
+            lifecycle_ref: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -429,6 +417,7 @@ mod tests {
             description: "d".to_string(),
             fields: vec![],
             lifecycle: None,
+            lifecycle_ref: None,
             field_groups: Some(vec![
                 FieldGroup {
                     group_id: "g-1".to_string(),
@@ -481,6 +470,7 @@ mod tests {
             field_order: None,
             field_assignment_overrides: None,
             lifecycle: None,
+            lifecycle_ref: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -564,6 +554,7 @@ mod tests {
             field_order: None,
             field_assignment_overrides: None,
             lifecycle: None,
+            lifecycle_ref: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };

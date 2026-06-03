@@ -3,9 +3,9 @@
   "title": "TagPayload",
   "type": "object",
   "required": [
-    "tagDefinition"
+    "term"
   ],
   "properties": {
-    "tagDefinition": true
+    "term": true
   }
 }

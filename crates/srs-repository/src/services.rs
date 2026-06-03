@@ -592,6 +592,8 @@ mod tests {
                 blueprints: vec![],
                 root: PathBuf::from("/memory"),
                 dependency_refs: vec![],
+                vocabularies: vec![],
+                lifecycles: vec![],
             },
         )
         .with_data(path, note_val)
@@ -647,6 +649,8 @@ mod tests {
                 blueprints: vec![],
                 root: PathBuf::from("/memory"),
                 dependency_refs: vec![],
+                vocabularies: vec![],
+                lifecycles: vec![],
             },
         )
         .with_data(path_a, make_val(note_a))
@@ -727,6 +731,8 @@ mod tests {
                 blueprints: vec![],
                 root: PathBuf::from("/memory"),
                 dependency_refs: vec![],
+                vocabularies: vec![],
+                lifecycles: vec![],
             },
         );
         let result = list_note_tags(&store, None).unwrap();
@@ -773,6 +779,8 @@ mod tests {
                 blueprints: vec![],
                 root: PathBuf::from("/memory"),
                 dependency_refs: vec![],
+                vocabularies: vec![],
+                lifecycles: vec![],
             },
         );
         let result = list_note_tags(&store, None).unwrap();
@@ -879,6 +887,8 @@ mod tests {
                 blueprints: vec![],
                 root: PathBuf::from("/memory"),
                 dependency_refs: vec![],
+                vocabularies: vec![],
+                lifecycles: vec![],
             },
         );
         let result = get_note_by_id(&store, "22222222-2222-2222-8222-222222222222").unwrap();

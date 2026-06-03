@@ -27,6 +27,9 @@ pub const RELATIONS_COLLECTION_SCHEMA_ID: &str =
 pub const SOURCE_DOCUMENT_META_SCHEMA_ID: &str =
     "https://srs.semanticops.com/schema/2.0/source-document-meta.json";
 pub const THEME_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/theme.json";
+pub const TERM_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/term.json";
+pub const VOCABULARY_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/vocabulary.json";
+pub const LIFECYCLE_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/lifecycle.json";
 pub const TYPE_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/type.json";
 pub const TYPED_RECORD_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/typed-record.json";
 pub const VIEW_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/view.json";
@@ -46,6 +49,9 @@ pub const ALL_SCHEMA_IDS: &[&str] = &[
     RELATION_TYPE_SCHEMA_ID,
     RELATIONS_COLLECTION_SCHEMA_ID,
     SOURCE_DOCUMENT_META_SCHEMA_ID,
+    TERM_SCHEMA_ID,
+    VOCABULARY_SCHEMA_ID,
+    LIFECYCLE_SCHEMA_ID,
     THEME_SCHEMA_ID,
     TYPE_SCHEMA_ID,
     TYPED_RECORD_SCHEMA_ID,
@@ -100,6 +106,9 @@ static SCHEMA_SOURCES: &[(&str, &str)] = &[
         SOURCE_DOCUMENT_META_SCHEMA_ID,
         include_schema!("source-document-meta.json"),
     ),
+    (TERM_SCHEMA_ID, include_schema!("term.json")),
+    (VOCABULARY_SCHEMA_ID, include_schema!("vocabulary.json")),
+    (LIFECYCLE_SCHEMA_ID, include_schema!("lifecycle.json")),
     (THEME_SCHEMA_ID, include_schema!("theme.json")),
     (TYPE_SCHEMA_ID, include_schema!("type.json")),
     (TYPED_RECORD_SCHEMA_ID, include_schema!("typed-record.json")),
@@ -210,7 +219,7 @@ mod tests {
     #[test]
     fn registry_builds_and_has_all_schema_ids() {
         let reg = SchemaRegistry::global();
-        assert_eq!(reg.schema_ids().len(), 18);
+        assert_eq!(reg.schema_ids().len(), 21);
         for id in ALL_SCHEMA_IDS {
             assert!(reg.schema_ids().contains(id), "missing: {id}");
         }

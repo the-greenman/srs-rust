@@ -497,7 +497,7 @@ mod tests {
             schema: None,
             id: "00000000-0000-0000-0000-000000000099".to_string(),
             version: 1,
-            relation_type: "contains".to_string(),
+            key: "contains".to_string(),
             namespace: "com.test".to_string(),
             label: "Contains".to_string(),
             description: "A contains B".to_string(),
@@ -511,6 +511,7 @@ mod tests {
             require_same_semantic_object_type: None,
             status: None,
             updated_at: None,
+            properties: None,
         }];
         let result = create_relation(&store, new_relation, &definitions).unwrap();
         assert_eq!(result.relation.relation_id, "r4");

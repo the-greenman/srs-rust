@@ -23,8 +23,10 @@ use crate::container_service;
 use crate::error::RepositoryError;
 use crate::loader::load_tag_definition;
 use crate::store::RepositoryStore;
+use crate::vocabulary_service;
 use crate::writer::{new_instance_id, upsert_tag_definition_index_entry, write_manifest};
 use srs_core::types::tag_definition::TagDefinition;
+use srs_core::types::term::Term;
 use srs_core::validation::tag_definition::validate_tag_definition;
 
 /// Summary for list operations
@@ -69,6 +71,7 @@ fn slugify_tag_key(tag_key: &str) -> String {
 }
 
 /// List all TagDefinitions in the repository.
+#[allow(deprecated)]
 pub fn list_tag_definitions(
     store: &dyn RepositoryStore,
 ) -> Result<Vec<TagDefinitionSummary>, RepositoryError> {
@@ -116,6 +119,7 @@ pub fn list_tag_definitions_by_role(
 }
 
 /// Get a TagDefinition by its instance ID.
+#[allow(deprecated)]
 pub fn get_tag_definition_by_id(
     store: &dyn RepositoryStore,
     id: &str,
@@ -146,7 +150,23 @@ pub fn get_foundation_signal_tags(
     Ok(tag_keys)
 }
 
+/// List all Terms from vocabularies in the package (RFC-006).
+pub fn list_terms(store: &dyn RepositoryStore) -> Result<Vec<Term>, RepositoryError> {
+    vocabulary_service::list_terms(store)
+}
+
+/// Find a Term by id across all vocabularies in the package (RFC-006).
+pub fn get_term_by_id(
+    store: &dyn RepositoryStore,
+    id: &str,
+) -> Result<Option<Term>, RepositoryError> {
+    vocabulary_service::get_term_by_id(store, id)
+}
+
 /// Create a new TagDefinition.
+#[deprecated(
+    note = "Tag terms are now package definitions (RFC-006). Manage terms via the package vocabulary instead."
+)]
 pub fn create_tag_definition(
     store: &dyn RepositoryStore,
     mut tag_definition: TagDefinition,
@@ -182,6 +202,10 @@ pub fn create_tag_definition(
 }
 
 /// Update an existing TagDefinition.
+#[deprecated(
+    note = "Tag terms are now package definitions (RFC-006). Manage terms via the package vocabulary instead."
+)]
+#[allow(deprecated)]
 pub fn update_tag_definition(
     store: &dyn RepositoryStore,
     tag_definition: TagDefinition,
@@ -253,6 +277,10 @@ pub fn list_tag_definitions_filtered(
 }
 
 /// Create a tag definition and optionally add it to a container atomically.
+#[deprecated(
+    note = "Tag terms are now package definitions (RFC-006). Manage terms via the package vocabulary instead."
+)]
+#[allow(deprecated)]
 pub fn create_tag_definition_in_context(
     store: &dyn RepositoryStore,
     tag: TagDefinition,
@@ -272,6 +300,10 @@ pub fn create_tag_definition_in_context(
 }
 
 /// Delete a tag definition with optional container-scoped membership check.
+#[deprecated(
+    note = "Tag terms are now package definitions (RFC-006). Manage terms via the package vocabulary instead."
+)]
+#[allow(deprecated)]
 pub fn delete_tag_definition_in_context(
     store: &dyn RepositoryStore,
     id: String,
@@ -294,6 +326,10 @@ pub fn delete_tag_definition_in_context(
 
 /// Update a tag definition after validating that the ID in the body matches
 /// the provided command ID.
+#[deprecated(
+    note = "Tag terms are now package definitions (RFC-006). Manage terms via the package vocabulary instead."
+)]
+#[allow(deprecated)]
 pub fn update_tag_definition_validated(
     store: &dyn RepositoryStore,
     id: &str,
@@ -332,6 +368,10 @@ fn find_instances_using_tag(
 
 /// Delete a TagDefinition by ID.
 /// Returns `CannotDeleteInUse` if any instance's manifest entry references this tag key.
+#[deprecated(
+    note = "Tag terms are now package definitions (RFC-006). Manage terms via the package vocabulary instead."
+)]
+#[allow(deprecated)]
 pub fn delete_tag_definition(
     store: &dyn RepositoryStore,
     id: &str,
@@ -375,6 +415,7 @@ pub fn delete_tag_definition(
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use crate::store::memory::MemoryStore;

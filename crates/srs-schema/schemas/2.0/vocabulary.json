@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/vocabulary.json",
+  "title": "SRS Vocabulary",
+  "description": "A named, versioned set of Term entries. Mode open means usage-authoritative; mode closed means vocabulary-authoritative.",
+  "type": "object",
+  "required": ["id", "version", "namespace", "name", "mode", "terms", "createdAt"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "namespace": { "type": "string" },
+    "name": { "type": "string" },
+    "mode": {
+      "type": "string",
+      "enum": ["open", "closed"],
+      "description": "open: values not in any Term are valid. closed: values MUST resolve to a Term."
+    },
+    "terms": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Term" }
+    },
+    "extendsVocabularyId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "When this vocabulary adds terms to an upstream vocabulary."
+    },
+    "extendsVocabularyVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Must match the upstream vocabulary's version exactly."
+    },
+    "promotionWindow": {
+      "type": "object",
+      "required": ["until"],
+      "additionalProperties": false,
+      "description": "Grace window for open-to-closed promotion (V10).",
+      "properties": {
+        "until": {
+          "type": "string",
+          "description": "ISO8601 date or target package version. After this bound V1 violations become errors."
+        }
+      }
+    },
+    "description": { "type": "string" },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "createdAt": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "Term": {
+      "type": "object",
+      "required": ["id", "version", "namespace", "key"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "version": { "type": "integer", "minimum": 1 },
+        "namespace": { "type": "string" },
+        "key": { "type": "string" },
+        "label": { "type": "string" },
+        "description": { "type": "string" },
+        "aliases": { "type": "array", "items": { "type": "string" } },
+        "roles": { "type": "array", "items": { "type": "string" } },
+        "status": { "type": "string", "enum": ["active", "deprecated", "tombstone", "retired"] },
+        "properties": { "type": "object", "additionalProperties": true },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

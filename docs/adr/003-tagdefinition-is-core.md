@@ -1,9 +1,9 @@
 # ADR-003: TagDefinition Is a Core SRS Type
 
-- **Status:** accepted
+- **Status:** superseded
 - **Date:** 2026-05-28
 - **Supersedes:** —
-- **Superseded by:** —
+- **Superseded by:** ADR-012
 
 ## Context
 
