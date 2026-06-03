@@ -3,11 +3,25 @@
   "title": "RepoCreatePayload",
   "type": "object",
   "required": [
-    "repoRoot"
+    "packageId",
+    "repoRoot",
+    "repositoryId"
   ],
   "properties": {
+    "packageId": {
+      "type": "string"
+    },
     "repoRoot": {
       "type": "string"
+    },
+    "repositoryId": {
+      "type": "string"
+    },
+    "rootNoteId": {
+      "type": [
+        "string",
+        "null"
+      ]
     }
   }
 }

@@ -734,12 +734,18 @@ impl RepositoryStore for FileStore {
         self.ensure_dir(&self.repo_root.join(".srs"))?;
         self.ensure_dir(&self.repo_root.join("package"))?;
 
-        let manifest = serde_json::json!({
+        let mut manifest = serde_json::json!({
             "instanceIndex": [],
             "srsVersion": input.repository.srs_version,
             "repositoryId": input.repository.repository_id,
             "namespace": input.repository.namespace
         });
+        if let Some(name) = &input.repository.name {
+            manifest["name"] = serde_json::Value::String(name.clone());
+        }
+        if let Some(desc) = &input.repository.description {
+            manifest["description"] = serde_json::Value::String(desc.clone());
+        }
         self.write_json(&self.repo_root.join("manifest.json"), &manifest)?;
 
         let package = serde_json::json!({
@@ -762,6 +768,8 @@ impl RepositoryStore for FileStore {
 
         Ok(CreateRepositoryResult {
             repo_root: self.repo_root.clone(),
+            repository_id: input.repository.repository_id.clone(),
+            package_id: input.primary_package.id.clone(),
         })
     }
 
@@ -2012,6 +2020,15 @@ pub mod memory {
                 "namespace".to_string(),
                 serde_json::Value::String(input.repository.namespace.clone()),
             );
+            if let Some(name) = &input.repository.name {
+                manifest_extra.insert("name".to_string(), serde_json::Value::String(name.clone()));
+            }
+            if let Some(desc) = &input.repository.description {
+                manifest_extra.insert(
+                    "description".to_string(),
+                    serde_json::Value::String(desc.clone()),
+                );
+            }
 
             *self.manifest.borrow_mut() = Manifest {
                 instance_index: vec![],
@@ -2056,6 +2073,8 @@ pub mod memory {
 
             Ok(CreateRepositoryResult {
                 repo_root: PathBuf::from("/memory"),
+                repository_id: input.repository.repository_id.clone(),
+                package_id: input.primary_package.id.clone(),
             })
         }
 

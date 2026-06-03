@@ -144,6 +144,16 @@ pub fn export_repository_snapshot(
                 .and_then(|v| v.as_str())
                 .unwrap_or("2.0-draft")
                 .to_string(),
+            name: manifest
+                .extra
+                .get("name")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+            description: manifest
+                .extra
+                .get("description")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
         },
         declared_extensions,
         packages,
@@ -516,6 +526,8 @@ mod tests {
                 repository_id: "repo-copy".to_string(),
                 namespace: "com.semanticops.copy".to_string(),
                 srs_version: "2.0-draft".to_string(),
+                name: None,
+                description: None,
             },
             primary_package: PrimaryPackageMetadata {
                 id: "pkg-copy".to_string(),

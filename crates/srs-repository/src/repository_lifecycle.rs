@@ -9,6 +9,8 @@ pub struct RepositoryMetadata {
     pub repository_id: String,
     pub namespace: String,
     pub srs_version: String,
+    pub name: Option<String>,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,6 +33,8 @@ pub struct InitializeRepositoryInput {
 #[serde(rename_all = "camelCase")]
 pub struct CreateRepositoryResult {
     pub repo_root: PathBuf,
+    pub repository_id: String,
+    pub package_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -107,6 +111,8 @@ mod tests {
                 repository_id: "repo-1".to_string(),
                 namespace: "com.semanticops.test".to_string(),
                 srs_version: "2.0-draft".to_string(),
+                name: None,
+                description: None,
             },
             primary_package: PrimaryPackageMetadata {
                 id: "pkg-1".to_string(),

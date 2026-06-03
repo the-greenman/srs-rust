@@ -691,6 +691,10 @@ pub struct RenderDocumentViewPayload {
 #[serde(rename_all = "camelCase")]
 pub struct RepoCreatePayload {
     pub repo_root: PathBuf,
+    pub repository_id: String,
+    pub package_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_note_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
