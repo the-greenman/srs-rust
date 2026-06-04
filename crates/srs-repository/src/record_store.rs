@@ -100,6 +100,7 @@ pub fn create_record(
     type_id: &str,
     type_version: u32,
     field_values: Vec<FieldValue>,
+    group_values: Option<Vec<srs_core::types::record::FieldGroupValue>>,
     relative_dir: &str,
 ) -> Result<Record, RepositoryError> {
     let package = store.load_package()?;
@@ -140,7 +141,7 @@ pub fn create_record(
         type_namespace: record_type.namespace.clone(),
         type_name: record_type.name.clone(),
         field_values,
-        group_values: None,
+        group_values,
         lifecycle_state: initial_lifecycle_state,
         created_at: Some(chrono::Utc::now().to_rfc3339()),
         updated_at: Some(chrono::Utc::now().to_rfc3339()),
@@ -199,6 +200,7 @@ pub fn update_record(
     store: &dyn RepositoryStore,
     instance_id: &str,
     field_values: Vec<FieldValue>,
+    group_values: Option<Option<Vec<srs_core::types::record::FieldGroupValue>>>,
 ) -> Result<Record, RepositoryError> {
     let record =
         get_record_by_id(store, instance_id)?.ok_or_else(|| RepositoryError::NotFound {
@@ -220,7 +222,8 @@ pub fn update_record(
         type_namespace: record.type_namespace,
         type_name: record.type_name,
         field_values,
-        group_values: record.group_values,
+        // None outer = not supplied by caller → preserve existing; Some(v) = replace.
+        group_values: group_values.unwrap_or(record.group_values),
         lifecycle_state: record.lifecycle_state,
         created_at: record.created_at,
         updated_at: Some(chrono::Utc::now().to_rfc3339()),
@@ -310,11 +313,13 @@ pub struct RecordListFilter {
     pub container_id: Option<String>,
 }
 
-/// Input for creating a record (fieldValues payload)
+/// Input for creating or updating a record.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateRecordInput {
     pub field_values: Vec<FieldValue>,
+    #[serde(default)]
+    pub group_values: Option<Vec<srs_core::types::record::FieldGroupValue>>,
 }
 
 /// Result for create_record_in_context
@@ -439,6 +444,7 @@ pub fn create_record_in_context(
         &record_type.id,
         record_type.version,
         input.field_values,
+        input.group_values,
         relative_dir,
     )?;
 
@@ -700,6 +706,7 @@ pub fn create_record_successor(
         &predecessor.type_id,
         type_version,
         input.field_values,
+        None,
         relative_dir,
     )?;
 
@@ -1016,6 +1023,7 @@ mod tests {
             "type-test-001",
             1,
             field_values,
+            None,
             "records/test-items",
         )
         .expect("should create record");
@@ -1055,6 +1063,7 @@ mod tests {
             "type-test-001",
             1,
             field_values,
+            None,
             "records/test-items",
         );
         assert!(result.is_err());
@@ -1080,6 +1089,7 @@ mod tests {
             "type-test-001",
             1,
             field_values,
+            None,
             "records/test-items",
         )
         .expect("should create with only required field");
@@ -1111,6 +1121,7 @@ mod tests {
             "type-test-001",
             1,
             initial_values,
+            None,
             "records/test-items",
         )
         .unwrap();
@@ -1133,7 +1144,7 @@ mod tests {
             },
         ];
 
-        let updated = update_record(&store, &instance_id, updated_values).unwrap();
+        let updated = update_record(&store, &instance_id, updated_values, None).unwrap();
         assert_eq!(updated.field_values[0].value, json!("Updated Name"));
 
         // Verify stored value
@@ -1150,7 +1161,7 @@ mod tests {
             source: None,
             edited_at: None,
         }];
-        assert!(update_record(&store, &instance_id, invalid_values).is_err());
+        assert!(update_record(&store, &instance_id, invalid_values, None).is_err());
     }
 
     #[test]
@@ -1170,6 +1181,7 @@ mod tests {
                 source: None,
                 edited_at: None,
             }],
+            None,
             "records/test-items",
         )
         .unwrap();
@@ -1185,6 +1197,7 @@ mod tests {
                 source: None,
                 edited_at: None,
             }],
+            None,
             "records/test-items",
         )
         .unwrap();
@@ -1238,6 +1251,7 @@ mod tests {
                 source: None,
                 edited_at: None,
             }],
+            None,
             "records/test-items",
         )
         .unwrap();
@@ -1270,6 +1284,7 @@ mod tests {
             "type-test-001",
             1,
             field_values,
+            None,
             "records/test-items",
         )
         .unwrap();
@@ -1481,6 +1496,7 @@ mod tests {
                 source: None,
                 edited_at: None,
             }],
+            None,
             "records/lc-items",
         )
         .unwrap()
@@ -1663,5 +1679,156 @@ mod tests {
             result.record.instance_id
         );
         assert_eq!(result.relation.target_instance_id, original.instance_id);
+    }
+
+    // group_values write path tests (Phase 1D)
+
+    #[test]
+    fn create_record_with_group_values_persists_entries() {
+        use srs_core::types::record::{FieldGroupEntry, FieldGroupValue, FieldValueEntry};
+
+        let store = make_store_with_package();
+
+        let field_values = vec![FieldValue {
+            field_id: "field-name-001".to_string(),
+            value: json!("Grouped Record"),
+            entries: None,
+            source: None,
+            edited_at: None,
+        }];
+
+        let group_values = Some(vec![FieldGroupValue {
+            group_id: "rows".to_string(),
+            entries: vec![
+                FieldGroupEntry {
+                    entry_id: None,
+                    field_values: vec![FieldValue {
+                        field_id: "field-name-001".to_string(),
+                        value: json!("Row 1"),
+                        entries: Some(vec![FieldValueEntry {
+                            value: serde_json::json!("Row 1"),
+                            source: None,
+                            edited_at: None,
+                        }]),
+                        source: None,
+                        edited_at: None,
+                    }],
+                },
+                FieldGroupEntry {
+                    entry_id: None,
+                    field_values: vec![FieldValue {
+                        field_id: "field-name-001".to_string(),
+                        value: json!("Row 2"),
+                        entries: None,
+                        source: None,
+                        edited_at: None,
+                    }],
+                },
+            ],
+        }]);
+
+        let record = create_record(
+            &store,
+            "type-test-001",
+            1,
+            field_values,
+            group_values,
+            "records/test-items",
+        )
+        .expect("should create record with group_values");
+
+        let loaded = get_record_by_id(&store, &record.instance_id)
+            .unwrap()
+            .expect("should load record");
+
+        let gv = loaded
+            .group_values
+            .expect("group_values should be persisted");
+        assert_eq!(gv.len(), 1);
+        assert_eq!(gv[0].group_id, "rows");
+        assert_eq!(gv[0].entries.len(), 2);
+    }
+
+    #[test]
+    fn update_record_with_group_values_replaces_entries() {
+        use srs_core::types::record::{FieldGroupEntry, FieldGroupValue};
+
+        let store = make_store_with_package();
+
+        let fv = vec![FieldValue {
+            field_id: "field-name-001".to_string(),
+            value: json!("Initial"),
+            entries: None,
+            source: None,
+            edited_at: None,
+        }];
+        let record = create_record(&store, "type-test-001", 1, fv, None, "records/test-items")
+            .expect("create");
+        let id = record.instance_id.clone();
+
+        let new_fv = vec![FieldValue {
+            field_id: "field-name-001".to_string(),
+            value: json!("Updated"),
+            entries: None,
+            source: None,
+            edited_at: None,
+        }];
+        let new_gv = Some(vec![FieldGroupValue {
+            group_id: "rows".to_string(),
+            entries: vec![FieldGroupEntry {
+                entry_id: None,
+                field_values: vec![],
+            }],
+        }]);
+        update_record(&store, &id, new_fv, Some(new_gv)).expect("update");
+
+        let loaded = get_record_by_id(&store, &id).unwrap().unwrap();
+        assert_eq!(loaded.field_values[0].value, json!("Updated"));
+        let gv = loaded
+            .group_values
+            .expect("group_values should exist after update");
+        assert_eq!(gv[0].group_id, "rows");
+    }
+
+    #[test]
+    fn update_record_without_group_values_preserves_existing() {
+        use srs_core::types::record::{FieldGroupEntry, FieldGroupValue};
+
+        let store = make_store_with_package();
+
+        let fv = vec![FieldValue {
+            field_id: "field-name-001".to_string(),
+            value: json!("With Groups"),
+            entries: None,
+            source: None,
+            edited_at: None,
+        }];
+        let gv = Some(vec![FieldGroupValue {
+            group_id: "rows".to_string(),
+            entries: vec![FieldGroupEntry {
+                entry_id: None,
+                field_values: vec![],
+            }],
+        }]);
+        let record = create_record(&store, "type-test-001", 1, fv, gv, "records/test-items")
+            .expect("create");
+        let id = record.instance_id.clone();
+
+        // None outer = not supplied, preserve existing
+        let new_fv = vec![FieldValue {
+            field_id: "field-name-001".to_string(),
+            value: json!("Field Only Update"),
+            entries: None,
+            source: None,
+            edited_at: None,
+        }];
+        update_record(&store, &id, new_fv, None).expect("update");
+
+        let loaded = get_record_by_id(&store, &id).unwrap().unwrap();
+        assert_eq!(loaded.field_values[0].value, json!("Field Only Update"));
+        assert!(
+            loaded.group_values.is_some(),
+            "group_values preserved when not supplied"
+        );
     }
 }

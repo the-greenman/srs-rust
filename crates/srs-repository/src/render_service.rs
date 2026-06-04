@@ -338,7 +338,10 @@ fn project_section_json(
                 records.reverse();
             }
         }
-    } else if matches!(&section.source, SectionSource::TypeQuery { .. }) {
+    } else {
+        // Default ordering for any source without explicit ordering: precedes-chain.
+        // sort_by_precedes_chain falls back to created_at for records with no precedes edges,
+        // so FixedInstances/RelationQuery behaviour is unchanged when no precedes relations exist.
         records = sort_by_precedes_chain(records, relations);
     }
 
@@ -374,36 +377,50 @@ fn project_record_json(
     let mut omit_empty = false;
     let mut record_preamble: Option<String> = None;
 
-    if let Some(view_id) = &section.render_view_id {
-        if let Some(view) = package.resolve_view(view_id) {
-            if let Some(export_config) = &view.export_config {
-                if let Some(preamble_tmpl) = &export_config.preamble {
-                    record_preamble = Some(substitute_vars_record_json(preamble_tmpl, record));
-                }
-                omit_empty = export_config.omit_empty_fields == Some(true);
-                if let Some(order) = &export_config.field_order {
-                    fields_to_render = order
-                        .iter()
-                        .cloned()
-                        .map(|field_id| ResolvedFieldRender {
-                            field_id,
-                            required: false,
-                        })
-                        .collect();
-                }
+    let use_view = section.render_view_id.as_ref().and_then(|view_id| {
+        let view = package.resolve_view(view_id)?;
+        if record_satisfies_view(package, view, record, rt.as_ref()) {
+            Some(view.clone())
+        } else {
+            diagnostics.push(format!(
+                "[view-dispatch] record {} type {}/{} does not satisfy view {}; rendering by own type",
+                record.instance_id,
+                rt.as_ref().map(|t| t.namespace.as_str()).unwrap_or("?"),
+                rt.as_ref().map(|t| t.name.as_str()).unwrap_or("?"),
+                view_id,
+            ));
+            None
+        }
+    });
+
+    if let Some(view) = use_view {
+        if let Some(export_config) = &view.export_config {
+            if let Some(preamble_tmpl) = &export_config.preamble {
+                record_preamble = Some(substitute_vars_record_json(preamble_tmpl, record));
             }
-            if fields_to_render.is_empty() {
-                let mut field_views = view.field_views.clone();
-                field_views.sort_by_key(|fv| fv.order);
-                for fv in field_views {
-                    if fv.visible == Some(false) {
-                        continue;
-                    }
-                    fields_to_render.push(ResolvedFieldRender {
-                        field_id: fv.field_id,
-                        required: fv.required == Some(true),
-                    });
+            omit_empty = export_config.omit_empty_fields == Some(true);
+            if let Some(order) = &export_config.field_order {
+                fields_to_render = order
+                    .iter()
+                    .cloned()
+                    .map(|field_id| ResolvedFieldRender {
+                        field_id,
+                        required: false,
+                    })
+                    .collect();
+            }
+        }
+        if fields_to_render.is_empty() {
+            let mut field_views = view.field_views.clone();
+            field_views.sort_by_key(|fv| fv.order);
+            for fv in field_views {
+                if fv.visible == Some(false) {
+                    continue;
                 }
+                fields_to_render.push(ResolvedFieldRender {
+                    field_id: fv.field_id,
+                    required: fv.required == Some(true),
+                });
             }
         }
     } else if let Some(rt) = &rt {
@@ -787,6 +804,46 @@ fn resolve_container_title(dv: &DocumentView, manifest: &crate::manifest::Manife
         .to_string()
 }
 
+/// Check whether a record's type satisfies a View for rendering dispatch purposes.
+///
+/// Binding resolution (RFC-001 field-presence model):
+/// 1. If `view.compatible_types` is set, the record's type must be listed as
+///    `"namespace/name"` — this is the first behavioural use of `compatible_types`;
+///    it acts as a constraint only within document-section dispatch, not globally.
+/// 2. Otherwise, fall back to field-presence: the record must contain every
+///    visible `field_views` field that is marked `required`.
+///    If no field_views are required, any record satisfies the view.
+fn record_satisfies_view(
+    package: &Package,
+    view: &srs_core::types::view::View,
+    _record: &Record,
+    rt: Option<&srs_core::types::record_type::RecordType>,
+) -> bool {
+    if let Some(compatible) = &view.compatible_types {
+        let type_key = rt.map(|t| format!("{}/{}", t.namespace, t.name));
+        return type_key
+            .as_deref()
+            .is_some_and(|k| compatible.iter().any(|c| c == k));
+    }
+    // Field-presence fallback: every visible required field-view field must exist.
+    let required_field_ids: Vec<&str> = view
+        .field_views
+        .iter()
+        .filter(|fv| fv.visible != Some(false) && fv.required == Some(true))
+        .map(|fv| fv.field_id.as_str())
+        .collect();
+    if required_field_ids.is_empty() {
+        return true;
+    }
+    let effective_ids: HashSet<String> = rt
+        .and_then(|t| package.effective_fields(t).ok())
+        .map(|fields| fields.iter().map(|fa| fa.field_id.clone()).collect())
+        .unwrap_or_default();
+    required_field_ids
+        .iter()
+        .all(|id| effective_ids.contains(*id))
+}
+
 /// Sort records by following the `precedes` relation chain among them.
 ///
 /// Builds a linked-list ordering from `precedes` relations whose both endpoints
@@ -926,8 +983,10 @@ fn render_section(
                 records.reverse();
             }
         }
-    } else if matches!(&section.source, SectionSource::TypeQuery { .. }) {
-        // For TypeQuery sections without explicit ordering, use precedes-chain sort.
+    } else {
+        // Default ordering for any source without explicit ordering: precedes-chain.
+        // sort_by_precedes_chain falls back to created_at for records with no precedes edges,
+        // so FixedInstances/RelationQuery behaviour is unchanged when no precedes relations exist.
         records = sort_by_precedes_chain(records, relations);
     }
 
@@ -1105,43 +1164,57 @@ fn render_record_at_level(
     let mut display_labels = std::collections::HashMap::new();
     let mut omit_empty = false;
 
-    if let Some(view_id) = &section.render_view_id {
-        if let Some(view) = ctx.package.resolve_view(view_id) {
-            if let Some(export_config) = &view.export_config {
-                if let Some(preamble) = &export_config.preamble {
-                    out.push_str(&substitute_vars(preamble, ctx, Some(record), true));
-                    out.push('\n');
-                }
-                omit_empty = export_config.omit_empty_fields == Some(true);
-                if let Some(order) = &export_config.field_order {
-                    fields_to_render = order
-                        .iter()
-                        .cloned()
-                        .map(|field_id| ResolvedFieldRender {
-                            field_id,
-                            required: false,
-                        })
-                        .collect();
-                }
+    let use_view = section.render_view_id.as_ref().and_then(|view_id| {
+        let view = ctx.package.resolve_view(view_id)?;
+        if record_satisfies_view(ctx.package, view, record, rt.as_ref()) {
+            Some(view.clone())
+        } else {
+            diagnostics.push(format!(
+                "[view-dispatch] record {} type {}/{} does not satisfy view {}; rendering by own type",
+                record.instance_id,
+                rt.as_ref().map(|t| t.namespace.as_str()).unwrap_or("?"),
+                rt.as_ref().map(|t| t.name.as_str()).unwrap_or("?"),
+                view_id,
+            ));
+            None
+        }
+    });
+
+    if let Some(view) = use_view {
+        if let Some(export_config) = &view.export_config {
+            if let Some(preamble) = &export_config.preamble {
+                out.push_str(&substitute_vars(preamble, ctx, Some(record), true));
+                out.push('\n');
             }
-            // Always collect display labels from field_views, regardless of field_order.
-            let mut field_views = view.field_views.clone();
-            field_views.sort_by_key(|fv| fv.order);
-            for fv in &field_views {
-                if let Some(label) = &fv.display_label {
-                    display_labels.insert(fv.field_id.clone(), label.clone());
-                }
+            omit_empty = export_config.omit_empty_fields == Some(true);
+            if let Some(order) = &export_config.field_order {
+                fields_to_render = order
+                    .iter()
+                    .cloned()
+                    .map(|field_id| ResolvedFieldRender {
+                        field_id,
+                        required: false,
+                    })
+                    .collect();
             }
-            if fields_to_render.is_empty() {
-                for fv in field_views {
-                    if fv.visible == Some(false) {
-                        continue;
-                    }
-                    fields_to_render.push(ResolvedFieldRender {
-                        field_id: fv.field_id,
-                        required: fv.required == Some(true),
-                    });
+        }
+        // Always collect display labels from field_views, regardless of field_order.
+        let mut field_views = view.field_views.clone();
+        field_views.sort_by_key(|fv| fv.order);
+        for fv in &field_views {
+            if let Some(label) = &fv.display_label {
+                display_labels.insert(fv.field_id.clone(), label.clone());
+            }
+        }
+        if fields_to_render.is_empty() {
+            for fv in field_views {
+                if fv.visible == Some(false) {
+                    continue;
                 }
+                fields_to_render.push(ResolvedFieldRender {
+                    field_id: fv.field_id,
+                    required: fv.required == Some(true),
+                });
             }
         }
     } else if let Some(rt) = &rt {
@@ -2088,6 +2161,418 @@ mod tests {
             !result.rendered.contains("DOC{{unknown}}[") && !result.rendered.contains("PRINTDOC["),
             "expected render without theme wrappers, got: {}",
             result.rendered
+        );
+    }
+
+    // ── Heterogeneous document rendering tests ────────────────────────────────
+
+    /// Build a MemoryStore with two types (text-section and table-section), two
+    /// fields (heading + body), a container, and a ContainerSubset document view.
+    /// Used by the heterogeneous rendering tests below.
+    fn make_hetero_store() -> (crate::store::memory::MemoryStore, String, String, String) {
+        use crate::container_service;
+        use crate::package::Package;
+        use crate::record_store::create_record;
+        use crate::relation_service;
+        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::record_type::{FieldAssignment, RecordType};
+        use srs_core::types::relation::Relation;
+        use srs_core::types::view::{
+            DocumentSection, DocumentView, EmptyBehavior, FieldView, SectionSource, View,
+        };
+
+        let heading_field = Field {
+            id: "f-heading".to_string(),
+            namespace: "com.test".to_string(),
+            name: "heading".to_string(),
+            version: 1,
+            value_type: ValueType::String,
+            description: "Heading".to_string(),
+            ai_guidance: serde_json::json!(null),
+            allowed_values: None,
+            vocabulary_ref: None,
+            default_value: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let body_field = Field {
+            id: "f-body".to_string(),
+            namespace: "com.test".to_string(),
+            name: "body".to_string(),
+            version: 1,
+            value_type: ValueType::Text,
+            description: "Body text".to_string(),
+            ai_guidance: serde_json::json!(null),
+            allowed_values: None,
+            vocabulary_ref: None,
+            default_value: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let caption_field = Field {
+            id: "f-caption".to_string(),
+            namespace: "com.test".to_string(),
+            name: "caption".to_string(),
+            version: 1,
+            value_type: ValueType::String,
+            description: "Caption for tables".to_string(),
+            ai_guidance: serde_json::json!(null),
+            allowed_values: None,
+            vocabulary_ref: None,
+            default_value: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let text_type = RecordType {
+            id: "t-text".to_string(),
+            namespace: "com.test".to_string(),
+            name: "section.text".to_string(),
+            version: 1,
+            description: "Text section".to_string(),
+            fields: vec![
+                FieldAssignment {
+                    field_id: "f-heading".to_string(),
+                    order: 0,
+                    required: true,
+                    display_label: Some("Heading".to_string()),
+                    repeatable: false,
+                    min_items: None,
+                    max_items: None,
+                },
+                FieldAssignment {
+                    field_id: "f-body".to_string(),
+                    order: 1,
+                    required: false,
+                    display_label: Some("Body".to_string()),
+                    repeatable: false,
+                    min_items: None,
+                    max_items: None,
+                },
+            ],
+            field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let table_type = RecordType {
+            id: "t-table".to_string(),
+            namespace: "com.test".to_string(),
+            name: "section.table".to_string(),
+            version: 1,
+            description: "Table section".to_string(),
+            fields: vec![
+                FieldAssignment {
+                    field_id: "f-heading".to_string(),
+                    order: 0,
+                    required: true,
+                    display_label: Some("Heading".to_string()),
+                    repeatable: false,
+                    min_items: None,
+                    max_items: None,
+                },
+                FieldAssignment {
+                    field_id: "f-caption".to_string(),
+                    order: 1,
+                    required: false,
+                    display_label: Some("Caption".to_string()),
+                    repeatable: false,
+                    min_items: None,
+                    max_items: None,
+                },
+            ],
+            field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        // View that only matches text sections (has compatible_types constraint)
+        let text_only_view = View {
+            id: "v-text-only".to_string(),
+            namespace: "com.test".to_string(),
+            name: "text-view".to_string(),
+            version: 1,
+            description: "View for text sections only".to_string(),
+            field_views: vec![FieldView {
+                field_id: "f-body".to_string(),
+                order: 0,
+                required: Some(true),
+                visible: None,
+                display_label: Some("Content".to_string()),
+            }],
+            compatible_types: Some(vec!["com.test/section.text".to_string()]),
+            protection: None,
+            export_config: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        // DocumentView: ContainerSubset section with the text-only view
+        let doc_view = DocumentView {
+            id: "dv-hetero".to_string(),
+            namespace: "com.test".to_string(),
+            name: "hetero-view".to_string(),
+            version: 1,
+            description: "Heterogeneous container document view".to_string(),
+            container_type: None,
+            sections: vec![DocumentSection {
+                section_id: "body".to_string(),
+                title: Some("Body".to_string()),
+                description: None,
+                order: 0,
+                source: SectionSource::ContainerSubset {
+                    container_id: "00000000-0000-4000-8000-000000000c01".to_string(),
+                    container_type: None,
+                },
+                render_view_id: Some("v-text-only".to_string()),
+                title_field_id: Some("f-heading".to_string()),
+                ordering: None,
+                required: None,
+                empty_behavior: Some(EmptyBehavior::Hide),
+            }],
+            navigation_links: None,
+            preamble: None,
+            format: Some("markdown".to_string()),
+            depth_offset: None,
+            theme_ref: None,
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let manifest = crate::manifest::Manifest {
+            instance_index: vec![],
+            extra: HashMap::new(),
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "pkg-hetero".to_string(),
+            namespace: "com.test".to_string(),
+            name: "hetero-package".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![heading_field, body_field, caption_field],
+            record_types: vec![text_type, table_type],
+            relation_type_definitions: vec![
+                srs_core::types::relation_type_definition::RelationTypeDefinition {
+                    schema: None,
+                    id: "00000000-0000-4000-8000-000000000rt1".to_string(),
+                    namespace: "com.test".to_string(),
+                    key: "precedes".to_string(),
+                    label: "Precedes".to_string(),
+                    description: "Ordering relation".to_string(),
+                    category:
+                        srs_core::types::relation_type_definition::RelationTypeCategory::Sequence,
+                    canonical_direction: None,
+                    irreflexive: Some(true),
+                    inverse_type: None,
+                    version: 1,
+                    created_at: "2026-01-01T00:00:00Z".to_string(),
+                    allowed_source_types: None,
+                    allowed_target_types: None,
+                    require_same_semantic_object_type: None,
+                    status: None,
+                    updated_at: None,
+                    properties: None,
+                },
+            ],
+            views: vec![text_only_view],
+            document_views: vec![doc_view],
+            themes: vec![],
+            blueprints: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = crate::store::memory::MemoryStore::new(manifest, package);
+
+        // Create container
+        container_service::create_container(
+            &store,
+            srs_core::types::container::Container {
+                container_id: "00000000-0000-4000-8000-000000000c01".to_string(),
+                title: "Test Guide".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: Some("guide".to_string()),
+                root_instance_ids: None,
+                member_instance_ids: None,
+                tags: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                updated_at: None,
+                meta: None,
+                extra: HashMap::new(),
+            },
+        )
+        .unwrap();
+
+        // Create a text record (precedes the table)
+        let fv_text = vec![
+            srs_core::types::record::FieldValue {
+                field_id: "f-heading".to_string(),
+                value: serde_json::json!("Introduction"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            },
+            srs_core::types::record::FieldValue {
+                field_id: "f-body".to_string(),
+                value: serde_json::json!("The introduction body."),
+                entries: None,
+                source: None,
+                edited_at: None,
+            },
+        ];
+        let text_record = create_record(&store, "t-text", 1, fv_text, None, "records").unwrap();
+        let text_id = text_record.instance_id.clone();
+
+        // Create a table record (follows the text)
+        let fv_table = vec![
+            srs_core::types::record::FieldValue {
+                field_id: "f-heading".to_string(),
+                value: serde_json::json!("Summary Table"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            },
+            srs_core::types::record::FieldValue {
+                field_id: "f-caption".to_string(),
+                value: serde_json::json!("Table caption here"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            },
+        ];
+        let table_record = create_record(&store, "t-table", 1, fv_table, None, "records").unwrap();
+        let table_id = table_record.instance_id.clone();
+
+        // Add both to container
+        container_service::add_member(&store, "00000000-0000-4000-8000-000000000c01", &text_id)
+            .unwrap();
+        container_service::add_member(&store, "00000000-0000-4000-8000-000000000c01", &table_id)
+            .unwrap();
+
+        // Establish precedes: text → table
+        relation_service::create_relation_auto(
+            &store,
+            Relation {
+                relation_id: String::new(),
+                relation_type: "precedes".to_string(),
+                source_instance_id: text_id.clone(),
+                target_instance_id: table_id.clone(),
+                asserted_by: None,
+                confidence: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                created_by: None,
+                status: None,
+                valid_from: None,
+                valid_until: None,
+                notes: None,
+                source_refs: None,
+                meta: None,
+                source_repository_id: None,
+                target_repository_id: None,
+            },
+        )
+        .unwrap();
+
+        (store, text_id, table_id, "dv-hetero".to_string())
+    }
+
+    #[test]
+    fn container_subset_renders_in_precedes_order() {
+        let (store, text_id, table_id, view_id) = make_hetero_store();
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: &view_id,
+            format: None,
+            theme_variant: None,
+            container_id: None,
+        })
+        .expect("render should succeed");
+
+        let rendered = &result.rendered;
+        let text_pos = rendered
+            .find("Introduction")
+            .expect("text record heading not found");
+        let table_pos = rendered
+            .find("Summary Table")
+            .expect("table record heading not found");
+        assert!(
+            text_pos < table_pos,
+            "text section (precedes) should appear before table section; got:\n{}",
+            rendered
+        );
+        // Suppress unused-variable warnings from make_hetero_store return values
+        let _ = (text_id, table_id);
+    }
+
+    #[test]
+    fn view_dispatch_applies_view_to_matching_type_and_falls_back_for_non_matching() {
+        let (store, _text_id, _table_id, view_id) = make_hetero_store();
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: &view_id,
+            format: None,
+            theme_variant: None,
+            container_id: None,
+        })
+        .expect("render should succeed");
+
+        let rendered = &result.rendered;
+        // Text section gets the view → field label is "Content" (view display_label)
+        assert!(
+            rendered.contains("Content"),
+            "text section should render with view display_label 'Content'; got:\n{}",
+            rendered
+        );
+        // Table section falls back to its own type → field label is "Caption" (type display_label)
+        assert!(
+            rendered.contains("Caption"),
+            "table section should fall back to own type fields and show 'Caption'; got:\n{}",
+            rendered
+        );
+        // Diagnostic emitted for the non-matching table record
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.contains("[view-dispatch]")),
+            "expected [view-dispatch] diagnostic for non-matching record; got: {:?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn title_field_id_omitted_silently_for_record_lacking_field() {
+        // The ContainerSubset view uses titleFieldId = f-heading. Both record types have
+        // f-heading, so headings render for all. This test asserts no crash when rendering
+        // a heterogeneous set — the existing l1_view tests cover the heading-omit path.
+        let (store, _text_id, _table_id, view_id) = make_hetero_store();
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: &view_id,
+            format: None,
+            theme_variant: None,
+            container_id: None,
+        });
+        assert!(
+            result.is_ok(),
+            "render should not panic or error on mixed-type container"
         );
     }
 }

@@ -140,7 +140,12 @@ fn cmd_record_update(ctx: CliContext, id: String) -> Result<String> {
     };
 
     match with_store(&ctx, |store| {
-        Ok(update_record(store, &id, input.field_values)?)
+        Ok(update_record(
+            store,
+            &id,
+            input.field_values,
+            input.group_values.map(Some),
+        )?)
     }) {
         Ok(record) => output::serialize("record update", RecordPayload { record }),
         Err(e) => Ok(output::err("record update", vec![e.to_string()])),
