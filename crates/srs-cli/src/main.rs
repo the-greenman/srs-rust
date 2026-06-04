@@ -5,12 +5,13 @@ pub mod payload;
 use clap::Parser;
 use commands::{Cli, OutputFormat};
 use output::OutputDTO;
+use std::io::IsTerminal;
 use std::process;
 
 fn main() {
     let cli = Cli::parse();
     let format = cli.format;
-    let pretty = cli.pretty;
+    let pretty = cli.pretty || std::io::stdout().is_terminal();
 
     match commands::dispatch(cli) {
         Ok(result) => {

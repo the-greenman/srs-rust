@@ -19,6 +19,21 @@ pub struct RenderDocumentViewOptions<'a> {
     pub view_id: &'a str,
     pub format: Option<&'a str>,
     pub theme_variant: Option<&'a str>,
+    /// When set, TypeQuery sections are filtered to members of this container.
+    /// Takes precedence over any container_ids declared in the view definition.
+    pub container_id: Option<&'a str>,
+}
+
+impl<'a> RenderDocumentViewOptions<'a> {
+    pub fn new(store: &'a dyn RepositoryStore, view_id: &'a str) -> Self {
+        Self {
+            store,
+            view_id,
+            format: None,
+            theme_variant: None,
+            container_id: None,
+        }
+    }
 }
 
 pub struct RenderResult {
@@ -137,6 +152,7 @@ pub fn render_document_view(
             &manifest,
             &container_title,
             &relations,
+            opts.container_id,
             &mut diagnostics,
         )?;
         return Ok(RenderResult {
@@ -175,6 +191,7 @@ pub fn render_document_view(
             &ctx,
             section,
             &relations,
+            opts.container_id,
             &mut diagnostics,
         )?);
     }
@@ -212,6 +229,7 @@ fn project_document_view_json(
     manifest: &crate::manifest::Manifest,
     container_title: &str,
     relations: &[Relation],
+    cli_container_id: Option<&str>,
     diagnostics: &mut Vec<String>,
 ) -> Result<DocumentViewProjection, RepositoryError> {
     let container_id = resolve_container_id_from_sections(&dv.sections);
@@ -245,7 +263,14 @@ fn project_document_view_json(
 
     let mut projected_sections = Vec::new();
     for section in &sections {
-        let projected = project_section_json(store, package, section, relations, diagnostics)?;
+        let projected = project_section_json(
+            store,
+            package,
+            section,
+            relations,
+            cli_container_id,
+            diagnostics,
+        )?;
         projected_sections.push(projected);
     }
 
@@ -296,9 +321,11 @@ fn project_section_json(
     package: &Package,
     section: &DocumentSection,
     relations: &[Relation],
+    cli_container_id: Option<&str>,
     diagnostics: &mut Vec<String>,
 ) -> Result<ProjectedSection, RepositoryError> {
-    let mut records = resolve_section_instances(store, section, relations, diagnostics)?;
+    let mut records =
+        resolve_section_instances(store, section, relations, cli_container_id, diagnostics)?;
 
     if let Some(ordering) = &section.ordering {
         if let Some(field_id) = &ordering.field_id {
@@ -878,9 +905,11 @@ fn render_section(
     ctx: &RenderContext<'_>,
     section: &DocumentSection,
     relations: &[Relation],
+    cli_container_id: Option<&str>,
     diagnostics: &mut Vec<String>,
 ) -> Result<String, RepositoryError> {
-    let mut records = resolve_section_instances(store, section, relations, diagnostics)?;
+    let mut records =
+        resolve_section_instances(store, section, relations, cli_container_id, diagnostics)?;
     if records.is_empty() && section.required != Some(true) {
         return Ok(String::new());
     }
@@ -954,6 +983,7 @@ fn resolve_section_instances(
     store: &dyn RepositoryStore,
     section: &DocumentSection,
     relations: &[srs_core::types::relation::Relation],
+    cli_container_id: Option<&str>,
     diagnostics: &mut Vec<String>,
 ) -> Result<Vec<Record>, RepositoryError> {
     match &section.source {
@@ -968,7 +998,8 @@ fn resolve_section_instances(
         }
         SectionSource::TypeQuery {
             semantic_object_type,
-            ..
+            container_ids,
+            lifecycle_state: _,
         } => {
             let Some((namespace, name)) = semantic_object_type.split_once('/') else {
                 diagnostics.push(format!(
@@ -977,7 +1008,21 @@ fn resolve_section_instances(
                 ));
                 return Ok(Vec::new());
             };
-            list_records_by_type(store, namespace, name)
+            let mut records = list_records_by_type(store, namespace, name)?;
+            // CLI --container takes precedence; fall back to container_ids declared in the view.
+            let effective_ids: Option<Vec<String>> = cli_container_id
+                .map(|id| vec![id.to_string()])
+                .or_else(|| container_ids.clone());
+            if let Some(ids) = effective_ids {
+                let mut member_set = HashSet::new();
+                for id in &ids {
+                    for m in list_members(store, id)? {
+                        member_set.insert(m);
+                    }
+                }
+                records.retain(|r| member_set.contains(&r.instance_id));
+            }
+            Ok(records)
         }
         SectionSource::RelationQuery {
             from_instance_id,
@@ -1463,6 +1508,7 @@ mod tests {
             view_id: "ec34f54b-8636-5c8b-af5b-c9eb3df24fe6",
             format: None,
             theme_variant: None,
+            container_id: None,
         })
         .expect("render should work");
 
@@ -1486,6 +1532,7 @@ mod tests {
             view_id: "00000000-0000-0000-0000-000000000000",
             format: None,
             theme_variant: None,
+            container_id: None,
         });
         assert!(matches!(
             result,
@@ -1507,6 +1554,7 @@ mod tests {
             view_id: "00000000-0000-4000-8000-000000000981",
             format: None,
             theme_variant: None,
+            container_id: None,
         })
         .expect("render should succeed");
         // The valid record has entries ["first", "second"]; both must appear in output
@@ -1540,6 +1588,7 @@ mod tests {
             view_id: "00000000-0000-4000-8000-000000000982",
             format: None,
             theme_variant: None,
+            container_id: None,
         })
         .expect("render should succeed");
         assert!(
@@ -1558,6 +1607,7 @@ mod tests {
             view_id: "00000000-0000-4000-8000-000000000983",
             format: None,
             theme_variant: None,
+            container_id: None,
         })
         .expect("render should succeed");
         // titleFieldId points to the repeatable title field; first entry value is "first"
@@ -1579,6 +1629,7 @@ mod tests {
             view_id: "00000000-0000-4000-8000-000000000981",
             format: None,
             theme_variant: None,
+            container_id: None,
         })
         .expect("render should succeed");
         // Section title "Items" produces an H2; no H3 should appear between it and field rows
@@ -1598,6 +1649,7 @@ mod tests {
             view_id: "00000000-0000-4000-8000-000000000986",
             format: None,
             theme_variant: None,
+            container_id: None,
         })
         .expect("render should succeed");
 
@@ -1617,6 +1669,7 @@ mod tests {
             view_id: "00000000-0000-4000-8000-000000000986",
             format: None,
             theme_variant: None,
+            container_id: None,
         })
         .expect("render should succeed");
 
@@ -1646,6 +1699,7 @@ mod tests {
             view_id: "00000000-0000-4000-8000-000000000984",
             format: None,
             theme_variant: None,
+            container_id: None,
         })
         .expect("render should succeed without error");
         assert!(
@@ -1678,6 +1732,7 @@ mod tests {
             view_id: "00000000-0000-4000-8000-000000000987",
             format: None,
             theme_variant: None,
+            container_id: None,
         })
         .expect("render should succeed");
 
@@ -1721,6 +1776,7 @@ mod tests {
             view_id: "00000000-0000-4000-8000-000000000987",
             format: None,
             theme_variant: Some("print"),
+            container_id: None,
         })
         .expect("render should succeed");
 
@@ -1745,6 +1801,7 @@ mod tests {
             view_id: "00000000-0000-4000-8000-000000000987",
             format: None,
             theme_variant: Some("missing"),
+            container_id: None,
         })
         .expect("render should succeed");
 
@@ -1772,6 +1829,7 @@ mod tests {
             view_id: "00000000-0000-4000-8000-000000000987",
             format: Some("text"),
             theme_variant: None,
+            container_id: None,
         })
         .expect("render should succeed");
 
@@ -1796,6 +1854,7 @@ mod tests {
             view_id: "00000000-0000-4000-8000-000000000988",
             format: None,
             theme_variant: None,
+            container_id: None,
         })
         .expect("render should succeed");
 
@@ -1828,6 +1887,7 @@ mod tests {
             view_id: "00000000-0000-4000-8000-000000000971",
             format: Some("json"),
             theme_variant: None,
+            container_id: None,
         })
         .expect("render should succeed");
         assert!(
@@ -1849,6 +1909,7 @@ mod tests {
             view_id: "00000000-0000-4000-8000-000000000971",
             format: Some("json"),
             theme_variant: None,
+            container_id: None,
         })
         .expect("render should succeed");
         let proj = result.projection.unwrap();
@@ -1872,6 +1933,7 @@ mod tests {
             view_id: "00000000-0000-4000-8000-000000000971",
             format: Some("json"),
             theme_variant: None,
+            container_id: None,
         })
         .expect("render should succeed");
         let proj = result.projection.unwrap();
@@ -1891,6 +1953,7 @@ mod tests {
             view_id: "00000000-0000-4000-8000-000000000971",
             format: Some("json"),
             theme_variant: None,
+            container_id: None,
         })
         .expect("render should succeed");
         let proj = result.projection.unwrap();
@@ -1918,6 +1981,7 @@ mod tests {
             view_id: "00000000-0000-4000-8000-000000000971",
             format: Some("json"),
             theme_variant: None,
+            container_id: None,
         })
         .expect("render should succeed");
         let proj = result.projection.unwrap();
@@ -1937,6 +2001,7 @@ mod tests {
             view_id: "00000000-0000-4000-8000-000000000971",
             format: Some("json"),
             theme_variant: None,
+            container_id: None,
         })
         .expect("render should succeed");
         let proj = result.projection.unwrap();
@@ -1959,6 +2024,7 @@ mod tests {
             view_id: "00000000-0000-4000-8000-000000000971",
             format: Some("json"),
             theme_variant: None,
+            container_id: None,
         })
         .expect("render should succeed");
         let proj = result.projection.unwrap();
@@ -1992,6 +2058,7 @@ mod tests {
             view_id: "00000000-0000-4000-8000-000000000981",
             format: Some("json"),
             theme_variant: None,
+            container_id: None,
         })
         .expect("render should succeed");
         assert!(
@@ -2013,6 +2080,7 @@ mod tests {
             view_id: "00000000-0000-4000-8000-000000000981",
             format: None,
             theme_variant: None,
+            container_id: None,
         })
         .expect("render should succeed");
 

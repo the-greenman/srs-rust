@@ -456,9 +456,9 @@ pub enum RepoCommand {
         /// Repository namespace
         #[arg(long)]
         namespace: String,
-        /// Repository display name
+        /// Repository title (display name)
         #[arg(long)]
-        name: Option<String>,
+        title: Option<String>,
         /// Repository description
         #[arg(long)]
         description: Option<String>,

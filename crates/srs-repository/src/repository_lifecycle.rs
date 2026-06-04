@@ -11,7 +11,7 @@ pub struct RepositoryMetadata {
     pub repository_id: String,
     pub namespace: String,
     pub srs_version: String,
-    pub name: Option<String>,
+    pub title: Option<String>,
     pub description: Option<String>,
 }
 
@@ -73,11 +73,11 @@ pub fn create_repository_with_intent(
 ) -> Result<CreateRepositoryResult, RepositoryError> {
     let mut result = create_repository(store, input)?;
 
-    let name = input.repository.name.clone();
+    let title = input.repository.title.clone();
     let description = input.repository.description.clone();
 
-    if name.is_some() || description.is_some() {
-        let title = name.unwrap_or_else(|| "Repository Intent".to_string());
+    if title.is_some() || description.is_some() {
+        let title = title.unwrap_or_else(|| "Repository Intent".to_string());
         let content = description.unwrap_or_default();
         let note = Note {
             instance_id: String::new(),
@@ -156,7 +156,7 @@ mod tests {
                 repository_id: "repo-1".to_string(),
                 namespace: "com.semanticops.test".to_string(),
                 srs_version: "2.0-draft".to_string(),
-                name: None,
+                title: None,
                 description: None,
             },
             primary_package: PrimaryPackageMetadata {

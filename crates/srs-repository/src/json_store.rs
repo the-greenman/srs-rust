@@ -520,8 +520,11 @@ impl RepositoryStore for JsonStore {
             "namespace".to_string(),
             serde_json::Value::String(input.repository.namespace.clone()),
         );
-        if let Some(name) = &input.repository.name {
-            extra.insert("name".to_string(), serde_json::Value::String(name.clone()));
+        if let Some(title) = &input.repository.title {
+            extra.insert(
+                "title".to_string(),
+                serde_json::Value::String(title.clone()),
+            );
         }
         if let Some(desc) = &input.repository.description {
             extra.insert(
@@ -1332,7 +1335,7 @@ mod tests {
                 repository_id: "json-repo".to_string(),
                 namespace: "com.semanticops.json".to_string(),
                 srs_version: "2.0-draft".to_string(),
-                name: None,
+                title: None,
                 description: None,
             },
             primary_package: PrimaryPackageMetadata {

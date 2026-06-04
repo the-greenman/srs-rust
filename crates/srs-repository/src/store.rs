@@ -746,8 +746,8 @@ impl RepositoryStore for FileStore {
             "repositoryId": input.repository.repository_id,
             "namespace": input.repository.namespace
         });
-        if let Some(name) = &input.repository.name {
-            manifest["name"] = serde_json::Value::String(name.clone());
+        if let Some(title) = &input.repository.title {
+            manifest["title"] = serde_json::Value::String(title.clone());
         }
         if let Some(desc) = &input.repository.description {
             manifest["description"] = serde_json::Value::String(desc.clone());
@@ -2057,8 +2057,11 @@ pub mod memory {
                 "namespace".to_string(),
                 serde_json::Value::String(input.repository.namespace.clone()),
             );
-            if let Some(name) = &input.repository.name {
-                manifest_extra.insert("name".to_string(), serde_json::Value::String(name.clone()));
+            if let Some(title) = &input.repository.title {
+                manifest_extra.insert(
+                    "title".to_string(),
+                    serde_json::Value::String(title.clone()),
+                );
             }
             if let Some(desc) = &input.repository.description {
                 manifest_extra.insert(
