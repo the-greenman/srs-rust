@@ -1147,7 +1147,10 @@ fn resolve_section_instances(
             container_id,
             container_type: _,
         } => {
-            let members = list_members(store, container_id)?;
+            // CLI --container overrides the view-declared container_id, allowing one
+            // ContainerSubset document-view to render any guide by switching at render time.
+            let effective_id = cli_container_id.unwrap_or(container_id.as_str());
+            let members = list_members(store, effective_id)?;
             let mut records = Vec::new();
             for id in members {
                 if let Some(record) = get_record_by_id(store, &id)? {
