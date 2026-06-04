@@ -204,6 +204,7 @@ pub fn import_protocol(
         PROTOCOL_TYPE_ID,
         PROTOCOL_TYPE_VERSION,
         field_values,
+        None,
         PROTOCOL_STORAGE_DIR,
     )
     .map_err(|e| match e {
@@ -372,7 +373,7 @@ pub fn update_protocol(
         set_field(FIELD_PROTOCOL_TAGS, v.clone());
     }
 
-    let updated = update_record(store, id, field_values)?;
+    let updated = update_record(store, id, field_values, None)?;
     let instance_id = updated.instance_id.clone();
     Ok(UpdateProtocolResult {
         instance_id,

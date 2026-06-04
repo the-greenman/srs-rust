@@ -110,6 +110,7 @@ pub fn create_extension(
         type_id,
         type_version,
         field_values,
+        None,
         "package/records",
     )?;
     Ok(ExtensionResult { record })
@@ -137,7 +138,7 @@ pub fn update_extension(
         })
         .collect();
 
-    let record = update_record(store, id, field_values)?;
+    let record = update_record(store, id, field_values, None)?;
     Ok(ExtensionResult { record })
 }
 
