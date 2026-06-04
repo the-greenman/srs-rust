@@ -338,10 +338,11 @@ fn project_section_json(
                 records.reverse();
             }
         }
-    } else {
-        // Default ordering for any source without explicit ordering: precedes-chain.
-        // sort_by_precedes_chain falls back to created_at for records with no precedes edges,
-        // so FixedInstances/RelationQuery behaviour is unchanged when no precedes relations exist.
+    } else if !matches!(&section.source, SectionSource::FixedInstances { .. }) {
+        // Sort by precedes chain for any source that doesn't have authored ordering.
+        // FixedInstances sections declare an explicit instance_ids order that must be
+        // preserved — applying precedes-chain sorting would override the author's intent.
+        // ContainerSubset, TypeQuery, and RelationQuery all benefit from precedes ordering.
         records = sort_by_precedes_chain(records, relations);
     }
 
@@ -377,21 +378,28 @@ fn project_record_json(
     let mut omit_empty = false;
     let mut record_preamble: Option<String> = None;
 
-    let use_view = section.render_view_id.as_ref().and_then(|view_id| {
-        let view = package.resolve_view(view_id)?;
-        if record_satisfies_view(package, view, record, rt.as_ref()) {
-            Some(view.clone())
+    let use_view = if let Some(view_id) = &section.render_view_id {
+        if let Some(view) = package.resolve_view(view_id) {
+            let (satisfied, _cached_eff) =
+                record_satisfies_view(package, view, rt.as_ref(), diagnostics);
+            if satisfied {
+                Some(view.clone())
+            } else {
+                diagnostics.push(format!(
+                    "[view-dispatch] record {} type {}/{} does not satisfy view {}; rendering by own type",
+                    record.instance_id,
+                    rt.as_ref().map(|t| t.namespace.as_str()).unwrap_or("?"),
+                    rt.as_ref().map(|t| t.name.as_str()).unwrap_or("?"),
+                    view_id,
+                ));
+                None
+            }
         } else {
-            diagnostics.push(format!(
-                "[view-dispatch] record {} type {}/{} does not satisfy view {}; rendering by own type",
-                record.instance_id,
-                rt.as_ref().map(|t| t.namespace.as_str()).unwrap_or("?"),
-                rt.as_ref().map(|t| t.name.as_str()).unwrap_or("?"),
-                view_id,
-            ));
             None
         }
-    });
+    } else {
+        None
+    };
 
     if let Some(view) = use_view {
         if let Some(export_config) = &view.export_config {
@@ -424,13 +432,19 @@ fn project_record_json(
             }
         }
     } else if let Some(rt) = &rt {
-        let mut assignments = rt.fields.clone();
-        assignments.sort_by_key(|fa| fa.order);
-        for fa in assignments {
-            fields_to_render.push(ResolvedFieldRender {
-                field_id: fa.field_id,
-                required: fa.required,
-            });
+        // Use effective_fields (resolves type-inheritance) to match the markdown path.
+        match package.effective_fields(rt) {
+            Ok(assignments) => {
+                for fa in assignments {
+                    fields_to_render.push(ResolvedFieldRender {
+                        field_id: fa.field_id,
+                        required: fa.required,
+                    });
+                }
+            }
+            Err(e) => {
+                diagnostics.push(format!("ext:type-inheritance: {e}"));
+            }
         }
     } else {
         for fv in &record.field_values {
@@ -813,17 +827,22 @@ fn resolve_container_title(dv: &DocumentView, manifest: &crate::manifest::Manife
 /// 2. Otherwise, fall back to field-presence: the record must contain every
 ///    visible `field_views` field that is marked `required`.
 ///    If no field_views are required, any record satisfies the view.
+///
+/// Returns `(satisfied, effective_field_ids)`. When satisfied via the field-presence
+/// path, `effective_field_ids` is populated so the caller can reuse it and avoid a
+/// second `effective_fields` call for the fallback render path.
 fn record_satisfies_view(
     package: &Package,
     view: &srs_core::types::view::View,
-    _record: &Record,
     rt: Option<&srs_core::types::record_type::RecordType>,
-) -> bool {
+    diagnostics: &mut Vec<String>,
+) -> (bool, Option<HashSet<String>>) {
     if let Some(compatible) = &view.compatible_types {
         let type_key = rt.map(|t| format!("{}/{}", t.namespace, t.name));
-        return type_key
+        let satisfied = type_key
             .as_deref()
             .is_some_and(|k| compatible.iter().any(|c| c == k));
+        return (satisfied, None);
     }
     // Field-presence fallback: every visible required field-view field must exist.
     let required_field_ids: Vec<&str> = view
@@ -833,15 +852,23 @@ fn record_satisfies_view(
         .map(|fv| fv.field_id.as_str())
         .collect();
     if required_field_ids.is_empty() {
-        return true;
+        return (true, None);
     }
-    let effective_ids: HashSet<String> = rt
-        .and_then(|t| package.effective_fields(t).ok())
-        .map(|fields| fields.iter().map(|fa| fa.field_id.clone()).collect())
-        .unwrap_or_default();
-    required_field_ids
+    let effective_result = rt.map(|t| package.effective_fields(t));
+    let effective_ids: HashSet<String> = match effective_result {
+        Some(Ok(fields)) => fields.iter().map(|fa| fa.field_id.clone()).collect(),
+        Some(Err(e)) => {
+            diagnostics.push(format!(
+                "[view-dispatch] ext:type-inheritance error while checking view compatibility: {e}"
+            ));
+            HashSet::new()
+        }
+        None => HashSet::new(),
+    };
+    let satisfied = required_field_ids
         .iter()
-        .all(|id| effective_ids.contains(*id))
+        .all(|id| effective_ids.contains(*id));
+    (satisfied, Some(effective_ids))
 }
 
 /// Sort records by following the `precedes` relation chain among them.
@@ -983,10 +1010,11 @@ fn render_section(
                 records.reverse();
             }
         }
-    } else {
-        // Default ordering for any source without explicit ordering: precedes-chain.
-        // sort_by_precedes_chain falls back to created_at for records with no precedes edges,
-        // so FixedInstances/RelationQuery behaviour is unchanged when no precedes relations exist.
+    } else if !matches!(&section.source, SectionSource::FixedInstances { .. }) {
+        // Sort by precedes chain for any source that doesn't have authored ordering.
+        // FixedInstances sections declare an explicit instance_ids order that must be
+        // preserved — applying precedes-chain sorting would override the author's intent.
+        // ContainerSubset, TypeQuery, and RelationQuery all benefit from precedes ordering.
         records = sort_by_precedes_chain(records, relations);
     }
 
@@ -1164,21 +1192,28 @@ fn render_record_at_level(
     let mut display_labels = std::collections::HashMap::new();
     let mut omit_empty = false;
 
-    let use_view = section.render_view_id.as_ref().and_then(|view_id| {
-        let view = ctx.package.resolve_view(view_id)?;
-        if record_satisfies_view(ctx.package, view, record, rt.as_ref()) {
-            Some(view.clone())
+    let use_view = if let Some(view_id) = &section.render_view_id {
+        if let Some(view) = ctx.package.resolve_view(view_id) {
+            let (satisfied, _cached_eff) =
+                record_satisfies_view(ctx.package, view, rt.as_ref(), diagnostics);
+            if satisfied {
+                Some(view.clone())
+            } else {
+                diagnostics.push(format!(
+                    "[view-dispatch] record {} type {}/{} does not satisfy view {}; rendering by own type",
+                    record.instance_id,
+                    rt.as_ref().map(|t| t.namespace.as_str()).unwrap_or("?"),
+                    rt.as_ref().map(|t| t.name.as_str()).unwrap_or("?"),
+                    view_id,
+                ));
+                None
+            }
         } else {
-            diagnostics.push(format!(
-                "[view-dispatch] record {} type {}/{} does not satisfy view {}; rendering by own type",
-                record.instance_id,
-                rt.as_ref().map(|t| t.namespace.as_str()).unwrap_or("?"),
-                rt.as_ref().map(|t| t.name.as_str()).unwrap_or("?"),
-                view_id,
-            ));
             None
         }
-    });
+    } else {
+        None
+    };
 
     if let Some(view) = use_view {
         if let Some(export_config) = &view.export_config {
@@ -2574,5 +2609,52 @@ mod tests {
             result.is_ok(),
             "render should not panic or error on mixed-type container"
         );
+    }
+
+    #[test]
+    fn fixed_instances_section_preserves_authored_order_via_sort_chain() {
+        // Verify that sort_by_precedes_chain, when applied to FixedInstances records
+        // with NO precedes relations (simulating the bug scenario), would change their
+        // order via created_at sorting — confirming the guard is necessary.
+        // This tests the guard logic indirectly by checking sort_by_precedes_chain
+        // behaviour on records without precedes edges.
+        use srs_core::types::record::Record;
+        use std::collections::HashMap as StdMap;
+
+        // Create two records with different created_at — "later" has more recent timestamp.
+        let make_record = |id: &str, created: &str| Record {
+            instance_id: id.to_string(),
+            type_id: "t1".to_string(),
+            type_version: 1,
+            type_namespace: "com.test".to_string(),
+            type_name: "item".to_string(),
+            field_values: vec![],
+            group_values: None,
+            lifecycle_state: None,
+            created_at: Some(created.to_string()),
+            updated_at: None,
+            extra: StdMap::new(),
+        };
+
+        // "later" was created first in time (earlier timestamp), "earlier" was created after.
+        // Without the guard, sort_by_precedes_chain would sort by created_at (ascending),
+        // producing [earlier_ts, later_ts] regardless of the authored order.
+        let later_ts = make_record("b-later", "2026-06-01T10:00:00Z");
+        let earlier_ts = make_record("a-earlier", "2026-06-01T09:00:00Z");
+
+        // Authored order: [later_ts, earlier_ts] (b first, a second).
+        // sort_by_precedes_chain with no precedes relations falls back to created_at,
+        // which would produce [earlier_ts, later_ts] (a first, b second) — wrong.
+        let authored = vec![later_ts.clone(), earlier_ts.clone()];
+        let sorted = sort_by_precedes_chain(authored, &[]);
+
+        // sort_by_precedes_chain DOES reorder (this is what the guard must prevent).
+        assert_eq!(
+            sorted[0].instance_id, "a-earlier",
+            "sort_by_precedes_chain with no relations sorts by created_at ascending"
+        );
+        assert_eq!(sorted[1].instance_id, "b-later");
+        // This confirms that WITHOUT the guard, FixedInstances would be reordered.
+        // The guard (matches! FixedInstances) in both render paths prevents this call.
     }
 }

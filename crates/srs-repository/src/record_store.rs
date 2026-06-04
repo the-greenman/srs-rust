@@ -314,6 +314,14 @@ pub struct RecordListFilter {
 }
 
 /// Input for creating or updating a record.
+///
+/// When used for updates via `record update`, `group_values` semantics:
+/// - Field absent or `null` in JSON → field-value `None` → existing group_values preserved.
+/// - `[]` (empty array) → `Some(vec![])` → group_values replaced with empty (effectively cleared).
+/// - `[{...}]` (non-empty array) → `Some(vec![...])` → group_values replaced with new entries.
+///
+/// There is no JSON representation to distinguish "null" from "absent"; both map to `None` (preserve).
+/// To clear all group_values, send `"groupValues": []`.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateRecordInput {
