@@ -325,7 +325,7 @@ fn repo_create_with_name_and_description_creates_root_note() {
             "create",
             "--namespace",
             "com.semanticops.test",
-            "--name",
+            "--title",
             "My Project",
             "--description",
             "Captures design intent.",
@@ -340,7 +340,7 @@ fn repo_create_with_name_and_description_creates_root_note() {
     assert!(!pkg_id.is_empty(), "packageId must be auto-generated");
     let root_note_id = result["payload"]["rootNoteId"]
         .as_str()
-        .expect("rootNoteId should be present when --name is given");
+        .expect("rootNoteId should be present when --title is given");
     assert!(!root_note_id.is_empty());
 
     // Verify the note actually exists in the repo

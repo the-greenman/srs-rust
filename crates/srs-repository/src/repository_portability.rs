@@ -144,9 +144,9 @@ pub fn export_repository_snapshot(
                 .and_then(|v| v.as_str())
                 .unwrap_or("2.0-draft")
                 .to_string(),
-            name: manifest
+            title: manifest
                 .extra
-                .get("name")
+                .get("title")
                 .and_then(|v| v.as_str())
                 .map(str::to_string),
             description: manifest
@@ -526,7 +526,7 @@ mod tests {
                 repository_id: "repo-copy".to_string(),
                 namespace: "com.semanticops.copy".to_string(),
                 srs_version: "2.0-draft".to_string(),
-                name: None,
+                title: None,
                 description: None,
             },
             primary_package: PrimaryPackageMetadata {

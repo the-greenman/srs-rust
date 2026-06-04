@@ -88,6 +88,7 @@ fn cmd_render_document_view(
             view_id: &view_id,
             format: format.as_deref(),
             theme_variant: theme_variant.as_deref(),
+            container_id: ctx.container_id.as_deref(),
         })?)
     }) {
         Ok(result) => {
