@@ -1,0 +1,73 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TreePayload",
+  "type": "object",
+  "required": [
+    "diagnostics",
+    "roots",
+    "text"
+  ],
+  "properties": {
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "roots": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/TreeNodePayload"
+      }
+    },
+    "text": {
+      "type": "string"
+    }
+  },
+  "definitions": {
+    "TreeNodePayload": {
+      "type": "object",
+      "required": [
+        "children",
+        "cyclePruned",
+        "depth",
+        "instanceId",
+        "label",
+        "typeName",
+        "typeNamespace"
+      ],
+      "properties": {
+        "children": {
+          "type": "array",
+          "items": true
+        },
+        "cyclePruned": {
+          "type": "boolean"
+        },
+        "depth": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "instanceId": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "lifecycleState": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "typeName": {
+          "type": "string"
+        },
+        "typeNamespace": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
