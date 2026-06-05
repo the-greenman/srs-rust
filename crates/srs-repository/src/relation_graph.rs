@@ -29,6 +29,10 @@ pub(crate) fn sort_by_precedes_chain(records: Vec<Record>, relations: &[Relation
         let src = rel.source_instance_id.as_str();
         let tgt = rel.target_instance_id.as_str();
         if id_set.contains(src) && id_set.contains(tgt) {
+            // NOTE: `next` is a 1:1 map — if a record has multiple outgoing `precedes`
+            // edges the last one wins. The SRS spec defines precedes as a linked-list
+            // chain (each node precedes exactly one successor), so fan-out is not a
+            // valid configuration; this limitation matches the spec invariant.
             next.insert(src, tgt);
             *in_degree.entry(tgt).or_insert(0) += 1;
         }

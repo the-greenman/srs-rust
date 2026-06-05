@@ -164,10 +164,9 @@ fn build_node(
 
     let label = record_label::record_display_label(&record, field_name_index);
 
-    let children = if options.max_depth.is_some_and(|max| depth >= max) {
-        vec![]
-    } else if ancestors.contains(instance_id) {
-        // Cycle: return a pruned placeholder.
+    // Cycle check must precede max_depth: a node at exactly max_depth that is also
+    // an ancestor is a back-edge and must be flagged cycle_pruned, not silently truncated.
+    let children = if ancestors.contains(instance_id) {
         return Ok(Some(TreeNode {
             instance_id: instance_id.to_string(),
             label,
@@ -178,6 +177,8 @@ fn build_node(
             children: vec![],
             cycle_pruned: true,
         }));
+    } else if options.max_depth.is_some_and(|max| depth >= max) {
+        vec![]
     } else {
         ancestors.insert(instance_id.to_string());
         let child_records = relation_graph::children_by_relation_type(
@@ -433,6 +434,44 @@ mod tests {
             b_node.children[0].cycle_pruned,
             "A reachable from B should be pruned"
         );
+    }
+
+    #[test]
+    fn build_tree_cycle_at_max_depth_is_flagged_not_silently_truncated() {
+        // Regression: cycle check must precede max_depth check. With max_depth=2 and
+        // A→B→A, A is revisited at depth=2 while also being in ancestors. The old
+        // code fired the max_depth arm first, returning cycle_pruned:false; the fix
+        // ensures cycle_pruned:true is returned instead.
+        let store = make_store(
+            vec![make_field("f-title", "title")],
+            vec![make_type("t-node", "node", &["f-title"])],
+        );
+        let a_id = add_record(&store, "t-node", "f-title", "A");
+        let b_id = add_record(&store, "t-node", "f-title", "B");
+        create_relation_auto(&store, make_relation("contains", &a_id, &b_id)).unwrap();
+        create_relation_auto(&store, make_relation("contains", &b_id, &a_id)).unwrap();
+
+        // max_depth=2: A(0)→B(1)→A(2). At depth=2 A is both at max_depth AND an ancestor.
+        let result = build_tree(
+            &store,
+            TreeOptions {
+                root_ids: Some(vec![a_id.clone()]),
+                max_depth: Some(2),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.roots.len(), 1);
+        let b_node = &result.roots[0].children[0];
+        assert_eq!(b_node.instance_id, b_id);
+        // A at depth=2 is both at max_depth and a cycle ancestor — must be cycle_pruned.
+        assert_eq!(b_node.children.len(), 1, "B should have A as a cycle child");
+        assert!(
+            b_node.children[0].cycle_pruned,
+            "A at max_depth must be flagged cycle_pruned, not silently truncated"
+        );
+        assert_eq!(b_node.children[0].instance_id, a_id);
     }
 
     #[test]
