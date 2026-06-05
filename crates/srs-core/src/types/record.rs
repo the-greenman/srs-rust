@@ -38,6 +38,7 @@ pub struct FieldValueEntry {
 #[serde(rename_all = "camelCase")]
 pub struct FieldValue {
     pub field_id: String,
+    #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
     pub value: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub entries: Option<Vec<FieldValueEntry>>,
