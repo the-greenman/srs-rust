@@ -130,7 +130,7 @@ pub fn render_document_view(
 
     let manifest = opts.store.load_manifest()?;
     let mut diagnostics = Vec::new();
-    let container_title = resolve_container_title(&dv, &manifest);
+    let container_title = resolve_container_title(&dv, &manifest, opts.container_id);
     let relations = load_relations(opts.store)?;
     let format = opts
         .format
@@ -771,10 +771,29 @@ fn format_field_row(format: &str, label: &str, value: &str) -> String {
     }
 }
 
-fn resolve_container_title(dv: &DocumentView, manifest: &crate::manifest::Manifest) -> String {
-    if let Some(container_type) = &dv.container_type {
-        if let Some(container_index) = manifest.extra.get("containerIndex") {
-            if let Some(entries) = container_index.as_array() {
+fn resolve_container_title(
+    dv: &DocumentView,
+    manifest: &crate::manifest::Manifest,
+    container_id: Option<&str>,
+) -> String {
+    if let Some(container_index) = manifest.extra.get("containerIndex") {
+        if let Some(entries) = container_index.as_array() {
+            // When a specific container was requested, look it up by ID first.
+            if let Some(cid) = container_id {
+                for entry in entries {
+                    let id = entry.get("containerId").and_then(|v| v.as_str());
+                    if id == Some(cid) {
+                        if let Some(title) = entry.get("title").and_then(|v| v.as_str()) {
+                            if !title.is_empty() {
+                                return title.to_string();
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Fallback: first container matching the document view's containerType.
+            if let Some(container_type) = &dv.container_type {
                 for entry in entries {
                     let ctype = entry
                         .get("containerType")
