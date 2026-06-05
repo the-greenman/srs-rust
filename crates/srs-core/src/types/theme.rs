@@ -63,6 +63,12 @@ pub struct ElementTemplates {
     pub record_wrapper_overrides: Option<Vec<RecordWrapperOverride>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub field_row: Option<String>,
+    /// Per-field-name templates used when rendering group entry fields.
+    /// Key is the field name (e.g. "item-term"); value is a template string
+    /// supporting `{{field-value}}` and `{{field-label}}`.
+    /// When present, overrides the default `**label**: value` format for that field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_field_templates: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -161,6 +167,7 @@ mod tests {
                     template: "<article class=\"special\">{{content}}</article>".to_string(),
                 }]),
                 field_row: Some("<p>{{field-label}}: {{field-value}}</p>".to_string()),
+                group_field_templates: None,
             }),
             stylesheet: Some(serde_json::json!({"mode": "inline", "content": "body{}"})),
             typography: Some(serde_json::json!({"baseFont": "Georgia"})),

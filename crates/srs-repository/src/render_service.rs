@@ -1478,8 +1478,28 @@ fn render_field_groups(
                             .map(|f| f.name.clone())
                     })
                     .unwrap_or_else(|| assignment.field_id.clone());
-                out.push_str(&format_field_row(ctx.format, &label, &value_text));
-                out.push('\n');
+
+                let field_name = ctx
+                    .package
+                    .resolve_field(&assignment.field_id)
+                    .map(|f| f.name.as_str())
+                    .unwrap_or(&label);
+                let tmpl = ctx
+                    .active_theme
+                    .as_ref()
+                    .and_then(|t| t.element_templates.as_ref())
+                    .and_then(|et| et.group_field_templates.as_ref())
+                    .and_then(|gft| gft.get(field_name));
+
+                if let Some(tmpl) = tmpl {
+                    let row = tmpl
+                        .replace("{{field-value}}", &value_text)
+                        .replace("{{field-label}}", &label);
+                    out.push_str(&row);
+                } else {
+                    out.push_str(&format_field_row(ctx.format, &label, &value_text));
+                    out.push('\n');
+                }
             }
         }
     }
