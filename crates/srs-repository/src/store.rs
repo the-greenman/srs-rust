@@ -107,6 +107,21 @@ pub trait RepositoryStore {
     fn delete_document_view_file(&self, relative_path: &str) -> Result<(), RepositoryError>;
     fn ensure_document_views_dir(&self, relative_dir: &str) -> Result<(), RepositoryError>;
 
+    // --- Themes ---
+
+    fn save_theme(
+        &self,
+        relative_path: &str,
+        theme: &srs_core::types::theme::Theme,
+    ) -> Result<(), RepositoryError>;
+    fn update_theme_file(
+        &self,
+        relative_path: &str,
+        theme: &srs_core::types::theme::Theme,
+    ) -> Result<(), RepositoryError>;
+    fn delete_theme_file(&self, relative_path: &str) -> Result<(), RepositoryError>;
+    fn ensure_themes_dir(&self, relative_dir: &str) -> Result<(), RepositoryError>;
+
     // --- Blueprints ---
 
     fn save_blueprint(
@@ -1197,6 +1212,36 @@ impl RepositoryStore for FileStore {
         self.ensure_dir(&self.abs(relative_dir))
     }
 
+    // --- Themes ---
+
+    fn save_theme(
+        &self,
+        relative_path: &str,
+        theme: &srs_core::types::theme::Theme,
+    ) -> Result<(), RepositoryError> {
+        let value = serde_json::to_value(theme).map_err(|e| RepositoryError::Serialize {
+            path: self.abs(relative_path),
+            source: e,
+        })?;
+        self.write_json(&self.abs(relative_path), &value)
+    }
+
+    fn update_theme_file(
+        &self,
+        relative_path: &str,
+        theme: &srs_core::types::theme::Theme,
+    ) -> Result<(), RepositoryError> {
+        self.save_theme(relative_path, theme)
+    }
+
+    fn delete_theme_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
+        self.delete_file(&self.abs(relative_path))
+    }
+
+    fn ensure_themes_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
+        self.ensure_dir(&self.abs(relative_dir))
+    }
+
     // --- Blueprints ---
 
     fn save_blueprint(
@@ -1676,6 +1721,7 @@ pub(crate) fn definition_kind_key(kind: DefinitionKind) -> &'static str {
         DefinitionKind::RelationType => "relationTypes",
         DefinitionKind::Blueprint => "blueprints",
         DefinitionKind::Vocabulary => "vocabularies",
+        DefinitionKind::Theme => "themes",
     }
 }
 
@@ -2304,6 +2350,36 @@ pub mod memory {
         }
 
         fn ensure_document_views_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
+            Ok(())
+        }
+
+        fn save_theme(
+            &self,
+            relative_path: &str,
+            theme: &srs_core::types::theme::Theme,
+        ) -> Result<(), RepositoryError> {
+            let v = serde_json::to_value(theme).unwrap();
+            self.data.borrow_mut().insert(relative_path.to_string(), v);
+            Ok(())
+        }
+
+        fn update_theme_file(
+            &self,
+            relative_path: &str,
+            theme: &srs_core::types::theme::Theme,
+        ) -> Result<(), RepositoryError> {
+            if !self.data.borrow().contains_key(relative_path) {
+                return Err(not_found(relative_path));
+            }
+            self.save_theme(relative_path, theme)
+        }
+
+        fn delete_theme_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
+            self.data.borrow_mut().remove(relative_path);
+            Ok(())
+        }
+
+        fn ensure_themes_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
             Ok(())
         }
 

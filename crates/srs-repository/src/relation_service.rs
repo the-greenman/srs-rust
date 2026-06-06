@@ -860,6 +860,26 @@ mod tests {
             ) -> Result<crate::package_types::PackageSelector, RepositoryError> {
                 unimplemented!()
             }
+            fn save_theme(
+                &self,
+                _: &str,
+                _: &srs_core::types::theme::Theme,
+            ) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn update_theme_file(
+                &self,
+                _: &str,
+                _: &srs_core::types::theme::Theme,
+            ) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn delete_theme_file(&self, _: &str) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn ensure_themes_dir(&self, _: &str) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
         }
 
         let result = load_relations(&BrokenManifestStore);

@@ -4,6 +4,7 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Field {
+    #[serde(default)]
     pub id: String,
     pub namespace: String,
     pub name: String,

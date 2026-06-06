@@ -27,6 +27,7 @@ use srs_core::types::{
     record_type::RecordType,
     relation::Relation,
     term::Term,
+    theme::Theme,
     view::{DocumentView, View},
     vocabulary::Vocabulary,
 };
@@ -37,6 +38,7 @@ use srs_repository::{
     record_store::{ListRecordTagsResult, RecordTagSummary},
     relation_service::RelationSummary,
     services::{ListNoteTagsResult, NoteSummary, TagSummary},
+    theme_service::ThemeSummary,
     validation::{RepositoryValidationReport, ValidationSummary},
     view_service::{DocumentViewSummary, ViewSummary},
 };
@@ -669,6 +671,28 @@ pub struct DocumentViewPayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentViewDeletePayload {
+    pub id: String,
+}
+
+// ── Theme payloads ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ThemeListPayload {
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub themes: Vec<ThemeSummary>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ThemePayload {
+    #[schemars(with = "serde_json::Value")]
+    pub theme: Theme,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ThemeDeletePayload {
     pub id: String,
 }
 

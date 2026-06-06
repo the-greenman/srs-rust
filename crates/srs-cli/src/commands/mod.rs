@@ -15,6 +15,7 @@ pub mod relation_type;
 pub mod render;
 pub mod repo;
 pub mod tag;
+pub mod theme;
 pub mod tree;
 pub mod view;
 pub mod vocabulary;
@@ -287,6 +288,9 @@ pub enum Commands {
     /// Package management commands
     #[command(subcommand)]
     Package(PackageCommand),
+    /// Theme definition management
+    #[command(subcommand)]
+    Theme(ThemeCommand),
     /// View (L1 field view) definition management
     #[command(subcommand)]
     View(ViewCommand),
@@ -662,6 +666,37 @@ pub enum LifecycleCommand {
         id: String,
         #[arg(long, hide = true)]
         json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ThemeCommand {
+    /// List theme definitions
+    List {
+        /// Filter by namespace
+        #[arg(long)]
+        namespace: Option<String>,
+    },
+    /// Get a theme definition by ID
+    Get {
+        /// Theme ID
+        id: String,
+    },
+    /// Create a new theme definition (reads JSON from stdin)
+    Create {
+        /// Package boundary path (omit for primary package, pass path for sub-package)
+        #[arg(long)]
+        package: Option<String>,
+    },
+    /// Update a theme definition (reads full JSON from stdin)
+    Update {
+        /// Theme ID
+        id: String,
+    },
+    /// Delete a theme definition by ID
+    Delete {
+        /// Theme ID
+        id: String,
     },
 }
 
@@ -1276,6 +1311,7 @@ pub fn dispatch(cli: Cli) -> Result<String> {
         Commands::Container(cmd) => container::dispatch(ctx, cmd),
         Commands::Render(cmd) => render::dispatch(ctx, cmd),
         Commands::Package(pkg_cmd) => package::dispatch(ctx, pkg_cmd),
+        Commands::Theme(theme_cmd) => theme::dispatch(ctx, theme_cmd),
         Commands::View(view_cmd) => view::dispatch(ctx, view_cmd),
         Commands::DocumentView(dv_cmd) => document_view::dispatch(ctx, dv_cmd),
         Commands::Vocabulary(vocab_cmd) => vocabulary::dispatch(ctx, vocab_cmd),

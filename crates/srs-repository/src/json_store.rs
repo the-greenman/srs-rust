@@ -886,6 +886,44 @@ impl RepositoryStore for JsonStore {
         Ok(())
     }
 
+    fn save_theme(
+        &self,
+        relative_path: &str,
+        theme: &srs_core::types::theme::Theme,
+    ) -> Result<(), RepositoryError> {
+        let v = serde_json::to_value(theme).map_err(|source| RepositoryError::Serialize {
+            path: PathBuf::from(relative_path),
+            source,
+        })?;
+        self.state
+            .borrow_mut()
+            .data
+            .insert(relative_path.to_string(), v);
+        self.flush()
+    }
+
+    fn update_theme_file(
+        &self,
+        relative_path: &str,
+        theme: &srs_core::types::theme::Theme,
+    ) -> Result<(), RepositoryError> {
+        if !self.state.borrow().data.contains_key(relative_path) {
+            return Err(RepositoryError::NotFound {
+                path: PathBuf::from(relative_path),
+            });
+        }
+        self.save_theme(relative_path, theme)
+    }
+
+    fn delete_theme_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
+        self.state.borrow_mut().data.remove(relative_path);
+        self.flush()
+    }
+
+    fn ensure_themes_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
+        Ok(())
+    }
+
     fn save_blueprint(
         &self,
         relative_path: &str,
