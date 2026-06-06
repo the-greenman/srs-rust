@@ -1604,10 +1604,10 @@ fn render_composite_table(
         };
 
         // Resolve columns and rows as JSON arrays.
-        let columns_json = get_fv(&columns_id)
-            .and_then(|fv| fv.value.as_array())
-            .cloned();
-        let rows_json = get_fv(&rows_id).and_then(|fv| fv.value.as_array()).cloned();
+        // Fields stored as text-typed JSON strings (e.g. "[\"a\",\"b\"]") are parsed;
+        // fields already stored as native JSON arrays are used directly.
+        let columns_json = get_fv(&columns_id).and_then(|fv| coerce_to_array(&fv.value));
+        let rows_json = get_fv(&rows_id).and_then(|fv| coerce_to_array(&fv.value));
 
         // [FG-Cx2]: Skip entry if neither columns nor rows have content.
         let has_columns = columns_json
@@ -1624,7 +1624,7 @@ fn render_composite_table(
         }
 
         let widths: Vec<f64> = get_fv(&widths_id)
-            .and_then(|fv| fv.value.as_array())
+            .and_then(|fv| coerce_to_array(&fv.value))
             .map(|arr| arr.iter().filter_map(|v| v.as_f64()).collect())
             .unwrap_or_default();
 
@@ -1827,6 +1827,20 @@ fn render_field_value(
         return Some(joined);
     }
     value_to_text_owned(&field_value.value, format)
+}
+
+/// Coerce a field value to a JSON array.
+/// Accepts a native JSON array or a text-typed string containing a JSON-encoded array.
+fn coerce_to_array(value: &serde_json::Value) -> Option<Vec<serde_json::Value>> {
+    if let Some(arr) = value.as_array() {
+        return Some(arr.clone());
+    }
+    if let Some(s) = value.as_str() {
+        if let Ok(serde_json::Value::Array(arr)) = serde_json::from_str(s) {
+            return Some(arr);
+        }
+    }
+    None
 }
 
 fn value_to_text_owned(value: &serde_json::Value, format: &str) -> Option<String> {
