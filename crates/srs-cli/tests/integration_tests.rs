@@ -5480,3 +5480,134 @@ fn field_create_in_sub_package_file_lands_under_sub_path() {
         "primary package.json should not be modified"
     );
 }
+
+// --- issue #4: all create commands auto-generate IDs ---
+
+#[test]
+fn note_create_without_id_mints_uuid() {
+    let temp = create_temp_repo();
+    // Omit instanceId entirely — service must auto-generate
+    let payload = serde_json::json!({
+        "title": "Auto ID Note",
+        "sections": [{"name": "body", "content": "content"}]
+    })
+    .to_string();
+    let result = run_srs_stdin_in_dir(temp.path(), &["note", "create"], &payload);
+    assert_eq!(
+        result["ok"], true,
+        "note create without id should succeed: {:?}",
+        result["diagnostics"]
+    );
+    let id = result["payload"]["note"]["instanceId"]
+        .as_str()
+        .expect("instanceId must be present in response");
+    assert_eq!(id.len(), 36, "instanceId should be a UUID (36 chars)");
+    assert_eq!(&id[8..9], "-");
+    assert_eq!(&id[13..14], "-");
+}
+
+#[test]
+fn record_create_without_id_mints_uuid() {
+    let temp = create_temp_repo_with_package();
+    let package_dir = temp.path().join("package");
+
+    // Write a type
+    let record_type = serde_json::json!({
+        "id": "type-auto-id-001",
+        "namespace": "com.test",
+        "name": "auto-id-item",
+        "version": 1,
+        "description": "Type for auto-id test",
+        "fields": [],
+        "createdAt": "2026-01-01T00:00:00Z"
+    });
+    std::fs::write(
+        package_dir.join("types/auto-id-item.json"),
+        serde_json::to_string_pretty(&record_type).unwrap(),
+    )
+    .unwrap();
+    let package_json = serde_json::json!({
+        "id": "test-pkg",
+        "namespace": "com.test",
+        "name": "test",
+        "version": "1.0.0",
+        "fields": [],
+        "types": ["types/auto-id-item.json"]
+    });
+    std::fs::write(
+        package_dir.join("package.json"),
+        serde_json::to_string_pretty(&package_json).unwrap(),
+    )
+    .unwrap();
+
+    // Omit instanceId entirely — service must auto-generate
+    let payload = serde_json::json!({ "fieldValues": [] }).to_string();
+    let result = run_srs_stdin_in_dir(
+        temp.path(),
+        &["record", "create", "--type", "com.test/auto-id-item"],
+        &payload,
+    );
+    assert_eq!(
+        result["ok"], true,
+        "record create without id should succeed: {:?}",
+        result["diagnostics"]
+    );
+    let id = result["payload"]["record"]["instanceId"]
+        .as_str()
+        .expect("instanceId must be present in response");
+    assert_eq!(id.len(), 36, "instanceId should be a UUID (36 chars)");
+    assert_eq!(&id[8..9], "-");
+    assert_eq!(&id[13..14], "-");
+}
+
+#[test]
+fn field_create_without_id_mints_uuid() {
+    let temp = create_temp_repo_with_package();
+    // Omit id entirely — service must auto-generate
+    let payload = serde_json::json!({
+        "namespace": "com.test",
+        "name": "auto-id-field",
+        "version": 1,
+        "valueType": "string"
+    })
+    .to_string();
+    let result = run_srs_stdin_in_dir(temp.path(), &["field", "create"], &payload);
+    assert_eq!(
+        result["ok"], true,
+        "field create without id should succeed: {:?}",
+        result["diagnostics"]
+    );
+    let id = result["payload"]["field"]["id"]
+        .as_str()
+        .expect("id must be present in response");
+    assert_eq!(id.len(), 36, "id should be a UUID (36 chars)");
+    assert_eq!(&id[8..9], "-");
+    assert_eq!(&id[13..14], "-");
+}
+
+#[test]
+fn type_create_without_id_mints_uuid() {
+    let temp = create_temp_repo_with_package();
+    // Omit id entirely — service must auto-generate
+    let payload = serde_json::json!({
+        "namespace": "com.test",
+        "name": "auto-id-type",
+        "version": 1,
+        "description": "A type without a pre-supplied id",
+        "fields": [],
+        "createdAt": "2026-01-01T00:00:00Z"
+    })
+    .to_string();
+    let result = run_srs_stdin_in_dir(temp.path(), &["type", "create"], &payload);
+    assert_eq!(
+        result["ok"], true,
+        "type create without id should succeed: {:?}",
+        result["diagnostics"]
+    );
+    let id = result["payload"]["type"]["id"]
+        .as_str()
+        .expect("id must be present in response");
+    assert_eq!(id.len(), 36, "id should be a UUID (36 chars)");
+    assert_eq!(&id[8..9], "-");
+    assert_eq!(&id[13..14], "-");
+}

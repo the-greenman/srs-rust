@@ -175,6 +175,9 @@ pub enum RepositoryError {
     #[error("view not found: {view_id}")]
     ViewNotFound { view_id: String },
 
+    #[error("theme not found: {theme_id}")]
+    ThemeNotFound { theme_id: String },
+
     #[error("blueprint not found: {blueprint_id}")]
     BlueprintNotFound { blueprint_id: String },
 
@@ -485,6 +488,10 @@ impl PartialEq for RepositoryError {
             (
                 RepositoryError::ViewNotFound { view_id: a },
                 RepositoryError::ViewNotFound { view_id: b },
+            ) => a == b,
+            (
+                RepositoryError::ThemeNotFound { theme_id: a },
+                RepositoryError::ThemeNotFound { theme_id: b },
             ) => a == b,
             (
                 RepositoryError::DocumentViewNotFoundById {

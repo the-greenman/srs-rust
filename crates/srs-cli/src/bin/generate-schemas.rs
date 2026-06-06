@@ -131,6 +131,13 @@ fn main() {
     write_schema!("document-view-update", DocumentViewPayload);
     write_schema!("document-view-delete", DocumentViewDeletePayload);
 
+    // Theme payloads
+    write_schema!("theme-list", ThemeListPayload);
+    write_schema!("theme-get", ThemePayload);
+    write_schema!("theme-create", ThemePayload);
+    write_schema!("theme-update", ThemePayload);
+    write_schema!("theme-delete", ThemeDeletePayload);
+
     // Render payloads
     write_schema!("render-document-view", RenderDocumentViewPayload);
 
