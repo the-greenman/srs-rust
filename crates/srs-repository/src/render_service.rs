@@ -1679,7 +1679,12 @@ fn render_composite_table(
         let label_str = match label_text.as_deref() {
             Some(lbl) if !lbl.is_empty() => {
                 if let Some(tmpl) = caption_template {
-                    tmpl.replace("{{field-value}}", lbl)
+                    let safe = if ctx.format == "html" {
+                        html_escape(lbl)
+                    } else {
+                        lbl.to_owned()
+                    };
+                    tmpl.replace("{{field-value}}", &safe)
                 } else if ctx.format == "html" {
                     format!("<figcaption>{}</figcaption>\n", html_escape(lbl))
                 } else {
@@ -1712,7 +1717,7 @@ fn render_table_markdown(cols: &[String], rows: &[Vec<String>], widths: &[f64]) 
         out.push('|');
         for col in cols {
             out.push(' ');
-            out.push_str(col);
+            out.push_str(&escape_gfm_cell(col));
             out.push_str(" |");
         }
         out.push('\n');
@@ -1736,7 +1741,7 @@ fn render_table_markdown(cols: &[String], rows: &[Vec<String>], widths: &[f64]) 
         out.push('|');
         for cell in row {
             out.push(' ');
-            out.push_str(cell);
+            out.push_str(&escape_gfm_cell(cell));
             out.push_str(" |");
         }
         out.push('\n');
@@ -1928,6 +1933,10 @@ fn html_escape(s: &str) -> String {
         }
     }
     out
+}
+
+fn escape_gfm_cell(s: &str) -> String {
+    s.replace('|', r"\|").replace('\n', " ")
 }
 
 fn depth(base: u32, depth_offset: u32) -> u32 {
@@ -3138,6 +3147,36 @@ mod tests {
     }
 
     #[test]
+    fn render_table_markdown_escapes_pipes_in_cells() {
+        let cols = vec!["Type | Status".to_string()];
+        let rows = vec![vec!["a | b".to_string()]];
+        let out = render_table_markdown(&cols, &rows, &[]);
+        assert!(
+            !out.contains("| Type | Status |"),
+            "unescaped pipe in header must not appear, got:\n{out}"
+        );
+        assert!(
+            out.contains(r"Type \| Status"),
+            "pipe in header should be escaped, got:\n{out}"
+        );
+        assert!(
+            out.contains(r"a \| b"),
+            "pipe in cell should be escaped, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn render_table_markdown_newlines_in_cells_become_spaces() {
+        let cols = vec!["Col".to_string()];
+        let rows = vec![vec!["line1\nline2".to_string()]];
+        let out = render_table_markdown(&cols, &rows, &[]);
+        assert!(
+            out.contains("line1 line2"),
+            "newline in cell should become space, got:\n{out}"
+        );
+    }
+
+    #[test]
     fn render_table_html_produces_table_element() {
         use srs_core::types::record_type::RecordType;
         let rt = RecordType {
@@ -3505,6 +3544,233 @@ mod tests {
             !result.rendered.contains("| Col |"),
             "unknown renderer must not produce a GFM table, got:\n{}",
             result.rendered
+        );
+    }
+
+    #[test]
+    fn caption_template_html_escapes_label_value() {
+        use crate::package::Package;
+        use crate::record_store::create_record;
+        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::record::{FieldGroupEntry, FieldGroupValue, FieldValue};
+        use srs_core::types::record_type::{FieldAssignment, FieldGroup, RecordType};
+        use srs_core::types::theme::{ElementTemplates, Theme};
+        use srs_core::types::view::{DocumentSection, DocumentView, EmptyBehavior, SectionSource};
+
+        let make_field = |id: &str, name: &str| Field {
+            id: id.to_string(),
+            namespace: "com.test".to_string(),
+            name: name.to_string(),
+            version: 1,
+            value_type: ValueType::String,
+            description: name.to_string(),
+            ai_guidance: serde_json::json!(null),
+            allowed_values: None,
+            vocabulary_ref: None,
+            default_value: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let fields = vec![
+            make_field("f-columns", "columns"),
+            make_field("f-rows", "rows"),
+            make_field("f-label", "label"),
+            make_field("f-title", "title"),
+        ];
+        let group_assignments: Vec<FieldAssignment> = ["f-columns", "f-rows", "f-label"]
+            .iter()
+            .enumerate()
+            .map(|(i, id)| FieldAssignment {
+                field_id: id.to_string(),
+                order: i as u32,
+                required: false,
+                display_label: None,
+                repeatable: false,
+                min_items: None,
+                max_items: None,
+            })
+            .collect();
+        let record_type = RecordType {
+            id: "t-cap".to_string(),
+            namespace: "com.test".to_string(),
+            name: "cap-record".to_string(),
+            version: 1,
+            description: "d".to_string(),
+            fields: vec![FieldAssignment {
+                field_id: "f-title".to_string(),
+                order: 0,
+                required: false,
+                display_label: None,
+                repeatable: false,
+                min_items: None,
+                max_items: None,
+            }],
+            field_groups: Some(vec![FieldGroup {
+                group_id: "g".to_string(),
+                order: 0,
+                fields: group_assignments,
+                label: None,
+                description: None,
+                required: false,
+                repeatable: true,
+                min_items: None,
+                max_items: None,
+                composite_renderer: Some("table".to_string()),
+            }]),
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let theme = Theme {
+            id: "th-cap".to_string(),
+            namespace: "com.test".to_string(),
+            name: "cap-theme".to_string(),
+            version: 1,
+            description: "d".to_string(),
+            targets: vec!["html".to_string()],
+            assets: None,
+            css_class_fields: None,
+            page_templates: None,
+            element_templates: Some(ElementTemplates {
+                document_wrapper: None,
+                section_wrapper: None,
+                section_wrapper_overrides: None,
+                record_wrapper: None,
+                record_wrapper_overrides: None,
+                field_row: None,
+                group_field_row_templates: None,
+                composite_renderer_config: Some(HashMap::from([(
+                    "table".to_string(),
+                    serde_json::json!({ "captionTemplate": "{{field-value}}" }),
+                )])),
+            }),
+            stylesheet: None,
+            typography: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let doc_view = DocumentView {
+            id: "dv-cap".to_string(),
+            namespace: "com.test".to_string(),
+            name: "cap-view".to_string(),
+            version: 1,
+            description: "d".to_string(),
+            container_type: None,
+            sections: vec![DocumentSection {
+                section_id: "s".to_string(),
+                title: None,
+                description: None,
+                order: 0,
+                source: SectionSource::TypeQuery {
+                    semantic_object_type: "com.test/cap-record".to_string(),
+                    lifecycle_state: None,
+                    container_ids: None,
+                },
+                render_view_id: None,
+                title_field_id: None,
+                ordering: None,
+                required: None,
+                empty_behavior: Some(EmptyBehavior::Hide),
+            }],
+            navigation_links: None,
+            preamble: None,
+            format: Some("html".to_string()),
+            depth_offset: None,
+            theme_ref: Some(srs_core::types::view::ThemeReference {
+                mode: srs_core::types::view::ThemeMode::Bundled,
+                path: None,
+                url: None,
+                theme_id: Some("th-cap".to_string()),
+            }),
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let manifest = crate::manifest::Manifest {
+            instance_index: vec![],
+            extra: HashMap::new(),
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "pkg-cap".to_string(),
+            namespace: "com.test".to_string(),
+            name: "cap-package".to_string(),
+            version: "1.0.0".to_string(),
+            fields,
+            record_types: vec![record_type],
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![doc_view],
+            themes: vec![theme],
+            blueprints: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = crate::store::memory::MemoryStore::new(manifest, package);
+        let entry = FieldGroupEntry {
+            entry_id: Some("e1".to_string()),
+            field_values: vec![
+                FieldValue {
+                    field_id: "f-columns".to_string(),
+                    value: serde_json::json!(["Col"]),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                },
+                FieldValue {
+                    field_id: "f-rows".to_string(),
+                    value: serde_json::json!([["val"]]),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                },
+                FieldValue {
+                    field_id: "f-label".to_string(),
+                    value: serde_json::json!("<script>alert(1)</script>"),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                },
+            ],
+        };
+        let gv = vec![FieldGroupValue {
+            group_id: "g".to_string(),
+            entries: vec![entry],
+        }];
+        let fv = vec![FieldValue {
+            field_id: "f-title".to_string(),
+            value: serde_json::json!("R"),
+            entries: None,
+            source: None,
+            edited_at: None,
+        }];
+        create_record(&store, "t-cap", 1, fv, Some(gv), "records").unwrap();
+
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-cap",
+            format: None,
+            theme_variant: None,
+            container_id: None,
+        })
+        .expect("render should succeed");
+        let out = &result.rendered;
+        assert!(
+            !out.contains("<script>"),
+            "raw <script> must not appear in HTML output, got:\n{out}"
+        );
+        assert!(
+            out.contains("&lt;script&gt;"),
+            "label must be HTML-escaped in captionTemplate output, got:\n{out}"
         );
     }
 
