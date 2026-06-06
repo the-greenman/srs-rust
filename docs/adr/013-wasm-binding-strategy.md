@@ -33,9 +33,9 @@ A web app loads this via `fetch()` and passes the response text directly to `Srs
 
 ### No-filesystem entry point: `JsonStore::from_srsj()`
 
-A new constructor `JsonStore::from_str(content: &str) -> Result<Self, RepositoryError>` is added to `srs-repository`. It parses a `.srsj` string and populates the in-memory `JsonStoreState` without any `std::fs` calls. `manifest.root` is set to `PathBuf::from(".")`.
+A new constructor `JsonStore::from_srsj(content: &str) -> Result<Self, RepositoryError>` is added to `srs-repository`. It parses a `.srsj` string and populates the in-memory `JsonStoreState` without any `std::fs` calls. `manifest.root` is set to `PathBuf::from(".")`.
 
-`open()` is refactored to call `read_to_string()` then delegate to `from_str()`, so both paths share the same deserialization logic.
+`open()` is refactored to call `read_to_string()` then delegate to `from_srsj()`, so both paths share the same deserialization logic.
 
 **Known limitation:** `manifest.root = "."` means any package-ref paths resolved relative to the manifest root will resolve relative to the process CWD. This is acceptable for the initial read-only scope because the `.srsj` format embeds all package definitions inline and no external path resolution occurs during read-only service calls.
 
@@ -49,9 +49,9 @@ Write operations (create/update/delete) are deferred to a future plan. The `flus
 
 `srs-core` generates UUIDs using `uuid` v1 with the `v4` feature. On `wasm32-unknown-unknown`, UUID v4 requires entropy from the browser's `crypto.getRandomValues`. This is enabled by adding `uuid = { workspace = true, features = ["js"] }` for the `wasm32` target in `srs-bindings/Cargo.toml`. Cargo's feature unification propagates the `js` feature to `srs-core` during Wasm compilation.
 
-### `FileStore` and `detect.rs` Wasm guards
+### `FileStore` and `detect.rs` on Wasm
 
-`FileStore` and `detect::find_repo_root` use `std::fs` and are not callable from Wasm. These are gated with `#[cfg(not(target_arch = "wasm32"))]` so that `srs-repository` compiles cleanly for the `wasm32-unknown-unknown` target. All service functions accept `&dyn RepositoryStore` and are unaffected by this gating.
+`FileStore` and `detect::find_repo_root` use `std::fs` and are not callable from Wasm. No `#[cfg]` guards are needed: the Rust compiler and linker dead-strip unreachable code from the `wasm32-unknown-unknown` target, so these types compile but are simply absent from the output `.wasm` because nothing in `srs-bindings` references them. All service functions accept `&dyn RepositoryStore` and are unaffected.
 
 ## Consequences
 

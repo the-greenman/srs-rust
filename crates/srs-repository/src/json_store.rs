@@ -249,11 +249,7 @@ impl JsonStore {
             },
             other => other,
         })?;
-        store.file_path = file_path.clone();
-        store.state.borrow_mut().manifest.root = file_path
-            .parent()
-            .unwrap_or(std::path::Path::new("."))
-            .to_path_buf();
+        store.file_path = file_path;
         Ok(store)
     }
 
@@ -512,10 +508,10 @@ impl JsonStore {
 
 impl RepositoryStore for JsonStore {
     fn repository_root(&self) -> PathBuf {
-        self.file_path
-            .parent()
-            .unwrap_or(std::path::Path::new("."))
-            .to_path_buf()
+        match self.file_path.parent() {
+            Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+            _ => PathBuf::from("."),
+        }
     }
 
     fn repository_exists(&self) -> Result<bool, RepositoryError> {

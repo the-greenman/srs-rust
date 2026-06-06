@@ -306,6 +306,7 @@ pub fn delete_record(
 
 /// Filter options for listing records
 #[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RecordListFilter {
     pub type_namespace: Option<String>,
     pub type_name: Option<String>,
