@@ -17,6 +17,7 @@ pub struct PromotionWindow {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Vocabulary {
+    #[serde(default)]
     pub id: String,
     pub version: u32,
     pub namespace: String,
