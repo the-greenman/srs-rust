@@ -1348,7 +1348,13 @@ fn render_record_at_level(
     }
     if let Some(rt) = &rt {
         if let Some(field_groups) = &rt.field_groups {
-            out.push_str(&render_field_groups(ctx, rt, record, field_groups));
+            out.push_str(&render_field_groups(
+                ctx,
+                rt,
+                record,
+                field_groups,
+                diagnostics,
+            ));
         }
     }
 
@@ -1403,6 +1409,7 @@ fn render_field_groups(
     rt: &srs_core::types::record_type::RecordType,
     record: &Record,
     field_groups: &[srs_core::types::record_type::FieldGroup],
+    diagnostics: &mut Vec<String>,
 ) -> String {
     let mut groups = field_groups.to_vec();
     groups.sort_by_key(|g| g.order);
@@ -1416,72 +1423,380 @@ fn render_field_groups(
             continue;
         }
 
-        if let Some(label) = &group.label {
-            out.push('\n');
-            out.push_str(&format_heading(
-                depth(4, ctx.depth_offset),
-                ctx.format,
-                label,
-            ));
-        }
-
-        let mut assignments = group.fields.clone();
-        assignments.sort_by_key(|fa| fa.order);
-        for (idx, entry) in group_value.entries.iter().enumerate() {
-            if idx > 0 {
-                out.push('\n');
-            }
-            for assignment in &assignments {
-                let Some(fv) = entry
-                    .field_values
-                    .iter()
-                    .find(|value| value.field_id == assignment.field_id)
-                else {
-                    continue;
-                };
-
-                let field_type = rt
-                    .find_field_assignment(&assignment.field_id)
-                    .and_then(|_| ctx.package.resolve_field(&assignment.field_id))
-                    .map(|field| field.value_type);
-                let Some(value_text) = render_field_value(fv, field_type, ctx.format) else {
-                    continue;
-                };
-                let label = assignment
-                    .display_label
-                    .clone()
-                    .or_else(|| {
-                        ctx.package
-                            .resolve_field(&assignment.field_id)
-                            .map(|f| f.name.clone())
-                    })
-                    .unwrap_or_else(|| assignment.field_id.clone());
-
-                let field_name = ctx
-                    .package
-                    .resolve_field(&assignment.field_id)
-                    .map(|f| f.name.as_str())
-                    .unwrap_or(&label);
-                let tmpl = ctx
+        match group.composite_renderer.as_deref() {
+            Some("table") => {
+                if let Some(label) = &group.label {
+                    out.push('\n');
+                    out.push_str(&format_heading(
+                        depth(4, ctx.depth_offset),
+                        ctx.format,
+                        label,
+                    ));
+                }
+                let table_config = ctx
                     .active_theme
                     .as_ref()
                     .and_then(|t| t.element_templates.as_ref())
-                    .and_then(|et| et.group_field_templates.as_ref())
-                    .and_then(|gft| gft.get(field_name));
-
-                if let Some(tmpl) = tmpl {
-                    let row = tmpl
-                        .replace("{{field-value}}", &value_text)
-                        .replace("{{field-label}}", &label);
-                    out.push_str(&row);
-                } else {
-                    out.push_str(&format_field_row(ctx.format, &label, &value_text));
-                    out.push('\n');
-                }
+                    .and_then(|et| et.composite_renderer_config.as_ref())
+                    .and_then(|crc| crc.get("table"));
+                out.push_str(&render_composite_table(
+                    ctx,
+                    rt,
+                    record,
+                    &group,
+                    group_value,
+                    table_config,
+                    diagnostics,
+                ));
+            }
+            Some(unknown) => {
+                // [FG-Cx1]: Unknown compositeRenderer — fall back to baseline + emit diagnostic.
+                diagnostics.push(format!(
+                    "[FG-Cx1] Unrecognised compositeRenderer {:?} on group {:?}; falling back to per-field baseline",
+                    unknown, group.group_id
+                ));
+                out.push_str(&render_field_group_baseline(
+                    ctx,
+                    rt,
+                    record,
+                    &group,
+                    group_value,
+                ));
+            }
+            None => {
+                out.push_str(&render_field_group_baseline(
+                    ctx,
+                    rt,
+                    record,
+                    &group,
+                    group_value,
+                ));
             }
         }
     }
 
+    out
+}
+
+fn render_field_group_baseline(
+    ctx: &RenderContext<'_>,
+    rt: &srs_core::types::record_type::RecordType,
+    _record: &Record,
+    group: &srs_core::types::record_type::FieldGroup,
+    group_value: &srs_core::types::record::FieldGroupValue,
+) -> String {
+    let mut out = String::new();
+
+    if let Some(label) = &group.label {
+        out.push('\n');
+        out.push_str(&format_heading(
+            depth(4, ctx.depth_offset),
+            ctx.format,
+            label,
+        ));
+    }
+
+    let mut assignments = group.fields.clone();
+    assignments.sort_by_key(|fa| fa.order);
+    for (idx, entry) in group_value.entries.iter().enumerate() {
+        if idx > 0 {
+            out.push('\n');
+        }
+        for assignment in &assignments {
+            let Some(fv) = entry
+                .field_values
+                .iter()
+                .find(|value| value.field_id == assignment.field_id)
+            else {
+                continue;
+            };
+
+            let field_type = rt
+                .find_field_assignment(&assignment.field_id)
+                .and_then(|_| ctx.package.resolve_field(&assignment.field_id))
+                .map(|field| field.value_type);
+            let Some(value_text) = render_field_value(fv, field_type, ctx.format) else {
+                continue;
+            };
+            let label = assignment
+                .display_label
+                .clone()
+                .or_else(|| {
+                    ctx.package
+                        .resolve_field(&assignment.field_id)
+                        .map(|f| f.name.clone())
+                })
+                .unwrap_or_else(|| assignment.field_id.clone());
+
+            let field_name = ctx
+                .package
+                .resolve_field(&assignment.field_id)
+                .map(|f| f.name.as_str())
+                .unwrap_or(&label);
+            let tmpl = ctx
+                .active_theme
+                .as_ref()
+                .and_then(|t| t.element_templates.as_ref())
+                .and_then(|et| et.group_field_row_templates.as_ref())
+                .and_then(|gft| gft.get(field_name));
+
+            if let Some(tmpl) = tmpl {
+                let row = tmpl
+                    .replace("{{field-value}}", &value_text)
+                    .replace("{{field-label}}", &label);
+                out.push_str(&row);
+            } else {
+                out.push_str(&format_field_row(ctx.format, &label, &value_text));
+                out.push('\n');
+            }
+        }
+    }
+    out
+}
+
+fn render_composite_table(
+    ctx: &RenderContext<'_>,
+    rt: &srs_core::types::record_type::RecordType,
+    _record: &Record,
+    group: &srs_core::types::record_type::FieldGroup,
+    group_value: &srs_core::types::record::FieldGroupValue,
+    table_config: Option<&serde_json::Value>,
+    diagnostics: &mut Vec<String>,
+) -> String {
+    let mut out = String::new();
+
+    // Resolve field IDs for the table's named fields by Field.name.
+    let resolve_field_id = |name: &str| -> Option<String> {
+        group
+            .fields
+            .iter()
+            .find(|fa| {
+                ctx.package
+                    .resolve_field(&fa.field_id)
+                    .map(|f| f.name == name)
+                    .unwrap_or(false)
+            })
+            .map(|fa| fa.field_id.clone())
+    };
+
+    let columns_id = resolve_field_id("columns");
+    let rows_id = resolve_field_id("rows");
+    let widths_id = resolve_field_id("widths");
+    let subheading_id = resolve_field_id("subheading");
+    let label_id = resolve_field_id("label");
+
+    // Read table config keys.
+    let table_class = table_config
+        .and_then(|c| c.get("tableClass"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("srs-data-table");
+    let wrapper_template = table_config
+        .and_then(|c| c.get("wrapperTemplate"))
+        .and_then(|v| v.as_str());
+    let caption_template = table_config
+        .and_then(|c| c.get("captionTemplate"))
+        .and_then(|v| v.as_str());
+
+    for (entry_idx, entry) in group_value.entries.iter().enumerate() {
+        let get_fv = |field_id: &Option<String>| -> Option<&srs_core::types::record::FieldValue> {
+            let id = field_id.as_deref()?;
+            entry.field_values.iter().find(|fv| fv.field_id == id)
+        };
+
+        // Resolve columns and rows as JSON arrays.
+        let columns_json = get_fv(&columns_id)
+            .and_then(|fv| fv.value.as_array())
+            .cloned();
+        let rows_json = get_fv(&rows_id).and_then(|fv| fv.value.as_array()).cloned();
+
+        // [FG-Cx2]: Skip entry if neither columns nor rows have content.
+        let has_columns = columns_json
+            .as_ref()
+            .map(|v| !v.is_empty())
+            .unwrap_or(false);
+        let has_rows = rows_json.as_ref().map(|v| !v.is_empty()).unwrap_or(false);
+        if !has_columns && !has_rows {
+            diagnostics.push(format!(
+                "[FG-Cx2] compositeRenderer:table entry {} in group {:?} has no columns or rows; skipping",
+                entry_idx, group.group_id
+            ));
+            continue;
+        }
+
+        let widths: Vec<f64> = get_fv(&widths_id)
+            .and_then(|fv| fv.value.as_array())
+            .map(|arr| arr.iter().filter_map(|v| v.as_f64()).collect())
+            .unwrap_or_default();
+
+        let subheading = get_fv(&subheading_id)
+            .and_then(|fv| fv.value.as_str())
+            .map(|s| s.to_string());
+
+        let label_text = get_fv(&label_id)
+            .and_then(|fv| fv.value.as_str())
+            .map(|s| s.to_string());
+
+        let cols: Vec<String> = columns_json
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+
+        let rows: Vec<Vec<String>> = rows_json
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|row| {
+                row.as_array().map(|cells| {
+                    cells
+                        .iter()
+                        .filter_map(|c| c.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+            })
+            .collect();
+
+        let table_str = match ctx.format {
+            "html" => render_table_html(&cols, &rows, table_class, &widths, rt),
+            _ => render_table_markdown(&cols, &rows, &widths),
+        };
+
+        let subheading_str = match subheading.as_deref() {
+            Some(sh) if !sh.is_empty() => match ctx.format {
+                "html" => format!(
+                    "<h{}>{}</h{}>\n",
+                    depth(4, ctx.depth_offset),
+                    html_escape(sh),
+                    depth(4, ctx.depth_offset)
+                ),
+                _ => format!(
+                    "{}{sh}\n\n",
+                    heading_prefix(depth(4, ctx.depth_offset), ctx.format)
+                ),
+            },
+            _ => String::new(),
+        };
+
+        let label_str = match label_text.as_deref() {
+            Some(lbl) if !lbl.is_empty() => {
+                if let Some(tmpl) = caption_template {
+                    let safe = if ctx.format == "html" {
+                        html_escape(lbl)
+                    } else {
+                        lbl.to_owned()
+                    };
+                    tmpl.replace("{{field-value}}", &safe)
+                } else if ctx.format == "html" {
+                    format!("<figcaption>{}</figcaption>\n", html_escape(lbl))
+                } else {
+                    format!("*{lbl}*\n\n")
+                }
+            }
+            _ => String::new(),
+        };
+
+        let entry_out = if let Some(tmpl) = wrapper_template {
+            tmpl.replace("{{subheading}}", &subheading_str)
+                .replace("{{label}}", &label_str)
+                .replace("{{table}}", &table_str)
+        } else if ctx.format == "html" {
+            format!("<figure class=\"srs-table\">{subheading_str}{label_str}{table_str}</figure>\n")
+        } else {
+            format!("{subheading_str}{label_str}{table_str}")
+        };
+
+        out.push_str(&entry_out);
+    }
+
+    out
+}
+
+fn render_table_markdown(cols: &[String], rows: &[Vec<String>], widths: &[f64]) -> String {
+    let mut out = String::new();
+
+    if !cols.is_empty() {
+        out.push('|');
+        for col in cols {
+            out.push(' ');
+            out.push_str(&escape_gfm_cell(col));
+            out.push_str(" |");
+        }
+        out.push('\n');
+
+        out.push('|');
+        for (i, _) in cols.iter().enumerate() {
+            let align = widths.get(i).copied().unwrap_or(0.5);
+            let sep = if align <= 0.3 {
+                " :--- |"
+            } else if align >= 0.7 {
+                " ---: |"
+            } else {
+                " --- |"
+            };
+            out.push_str(sep);
+        }
+        out.push('\n');
+    }
+
+    for row in rows {
+        out.push('|');
+        for cell in row {
+            out.push(' ');
+            out.push_str(&escape_gfm_cell(cell));
+            out.push_str(" |");
+        }
+        out.push('\n');
+    }
+
+    out.push('\n');
+    out
+}
+
+fn render_table_html(
+    cols: &[String],
+    rows: &[Vec<String>],
+    table_class: &str,
+    widths: &[f64],
+    _rt: &srs_core::types::record_type::RecordType,
+) -> String {
+    let mut out = String::new();
+
+    let class_attr = if table_class.is_empty() {
+        String::new()
+    } else {
+        format!(" class=\"{}\"", html_escape(table_class))
+    };
+    out.push_str(&format!("<table{class_attr}>\n"));
+
+    if !widths.is_empty() {
+        out.push_str("<colgroup>\n");
+        for w in widths {
+            let pct = (w * 100.0).round() as u32;
+            out.push_str(&format!("<col style=\"width:{pct}%\">\n"));
+        }
+        out.push_str("</colgroup>\n");
+    }
+
+    if !cols.is_empty() {
+        out.push_str("<thead><tr>");
+        for col in cols {
+            out.push_str(&format!("<th>{}</th>", html_escape(col)));
+        }
+        out.push_str("</tr></thead>\n");
+    }
+
+    if !rows.is_empty() {
+        out.push_str("<tbody>\n");
+        for row in rows {
+            out.push_str("<tr>");
+            for cell in row {
+                out.push_str(&format!("<td>{}</td>", html_escape(cell)));
+            }
+            out.push_str("</tr>\n");
+        }
+        out.push_str("</tbody>\n");
+    }
+
+    out.push_str("</table>\n");
     out
 }
 
@@ -1618,6 +1933,10 @@ fn html_escape(s: &str) -> String {
         }
     }
     out
+}
+
+fn escape_gfm_cell(s: &str) -> String {
+    s.replace('|', r"\|").replace('\n', " ")
 }
 
 fn depth(base: u32, depth_offset: u32) -> u32 {
@@ -2773,5 +3092,712 @@ mod tests {
         assert_eq!(sorted[1].instance_id, "b-later");
         // This confirms that WITHOUT the guard, FixedInstances would be reordered.
         // The guard (matches! FixedInstances) in both render paths prevents this call.
+    }
+
+    // ── RFC-007 composite renderer tests ──────────────────────────────────────
+
+    #[test]
+    fn render_table_markdown_produces_gfm_pipe_table() {
+        let cols = vec!["Question".to_string(), "What to write".to_string()];
+        let rows = vec![vec![
+            "What was decided?".to_string(),
+            "One clear sentence.".to_string(),
+        ]];
+        let out = render_table_markdown(&cols, &rows, &[]);
+        assert!(out.contains("| Question | What to write |"), "got: {out}");
+        assert!(out.contains("| --- | --- |"), "got: {out}");
+        assert!(
+            out.contains("| What was decided? | One clear sentence. |"),
+            "got: {out}"
+        );
+    }
+
+    #[test]
+    fn render_table_markdown_widths_alignment() {
+        let cols = vec![
+            "Left".to_string(),
+            "Default".to_string(),
+            "Right".to_string(),
+        ];
+        let rows: Vec<Vec<String>> = vec![];
+        let widths = vec![0.25, 0.5, 0.75]; // ≤0.3 left, middle default, ≥0.7 right
+        let out = render_table_markdown(&cols, &rows, &widths);
+        assert!(out.contains("| :--- |"), "expected left-align, got: {out}");
+        assert!(
+            out.contains("| --- |"),
+            "expected default-align, got: {out}"
+        );
+        assert!(out.contains("| ---: |"), "expected right-align, got: {out}");
+    }
+
+    #[test]
+    fn render_table_markdown_boundary_widths_are_deterministic() {
+        let cols = vec!["A".to_string(), "B".to_string()];
+        let rows: Vec<Vec<String>> = vec![];
+        let widths = vec![0.3, 0.7]; // exactly 0.3 → left, exactly 0.7 → right
+        let out = render_table_markdown(&cols, &rows, &widths);
+        assert!(
+            out.contains("| :--- |"),
+            "0.3 should be left-align, got: {out}"
+        );
+        assert!(
+            out.contains("| ---: |"),
+            "0.7 should be right-align, got: {out}"
+        );
+    }
+
+    #[test]
+    fn render_table_markdown_escapes_pipes_in_cells() {
+        let cols = vec!["Type | Status".to_string()];
+        let rows = vec![vec!["a | b".to_string()]];
+        let out = render_table_markdown(&cols, &rows, &[]);
+        assert!(
+            !out.contains("| Type | Status |"),
+            "unescaped pipe in header must not appear, got:\n{out}"
+        );
+        assert!(
+            out.contains(r"Type \| Status"),
+            "pipe in header should be escaped, got:\n{out}"
+        );
+        assert!(
+            out.contains(r"a \| b"),
+            "pipe in cell should be escaped, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn render_table_markdown_newlines_in_cells_become_spaces() {
+        let cols = vec!["Col".to_string()];
+        let rows = vec![vec!["line1\nline2".to_string()]];
+        let out = render_table_markdown(&cols, &rows, &[]);
+        assert!(
+            out.contains("line1 line2"),
+            "newline in cell should become space, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn render_table_html_produces_table_element() {
+        use srs_core::types::record_type::RecordType;
+        let rt = RecordType {
+            id: "t".to_string(),
+            namespace: "n".to_string(),
+            name: "n".to_string(),
+            version: 1,
+            description: "d".to_string(),
+            fields: vec![],
+            field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let cols = vec!["Col A".to_string()];
+        let rows = vec![vec!["val 1".to_string()]];
+        let out = render_table_html(&cols, &rows, "srs-data-table", &[], &rt);
+        assert!(
+            out.contains("<table class=\"srs-data-table\">"),
+            "got: {out}"
+        );
+        assert!(out.contains("<th>Col A</th>"), "got: {out}");
+        assert!(out.contains("<td>val 1</td>"), "got: {out}");
+    }
+
+    #[test]
+    fn render_table_html_empty_class_omits_attribute() {
+        use srs_core::types::record_type::RecordType;
+        let rt = RecordType {
+            id: "t".to_string(),
+            namespace: "n".to_string(),
+            name: "n".to_string(),
+            version: 1,
+            description: "d".to_string(),
+            fields: vec![],
+            field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let out = render_table_html(&[], &[], "", &[], &rt);
+        assert!(
+            !out.contains("class="),
+            "[T-Cx2] empty tableClass must omit class attribute, got: {out}"
+        );
+    }
+
+    #[test]
+    fn render_table_html_widths_emit_colgroup() {
+        use srs_core::types::record_type::RecordType;
+        let rt = RecordType {
+            id: "t".to_string(),
+            namespace: "n".to_string(),
+            name: "n".to_string(),
+            version: 1,
+            description: "d".to_string(),
+            fields: vec![],
+            field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let widths = vec![0.3, 0.7];
+        let out = render_table_html(&[], &[], "cls", &widths, &rt);
+        assert!(out.contains("<colgroup>"), "got: {out}");
+        assert!(out.contains("width:30%"), "got: {out}");
+        assert!(out.contains("width:70%"), "got: {out}");
+    }
+
+    /// Build a MemoryStore with one type + TypeQuery doc_view for composite renderer tests.
+    /// Creates a record pre-loaded with the given group entry and returns (store, record_id).
+    fn make_composite_table_store(
+        composite_renderer: Option<&str>,
+        columns: serde_json::Value,
+        rows: serde_json::Value,
+        theme: Option<srs_core::types::theme::Theme>,
+    ) -> crate::store::memory::MemoryStore {
+        use crate::package::Package;
+        use crate::record_store::create_record;
+        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::record::{FieldGroupEntry, FieldGroupValue, FieldValue};
+        use srs_core::types::record_type::{FieldAssignment, FieldGroup, RecordType};
+        use srs_core::types::view::{DocumentSection, DocumentView, EmptyBehavior, SectionSource};
+
+        let make_field = |id: &str, name: &str| Field {
+            id: id.to_string(),
+            namespace: "com.test".to_string(),
+            name: name.to_string(),
+            version: 1,
+            value_type: ValueType::String,
+            description: name.to_string(),
+            ai_guidance: serde_json::json!(null),
+            allowed_values: None,
+            vocabulary_ref: None,
+            default_value: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let fields = vec![
+            make_field("f-columns", "columns"),
+            make_field("f-rows", "rows"),
+            make_field("f-widths", "widths"),
+            make_field("f-subheading", "subheading"),
+            make_field("f-label", "label"),
+            make_field("f-title", "title"),
+        ];
+        let group_assignments: Vec<FieldAssignment> =
+            ["f-columns", "f-rows", "f-widths", "f-subheading", "f-label"]
+                .iter()
+                .enumerate()
+                .map(|(i, id)| FieldAssignment {
+                    field_id: id.to_string(),
+                    order: i as u32,
+                    required: false,
+                    display_label: None,
+                    repeatable: false,
+                    min_items: None,
+                    max_items: None,
+                })
+                .collect();
+
+        let record_type = RecordType {
+            id: "t-table-rec".to_string(),
+            namespace: "com.test".to_string(),
+            name: "table-record".to_string(),
+            version: 1,
+            description: "Record with composite table group".to_string(),
+            fields: vec![FieldAssignment {
+                field_id: "f-title".to_string(),
+                order: 0,
+                required: false,
+                display_label: None,
+                repeatable: false,
+                min_items: None,
+                max_items: None,
+            }],
+            field_groups: Some(vec![FieldGroup {
+                group_id: "tables".to_string(),
+                order: 0,
+                fields: group_assignments,
+                label: None,
+                description: None,
+                required: false,
+                repeatable: true,
+                min_items: None,
+                max_items: None,
+                composite_renderer: composite_renderer.map(|s| s.to_string()),
+            }]),
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let doc_view = DocumentView {
+            id: "dv-table".to_string(),
+            namespace: "com.test".to_string(),
+            name: "table-view".to_string(),
+            version: 1,
+            description: "Table document view".to_string(),
+            container_type: None,
+            sections: vec![DocumentSection {
+                section_id: "tables".to_string(),
+                title: None,
+                description: None,
+                order: 0,
+                source: SectionSource::TypeQuery {
+                    semantic_object_type: "com.test/table-record".to_string(),
+                    lifecycle_state: None,
+                    container_ids: None,
+                },
+                render_view_id: None,
+                title_field_id: None,
+                ordering: None,
+                required: None,
+                empty_behavior: Some(EmptyBehavior::Hide),
+            }],
+            navigation_links: None,
+            preamble: None,
+            format: Some("markdown".to_string()),
+            depth_offset: None,
+            theme_ref: theme
+                .as_ref()
+                .map(|t| srs_core::types::view::ThemeReference {
+                    mode: srs_core::types::view::ThemeMode::Bundled,
+                    path: None,
+                    url: None,
+                    theme_id: Some(t.id.clone()),
+                }),
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let manifest = crate::manifest::Manifest {
+            instance_index: vec![],
+            extra: HashMap::new(),
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "pkg-table".to_string(),
+            namespace: "com.test".to_string(),
+            name: "table-package".to_string(),
+            version: "1.0.0".to_string(),
+            fields,
+            record_types: vec![record_type],
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![doc_view],
+            themes: theme.into_iter().collect(),
+            blueprints: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = crate::store::memory::MemoryStore::new(manifest, package);
+
+        let group_entry = FieldGroupEntry {
+            entry_id: Some("e-1".to_string()),
+            field_values: vec![
+                FieldValue {
+                    field_id: "f-columns".to_string(),
+                    value: columns,
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                },
+                FieldValue {
+                    field_id: "f-rows".to_string(),
+                    value: rows,
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                },
+            ],
+        };
+        let gv = vec![FieldGroupValue {
+            group_id: "tables".to_string(),
+            entries: vec![group_entry],
+        }];
+        let fv = vec![FieldValue {
+            field_id: "f-title".to_string(),
+            value: serde_json::json!("Table Record"),
+            entries: None,
+            source: None,
+            edited_at: None,
+        }];
+        create_record(&store, "t-table-rec", 1, fv, Some(gv), "records").unwrap();
+        store
+    }
+
+    #[test]
+    fn composite_table_renders_gfm_table_in_document_view() {
+        let store = make_composite_table_store(
+            Some("table"),
+            serde_json::json!(["Col1", "Col2"]),
+            serde_json::json!([["A", "B"], ["C", "D"]]),
+            None,
+        );
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-table",
+            format: None,
+            theme_variant: None,
+            container_id: None,
+        })
+        .expect("render should succeed");
+        let out = &result.rendered;
+        assert!(
+            out.contains("| Col1 | Col2 |"),
+            "expected header row, got:\n{out}"
+        );
+        assert!(
+            out.contains("| --- | --- |"),
+            "expected separator, got:\n{out}"
+        );
+        assert!(
+            out.contains("| A | B |"),
+            "expected data row 1, got:\n{out}"
+        );
+        assert!(
+            out.contains("| C | D |"),
+            "expected data row 2, got:\n{out}"
+        );
+        assert!(
+            result.diagnostics.is_empty(),
+            "unexpected diagnostics: {:?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn composite_table_no_raw_json_in_output() {
+        let store = make_composite_table_store(
+            Some("table"),
+            serde_json::json!(["Q", "A"]),
+            serde_json::json!([["q1", "a1"]]),
+            None,
+        );
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-table",
+            format: None,
+            theme_variant: None,
+            container_id: None,
+        })
+        .expect("render");
+        let out = &result.rendered;
+        assert!(
+            !out.contains("[\"Q\""),
+            "raw JSON columns must not appear, got:\n{out}"
+        );
+        assert!(
+            !out.contains("[\"q1\""),
+            "raw JSON rows must not appear, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn unknown_composite_renderer_falls_back_and_emits_fg_cx1_diagnostic() {
+        let store = make_composite_table_store(
+            Some("com.acme/gantt"),
+            serde_json::json!(["Col"]),
+            serde_json::json!([["val"]]),
+            None,
+        );
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-table",
+            format: None,
+            theme_variant: None,
+            container_id: None,
+        })
+        .expect("render should not hard-error on unknown renderer");
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.contains("[FG-Cx1]") && d.contains("com.acme/gantt")),
+            "[FG-Cx1] diagnostic expected, got: {:?}",
+            result.diagnostics
+        );
+        assert!(
+            !result.rendered.contains("| Col |"),
+            "unknown renderer must not produce a GFM table, got:\n{}",
+            result.rendered
+        );
+    }
+
+    #[test]
+    fn caption_template_html_escapes_label_value() {
+        use crate::package::Package;
+        use crate::record_store::create_record;
+        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::record::{FieldGroupEntry, FieldGroupValue, FieldValue};
+        use srs_core::types::record_type::{FieldAssignment, FieldGroup, RecordType};
+        use srs_core::types::theme::{ElementTemplates, Theme};
+        use srs_core::types::view::{DocumentSection, DocumentView, EmptyBehavior, SectionSource};
+
+        let make_field = |id: &str, name: &str| Field {
+            id: id.to_string(),
+            namespace: "com.test".to_string(),
+            name: name.to_string(),
+            version: 1,
+            value_type: ValueType::String,
+            description: name.to_string(),
+            ai_guidance: serde_json::json!(null),
+            allowed_values: None,
+            vocabulary_ref: None,
+            default_value: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let fields = vec![
+            make_field("f-columns", "columns"),
+            make_field("f-rows", "rows"),
+            make_field("f-label", "label"),
+            make_field("f-title", "title"),
+        ];
+        let group_assignments: Vec<FieldAssignment> = ["f-columns", "f-rows", "f-label"]
+            .iter()
+            .enumerate()
+            .map(|(i, id)| FieldAssignment {
+                field_id: id.to_string(),
+                order: i as u32,
+                required: false,
+                display_label: None,
+                repeatable: false,
+                min_items: None,
+                max_items: None,
+            })
+            .collect();
+        let record_type = RecordType {
+            id: "t-cap".to_string(),
+            namespace: "com.test".to_string(),
+            name: "cap-record".to_string(),
+            version: 1,
+            description: "d".to_string(),
+            fields: vec![FieldAssignment {
+                field_id: "f-title".to_string(),
+                order: 0,
+                required: false,
+                display_label: None,
+                repeatable: false,
+                min_items: None,
+                max_items: None,
+            }],
+            field_groups: Some(vec![FieldGroup {
+                group_id: "g".to_string(),
+                order: 0,
+                fields: group_assignments,
+                label: None,
+                description: None,
+                required: false,
+                repeatable: true,
+                min_items: None,
+                max_items: None,
+                composite_renderer: Some("table".to_string()),
+            }]),
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let theme = Theme {
+            id: "th-cap".to_string(),
+            namespace: "com.test".to_string(),
+            name: "cap-theme".to_string(),
+            version: 1,
+            description: "d".to_string(),
+            targets: vec!["html".to_string()],
+            assets: None,
+            css_class_fields: None,
+            page_templates: None,
+            element_templates: Some(ElementTemplates {
+                document_wrapper: None,
+                section_wrapper: None,
+                section_wrapper_overrides: None,
+                record_wrapper: None,
+                record_wrapper_overrides: None,
+                field_row: None,
+                group_field_row_templates: None,
+                composite_renderer_config: Some(HashMap::from([(
+                    "table".to_string(),
+                    serde_json::json!({ "captionTemplate": "{{field-value}}" }),
+                )])),
+            }),
+            stylesheet: None,
+            typography: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let doc_view = DocumentView {
+            id: "dv-cap".to_string(),
+            namespace: "com.test".to_string(),
+            name: "cap-view".to_string(),
+            version: 1,
+            description: "d".to_string(),
+            container_type: None,
+            sections: vec![DocumentSection {
+                section_id: "s".to_string(),
+                title: None,
+                description: None,
+                order: 0,
+                source: SectionSource::TypeQuery {
+                    semantic_object_type: "com.test/cap-record".to_string(),
+                    lifecycle_state: None,
+                    container_ids: None,
+                },
+                render_view_id: None,
+                title_field_id: None,
+                ordering: None,
+                required: None,
+                empty_behavior: Some(EmptyBehavior::Hide),
+            }],
+            navigation_links: None,
+            preamble: None,
+            format: Some("html".to_string()),
+            depth_offset: None,
+            theme_ref: Some(srs_core::types::view::ThemeReference {
+                mode: srs_core::types::view::ThemeMode::Bundled,
+                path: None,
+                url: None,
+                theme_id: Some("th-cap".to_string()),
+            }),
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let manifest = crate::manifest::Manifest {
+            instance_index: vec![],
+            extra: HashMap::new(),
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "pkg-cap".to_string(),
+            namespace: "com.test".to_string(),
+            name: "cap-package".to_string(),
+            version: "1.0.0".to_string(),
+            fields,
+            record_types: vec![record_type],
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![doc_view],
+            themes: vec![theme],
+            blueprints: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = crate::store::memory::MemoryStore::new(manifest, package);
+        let entry = FieldGroupEntry {
+            entry_id: Some("e1".to_string()),
+            field_values: vec![
+                FieldValue {
+                    field_id: "f-columns".to_string(),
+                    value: serde_json::json!(["Col"]),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                },
+                FieldValue {
+                    field_id: "f-rows".to_string(),
+                    value: serde_json::json!([["val"]]),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                },
+                FieldValue {
+                    field_id: "f-label".to_string(),
+                    value: serde_json::json!("<script>alert(1)</script>"),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                },
+            ],
+        };
+        let gv = vec![FieldGroupValue {
+            group_id: "g".to_string(),
+            entries: vec![entry],
+        }];
+        let fv = vec![FieldValue {
+            field_id: "f-title".to_string(),
+            value: serde_json::json!("R"),
+            entries: None,
+            source: None,
+            edited_at: None,
+        }];
+        create_record(&store, "t-cap", 1, fv, Some(gv), "records").unwrap();
+
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-cap",
+            format: None,
+            theme_variant: None,
+            container_id: None,
+        })
+        .expect("render should succeed");
+        let out = &result.rendered;
+        assert!(
+            !out.contains("<script>"),
+            "raw <script> must not appear in HTML output, got:\n{out}"
+        );
+        assert!(
+            out.contains("&lt;script&gt;"),
+            "label must be HTML-escaped in captionTemplate output, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn empty_columns_and_rows_emits_fg_cx2_diagnostic_and_skips_entry() {
+        let store = make_composite_table_store(
+            Some("table"),
+            serde_json::json!([]),
+            serde_json::json!([]),
+            None,
+        );
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-table",
+            format: None,
+            theme_variant: None,
+            container_id: None,
+        })
+        .expect("render should not hard-error");
+        assert!(
+            result.diagnostics.iter().any(|d| d.contains("[FG-Cx2]")),
+            "[FG-Cx2] diagnostic expected for empty entry, got: {:?}",
+            result.diagnostics
+        );
+        assert!(
+            !result.rendered.contains("| --- |"),
+            "empty entry must not produce a table row"
+        );
     }
 }

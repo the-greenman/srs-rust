@@ -437,6 +437,7 @@ struct FieldGroupJson {
     repeatable: bool,
     min_items: Option<u32>,
     max_items: Option<u32>,
+    composite_renderer: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -570,6 +571,7 @@ fn load_package_from_dir(
                     repeatable: g.repeatable,
                     min_items: g.min_items,
                     max_items: g.max_items,
+                    composite_renderer: g.composite_renderer,
                 })
                 .collect()
         });

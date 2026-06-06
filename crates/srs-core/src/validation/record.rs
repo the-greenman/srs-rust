@@ -525,6 +525,7 @@ mod tests {
                 repeatable: true,
                 min_items,
                 max_items,
+                composite_renderer: None,
             }]),
             extends_type_id: None,
             extends_type_version: None,

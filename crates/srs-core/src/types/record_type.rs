@@ -88,6 +88,11 @@ pub struct FieldGroup {
     pub min_items: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_items: Option<u32>,
+    /// ext:field-groups — RFC-007: dispatch rendering to a named composite renderer.
+    /// Bare names (e.g. "table") are SRS-reserved; vendor values use "reverse-domain/name".
+    /// Unknown values fall back to per-field baseline and emit a diagnostic [FG-Cx1].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub composite_renderer: Option<String>,
 }
 
 impl FieldAssignment {
@@ -323,6 +328,7 @@ mod tests {
             repeatable: true,
             min_items: Some(1),
             max_items: Some(3),
+            composite_renderer: None,
         };
         let value = serde_json::to_value(&group).unwrap();
         let parsed: FieldGroup = serde_json::from_value(value).unwrap();
@@ -344,6 +350,7 @@ mod tests {
             repeatable: false,
             min_items: None,
             max_items: None,
+            composite_renderer: None,
         };
         let value = serde_json::to_value(&group).unwrap();
         assert!(value.get("label").is_none());
@@ -369,6 +376,7 @@ mod tests {
                 repeatable: true,
                 min_items: Some(1),
                 max_items: None,
+                composite_renderer: None,
             }]),
             extends_type_id: None,
             extends_type_version: None,
@@ -429,6 +437,7 @@ mod tests {
                     repeatable: false,
                     min_items: None,
                     max_items: None,
+                    composite_renderer: None,
                 },
                 FieldGroup {
                     group_id: "g-2".to_string(),
@@ -440,6 +449,7 @@ mod tests {
                     repeatable: false,
                     min_items: None,
                     max_items: None,
+                    composite_renderer: None,
                 },
             ]),
             extends_type_id: None,
