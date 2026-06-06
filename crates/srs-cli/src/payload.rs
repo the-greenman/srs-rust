@@ -544,6 +544,14 @@ pub struct TypeDeletePayload {
     pub id: String,
 }
 
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TypeSchemaPayload {
+    pub type_id: String,
+    pub type_version: u32,
+    pub schema: serde_json::Value,
+}
+
 // ── Extension payloads ────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]

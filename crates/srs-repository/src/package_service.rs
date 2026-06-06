@@ -471,6 +471,157 @@ pub fn get_type_by_name(
     }
 }
 
+/// Result for build_type_schema
+#[derive(Debug, Clone)]
+pub struct TypeSchemaResult {
+    pub type_id: String,
+    pub type_version: u32,
+    pub schema: serde_json::Value,
+}
+
+/// Build a draft-07 JSON Schema describing the `fieldValues` of a single Record
+/// for the given type. Each property maps the field `name` to a JSON Schema
+/// derived from its `valueType`, with `required`, `title`, `default`,
+/// `x-srs-order`, and `x-srs-ai-guidance` annotations.
+pub fn build_type_schema(
+    store: &dyn RepositoryStore,
+    type_id: &str,
+    type_version: Option<u32>,
+) -> Result<Option<TypeSchemaResult>, RepositoryError> {
+    let package = store.load_package()?;
+
+    let record_type = match type_version {
+        Some(v) => package.resolve_type(type_id, v),
+        None => package
+            .record_types
+            .iter()
+            .filter(|rt| rt.id == type_id)
+            .max_by_key(|rt| rt.version),
+    };
+
+    let record_type = match record_type {
+        Some(rt) => rt,
+        None => return Ok(None),
+    };
+
+    let mut properties = serde_json::Map::new();
+    let mut required_fields: Vec<serde_json::Value> = Vec::new();
+
+    let mut assignments = record_type.fields.clone();
+    assignments.sort_by_key(|fa| fa.order);
+
+    for assignment in &assignments {
+        let field = match package.resolve_field(&assignment.field_id) {
+            Some(f) => f,
+            None => continue,
+        };
+
+        let mut prop = field_schema_object(field);
+
+        let desc_title = if field.description.is_empty() {
+            None
+        } else {
+            Some(field.description.as_str())
+        };
+        let title = assignment
+            .display_label
+            .as_deref()
+            .or(desc_title)
+            .unwrap_or(&field.name);
+        prop.insert(
+            "title".to_string(),
+            serde_json::Value::String(title.to_string()),
+        );
+        prop.insert(
+            "x-srs-order".to_string(),
+            serde_json::Value::Number(assignment.order.into()),
+        );
+
+        if let Some(default) = &field.default_value {
+            prop.insert("default".to_string(), default.clone());
+        }
+
+        if let serde_json::Value::Object(ref ai) = field.ai_guidance {
+            if !ai.is_empty() {
+                prop.insert("x-srs-ai-guidance".to_string(), field.ai_guidance.clone());
+            }
+        }
+
+        if assignment.required {
+            required_fields.push(serde_json::Value::String(field.name.clone()));
+        }
+
+        properties.insert(field.name.clone(), serde_json::Value::Object(prop));
+    }
+
+    let schema = serde_json::json!({
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": properties,
+        "required": required_fields,
+        "additionalProperties": false,
+    });
+
+    Ok(Some(TypeSchemaResult {
+        type_id: record_type.id.clone(),
+        type_version: record_type.version,
+        schema,
+    }))
+}
+
+fn field_schema_object(field: &Field) -> serde_json::Map<String, serde_json::Value> {
+    use srs_core::types::field::ValueType;
+    let mut obj = serde_json::Map::new();
+    match field.value_type {
+        ValueType::String => {
+            obj.insert("type".to_string(), serde_json::json!("string"));
+        }
+        ValueType::Text => {
+            obj.insert("type".to_string(), serde_json::json!("string"));
+            obj.insert("x-srs-widget".to_string(), serde_json::json!("textarea"));
+        }
+        ValueType::Number => {
+            obj.insert("type".to_string(), serde_json::json!("number"));
+        }
+        ValueType::Boolean => {
+            obj.insert("type".to_string(), serde_json::json!("boolean"));
+        }
+        ValueType::Date => {
+            obj.insert("type".to_string(), serde_json::json!("string"));
+            obj.insert("format".to_string(), serde_json::json!("date"));
+        }
+        ValueType::Url => {
+            obj.insert("type".to_string(), serde_json::json!("string"));
+            obj.insert("format".to_string(), serde_json::json!("uri"));
+        }
+        ValueType::Select => {
+            let enum_values: Vec<serde_json::Value> = field
+                .allowed_values
+                .as_deref()
+                .unwrap_or(&[])
+                .iter()
+                .map(|v| serde_json::Value::String(v.clone()))
+                .collect();
+            obj.insert("enum".to_string(), serde_json::Value::Array(enum_values));
+        }
+        ValueType::Multiselect => {
+            let enum_values: Vec<serde_json::Value> = field
+                .allowed_values
+                .as_deref()
+                .unwrap_or(&[])
+                .iter()
+                .map(|v| serde_json::Value::String(v.clone()))
+                .collect();
+            obj.insert("type".to_string(), serde_json::json!("array"));
+            obj.insert(
+                "items".to_string(),
+                serde_json::json!({ "enum": enum_values }),
+            );
+        }
+    }
+    obj
+}
+
 /// Create a new field definition in the primary package.
 /// Writes the field JSON file and updates the boundary index.
 pub fn create_field(
@@ -1813,5 +1964,254 @@ mod tests {
                 .any(|p| p.boundary_path == Some("pkg/sub".to_string())),
             "sub-package should be present"
         );
+    }
+
+    use crate::manifest::Manifest;
+    use crate::package::Package;
+
+    fn make_field_with_type(id: &str, name: &str, vt: ValueType) -> Field {
+        Field {
+            id: id.to_string(),
+            namespace: "com.test".to_string(),
+            name: name.to_string(),
+            version: 1,
+            value_type: vt,
+            description: String::new(),
+            ai_guidance: serde_json::json!(null),
+            allowed_values: None,
+            vocabulary_ref: None,
+            default_value: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        }
+    }
+
+    fn make_assignment(
+        field_id: &str,
+        order: u32,
+        required: bool,
+    ) -> srs_core::types::record_type::FieldAssignment {
+        srs_core::types::record_type::FieldAssignment {
+            field_id: field_id.to_string(),
+            order,
+            required,
+            display_label: None,
+            repeatable: false,
+            min_items: None,
+            max_items: None,
+        }
+    }
+
+    fn make_type_with_fields(
+        type_id: &str,
+        name: &str,
+        assignments: Vec<srs_core::types::record_type::FieldAssignment>,
+    ) -> RecordType {
+        RecordType {
+            id: type_id.to_string(),
+            namespace: "com.test".to_string(),
+            name: name.to_string(),
+            version: 1,
+            description: String::new(),
+            fields: assignments,
+            field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        }
+    }
+
+    fn schema_store(fields: Vec<Field>, types: Vec<RecordType>) -> MemoryStore {
+        let manifest = Manifest {
+            instance_index: vec![],
+            extra: HashMap::new(),
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "test-pkg".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test".to_string(),
+            version: "1.0.0".to_string(),
+            fields,
+            record_types: types,
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![],
+            themes: vec![],
+            blueprints: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        MemoryStore::new(manifest, package)
+    }
+
+    #[test]
+    fn type_schema_not_found_returns_none() {
+        let store = schema_store(vec![], vec![]);
+        let result =
+            build_type_schema(&store, "00000000-0000-0000-0000-000000000999", None).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn type_schema_all_value_types() {
+        use serde_json::json;
+
+        let mut sel = make_field_with_type(
+            "00000000-0000-0000-0000-000000000007",
+            "sel_field",
+            ValueType::Select,
+        );
+        sel.allowed_values = Some(vec!["a".to_string(), "b".to_string()]);
+        let mut multi = make_field_with_type(
+            "00000000-0000-0000-0000-000000000008",
+            "multi_field",
+            ValueType::Multiselect,
+        );
+        multi.allowed_values = Some(vec!["x".to_string(), "y".to_string()]);
+
+        let fields = vec![
+            make_field_with_type(
+                "00000000-0000-0000-0000-000000000001",
+                "str_field",
+                ValueType::String,
+            ),
+            make_field_with_type(
+                "00000000-0000-0000-0000-000000000002",
+                "text_field",
+                ValueType::Text,
+            ),
+            make_field_with_type(
+                "00000000-0000-0000-0000-000000000003",
+                "num_field",
+                ValueType::Number,
+            ),
+            make_field_with_type(
+                "00000000-0000-0000-0000-000000000004",
+                "bool_field",
+                ValueType::Boolean,
+            ),
+            make_field_with_type(
+                "00000000-0000-0000-0000-000000000005",
+                "date_field",
+                ValueType::Date,
+            ),
+            make_field_with_type(
+                "00000000-0000-0000-0000-000000000006",
+                "url_field",
+                ValueType::Url,
+            ),
+            sel,
+            multi,
+        ];
+
+        let type_id = "00000000-0000-0000-0000-000000000010";
+        let assignments = vec![
+            make_assignment("00000000-0000-0000-0000-000000000001", 0, true),
+            make_assignment("00000000-0000-0000-0000-000000000002", 1, false),
+            make_assignment("00000000-0000-0000-0000-000000000003", 2, false),
+            make_assignment("00000000-0000-0000-0000-000000000004", 3, false),
+            make_assignment("00000000-0000-0000-0000-000000000005", 4, false),
+            make_assignment("00000000-0000-0000-0000-000000000006", 5, false),
+            make_assignment("00000000-0000-0000-0000-000000000007", 6, false),
+            make_assignment("00000000-0000-0000-0000-000000000008", 7, false),
+        ];
+        let record_type = make_type_with_fields(type_id, "all-types", assignments);
+        let store = schema_store(fields, vec![record_type]);
+
+        let result = build_type_schema(&store, type_id, None).unwrap().unwrap();
+        let props = result.schema["properties"].as_object().unwrap();
+
+        assert_eq!(props["str_field"]["type"], json!("string"));
+        assert!(props["str_field"].get("x-srs-widget").is_none());
+
+        assert_eq!(props["text_field"]["type"], json!("string"));
+        assert_eq!(props["text_field"]["x-srs-widget"], json!("textarea"));
+
+        assert_eq!(props["num_field"]["type"], json!("number"));
+        assert_eq!(props["bool_field"]["type"], json!("boolean"));
+
+        assert_eq!(props["date_field"]["type"], json!("string"));
+        assert_eq!(props["date_field"]["format"], json!("date"));
+
+        assert_eq!(props["url_field"]["type"], json!("string"));
+        assert_eq!(props["url_field"]["format"], json!("uri"));
+
+        assert_eq!(props["sel_field"]["enum"], json!(["a", "b"]));
+        assert!(props["sel_field"].get("type").is_none());
+
+        assert_eq!(props["multi_field"]["type"], json!("array"));
+        assert_eq!(props["multi_field"]["items"]["enum"], json!(["x", "y"]));
+
+        let required = result.schema["required"].as_array().unwrap();
+        assert_eq!(required.len(), 1);
+        assert_eq!(required[0], json!("str_field"));
+    }
+
+    #[test]
+    fn type_schema_preserves_order() {
+        let fields: Vec<Field> = (0u32..3)
+            .map(|i| {
+                make_field_with_type(
+                    &format!("00000000-0000-0000-0000-{:012}", i + 1),
+                    &format!("field_{i}"),
+                    ValueType::String,
+                )
+            })
+            .collect();
+
+        let type_id = "00000000-0000-0000-0000-000000000010";
+        let assignments = vec![
+            make_assignment("00000000-0000-0000-0000-000000000003", 2, false),
+            make_assignment("00000000-0000-0000-0000-000000000001", 0, false),
+            make_assignment("00000000-0000-0000-0000-000000000002", 1, false),
+        ];
+        let record_type = make_type_with_fields(type_id, "ordered", assignments);
+        let store = schema_store(fields, vec![record_type]);
+
+        let result = build_type_schema(&store, type_id, None).unwrap().unwrap();
+        let props = result.schema["properties"].as_object().unwrap();
+
+        assert_eq!(props["field_0"]["x-srs-order"], serde_json::json!(0));
+        assert_eq!(props["field_1"]["x-srs-order"], serde_json::json!(1));
+        assert_eq!(props["field_2"]["x-srs-order"], serde_json::json!(2));
+    }
+
+    #[test]
+    fn type_schema_explicit_version() {
+        let field = make_field_with_type(
+            "00000000-0000-0000-0000-000000000001",
+            "f1",
+            ValueType::String,
+        );
+        let type_id = "00000000-0000-0000-0000-000000000010";
+        let record_type = make_type_with_fields(
+            type_id,
+            "versioned",
+            vec![make_assignment(
+                "00000000-0000-0000-0000-000000000001",
+                0,
+                false,
+            )],
+        );
+        let store = schema_store(vec![field], vec![record_type]);
+
+        // explicit version 1 resolves
+        let result = build_type_schema(&store, type_id, Some(1))
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.type_version, 1);
+        assert_eq!(result.schema["properties"].as_object().unwrap().len(), 1);
+
+        // explicit version 99 not found
+        let missing = build_type_schema(&store, type_id, Some(99)).unwrap();
+        assert!(missing.is_none());
     }
 }

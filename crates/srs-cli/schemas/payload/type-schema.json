@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TypeSchemaPayload",
+  "type": "object",
+  "required": [
+    "schema",
+    "typeId",
+    "typeVersion"
+  ],
+  "properties": {
+    "schema": true,
+    "typeId": {
+      "type": "string"
+    },
+    "typeVersion": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0.0
+    }
+  }
+}

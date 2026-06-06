@@ -1,11 +1,13 @@
 use crate::commands::{with_store, CliContext, TypeCommand};
 use crate::output;
-use crate::payload::{TypeDeletePayload, TypeListEntry, TypeListPayload, TypePayload};
+use crate::payload::{
+    TypeDeletePayload, TypeListEntry, TypeListPayload, TypePayload, TypeSchemaPayload,
+};
 use anyhow::Result;
 use srs_core::types::record_type::RecordType;
 use srs_repository::package_service::{
-    create_type_in_package, delete_type, get_type_by_id_latest, list_types_filtered, update_type,
-    GetTypeResult, TypeListFilter,
+    build_type_schema, create_type_in_package, delete_type, get_type_by_id_latest,
+    list_types_filtered, update_type, GetTypeResult, TypeListFilter,
 };
 use std::io::{self, Read};
 
@@ -20,6 +22,7 @@ pub fn dispatch(ctx: CliContext, cmd: TypeCommand) -> Result<String> {
         TypeCommand::Create { package, json: _ } => cmd_type_create(ctx, package),
         TypeCommand::Update { id } => cmd_type_update(ctx, id),
         TypeCommand::Delete { id, version } => cmd_type_delete(ctx, id, version),
+        TypeCommand::Schema { id, type_version } => cmd_type_schema(ctx, id, type_version),
     }
 }
 
@@ -130,5 +133,24 @@ fn cmd_type_delete(ctx: CliContext, id: String, version: Option<u32>) -> Result<
     match with_store(&ctx, |store| Ok(delete_type(store, &id, resolved_version)?)) {
         Ok(result) => output::serialize("type delete", TypeDeletePayload { id: result.id }),
         Err(e) => Ok(output::err("type delete", vec![e.to_string()])),
+    }
+}
+
+fn cmd_type_schema(ctx: CliContext, id: String, type_version: Option<u32>) -> Result<String> {
+    match with_store(&ctx, |store| {
+        Ok(build_type_schema(store, &id, type_version)?)
+    })? {
+        Some(result) => output::serialize(
+            "type schema",
+            TypeSchemaPayload {
+                type_id: result.type_id,
+                type_version: result.type_version,
+                schema: result.schema,
+            },
+        ),
+        None => Ok(output::err(
+            "type schema",
+            vec![format!("Type with id '{}' not found", id)],
+        )),
     }
 }
