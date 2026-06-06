@@ -176,11 +176,11 @@ pub fn render_document_view(
     if let Some(preamble) = &dv.preamble {
         rendered.push_str(&substitute_vars(preamble, &ctx, None, false));
         rendered.push_str("\n\n");
-    } else if format == "markdown" || format == "adoc" {
-        rendered.push_str(&format!(
-            "{}{}\n\n",
-            heading_prefix(depth(1, ctx.depth_offset), format),
-            ctx.container_title
+    } else {
+        rendered.push_str(&format_heading(
+            depth(1, ctx.depth_offset),
+            format,
+            &ctx.container_title,
         ));
     }
 
@@ -197,20 +197,36 @@ pub fn render_document_view(
         )?);
     }
 
-    if let Some(theme) = ctx.active_theme.as_ref() {
-        if let Some(element_templates) = &theme.element_templates {
-            if let Some(document_wrapper) = &element_templates.document_wrapper {
-                rendered = apply_wrapper(
-                    document_wrapper,
-                    &rendered,
-                    &[
-                        ("container-title", &ctx.container_title),
-                        ("date", &chrono::Utc::now().format("%Y-%m-%d").to_string()),
-                    ],
-                    Some(theme),
-                );
+    if format == "html" {
+        if let Some(theme) = ctx.active_theme.as_ref() {
+            if let Some(stylesheet) = &theme.stylesheet {
+                if let Some(css) = stylesheet.get("content").and_then(|v| v.as_str()) {
+                    rendered = format!("<style>\n{css}\n</style>\n{rendered}");
+                } else if stylesheet.get("mode").and_then(|v| v.as_str()) == Some("local") {
+                    diagnostics.push(
+                        "[theme-stylesheet] local stylesheet paths are not yet resolved; stylesheet omitted"
+                            .to_string(),
+                    );
+                }
             }
         }
+    }
+
+    let doc_wrapper = ctx
+        .active_theme
+        .as_ref()
+        .and_then(|t| t.element_templates.as_ref())
+        .and_then(|et| et.document_wrapper.as_deref());
+    if let Some(wrapper) = doc_wrapper {
+        let date = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        rendered = apply_wrapper(
+            wrapper,
+            &rendered,
+            &[("container-title", &ctx.container_title), ("date", &date)],
+            ctx.active_theme.as_ref(),
+        );
+    } else if format == "html" {
+        rendered = format!("<div class=\"srs-document\">{rendered}</div>\n");
     }
 
     Ok(RenderResult {
@@ -765,11 +781,72 @@ fn resolve_asset<'a>(theme: &'a Theme, name: &str) -> &'a str {
 }
 
 fn format_field_row(format: &str, label: &str, value: &str) -> String {
-    if format == "markdown" {
-        format!("**{}**: {}", label, value)
-    } else {
-        format!("{}: {}", label, value)
+    match format {
+        "markdown" => format!("**{label}**: {value}"),
+        "html" => {
+            let el = html_escape(label);
+            let fn_class = normalise_css_class(label);
+            format!("<div class=\"srs-field srs-fieldname-{fn_class}\"><span class=\"field-label\">{el}</span> <span class=\"field-value\">{value}</span></div>")
+        }
+        _ => format!("{label}: {value}"),
     }
+}
+
+fn normalise_css_class(value: &str) -> String {
+    let s = value.to_lowercase();
+    let s: String = s
+        .chars()
+        .map(|c| {
+            if c == '_' || c == ' ' || c == '.' {
+                '-'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let s: String = s
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-')
+        .collect();
+    let s = s
+        .split('-')
+        .filter(|p| !p.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    s.trim_matches('-').to_string()
+}
+
+fn css_classes_for_record(
+    record: &srs_core::types::record::Record,
+    ctx: &RenderContext<'_>,
+) -> String {
+    let type_class = format!(
+        "srs-type-{}-{}",
+        normalise_css_class(&record.type_namespace),
+        normalise_css_class(&record.type_name)
+    );
+    let mut classes = format!("srs-record {type_class}");
+
+    if let Some(theme) = ctx.active_theme.as_ref() {
+        if let Some(field_ids) = &theme.css_class_fields {
+            for field_id in field_ids {
+                if let Some(field) = ctx.package.resolve_field(field_id) {
+                    if let Some(fv) = record.find_field_value(field_id) {
+                        if let Some(raw) = fv.value.as_str() {
+                            classes.push(' ');
+                            classes.push_str(&format!(
+                                "srs-field-{}-{}",
+                                normalise_css_class(&field.name),
+                                normalise_css_class(raw)
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    classes
 }
 
 fn resolve_container_title(
@@ -927,10 +1004,10 @@ fn render_section(
 
     let mut out = String::new();
     if let Some(title) = &section.title {
-        out.push_str(&format!(
-            "{}{}\n\n",
-            heading_prefix(depth(2, ctx.depth_offset), ctx.format),
-            title
+        out.push_str(&format_heading(
+            depth(2, ctx.depth_offset),
+            ctx.format,
+            title,
         ));
     }
     if let Some(description) = &section.description {
@@ -956,19 +1033,24 @@ fn render_section(
         )?);
     }
 
-    if let Some(theme) = ctx.active_theme.as_ref() {
-        if let Some(section_wrapper) = select_section_wrapper(theme, &section.section_id) {
-            let section_title = section.title.as_deref().unwrap_or("");
-            out = apply_wrapper(
-                section_wrapper,
-                &out,
-                &[
-                    ("section-title", section_title),
-                    ("section-id", section.section_id.as_str()),
-                ],
-                Some(theme),
-            );
-        }
+    let section_wrapper = ctx
+        .active_theme
+        .as_ref()
+        .and_then(|t| select_section_wrapper(t, &section.section_id));
+    if let Some(wrapper) = section_wrapper {
+        let section_title = section.title.as_deref().unwrap_or("");
+        out = apply_wrapper(
+            wrapper,
+            &out,
+            &[
+                ("section-title", section_title),
+                ("section-id", section.section_id.as_str()),
+            ],
+            ctx.active_theme.as_ref(),
+        );
+    } else if ctx.format == "html" {
+        let css_id = normalise_css_class(&section.section_id);
+        out = format!("<div class=\"srs-section srs-section-{css_id}\">{out}</div>\n");
     }
     Ok(out)
 }
@@ -1090,11 +1172,7 @@ fn render_record_at_level(
     if let Some(title_field_id) = &section.title_field_id {
         if let Some(title) = record.get_field_value_str(title_field_id) {
             record_heading_value = title.to_string();
-            out.push_str(&format!(
-                "{}{}\n\n",
-                heading_prefix(heading_level, ctx.format),
-                title
-            ));
+            out.push_str(&format_heading(heading_level, ctx.format, title));
         }
     }
 
@@ -1202,7 +1280,8 @@ fn render_record_at_level(
         let field_value = record.find_field_value(&field_id);
         let field_def = ctx.package.resolve_field(&field_id);
         let field_type = field_def.map(|field| field.value_type);
-        let rendered_value = field_value.and_then(|fv| render_field_value(fv, field_type));
+        let rendered_value =
+            field_value.and_then(|fv| render_field_value(fv, field_type, ctx.format));
         if field.required && rendered_value.is_none() {
             diagnostics.push(format!(
                 "[view-required] view {} record {} is missing required field {} for rendered view",
@@ -1294,19 +1373,25 @@ fn render_record_at_level(
         }
     }
 
-    if let Some(theme) = ctx.active_theme.as_ref() {
-        if let Some(record_wrapper) = select_record_wrapper(theme, &record.type_id) {
-            out = apply_wrapper(
-                record_wrapper,
-                &out,
-                &[
-                    ("record-heading", &record_heading_value),
-                    ("type-namespace", &record.type_namespace),
-                    ("type-name", &record.type_name),
-                ],
-                Some(theme),
-            );
-        }
+    let record_wrapper = ctx
+        .active_theme
+        .as_ref()
+        .and_then(|t| select_record_wrapper(t, &record.type_id));
+    if let Some(wrapper) = record_wrapper {
+        out = apply_wrapper(
+            wrapper,
+            &out,
+            &[
+                ("record-heading", &record_heading_value),
+                ("type-namespace", &record.type_namespace),
+                ("type-name", &record.type_name),
+                ("css-classes", &css_classes_for_record(record, ctx)),
+            ],
+            ctx.active_theme.as_ref(),
+        );
+    } else if ctx.format == "html" {
+        let classes = css_classes_for_record(record, ctx);
+        out = format!("<div class=\"{classes}\">{out}</div>\n");
     }
 
     out.push('\n');
@@ -1333,10 +1418,10 @@ fn render_field_groups(
 
         if let Some(label) = &group.label {
             out.push('\n');
-            out.push_str(&format!(
-                "{}{}\n\n",
-                heading_prefix(depth(4, ctx.depth_offset), ctx.format),
-                label
+            out.push_str(&format_heading(
+                depth(4, ctx.depth_offset),
+                ctx.format,
+                label,
             ));
         }
 
@@ -1359,7 +1444,7 @@ fn render_field_groups(
                     .find_field_assignment(&assignment.field_id)
                     .and_then(|_| ctx.package.resolve_field(&assignment.field_id))
                     .map(|field| field.value_type);
-                let Some(value_text) = render_field_value(fv, field_type) else {
+                let Some(value_text) = render_field_value(fv, field_type, ctx.format) else {
                     continue;
                 };
                 let label = assignment
@@ -1403,6 +1488,7 @@ fn render_field_groups(
 fn render_field_value(
     field_value: &srs_core::types::record::FieldValue,
     value_type: Option<ValueType>,
+    format: &str,
 ) -> Option<String> {
     if let Some(entries) = &field_value.entries {
         if entries.is_empty() {
@@ -1410,7 +1496,7 @@ fn render_field_value(
         }
         let texts: Vec<String> = entries
             .iter()
-            .filter_map(|entry| value_to_text_owned(&entry.value))
+            .filter_map(|entry| value_to_text_owned(&entry.value, format))
             .collect();
         if texts.is_empty() {
             return None;
@@ -1425,17 +1511,30 @@ fn render_field_value(
         };
         return Some(joined);
     }
-    value_to_text_owned(&field_value.value)
+    value_to_text_owned(&field_value.value, format)
 }
 
-fn value_to_text_owned(value: &serde_json::Value) -> Option<String> {
+fn value_to_text_owned(value: &serde_json::Value, format: &str) -> Option<String> {
     if let Some(s) = value.as_str() {
-        return Some(s.to_string());
+        let text = if format == "html" {
+            html_escape(s)
+        } else {
+            s.to_string()
+        };
+        return Some(text);
     }
     if let Some(array) = value.as_array() {
         let parts: Vec<String> = array
             .iter()
-            .filter_map(|item| item.as_str().map(std::string::ToString::to_string))
+            .filter_map(|item| {
+                item.as_str().map(|s| {
+                    if format == "html" {
+                        html_escape(s)
+                    } else {
+                        s.to_string()
+                    }
+                })
+            })
             .collect();
         if !parts.is_empty() {
             return Some(parts.join(", "));
@@ -1499,6 +1598,28 @@ fn heading_prefix(level: u32, format: &str) -> String {
     }
 }
 
+fn format_heading(level: u32, format: &str, text: &str) -> String {
+    match format {
+        "html" => format!("<h{level}>{}</h{level}>\n", html_escape(text)),
+        _ => format!("{}{text}\n\n", heading_prefix(level, format)),
+    }
+}
+
+fn html_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 fn depth(base: u32, depth_offset: u32) -> u32 {
     base + depth_offset
 }
@@ -1538,6 +1659,66 @@ mod tests {
     #[test]
     fn heading_prefix_text_returns_empty() {
         assert_eq!(heading_prefix(2, "text"), "");
+    }
+
+    #[test]
+    fn format_heading_markdown() {
+        assert_eq!(format_heading(1, "markdown", "Title"), "# Title\n\n");
+        assert_eq!(format_heading(3, "markdown", "Sub"), "### Sub\n\n");
+    }
+
+    #[test]
+    fn format_heading_html() {
+        assert_eq!(format_heading(1, "html", "Title"), "<h1>Title</h1>\n");
+        assert_eq!(format_heading(2, "html", "A & B"), "<h2>A &amp; B</h2>\n");
+    }
+
+    #[test]
+    fn format_heading_adoc() {
+        assert_eq!(format_heading(2, "adoc", "Title"), "== Title\n\n");
+    }
+
+    #[test]
+    fn format_heading_text() {
+        assert_eq!(format_heading(2, "text", "Title"), "Title\n\n");
+    }
+
+    #[test]
+    fn html_escape_all_chars() {
+        assert_eq!(
+            html_escape("a & b < c > d \"e\" 'f'"),
+            "a &amp; b &lt; c &gt; d &quot;e&quot; &#39;f&#39;"
+        );
+    }
+
+    #[test]
+    fn html_escape_passthrough() {
+        assert_eq!(html_escape("hello world"), "hello world");
+    }
+
+    #[test]
+    fn normalise_css_class_basic() {
+        assert_eq!(normalise_css_class("com.example.foo"), "com-example-foo");
+    }
+
+    #[test]
+    fn normalise_css_class_underscores_spaces() {
+        assert_eq!(normalise_css_class("hello_world foo"), "hello-world-foo");
+    }
+
+    #[test]
+    fn normalise_css_class_collapse_hyphens() {
+        assert_eq!(normalise_css_class("a--b"), "a-b");
+    }
+
+    #[test]
+    fn normalise_css_class_uppercase() {
+        assert_eq!(normalise_css_class("SomeType"), "sometype");
+    }
+
+    #[test]
+    fn normalise_css_class_trim_hyphens() {
+        assert_eq!(normalise_css_class("-foo-"), "foo");
     }
 
     #[test]
