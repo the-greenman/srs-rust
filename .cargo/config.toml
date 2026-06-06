@@ -1,0 +1,5 @@
+# WebAssembly build configuration.
+# getrandom v0.3 (pulled in transitively via ahash → jsonschema) requires both
+# the "wasm_js" feature AND this cfg flag to select the browser crypto backend.
+[target.wasm32-unknown-unknown]
+rustflags = ["--cfg", 'getrandom_backend="wasm_js"']

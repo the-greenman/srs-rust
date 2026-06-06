@@ -198,15 +198,15 @@ impl JsonStore {
         Ok(store)
     }
 
-    pub fn open(file_path: impl Into<PathBuf>) -> Result<Self, RepositoryError> {
-        let file_path = file_path.into();
-        let raw = std::fs::read_to_string(&file_path).map_err(|source| RepositoryError::Io {
-            path: file_path.clone(),
-            source,
-        })?;
+    /// Load a repository from a `.srsj` JSON string without touching the filesystem.
+    ///
+    /// `manifest.root` is set to `"."` — acceptable for read-only use because the `.srsj`
+    /// format embeds all package definitions inline and requires no external path resolution.
+    pub fn from_srsj(content: &str) -> Result<Self, RepositoryError> {
+        let mem_path = PathBuf::from("<memory>");
         let envelope: JsonStoreFile =
-            serde_json::from_str(&raw).map_err(|source| RepositoryError::Serialize {
-                path: file_path.clone(),
+            serde_json::from_str(content).map_err(|source| RepositoryError::Serialize {
+                path: mem_path.clone(),
                 source,
             })?;
         if envelope.srsj != "1" {
@@ -217,22 +217,44 @@ impl JsonStore {
         let mut manifest: Manifest =
             serde_json::from_value(envelope.manifest).map_err(|source| {
                 RepositoryError::ManifestParse {
-                    path: file_path.clone(),
+                    path: mem_path.clone(),
                     source,
                 }
             })?;
-        manifest.root = file_path
-            .parent()
-            .unwrap_or(std::path::Path::new("."))
-            .to_path_buf();
+        manifest.root = PathBuf::from(".");
         Ok(Self {
-            file_path,
+            file_path: mem_path,
             state: RefCell::new(JsonStoreState {
                 initialized: true,
                 manifest,
                 data: envelope.data,
             }),
         })
+    }
+
+    pub fn open(file_path: impl Into<PathBuf>) -> Result<Self, RepositoryError> {
+        let file_path = file_path.into();
+        let raw = std::fs::read_to_string(&file_path).map_err(|source| RepositoryError::Io {
+            path: file_path.clone(),
+            source,
+        })?;
+        let mut store = Self::from_srsj(&raw).map_err(|e| match e {
+            RepositoryError::Serialize { source, .. } => RepositoryError::Serialize {
+                path: file_path.clone(),
+                source,
+            },
+            RepositoryError::ManifestParse { source, .. } => RepositoryError::ManifestParse {
+                path: file_path.clone(),
+                source,
+            },
+            other => other,
+        })?;
+        store.file_path = file_path.clone();
+        store.state.borrow_mut().manifest.root = file_path
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .to_path_buf();
+        Ok(store)
     }
 
     fn flush(&self) -> Result<(), RepositoryError> {
@@ -1863,5 +1885,66 @@ mod tests {
 
         let summaries = store.list_container_summaries().unwrap();
         assert!(summaries.iter().any(|(id, _)| id == "fs-c-001"));
+    }
+
+    #[test]
+    fn from_str_roundtrip() {
+        let srsj = serde_json::json!({
+            "srsj": "1",
+            "manifest": {
+                "repositoryId": "mem-repo",
+                "srsVersion": "2.0-draft",
+                "namespace": "com.test",
+                "instanceIndex": [
+                    {"instanceId": "inst-001", "tier": 0, "path": "records/a.json"}
+                ],
+                "packageRef": {"mode": "local", "path": "package"}
+            },
+            "data": {
+                "records/a.json": {"instanceId": "inst-001", "sections": []}
+            }
+        })
+        .to_string();
+
+        let store = JsonStore::from_srsj(&srsj).unwrap();
+        let manifest = store.load_manifest().unwrap();
+        assert_eq!(manifest.instance_index.len(), 1);
+        assert_eq!(manifest.instance_index[0].instance_id(), "inst-001");
+    }
+
+    #[test]
+    fn from_str_bad_version() {
+        let srsj = serde_json::json!({
+            "srsj": "2",
+            "manifest": {},
+            "data": {}
+        })
+        .to_string();
+
+        match JsonStore::from_srsj(&srsj) {
+            Err(RepositoryError::InvalidSnapshotData { .. }) => {}
+            Err(e) => panic!("expected InvalidSnapshotData, got {:?}", e),
+            Ok(_) => panic!("expected error but got Ok"),
+        }
+    }
+
+    #[test]
+    fn open_delegates_to_from_str() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("repo.srsj");
+        let store = JsonStore::create(&path).unwrap();
+        create_repository(&store, &init_input()).unwrap();
+        drop(store);
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        let via_open = JsonStore::open(&path).unwrap();
+        let via_from_str = JsonStore::from_srsj(&content).unwrap();
+
+        let manifest_open = via_open.load_manifest().unwrap();
+        let manifest_str = via_from_str.load_manifest().unwrap();
+        assert_eq!(
+            manifest_open.instance_index.len(),
+            manifest_str.instance_index.len()
+        );
     }
 }
