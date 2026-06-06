@@ -1,21 +1,13 @@
-use crate::error::RepositoryError;
-use crate::manifest::load_manifest;
 use srs_core::types::blueprint::Blueprint;
-use srs_core::types::field::{Field, ValueType};
+use srs_core::types::field::Field;
 use srs_core::types::lifecycle::Lifecycle;
-use srs_core::types::record_type::{
-    FieldAssignment, FieldAssignmentOverride, FieldGroup, RecordType, TypeLifecycle,
-};
+use srs_core::types::record_type::{FieldAssignment, RecordType};
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::types::term::Term;
 use srs_core::types::theme::Theme;
 use srs_core::types::view::{DocumentView, View};
 use srs_core::types::vocabulary::Vocabulary;
-use srs_core::validation::relation_type_definition::validate_relation_type_definition;
-use srs_core::validation::theme::validate_theme;
-use srs_core::validation::view::{validate_document_view, validate_view};
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// A loaded package containing field definitions, record types, views, themes, and blueprints.
 ///
@@ -40,37 +32,6 @@ pub struct Package {
     pub lifecycles: Vec<Lifecycle>,
 }
 
-/// Package metadata as defined in package.json
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PackageMetadata {
-    id: String,
-    namespace: String,
-    name: String,
-    version: String,
-    #[serde(default)]
-    fields: Vec<String>,
-    #[serde(default)]
-    types: Vec<String>,
-    #[serde(default)]
-    relation_types: Vec<String>,
-    #[serde(default)]
-    views: Vec<String>,
-    #[serde(default)]
-    document_views: Vec<String>,
-    #[serde(default)]
-    themes: Vec<String>,
-    #[serde(default)]
-    blueprints: Vec<String>,
-    /// ext:type-inheritance — external package references declared as dependencies.
-    #[serde(default)]
-    dependency_refs: Vec<DependencyRef>,
-    #[serde(default)]
-    vocabularies: Vec<String>,
-    #[serde(default)]
-    lifecycles: Vec<String>,
-}
-
 /// ext:type-inheritance — a declared external package dependency reference.
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -78,99 +39,6 @@ pub struct DependencyRef {
     pub namespace: String,
     pub name: String,
     pub version: String,
-}
-
-/// Field JSON format from package/fields/*.json
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct FieldJson {
-    id: String,
-    namespace: String,
-    name: String,
-    version: u32,
-    value_type: String,
-    description: Option<String>,
-    ai_guidance: Option<serde_json::Value>,
-    allowed_values: Option<Vec<String>>,
-    #[serde(default)]
-    vocabulary_ref: Option<String>,
-    default_value: Option<serde_json::Value>,
-    created_at: Option<String>,
-    #[serde(flatten)]
-    _extra: HashMap<String, serde_json::Value>,
-}
-
-/// Type JSON format from package/types/*.json
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TypeJson {
-    id: String,
-    namespace: String,
-    name: String,
-    version: u32,
-    description: Option<String>,
-    fields: Vec<FieldAssignmentJson>,
-    #[serde(default)]
-    field_groups: Option<Vec<FieldGroupJson>>,
-    #[serde(default)]
-    extends_type_id: Option<String>,
-    #[serde(default)]
-    extends_type_version: Option<u32>,
-    #[serde(default)]
-    field_order: Option<Vec<String>>,
-    #[serde(default)]
-    field_assignment_overrides: Option<Vec<FieldAssignmentOverrideJson>>,
-    #[serde(default)]
-    lifecycle: Option<TypeLifecycle>,
-    #[serde(default)]
-    lifecycle_ref: Option<String>,
-    created_at: Option<String>,
-    #[serde(flatten)]
-    _extra: HashMap<String, serde_json::Value>,
-}
-
-/// Field assignment format within type JSON
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct FieldAssignmentJson {
-    field_id: String,
-    order: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    required: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    display_label: Option<String>,
-    #[serde(default)]
-    repeatable: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    min_items: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    max_items: Option<u32>,
-}
-
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct FieldGroupJson {
-    group_id: String,
-    order: u32,
-    fields: Vec<FieldAssignmentJson>,
-    label: Option<String>,
-    description: Option<String>,
-    #[serde(default)]
-    required: bool,
-    #[serde(default)]
-    repeatable: bool,
-    min_items: Option<u32>,
-    max_items: Option<u32>,
-    composite_renderer: Option<String>,
-}
-
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct FieldAssignmentOverrideJson {
-    field_id: String,
-    display_label: Option<String>,
-    display_hint: Option<String>,
-    required: Option<bool>,
 }
 
 impl Package {
@@ -443,556 +311,13 @@ impl Package {
     }
 }
 
-/// Load raw package content from a directory containing a package.json.
-#[allow(clippy::type_complexity)]
-fn load_package_from_dir(
-    package_dir: &Path,
-    rt_by_type: &mut HashMap<String, (RelationTypeDefinition, PathBuf)>,
-) -> Result<
-    (
-        Vec<Field>,
-        Vec<RecordType>,
-        Vec<View>,
-        Vec<DocumentView>,
-        Vec<Theme>,
-        Vec<Blueprint>,
-    ),
-    RepositoryError,
-> {
-    let package_json_path = package_dir.join("package.json");
-
-    let package_content =
-        std::fs::read_to_string(&package_json_path).map_err(|e| RepositoryError::Io {
-            path: package_json_path.clone(),
-            source: e,
-        })?;
-
-    let metadata: PackageMetadata =
-        serde_json::from_str(&package_content).map_err(|e| RepositoryError::PackageLoad {
-            path: package_json_path,
-            source: e,
-        })?;
-
-    // Load all fields
-    let mut fields = Vec::new();
-    for field_path in &metadata.fields {
-        let full_path = package_dir.join(field_path);
-        let field_content =
-            std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
-                path: full_path.clone(),
-                source: e,
-            })?;
-
-        let field_json: FieldJson =
-            serde_json::from_str(&field_content).map_err(|e| RepositoryError::PackageLoad {
-                path: full_path.clone(),
-                source: e,
-            })?;
-
-        fields.push(Field {
-            id: field_json.id,
-            namespace: field_json.namespace,
-            name: field_json.name,
-            version: field_json.version,
-            value_type: parse_value_type(&field_json.value_type, &full_path)?,
-            description: field_json.description.unwrap_or_default(),
-            ai_guidance: field_json.ai_guidance.unwrap_or(serde_json::Value::Null),
-            allowed_values: field_json.allowed_values,
-            vocabulary_ref: field_json.vocabulary_ref,
-            default_value: field_json.default_value,
-            created_at: field_json.created_at.unwrap_or_default(),
-            extra: HashMap::new(),
-        });
-    }
-
-    // Load all record types
-    let mut record_types = Vec::new();
-    for type_path in &metadata.types {
-        let full_path = package_dir.join(type_path);
-        let type_content =
-            std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
-                path: full_path.clone(),
-                source: e,
-            })?;
-
-        let type_json: TypeJson =
-            serde_json::from_str(&type_content).map_err(|e| RepositoryError::PackageLoad {
-                path: full_path,
-                source: e,
-            })?;
-
-        let type_fields: Vec<FieldAssignment> = type_json
-            .fields
-            .into_iter()
-            .map(|fa| FieldAssignment {
-                field_id: fa.field_id,
-                order: fa.order,
-                required: fa.required.unwrap_or(true),
-                display_label: fa.display_label,
-                repeatable: fa.repeatable,
-                min_items: fa.min_items,
-                max_items: fa.max_items,
-            })
-            .collect();
-        let field_groups = type_json.field_groups.map(|groups| {
-            groups
-                .into_iter()
-                .map(|group| FieldGroup {
-                    group_id: group.group_id,
-                    order: group.order,
-                    fields: group
-                        .fields
-                        .into_iter()
-                        .map(|fa| FieldAssignment {
-                            field_id: fa.field_id,
-                            order: fa.order,
-                            required: fa.required.unwrap_or(true),
-                            display_label: fa.display_label,
-                            repeatable: fa.repeatable,
-                            min_items: fa.min_items,
-                            max_items: fa.max_items,
-                        })
-                        .collect(),
-                    label: group.label,
-                    description: group.description,
-                    required: group.required,
-                    repeatable: group.repeatable,
-                    min_items: group.min_items,
-                    max_items: group.max_items,
-                    composite_renderer: group.composite_renderer,
-                })
-                .collect()
-        });
-
-        let field_assignment_overrides = type_json.field_assignment_overrides.map(|overrides| {
-            overrides
-                .into_iter()
-                .map(|o| FieldAssignmentOverride {
-                    field_id: o.field_id,
-                    display_label: o.display_label,
-                    display_hint: o.display_hint,
-                    required: o.required,
-                })
-                .collect()
-        });
-        record_types.push(RecordType {
-            id: type_json.id,
-            namespace: type_json.namespace,
-            name: type_json.name,
-            version: type_json.version,
-            description: type_json.description.unwrap_or_default(),
-            fields: type_fields,
-            field_groups,
-            extends_type_id: type_json.extends_type_id,
-            extends_type_version: type_json.extends_type_version,
-            field_order: type_json.field_order,
-            field_assignment_overrides,
-            lifecycle: type_json.lifecycle,
-            lifecycle_ref: type_json.lifecycle_ref,
-            created_at: type_json.created_at.unwrap_or_default(),
-            extra: HashMap::new(),
-        });
-    }
-
-    // Load all relation type definitions, detecting conflicts and coalescing identical defs.
-    for rt_path in &metadata.relation_types {
-        let full_path = package_dir.join(rt_path);
-        let rt_content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
-            path: full_path.clone(),
-            source: e,
-        })?;
-
-        let def: RelationTypeDefinition =
-            serde_json::from_str(&rt_content).map_err(|e| RepositoryError::PackageLoad {
-                path: full_path.clone(),
-                source: e,
-            })?;
-
-        validate_relation_type_definition(&def).map_err(|source| {
-            RepositoryError::RelationTypeDefinitionValidation {
-                path: full_path.clone(),
-                source,
-            }
-        })?;
-
-        if let Some((existing, existing_path)) = rt_by_type.get(&def.key) {
-            if existing != &def {
-                return Err(RepositoryError::RelationTypeDefinitionConflict {
-                    relation_type: def.key.clone(),
-                    path_a: existing_path.clone(),
-                    path_b: full_path,
-                });
-            }
-            // Coalesce: keep existing, skip duplicate
-        } else {
-            rt_by_type.insert(def.key.clone(), (def, full_path));
-        }
-    }
-
-    // Load all views (L1)
-    let mut views = Vec::new();
-    for view_path in &metadata.views {
-        let full_path = package_dir.join(view_path);
-        let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
-            path: full_path.clone(),
-            source: e,
-        })?;
-        let view: View =
-            serde_json::from_str(&content).map_err(|source| RepositoryError::ViewLoad {
-                path: full_path.clone(),
-                source,
-            })?;
-        validate_view(&view).map_err(|source| RepositoryError::ViewValidation {
-            path: full_path.clone(),
-            source,
-        })?;
-        views.push(view);
-    }
-
-    // Load all document views (L2)
-    let mut document_views = Vec::new();
-    for document_view_path in &metadata.document_views {
-        let full_path = package_dir.join(document_view_path);
-        let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
-            path: full_path.clone(),
-            source: e,
-        })?;
-        let document_view: DocumentView =
-            serde_json::from_str(&content).map_err(|source| RepositoryError::DocumentViewLoad {
-                path: full_path.clone(),
-                source,
-            })?;
-        validate_document_view(&document_view).map_err(|source| {
-            RepositoryError::DocumentViewValidation {
-                path: full_path.clone(),
-                source,
-            }
-        })?;
-        document_views.push(document_view);
-    }
-
-    // Load all themes (ext:themes-l1)
-    let mut themes = Vec::new();
-    for theme_path in &metadata.themes {
-        let full_path = package_dir.join(theme_path);
-        let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
-            path: full_path.clone(),
-            source: e,
-        })?;
-        let theme: Theme =
-            serde_json::from_str(&content).map_err(|source| RepositoryError::ThemeLoad {
-                path: full_path.clone(),
-                source,
-            })?;
-        validate_theme(&theme).map_err(|source| RepositoryError::ThemeValidation {
-            path: full_path.clone(),
-            source,
-        })?;
-        themes.push(theme);
-    }
-
-    // Load all blueprints
-    let mut blueprints = Vec::new();
-    for blueprint_path in &metadata.blueprints {
-        let full_path = package_dir.join(blueprint_path);
-        let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
-            path: full_path.clone(),
-            source: e,
-        })?;
-        let blueprint: Blueprint =
-            serde_json::from_str(&content).map_err(|source| RepositoryError::PackageLoad {
-                path: full_path.clone(),
-                source,
-            })?;
-        blueprints.push(blueprint);
-    }
-
-    Ok((
-        fields,
-        record_types,
-        views,
-        document_views,
-        themes,
-        blueprints,
-    ))
-}
-
-/// Load a package from a repository's `package/` directory, merging any sub-packages
-/// declared in `manifest.json` `packageRefs`.
-///
-/// The `repo_root` parameter is the path to the repository root (where the package/ directory is located).
-pub fn load_package(repo_root: &Path) -> Result<Package, RepositoryError> {
-    let package_dir = repo_root.join("package");
-    let package_json_path = package_dir.join("package.json");
-
-    // Read the primary package id/namespace/name/version from its manifest.
-    let package_content =
-        std::fs::read_to_string(&package_json_path).map_err(|e| RepositoryError::Io {
-            path: package_json_path.clone(),
-            source: e,
-        })?;
-    let metadata: PackageMetadata =
-        serde_json::from_str(&package_content).map_err(|e| RepositoryError::PackageLoad {
-            path: package_json_path,
-            source: e,
-        })?;
-
-    // Shared relation-type map for conflict detection across all packages.
-    let mut rt_by_type: HashMap<String, (RelationTypeDefinition, PathBuf)> = HashMap::new();
-
-    // Load the primary package.
-    let (mut fields, mut record_types, mut views, mut document_views, mut themes, mut blueprints) =
-        load_package_from_dir(&package_dir, &mut rt_by_type)?;
-
-    // Merge sub-packages declared in manifest.json packageRefs.
-    // Manifest load failure is an error — it means the repo is malformed.
-    let manifest = load_manifest(repo_root)?;
-    if let Some(pkg_refs) = manifest.extra.get("packageRefs").and_then(|v| v.as_array()) {
-        // Track source paths for each collected id so we can report conflicts.
-        let mut field_sources: HashMap<String, PathBuf> = HashMap::new();
-        let mut type_sources: HashMap<(String, u32), PathBuf> = HashMap::new();
-        let mut view_sources: HashMap<String, PathBuf> = HashMap::new();
-        let mut doc_view_sources: HashMap<String, PathBuf> = HashMap::new();
-        let mut theme_sources: HashMap<String, PathBuf> = HashMap::new();
-
-        let mut blueprint_sources: HashMap<String, PathBuf> = HashMap::new();
-
-        // Seed with items already loaded from the primary package.
-        for f in &fields {
-            field_sources.insert(f.id.clone(), package_dir.clone());
-        }
-        for rt in &record_types {
-            type_sources.insert((rt.id.clone(), rt.version), package_dir.clone());
-        }
-        for v in &views {
-            view_sources.insert(v.id.clone(), package_dir.clone());
-        }
-        for dv in &document_views {
-            doc_view_sources.insert(dv.id.clone(), package_dir.clone());
-        }
-        for theme in &themes {
-            theme_sources.insert(theme.id.clone(), package_dir.clone());
-        }
-        for bp in &blueprints {
-            blueprint_sources.insert(bp.id.clone(), package_dir.clone());
-        }
-
-        for pkg_ref in pkg_refs {
-            let mode = pkg_ref.get("mode").and_then(|m| m.as_str()).unwrap_or("");
-            if mode != "local" {
-                continue;
-            }
-            let rel_path = match pkg_ref.get("path").and_then(|p| p.as_str()) {
-                Some(p) => p,
-                None => continue,
-            };
-            // packageRef path is relative to repo_root (e.g. "package/spec-authoring-core")
-            let sub_package_dir = repo_root.join(rel_path);
-            if !sub_package_dir.join("package.json").exists() {
-                return Err(RepositoryError::PackageRefMissing {
-                    path: rel_path.to_string(),
-                });
-            }
-            let (sub_fields, sub_types, sub_views, sub_doc_views, sub_themes, sub_blueprints) =
-                load_package_from_dir(&sub_package_dir, &mut rt_by_type)?;
-
-            // Merge fields — conflict if same id but different content
-            for field in sub_fields {
-                if let Some(first_path) = field_sources.get(&field.id) {
-                    // Already present: check for conflict by comparing against existing
-                    let existing = fields.iter().find(|f| f.id == field.id).unwrap();
-                    if existing.version != field.version
-                        || existing.namespace != field.namespace
-                        || existing.name != field.name
-                    {
-                        return Err(RepositoryError::PackageRefConflict {
-                            path: rel_path.to_string(),
-                            kind: "field".to_string(),
-                            id: field.id.clone(),
-                            first_path: first_path.clone(),
-                            second_path: sub_package_dir.clone(),
-                        });
-                    }
-                    // Identical — coalesce silently
-                } else {
-                    field_sources.insert(field.id.clone(), sub_package_dir.clone());
-                    fields.push(field);
-                }
-            }
-            // Merge record types — conflict if same id+version but different content
-            for rt in sub_types {
-                let key = (rt.id.clone(), rt.version);
-                if let Some(first_path) = type_sources.get(&key) {
-                    let existing = record_types
-                        .iter()
-                        .find(|r| r.id == rt.id && r.version == rt.version)
-                        .unwrap();
-                    if existing.namespace != rt.namespace || existing.name != rt.name {
-                        return Err(RepositoryError::PackageRefConflict {
-                            path: rel_path.to_string(),
-                            kind: "type".to_string(),
-                            id: rt.id.clone(),
-                            first_path: first_path.clone(),
-                            second_path: sub_package_dir.clone(),
-                        });
-                    }
-                } else {
-                    type_sources.insert(key, sub_package_dir.clone());
-                    record_types.push(rt);
-                }
-            }
-            // Merge views — conflict if same id but different name
-            for view in sub_views {
-                if let Some(first_path) = view_sources.get(&view.id) {
-                    let existing = views.iter().find(|v| v.id == view.id).unwrap();
-                    if existing.name != view.name {
-                        return Err(RepositoryError::PackageRefConflict {
-                            path: rel_path.to_string(),
-                            kind: "view".to_string(),
-                            id: view.id.clone(),
-                            first_path: first_path.clone(),
-                            second_path: sub_package_dir.clone(),
-                        });
-                    }
-                } else {
-                    view_sources.insert(view.id.clone(), sub_package_dir.clone());
-                    views.push(view);
-                }
-            }
-            // Merge document views — conflict if same id but different name
-            for dv in sub_doc_views {
-                if let Some(first_path) = doc_view_sources.get(&dv.id) {
-                    let existing = document_views.iter().find(|d| d.id == dv.id).unwrap();
-                    if existing.name != dv.name {
-                        return Err(RepositoryError::PackageRefConflict {
-                            path: rel_path.to_string(),
-                            kind: "document-view".to_string(),
-                            id: dv.id.clone(),
-                            first_path: first_path.clone(),
-                            second_path: sub_package_dir.clone(),
-                        });
-                    }
-                } else {
-                    doc_view_sources.insert(dv.id.clone(), sub_package_dir.clone());
-                    document_views.push(dv);
-                }
-            }
-            // Merge blueprints — conflict if same id but different name
-            for bp in sub_blueprints {
-                if let Some(first_path) = blueprint_sources.get(&bp.id) {
-                    let existing = blueprints.iter().find(|b| b.id == bp.id).unwrap();
-                    if existing.name != bp.name {
-                        return Err(RepositoryError::PackageRefConflict {
-                            path: rel_path.to_string(),
-                            kind: "blueprint".to_string(),
-                            id: bp.id.clone(),
-                            first_path: first_path.clone(),
-                            second_path: sub_package_dir.clone(),
-                        });
-                    }
-                } else {
-                    blueprint_sources.insert(bp.id.clone(), sub_package_dir.clone());
-                    blueprints.push(bp);
-                }
-            }
-            // Merge themes — conflict if same id but different identity fields.
-            for theme in sub_themes {
-                if let Some(first_path) = theme_sources.get(&theme.id) {
-                    let existing = themes.iter().find(|t| t.id == theme.id).unwrap();
-                    if existing.namespace != theme.namespace
-                        || existing.name != theme.name
-                        || existing.version != theme.version
-                    {
-                        return Err(RepositoryError::PackageRefConflict {
-                            path: rel_path.to_string(),
-                            kind: "theme".to_string(),
-                            id: theme.id.clone(),
-                            first_path: first_path.clone(),
-                            second_path: sub_package_dir.clone(),
-                        });
-                    }
-                } else {
-                    theme_sources.insert(theme.id.clone(), sub_package_dir.clone());
-                    themes.push(theme);
-                }
-            }
-        }
-    }
-
-    let relation_type_definitions: Vec<RelationTypeDefinition> =
-        rt_by_type.into_values().map(|(def, _)| def).collect();
-
-    // Load vocabularies from path array in package.json
-    let mut vocabularies: Vec<Vocabulary> = Vec::new();
-    for vocab_path in &metadata.vocabularies {
-        let full_path = package_dir.join(vocab_path);
-        let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
-            path: full_path.clone(),
-            source: e,
-        })?;
-        let vocab: Vocabulary =
-            serde_json::from_str(&content).map_err(|e| RepositoryError::PackageLoad {
-                path: full_path,
-                source: e,
-            })?;
-        vocabularies.push(vocab);
-    }
-
-    // Load lifecycles from path array in package.json
-    let mut lifecycles: Vec<Lifecycle> = Vec::new();
-    for lc_path in &metadata.lifecycles {
-        let full_path = package_dir.join(lc_path);
-        let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
-            path: full_path.clone(),
-            source: e,
-        })?;
-        let lc: Lifecycle =
-            serde_json::from_str(&content).map_err(|e| RepositoryError::PackageLoad {
-                path: full_path,
-                source: e,
-            })?;
-        lifecycles.push(lc);
-    }
-
-    Ok(Package {
-        id: metadata.id,
-        namespace: metadata.namespace,
-        name: metadata.name,
-        version: metadata.version,
-        fields,
-        record_types,
-        relation_type_definitions,
-        views,
-        document_views,
-        themes,
-        blueprints,
-        root: repo_root.to_path_buf(),
-        dependency_refs: metadata.dependency_refs,
-        vocabularies,
-        lifecycles,
-    })
-}
-
-fn parse_value_type(s: &str, path: &Path) -> Result<ValueType, RepositoryError> {
-    match s {
-        "string" => Ok(ValueType::String),
-        "text" => Ok(ValueType::Text),
-        "number" => Ok(ValueType::Number),
-        "boolean" => Ok(ValueType::Boolean),
-        "date" => Ok(ValueType::Date),
-        "url" => Ok(ValueType::Url),
-        "select" => Ok(ValueType::Select),
-        "multiselect" => Ok(ValueType::Multiselect),
-        _ => Err(RepositoryError::InvalidValueType {
-            path: path.to_path_buf(),
-            value_type: s.to_string(),
-        }),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::RepositoryError;
+    use crate::store::{FileStore, RepositoryStore};
+    use srs_core::types::record_type::FieldAssignmentOverride;
+    use std::path::Path;
 
     fn srs_spec_repo() -> PathBuf {
         if let Ok(p) = std::env::var("SRS_SPEC_REPO") {
@@ -1063,7 +388,9 @@ mod tests {
             &["types/base.json", "types/child.json"],
         );
 
-        let package = load_package(root).expect("should load package with inheritance");
+        let package = FileStore::new(root)
+            .load_package()
+            .expect("should load package with inheritance");
         let child = package
             .record_types
             .iter()
@@ -1084,7 +411,9 @@ mod tests {
     #[test]
     fn load_package_from_live_repo() {
         let srs_repo = srs_spec_repo();
-        let package = load_package(&srs_repo).expect("should load live srs package");
+        let package = FileStore::new(&srs_repo)
+            .load_package()
+            .expect("should load live srs package");
 
         assert_eq!(package.namespace, "com.semanticops.srs");
         assert!(
@@ -1102,7 +431,9 @@ mod tests {
     #[test]
     fn resolve_type_by_name_finds_known_type() {
         let srs_repo = srs_spec_repo();
-        let package = load_package(&srs_repo).expect("should load live srs package");
+        let package = FileStore::new(&srs_repo)
+            .load_package()
+            .expect("should load live srs package");
 
         // Use name-based lookup to avoid hardcoding UUIDs
         let ext_type = package
@@ -1118,7 +449,9 @@ mod tests {
     #[test]
     fn find_field_by_name_finds_status() {
         let srs_repo = srs_spec_repo();
-        let package = load_package(&srs_repo).expect("should load live srs package");
+        let package = FileStore::new(&srs_repo)
+            .load_package()
+            .expect("should load live srs package");
 
         let status_field = package
             .find_field_by_name("status")
@@ -1131,7 +464,9 @@ mod tests {
     #[test]
     fn resolve_type_by_name_returns_none_for_unknown() {
         let srs_repo = srs_spec_repo();
-        let package = load_package(&srs_repo).expect("should load live srs package");
+        let package = FileStore::new(&srs_repo)
+            .load_package()
+            .expect("should load live srs package");
 
         assert!(package
             .resolve_type_by_name("unknown.namespace", "unknown-type")
@@ -1141,7 +476,9 @@ mod tests {
     #[test]
     fn resolve_field_returns_none_for_unknown() {
         let srs_repo = srs_spec_repo();
-        let package = load_package(&srs_repo).expect("should load live srs package");
+        let package = FileStore::new(&srs_repo)
+            .load_package()
+            .expect("should load live srs package");
 
         assert!(package
             .resolve_field("00000000-0000-0000-0000-000000000000")
@@ -1151,7 +488,9 @@ mod tests {
     #[test]
     fn load_package_loads_relation_types() {
         let srs_repo = srs_spec_repo();
-        let package = load_package(&srs_repo).expect("should load live srs package");
+        let package = FileStore::new(&srs_repo)
+            .load_package()
+            .expect("should load live srs package");
 
         assert!(
             package.relation_type_definitions.len() >= 7,
@@ -1163,7 +502,9 @@ mod tests {
     #[test]
     fn load_package_loads_document_views() {
         let srs_repo = srs_spec_repo();
-        let package = load_package(&srs_repo).expect("should load live srs package");
+        let package = FileStore::new(&srs_repo)
+            .load_package()
+            .expect("should load live srs package");
         assert!(
             !package.document_views.is_empty(),
             "expected at least one document view"
@@ -1173,7 +514,9 @@ mod tests {
     #[test]
     fn resolve_document_view_finds_srs_spec_view() {
         let srs_repo = srs_spec_repo();
-        let package = load_package(&srs_repo).expect("should load live srs package");
+        let package = FileStore::new(&srs_repo)
+            .load_package()
+            .expect("should load live srs package");
         let view = package
             .resolve_document_view("ec34f54b-8636-5c8b-af5b-c9eb3df24fe6")
             .expect("should find srs spec document view");
@@ -1183,7 +526,9 @@ mod tests {
     #[test]
     fn resolve_document_view_returns_none_for_unknown() {
         let srs_repo = srs_spec_repo();
-        let package = load_package(&srs_repo).expect("should load live srs package");
+        let package = FileStore::new(&srs_repo)
+            .load_package()
+            .expect("should load live srs package");
         assert!(package
             .resolve_document_view("00000000-0000-0000-0000-000000000000")
             .is_none());
@@ -1231,7 +576,9 @@ mod tests {
         )
         .unwrap();
 
-        let package = load_package(root).expect("should load themed package");
+        let package = FileStore::new(root)
+            .load_package()
+            .expect("should load themed package");
         assert_eq!(package.themes.len(), 1);
         assert_eq!(package.themes[0].name, "basic-theme");
     }
@@ -1276,7 +623,9 @@ mod tests {
         )
         .unwrap();
 
-        let package = load_package(root).expect("should load themed package");
+        let package = FileStore::new(root)
+            .load_package()
+            .expect("should load themed package");
         let theme = package
             .resolve_theme("00000000-0000-4000-8000-000000000951")
             .expect("should resolve theme by id");
@@ -1323,7 +672,9 @@ mod tests {
         )
         .unwrap();
 
-        let package = load_package(root).expect("should load themed package");
+        let package = FileStore::new(root)
+            .load_package()
+            .expect("should load themed package");
         assert!(package
             .resolve_theme("00000000-0000-4000-8000-000000000000")
             .is_none());
@@ -1335,7 +686,9 @@ mod tests {
         let root = temp.path();
         create_minimal_repo(root);
 
-        let package = load_package(root).expect("should load package without themes key");
+        let package = FileStore::new(root)
+            .load_package()
+            .expect("should load package without themes key");
         assert!(package.themes.is_empty());
     }
 
@@ -1379,7 +732,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = load_package(root);
+        let result = FileStore::new(root).load_package();
         assert!(
             matches!(result, Err(RepositoryError::ThemeValidation { .. })),
             "expected theme validation error, got {result:?}"
@@ -1389,7 +742,9 @@ mod tests {
     #[test]
     fn resolve_canonical_relation_type_precedes() {
         let srs_repo = srs_spec_repo();
-        let package = load_package(&srs_repo).expect("should load live srs package");
+        let package = FileStore::new(&srs_repo)
+            .load_package()
+            .expect("should load live srs package");
 
         let rt = package
             .resolve_relation_type("precedes")
@@ -1490,7 +845,7 @@ mod tests {
         create_minimal_repo(root);
         add_package_ref_to_manifest(root, "package/nonexistent");
 
-        let result = load_package(root);
+        let result = FileStore::new(root).load_package();
         assert!(
             matches!(result, Err(RepositoryError::PackageRefMissing { .. })),
             "expected PackageRefMissing, got {result:?}"
@@ -1537,7 +892,7 @@ mod tests {
         );
         add_package_ref_to_manifest(root, "package/sub");
 
-        let result = load_package(root);
+        let result = FileStore::new(root).load_package();
         assert!(
             matches!(
                 result,
@@ -1582,7 +937,9 @@ mod tests {
         );
         add_package_ref_to_manifest(root, "package/sub");
 
-        let package = load_package(root).expect("identical fields should coalesce without error");
+        let package = FileStore::new(root)
+            .load_package()
+            .expect("identical fields should coalesce without error");
         // Field should appear exactly once.
         let count = package
             .fields
@@ -1595,7 +952,9 @@ mod tests {
     #[test]
     fn deprecated_relation_types_loaded_with_correct_status() {
         let srs_repo = srs_spec_repo();
-        let package = load_package(&srs_repo).expect("should load live srs package");
+        let package = FileStore::new(&srs_repo)
+            .load_package()
+            .expect("should load live srs package");
 
         let deprecated: Vec<_> = package
             .relation_type_definitions
