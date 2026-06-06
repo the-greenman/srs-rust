@@ -234,6 +234,11 @@ fn type_get() {
     check::<TypePayload>("type-get");
 }
 
+#[test]
+fn type_schema() {
+    check::<TypeSchemaPayload>("type-schema");
+}
+
 // ── Extension ─────────────────────────────────────────────────────────────────
 
 #[test]

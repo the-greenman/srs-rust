@@ -28,6 +28,7 @@ pub mod store;
 pub mod tag_service;
 pub mod theme_service;
 pub mod tree_service;
+pub mod type_schema_service;
 pub mod validation;
 pub mod view_service;
 pub mod vocabulary_service;

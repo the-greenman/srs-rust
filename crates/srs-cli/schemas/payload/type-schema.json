@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TypeSchemaPayload",
+  "type": "object",
+  "required": [
+    "schema"
+  ],
+  "properties": {
+    "schema": {
+      "description": "A draft-07 JSON Schema describing a record's `fieldValues` for this Type. Dynamic shape; emitted opaquely (see ADR-011 for the dynamic-value convention)."
+    }
+  }
+}
