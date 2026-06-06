@@ -76,24 +76,24 @@ In scope:
 
 #### Tasks
 
-- [ ] Create `crates/srs-repository/src/type_schema_service.rs` with `TypeSchemaInput`, `TypeSchemaResult`, and `pub fn type_schema`.
-- [ ] Resolve the Type: use `get_type_by_id` when `type_version` is `Some`, else `get_type_by_id_latest` (both in `package_service`). On `GetTypeResult::NotFound` return `RepositoryError` so the handler can surface a clean diagnostic.
-- [ ] For each `FieldAssignment` in `record_type.fields` (in `order`), resolve the Field via `get_field_by_id`; on `GetFieldResult::NotFound` push a diagnostic into `result.diagnostics` and skip that field (do not abort the whole schema).
-- [ ] Map `ValueType` → JSON Schema per the following mapping: string/text/number/boolean/date(`format:"date"`)/url(`format:"uri"`)/select(`enum`)/multiselect(`array` of `enum`). `text` carries `x-srs-widget: "textarea"`.
-- [ ] `select`/`multiselect` `enum` populated from `Field.allowed_values` (empty/None → omit `enum`, push a diagnostic into `result.diagnostics`).
-- [ ] Per-property annotations: `title` ← `FieldAssignment.display_label` else `Field.description`; `default` ← `Field.default_value`; `x-srs-order` ← `FieldAssignment.order`; `x-srs-field-id` ← `Field.id`; `description`/`x-srs-ai-guidance` ← `Field.ai_guidance` (string → `description`, object → `x-srs-ai-guidance`).
-- [ ] Top-level schema: `{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{<name>:…},"required":[<names of required assignments>],"additionalProperties":false}`.
-- [ ] Export the module and its public items from `crates/srs-repository/src/lib.rs`.
+- [x] Create `crates/srs-repository/src/type_schema_service.rs` with `TypeSchemaInput`, `TypeSchemaResult`, and `pub fn type_schema`.
+- [x] Resolve the Type: use `get_type_by_id` when `type_version` is `Some`, else `get_type_by_id_latest` (both in `package_service`). On `GetTypeResult::NotFound` return `RepositoryError` so the handler can surface a clean diagnostic.
+- [x] For each `FieldAssignment` in `record_type.fields` (in `order`), resolve the Field via `get_field_by_id`; on `GetFieldResult::NotFound` push a diagnostic into `result.diagnostics` and skip that field (do not abort the whole schema).
+- [x] Map `ValueType` → JSON Schema per the following mapping: string/text/number/boolean/date(`format:"date"`)/url(`format:"uri"`)/select(`enum`)/multiselect(`array` of `enum`). `text` carries `x-srs-widget: "textarea"`.
+- [x] `select`/`multiselect` `enum` populated from `Field.allowed_values` (empty/None → omit `enum`, push a diagnostic into `result.diagnostics`).
+- [x] Per-property annotations: `title` ← `FieldAssignment.display_label` else `Field.description`; `default` ← `Field.default_value`; `x-srs-order` ← `FieldAssignment.order`; `x-srs-field-id` ← `Field.id`; `description`/`x-srs-ai-guidance` ← `Field.ai_guidance` (string → `description`, object → `x-srs-ai-guidance`).
+- [x] Top-level schema: `{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{<name>:…},"required":[<names of required assignments>],"additionalProperties":false}`.
+- [x] Export the module and its public items from `crates/srs-repository/src/lib.rs`.
 
 #### Acceptance Criteria
 
-- [ ] A Type exercising all 8 valueTypes produces a schema whose `properties` has one entry per resolvable field keyed by field `name`.
-- [ ] `select`/`multiselect` properties carry `enum` from `allowed_values`; multiselect is `{"type":"array","items":{"enum":[…]}}`.
-- [ ] Every `FieldAssignment` with `required: true` appears in top-level `required[]`; non-required do not.
-- [ ] Field order is recoverable from `x-srs-order` on each property.
-- [ ] `date`→`format:"date"`, `url`→`format:"uri"`, `text`→`x-srs-widget:"textarea"`.
-- [ ] Unknown `type_version` or unknown `type_id` returns an `Err` (not a partial schema).
-- [ ] A dangling `field_id` yields a diagnostic and is skipped, not a hard failure.
+- [x] A Type exercising all 8 valueTypes produces a schema whose `properties` has one entry per resolvable field keyed by field `name`.
+- [x] `select`/`multiselect` properties carry `enum` from `allowed_values`; multiselect is `{"type":"array","items":{"enum":[…]}}`.
+- [x] Every `FieldAssignment` with `required: true` appears in top-level `required[]`; non-required do not.
+- [x] Field order is recoverable from `x-srs-order` on each property.
+- [x] `date`→`format:"date"`, `url`→`format:"uri"`, `text`→`x-srs-widget:"textarea"`.
+- [x] Unknown `type_version` or unknown `type_id` returns an `Err` (not a partial schema).
+- [x] A dangling `field_id` yields a diagnostic and is skipped, not a hard failure.
 
 #### Testing
 
