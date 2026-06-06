@@ -84,6 +84,10 @@ pub enum CoreError {
         max: u32,
     },
 
+    /// Record.tags value must be a non-empty string.
+    #[error("invalid tag value '{tag}': tag strings must be non-empty")]
+    InvalidTagValue { tag: String },
+
     // ── ext:lifecycle errors ──────────────────────────────────────────────────
     /// Invariant 6: Record.lifecycleState names a state not in the Type's lifecycle.
     #[error("invalid lifecycle state '{state}': not defined in the Type's lifecycle")]
@@ -230,6 +234,9 @@ impl PartialEq for CoreError {
                     transition_name: tb,
                 },
             ) => sa == sb && ta == tb,
+            (CoreError::InvalidTagValue { tag: a }, CoreError::InvalidTagValue { tag: b }) => {
+                a == b
+            }
             _ => false,
         }
     }

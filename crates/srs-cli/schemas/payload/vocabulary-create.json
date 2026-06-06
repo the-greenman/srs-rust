@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "VocabularyCreatePayload",
+  "description": "Payload for `vocabulary create`.",
+  "type": "object",
+  "required": [
+    "vocabulary"
+  ],
+  "properties": {
+    "vocabulary": true
+  }
+}

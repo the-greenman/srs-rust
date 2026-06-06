@@ -119,6 +119,21 @@ fn record_revision_get() {
     check::<RevisionPayload>("record-revision-get");
 }
 
+#[test]
+fn record_tag_add() {
+    check::<RecordTagAddPayload>("record-tag-add");
+}
+
+#[test]
+fn record_tag_remove() {
+    check::<RecordTagAddPayload>("record-tag-remove");
+}
+
+#[test]
+fn record_tag_list() {
+    check::<RecordTagListPayload>("record-tag-list");
+}
+
 // ── Relation ──────────────────────────────────────────────────────────────────
 
 #[test]
@@ -378,6 +393,16 @@ fn vocabulary_list() {
 #[test]
 fn vocabulary_get() {
     check::<VocabularyGetPayload>("vocabulary-get");
+}
+
+#[test]
+fn vocabulary_create() {
+    check::<VocabularyCreatePayload>("vocabulary-create");
+}
+
+#[test]
+fn vocabulary_term_create() {
+    check::<TermCreatePayload>("vocabulary-term-create");
 }
 
 // ── Lifecycle (RFC-006) ───────────────────────────────────────────────────────

@@ -108,6 +108,16 @@ pub fn validate_record(
         }
     }
 
+    // Invariant: Record.tags values must be non-empty strings. Vocabulary resolution
+    // (Term key/alias) is enforced in srs-repository (requires package access).
+    if let Some(tags) = &record.tags {
+        for tag in tags {
+            if tag.is_empty() {
+                return Err(CoreError::InvalidTagValue { tag: tag.clone() });
+            }
+        }
+    }
+
     // Invariant 6 (ext:lifecycle): Record.lifecycleState must name a state in the
     // associated Type's lifecycle.states[] when the Type declares a lifecycle.
     if let (Some(state), Some(lc)) = (&record.lifecycle_state, &record_type.lifecycle) {
@@ -235,6 +245,7 @@ mod tests {
             field_values,
             group_values: None,
             lifecycle_state: None,
+            tags: None,
             created_at: None,
             updated_at: None,
             extra: HashMap::new(),

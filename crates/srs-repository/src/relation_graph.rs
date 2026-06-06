@@ -138,6 +138,7 @@ mod tests {
             field_values: vec![],
             group_values: None,
             lifecycle_state: None,
+            tags: None,
             created_at: Some(created_at.to_string()),
             updated_at: None,
             extra: HashMap::new(),

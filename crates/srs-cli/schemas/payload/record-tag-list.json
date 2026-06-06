@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RecordTagListPayload",
+  "description": "Payload for `record tag list`.",
+  "type": "object",
+  "required": [
+    "tags",
+    "totalRecords"
+  ],
+  "properties": {
+    "tags": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/RecordTagEntry"
+      }
+    },
+    "totalRecords": {
+      "type": "integer",
+      "format": "uint",
+      "minimum": 0.0
+    }
+  },
+  "definitions": {
+    "RecordTagEntry": {
+      "description": "Per-tag count entry for `record tag list`.",
+      "type": "object",
+      "required": [
+        "recordCount",
+        "tag"
+      ],
+      "properties": {
+        "recordCount": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "tag": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

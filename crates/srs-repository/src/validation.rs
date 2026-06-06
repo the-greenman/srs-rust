@@ -174,6 +174,42 @@ pub fn validate_repository(
                                 }
                             }
                         }
+
+                        // Tier-graduated tag resolution enforcement (C4):
+                        // Only runs when at least one Vocabulary is declared in the package.
+                        // Notes (tier 0) are exempt — only tier-2 Records enforce this.
+                        if !package.vocabularies.is_empty() {
+                            if let Some(tags) = &record.tags {
+                                let any_open = package.vocabularies.iter().any(|v| {
+                                    matches!(
+                                        v.mode,
+                                        srs_core::types::vocabulary::VocabularyMode::Open
+                                    )
+                                });
+                                for tag in tags {
+                                    let resolved = package
+                                        .vocabularies
+                                        .iter()
+                                        .any(|v| v.resolve_term_by_key(tag).is_some());
+                                    if !resolved {
+                                        let severity = if any_open {
+                                            DiagnosticSeverity::Warning
+                                        } else {
+                                            DiagnosticSeverity::Error
+                                        };
+                                        diagnostics.push(ValidationDiagnostic {
+                                            severity,
+                                            relative_path: rel_path.clone(),
+                                            schema_id: None,
+                                            message: format!(
+                                                "tag '{}' on record '{}' does not resolve to any Term key or alias in the declared vocabularies",
+                                                tag, record.instance_id
+                                            ),
+                                        });
+                                    }
+                                }
+                            }
+                        }
                     }
                     Err(err) => diagnostics.push(ValidationDiagnostic {
                         severity: DiagnosticSeverity::Error,
@@ -563,6 +599,231 @@ mod tests {
             mismatch,
             "expected tier/schema mismatch diagnostic, got: {:?}",
             report.diagnostics
+        );
+    }
+
+    fn minimal_package_json(type_path: Option<&str>, vocab_path: Option<&str>) -> Value {
+        let types = if let Some(p) = type_path {
+            json!([p])
+        } else {
+            json!([])
+        };
+        let vocabs = if let Some(p) = vocab_path {
+            json!([p])
+        } else {
+            json!([])
+        };
+        json!({
+            "id": "00000000-0000-4000-8000-000000000010",
+            "namespace": "com.test",
+            "name": "test-package",
+            "version": "1.0.0",
+            "fields": [],
+            "types": types,
+            "views": [],
+            "vocabularies": vocabs
+        })
+    }
+
+    fn minimal_type_json(type_id: &str) -> Value {
+        json!({
+            "id": type_id,
+            "namespace": "com.test",
+            "name": "test-type",
+            "version": 1,
+            "description": "Test type",
+            "fields": [],
+            "createdAt": "2026-01-01T00:00:00Z"
+        })
+    }
+
+    fn minimal_record_json(record_id: &str, type_id: &str, tags: Option<Vec<&str>>) -> Value {
+        let tag_value = tags.map(|t| json!(t)).unwrap_or(json!(null));
+        let mut obj = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+            "instanceId": record_id,
+            "typeId": type_id,
+            "typeVersion": 1,
+            "typeNamespace": "com.test",
+            "typeName": "test-type",
+            "fieldValues": [],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        if !tag_value.is_null() {
+            obj["tags"] = tag_value;
+        }
+        obj
+    }
+
+    fn minimal_vocab_json(vocab_id: &str, mode: &str, terms: Vec<(&str, &str)>) -> Value {
+        let term_array: Vec<Value> = terms
+            .iter()
+            .map(|(term_id, key)| {
+                json!({
+                    "id": term_id,
+                    "version": 1,
+                    "namespace": "com.test",
+                    "key": key
+                })
+            })
+            .collect();
+        json!({
+            "id": vocab_id,
+            "version": 1,
+            "namespace": "com.test",
+            "name": "test-vocab",
+            "mode": mode,
+            "terms": term_array,
+            "createdAt": "2026-01-01T00:00:00Z"
+        })
+    }
+
+    fn setup_repo_with_tagged_record(
+        temp: &TempDir,
+        vocab_mode: &str,
+        tag_on_record: &str,
+        term_key: &str,
+    ) {
+        let record_id = "00000000-0000-4000-8000-000000000002";
+        let type_id = "00000000-0000-4000-8000-000000000003";
+        let vocab_id = "00000000-0000-4000-8000-000000000004";
+        let term_id = "00000000-0000-4000-8000-000000000005";
+
+        write_json(
+            temp.path(),
+            "manifest.json",
+            &minimal_manifest(json!([{
+                "instanceId": record_id,
+                "tier": 2,
+                "path": "records/my-record.json",
+                "tags": [tag_on_record]
+            }])),
+        );
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &minimal_package_json(
+                Some("types/test-type.json"),
+                Some("vocabularies/test-vocab.json"),
+            ),
+        );
+        write_json(
+            temp.path(),
+            "package/vocabularies/test-vocab.json",
+            &minimal_vocab_json(vocab_id, vocab_mode, vec![(term_id, term_key)]),
+        );
+        write_json(
+            temp.path(),
+            "package/types/test-type.json",
+            &minimal_type_json(type_id),
+        );
+        write_json(
+            temp.path(),
+            "records/my-record.json",
+            &minimal_record_json(record_id, type_id, Some(vec![tag_on_record])),
+        );
+    }
+
+    #[test]
+    fn no_vocab_declared_skips_tag_enforcement() {
+        let temp = TempDir::new().unwrap();
+        let record_id = "00000000-0000-4000-8000-000000000002";
+        let type_id = "00000000-0000-4000-8000-000000000003";
+
+        write_json(
+            temp.path(),
+            "manifest.json",
+            &minimal_manifest(json!([{
+                "instanceId": record_id,
+                "tier": 2,
+                "path": "records/my-record.json",
+                "tags": ["any:free-string"]
+            }])),
+        );
+        write_json(temp.path(), "package/.srs", &json!({}));
+        // Package with no vocabularies
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &minimal_package_json(Some("types/test-type.json"), None),
+        );
+        write_json(
+            temp.path(),
+            "package/types/test-type.json",
+            &minimal_type_json(type_id),
+        );
+        write_json(
+            temp.path(),
+            "records/my-record.json",
+            &minimal_record_json(record_id, type_id, Some(vec!["any:free-string"])),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        // No tag enforcement without a declared vocabulary — must not produce a tag diagnostic
+        let tag_diags: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("does not resolve"))
+            .collect();
+        assert!(
+            tag_diags.is_empty(),
+            "expected no tag diagnostics without vocab, got: {:?}",
+            tag_diags
+        );
+    }
+
+    #[test]
+    fn closed_vocab_unresolved_tag_produces_error() {
+        let temp = TempDir::new().unwrap();
+        setup_repo_with_tagged_record(&temp, "closed", "unknown:tag", "construct:field");
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let tag_error = report.diagnostics.iter().find(|d| {
+            d.severity == DiagnosticSeverity::Error && d.message.contains("does not resolve")
+        });
+        assert!(
+            tag_error.is_some(),
+            "expected Error for unresolved tag in closed vocab, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn open_vocab_unresolved_tag_produces_warning() {
+        let temp = TempDir::new().unwrap();
+        setup_repo_with_tagged_record(&temp, "open", "unknown:tag", "construct:field");
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let tag_warning = report.diagnostics.iter().find(|d| {
+            d.severity == DiagnosticSeverity::Warning && d.message.contains("does not resolve")
+        });
+        assert!(
+            tag_warning.is_some(),
+            "expected Warning for unresolved tag in open vocab, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn resolved_tag_produces_no_diagnostic() {
+        let temp = TempDir::new().unwrap();
+        setup_repo_with_tagged_record(&temp, "closed", "construct:field", "construct:field");
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let tag_diags: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("does not resolve"))
+            .collect();
+        assert!(
+            tag_diags.is_empty(),
+            "expected no tag diagnostics for resolved tag, got: {:?}",
+            tag_diags
         );
     }
 

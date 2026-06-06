@@ -1,15 +1,18 @@
-use crate::commands::{with_store, CliContext, RecordCommand, RecordRevisionCommand};
+use crate::commands::{
+    with_store, CliContext, RecordCommand, RecordRevisionCommand, RecordTagCommand,
+};
 use crate::output::{self, OutputDTO};
 use crate::payload::{
-    DeletedPayload, RecordListPayload, RecordPayload, RecordSuccessorPayload, RevisionListPayload,
-    RevisionPayload,
+    DeletedPayload, RecordListPayload, RecordPayload, RecordSuccessorPayload, RecordTagAddPayload,
+    RecordTagListPayload, RevisionListPayload, RevisionPayload,
 };
 use anyhow::Result;
 use srs_repository::record_store::{
-    create_record_in_context, create_record_successor, delete_record_in_context, get_record_by_id,
-    get_record_revision, list_record_revisions, list_records_filtered, transition_record_lifecycle,
-    update_record, CreateRecordInput, CreateRecordSuccessorInput, RecordListFilter,
-    TransitionLifecycleInput,
+    add_record_tag, create_record_in_context, create_record_successor, delete_record_in_context,
+    get_record_by_id, get_record_revision, list_record_revisions, list_record_tags,
+    list_records_filtered, remove_record_tag, transition_record_lifecycle, update_record,
+    AddRecordTagResult, CreateRecordInput, CreateRecordSuccessorInput, RecordListFilter,
+    RemoveRecordTagResult, TransitionLifecycleInput,
 };
 use std::io::{self, Read};
 
@@ -17,8 +20,9 @@ pub fn dispatch(ctx: CliContext, cmd: RecordCommand) -> Result<String> {
     match cmd {
         RecordCommand::List {
             type_filter,
+            tag,
             json: _,
-        } => cmd_record_list(ctx, type_filter),
+        } => cmd_record_list(ctx, type_filter, tag),
         RecordCommand::Get { id, json: _ } => cmd_record_get(ctx, id),
         RecordCommand::Create {
             type_filter,
@@ -31,6 +35,7 @@ pub fn dispatch(ctx: CliContext, cmd: RecordCommand) -> Result<String> {
         RecordCommand::Transition { id } => cmd_record_transition(ctx, id),
         RecordCommand::Successor { id, dir } => cmd_record_successor(ctx, id, dir),
         RecordCommand::Revision(rev_cmd) => dispatch_revision(ctx, rev_cmd),
+        RecordCommand::Tag(tag_cmd) => dispatch_tag(ctx, tag_cmd),
     }
 }
 
@@ -46,7 +51,19 @@ fn dispatch_revision(ctx: CliContext, cmd: RecordRevisionCommand) -> Result<Stri
     }
 }
 
-fn cmd_record_list(ctx: CliContext, type_filter: Option<String>) -> Result<String> {
+fn dispatch_tag(ctx: CliContext, cmd: RecordTagCommand) -> Result<String> {
+    match cmd {
+        RecordTagCommand::Add { id, tag } => cmd_record_tag_add(ctx, id, tag),
+        RecordTagCommand::Remove { id, tag } => cmd_record_tag_remove(ctx, id, tag),
+        RecordTagCommand::List => cmd_record_tag_list(ctx),
+    }
+}
+
+fn cmd_record_list(
+    ctx: CliContext,
+    type_filter: Option<String>,
+    tag: Option<String>,
+) -> Result<String> {
     let (type_namespace, type_name) = match type_filter {
         None => (None, None),
         Some(ref filter) => match parse_type_filter(filter) {
@@ -70,11 +87,47 @@ fn cmd_record_list(ctx: CliContext, type_filter: Option<String>) -> Result<Strin
                 type_namespace,
                 type_name,
                 container_id: ctx.container_id.clone(),
+                tag,
             },
         )?)
     })?;
 
     output::serialize("record list", RecordListPayload { records })
+}
+
+fn cmd_record_tag_add(ctx: CliContext, id: String, tag: String) -> Result<String> {
+    match with_store(&ctx, |store| Ok(add_record_tag(store, &id, &tag)?))? {
+        AddRecordTagResult::Added { record, .. }
+        | AddRecordTagResult::AlreadyPresent { record, .. } => {
+            output::serialize("record tag add", RecordTagAddPayload { record, tag })
+        }
+        AddRecordTagResult::NotFound => Ok(output::err(
+            "record tag add",
+            vec![format!("No tier-2 record with id '{}' found", id)],
+        )),
+    }
+}
+
+fn cmd_record_tag_remove(ctx: CliContext, id: String, tag: String) -> Result<String> {
+    match with_store(&ctx, |store| Ok(remove_record_tag(store, &id, &tag)?))? {
+        RemoveRecordTagResult::Removed { record, .. } => {
+            output::serialize("record tag remove", RecordTagAddPayload { record, tag })
+        }
+        RemoveRecordTagResult::NotPresent { record, .. } => {
+            output::serialize("record tag remove", RecordTagAddPayload { record, tag })
+        }
+        RemoveRecordTagResult::NotFound => Ok(output::err(
+            "record tag remove",
+            vec![format!("No tier-2 record with id '{}' found", id)],
+        )),
+    }
+}
+
+fn cmd_record_tag_list(ctx: CliContext) -> Result<String> {
+    let result = with_store(&ctx, |store| {
+        Ok(list_record_tags(store, ctx.container_id.as_deref())?)
+    })?;
+    output::serialize("record tag list", RecordTagListPayload::from(result))
 }
 
 fn cmd_record_get(ctx: CliContext, id: String) -> Result<String> {

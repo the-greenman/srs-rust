@@ -34,6 +34,7 @@ use srs_repository::{
     analysis::{FoundationNoteSet, RepoMap, TagAudit},
     container_service::ContainerSummary,
     extension_service::ExtensionSummary,
+    record_store::{ListRecordTagsResult, RecordTagSummary},
     relation_service::RelationSummary,
     services::{ListNoteTagsResult, NoteSummary, TagSummary},
     validation::{RepositoryValidationReport, ValidationSummary},
@@ -292,6 +293,49 @@ pub struct RecordSuccessorPayload {
     pub relation: Relation,
 }
 
+/// Payload for `record tag add` and `record tag remove`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordTagAddPayload {
+    #[schemars(with = "serde_json::Value")]
+    pub record: Record,
+    pub tag: String,
+}
+
+/// Per-tag count entry for `record tag list`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordTagEntry {
+    pub tag: String,
+    pub record_count: usize,
+}
+
+impl From<RecordTagSummary> for RecordTagEntry {
+    fn from(s: RecordTagSummary) -> Self {
+        Self {
+            tag: s.tag,
+            record_count: s.record_count,
+        }
+    }
+}
+
+/// Payload for `record tag list`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordTagListPayload {
+    pub total_records: usize,
+    pub tags: Vec<RecordTagEntry>,
+}
+
+impl From<ListRecordTagsResult> for RecordTagListPayload {
+    fn from(r: ListRecordTagsResult) -> Self {
+        Self {
+            total_records: r.total_records,
+            tags: r.tags.into_iter().map(RecordTagEntry::from).collect(),
+        }
+    }
+}
+
 // ── Relation payloads ─────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -412,6 +456,24 @@ pub enum VocabularyGetPayload {
     },
     #[serde(rename = "not_found")]
     NotFound { id: String },
+}
+
+/// Payload for `vocabulary create`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct VocabularyCreatePayload {
+    #[schemars(with = "serde_json::Value")]
+    pub vocabulary: Vocabulary,
+}
+
+/// Payload for `vocabulary term-create`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TermCreatePayload {
+    #[schemars(with = "serde_json::Value")]
+    pub term: Term,
+    #[schemars(with = "serde_json::Value")]
+    pub vocabulary: Vocabulary,
 }
 
 // ── Lifecycle payloads ────────────────────────────────────────────────────────

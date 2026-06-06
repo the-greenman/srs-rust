@@ -44,4 +44,5 @@ pub enum DefinitionKind {
     DocumentView,
     RelationType,
     Blueprint,
+    Vocabulary,
 }

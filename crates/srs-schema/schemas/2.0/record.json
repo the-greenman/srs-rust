@@ -39,6 +39,11 @@
       "type": "array",
       "items": { "$ref": "#/$defs/SourceReference" }
     },
+    "tags": {
+      "type": "array",
+      "description": "Topic membership labels. When a Vocabulary is declared, each value MUST resolve to a Term key or alias (tier-graduated: Records enforce resolution; Notes do not).",
+      "items": { "type": "string", "minLength": 1 }
+    },
     "createdAt": { "type": "string", "format": "date-time" },
     "updatedAt": { "type": "string", "format": "date-time" },
     "meta": {
