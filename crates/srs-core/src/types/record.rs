@@ -16,6 +16,10 @@ pub struct Record {
     /// Type's lifecycle.states[] when the Type declares a lifecycle (Invariant 6).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lifecycle_state: Option<String>,
+    /// Topic membership labels. When a Vocabulary is declared, each value MUST resolve to a
+    /// Term key or alias (tier-graduated: Records enforce resolution; Notes do not).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -98,6 +102,7 @@ mod tests {
             field_values: vec![],
             group_values: None,
             lifecycle_state: None,
+            tags: None,
             created_at: None,
             updated_at: None,
             extra: HashMap::new(),

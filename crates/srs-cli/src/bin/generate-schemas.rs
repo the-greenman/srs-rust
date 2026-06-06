@@ -47,6 +47,9 @@ fn main() {
     write_schema!("record-successor", RecordSuccessorPayload);
     write_schema!("record-revision-list", RevisionListPayload);
     write_schema!("record-revision-get", RevisionPayload);
+    write_schema!("record-tag-add", RecordTagAddPayload);
+    write_schema!("record-tag-remove", RecordTagAddPayload);
+    write_schema!("record-tag-list", RecordTagListPayload);
 
     // Relation payloads
     write_schema!("relation-list", RelationListPayload);
@@ -150,6 +153,8 @@ fn main() {
     // Vocabulary payloads (RFC-006)
     write_schema!("vocabulary-list", VocabularyListPayload);
     write_schema!("vocabulary-get", VocabularyGetPayload);
+    write_schema!("vocabulary-create", VocabularyCreatePayload);
+    write_schema!("vocabulary-term-create", TermCreatePayload);
 
     // Lifecycle payloads (RFC-006)
     write_schema!("lifecycle-list", LifecycleListPayload);

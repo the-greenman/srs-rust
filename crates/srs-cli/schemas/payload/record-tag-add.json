@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RecordTagAddPayload",
+  "description": "Payload for `record tag add` and `record tag remove`.",
+  "type": "object",
+  "required": [
+    "record",
+    "tag"
+  ],
+  "properties": {
+    "record": true,
+    "tag": {
+      "type": "string"
+    }
+  }
+}

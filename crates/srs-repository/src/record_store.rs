@@ -28,7 +28,7 @@ use crate::relation_service;
 use crate::revision_service;
 use crate::store::RepositoryStore;
 use crate::writer::{new_instance_id, write_manifest};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use srs_core::types::record::{FieldValue, Record};
 use srs_core::types::relation::Relation;
 use srs_core::types::revision::{Revision, RevisionAgent, RevisionProvenance};
@@ -143,6 +143,7 @@ pub fn create_record(
         field_values,
         group_values,
         lifecycle_state: initial_lifecycle_state,
+        tags: None,
         created_at: Some(chrono::Utc::now().to_rfc3339()),
         updated_at: Some(chrono::Utc::now().to_rfc3339()),
         extra: HashMap::new(),
@@ -225,6 +226,8 @@ pub fn update_record(
         // None outer = not supplied by caller → preserve existing; Some(v) = replace.
         group_values: group_values.unwrap_or(record.group_values),
         lifecycle_state: record.lifecycle_state,
+        // Tags are always preserved by record update — mutate only via record tag add/remove.
+        tags: record.tags,
         created_at: record.created_at,
         updated_at: Some(chrono::Utc::now().to_rfc3339()),
         extra: record.extra,
@@ -312,6 +315,8 @@ pub struct RecordListFilter {
     pub type_name: Option<String>,
     /// If Some, only return records that are members of this container.
     pub container_id: Option<String>,
+    /// If Some, only return records whose manifest tag list contains this value.
+    pub tag: Option<String>,
 }
 
 /// Input for creating or updating a record.
@@ -368,6 +373,18 @@ pub fn list_records_filtered(
         // Container membership filter
         if let Some(ref member_set) = member_ids {
             if !member_set.contains(entry.instance_id()) {
+                continue;
+            }
+        }
+
+        // Tag filter — resolved from manifest index (no file load needed)
+        if let Some(ref tag_filter) = filter.tag {
+            let has_tag = entry
+                .tags
+                .as_ref()
+                .map(|tags| tags.iter().any(|t| t == tag_filter))
+                .unwrap_or(false);
+            if !has_tag {
                 continue;
             }
         }
@@ -803,6 +820,176 @@ pub fn get_record_revision(
     revision_service::get(store, entry.path(), instance_id, revision_id)
 }
 
+/// Result of `add_record_tag`.
+pub enum AddRecordTagResult {
+    /// Tag was new and has been added.
+    Added { record: Record, tag: String },
+    /// Tag was already present; record is unchanged.
+    AlreadyPresent { record: Record, tag: String },
+    /// No tier-2 record with this ID exists in the manifest.
+    NotFound,
+}
+
+/// Result of `remove_record_tag`.
+pub enum RemoveRecordTagResult {
+    /// Tag was present and has been removed.
+    Removed { record: Record, tag: String },
+    /// Tag was not present; record is unchanged.
+    NotPresent { record: Record, tag: String },
+    /// No tier-2 record with this ID exists in the manifest.
+    NotFound,
+}
+
+/// Add a tag to a tier-2 record.
+///
+/// Writes the record body and mirrors the updated tag list into the manifest index.
+/// Returns `NotFound` if no tier-2 entry with the given ID exists.
+pub fn add_record_tag(
+    store: &dyn RepositoryStore,
+    id: &str,
+    tag: &str,
+) -> Result<AddRecordTagResult, RepositoryError> {
+    let mut manifest = store.load_manifest()?;
+
+    let entry = manifest
+        .instance_index
+        .iter()
+        .find(|e| e.instance_id() == id && e.tier() == 2)
+        .cloned();
+
+    match entry {
+        Some(e) => {
+            let mut record = load_record(store, e.path())?;
+
+            let tags = record.tags.get_or_insert_with(Vec::new);
+            if tags.contains(&tag.to_string()) {
+                return Ok(AddRecordTagResult::AlreadyPresent {
+                    record,
+                    tag: tag.to_string(),
+                });
+            }
+            tags.push(tag.to_string());
+
+            write_record(store, &record, e.path())?;
+            upsert_record_index_entry(&mut manifest, &record, e.path());
+            write_manifest(store, &manifest)?;
+
+            Ok(AddRecordTagResult::Added {
+                record,
+                tag: tag.to_string(),
+            })
+        }
+        None => Ok(AddRecordTagResult::NotFound),
+    }
+}
+
+/// Remove a tag from a tier-2 record.
+///
+/// Writes the record body and mirrors the updated tag list into the manifest index.
+/// Returns `NotFound` if no tier-2 entry with the given ID exists.
+pub fn remove_record_tag(
+    store: &dyn RepositoryStore,
+    id: &str,
+    tag: &str,
+) -> Result<RemoveRecordTagResult, RepositoryError> {
+    let mut manifest = store.load_manifest()?;
+
+    let entry = manifest
+        .instance_index
+        .iter()
+        .find(|e| e.instance_id() == id && e.tier() == 2)
+        .cloned();
+
+    match entry {
+        Some(e) => {
+            let mut record = load_record(store, e.path())?;
+
+            let tags = record.tags.get_or_insert_with(Vec::new);
+            if !tags.contains(&tag.to_string()) {
+                return Ok(RemoveRecordTagResult::NotPresent {
+                    record,
+                    tag: tag.to_string(),
+                });
+            }
+            tags.retain(|t| t != tag);
+            if tags.is_empty() {
+                record.tags = None;
+            }
+
+            write_record(store, &record, e.path())?;
+            upsert_record_index_entry(&mut manifest, &record, e.path());
+            write_manifest(store, &manifest)?;
+
+            Ok(RemoveRecordTagResult::Removed {
+                record,
+                tag: tag.to_string(),
+            })
+        }
+        None => Ok(RemoveRecordTagResult::NotFound),
+    }
+}
+
+/// Per-tag count summary across tier-2 records.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordTagSummary {
+    pub tag: String,
+    pub record_count: usize,
+}
+
+/// Result of `list_record_tags`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListRecordTagsResult {
+    pub total_records: usize,
+    pub tags: Vec<RecordTagSummary>,
+}
+
+/// List distinct tags across all tier-2 records in the repository.
+///
+/// Reads only the manifest index — no per-record file loads.
+/// Optionally scoped to members of a container.
+pub fn list_record_tags(
+    store: &dyn RepositoryStore,
+    container_id: Option<&str>,
+) -> Result<ListRecordTagsResult, RepositoryError> {
+    let member_ids: Option<std::collections::HashSet<String>> = if let Some(cid) = container_id {
+        let members = container_service::list_members(store, cid)?;
+        Some(members.into_iter().collect())
+    } else {
+        None
+    };
+
+    let manifest = store.load_manifest()?;
+    let mut counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    let mut total_records = 0;
+
+    for entry in &manifest.instance_index {
+        if entry.tier() != 2 {
+            continue;
+        }
+        if let Some(ref m) = member_ids {
+            if !m.contains(entry.instance_id()) {
+                continue;
+            }
+        }
+        total_records += 1;
+        for tag in entry.tags.iter().flatten() {
+            *counts.entry(tag.clone()).or_insert(0) += 1;
+        }
+    }
+
+    let tags = counts
+        .into_iter()
+        .map(|(tag, record_count)| RecordTagSummary { tag, record_count })
+        .collect();
+
+    Ok(ListRecordTagsResult {
+        total_records,
+        tags,
+    })
+}
+
 /// Add or replace the manifest index entry for a Record (in memory only).
 fn upsert_record_index_entry(manifest: &mut Manifest, record: &Record, relative_path: &str) {
     let entry = InstanceIndexEntry {
@@ -810,7 +997,7 @@ fn upsert_record_index_entry(manifest: &mut Manifest, record: &Record, relative_
         tier: 2,
         path: relative_path.to_string(),
         title: None,
-        tags: None,
+        tags: record.tags.clone(),
     };
 
     if let Some(pos) = manifest
@@ -1839,5 +2026,160 @@ mod tests {
             loaded.group_values.is_some(),
             "group_values preserved when not supplied"
         );
+    }
+
+    fn make_record_in_store(store: &MemoryStore) -> String {
+        let fv = vec![FieldValue {
+            field_id: "field-name-001".to_string(),
+            value: json!("Tagged Record"),
+            entries: None,
+            source: None,
+            edited_at: None,
+        }];
+        create_record(store, "type-test-001", 1, fv, None, "records/test-items")
+            .expect("create")
+            .instance_id
+    }
+
+    #[test]
+    fn add_record_tag_adds_and_mirrors_to_manifest() {
+        let store = make_store_with_package();
+        let id = make_record_in_store(&store);
+
+        let result = add_record_tag(&store, &id, "construct:field").expect("add tag");
+        assert!(matches!(result, AddRecordTagResult::Added { .. }));
+
+        // Record body has the tag
+        let record = get_record_by_id(&store, &id).unwrap().unwrap();
+        assert_eq!(record.tags, Some(vec!["construct:field".to_string()]));
+
+        // Manifest index is mirrored
+        let manifest = store.load_manifest().unwrap();
+        let entry = manifest
+            .instance_index
+            .iter()
+            .find(|e| e.instance_id() == id)
+            .expect("entry in index");
+        assert_eq!(entry.tags, Some(vec!["construct:field".to_string()]));
+    }
+
+    #[test]
+    fn add_record_tag_idempotent() {
+        let store = make_store_with_package();
+        let id = make_record_in_store(&store);
+
+        add_record_tag(&store, &id, "construct:field").expect("first add");
+        let result = add_record_tag(&store, &id, "construct:field").expect("second add");
+        assert!(matches!(result, AddRecordTagResult::AlreadyPresent { .. }));
+
+        let record = get_record_by_id(&store, &id).unwrap().unwrap();
+        assert_eq!(record.tags.as_deref().unwrap_or(&[]).len(), 1);
+    }
+
+    #[test]
+    fn remove_record_tag_removes_and_mirrors_to_manifest() {
+        let store = make_store_with_package();
+        let id = make_record_in_store(&store);
+
+        add_record_tag(&store, &id, "construct:field").expect("add");
+        let result = remove_record_tag(&store, &id, "construct:field").expect("remove");
+        assert!(matches!(result, RemoveRecordTagResult::Removed { .. }));
+
+        let record = get_record_by_id(&store, &id).unwrap().unwrap();
+        assert!(record.tags.is_none());
+
+        let manifest = store.load_manifest().unwrap();
+        let entry = manifest
+            .instance_index
+            .iter()
+            .find(|e| e.instance_id() == id)
+            .expect("entry");
+        assert!(entry.tags.is_none());
+    }
+
+    #[test]
+    fn remove_record_tag_not_present() {
+        let store = make_store_with_package();
+        let id = make_record_in_store(&store);
+
+        let result = remove_record_tag(&store, &id, "construct:field").expect("remove");
+        assert!(matches!(result, RemoveRecordTagResult::NotPresent { .. }));
+    }
+
+    #[test]
+    fn add_remove_record_tag_not_found() {
+        let store = make_store_with_package();
+
+        let add = add_record_tag(&store, "no-such-id", "t").expect("add");
+        assert!(matches!(add, AddRecordTagResult::NotFound));
+
+        let remove = remove_record_tag(&store, "no-such-id", "t").expect("remove");
+        assert!(matches!(remove, RemoveRecordTagResult::NotFound));
+    }
+
+    #[test]
+    fn update_record_preserves_tags() {
+        let store = make_store_with_package();
+        let id = make_record_in_store(&store);
+
+        add_record_tag(&store, &id, "concern:lifecycle").expect("add tag");
+
+        // Update field values — tags must survive
+        let new_fv = vec![FieldValue {
+            field_id: "field-name-001".to_string(),
+            value: json!("Updated Name"),
+            entries: None,
+            source: None,
+            edited_at: None,
+        }];
+        update_record(&store, &id, new_fv, None).expect("update");
+
+        let record = get_record_by_id(&store, &id).unwrap().unwrap();
+        assert_eq!(record.tags, Some(vec!["concern:lifecycle".to_string()]));
+    }
+
+    #[test]
+    fn list_record_tags_counts_correctly() {
+        let store = make_store_with_package();
+
+        let id1 = make_record_in_store(&store);
+        let id2 = make_record_in_store(&store);
+
+        add_record_tag(&store, &id1, "construct:field").unwrap();
+        add_record_tag(&store, &id1, "layer:normative").unwrap();
+        add_record_tag(&store, &id2, "construct:field").unwrap();
+
+        let result = list_record_tags(&store, None).expect("list");
+        assert_eq!(result.total_records, 2);
+
+        let construct_entry = result.tags.iter().find(|e| e.tag == "construct:field");
+        assert_eq!(construct_entry.map(|e| e.record_count), Some(2));
+
+        let layer_entry = result.tags.iter().find(|e| e.tag == "layer:normative");
+        assert_eq!(layer_entry.map(|e| e.record_count), Some(1));
+    }
+
+    #[test]
+    fn list_records_filtered_by_tag() {
+        let store = make_store_with_package();
+
+        let id1 = make_record_in_store(&store);
+        let id2 = make_record_in_store(&store);
+
+        add_record_tag(&store, &id1, "construct:type").unwrap();
+
+        let tagged = list_records_filtered(
+            &store,
+            RecordListFilter {
+                tag: Some("construct:type".to_string()),
+                ..Default::default()
+            },
+        )
+        .expect("list");
+
+        assert_eq!(tagged.len(), 1);
+        assert_eq!(tagged[0].instance_id, id1);
+
+        let _ = id2; // not tagged — should not appear
     }
 }

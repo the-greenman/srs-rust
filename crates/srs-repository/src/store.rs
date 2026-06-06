@@ -122,6 +122,15 @@ pub trait RepositoryStore {
     fn delete_blueprint_file(&self, relative_path: &str) -> Result<(), RepositoryError>;
     fn ensure_blueprints_dir(&self, relative_dir: &str) -> Result<(), RepositoryError>;
 
+    // --- Vocabularies ---
+
+    fn save_vocabulary(
+        &self,
+        relative_path: &str,
+        vocabulary: &Vocabulary,
+    ) -> Result<(), RepositoryError>;
+    fn ensure_vocabularies_dir(&self, relative_dir: &str) -> Result<(), RepositoryError>;
+
     // --- Instances (Notes, TypedRecords, Records) ---
 
     fn load_instance_json(&self, relative_path: &str)
@@ -1218,6 +1227,22 @@ impl RepositoryStore for FileStore {
         self.ensure_dir(&self.abs(relative_dir))
     }
 
+    fn save_vocabulary(
+        &self,
+        relative_path: &str,
+        vocabulary: &Vocabulary,
+    ) -> Result<(), RepositoryError> {
+        let value = serde_json::to_value(vocabulary).map_err(|e| RepositoryError::Serialize {
+            path: self.abs(relative_path),
+            source: e,
+        })?;
+        self.write_json(&self.abs(relative_path), &value)
+    }
+
+    fn ensure_vocabularies_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
+        self.ensure_dir(&self.abs(relative_dir))
+    }
+
     // --- Instances ---
 
     fn load_instance_json(
@@ -1650,6 +1675,7 @@ pub(crate) fn definition_kind_key(kind: DefinitionKind) -> &'static str {
         DefinitionKind::DocumentView => "documentViews",
         DefinitionKind::RelationType => "relationTypes",
         DefinitionKind::Blueprint => "blueprints",
+        DefinitionKind::Vocabulary => "vocabularies",
     }
 }
 
@@ -2308,6 +2334,20 @@ pub mod memory {
         }
 
         fn ensure_blueprints_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
+            Ok(())
+        }
+
+        fn save_vocabulary(
+            &self,
+            relative_path: &str,
+            vocabulary: &Vocabulary,
+        ) -> Result<(), RepositoryError> {
+            let v = serde_json::to_value(vocabulary).unwrap();
+            self.data.borrow_mut().insert(relative_path.to_string(), v);
+            Ok(())
+        }
+
+        fn ensure_vocabularies_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
             Ok(())
         }
 

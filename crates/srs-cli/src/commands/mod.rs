@@ -639,6 +639,14 @@ pub enum VocabularyCommand {
         #[arg(long, hide = true)]
         json: bool,
     },
+    /// Create a new vocabulary (reads JSON from stdin)
+    Create,
+    /// Add a term to an existing vocabulary (reads term JSON from stdin)
+    TermCreate {
+        /// Vocabulary UUID id to add the term to
+        #[arg(long = "vocabulary-id")]
+        vocabulary_id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -821,6 +829,9 @@ pub enum RecordCommand {
         /// Type filter (namespace/name format, e.g. com.example/my-type). Omit to list all records.
         #[arg(long = "type", visible_alias = "type-filter")]
         type_filter: Option<String>,
+        /// Filter to only records that carry this tag key in their manifest index.
+        #[arg(long)]
+        tag: Option<String>,
         /// Deprecated: JSON output is now the default (no-op)
         #[arg(long, hide = true)]
         json: bool,
@@ -882,6 +893,29 @@ pub enum RecordCommand {
     /// Revision management commands (ext:addressability)
     #[command(subcommand)]
     Revision(RecordRevisionCommand),
+    /// Tag management commands for tier-2 records
+    #[command(subcommand)]
+    Tag(RecordTagCommand),
+}
+
+#[derive(Subcommand)]
+pub enum RecordTagCommand {
+    /// Add a tag to a tier-2 record
+    Add {
+        /// Record instance ID
+        id: String,
+        /// Tag key to add (e.g. construct:field, concern:lifecycle)
+        tag: String,
+    },
+    /// Remove a tag from a tier-2 record
+    Remove {
+        /// Record instance ID
+        id: String,
+        /// Tag key to remove
+        tag: String,
+    },
+    /// List all distinct tags used across tier-2 records, with record counts
+    List,
 }
 
 #[derive(Subcommand)]

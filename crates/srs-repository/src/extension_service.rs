@@ -262,6 +262,13 @@ fn parse_record_compat(content: &str) -> Option<Record> {
         created_at: obj
             .get("createdAt")
             .and_then(|v| v.as_str().map(|s| s.to_string())),
+        tags: obj.get("tags").and_then(|v| {
+            v.as_array().map(|arr| {
+                arr.iter()
+                    .filter_map(|s| s.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+        }),
         updated_at: obj
             .get("updatedAt")
             .and_then(|v| v.as_str().map(|s| s.to_string())),

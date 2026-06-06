@@ -725,6 +725,16 @@ mod tests {
             fn ensure_blueprints_dir(&self, _: &str) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
+            fn save_vocabulary(
+                &self,
+                _: &str,
+                _: &srs_core::types::vocabulary::Vocabulary,
+            ) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn ensure_vocabularies_dir(&self, _: &str) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
             fn load_instance_json(&self, _: &str) -> Result<serde_json::Value, RepositoryError> {
                 unimplemented!()
             }
