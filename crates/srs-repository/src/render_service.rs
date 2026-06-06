@@ -2,6 +2,7 @@ use crate::container_service::list_members;
 use crate::error::RepositoryError;
 use crate::package::Package;
 use crate::record_store::{get_record_by_id, list_records_by_type};
+use crate::relation_graph;
 use crate::relation_service::load_relations;
 use crate::store::RepositoryStore;
 use serde_json::json;
@@ -12,7 +13,7 @@ use srs_core::types::theme::{AssetMode, Theme};
 use srs_core::types::view::{
     DocumentSection, DocumentView, RelationDirection, SectionSource, SortDirection, ThemeMode,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 pub struct RenderDocumentViewOptions<'a> {
     pub store: &'a dyn RepositoryStore,
@@ -343,7 +344,7 @@ fn project_section_json(
         // FixedInstances sections declare an explicit instance_ids order that must be
         // preserved — applying precedes-chain sorting would override the author's intent.
         // ContainerSubset, TypeQuery, and RelationQuery all benefit from precedes ordering.
-        records = sort_by_precedes_chain(records, relations);
+        records = relation_graph::sort_by_precedes_chain(records, relations);
     }
 
     let projected_records = records
@@ -890,119 +891,6 @@ fn record_satisfies_view(
     (satisfied, Some(effective_ids))
 }
 
-/// Sort records by following the `precedes` relation chain among them.
-///
-/// Builds a linked-list ordering from `precedes` relations whose both endpoints
-/// are in the candidate set. Records not connected by any precedes relation fall
-/// back to `created_at` order. Handles cycles via a visited set.
-fn sort_by_precedes_chain(records: Vec<Record>, relations: &[Relation]) -> Vec<Record> {
-    if records.len() <= 1 {
-        return records;
-    }
-
-    let id_set: HashSet<&str> = records.iter().map(|r| r.instance_id.as_str()).collect();
-
-    // Build successor map and in-degree count from precedes relations within the set.
-    let mut next: HashMap<&str, &str> = HashMap::new();
-    let mut in_degree: HashMap<&str, usize> = id_set.iter().map(|id| (*id, 0)).collect();
-
-    for rel in relations {
-        if rel.relation_type != "precedes" {
-            continue;
-        }
-        let src = rel.source_instance_id.as_str();
-        let tgt = rel.target_instance_id.as_str();
-        if id_set.contains(src) && id_set.contains(tgt) {
-            next.insert(src, tgt);
-            *in_degree.entry(tgt).or_insert(0) += 1;
-        }
-    }
-
-    // Heads: nodes with no incoming precedes edge within the set.
-    let mut heads: Vec<&str> = in_degree
-        .iter()
-        .filter(|(_, &deg)| deg == 0)
-        .map(|(&id, _)| id)
-        .collect();
-    // Stable-sort heads by created_at for deterministic ordering of disconnected components.
-    heads.sort_by(|a, b| {
-        let ta = records
-            .iter()
-            .find(|r| r.instance_id == *a)
-            .and_then(|r| r.created_at.as_deref())
-            .unwrap_or("");
-        let tb = records
-            .iter()
-            .find(|r| r.instance_id == *b)
-            .and_then(|r| r.created_at.as_deref())
-            .unwrap_or("");
-        ta.cmp(tb)
-    });
-
-    let record_map: HashMap<&str, &Record> = records
-        .iter()
-        .map(|r| (r.instance_id.as_str(), r))
-        .collect();
-
-    let mut result: Vec<Record> = Vec::with_capacity(records.len());
-    let mut visited: HashSet<&str> = HashSet::new();
-
-    for head in heads {
-        let mut current = head;
-        loop {
-            if visited.contains(current) {
-                break;
-            }
-            visited.insert(current);
-            if let Some(&record) = record_map.get(current) {
-                result.push(record.clone());
-            }
-            match next.get(current) {
-                Some(&nxt) => current = nxt,
-                None => break,
-            }
-        }
-    }
-
-    // Append orphans / cycle members not reached above, sorted by created_at.
-    let mut remaining: Vec<&Record> = records
-        .iter()
-        .filter(|r| !visited.contains(r.instance_id.as_str()))
-        .collect();
-    remaining.sort_by(|a, b| {
-        a.created_at
-            .as_deref()
-            .unwrap_or("")
-            .cmp(b.created_at.as_deref().unwrap_or(""))
-    });
-    result.extend(remaining.into_iter().cloned());
-
-    result
-}
-
-/// Collect subsection records that are targets of `contains` relations from
-/// `instance_id`, ordered by `precedes` chain.
-fn collect_subsections(
-    store: &dyn RepositoryStore,
-    instance_id: &str,
-    relations: &[Relation],
-) -> Result<Vec<Record>, RepositoryError> {
-    let target_ids: Vec<&str> = relations
-        .iter()
-        .filter(|r| r.relation_type == "contains" && r.source_instance_id == instance_id)
-        .map(|r| r.target_instance_id.as_str())
-        .collect();
-
-    let mut subsections = Vec::new();
-    for id in target_ids {
-        if let Some(record) = get_record_by_id(store, id)? {
-            subsections.push(record);
-        }
-    }
-
-    Ok(sort_by_precedes_chain(subsections, relations))
-}
-
 fn render_section(
     store: &dyn RepositoryStore,
     ctx: &RenderContext<'_>,
@@ -1034,7 +922,7 @@ fn render_section(
         // FixedInstances sections declare an explicit instance_ids order that must be
         // preserved — applying precedes-chain sorting would override the author's intent.
         // ContainerSubset, TypeQuery, and RelationQuery all benefit from precedes ordering.
-        records = sort_by_precedes_chain(records, relations);
+        records = relation_graph::sort_by_precedes_chain(records, relations);
     }
 
     let mut out = String::new();
@@ -1387,7 +1275,12 @@ fn render_record_at_level(
 
     // In structured mode, render subsections nested one heading level deeper.
     if structured {
-        let subsections = collect_subsections(store, &record.instance_id, relations)?;
+        let subsections = relation_graph::children_by_relation_type(
+            &record.instance_id,
+            "contains",
+            relations,
+            store,
+        )?;
         for subsection in &subsections {
             out.push_str(&render_record_at_level(
                 store,
@@ -1614,6 +1507,7 @@ fn depth(base: u32, depth_offset: u32) -> u32 {
 mod tests {
     use super::*;
     use crate::store::FileStore;
+    use std::collections::HashMap;
 
     fn srs_spec_repo() -> std::path::PathBuf {
         if let Ok(p) = std::env::var("SRS_SPEC_REPO") {
@@ -2688,7 +2582,7 @@ mod tests {
         // sort_by_precedes_chain with no precedes relations falls back to created_at,
         // which would produce [earlier_ts, later_ts] (a first, b second) — wrong.
         let authored = vec![later_ts.clone(), earlier_ts.clone()];
-        let sorted = sort_by_precedes_chain(authored, &[]);
+        let sorted = crate::relation_graph::sort_by_precedes_chain(authored, &[]);
 
         // sort_by_precedes_chain DOES reorder (this is what the guard must prevent).
         assert_eq!(

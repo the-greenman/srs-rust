@@ -155,5 +155,8 @@ fn main() {
     write_schema!("lifecycle-list", LifecycleListPayload);
     write_schema!("lifecycle-get", LifecycleGetPayload);
 
+    // Tree payloads
+    write_schema!("tree", TreePayload);
+
     println!("done.");
 }

@@ -391,3 +391,10 @@ fn lifecycle_list() {
 fn lifecycle_get() {
     check::<LifecycleGetPayload>("lifecycle-get");
 }
+
+// ── Tree ─────────────────────────────────────────────────────────────────────
+
+#[test]
+fn tree() {
+    check::<TreePayload>("tree");
+}

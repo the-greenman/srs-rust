@@ -15,11 +15,12 @@ pub mod relation_type;
 pub mod render;
 pub mod repo;
 pub mod tag;
+pub mod tree;
 pub mod view;
 pub mod vocabulary;
 
 use anyhow::{anyhow, Context, Result};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use srs_repository::detect::find_repo_root;
 use srs_repository::{FileStore, JsonStore, RepositoryStore};
 use std::path::{Path, PathBuf};
@@ -298,6 +299,8 @@ pub enum Commands {
     /// Lifecycle definition commands (RFC-006)
     #[command(subcommand)]
     Lifecycle(LifecycleCommand),
+    /// Show the hierarchical record tree rooted at top-level or specified instances
+    Tree(TreeArgs),
 }
 
 #[derive(Subcommand)]
@@ -1179,6 +1182,22 @@ pub enum PackageCommand {
     },
 }
 
+#[derive(Args)]
+pub struct TreeArgs {
+    /// Start the tree from this instance ID (repeatable; omit to auto-detect top-level records)
+    #[arg(long = "from", action = clap::ArgAction::Append)]
+    pub from: Vec<String>,
+    /// Edge type to follow for parent → child traversal (default: contains)
+    #[arg(long = "relation-type", default_value = "contains")]
+    pub relation_type: String,
+    /// Maximum recursion depth (omit for unlimited)
+    #[arg(long = "depth")]
+    pub depth: Option<u32>,
+    /// Only show records whose namespace/name matches this type (e.g. com.example/section)
+    #[arg(long = "type")]
+    pub type_filter: Option<String>,
+}
+
 pub fn dispatch(cli: Cli) -> Result<String> {
     // repo create targets explicit --repo or current dir; it must not require existing .srs.
     let location = match &cli.command {
@@ -1227,5 +1246,6 @@ pub fn dispatch(cli: Cli) -> Result<String> {
         Commands::DocumentView(dv_cmd) => document_view::dispatch(ctx, dv_cmd),
         Commands::Vocabulary(vocab_cmd) => vocabulary::dispatch(ctx, vocab_cmd),
         Commands::Lifecycle(lc_cmd) => lifecycle::dispatch(ctx, lc_cmd),
+        Commands::Tree(args) => tree::dispatch(ctx, args),
     }
 }

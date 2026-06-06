@@ -804,3 +804,27 @@ pub struct PackageRefPayload {
     pub path: String,
     pub packages: Vec<PackageRefEntry>,
 }
+
+// ── Tree ──────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TreePayload {
+    pub roots: Vec<TreeNodePayload>,
+    pub text: String,
+    pub diagnostics: Vec<String>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TreeNodePayload {
+    pub instance_id: String,
+    pub label: String,
+    pub type_namespace: String,
+    pub type_name: String,
+    pub lifecycle_state: Option<String>,
+    pub depth: u32,
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub children: Vec<TreeNodePayload>,
+    pub cycle_pruned: bool,
+}
