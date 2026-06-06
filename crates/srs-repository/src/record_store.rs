@@ -101,6 +101,7 @@ pub fn create_record(
     type_version: u32,
     field_values: Vec<FieldValue>,
     group_values: Option<Vec<srs_core::types::record::FieldGroupValue>>,
+    tags: Option<Vec<String>>,
     relative_dir: &str,
 ) -> Result<Record, RepositoryError> {
     let package = store.load_package()?;
@@ -134,6 +135,12 @@ pub fn create_record(
         .as_ref()
         .map(|lc| lc.initial_state.clone());
 
+    // Normalise tags: treat Some([]) as None (no tags) to keep the record body clean.
+    let initial_tags = match tags {
+        Some(ref v) if !v.is_empty() => tags,
+        _ => None,
+    };
+
     let mut record = Record {
         instance_id: String::new(),
         type_id: type_id.to_string(),
@@ -143,7 +150,7 @@ pub fn create_record(
         field_values,
         group_values,
         lifecycle_state: initial_lifecycle_state,
-        tags: None,
+        tags: initial_tags,
         created_at: Some(chrono::Utc::now().to_rfc3339()),
         updated_at: Some(chrono::Utc::now().to_rfc3339()),
         extra: HashMap::new(),
@@ -202,6 +209,7 @@ pub fn update_record(
     instance_id: &str,
     field_values: Vec<FieldValue>,
     group_values: Option<Option<Vec<srs_core::types::record::FieldGroupValue>>>,
+    tags: Option<Vec<String>>,
 ) -> Result<Record, RepositoryError> {
     let record =
         get_record_by_id(store, instance_id)?.ok_or_else(|| RepositoryError::NotFound {
@@ -216,6 +224,16 @@ pub fn update_record(
             version: record.type_version,
         })?;
 
+    // Three-way tag semantics:
+    //   None        → preserve existing tags (caller did not supply the field)
+    //   Some([])    → clear all tags
+    //   Some([...]) → replace tags with the supplied list
+    let updated_tags = match tags {
+        None => record.tags,
+        Some(ref v) if v.is_empty() => None,
+        Some(v) => Some(v),
+    };
+
     let updated_record = Record {
         instance_id: record.instance_id,
         type_id: record.type_id,
@@ -226,8 +244,7 @@ pub fn update_record(
         // None outer = not supplied by caller → preserve existing; Some(v) = replace.
         group_values: group_values.unwrap_or(record.group_values),
         lifecycle_state: record.lifecycle_state,
-        // Tags are always preserved by record update — mutate only via record tag add/remove.
-        tags: record.tags,
+        tags: updated_tags,
         created_at: record.created_at,
         updated_at: Some(chrono::Utc::now().to_rfc3339()),
         extra: record.extra,
@@ -328,12 +345,19 @@ pub struct RecordListFilter {
 ///
 /// There is no JSON representation to distinguish "null" from "absent"; both map to `None` (preserve).
 /// To clear all group_values, send `"groupValues": []`.
+///
+/// `tags` semantics (both create and update):
+/// - Absent or `null` in JSON → `None` → on create: no tags; on update: preserve existing tags.
+/// - `[]` (empty array) → `Some(vec![])` → on create: no tags; on update: clear all tags.
+/// - `["foo", ...]` → `Some(vec![...])` → on create: set tags; on update: replace tags.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateRecordInput {
     pub field_values: Vec<FieldValue>,
     #[serde(default)]
     pub group_values: Option<Vec<srs_core::types::record::FieldGroupValue>>,
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
 }
 
 /// Result for create_record_in_context
@@ -471,6 +495,7 @@ pub fn create_record_in_context(
         record_type.version,
         input.field_values,
         input.group_values,
+        input.tags,
         relative_dir,
     )?;
 
@@ -732,6 +757,7 @@ pub fn create_record_successor(
         &predecessor.type_id,
         type_version,
         input.field_values,
+        None,
         None,
         relative_dir,
     )?;
@@ -1220,6 +1246,7 @@ mod tests {
             1,
             field_values,
             None,
+            None,
             "records/test-items",
         )
         .expect("should create record");
@@ -1260,6 +1287,7 @@ mod tests {
             1,
             field_values,
             None,
+            None,
             "records/test-items",
         );
         assert!(result.is_err());
@@ -1285,6 +1313,7 @@ mod tests {
             "type-test-001",
             1,
             field_values,
+            None,
             None,
             "records/test-items",
         )
@@ -1318,6 +1347,7 @@ mod tests {
             1,
             initial_values,
             None,
+            None,
             "records/test-items",
         )
         .unwrap();
@@ -1340,7 +1370,7 @@ mod tests {
             },
         ];
 
-        let updated = update_record(&store, &instance_id, updated_values, None).unwrap();
+        let updated = update_record(&store, &instance_id, updated_values, None, None).unwrap();
         assert_eq!(updated.field_values[0].value, json!("Updated Name"));
 
         // Verify stored value
@@ -1357,7 +1387,7 @@ mod tests {
             source: None,
             edited_at: None,
         }];
-        assert!(update_record(&store, &instance_id, invalid_values, None).is_err());
+        assert!(update_record(&store, &instance_id, invalid_values, None, None).is_err());
     }
 
     #[test]
@@ -1378,6 +1408,7 @@ mod tests {
                 edited_at: None,
             }],
             None,
+            None,
             "records/test-items",
         )
         .unwrap();
@@ -1393,6 +1424,7 @@ mod tests {
                 source: None,
                 edited_at: None,
             }],
+            None,
             None,
             "records/test-items",
         )
@@ -1448,6 +1480,7 @@ mod tests {
                 edited_at: None,
             }],
             None,
+            None,
             "records/test-items",
         )
         .unwrap();
@@ -1480,6 +1513,7 @@ mod tests {
             "type-test-001",
             1,
             field_values,
+            None,
             None,
             "records/test-items",
         )
@@ -1692,6 +1726,7 @@ mod tests {
                 source: None,
                 edited_at: None,
             }],
+            None,
             None,
             "records/lc-items",
         )
@@ -1929,6 +1964,7 @@ mod tests {
             1,
             field_values,
             group_values,
+            None,
             "records/test-items",
         )
         .expect("should create record with group_values");
@@ -1958,8 +1994,16 @@ mod tests {
             source: None,
             edited_at: None,
         }];
-        let record = create_record(&store, "type-test-001", 1, fv, None, "records/test-items")
-            .expect("create");
+        let record = create_record(
+            &store,
+            "type-test-001",
+            1,
+            fv,
+            None,
+            None,
+            "records/test-items",
+        )
+        .expect("create");
         let id = record.instance_id.clone();
 
         let new_fv = vec![FieldValue {
@@ -1976,7 +2020,7 @@ mod tests {
                 field_values: vec![],
             }],
         }]);
-        update_record(&store, &id, new_fv, Some(new_gv)).expect("update");
+        update_record(&store, &id, new_fv, Some(new_gv), None).expect("update");
 
         let loaded = get_record_by_id(&store, &id).unwrap().unwrap();
         assert_eq!(loaded.field_values[0].value, json!("Updated"));
@@ -2006,8 +2050,16 @@ mod tests {
                 field_values: vec![],
             }],
         }]);
-        let record = create_record(&store, "type-test-001", 1, fv, gv, "records/test-items")
-            .expect("create");
+        let record = create_record(
+            &store,
+            "type-test-001",
+            1,
+            fv,
+            gv,
+            None,
+            "records/test-items",
+        )
+        .expect("create");
         let id = record.instance_id.clone();
 
         // None outer = not supplied, preserve existing
@@ -2018,7 +2070,7 @@ mod tests {
             source: None,
             edited_at: None,
         }];
-        update_record(&store, &id, new_fv, None).expect("update");
+        update_record(&store, &id, new_fv, None, None).expect("update");
 
         let loaded = get_record_by_id(&store, &id).unwrap().unwrap();
         assert_eq!(loaded.field_values[0].value, json!("Field Only Update"));
@@ -2036,9 +2088,17 @@ mod tests {
             source: None,
             edited_at: None,
         }];
-        create_record(store, "type-test-001", 1, fv, None, "records/test-items")
-            .expect("create")
-            .instance_id
+        create_record(
+            store,
+            "type-test-001",
+            1,
+            fv,
+            None,
+            None,
+            "records/test-items",
+        )
+        .expect("create")
+        .instance_id
     }
 
     #[test]
@@ -2132,7 +2192,7 @@ mod tests {
             source: None,
             edited_at: None,
         }];
-        update_record(&store, &id, new_fv, None).expect("update");
+        update_record(&store, &id, new_fv, None, None).expect("update");
 
         let record = get_record_by_id(&store, &id).unwrap().unwrap();
         assert_eq!(record.tags, Some(vec!["concern:lifecycle".to_string()]));
@@ -2181,5 +2241,188 @@ mod tests {
         assert_eq!(tagged[0].instance_id, id1);
 
         let _ = id2; // not tagged — should not appear
+    }
+
+    #[test]
+    fn create_record_with_tags_persists_tags_in_record_and_manifest() {
+        let store = make_store_with_package();
+
+        let fv = vec![FieldValue {
+            field_id: "field-name-001".to_string(),
+            value: json!("Tagged on Create"),
+            entries: None,
+            source: None,
+            edited_at: None,
+        }];
+
+        let record = create_record(
+            &store,
+            "type-test-001",
+            1,
+            fv,
+            None,
+            Some(vec![
+                "construct:field".to_string(),
+                "layer:normative".to_string(),
+            ]),
+            "records/test-items",
+        )
+        .expect("should create record with tags");
+
+        // Tags are in the returned record
+        assert_eq!(
+            record.tags,
+            Some(vec![
+                "construct:field".to_string(),
+                "layer:normative".to_string()
+            ])
+        );
+
+        // Tags are persisted in the record body
+        let loaded = get_record_by_id(&store, &record.instance_id)
+            .unwrap()
+            .expect("should load record");
+        assert_eq!(
+            loaded.tags,
+            Some(vec![
+                "construct:field".to_string(),
+                "layer:normative".to_string()
+            ])
+        );
+
+        // Tags are mirrored into the manifest index
+        let manifest = store.load_manifest().unwrap();
+        let entry = manifest
+            .instance_index
+            .iter()
+            .find(|e| e.instance_id() == record.instance_id)
+            .expect("entry in index");
+        assert_eq!(
+            entry.tags,
+            Some(vec![
+                "construct:field".to_string(),
+                "layer:normative".to_string()
+            ])
+        );
+    }
+
+    #[test]
+    fn create_record_with_empty_tags_has_no_tags() {
+        let store = make_store_with_package();
+
+        let fv = vec![FieldValue {
+            field_id: "field-name-001".to_string(),
+            value: json!("No Tags"),
+            entries: None,
+            source: None,
+            edited_at: None,
+        }];
+
+        let record = create_record(
+            &store,
+            "type-test-001",
+            1,
+            fv,
+            None,
+            Some(vec![]), // explicitly empty — normalised to None
+            "records/test-items",
+        )
+        .expect("should create record");
+
+        assert!(record.tags.is_none());
+    }
+
+    #[test]
+    fn update_record_with_none_tags_preserves_existing_tags() {
+        let store = make_store_with_package();
+        let id = make_record_in_store(&store);
+
+        add_record_tag(&store, &id, "concern:lifecycle").expect("add tag");
+
+        // Update with tags: None → preserve existing
+        let fv = vec![FieldValue {
+            field_id: "field-name-001".to_string(),
+            value: json!("Updated"),
+            entries: None,
+            source: None,
+            edited_at: None,
+        }];
+        update_record(&store, &id, fv, None, None).expect("update");
+
+        let record = get_record_by_id(&store, &id).unwrap().unwrap();
+        assert_eq!(record.tags, Some(vec!["concern:lifecycle".to_string()]));
+    }
+
+    #[test]
+    fn update_record_with_empty_tags_clears_tags() {
+        let store = make_store_with_package();
+        let id = make_record_in_store(&store);
+
+        add_record_tag(&store, &id, "concern:lifecycle").expect("add tag");
+
+        // Update with tags: Some([]) → clear all tags
+        let fv = vec![FieldValue {
+            field_id: "field-name-001".to_string(),
+            value: json!("Updated"),
+            entries: None,
+            source: None,
+            edited_at: None,
+        }];
+        update_record(&store, &id, fv, None, Some(vec![])).expect("update");
+
+        let record = get_record_by_id(&store, &id).unwrap().unwrap();
+        assert!(record.tags.is_none());
+
+        // Manifest index also cleared
+        let manifest = store.load_manifest().unwrap();
+        let entry = manifest
+            .instance_index
+            .iter()
+            .find(|e| e.instance_id() == id)
+            .expect("entry");
+        assert!(entry.tags.is_none());
+    }
+
+    #[test]
+    fn update_record_with_new_tags_replaces_existing_tags() {
+        let store = make_store_with_package();
+        let id = make_record_in_store(&store);
+
+        add_record_tag(&store, &id, "old-tag").expect("add old tag");
+
+        // Update with Some([new]) → replace
+        let fv = vec![FieldValue {
+            field_id: "field-name-001".to_string(),
+            value: json!("Updated"),
+            entries: None,
+            source: None,
+            edited_at: None,
+        }];
+        update_record(
+            &store,
+            &id,
+            fv,
+            None,
+            Some(vec!["new-tag-1".to_string(), "new-tag-2".to_string()]),
+        )
+        .expect("update");
+
+        let record = get_record_by_id(&store, &id).unwrap().unwrap();
+        assert_eq!(
+            record.tags,
+            Some(vec!["new-tag-1".to_string(), "new-tag-2".to_string()])
+        );
+
+        // Manifest index updated
+        let manifest = store.load_manifest().unwrap();
+        let entry = manifest
+            .instance_index
+            .iter()
+            .find(|e| e.instance_id() == id)
+            .expect("entry");
+        assert_eq!(
+            entry.tags,
+            Some(vec!["new-tag-1".to_string(), "new-tag-2".to_string()])
+        );
     }
 }

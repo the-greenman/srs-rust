@@ -198,6 +198,7 @@ fn cmd_record_update(ctx: CliContext, id: String) -> Result<String> {
             &id,
             input.field_values,
             input.group_values.map(Some),
+            input.tags,
         )?)
     }) {
         Ok(record) => output::serialize("record update", RecordPayload { record }),
