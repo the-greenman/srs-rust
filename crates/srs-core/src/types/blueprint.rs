@@ -27,6 +27,7 @@ pub struct RelationSpec {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Blueprint {
+    #[serde(default)]
     pub id: String,
     pub namespace: String,
     pub name: String,
