@@ -129,9 +129,13 @@ Closes #N
 ```
 End the body with the Claude Code attribution line. Link the PR back on the issue if `--fill` didn't.
 
-## Stage 9 — Sweep open issues
+## Stage 9 — Sweep open issues and close
 
-Run `gh issue list --state open` and check whether any open issue is now addressable by this change or is a quick adjacent fix. Address what you reasonably can within this branch/PR; for the rest, leave a comment noting status. Do not scope-creep the PR with unrelated large work — note those as follow-ups instead.
+1. Run `gh issue list --state open` and check whether any open issue is now addressable by this change or is a quick adjacent fix. Address what you reasonably can within this branch/PR; for the rest, leave a comment noting status. Do not scope-creep the PR with unrelated large work — note those as follow-ups instead.
+2. **Close the primary issue.** The `Closes #N` in the PR body triggers automatic closure on merge, but only if the repo has that setting enabled. To be safe, also close it explicitly once the PR is open:
+   ```bash
+   gh issue close N --comment "Implemented in PR #<PR number>."
+   ```
 
 ---
 
