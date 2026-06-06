@@ -127,6 +127,7 @@ struct FieldGroupJson {
     repeatable: bool,
     min_items: Option<u32>,
     max_items: Option<u32>,
+    composite_renderer: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -388,6 +389,7 @@ impl JsonStore {
                         repeatable: g.repeatable,
                         min_items: g.min_items,
                         max_items: g.max_items,
+                        composite_renderer: g.composite_renderer,
                     })
                     .collect()
             });

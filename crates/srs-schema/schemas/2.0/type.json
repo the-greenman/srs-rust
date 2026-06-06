@@ -232,6 +232,10 @@
         "fields": {
           "type": "array",
           "items": { "$ref": "#/$defs/FieldAssignment" }
+        },
+        "compositeRenderer": {
+          "type": "string",
+          "description": "ext:field-groups RFC-007 — dispatch rendering to a named composite renderer. Bare names (e.g. 'table') are SRS-reserved; vendor values use 'reverse-domain/name'. Unknown values fall back to per-field baseline with a diagnostic [FG-Cx1]."
         }
       }
     }

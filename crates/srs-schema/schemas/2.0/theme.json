@@ -137,6 +137,16 @@
         "fieldRow": {
           "type": "string",
           "description": "Wraps each field label+value pair. Available: {{field-label}}, {{field-value}}, {{field-name}}, {{content}}. Applied after ExportConfig filtering/ordering when renderViewId is set. Does not wrap ExportConfig.preamble content."
+        },
+        "groupFieldRowTemplates": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "ext:field-groups RFC-007 [T-Gx1] — per-field-name templates for individual field rows in group entries. Key: Field.name. Value: template string with {{field-value}} and {{field-label}}. Applied only when the group has no known compositeRenderer or falls back to baseline."
+        },
+        "compositeRendererConfig": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "ext:field-groups RFC-007 — per-renderer config, keyed by the same identifier space as FieldGroup.compositeRenderer. 'table' renderer reads: tableClass (string), wrapperTemplate (string with {{subheading}}/{{label}}/{{table}}), captionTemplate (string with {{field-value}})."
         }
       }
     },
