@@ -507,8 +507,8 @@ pub fn build_type_schema(
     let mut properties = serde_json::Map::new();
     let mut required_fields: Vec<serde_json::Value> = Vec::new();
 
-    let mut assignments = record_type.fields.clone();
-    assignments.sort_by_key(|fa| fa.order);
+    // effective_fields walks the inheritance chain so inherited fields are included.
+    let assignments = package.effective_fields(record_type)?;
 
     for assignment in &assignments {
         let field = match package.resolve_field(&assignment.field_id) {
