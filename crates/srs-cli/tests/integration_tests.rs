@@ -5611,3 +5611,144 @@ fn type_create_without_id_mints_uuid() {
     assert_eq!(&id[8..9], "-");
     assert_eq!(&id[13..14], "-");
 }
+
+#[test]
+fn type_schema_emits_draft07_for_record_field_values() {
+    let temp = TempDir::new().unwrap();
+    let repo = temp.path().join("schema-demo.srsj");
+    let repo_str = repo.to_str().unwrap();
+
+    let created = run_srs_in_dir(
+        temp.path(),
+        &[
+            "--repo",
+            repo_str,
+            "repo",
+            "create",
+            "--repository-id",
+            "repo-type-schema",
+            "--namespace",
+            "com.semanticops.schemademo",
+            "--package-id",
+            "pkg-type-schema",
+            "--package-name",
+            "primary",
+        ],
+    );
+    assert_eq!(created["ok"], true);
+
+    let title_field_id = "00000000-0000-4000-8000-0000000003a1";
+    let status_field_id = "00000000-0000-4000-8000-0000000003a2";
+    let type_id = "00000000-0000-4000-8000-0000000003b1";
+
+    for field in [
+        serde_json::json!({
+            "id": title_field_id,
+            "namespace": "com.semanticops.schemademo",
+            "name": "title",
+            "version": 1,
+            "valueType": "string"
+        }),
+        serde_json::json!({
+            "id": status_field_id,
+            "namespace": "com.semanticops.schemademo",
+            "name": "status",
+            "version": 1,
+            "valueType": "select",
+            "allowedValues": ["proposed", "accepted"]
+        }),
+    ] {
+        let result = run_srs_stdin_in_dir(
+            temp.path(),
+            &["--repo", repo_str, "field", "create"],
+            &field.to_string(),
+        );
+        assert_eq!(result["ok"], true, "field create failed: {:?}", result);
+    }
+
+    let record_type = serde_json::json!({
+        "id": type_id,
+        "namespace": "com.semanticops.schemademo",
+        "name": "decision",
+        "version": 1,
+        "description": "A decision record",
+        "fields": [
+            { "fieldId": title_field_id, "order": 0, "required": true, "displayLabel": "Title" },
+            { "fieldId": status_field_id, "order": 1, "required": false, "displayLabel": "Status" }
+        ],
+        "createdAt": "2026-01-01T00:00:00Z"
+    });
+    let type_created = run_srs_stdin_in_dir(
+        temp.path(),
+        &["--repo", repo_str, "type", "create"],
+        &record_type.to_string(),
+    );
+    assert_eq!(
+        type_created["ok"], true,
+        "type create failed: {:?}",
+        type_created
+    );
+
+    // Exercise the new command.
+    let result = run_srs_in_dir(
+        temp.path(),
+        &["--repo", repo_str, "type", "schema", type_id],
+    );
+    assert_eq!(result["ok"], true, "type schema failed: {:?}", result);
+    assert_eq!(result["command"], "type schema");
+
+    let schema = &result["payload"]["schema"];
+    assert_eq!(schema["$schema"], "http://json-schema.org/draft-07/schema#");
+    assert_eq!(schema["type"], "object");
+    assert_eq!(schema["additionalProperties"], false);
+    // required string field -> string property + listed in required[]
+    assert_eq!(schema["properties"]["title"]["type"], "string");
+    assert_eq!(schema["properties"]["title"]["title"], "Title");
+    assert_eq!(schema["required"], serde_json::json!(["title"]));
+    // select field -> enum from allowedValues
+    assert_eq!(
+        schema["properties"]["status"]["enum"],
+        serde_json::json!(["proposed", "accepted"])
+    );
+    // order recoverable
+    assert_eq!(schema["properties"]["title"]["x-srs-order"], 0);
+    assert_eq!(schema["properties"]["status"]["x-srs-order"], 1);
+}
+
+#[test]
+fn type_schema_unknown_type_returns_error_envelope() {
+    let temp = TempDir::new().unwrap();
+    let repo = temp.path().join("schema-err.srsj");
+    let repo_str = repo.to_str().unwrap();
+    run_srs_in_dir(
+        temp.path(),
+        &[
+            "--repo",
+            repo_str,
+            "repo",
+            "create",
+            "--repository-id",
+            "repo-type-schema-err",
+            "--namespace",
+            "com.semanticops.schemaerr",
+            "--package-id",
+            "pkg-type-schema-err",
+            "--package-name",
+            "primary",
+        ],
+    );
+    let (success, result) = run_srs_any_status_in_dir(
+        temp.path(),
+        &[
+            "--repo",
+            repo_str,
+            "type",
+            "schema",
+            "00000000-0000-4000-8000-deadbeef0000",
+        ],
+    );
+    // Exit code 0 ("command ran") per ADR-011, but ok=false with diagnostics.
+    assert!(success, "exit code should be 0 even on a not-found");
+    assert_eq!(result["ok"], false);
+    assert!(result["diagnostics"].is_array());
+}

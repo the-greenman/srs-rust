@@ -855,6 +855,14 @@ pub enum TypeCommand {
         #[arg(long)]
         version: Option<u32>,
     },
+    /// Emit a draft-07 JSON Schema for a record's fieldValues of this Type
+    Schema {
+        /// Type definition ID
+        id: String,
+        /// Type version (defaults to latest)
+        #[arg(long)]
+        type_version: Option<u32>,
+    },
 }
 
 #[derive(Subcommand)]

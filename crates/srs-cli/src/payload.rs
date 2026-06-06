@@ -544,6 +544,15 @@ pub struct TypeDeletePayload {
     pub id: String,
 }
 
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TypeSchemaPayload {
+    /// A draft-07 JSON Schema describing a record's `fieldValues` for this Type.
+    /// Dynamic shape; emitted opaquely (see ADR-011 for the dynamic-value convention).
+    #[schemars(with = "serde_json::Value")]
+    pub schema: serde_json::Value,
+}
+
 // ── Extension payloads ────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]

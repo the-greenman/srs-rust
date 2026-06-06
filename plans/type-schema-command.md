@@ -136,18 +136,18 @@ cargo clippy -p srs-repository -- -D warnings
 
 #### Tasks
 
-- [ ] Add `Schema { id: String, #[arg(long)] type_version: Option<u32> }` to `TypeCommand` in `crates/srs-cli/src/commands/mod.rs` with a doc comment.
-- [ ] Add `TypeSchemaPayload { #[schemars(with = "serde_json::Value")] schema: serde_json::Value }` to `crates/srs-cli/src/payload.rs`.
-- [ ] Add `cmd_type_schema(ctx, id, type_version)` in `crates/srs-cli/src/commands/record_type.rs`: one `with_store` call to `type_schema_service::type_schema`, then serialize via `output::serialize("type schema", TypeSchemaPayload { schema })` while threading `result.diagnostics` into the envelope's top-level `diagnostics[]`; map a service `Err` to `output::err("type schema", …)`. Handler stays within the ADR-010 shape (parse args, one service call, wrap).
-- [ ] Add the `TypeCommand::Schema { .. } =>` arm to the `dispatch` function in `crates/srs-cli/src/commands/record_type.rs`.
-- [ ] `cargo run --bin generate-schemas`; stage `crates/srs-cli/schemas/payload/type-schema.json`.
+- [x] Add `Schema { id: String, #[arg(long)] type_version: Option<u32> }` to `TypeCommand` in `crates/srs-cli/src/commands/mod.rs` with a doc comment.
+- [x] Add `TypeSchemaPayload { #[schemars(with = "serde_json::Value")] schema: serde_json::Value }` to `crates/srs-cli/src/payload.rs`.
+- [x] Add `cmd_type_schema(ctx, id, type_version)` in `crates/srs-cli/src/commands/record_type.rs`: one `with_store` call to `type_schema_service::type_schema`, then serialize via `output::serialize("type schema", TypeSchemaPayload { schema })` while threading `result.diagnostics` into the envelope's top-level `diagnostics[]`; map a service `Err` to `output::err("type schema", …)`. Handler stays within the ADR-010 shape (parse args, one service call, wrap).
+- [x] Add the `TypeCommand::Schema { .. } =>` arm to the `dispatch` function in `crates/srs-cli/src/commands/record_type.rs`.
+- [x] `cargo run --bin generate-schemas`; stage `crates/srs-cli/schemas/payload/type-schema.json`.
 
 #### Acceptance Criteria
 
-- [ ] `cargo run --bin srs -- type schema <id> --repo <fixture>` emits `{ "ok": true, "command": "type schema", "payload": { "schema": { … draft-07 … } } }`.
-- [ ] Unknown id → `{ "ok": false, … diagnostics … }`, exit code 0 (per ADR-011: exit 0 means "ran").
-- [ ] `crates/srs-cli/schemas/payload/type-schema.json` exists and matches the generated output.
-- [ ] The handler body is within the ADR-010 handler shape (no projection logic in the CLI).
+- [x] `cargo run --bin srs -- type schema <id> --repo <fixture>` emits `{ "ok": true, "command": "type schema", "payload": { "schema": { … draft-07 … } } }`.
+- [x] Unknown id → `{ "ok": false, … diagnostics … }`, exit code 0 (per ADR-011: exit 0 means "ran").
+- [x] `crates/srs-cli/schemas/payload/type-schema.json` exists and matches the generated output.
+- [x] The handler body is within the ADR-010 handler shape (no projection logic in the CLI).
 
 #### Testing
 
@@ -180,14 +180,14 @@ cargo test --test payload_contracts
 
 ## Final Acceptance
 
-- [ ] `cargo test` passes with no failures
-- [ ] `cargo clippy -- -D warnings` passes
-- [ ] CLI output envelope unchanged for existing commands (integration tests pass)
-- [ ] `cargo test --test payload_contracts` passes (new `type-schema.json` golden committed)
-- [ ] `bash scripts/check-schema-sync.sh` exits 0 (no entity schemas changed — should be untouched)
-- [ ] All 8 valueTypes covered with correct widget hints
-- [ ] `select`/`multiselect` emit `enum`; `required[]` correct; order recoverable
-- [ ] Cross-store roundtrip test present in `srs-repository`
+- [x] `cargo test` passes with no failures
+- [x] `cargo clippy -- -D warnings` passes
+- [x] CLI output envelope unchanged for existing commands (integration tests pass)
+- [x] `cargo test --test payload_contracts` passes (new `type-schema.json` golden committed)
+- [x] `bash scripts/check-schema-sync.sh` exits 0 (no entity schemas changed — should be untouched)
+- [x] All 8 valueTypes covered with correct widget hints
+- [x] `select`/`multiselect` emit `enum`; `required[]` correct; order recoverable
+- [x] Cross-store roundtrip test present in `srs-repository`
 
 ## Coordination Rules
 

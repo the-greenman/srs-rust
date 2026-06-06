@@ -1,12 +1,15 @@
 use crate::commands::{with_store, CliContext, TypeCommand};
-use crate::output;
-use crate::payload::{TypeDeletePayload, TypeListEntry, TypeListPayload, TypePayload};
+use crate::output::{self, OutputDTO};
+use crate::payload::{
+    TypeDeletePayload, TypeListEntry, TypeListPayload, TypePayload, TypeSchemaPayload,
+};
 use anyhow::Result;
 use srs_core::types::record_type::RecordType;
 use srs_repository::package_service::{
     create_type_in_package, delete_type, get_type_by_id_latest, list_types_filtered, update_type,
     GetTypeResult, TypeListFilter,
 };
+use srs_repository::type_schema_service::{type_schema, TypeSchemaInput};
 use std::io::{self, Read};
 
 pub fn dispatch(ctx: CliContext, cmd: TypeCommand) -> Result<String> {
@@ -20,6 +23,7 @@ pub fn dispatch(ctx: CliContext, cmd: TypeCommand) -> Result<String> {
         TypeCommand::Create { package, json: _ } => cmd_type_create(ctx, package),
         TypeCommand::Update { id } => cmd_type_update(ctx, id),
         TypeCommand::Delete { id, version } => cmd_type_delete(ctx, id, version),
+        TypeCommand::Schema { id, type_version } => cmd_type_schema(ctx, id, type_version),
     }
 }
 
@@ -130,5 +134,36 @@ fn cmd_type_delete(ctx: CliContext, id: String, version: Option<u32>) -> Result<
     match with_store(&ctx, |store| Ok(delete_type(store, &id, resolved_version)?)) {
         Ok(result) => output::serialize("type delete", TypeDeletePayload { id: result.id }),
         Err(e) => Ok(output::err("type delete", vec![e.to_string()])),
+    }
+}
+
+fn cmd_type_schema(ctx: CliContext, id: String, type_version: Option<u32>) -> Result<String> {
+    match with_store(&ctx, |store| {
+        Ok(type_schema(
+            store,
+            TypeSchemaInput {
+                type_id: id.clone(),
+                type_version,
+            },
+        )?)
+    }) {
+        Ok(result) => {
+            let payload = serde_json::to_value(TypeSchemaPayload {
+                schema: result.schema,
+            })?;
+            let dto = OutputDTO {
+                ok: true,
+                command: "type schema".to_string(),
+                version: output::VERSION.to_string(),
+                payload: Some(payload),
+                diagnostics: if result.diagnostics.is_empty() {
+                    None
+                } else {
+                    Some(result.diagnostics)
+                },
+            };
+            Ok(dto.render(ctx.format, ctx.pretty))
+        }
+        Err(e) => Ok(output::err("type schema", vec![e.to_string()])),
     }
 }
