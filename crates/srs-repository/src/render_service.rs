@@ -3814,4 +3814,321 @@ mod tests {
             "empty entry must not produce a table row"
         );
     }
+
+    // ── Issue #3: ContainerSubset field ordering ───────────────────────────────
+
+    /// Build a MemoryStore with 3 records whose UUIDs sort in a different order than their
+    /// title strings, so a broken field-sort path would produce the wrong sequence.
+    ///
+    /// UUID order (used by `add_member`): 001 < 002 < 003
+    /// Title mapping:  001→"C-last",  002→"A-first",  003→"B-middle"
+    /// UUID-order output: C-last, A-first, B-middle  ← neither asc nor desc alphabetical
+    fn make_field_sort_store(direction: SortDirection) -> crate::store::memory::MemoryStore {
+        use crate::container_service;
+        use crate::index::InstanceIndexEntry;
+        use crate::package::Package;
+        use srs_core::types::container::Container;
+        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::record::{FieldValue, Record};
+        use srs_core::types::record_type::{FieldAssignment, RecordType};
+        use srs_core::types::view::{
+            DocumentSection, DocumentView, SectionOrdering, SectionSource,
+        };
+
+        let heading_field = Field {
+            id: "f-heading".to_string(),
+            namespace: "com.test".to_string(),
+            name: "heading".to_string(),
+            version: 1,
+            value_type: ValueType::String,
+            description: "Heading".to_string(),
+            ai_guidance: serde_json::json!(null),
+            allowed_values: None,
+            vocabulary_ref: None,
+            default_value: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let record_type = RecordType {
+            id: "t-record".to_string(),
+            namespace: "com.test".to_string(),
+            name: "item".to_string(),
+            version: 1,
+            description: "Item".to_string(),
+            fields: vec![FieldAssignment {
+                field_id: "f-heading".to_string(),
+                order: 0,
+                required: true,
+                display_label: None,
+                repeatable: false,
+                min_items: None,
+                max_items: None,
+            }],
+            field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let doc_view = DocumentView {
+            id: "dv-field-sort".to_string(),
+            namespace: "com.test".to_string(),
+            name: "field-sort-view".to_string(),
+            version: 1,
+            description: "View for field ordering".to_string(),
+            container_type: None,
+            sections: vec![DocumentSection {
+                section_id: "items".to_string(),
+                title: Some("Items".to_string()),
+                description: None,
+                order: 0,
+                source: SectionSource::ContainerSubset {
+                    container_id: "00000000-0000-4000-8000-000000000c01".to_string(),
+                    container_type: None,
+                },
+                render_view_id: None,
+                title_field_id: Some("f-heading".to_string()),
+                ordering: Some(SectionOrdering {
+                    field_id: Some("f-heading".to_string()),
+                    direction: Some(direction),
+                }),
+                required: None,
+                empty_behavior: None,
+            }],
+            navigation_links: None,
+            preamble: None,
+            format: Some("markdown".to_string()),
+            depth_offset: None,
+            theme_ref: None,
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let manifest = crate::manifest::Manifest {
+            instance_index: vec![],
+            extra: HashMap::new(),
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "pkg-field-sort".to_string(),
+            namespace: "com.test".to_string(),
+            name: "field-sort-package".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![heading_field],
+            record_types: vec![record_type],
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![doc_view],
+            themes: vec![],
+            blueprints: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = crate::store::memory::MemoryStore::new(manifest, package);
+
+        container_service::create_container(
+            &store,
+            Container {
+                container_id: "00000000-0000-4000-8000-000000000c01".to_string(),
+                title: "Test Container".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                root_instance_ids: None,
+                member_instance_ids: None,
+                tags: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                updated_at: None,
+                meta: None,
+                extra: HashMap::new(),
+            },
+        )
+        .unwrap();
+
+        // Fixed UUIDs: 001→"C-last", 002→"A-first", 003→"B-middle"
+        // add_member sorts by UUID → stored order: C-last, A-first, B-middle
+        let records_data = [
+            ("00000000-0000-4000-8000-000000000001", "C-last"),
+            ("00000000-0000-4000-8000-000000000002", "A-first"),
+            ("00000000-0000-4000-8000-000000000003", "B-middle"),
+        ];
+
+        for (id, title) in &records_data {
+            let record = Record {
+                instance_id: id.to_string(),
+                type_id: "t-record".to_string(),
+                type_version: 1,
+                type_namespace: "com.test".to_string(),
+                type_name: "item".to_string(),
+                field_values: vec![FieldValue {
+                    field_id: "f-heading".to_string(),
+                    value: serde_json::json!(title),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                }],
+                group_values: None,
+                lifecycle_state: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                updated_at: None,
+                extra: HashMap::new(),
+            };
+            let path = format!("records/{}.json", id);
+            let value = serde_json::to_value(&record).unwrap();
+            store.ensure_instance_dir("records").unwrap();
+            store.save_instance_json(&path, &value).unwrap();
+
+            let mut manifest = store.load_manifest().unwrap();
+            manifest.instance_index.push(InstanceIndexEntry {
+                instance_id: id.to_string(),
+                tier: 2,
+                path: path.clone(),
+                title: None,
+                tags: None,
+            });
+            store.save_manifest(&manifest).unwrap();
+
+            container_service::add_member(&store, "00000000-0000-4000-8000-000000000c01", id)
+                .unwrap();
+        }
+
+        store
+    }
+
+    #[test]
+    fn container_subset_field_ordering_asc_sorts_by_string_value() {
+        let store = make_field_sort_store(SortDirection::Asc);
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-field-sort",
+            format: None,
+            theme_variant: None,
+            container_id: None,
+        })
+        .expect("render should succeed");
+
+        let rendered = &result.rendered;
+        let a_pos = rendered
+            .find("A-first")
+            .expect("A-first not found in rendered output");
+        let b_pos = rendered
+            .find("B-middle")
+            .expect("B-middle not found in rendered output");
+        let c_pos = rendered
+            .find("C-last")
+            .expect("C-last not found in rendered output");
+        assert!(
+            a_pos < b_pos && b_pos < c_pos,
+            "asc ordering: expected A→B→C, got:\n{}",
+            rendered
+        );
+    }
+
+    #[test]
+    fn container_subset_field_ordering_desc_reverses_string_sort() {
+        let store = make_field_sort_store(SortDirection::Desc);
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-field-sort",
+            format: None,
+            theme_variant: None,
+            container_id: None,
+        })
+        .expect("render should succeed");
+
+        let rendered = &result.rendered;
+        let a_pos = rendered
+            .find("A-first")
+            .expect("A-first not found in rendered output");
+        let b_pos = rendered
+            .find("B-middle")
+            .expect("B-middle not found in rendered output");
+        let c_pos = rendered
+            .find("C-last")
+            .expect("C-last not found in rendered output");
+        assert!(
+            c_pos < b_pos && b_pos < a_pos,
+            "desc ordering: expected C→B→A, got:\n{}",
+            rendered
+        );
+    }
+
+    #[test]
+    fn json_projection_container_subset_field_ordering_asc() {
+        let store = make_field_sort_store(SortDirection::Asc);
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-field-sort",
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+        })
+        .expect("render should succeed");
+
+        let projection = result
+            .projection
+            .expect("json format should produce a projection");
+        let section = &projection.sections[0];
+        assert_eq!(section.records.len(), 3);
+        assert_eq!(
+            section.records[0].record_heading.as_deref(),
+            Some("A-first"),
+            "first record should be A-first in asc order"
+        );
+        assert_eq!(
+            section.records[1].record_heading.as_deref(),
+            Some("B-middle"),
+            "second record should be B-middle"
+        );
+        assert_eq!(
+            section.records[2].record_heading.as_deref(),
+            Some("C-last"),
+            "third record should be C-last"
+        );
+    }
+
+    #[test]
+    fn json_projection_container_subset_field_ordering_desc() {
+        let store = make_field_sort_store(SortDirection::Desc);
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-field-sort",
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+        })
+        .expect("render should succeed");
+
+        let projection = result
+            .projection
+            .expect("json format should produce a projection");
+        let section = &projection.sections[0];
+        assert_eq!(section.records.len(), 3);
+        assert_eq!(
+            section.records[0].record_heading.as_deref(),
+            Some("C-last"),
+            "first record should be C-last in desc order"
+        );
+        assert_eq!(
+            section.records[1].record_heading.as_deref(),
+            Some("B-middle"),
+            "second record should be B-middle"
+        );
+        assert_eq!(
+            section.records[2].record_heading.as_deref(),
+            Some("A-first"),
+            "third record should be A-first"
+        );
+    }
 }
