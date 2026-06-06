@@ -72,7 +72,8 @@ pub fn validate_repository(
             source: e,
         })?;
 
-    checked += 1;
+    // manifest.json is validated but not counted in `checked` — `checked` tracks only
+    // instanceIndex entries so that summary.checked agrees with repo map's total_instances.
     // TODO(phase-3): manifest.json schema requires formatVersion/srsVersion/conformance/container
     // which do not yet exist in live manifests. Re-enable once the manifest format is migrated.
     let _ = &manifest_value;
@@ -265,8 +266,8 @@ pub fn validate_repository(
     }
 
     // --- Validate package/package.json if present ---
+    // package.json is infrastructure, not an instance — not counted in `checked`.
     if let Ok(pkg_value) = store.load_instance_json("package/package.json") {
-        checked += 1;
         if let Some(report) = validate_value_against_schema(
             &pkg_value,
             "package/package.json",
@@ -278,10 +279,10 @@ pub fn validate_repository(
     }
 
     // --- Validate relations/relations.json against E1-E4 ---
+    // relations.json is infrastructure, not an instance — not counted in `checked`.
     if let Ok(relations_raw) = store.load_text_file("relations/relations.json") {
         // Schema-validate the file first
         if let Ok(relations_value) = serde_json::from_str::<Value>(&relations_raw) {
-            checked += 1;
             if let Some(schema_diags) = validate_value_against_schema(
                 &relations_value,
                 "relations/relations.json",
@@ -525,7 +526,8 @@ mod tests {
         let store = crate::store::FileStore::new(temp.path());
         let report = validate_repository(&store).unwrap();
         assert!(report.is_ok(), "diagnostics: {:?}", report.diagnostics);
-        assert_eq!(report.summary.checked, 2);
+        // checked counts only instanceIndex entries, not infrastructure files (manifest, package, relations)
+        assert_eq!(report.summary.checked, 1);
     }
 
     #[test]
@@ -825,6 +827,46 @@ mod tests {
             "expected no tag diagnostics for resolved tag, got: {:?}",
             tag_diags
         );
+    }
+
+    /// Regression test for issue #33: `repo map` and `repo validate` must agree on
+    /// the instance count.  `validate`'s `summary.checked` must equal `map`'s
+    /// `counts.total_instances` — both reflecting only `instanceIndex` entries, not
+    /// infrastructure files (manifest.json, package/package.json, relations.json).
+    #[test]
+    fn map_and_validate_agree_on_instance_count() {
+        use crate::analysis::build_repo_map;
+
+        let temp = TempDir::new().unwrap();
+        let note_id_1 = "00000000-0000-4000-8000-000000000011";
+        let note_id_2 = "00000000-0000-4000-8000-000000000012";
+        let note_id_3 = "00000000-0000-4000-8000-000000000013";
+
+        write_json(
+            temp.path(),
+            "manifest.json",
+            &minimal_manifest(json!([
+                {"instanceId": note_id_1, "tier": 0, "path": "records/note1.json"},
+                {"instanceId": note_id_2, "tier": 0, "path": "records/note2.json"},
+                {"instanceId": note_id_3, "tier": 0, "path": "records/note3.json"}
+            ])),
+        );
+        write_json(temp.path(), "records/note1.json", &valid_note(note_id_1));
+        write_json(temp.path(), "records/note2.json", &valid_note(note_id_2));
+        write_json(temp.path(), "records/note3.json", &valid_note(note_id_3));
+
+        let store = crate::store::FileStore::new(temp.path());
+
+        let validate_report = validate_repository(&store).unwrap();
+        let repo_map = build_repo_map(&store).unwrap();
+
+        assert_eq!(
+            validate_report.summary.checked, repo_map.counts.total_instances,
+            "repo validate checked ({}) != repo map total_instances ({})",
+            validate_report.summary.checked, repo_map.counts.total_instances
+        );
+        // Sanity: both should equal 3 (the number of instanceIndex entries)
+        assert_eq!(validate_report.summary.checked, 3);
     }
 
     #[test]
