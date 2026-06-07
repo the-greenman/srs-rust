@@ -52,6 +52,16 @@
       "items": { "type": "object" },
       "description": "ext:views-l2; omit if not in use."
     },
+    "vocabularies": {
+      "type": "array",
+      "items": { "type": "object" },
+      "description": "Vocabulary definitions included in this bundle (RFC-006)."
+    },
+    "lifecycles": {
+      "type": "array",
+      "items": { "type": "object" },
+      "description": "Lifecycle definitions included in this bundle (RFC-006)."
+    },
     "relationTypes": {
       "type": "array",
       "items": { "type": "object" },

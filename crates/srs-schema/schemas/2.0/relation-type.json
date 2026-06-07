@@ -4,7 +4,7 @@
   "title": "SRS Relation Type Definition",
   "description": "Declares a named relation type within a package's relation type vocabulary. Relation types describe the semantic meaning and structural shape of a class of relations.",
   "type": "object",
-  "required": ["$schema", "id", "version", "relationType", "namespace", "label", "description", "category", "createdAt"],
+  "required": ["$schema", "id", "version", "key", "namespace", "label", "description", "category", "createdAt"],
   "properties": {
     "$schema": { "type": "string" },
     "id": {
@@ -17,9 +17,9 @@
       "minimum": 1,
       "description": "Monotonically increasing version number. Starts at 1."
     },
-    "relationType": {
+    "key": {
       "type": "string",
-      "description": "Canonical bare string (e.g. `supersedes`) or custom `namespace/name` string (e.g. `org.example/my_type`). Must be globally unique across the effective installed package set."
+      "description": "The string stored in Relation.relationType — a canonical bare string (e.g. `supersedes`) or custom `namespace/name` string (e.g. `org.example/my_type`). Unified key field per RFC-006 VocabularyEntry substrate. Must be globally unique across the effective installed package set."
     },
     "namespace": {
       "type": "string",

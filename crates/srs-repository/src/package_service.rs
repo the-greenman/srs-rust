@@ -768,10 +768,15 @@ pub fn delete_relation_type(
     let (full_path, owner) = find_relation_type_path(store, id)?
         .ok_or_else(|| RepositoryError::DefinitionNotFound { id: id.to_string() })?;
 
-    // Resolve the type's name so we can match against relation_type strings
+    // Resolve the type's key so we can match against relation_type strings.
+    // RFC-006 renamed the field from "relationType" to "key"; accept both.
     let type_name = {
         if let Ok(val) = store.load_instance_json(&full_path) {
-            val["relationType"].as_str().unwrap_or("").to_string()
+            val["key"]
+                .as_str()
+                .or_else(|| val["relationType"].as_str())
+                .unwrap_or("")
+                .to_string()
         } else {
             String::new()
         }
