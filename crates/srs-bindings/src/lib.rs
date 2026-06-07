@@ -4,6 +4,15 @@ use srs_repository::validation;
 use srs_repository::JsonStore;
 use wasm_bindgen::prelude::*;
 
+/// Serialise `value` to a JSON string via serde_json (which respects all serde attributes
+/// including `rename_all` and `flatten`), then parse it as a JS value via the browser's
+/// native JSON.parse. This is more reliable than serde_wasm_bindgen::to_value for structs
+/// that use #[serde(flatten)] or complex serde transformations.
+fn to_js<T: serde::Serialize>(value: &T) -> Result<JsValue, JsValue> {
+    let json = serde_json::to_string(value).map_err(|e| js_err(e.to_string()))?;
+    js_sys::JSON::parse(&json).map_err(|e| js_err(format!("{e:?}")))
+}
+
 #[wasm_bindgen(start)]
 pub fn init() {
     console_error_panic_hook::set_once();
@@ -29,7 +38,7 @@ impl SrsRepository {
     /// Validate the repository. Returns a `RepositoryValidationReport` as a JS value.
     pub fn validate(&self) -> Result<JsValue, JsValue> {
         let report = validation::validate_repository(&self.store).map_err(js_err)?;
-        serde_wasm_bindgen::to_value(&report).map_err(js_err)
+        to_js(&report)
     }
 
     /// List records. `filter_json` is a JSON string matching `RecordListFilter`
@@ -39,13 +48,13 @@ impl SrsRepository {
         let filter: RecordListFilter = serde_json::from_str(filter_json)
             .map_err(|e| js_err(format!("invalid filter: {e}")))?;
         let records = record_store::list_records_filtered(&self.store, filter).map_err(js_err)?;
-        serde_wasm_bindgen::to_value(&records).map_err(js_err)
+        to_js(&records)
     }
 
     /// Get a single record by instance ID. Returns the `Record` as a JS value, or `null` if not found.
     pub fn get_record(&self, id: &str) -> Result<JsValue, JsValue> {
         match record_store::get_record_by_id(&self.store, id).map_err(js_err)? {
-            Some(record) => serde_wasm_bindgen::to_value(&record).map_err(js_err),
+            Some(record) => to_js(&record),
             None => Ok(JsValue::NULL),
         }
     }
@@ -54,6 +63,6 @@ impl SrsRepository {
     pub fn list_notes(&self) -> Result<JsValue, JsValue> {
         let result =
             services::list_notes(&self.store, ListNotesFilter::default()).map_err(js_err)?;
-        serde_wasm_bindgen::to_value(&result).map_err(js_err)
+        to_js(&result)
     }
 }
