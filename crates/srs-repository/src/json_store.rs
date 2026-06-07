@@ -253,7 +253,9 @@ impl JsonStore {
         Ok(store)
     }
 
-    fn flush(&self) -> Result<(), RepositoryError> {
+    /// Returns the repository's current state as a `.srsj` JSON string.
+    /// Pure: no filesystem access. Safe to call from WASM.
+    pub fn to_srsj_string(&self) -> Result<String, RepositoryError> {
         let state = self.state.borrow();
         let manifest =
             serde_json::to_value(&state.manifest).map_err(|source| RepositoryError::Serialize {
@@ -265,12 +267,14 @@ impl JsonStore {
             manifest,
             data: state.data.clone(),
         };
-        let json = serde_json::to_string_pretty(&envelope).map_err(|source| {
-            RepositoryError::Serialize {
-                path: self.file_path.clone(),
-                source,
-            }
-        })?;
+        serde_json::to_string_pretty(&envelope).map_err(|source| RepositoryError::Serialize {
+            path: self.file_path.clone(),
+            source,
+        })
+    }
+
+    fn flush(&self) -> Result<(), RepositoryError> {
+        let json = self.to_srsj_string()?;
         std::fs::write(&self.file_path, json).map_err(|source| RepositoryError::Io {
             path: self.file_path.clone(),
             source,
@@ -2003,6 +2007,50 @@ mod tests {
         assert_eq!(
             manifest_open.instance_index.len(),
             manifest_str.instance_index.len()
+        );
+    }
+
+    #[test]
+    fn to_srsj_string_returns_valid_srsj_envelope() {
+        // Build a minimal valid .srsj in-memory and round-trip through to_srsj_string.
+        let srsj_content = serde_json::json!({
+            "srsj": "1",
+            "manifest": {
+                "repositoryId": "mem-repo-b2",
+                "srsVersion": "2.0-draft",
+                "namespace": "com.test.b2",
+                "instanceIndex": [],
+                "packageRef": {"mode": "local", "path": "package"}
+            },
+            "data": {
+                "package/package.json": {
+                    "id": "pkg-b2",
+                    "namespace": "com.test.b2",
+                    "name": "primary",
+                    "version": "1.0.0",
+                    "fields": [],
+                    "types": [],
+                    "relationTypes": [],
+                    "views": [],
+                    "documentViews": []
+                }
+            }
+        })
+        .to_string();
+
+        let store = JsonStore::from_srsj(&srsj_content).unwrap();
+
+        // to_srsj_string must succeed and produce valid JSON with srsj == "1".
+        let result = store.to_srsj_string();
+        assert!(result.is_ok(), "to_srsj_string returned Err: {:?}", result);
+
+        let serialized = result.unwrap();
+        let parsed: serde_json::Value =
+            serde_json::from_str(&serialized).expect("to_srsj_string output must be valid JSON");
+        assert_eq!(
+            parsed["srsj"].as_str(),
+            Some("1"),
+            "srsj key must equal \"1\""
         );
     }
 }
