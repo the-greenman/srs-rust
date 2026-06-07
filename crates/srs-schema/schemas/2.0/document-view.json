@@ -104,12 +104,17 @@
         "renderViewId": {
           "type": "string",
           "format": "uuid",
-          "description": "View (ext:views-l1) used to render each instance in this section. When absent, implementations MUST use the default rendering baseline."
+          "description": "View (ext:views-l1) used to render each instance in this section. When absent, implementations MUST use the default rendering baseline. When typeDispatch is present, it is consulted first per RFC-008 [DV-Dx2]; renderViewId is the fallback for unmatched types."
+        },
+        "typeDispatch": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "format": "uuid" },
+          "description": "RFC-008 (ext:views-l2). Map from a record's resolved type key (namespace/name, version-independent) to the ext:views-l1 View UUID used to render records of that type within this section. Consulted before renderViewId; unmatched types fall back to renderViewId then the default baseline. The value-is-existing-view constraint is enforced at render/package-validation time, not by this schema. Keys are namespace/name strings; bare names are permitted only in single-system DocumentViews not included in a Package."
         },
         "titleFieldId": {
           "type": "string",
           "format": "uuid",
-          "description": "The fieldId whose value provides the per-record heading within this section. Must appear in the effective field list of every instance type in the section, have valueType 'string' or 'text', and not be repeatable. Enforced at render time."
+          "description": "The fieldId whose value provides the per-record heading within this section. Must have valueType 'string' or 'text' and not be repeatable. When a record's type does not carry the designated field, implementations MUST omit the per-record heading for that record (this is not a render failure), enabling heterogeneous sections (e.g. container-subset). Enforced at render time."
         },
         "ordering": {
           "type": "object",
@@ -188,7 +193,12 @@
           "properties": {
             "type": { "type": "string", "const": "container-subset" },
             "containerId": { "type": "string", "format": "uuid" },
-            "containerType": { "type": "string" }
+            "containerType": { "type": "string" },
+            "typeFilter": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "RFC-008 (ext:views-l2). When present and non-empty, restricts the section to container members whose resolved type (namespace/name, version-independent) matches one of these keys. Ordering is the base-spec [N+12] order computed over the full container, then projected onto the survivors (filter-then-project). Absent or empty array = all members (no-op). Exclusive to the container-subset source."
+            }
           }
         }
       ]
