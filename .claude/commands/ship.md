@@ -1,16 +1,27 @@
 ---
-description: Plan → review → implement → PR pipeline for a feature. Runs end-to-end autonomously.
+description: Plan → review → implement → PR pipeline for a feature. Autonomous between human checkpoints.
 argument-hint: <feature description, or issue #N>
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Agent, TodoWrite, WebFetch
 ---
 
-# /ship — autonomous feature pipeline
+# /ship — feature pipeline
 
 You are running the full delivery pipeline for this feature:
 
 > $ARGUMENTS
 
-This command runs **fully autonomously** — do not pause for approval between stages. Use TodoWrite to track the stages below and work through them in order. If a stage is genuinely blocked (auth failure, unresolvable conflict, ambiguous requirement that changes the deliverable), stop and report; otherwise keep going.
+Run autonomously between stages — do not pause for minor decisions you can resolve from context. Use TodoWrite to track the stages below and work through them in order.
+
+There are four **deliberate human checkpoints** where you must stop and wait:
+
+| Checkpoint | Stage | When |
+|---|---|---|
+| RFC gate | 1.5 | Feature requires a spec change → file RFC, stop |
+| Design decisions | 2 | Long-term architectural choices → present trade-offs, wait for input |
+| PR review & merge | 9 | PR is open → hand off to human, stop |
+| Post-merge continuation | 10 | User resumes after merge → cleanup + dogfood |
+
+Outside these checkpoints, keep going. If a stage is genuinely blocked (auth failure, unresolvable conflict, ambiguous requirement that changes the deliverable), stop and report.
 
 All Rust work happens in `srs-rust/`. Run `git` from the relevant sub-repo, never from the `semanticops/` parent (it is not a git repo).
 
@@ -116,6 +127,39 @@ All must pass before proceeding.
 3. Respond: fix every `blocking` and `should-fix` finding, committing the fixes. Decline-with-reason for anything not fixed.
 4. **Loop:** on a large change, repeat the code review until a pass yields zero blocking findings.
 
+## Stage 7.5 — Documentation pass
+
+The pipeline is not done until the docs match the code. This stage runs after the code is final (Stage 7 passed) and before the PR, so doc updates land **in the same PR** as the change.
+
+1. **Determine the user-facing surface this change touched.** Ask: did this change add or modify any of —
+   - a CLI command, flag, stdin shape, or payload struct (`crates/srs-cli/src/payload.rs`),
+   - a service function signature or a crate boundary/responsibility,
+   - an ADR (a new one drafted in Stage 2, or an existing one now superseded),
+   - build/test/run commands or developer workflow?
+
+   If the change is purely internal (refactor with no observable surface change), state that in one sentence and skip to Stage 8 — but say so explicitly; do not skip silently.
+
+2. **Update each affected doc.** Map surface → doc:
+   | Changed surface | Doc(s) to update |
+   |---|---|
+   | New/changed CLI command, flag, stdin, or payload | `srs/srs-usage.md` (authoritative CLI command reference), and the CLI reference in `semanticops/CLAUDE.md` if the contract-level shape changed |
+   | New/changed crate responsibility or boundary | `srs-rust/CLAUDE.md` (Crate Authority table) and `semanticops/CLAUDE.md` (Architecture → Rust crate boundaries) |
+   | New ADR | confirm it is listed/cross-referenced where ADRs are indexed; flip its status from `proposed` to `accepted` if the change shipped under it |
+   | New build/test/run command or workflow | the **Commands** section of the relevant `CLAUDE.md` |
+   | New top-level capability in a crate with a `README.md` | that crate's `README.md`, plus `srs-rust/README.md` if one exists |
+
+   `srs-usage.md` lives in the `srs/` repo. If you update it, commit that change on a branch in `srs/` (coordinate it with this PR the way schema changes are coordinated) — do not edit it inside the `srs-rust` worktree.
+
+3. **Hunt for stale references.** Grep the docs for anything this change made wrong — renamed commands, removed flags, changed payload field names, old crate names:
+   ```bash
+   rg -n "<old-name-or-flag>" --glob '*.md' .
+   ```
+   Fix every stale hit you find, not just the ones in the table above.
+
+4. **Verify doc commands still run.** Any command block you added or touched in a `CLAUDE.md` or `README.md` must actually work — run it. A doc command that errors is a regression.
+
+5. Commit the doc updates with a message referencing the issue: `docs: update docs for <slug> (#N)`. Stage them so they are part of this PR's diff.
+
 ## Stage 8 — PR
 
 ```bash
@@ -137,8 +181,59 @@ End the body with the Claude Code attribution line. Link the PR back on the issu
    gh issue close N --comment "Implemented in PR #<PR number>."
    ```
 
+**Stop here.** Stages 10 and 11 require the PR to be merged by a human. Report the PR URL and instruct the user to run `/ship` again (or continue this session) once the PR is merged.
+
+## Stage 10 — Post-merge worktree cleanup
+
+**Prerequisite:** confirm the PR is merged before proceeding.
+```bash
+gh pr view <PR-number> --json state --jq '.state'   # must return MERGED
+```
+If it is not yet merged, stop and wait — do not clean up a worktree for an open or closed-without-merge PR.
+
+Once confirmed:
+```bash
+cd srs-rust
+git fetch origin --prune
+git worktree remove ../.worktrees/<slug> --force
+git branch -d feat/<slug> 2>/dev/null || true
+```
+
+Verify with `git worktree list` that the worktree is gone. Report the result.
+
+## Stage 11 — Dogfooding
+
+**Skip this stage** if the change is purely internal (refactor, test-only, doc-only, build tooling) with no new or modified CLI commands, flags, stdin shapes, or observable behaviours. State the skip reason explicitly; do not skip silently.
+
+**Otherwise:** exercise every new or modified CLI surface end-to-end using a real SRS repository.
+
+1. **Build the CLI** from the merged state (pull main first):
+   ```bash
+   cd srs-rust
+   git checkout main && git pull origin main
+   cargo build --bin srs
+   ```
+
+2. **Prepare a test repository.** Prefer creating a fresh one so you are not working against a repo that was set up before this feature existed:
+   ```bash
+   cargo run --bin srs -- repo init /tmp/dogfood-<slug>
+   ```
+   If the feature targets an existing repo structure (e.g. requires records already present), use `srs/srs` as the target — it is always valid and representative.
+
+3. **Drive the new surface.** For each new or changed command, flag, or stdin shape added in this PR:
+   - Run the happy path and confirm output matches the payload contract.
+   - Run at least one negative case (bad input, missing field, wrong type) and confirm the error envelope is correct.
+   - Run any edge cases called out in the plan's acceptance criteria.
+
+4. **Log findings as GitHub issues:**
+   - **Bug** (something doesn't work as designed): file immediately with label `bug`. Patch it in a follow-up commit on main (or a new branch if non-trivial). Do not leave a `bug`-labelled issue open without at least a comment saying what the fix is.
+   - **Feature gap** (an essential step in a real workflow has no built-in way to accomplish it — you had to manually edit JSON, chain commands awkwardly, or give up): file with label `enhancement`. Describe the missing primitive and the workflow it blocks.
+   - Do not file issues for cosmetic nits or hypothetical future improvements — only gaps that would block a real use of the feature.
+
+5. **Summarise.** Report: commands exercised, happy-path results, issues filed (URLs), and whether you patched any bugs inline.
+
 ---
 
 ## Output contract
 
-When done, report: issue #, plan path, ADRs created (if any), worktree path, branch, number of review rounds, and the PR URL. If you stopped early, say exactly which stage and why.
+When done, report: issue #, plan path, ADRs created (if any), worktree path cleaned up (Stage 10), branch deleted, number of review rounds, **the docs updated in Stage 7.5 (or "none — internal change")**, the PR URL, and dogfooding summary (Stage 11 — commands exercised, bugs filed, feature gaps filed, or "skipped — internal change"). If you stopped early, say exactly which stage and why.
