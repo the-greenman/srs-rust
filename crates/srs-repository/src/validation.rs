@@ -306,8 +306,12 @@ pub fn validate_repository(
     // load so that vocabulary/lifecycle invariants fire even in note-only repositories.
     if let Some(Some(ref pkg)) = package_for_tier2 {
         validate_vocabulary_invariants(pkg, &mut diagnostics);
-    } else if let Ok(pkg) = store.load_package() {
-        validate_vocabulary_invariants(&pkg, &mut diagnostics);
+    } else if package_for_tier2.is_none() {
+        // Only fresh-load when no tier-2 records were processed (note-only repo).
+        // When package_for_tier2 is Some(None), the load already failed; don't retry.
+        if let Ok(pkg) = store.load_package() {
+            validate_vocabulary_invariants(&pkg, &mut diagnostics);
+        }
     }
 
     // --- Validate package/package.json if present ---

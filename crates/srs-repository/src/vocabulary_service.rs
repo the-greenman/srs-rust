@@ -128,29 +128,7 @@ pub fn create_term(
             path: std::path::PathBuf::from(format!("vocabulary/{}", vocabulary_id)),
         })?;
 
-    // Determine the file path by scanning the package.json vocabularies array
-    let pkg_json = store.load_package_json()?;
-    let vocab_paths: Vec<String> = pkg_json["vocabularies"]
-        .as_array()
-        .unwrap_or(&vec![])
-        .iter()
-        .filter_map(|v| v.as_str().map(str::to_string))
-        .collect();
-
-    let vocab_path = vocab_paths
-        .iter()
-        .find(|rel| {
-            // Load the file and check if it matches the vocabulary id
-            let full = format!("package/{rel}");
-            store
-                .load_instance_json(&full)
-                .map(|v| v["id"].as_str() == Some(vocabulary_id))
-                .unwrap_or(false)
-        })
-        .map(|rel| format!("package/{rel}"))
-        .ok_or_else(|| RepositoryError::NotFound {
-            path: std::path::PathBuf::from(format!("vocabulary file for {}", vocabulary_id)),
-        })?;
+    let vocab_path = find_vocabulary_file_path(store, vocabulary_id)?;
 
     if term.id.trim().is_empty() {
         term.id = new_instance_id();
@@ -172,6 +150,33 @@ pub fn create_term(
         term,
         vocabulary: updated_vocab,
     })
+}
+
+/// Find the repo-root-relative path for a vocabulary file by scanning the package.json index.
+fn find_vocabulary_file_path(
+    store: &dyn RepositoryStore,
+    vocabulary_id: &str,
+) -> Result<String, RepositoryError> {
+    let pkg_json = store.load_package_json()?;
+    let vocab_paths: Vec<String> = pkg_json["vocabularies"]
+        .as_array()
+        .unwrap_or(&vec![])
+        .iter()
+        .filter_map(|v| v.as_str().map(str::to_string))
+        .collect();
+    vocab_paths
+        .iter()
+        .find(|rel| {
+            let full = format!("package/{rel}");
+            store
+                .load_instance_json(&full)
+                .map(|v| v["id"].as_str() == Some(vocabulary_id))
+                .unwrap_or(false)
+        })
+        .map(|rel| format!("package/{rel}"))
+        .ok_or_else(|| RepositoryError::NotFound {
+            path: std::path::PathBuf::from(format!("vocabulary file for {}", vocabulary_id)),
+        })
 }
 
 /// Collect all tag string counts from the manifest instance index.
@@ -323,9 +328,12 @@ pub fn promote_vocabulary(
         match &vocab.promotion_window {
             None => true, // No grace window → block immediately
             Some(window) => {
-                // Parse the until date and check if it has passed
                 let today = chrono::Utc::now().date_naive();
-                let until = window.until.parse::<chrono::NaiveDate>().unwrap_or(today);
+                // A malformed date is treated as already expired (conservative: blocks promotion).
+                let until = window
+                    .until
+                    .parse::<chrono::NaiveDate>()
+                    .unwrap_or(chrono::NaiveDate::MIN);
                 today > until // blocked if today is past the window
             }
         }
@@ -334,35 +342,15 @@ pub fn promote_vocabulary(
     if blocked {
         let mut sorted_keys = will_be_invalid;
         sorted_keys.sort();
+        // Note: usage counts (how many instances use each key) are intentionally omitted
+        // from the error — callers that need counts should call derive_tag_set first.
         return Err(RepositoryError::VocabularyPromotionBlocked {
             vocabulary_id: input.vocabulary_id,
             unresolvable_keys: sorted_keys,
         });
     }
 
-    // Promote: change mode to Closed and save
-    // Find the file path in package.json and overwrite it
-    let pkg_json = store.load_package_json()?;
-    let vocab_paths: Vec<String> = pkg_json["vocabularies"]
-        .as_array()
-        .unwrap_or(&vec![])
-        .iter()
-        .filter_map(|v| v.as_str().map(str::to_string))
-        .collect();
-
-    let vocab_path = vocab_paths
-        .iter()
-        .find(|rel| {
-            let full = format!("package/{rel}");
-            store
-                .load_instance_json(&full)
-                .map(|v| v["id"].as_str() == Some(&input.vocabulary_id))
-                .unwrap_or(false)
-        })
-        .map(|rel| format!("package/{rel}"))
-        .ok_or_else(|| RepositoryError::NotFound {
-            path: std::path::PathBuf::from(format!("vocabulary file for {}", input.vocabulary_id)),
-        })?;
+    let vocab_path = find_vocabulary_file_path(store, &input.vocabulary_id)?;
 
     let mut promoted = vocab;
     promoted.mode = VocabularyMode::Closed;

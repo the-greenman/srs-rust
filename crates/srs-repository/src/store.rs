@@ -2777,7 +2777,9 @@ pub mod memory {
                     {
                         boundary.type_paths.push(path.to_string());
                     }
-                    _ => {} // View/DocumentView/RelationType — no-op in this phase
+                    _ => {} // View/DocumentView/RelationType/Vocabulary/Lifecycle — PackageBoundary
+                            // only tracks field_paths and type_paths; other kinds are resolved via
+                            // package.json in the data map (kept in sync by memory_store_sync_pkg_json)
                 }
             }
             // Sync the data["<prefix>/package.json"] so load_package_json stays consistent
