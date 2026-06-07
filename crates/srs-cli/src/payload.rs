@@ -530,6 +530,14 @@ pub struct PromoteVocabularyPayload {
     pub vocabulary: Vocabulary,
 }
 
+/// Error payload for `vocabulary promote` when the V10 pre-flight blocks promotion.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PromoteVocabularyBlockedPayload {
+    pub vocabulary_id: String,
+    pub unresolvable_keys: Vec<String>,
+}
+
 // ── Field payloads ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]

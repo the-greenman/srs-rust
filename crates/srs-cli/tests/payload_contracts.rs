@@ -439,6 +439,11 @@ fn vocabulary_promote() {
     check::<PromoteVocabularyPayload>("vocabulary-promote");
 }
 
+#[test]
+fn vocabulary_promote_blocked() {
+    check::<PromoteVocabularyBlockedPayload>("vocabulary-promote-blocked");
+}
+
 // ── Tree ─────────────────────────────────────────────────────────────────────
 
 #[test]

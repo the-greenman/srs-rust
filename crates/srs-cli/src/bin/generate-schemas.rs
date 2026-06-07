@@ -174,6 +174,10 @@ fn main() {
 
     // Vocabulary promote payload (RFC-006)
     write_schema!("vocabulary-promote", PromoteVocabularyPayload);
+    write_schema!(
+        "vocabulary-promote-blocked",
+        PromoteVocabularyBlockedPayload
+    );
 
     // Tree payloads
     write_schema!("tree", TreePayload);
