@@ -277,6 +277,15 @@ pub enum RepositoryError {
 
     #[error("type version {version} not found for type '{type_id}'")]
     TypeVersionNotFound { type_id: String, version: u32 },
+
+    #[error(
+        "vocabulary '{vocabulary_id}' promotion blocked: {count} in-use key(s) have no active term in the vocabulary",
+        count = unresolvable_keys.len()
+    )]
+    VocabularyPromotionBlocked {
+        vocabulary_id: String,
+        unresolvable_keys: Vec<String>,
+    },
 }
 
 impl PartialEq for RepositoryError {
@@ -631,6 +640,16 @@ impl PartialEq for RepositoryError {
                     version: vb,
                 },
             ) => ia == ib && va == vb,
+            (
+                RepositoryError::VocabularyPromotionBlocked {
+                    vocabulary_id: va,
+                    unresolvable_keys: ka,
+                },
+                RepositoryError::VocabularyPromotionBlocked {
+                    vocabulary_id: vb,
+                    unresolvable_keys: kb,
+                },
+            ) => va == vb && ka == kb,
             _ => false,
         }
     }

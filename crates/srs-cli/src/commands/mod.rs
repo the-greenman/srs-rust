@@ -655,6 +655,11 @@ pub enum VocabularyCommand {
         #[arg(long = "vocabulary-id")]
         vocabulary_id: String,
     },
+    /// Promote a vocabulary from open to closed mode (V10 pre-flight)
+    Promote {
+        /// Vocabulary UUID id to promote
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]

@@ -2,8 +2,9 @@ use crate::error::RepositoryError;
 use crate::package_types::DefinitionKind;
 use crate::store::RepositoryStore;
 use crate::writer::new_instance_id;
-use srs_core::types::term::Term;
-use srs_core::types::vocabulary::Vocabulary;
+use srs_core::types::term::{Term, VocabularyEntryStatus};
+use srs_core::types::vocabulary::{Vocabulary, VocabularyMode};
+use std::collections::HashMap;
 
 /// Load package, returning empty result if no package exists.
 fn load_package_optional(
@@ -170,6 +171,206 @@ pub fn create_term(
     Ok(CreateTermResult {
         term,
         vocabulary: updated_vocab,
+    })
+}
+
+/// Collect all tag string counts from the manifest instance index.
+/// Returns a map of tag_key → usage count across all instances.
+fn collect_tag_key_counts(
+    store: &dyn RepositoryStore,
+) -> Result<HashMap<String, usize>, RepositoryError> {
+    let manifest = store.load_manifest()?;
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    for entry in &manifest.instance_index {
+        if let Some(tags) = &entry.tags {
+            for tag in tags {
+                *counts.entry(tag.clone()).or_insert(0) += 1;
+            }
+        }
+    }
+    Ok(counts)
+}
+
+/// How a tag key in use relates to the vocabulary after promotion.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TagSetEntryClassification {
+    /// Key has no active term in the vocabulary; reads will break after close.
+    WillBeInvalid,
+    /// Key resolves to a deprecated or tombstone term; existing reads survive, new writes rejected.
+    ReadOnlyAfterClose,
+    /// Key resolves to an active term; fine after promotion.
+    UsedAndActive,
+}
+
+/// A single entry in the derived tag set.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagSetEntry {
+    pub key: String,
+    pub usage_count: usize,
+    pub classification: TagSetEntryClassification,
+}
+
+/// Input for `derive_tag_set`.
+pub struct DeriveTagSetInput {
+    pub vocabulary_id: String,
+}
+
+/// Result of `derive_tag_set`.
+pub struct DeriveTagSetResult {
+    pub entries: Vec<TagSetEntry>,
+}
+
+/// Build the derived tag set for a vocabulary: lists every in-use tag key and
+/// classifies it according to V10 (will-be-invalid / read-only-after-close / used-and-active).
+pub fn derive_tag_set(
+    store: &dyn RepositoryStore,
+    input: DeriveTagSetInput,
+) -> Result<DeriveTagSetResult, RepositoryError> {
+    let vocab = get_vocabulary_by_id(store, &input.vocabulary_id)?.ok_or_else(|| {
+        RepositoryError::NotFound {
+            path: std::path::PathBuf::from(format!("vocabulary/{}", input.vocabulary_id)),
+        }
+    })?;
+    let counts = collect_tag_key_counts(store)?;
+    let mut entries = Vec::new();
+    for (key, usage_count) in &counts {
+        let classification = classify_key_against_vocabulary(key, &vocab);
+        entries.push(TagSetEntry {
+            key: key.clone(),
+            usage_count: *usage_count,
+            classification,
+        });
+    }
+    entries.sort_by(|a, b| a.key.cmp(&b.key));
+    Ok(DeriveTagSetResult { entries })
+}
+
+fn classify_key_against_vocabulary(key: &str, vocab: &Vocabulary) -> TagSetEntryClassification {
+    // Check all terms (including retired) to determine classification
+    let all_terms = &vocab.terms;
+    // First: check effective (non-retired) terms
+    let effective_match = all_terms.iter().find(|t| {
+        let status = t.status.as_ref().unwrap_or(&VocabularyEntryStatus::Active);
+        !status.is_retired()
+            && (t.key == key
+                || t.aliases
+                    .as_ref()
+                    .map(|a| a.iter().any(|al| al == key))
+                    .unwrap_or(false))
+    });
+    match effective_match {
+        Some(term) => {
+            let status = term
+                .status
+                .as_ref()
+                .unwrap_or(&VocabularyEntryStatus::Active);
+            match status {
+                VocabularyEntryStatus::Deprecated | VocabularyEntryStatus::Tombstone => {
+                    TagSetEntryClassification::ReadOnlyAfterClose
+                }
+                _ => TagSetEntryClassification::UsedAndActive,
+            }
+        }
+        None => TagSetEntryClassification::WillBeInvalid,
+    }
+}
+
+/// Input for `promote_vocabulary`.
+pub struct PromoteVocabularyInput {
+    pub vocabulary_id: String,
+}
+
+/// Result of `promote_vocabulary`.
+pub struct PromoteVocabularyResult {
+    pub vocabulary: Vocabulary,
+}
+
+/// Promote a vocabulary from open → closed mode (V10 pre-flight).
+///
+/// V10 rules:
+/// - Collects all in-use tag keys from manifest instance index.
+/// - Classifies each key against the vocabulary's effective terms.
+/// - Keys that `WillBeInvalid` block promotion unless:
+///   - The vocabulary has a `promotionWindow.until` date that has not yet passed.
+/// - If not blocked, the vocabulary's mode is set to `Closed` and saved.
+pub fn promote_vocabulary(
+    store: &dyn RepositoryStore,
+    input: PromoteVocabularyInput,
+) -> Result<PromoteVocabularyResult, RepositoryError> {
+    let vocab = get_vocabulary_by_id(store, &input.vocabulary_id)?.ok_or_else(|| {
+        RepositoryError::NotFound {
+            path: std::path::PathBuf::from(format!("vocabulary/{}", input.vocabulary_id)),
+        }
+    })?;
+
+    let tag_counts = collect_tag_key_counts(store)?;
+
+    // Classify all in-use keys
+    let will_be_invalid: Vec<String> = tag_counts
+        .keys()
+        .filter(|key| {
+            classify_key_against_vocabulary(key, &vocab) == TagSetEntryClassification::WillBeInvalid
+        })
+        .cloned()
+        .collect();
+
+    // V10 pre-flight: check if promotion window covers will-be-invalid keys
+    let blocked = if will_be_invalid.is_empty() {
+        false
+    } else {
+        match &vocab.promotion_window {
+            None => true, // No grace window → block immediately
+            Some(window) => {
+                // Parse the until date and check if it has passed
+                let today = chrono::Utc::now().date_naive();
+                let until = window.until.parse::<chrono::NaiveDate>().unwrap_or(today);
+                today > until // blocked if today is past the window
+            }
+        }
+    };
+
+    if blocked {
+        let mut sorted_keys = will_be_invalid;
+        sorted_keys.sort();
+        return Err(RepositoryError::VocabularyPromotionBlocked {
+            vocabulary_id: input.vocabulary_id,
+            unresolvable_keys: sorted_keys,
+        });
+    }
+
+    // Promote: change mode to Closed and save
+    // Find the file path in package.json and overwrite it
+    let pkg_json = store.load_package_json()?;
+    let vocab_paths: Vec<String> = pkg_json["vocabularies"]
+        .as_array()
+        .unwrap_or(&vec![])
+        .iter()
+        .filter_map(|v| v.as_str().map(str::to_string))
+        .collect();
+
+    let vocab_path = vocab_paths
+        .iter()
+        .find(|rel| {
+            let full = format!("package/{rel}");
+            store
+                .load_instance_json(&full)
+                .map(|v| v["id"].as_str() == Some(&input.vocabulary_id))
+                .unwrap_or(false)
+        })
+        .map(|rel| format!("package/{rel}"))
+        .ok_or_else(|| RepositoryError::NotFound {
+            path: std::path::PathBuf::from(format!("vocabulary file for {}", input.vocabulary_id)),
+        })?;
+
+    let mut promoted = vocab;
+    promoted.mode = VocabularyMode::Closed;
+
+    store.save_vocabulary(&vocab_path, &promoted)?;
+
+    Ok(PromoteVocabularyResult {
+        vocabulary: promoted,
     })
 }
 
