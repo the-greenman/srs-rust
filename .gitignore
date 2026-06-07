@@ -17,6 +17,9 @@ Thumbs.db
 
 # Testing
 *.profraw
+# JsonStore::from_srsj writes state to a literal file named "<memory>" in the CWD
+# when any write operation is performed during tests; this is a harmless artifact.
+<memory>
 
 # Environment
 .env
