@@ -172,3 +172,106 @@ pub fn create_term(
         vocabulary: updated_vocab,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::memory::MemoryStore;
+    use srs_core::types::vocabulary::VocabularyMode;
+
+    fn make_vocab(name: &str) -> Vocabulary {
+        Vocabulary {
+            id: String::new(),
+            version: 1,
+            namespace: "com.test".to_string(),
+            name: name.to_string(),
+            mode: VocabularyMode::Open,
+            terms: vec![],
+            extends_vocabulary_id: None,
+            extends_vocabulary_version: None,
+            promotion_window: None,
+            description: None,
+            created_at: String::new(),
+        }
+    }
+
+    fn make_term(key: &str) -> srs_core::types::term::Term {
+        srs_core::types::term::Term {
+            id: String::new(),
+            version: 1,
+            namespace: "com.test".to_string(),
+            key: key.to_string(),
+            label: None,
+            description: None,
+            aliases: None,
+            roles: None,
+            status: None,
+            properties: None,
+            created_at: None,
+            updated_at: None,
+        }
+    }
+
+    #[test]
+    fn list_vocabularies_empty_when_no_package() {
+        let store = MemoryStore::default();
+        let result = list_vocabularies(&store).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn create_vocabulary_assigns_id_and_writes_file() {
+        let store = MemoryStore::default();
+        let result = create_vocabulary(&store, make_vocab("my-vocab")).unwrap();
+        assert!(!result.vocabulary.id.is_empty());
+        let found = get_vocabulary_by_id(&store, &result.vocabulary.id).unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().name, "my-vocab");
+    }
+
+    #[test]
+    fn create_vocabulary_roundtrips_via_file_store() {
+        let store = MemoryStore::default();
+        let result = create_vocabulary(&store, make_vocab("roundtrip-vocab")).unwrap();
+        let vocab = result.vocabulary;
+        let found = get_vocabulary_by_id(&store, &vocab.id).unwrap().unwrap();
+        assert_eq!(found.id, vocab.id);
+        assert_eq!(found.name, vocab.name);
+        assert_eq!(found.mode, VocabularyMode::Open);
+        assert!(found.terms.is_empty());
+    }
+
+    #[test]
+    fn create_term_appends_to_vocabulary() {
+        let store = MemoryStore::default();
+        let vocab_result = create_vocabulary(&store, make_vocab("vocab-with-terms")).unwrap();
+        let vocab_id = vocab_result.vocabulary.id.clone();
+        create_term(&store, &vocab_id, make_term("my-key")).unwrap();
+        let terms = list_terms(&store).unwrap();
+        assert_eq!(terms.len(), 1);
+        assert_eq!(terms[0].key, "my-key");
+    }
+
+    #[test]
+    fn get_vocabulary_by_id_finds_created() {
+        let store = MemoryStore::default();
+        let created = create_vocabulary(&store, make_vocab("find-me")).unwrap();
+        let id = created.vocabulary.id.clone();
+        let found = get_vocabulary_by_id(&store, &id).unwrap().unwrap();
+        assert_eq!(found.id, id);
+    }
+
+    #[test]
+    fn list_terms_returns_terms_across_vocabularies() {
+        let store = MemoryStore::default();
+        let v1 = create_vocabulary(&store, make_vocab("vocab-a")).unwrap();
+        let v2 = create_vocabulary(&store, make_vocab("vocab-b")).unwrap();
+        create_term(&store, &v1.vocabulary.id, make_term("term-a")).unwrap();
+        create_term(&store, &v2.vocabulary.id, make_term("term-b")).unwrap();
+        let terms = list_terms(&store).unwrap();
+        assert_eq!(terms.len(), 2);
+        let keys: Vec<&str> = terms.iter().map(|t| t.key.as_str()).collect();
+        assert!(keys.contains(&"term-a"));
+        assert!(keys.contains(&"term-b"));
+    }
+}

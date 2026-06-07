@@ -499,6 +499,37 @@ pub enum LifecycleGetPayload {
     NotFound { id: String },
 }
 
+// ── Term payloads (RFC-006) ───────────────────────────────────────────────────
+
+/// Payload for `term list`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TermListPayload {
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub terms: Vec<Term>,
+}
+
+/// Payload for `term get`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase", tag = "result")]
+pub enum TermGetPayload {
+    #[serde(rename = "found")]
+    Found {
+        #[schemars(with = "serde_json::Value")]
+        term: Box<Term>,
+    },
+    #[serde(rename = "not_found")]
+    NotFound { id: String },
+}
+
+/// Payload for `vocabulary promote`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PromoteVocabularyPayload {
+    #[schemars(with = "serde_json::Value")]
+    pub vocabulary: Vocabulary,
+}
+
 // ── Field payloads ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]

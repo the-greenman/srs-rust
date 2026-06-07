@@ -422,6 +422,23 @@ fn lifecycle_get() {
     check::<LifecycleGetPayload>("lifecycle-get");
 }
 
+// ── Term (RFC-006) ────────────────────────────────────────────────────────────
+
+#[test]
+fn term_list() {
+    check::<TermListPayload>("term-list");
+}
+
+#[test]
+fn term_get() {
+    check::<TermGetPayload>("term-get");
+}
+
+#[test]
+fn vocabulary_promote() {
+    check::<PromoteVocabularyPayload>("vocabulary-promote");
+}
+
 // ── Tree ─────────────────────────────────────────────────────────────────────
 
 #[test]

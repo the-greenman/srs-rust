@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TermGetPayload",
+  "description": "Payload for `term get`.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "result",
+        "term"
+      ],
+      "properties": {
+        "result": {
+          "type": "string",
+          "enum": [
+            "found"
+          ]
+        },
+        "term": true
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "id",
+        "result"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "result": {
+          "type": "string",
+          "enum": [
+            "not_found"
+          ]
+        }
+      }
+    }
+  ]
+}
