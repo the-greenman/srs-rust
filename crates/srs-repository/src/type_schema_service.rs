@@ -11,8 +11,8 @@
 //! [`RepositoryError`].
 
 use crate::error::RepositoryError;
-use crate::package_service::{get_field_by_id, get_type_by_id, get_type_by_id_latest};
-use crate::package_service::{GetFieldResult, GetTypeResult};
+use crate::package_service::GetTypeResult;
+use crate::package_service::{get_type_by_id, get_type_by_id_latest};
 use crate::store::RepositoryStore;
 use serde_json::{json, Map, Value};
 use srs_core::types::field::{Field, ValueType};
@@ -66,18 +66,20 @@ pub fn type_schema(
         },
     };
 
+    let package = store.load_package()?;
+    // Walk the inheritance chain to collect all effective field assignments
+    // (own + inherited), sorted by order. Uses the same path as record_store and
+    // validation to ensure inherited types are fully represented in the schema.
+    let assignments = package.effective_fields(&record_type)?;
+
     let mut diagnostics = Vec::new();
     let mut properties = Map::new();
     let mut required = Vec::new();
 
-    // Project the Type's own field assignments, in declared order.
-    let mut assignments: Vec<&FieldAssignment> = record_type.fields.iter().collect();
-    assignments.sort_by_key(|fa| fa.order);
-
-    for fa in assignments {
-        let field = match get_field_by_id(store, &fa.field_id)? {
-            GetFieldResult::Found(field) => *field,
-            GetFieldResult::NotFound => {
+    for fa in &assignments {
+        let field = match package.resolve_field(&fa.field_id) {
+            Some(f) => f.clone(),
+            None => {
                 diagnostics.push(format!(
                     "field assignment references unknown fieldId '{}'; skipped",
                     fa.field_id
@@ -260,6 +262,36 @@ mod tests {
             version: "1.0.0".to_string(),
             fields,
             record_types: vec![record_type],
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![],
+            themes: vec![],
+            blueprints: vec![],
+            root: PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        MemoryStore::new(manifest, package)
+    }
+
+    /// Build a MemoryStore seeded with the given fields and multiple types.
+    fn store_with_types(
+        fields: Vec<Field>,
+        record_types: Vec<srs_core::types::record_type::RecordType>,
+    ) -> MemoryStore {
+        let manifest = Manifest {
+            instance_index: vec![],
+            extra: HashMap::new(),
+            root: PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "test-pkg".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test".to_string(),
+            version: "1.0.0".to_string(),
+            fields,
+            record_types,
             relation_type_definitions: vec![],
             views: vec![],
             document_views: vec![],
@@ -552,5 +584,57 @@ mod tests {
             reparsed["properties"]["title"]["x-srs-field-id"],
             json!(fid(1))
         );
+    }
+
+    #[test]
+    fn type_schema_includes_inherited_fields() {
+        // A child type extends a parent type. The projected schema must include
+        // both the parent's own field and the child's own field.
+        const PARENT_TID: &str = "00000000-0000-4000-8000-000000000001";
+        const CHILD_TID: &str = "00000000-0000-4000-8000-000000000002";
+
+        let parent = make_type(PARENT_TID, vec![assignment(&fid(1), 0, true)]);
+        // child declares its own field at order 1 and inherits parent's field at order 0.
+        let mut child = make_type(CHILD_TID, vec![assignment(&fid(2), 1, false)]);
+        child.extends_type_id = Some(PARENT_TID.to_string());
+        child.extends_type_version = Some(1); // matches make_type's default version: 1
+
+        // Both fields must be in the flat Package.fields list; resolve_field searches it.
+        let store = store_with_types(
+            vec![
+                field(&fid(1), "parent_field", ValueType::String),
+                field(&fid(2), "child_field", ValueType::String),
+            ],
+            vec![parent, child],
+        );
+
+        let result = type_schema(
+            &store,
+            TypeSchemaInput {
+                type_id: CHILD_TID.to_string(),
+                type_version: None,
+            },
+        )
+        .unwrap();
+
+        let props = result.schema["properties"].as_object().unwrap();
+        assert!(
+            props.contains_key("parent_field"),
+            "inherited parent_field missing from schema: {:?}",
+            props.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            props.contains_key("child_field"),
+            "own child_field missing from schema: {:?}",
+            props.keys().collect::<Vec<_>>()
+        );
+        assert_eq!(props.len(), 2, "expected exactly 2 properties");
+        assert!(
+            result.diagnostics.is_empty(),
+            "unexpected diagnostics: {:?}",
+            result.diagnostics
+        );
+        // Parent field is required, child field is not.
+        assert_eq!(result.schema["required"], json!(["parent_field"]));
     }
 }

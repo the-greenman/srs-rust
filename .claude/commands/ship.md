@@ -31,12 +31,33 @@ All Rust work happens in `srs-rust/`. Run `git` from the relevant sub-repo, neve
 - If `$ARGUMENTS` references an existing issue (`#N` or a URL), fetch it with `gh issue view N` and use it as the brief.
 - Otherwise create one: `gh issue create --title "<concise title>" --body "<one-paragraph problem statement>"`. Capture the issue number — every later stage refers to it.
 
+## Stage 1.5 — Spec gate
+
+Before writing any plan, determine whether this feature requires a **change to the SRS specification** (`srs/` repo).
+
+A spec change is required if the feature:
+- introduces a new field, type, relation type, or extension to the SRS data model,
+- changes the semantics or validation rules of an existing entity,
+- adds or modifies a canonical CLI contract that the spec defines (not just a Rust implementation detail), or
+- requires updating `srs/docs/schema/2.0/` entity schemas.
+
+**If a spec change is required:** do not proceed past this stage. Instead:
+1. File an RFC issue in the `srs` repository: `gh issue create --repo <srs-repo-remote> --title "RFC: <title>" --label "rfc" --body "<problem, proposed change, open questions>"`.
+2. Post a comment on the current issue linking the RFC and explaining that implementation is blocked until the RFC is accepted.
+3. **Stop** — return to the user with the RFC URL. No planning, no implementation until the RFC is resolved.
+
+**If no spec change is required:** state this explicitly (one sentence) and continue to Stage 2.
+
 ## Stage 2 — Plan
 
 1. Read the template at `srs-rust/plans/TEMPLATE.md` and the role definitions at `srs-rust/plans/agents.md`. **Review the agent list** — if this feature needs a role that isn't defined (e.g. a new worker for a crate not covered), add it to `agents.md` before writing the plan.
-2. Write the plan to `srs-rust/plans/<slug>.md`, filling **every** section of the template: Summary, Agent Assignments, Architecture Decisions, Contracts, Scope, Phases (with tasks / acceptance criteria / testing / milestone gate), Final Acceptance, Coordination Rules, Assumptions. A plan that needs human interpretation at execution time is incomplete.
-3. **ADR check:** read every file in `srs-rust/docs/adr/`. For each architectural choice the plan makes, either cite the governing ADR in the Architecture Decisions table, or identify that a **new ADR is needed**. If new ADRs are needed, draft them in `srs-rust/docs/adr/NNN-title.md` using `ADR-TEMPLATE.md` (status: `proposed`) and reference them in the plan.
-4. Set the issue body to the plan: `gh issue edit N --body-file srs-rust/plans/<slug>.md`.
+2. Write a **draft** plan to `srs-rust/plans/<slug>.md`, filling every section of the template. A plan that needs human interpretation at execution time is incomplete.
+3. **ADR check:** read every file in `srs-rust/docs/adr/`. Identify:
+   - Existing ADRs that govern choices in this plan (cite them in the Architecture Decisions table).
+   - Choices that require a **new ADR** — any decision that establishes a new architectural constraint, rejects a plausible alternative others might revisit, or changes a prior decision.
+4. **Design decision pause:** before finalising the plan, identify any decision that has **long-term consequences** — a new public API shape, a new payload contract, a cross-crate dependency direction, a new extension model, or anything that would be painful to reverse later. For each such decision, present it clearly to the user with the trade-offs and **wait for their input** before continuing. Record their decision in the plan's Architecture Decisions table (and draft a new ADR if warranted). This is the one deliberate pause in the autonomous pipeline.
+5. After input is received and decisions are recorded, finalise the plan and draft any new ADRs in `srs-rust/docs/adr/NNN-title.md` using `ADR-TEMPLATE.md` (status: `proposed`).
+6. Set the issue body to the plan: `gh issue edit N --body-file srs-rust/plans/<slug>.md`.
 
 ## Stage 3 — Plan review loop
 
@@ -46,7 +67,14 @@ All Rust work happens in `srs-rust/`. Run `git` from the relevant sub-repo, neve
    Give each agent the plan file path and the relevant CLAUDE.md / ADR paths. They are read-only and return numbered findings with severity (`blocking` / `should-fix` / `nit`).
 2. Post **all** findings as comments on the issue: `gh issue comment N --body "<findings>"` (one comment per reviewer, clearly attributed).
 3. Respond to the review: update the plan to resolve every `blocking` and `should-fix` finding; for any finding you decline, record why in an issue comment. Re-sync the issue body: `gh issue edit N --body-file <plan>`.
-4. **Loop:** if the plan is large (≥ 3 phases or touches ≥ 2 crates) **and** the last review produced any `blocking` finding, re-run the review on the updated plan. Repeat until a review pass yields **zero** blocking findings.
+4. **File deferred items as issues:** for every item the plan explicitly defers to a future plan (marked in *Out of scope* or *Assumptions*), create a GitHub issue capturing the deferred work:
+   ```
+   gh issue create --title "<deferred item title>" \
+     --label "enhancement,complexity: <low|medium|high>" \
+     --body "<what was deferred, why, and what the future plan needs to address>"
+   ```
+   If the deferred item would require a spec change, add `--label "requires-spec-rfc"` and note it in the body. Post a comment on the current issue listing all newly filed deferred issues.
+5. **Loop:** if the plan is large (≥ 3 phases or touches ≥ 2 crates) **and** the last review produced any `blocking` finding, re-run the review on the updated plan. Repeat until a review pass yields **zero** blocking findings.
 
 ## Stage 4 — Branch & worktree
 
@@ -101,9 +129,13 @@ Closes #N
 ```
 End the body with the Claude Code attribution line. Link the PR back on the issue if `--fill` didn't.
 
-## Stage 9 — Sweep open issues
+## Stage 9 — Sweep open issues and close
 
-Run `gh issue list --state open` and check whether any open issue is now addressable by this change or is a quick adjacent fix. Address what you reasonably can within this branch/PR; for the rest, leave a comment noting status. Do not scope-creep the PR with unrelated large work — note those as follow-ups instead.
+1. Run `gh issue list --state open` and check whether any open issue is now addressable by this change or is a quick adjacent fix. Address what you reasonably can within this branch/PR; for the rest, leave a comment noting status. Do not scope-creep the PR with unrelated large work — note those as follow-ups instead.
+2. **Close the primary issue.** The `Closes #N` in the PR body triggers automatic closure on merge, but only if the repo has that setting enabled. To be safe, also close it explicitly once the PR is open:
+   ```bash
+   gh issue close N --comment "Implemented in PR #<PR number>."
+   ```
 
 ---
 
