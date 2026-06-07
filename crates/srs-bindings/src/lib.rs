@@ -65,4 +65,11 @@ impl SrsRepository {
             services::list_notes(&self.store, ListNotesFilter::default()).map_err(js_err)?;
         to_js(&result)
     }
+
+    /// Serialise the current repository state to a `.srsj` JSON string.
+    /// The browser caller can use this to offer a download of the edited repo.
+    #[wasm_bindgen]
+    pub fn export_srsj(&self) -> Result<String, JsValue> {
+        self.store.to_srsj_string().map_err(js_err)
+    }
 }
