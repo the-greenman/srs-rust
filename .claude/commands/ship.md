@@ -89,11 +89,27 @@ A spec change is required if the feature:
 
 ## Stage 4 — Branch & worktree
 
+Naming convention: **`feat/<issue-N>-<slug>`** where `<issue-N>` is the issue number and `<slug>` is a short kebab-case descriptor from the title (e.g. issue #42 "Add field validation" → `feat/42-add-field-validation`). Worktrees mirror: `../.worktrees/<issue-N>-<slug>`.
+
+Before creating, check whether a branch for this issue already exists:
+
 ```bash
 cd srs-rust
-git worktree add ../.worktrees/<slug> -b feat/<slug>
+BRANCH="feat/$ISSUE_N-$SLUG"
+WORKTREE="../.worktrees/$ISSUE_N-$SLUG"
+
+if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
+  echo "Branch $BRANCH already exists locally — reusing"
+  git worktree add "$WORKTREE" "$BRANCH"
+elif git show-ref --verify --quiet "refs/remotes/origin/$BRANCH"; then
+  echo "Branch $BRANCH exists on remote — tracking"
+  git worktree add "$WORKTREE" --track -b "$BRANCH" "origin/$BRANCH"
+else
+  git worktree add "$WORKTREE" -b "$BRANCH"
+fi
 ```
-Do all implementation inside that worktree. (Worktrees living under `semanticops/.claude/worktrees/` or `../.worktrees/` are fine — pick one and be consistent.)
+
+Do all implementation inside that worktree.
 
 ## Stage 5 — Implement
 
@@ -116,9 +132,17 @@ Run the full Final Acceptance list from the plan:
 cargo test
 cargo clippy -- -D warnings
 cargo test --test payload_contracts        # if payload structs changed
-bash scripts/check-schema-sync.sh           # if entity schemas changed
+bash scripts/check-schema-sync.sh          # if entity schemas changed
 ```
-All must pass before proceeding.
+
+If `check-schema-sync.sh` fails, entity schemas in this repo have drifted from the canonical spec. Fix by running the alignment script from the `srs/` repo root:
+```bash
+cd ../srs
+node scripts/align-spec.mjs
+```
+That re-syncs `srs-rust/crates/srs-schema/schemas/2.0/` and `srs-vscode/schemas/2.0/` from `srs/docs/schema/2.0/`, regenerates `SHA256SUMS`, and prints what to commit in each repo. Commit the schema updates in srs-rust (and srs-vscode) before the srs PR — see `srs/RELEASING.md` for the ordering that keeps drift CI green.
+
+All checks must pass before proceeding.
 
 ## Stage 7 — Code review loop
 
@@ -164,7 +188,7 @@ The pipeline is not done until the docs match the code. This stage runs after th
 
 ```bash
 cd srs-rust
-git push -u origin feat/<slug>
+git push -u origin feat/$ISSUE_N-$SLUG
 gh pr create --fill --base main --body "<summary>
 
 Closes #N
@@ -172,6 +196,8 @@ Closes #N
 🤖 Generated with [Claude Code](https://claude.com/claude-code)"
 ```
 End the body with the Claude Code attribution line. Link the PR back on the issue if `--fill` didn't.
+
+**If this PR includes schema mirror changes** (files under `crates/srs-schema/schemas/`): this PR must be merged before the corresponding `srs` spec PR, so the release-drift CI in `srs` sees the updated schemas at HEAD. Open a matching PR in `srs-vscode` for its schema mirror at the same time. See `srs/RELEASING.md` for the full multi-repo ordering.
 
 ## Stage 9 — Sweep open issues and close
 
