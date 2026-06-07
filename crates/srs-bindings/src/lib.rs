@@ -1,4 +1,6 @@
-use srs_repository::record_store::{self, RecordListFilter};
+use srs_core::types::relation::Relation;
+use srs_repository::record_store::{self, RecordListFilter, TransitionLifecycleInput};
+use srs_repository::relation_service::{self, ListRelationsFilter};
 use srs_repository::services::{self, ListNotesFilter};
 use srs_repository::validation;
 use srs_repository::JsonStore;
@@ -64,5 +66,61 @@ impl SrsRepository {
         let result =
             services::list_notes(&self.store, ListNotesFilter::default()).map_err(js_err)?;
         to_js(&result)
+    }
+
+    /// List relations. `filter_json` is a JSON object with optional camelCase fields:
+    /// `{ "source": "uuid", "target": "uuid", "relationType": "...", "containerId": "uuid" }`
+    /// Pass `"{}"` for all relations.
+    /// Returns a JS array of `RelationSummary` objects.
+    pub fn list_relations(&self, filter_json: &str) -> Result<JsValue, JsValue> {
+        #[derive(serde::Deserialize, Default)]
+        #[serde(rename_all = "camelCase")]
+        struct FilterInput {
+            source: Option<String>,
+            target: Option<String>,
+            relation_type: Option<String>,
+            container_id: Option<String>,
+        }
+        let input: FilterInput = serde_json::from_str(filter_json)
+            .map_err(|e| js_err(format!("invalid filter: {e}")))?;
+        let filter = ListRelationsFilter {
+            source: input.source,
+            target: input.target,
+            relation_type: input.relation_type,
+            container_id: input.container_id,
+        };
+        let summaries = relation_service::list_relations(&self.store, filter).map_err(js_err)?;
+        to_js(&summaries)
+    }
+
+    /// Create a relation. `input_json` is a JSON object whose fields match the `Relation` struct
+    /// (camelCase: `relationType`, `sourceInstanceId`, `targetInstanceId`; `relationId` is
+    /// auto-generated if absent or empty).
+    /// Returns the created `Relation` as a JS value.
+    pub fn create_relation(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let relation: Relation = serde_json::from_str(input_json)
+            .map_err(|e| js_err(format!("invalid relation input: {e}")))?;
+        let result =
+            relation_service::create_relation_auto(&self.store, relation).map_err(js_err)?;
+        to_js(&result.relation)
+    }
+
+    /// Delete a relation by its `relation_id`. Returns `undefined` on success.
+    pub fn delete_relation(&self, relation_id: &str) -> Result<(), JsValue> {
+        relation_service::delete_relation(&self.store, relation_id).map_err(js_err)?;
+        Ok(())
+    }
+
+    /// Transition a record's lifecycle state.
+    /// `state` is the target state name (e.g. `"ratified"`).
+    /// Returns the updated `Record` as a JS value.
+    pub fn set_lifecycle_state(&self, instance_id: &str, state: &str) -> Result<JsValue, JsValue> {
+        let input = TransitionLifecycleInput {
+            to: Some(state.to_string()),
+            by_transition: None,
+        };
+        let result = record_store::transition_record_lifecycle(&self.store, instance_id, input)
+            .map_err(js_err)?;
+        to_js(&result.record)
     }
 }
