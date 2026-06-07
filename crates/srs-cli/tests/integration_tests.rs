@@ -1351,7 +1351,7 @@ fn relation_type_list_returns_ok_envelope() {
     // Active canonical: contains — no status field
     let contains_def = defs
         .iter()
-        .find(|d| d["relationType"] == "contains")
+        .find(|d| d["key"] == "contains")
         .expect("should find 'contains' canonical definition");
     assert!(
         contains_def["status"].is_null(),
@@ -1361,7 +1361,7 @@ fn relation_type_list_returns_ok_envelope() {
     // Deprecated SRS-internal type
     let section_seq = defs
         .iter()
-        .find(|d| d["relationType"] == "com.semanticops.srs/section-sequence")
+        .find(|d| d["key"] == "com.semanticops.srs/section-sequence")
         .expect("should find 'com.semanticops.srs/section-sequence' deprecated definition");
     assert_eq!(
         section_seq["status"], "deprecated",
@@ -1377,7 +1377,7 @@ fn relation_type_get_finds_contains() {
     assert_eq!(result["command"], "relation-type get");
 
     let def = &result["payload"]["relationTypeDefinition"];
-    assert_eq!(def["relationType"], "contains");
+    assert_eq!(def["key"], "contains");
     assert_eq!(def["id"], contains_id);
 }
 
