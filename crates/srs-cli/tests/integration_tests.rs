@@ -5951,6 +5951,162 @@ fn term_get_found_after_creating_term() {
 }
 
 #[test]
+fn vocabulary_promote_blocked_returns_structured_payload() {
+    // Setup: a repo with a vocabulary that has one active term ("alpha"),
+    // and a note tagged with both "alpha" (resolvable) and "beta" (unresolvable).
+    // Promoting should fail with ok:false and payload.unresolvableKeys: ["beta"].
+    let temp = TempDir::new().unwrap();
+    let repo = create_repo_with_package(&temp, "vocab-promote-blocked");
+
+    let vocab_json = serde_json::json!({
+        "version": 1,
+        "namespace": "com.test",
+        "name": "promote-test-vocab",
+        "mode": "open",
+        "terms": [],
+        "createdAt": "2026-01-01T00:00:00Z"
+    });
+    let created = run_srs_stdin_in_dir(&repo, &["vocabulary", "create"], &vocab_json.to_string());
+    assert_eq!(
+        created["ok"], true,
+        "vocabulary create failed: {:?}",
+        created
+    );
+    let vocab_id = created["payload"]["vocabulary"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Add an active term for "alpha" — this key will be resolvable
+    let term_json = serde_json::json!({"version": 1, "namespace": "com.test", "key": "alpha"});
+    let term_result = run_srs_stdin_in_dir(
+        &repo,
+        &["vocabulary", "term-create", "--vocabulary-id", &vocab_id],
+        &term_json.to_string(),
+    );
+    assert_eq!(
+        term_result["ok"], true,
+        "term-create failed: {:?}",
+        term_result
+    );
+
+    // Create a note and tag it with both "alpha" (resolvable) and "beta" (no term)
+    let note_json = serde_json::json!({"title": "test-note", "sections": [{"name": "body", "content": "test"}]});
+    let note_result = run_srs_stdin_in_dir(&repo, &["note", "create"], &note_json.to_string());
+    assert_eq!(
+        note_result["ok"], true,
+        "note create failed: {:?}",
+        note_result
+    );
+    let note_id = note_result["payload"]["note"]["instanceId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let tag_alpha = run_srs_in_dir(&repo, &["note", "tag", "add", &note_id, "alpha"]);
+    assert_eq!(
+        tag_alpha["ok"], true,
+        "note tag add alpha failed: {:?}",
+        tag_alpha
+    );
+
+    let tag_beta = run_srs_in_dir(&repo, &["note", "tag", "add", &note_id, "beta"]);
+    assert_eq!(
+        tag_beta["ok"], true,
+        "note tag add beta failed: {:?}",
+        tag_beta
+    );
+
+    // Attempt to promote — should be blocked by "beta" (no active term)
+    let (_exit_ok, result) =
+        run_srs_any_status_in_dir(&repo, &["vocabulary", "promote", &vocab_id]);
+
+    assert_eq!(
+        result["ok"], false,
+        "expected ok:false for blocked promote, got: {:?}",
+        result
+    );
+    assert_eq!(result["command"], "vocabulary promote");
+
+    let unresolvable = result["payload"]["unresolvableKeys"]
+        .as_array()
+        .expect("unresolvableKeys should be an array");
+    assert_eq!(unresolvable.len(), 1, "expected exactly 1 unresolvable key");
+    assert_eq!(unresolvable[0], "beta");
+
+    assert_eq!(
+        result["payload"]["vocabularyId"],
+        vocab_id.as_str(),
+        "vocabularyId in payload should match"
+    );
+
+    let diag = result["diagnostics"][0].as_str().unwrap_or("");
+    assert!(
+        diag.contains("promotion blocked"),
+        "diagnostic should contain 'promotion blocked', got: {:?}",
+        diag
+    );
+}
+
+#[test]
+fn vocabulary_promote_succeeds_when_all_keys_resolvable() {
+    // Setup: a vocabulary with a term for every key used in tags.
+    // Promoting should succeed with ok:true.
+    let temp = TempDir::new().unwrap();
+    let repo = create_repo_with_package(&temp, "vocab-promote-ok");
+
+    let vocab_json = serde_json::json!({
+        "version": 1,
+        "namespace": "com.test",
+        "name": "promote-ok-vocab",
+        "mode": "open",
+        "terms": [],
+        "createdAt": "2026-01-01T00:00:00Z"
+    });
+    let created = run_srs_stdin_in_dir(&repo, &["vocabulary", "create"], &vocab_json.to_string());
+    assert_eq!(
+        created["ok"], true,
+        "vocabulary create failed: {:?}",
+        created
+    );
+    let vocab_id = created["payload"]["vocabulary"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let term_json = serde_json::json!({"version": 1, "namespace": "com.test", "key": "gamma"});
+    let term_result = run_srs_stdin_in_dir(
+        &repo,
+        &["vocabulary", "term-create", "--vocabulary-id", &vocab_id],
+        &term_json.to_string(),
+    );
+    assert_eq!(
+        term_result["ok"], true,
+        "term-create failed: {:?}",
+        term_result
+    );
+
+    // Create a note tagged with "gamma" (has active term)
+    let note_json =
+        serde_json::json!({"title": "note", "sections": [{"name": "body", "content": "b"}]});
+    let note_result = run_srs_stdin_in_dir(&repo, &["note", "create"], &note_json.to_string());
+    let note_id = note_result["payload"]["note"]["instanceId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    run_srs_in_dir(&repo, &["note", "tag", "add", &note_id, "gamma"]);
+
+    // Promote should succeed
+    let result = run_srs_in_dir(&repo, &["vocabulary", "promote", &vocab_id]);
+    assert_eq!(
+        result["ok"], true,
+        "expected ok:true for successful promote, got: {:?}",
+        result
+    );
+    assert_eq!(result["payload"]["vocabulary"]["mode"], "closed");
+}
+
+#[test]
 fn lifecycle_list_returns_ok_envelope_no_package() {
     let temp = create_temp_repo();
     let result = run_srs_in_dir(temp.path(), &["lifecycle", "list"]);

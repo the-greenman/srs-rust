@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PromoteVocabularyBlockedPayload",
+  "description": "Error payload for `vocabulary promote` when the V10 pre-flight blocks promotion.",
+  "type": "object",
+  "required": [
+    "unresolvableKeys",
+    "vocabularyId"
+  ],
+  "properties": {
+    "unresolvableKeys": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "vocabularyId": {
+      "type": "string"
+    }
+  }
+}
