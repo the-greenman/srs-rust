@@ -809,24 +809,6 @@ fn json_store_cli_schema_record_and_roundtrip_workflow() {
         .as_str()
         .unwrap();
 
-    // RFC-006: tag create returns a descriptive error (terms are package definitions now)
-    let tag_created = run_srs_stdin_in_dir(
-        temp.path(),
-        &["--repo", json_repo_str, "tag", "create"],
-        &serde_json::json!({
-            "tagKey": "dogfood",
-            "label": "Dogfood",
-            "roles": ["foundation"],
-            "status": "active"
-        })
-        .to_string(),
-    );
-    assert_eq!(tag_created["command"], "tag create");
-    assert_eq!(
-        tag_created["ok"], false,
-        "tag create should return ok:false (RFC-006 stub)"
-    );
-
     let container_created = run_srs_stdin_in_dir(
         temp.path(),
         &["--repo", json_repo_str, "container", "create"],
@@ -1072,32 +1054,6 @@ fn tag_list_returns_ok_envelope() {
     assert_eq!(result["ok"], true);
     assert_eq!(result["command"], "tag list");
     assert!(result["payload"]["terms"].is_array());
-}
-
-#[test]
-fn tag_create_and_retrieve_in_temp_repo() {
-    // RFC-006: tag create/update/delete return descriptive errors; terms come from package vocabularies
-    let temp = create_temp_repo();
-    let repo_path = temp.path();
-
-    let td_json = serde_json::json!({"key": "test-purpose"}).to_string();
-
-    let created = run_srs_stdin_in_dir(repo_path, &["tag", "create"], &td_json);
-    // tag create now returns diagnostics explaining the RFC-006 change
-    assert_eq!(created["command"], "tag create");
-    assert!(
-        created["diagnostics"]
-            .as_array()
-            .map(|a| !a.is_empty())
-            .unwrap_or(false),
-        "tag create should return a descriptive error: {:?}",
-        created
-    );
-
-    // List returns empty terms (no vocabularies in fresh repo)
-    let listed = run_srs_in_dir(repo_path, &["tag", "list"]);
-    assert_eq!(listed["ok"], true);
-    assert!(listed["payload"]["terms"].is_array());
 }
 
 // ---------- render document-view tests ----------
@@ -2138,40 +2094,6 @@ fn old_note_tag_positional_form_fails_with_parse_error() {
         stderr.contains("add") || stderr.contains("remove") || stderr.contains("subcommand"),
         "error should hint at add/remove subcommands: {}",
         stderr
-    );
-}
-
-// --- tag update/delete commands (RFC-006: now return descriptive errors) ---
-
-#[test]
-fn tag_update_rewrites_tag_definition() {
-    // RFC-006: tag update now returns a descriptive error
-    let temp = create_temp_repo();
-    let result = run_srs_stdin_in_dir(temp.path(), &["tag", "update", "some-id"], "{}");
-    assert_eq!(result["command"], "tag update");
-    assert!(
-        result["diagnostics"]
-            .as_array()
-            .map(|a| !a.is_empty())
-            .unwrap_or(false),
-        "tag update should return a descriptive error: {:?}",
-        result
-    );
-}
-
-#[test]
-fn tag_delete_removes_tag_definition() {
-    // RFC-006: tag delete now returns a descriptive error
-    let temp = create_temp_repo();
-    let result = run_srs_in_dir(temp.path(), &["tag", "delete", "some-id"]);
-    assert_eq!(result["command"], "tag delete");
-    assert!(
-        result["diagnostics"]
-            .as_array()
-            .map(|a| !a.is_empty())
-            .unwrap_or(false),
-        "tag delete should return a descriptive error: {:?}",
-        result
     );
 }
 

@@ -10,7 +10,6 @@ pub mod record_type;
 pub mod relation;
 pub mod relation_type_definition;
 pub mod revision;
-pub mod tag_definition;
 pub mod term;
 pub mod theme;
 pub mod view;

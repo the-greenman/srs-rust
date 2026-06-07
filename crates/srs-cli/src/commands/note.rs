@@ -14,7 +14,6 @@ use srs_repository::services::{
     list_notes, remove_note_tag, update_note_validated, AddTagResult, CreateNoteInput,
     DeleteNoteInput, DeleteNoteResult, GetNoteResult, ListNotesFilter, RemoveTagResult,
 };
-use srs_repository::tag_service::get_foundation_signal_tags;
 use std::io::{self, Read};
 
 pub fn dispatch(ctx: CliContext, cmd: NoteCommand) -> Result<String> {
@@ -166,7 +165,7 @@ fn cmd_note_tag_map(ctx: CliContext, id: Option<String>) -> Result<String> {
 }
 
 fn cmd_note_foundations(ctx: CliContext) -> Result<String> {
-    let signal_tags = with_store(&ctx, |store| Ok(get_foundation_signal_tags(store)?))?;
+    let signal_tags: Vec<String> = Vec::new();
     let foundation_notes = with_store(&ctx, |store| {
         Ok(collect_foundation_notes(store, &signal_tags)?)
     })?;

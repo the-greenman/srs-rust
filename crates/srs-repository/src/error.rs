@@ -84,28 +84,10 @@ pub enum RepositoryError {
         source: serde_json::Error,
     },
 
-    #[error("failed to load tag definition at {path}: {source}")]
-    TagDefinitionLoad {
-        path: PathBuf,
-        source: serde_json::Error,
-    },
-
-    #[error("tag definition validation failed at {path}: {source}")]
-    TagDefinitionValidation {
-        path: PathBuf,
-        source: srs_core::error::CoreError,
-    },
-
     #[error("relation type definition validation failed at {path:?}: {source}")]
     RelationTypeDefinitionValidation {
         path: PathBuf,
         source: srs_core::error::CoreError,
-    },
-
-    #[error("failed to write tag definition at {path}: {source}")]
-    TagDefinitionWrite {
-        path: PathBuf,
-        source: std::io::Error,
     },
 
     #[error("schema validation error at {path:?}: {message}")]
@@ -363,24 +345,6 @@ impl PartialEq for RepositoryError {
             (
                 RepositoryError::Serialize { path: a, source: _ },
                 RepositoryError::Serialize { path: b, source: _ },
-            ) => a == b,
-            (
-                RepositoryError::TagDefinitionLoad { path: a, source: _ },
-                RepositoryError::TagDefinitionLoad { path: b, source: _ },
-            ) => a == b,
-            (
-                RepositoryError::TagDefinitionValidation {
-                    path: a,
-                    source: sa,
-                },
-                RepositoryError::TagDefinitionValidation {
-                    path: b,
-                    source: sb,
-                },
-            ) => a == b && sa == sb,
-            (
-                RepositoryError::TagDefinitionWrite { path: a, source: _ },
-                RepositoryError::TagDefinitionWrite { path: b, source: _ },
             ) => a == b,
             (
                 RepositoryError::RelationTypeDefinitionValidation {
