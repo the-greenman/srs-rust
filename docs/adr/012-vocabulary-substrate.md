@@ -39,10 +39,10 @@ RFC-006 unifies all four as specializations of the **vocabulary-entry substrate*
 - V3, V5, V7, V9 validation invariants are enforced.
 
 **Negative / trade-offs:**
-- `tag create/update/delete` CLI commands now return descriptive errors. Existing workflows that created TagDefinitions via the CLI must switch to editing package vocabulary files.
-- `TagDefinition` (the Rust struct) and its service functions are retained but marked `#[deprecated]`. Final removal is deferred.
-- Container-scoped tag listing is no longer meaningful since terms are not instance-index members; the command returns an empty list for repos without vocabulary files.
+- `tag create/update/delete` CLI subcommands are removed (issue #75). Existing workflows that created TagDefinitions via the CLI must switch to editing package vocabulary files directly.
+- Container-scoped tag listing is no longer meaningful since terms are not instance-index members; `srs tag list` returns vocabulary terms from the package.
 
 **Neutral:**
-- `TagDefinition` has no applied uses in the srs/ spec repo, so the migration carries no data cost.
+- `TagDefinition` (the Rust struct), its service functions, `is_tag_definition()`, and associated error variants were removed in issue #75 after RFC-006 Task 3 shipped. The `tier: 3` index tier is fully retired.
+- `TagDefinition` had no applied uses in the srs/ spec repo, so the migration carried no data cost.
 - Existing inline lifecycles continue to work; extraction to standalone `Lifecycle` definitions is optional.
