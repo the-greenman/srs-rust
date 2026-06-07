@@ -17,8 +17,8 @@ pub struct RelationTypeDefinition {
     /// Monotonically increasing version. Starts at 1.
     pub version: u32,
     /// Canonical bare string (e.g. `precedes`) or namespaced `namespace/name` form.
-    /// Serialized as `relationType`; also accepts `key` for RFC-006 forward compat.
-    #[serde(rename = "relationType", alias = "key")]
+    /// Serialized as `key` per RFC-006 VocabularyEntry substrate; also accepts `relationType` for backward compat.
+    #[serde(rename = "key", alias = "relationType")]
     pub key: String,
     /// Package namespace this definition belongs to.
     pub namespace: String,
