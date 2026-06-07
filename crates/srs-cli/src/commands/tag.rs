@@ -8,9 +8,6 @@ pub fn dispatch(ctx: CliContext, cmd: TagCommand) -> Result<String> {
     match cmd {
         TagCommand::List { json: _ } => cmd_tag_list(ctx),
         TagCommand::Get { id, json: _ } => cmd_tag_get(ctx, id),
-        TagCommand::Create { json: _ } => cmd_tag_write_error("tag create"),
-        TagCommand::Update { id: _, json: _ } => cmd_tag_write_error("tag update"),
-        TagCommand::Delete { id: _, json: _ } => cmd_tag_write_error("tag delete"),
     }
 }
 
@@ -27,11 +24,4 @@ fn cmd_tag_get(ctx: CliContext, id: String) -> Result<String> {
             vec![format!("Term with id '{}' not found", id)],
         )),
     }
-}
-
-fn cmd_tag_write_error(command: &str) -> Result<String> {
-    Ok(output::err(
-        command,
-        vec!["Tag terms are now package definitions (RFC-006). Manage terms via the package vocabulary.".to_string()],
-    ))
 }

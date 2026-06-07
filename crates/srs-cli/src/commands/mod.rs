@@ -601,31 +601,9 @@ pub enum TagCommand {
         #[arg(long, hide = true)]
         json: bool,
     },
-    /// Get a tag definition by ID
+    /// Get a vocabulary term by ID
     Get {
-        /// TagDefinition instance ID
-        id: String,
-        /// Deprecated: JSON output is now the default (no-op)
-        #[arg(long, hide = true)]
-        json: bool,
-    },
-    /// Create a new tag definition (reads JSON from stdin)
-    Create {
-        /// Deprecated: JSON output is now the default (no-op)
-        #[arg(long, hide = true)]
-        json: bool,
-    },
-    /// Update an existing tag definition (reads JSON from stdin)
-    Update {
-        /// TagDefinition instance ID
-        id: String,
-        /// Deprecated: JSON output is now the default (no-op)
-        #[arg(long, hide = true)]
-        json: bool,
-    },
-    /// Delete a tag definition by ID
-    Delete {
-        /// TagDefinition instance ID
+        /// Term ID
         id: String,
         /// Deprecated: JSON output is now the default (no-op)
         #[arg(long, hide = true)]

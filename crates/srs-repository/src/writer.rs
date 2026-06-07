@@ -4,7 +4,6 @@ use crate::manifest::Manifest;
 use crate::store::RepositoryStore;
 use srs_core::types::note::Note;
 use srs_core::types::relation::Relation;
-use srs_core::types::tag_definition::TagDefinition;
 use srs_core::validation::relation::{validate_relation, RelationValidationContext};
 use std::collections::{HashMap, HashSet};
 
@@ -105,44 +104,6 @@ pub fn write_manifest(
     manifest: &Manifest,
 ) -> Result<(), RepositoryError> {
     store.save_manifest(manifest)
-}
-
-/// Write a TagDefinition to the store at the given relative path.
-pub fn write_tag_definition(
-    store: &dyn RepositoryStore,
-    td: &TagDefinition,
-    relative_path: &str,
-) -> Result<(), RepositoryError> {
-    let value = serde_json::to_value(td).map_err(|e| RepositoryError::Serialize {
-        path: std::path::PathBuf::from(relative_path),
-        source: e,
-    })?;
-    store.save_instance_json(relative_path, &value)
-}
-
-/// Add or replace the manifest index entry for a TagDefinition (in memory only).
-pub fn upsert_tag_definition_index_entry(
-    manifest: &mut Manifest,
-    td: &TagDefinition,
-    relative_path: &str,
-) {
-    let entry = InstanceIndexEntry {
-        instance_id: td.instance_id.clone(),
-        tier: 3,
-        path: relative_path.to_string(),
-        title: td.label.clone().map(serde_json::Value::String),
-        tags: None,
-    };
-
-    if let Some(pos) = manifest
-        .instance_index
-        .iter()
-        .position(|e| e.instance_id() == td.instance_id)
-    {
-        manifest.instance_index[pos] = entry;
-    } else {
-        manifest.instance_index.push(entry);
-    }
 }
 
 #[cfg(test)]

@@ -1,9 +1,7 @@
 use crate::error::RepositoryError;
 use crate::store::RepositoryStore;
 use srs_core::types::note::Note;
-use srs_core::types::tag_definition::TagDefinition;
 use srs_core::validation::note::validate_note;
-use srs_core::validation::tag_definition::validate_tag_definition;
 use std::path::PathBuf;
 
 /// Load a Note from the store by relative path, validating after deserialization.
@@ -21,24 +19,6 @@ pub fn load_note(
         source: e,
     })?;
     Ok(note)
-}
-
-/// Load a TagDefinition from the store by relative path, validating after deserialization.
-pub fn load_tag_definition(
-    store: &dyn RepositoryStore,
-    relative_path: &str,
-) -> Result<TagDefinition, RepositoryError> {
-    let value = store.load_instance_json(relative_path)?;
-    let td: TagDefinition =
-        serde_json::from_value(value).map_err(|e| RepositoryError::TagDefinitionLoad {
-            path: PathBuf::from(relative_path),
-            source: e,
-        })?;
-    validate_tag_definition(&td).map_err(|e| RepositoryError::TagDefinitionValidation {
-        path: PathBuf::from(relative_path),
-        source: e,
-    })?;
-    Ok(td)
 }
 
 #[cfg(test)]
