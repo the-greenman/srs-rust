@@ -1333,6 +1333,10 @@ impl RepositoryStore for JsonStore {
         };
         let mut pkg_json = self.data_get(&key)?;
         let array_key = crate::store::definition_kind_key(kind);
+        // Auto-initialize missing array keys so older package.json files remain compatible.
+        if pkg_json[array_key].is_null() {
+            pkg_json[array_key] = serde_json::json!([]);
+        }
         let arr =
             pkg_json[array_key]
                 .as_array_mut()

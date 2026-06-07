@@ -2,10 +2,11 @@ use crate::commands::{with_store, BlueprintCommand, CliContext};
 use crate::output;
 use crate::payload::{
     BlueprintDeletePayload, BlueprintListEntry, BlueprintListPayload, BlueprintPayload,
-    BlueprintStructurePayload, BlueprintValidatePayload, RelationSpecEntry,
+    BlueprintSchemaPayload, BlueprintStructurePayload, BlueprintValidatePayload, RelationSpecEntry,
 };
 use anyhow::Result;
 use srs_core::types::blueprint::Blueprint;
+use srs_repository::blueprint_schema_service::{self, BlueprintSchemaInput};
 use srs_repository::blueprint_service::{
     create_blueprint, delete_blueprint, get_blueprint_by_id, list_blueprint_structure,
     list_blueprints_summary, update_blueprint, validate_blueprint_by_id, GetBlueprintResult,
@@ -22,6 +23,7 @@ pub fn dispatch(ctx: CliContext, cmd: BlueprintCommand) -> Result<String> {
         BlueprintCommand::Delete { id } => cmd_blueprint_delete(ctx, id),
         BlueprintCommand::Validate { id } => cmd_blueprint_validate(ctx, id),
         BlueprintCommand::Structure { id } => cmd_blueprint_structure(ctx, id),
+        BlueprintCommand::Schema { id } => cmd_blueprint_schema(ctx, id),
     }
 }
 
@@ -184,4 +186,34 @@ fn cmd_blueprint_structure(ctx: CliContext, id: String) -> Result<String> {
         "blueprint structure",
         BlueprintStructurePayload { relation_specs },
     )
+}
+
+fn cmd_blueprint_schema(ctx: CliContext, id: String) -> Result<String> {
+    match with_store(&ctx, |store| {
+        Ok(blueprint_schema_service::blueprint_schema(
+            store,
+            BlueprintSchemaInput {
+                blueprint_id: id.clone(),
+            },
+        )?)
+    }) {
+        Ok(result) => output::serialize(
+            "blueprint schema",
+            BlueprintSchemaPayload {
+                schema: result.schema,
+                diagnostics: result.diagnostics,
+            },
+        ),
+        Err(e) => {
+            if let Some(RepositoryError::BlueprintNotFound { .. }) =
+                e.downcast_ref::<RepositoryError>()
+            {
+                return Ok(output::err(
+                    "blueprint schema",
+                    vec![format!("Blueprint '{id}' not found")],
+                ));
+            }
+            Err(e)
+        }
+    }
 }

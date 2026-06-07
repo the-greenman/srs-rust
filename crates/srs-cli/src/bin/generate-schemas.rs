@@ -117,6 +117,7 @@ fn main() {
     write_schema!("blueprint-delete", BlueprintDeletePayload);
     write_schema!("blueprint-validate", BlueprintValidatePayload);
     write_schema!("blueprint-structure", BlueprintStructurePayload);
+    write_schema!("blueprint-schema", BlueprintSchemaPayload);
 
     // View payloads
     write_schema!("view-list", ViewListPayload);
