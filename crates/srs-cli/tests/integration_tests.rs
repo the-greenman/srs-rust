@@ -5753,6 +5753,168 @@ fn type_schema_unknown_type_returns_error_envelope() {
     assert!(result["diagnostics"].is_array());
 }
 
+// ── Blueprint schema ──────────────────────────────────────────────────────────
+
+#[test]
+fn blueprint_schema_emits_nested_draft07() {
+    let temp = TempDir::new().unwrap();
+    let repo = temp.path().join("bp-schema-demo.srsj");
+    let repo_str = repo.to_str().unwrap();
+
+    let created = run_srs_in_dir(
+        temp.path(),
+        &[
+            "--repo",
+            repo_str,
+            "repo",
+            "create",
+            "--repository-id",
+            "repo-bp-schema",
+            "--namespace",
+            "com.semanticops.bpschema",
+            "--package-id",
+            "pkg-bp-schema",
+            "--package-name",
+            "primary",
+        ],
+    );
+    assert_eq!(created["ok"], true, "repo create: {:?}", created);
+
+    let field_id = "00000000-0000-4000-8000-0000000061a1";
+    let root_type_id = "00000000-0000-4000-8000-0000000061b1";
+    let section_type_id = "00000000-0000-4000-8000-0000000061b2";
+    let blueprint_id = "00000000-0000-4000-8000-0000000061c1";
+
+    let field = serde_json::json!({
+        "id": field_id,
+        "namespace": "com.semanticops.bpschema",
+        "name": "title",
+        "version": 1,
+        "valueType": "string"
+    });
+    let r = run_srs_stdin_in_dir(
+        temp.path(),
+        &["--repo", repo_str, "field", "create"],
+        &field.to_string(),
+    );
+    assert_eq!(r["ok"], true, "field create: {:?}", r);
+
+    for (type_id, type_name) in [(root_type_id, "guide"), (section_type_id, "section")] {
+        let t = serde_json::json!({
+            "id": type_id,
+            "namespace": "com.semanticops.bpschema",
+            "name": type_name,
+            "version": 1,
+            "description": format!("A {} type", type_name),
+            "fields": [
+                { "fieldId": field_id, "order": 0, "required": true, "displayLabel": "Title" }
+            ],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        let r = run_srs_stdin_in_dir(
+            temp.path(),
+            &["--repo", repo_str, "type", "create"],
+            &t.to_string(),
+        );
+        assert_eq!(r["ok"], true, "type create {type_name}: {:?}", r);
+    }
+
+    let blueprint = serde_json::json!({
+        "id": blueprint_id,
+        "namespace": "com.semanticops.bpschema",
+        "name": "my-guide",
+        "version": 1,
+        "description": "A guide blueprint",
+        "rootTypes": [{ "typeId": root_type_id }],
+        "structure": [
+            {
+                "relationType": "section-sequence",
+                "sourceType": { "typeId": root_type_id },
+                "targetType": { "typeId": section_type_id },
+                "cardinality": "1..*",
+                "required": true
+            }
+        ],
+        "createdAt": "2026-01-01T00:00:00Z"
+    });
+    let r = run_srs_stdin_in_dir(
+        temp.path(),
+        &["--repo", repo_str, "blueprint", "create"],
+        &blueprint.to_string(),
+    );
+    assert_eq!(r["ok"], true, "blueprint create: {:?}", r);
+
+    let result = run_srs_in_dir(
+        temp.path(),
+        &["--repo", repo_str, "blueprint", "schema", blueprint_id],
+    );
+    assert_eq!(result["ok"], true, "blueprint schema: {:?}", result);
+    assert_eq!(result["command"], "blueprint schema");
+
+    let schema = &result["payload"]["schema"];
+    assert_eq!(schema["$schema"], "http://json-schema.org/draft-07/schema#");
+    assert_eq!(schema["type"], "object");
+    // root entry-point property present
+    assert!(
+        schema["properties"]["root"].is_object(),
+        "expected root property in schema"
+    );
+    // child collection property uses lowerCamelCase of relation type
+    assert!(
+        schema["properties"]["sectionSequence"].is_object(),
+        "expected sectionSequence property in schema"
+    );
+    // definitions contain sub-schemas for both types
+    assert!(
+        schema["definitions"][root_type_id].is_object(),
+        "expected root type in definitions"
+    );
+    assert!(
+        schema["definitions"][section_type_id].is_object(),
+        "expected section type in definitions"
+    );
+    // cardinality "1..*" → minItems 1, no maxItems
+    let section_seq = &schema["properties"]["sectionSequence"];
+    assert_eq!(section_seq["type"], "array");
+    assert_eq!(section_seq["minItems"], 1);
+    assert!(
+        section_seq["maxItems"].is_null(),
+        "maxItems should be absent for unbounded cardinality"
+    );
+}
+
+#[test]
+fn blueprint_schema_unknown_blueprint_returns_error_envelope() {
+    let temp = TempDir::new().unwrap();
+    let repo = temp.path().join("bp-schema-err.srsj");
+    let repo_str = repo.to_str().unwrap();
+    run_srs_in_dir(
+        temp.path(),
+        &[
+            "--repo",
+            repo_str,
+            "repo",
+            "create",
+            "--namespace",
+            "com.semanticops.bpschemerr",
+        ],
+    );
+    let (success, result) = run_srs_any_status_in_dir(
+        temp.path(),
+        &[
+            "--repo",
+            repo_str,
+            "blueprint",
+            "schema",
+            "00000000-0000-4000-8000-000000000000",
+        ],
+    );
+    // Exit code 0 ("command ran") per ADR-011, but ok=false with diagnostics.
+    assert!(success, "exit code should be 0 even on not-found");
+    assert_eq!(result["ok"], false);
+    assert!(result["diagnostics"].is_array());
+}
+
 // ── RFC-006 vocabulary / term / lifecycle integration tests ─────────────────
 
 fn create_repo_with_package(temp: &TempDir, slug: &str) -> std::path::PathBuf {

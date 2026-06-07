@@ -1183,6 +1183,11 @@ pub enum BlueprintCommand {
         /// Blueprint definition ID (UUID)
         id: String,
     },
+    /// Emit a nested draft-07 JSON Schema for a whole multi-record document declared by this Blueprint
+    Schema {
+        /// Blueprint definition ID (UUID)
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]

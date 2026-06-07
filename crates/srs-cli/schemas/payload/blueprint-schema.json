@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BlueprintSchemaPayload",
+  "type": "object",
+  "required": [
+    "diagnostics",
+    "schema"
+  ],
+  "properties": {
+    "diagnostics": {
+      "description": "Non-fatal projection diagnostics (unresolvable types, unparseable cardinality, etc.).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "schema": {
+      "description": "A nested draft-07 JSON Schema for the whole multi-record document."
+    }
+  }
+}

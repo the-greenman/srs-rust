@@ -678,6 +678,17 @@ pub struct BlueprintStructurePayload {
     pub relation_specs: Vec<RelationSpecEntry>,
 }
 
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BlueprintSchemaPayload {
+    /// A nested draft-07 JSON Schema for the whole multi-record document.
+    #[schemars(with = "serde_json::Value")]
+    pub schema: serde_json::Value,
+    /// Non-fatal projection diagnostics (unresolvable types, unparseable cardinality, etc.).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<String>,
+}
+
 // ── View payloads ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]

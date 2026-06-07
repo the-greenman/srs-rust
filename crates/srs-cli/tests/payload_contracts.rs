@@ -288,6 +288,38 @@ fn protocol_delete() {
     check::<ProtocolDeletePayload>("protocol-delete");
 }
 
+// ── Blueprint ─────────────────────────────────────────────────────────────────
+
+#[test]
+fn blueprint_list() {
+    check::<BlueprintListPayload>("blueprint-list");
+}
+
+#[test]
+fn blueprint_get() {
+    check::<BlueprintPayload>("blueprint-get");
+}
+
+#[test]
+fn blueprint_delete() {
+    check::<BlueprintDeletePayload>("blueprint-delete");
+}
+
+#[test]
+fn blueprint_validate() {
+    check::<BlueprintValidatePayload>("blueprint-validate");
+}
+
+#[test]
+fn blueprint_structure() {
+    check::<BlueprintStructurePayload>("blueprint-structure");
+}
+
+#[test]
+fn blueprint_schema() {
+    check::<BlueprintSchemaPayload>("blueprint-schema");
+}
+
 // ── View ──────────────────────────────────────────────────────────────────────
 
 #[test]

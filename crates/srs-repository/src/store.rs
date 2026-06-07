@@ -794,7 +794,8 @@ impl RepositoryStore for FileStore {
             "types": [],
             "relationTypes": [],
             "views": [],
-            "documentViews": []
+            "documentViews": [],
+            "blueprints": []
         });
         self.write_json(&self.repo_root.join("package/package.json"), &package)?;
 
