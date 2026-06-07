@@ -301,6 +301,16 @@ fn blueprint_get() {
 }
 
 #[test]
+fn blueprint_create() {
+    check::<BlueprintPayload>("blueprint-create");
+}
+
+#[test]
+fn blueprint_update() {
+    check::<BlueprintPayload>("blueprint-update");
+}
+
+#[test]
 fn blueprint_delete() {
     check::<BlueprintDeletePayload>("blueprint-delete");
 }

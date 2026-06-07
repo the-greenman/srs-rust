@@ -685,7 +685,6 @@ pub struct BlueprintSchemaPayload {
     #[schemars(with = "serde_json::Value")]
     pub schema: serde_json::Value,
     /// Non-fatal projection diagnostics (unresolvable types, unparseable cardinality, etc.).
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub diagnostics: Vec<String>,
 }
 

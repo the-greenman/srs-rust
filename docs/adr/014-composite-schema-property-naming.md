@@ -53,8 +53,10 @@ is not subject to this conversion.
 
 **Negative / trade-offs:**
 - A consumer inspecting the schema must know to apply the inverse transform when correlating a
-  property key back to an SRS relation type. The `x-srs-relation-type` extension field on each
-  array property records the original relation type to make this mechanical.
+  property key back to an SRS relation type. The `x-srs-ordered-by` extension field on each
+  child-collection array property records the original relation type to make this mechanical.
+  (`x-srs-ordered-by` was preferred over `x-srs-relation-type` because it communicates the
+  semantic role — "this relation type governs ordering" — rather than just naming the raw data.)
 - Two different relation types that normalise to the same camelCase key (e.g. a hypothetical
   `"sectionSequence"` and `"section-sequence"`) would collide. SRS relation types are expected to
   be distinct and non-ambiguous; this edge case is noted as a validation concern for future work.
