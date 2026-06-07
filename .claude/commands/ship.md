@@ -171,6 +171,7 @@ The pipeline is not done until the docs match the code. This stage runs after th
    | New ADR | confirm it is listed/cross-referenced where ADRs are indexed; flip its status from `proposed` to `accepted` if the change shipped under it |
    | New build/test/run command or workflow | the **Commands** section of the relevant `CLAUDE.md` |
    | New top-level capability in a crate with a `README.md` | that crate's `README.md`, plus `srs-rust/README.md` if one exists |
+   | New/changed CLI surface that needs end-to-end dogfooding | `srs-rust/docs/dogfooding.md` — but make this update in **Stage 11**, not here (it depends on having actually run the scenario) |
 
    `srs-usage.md` lives in the `srs/` repo. If you update it, commit that change on a branch in `srs/` (coordinate it with this PR the way schema changes are coordinated) — do not edit it inside the `srs-rust` worktree.
 
@@ -229,9 +230,11 @@ Verify with `git worktree list` that the worktree is gone. Report the result.
 
 ## Stage 11 — Dogfooding
 
+The reference for this stage is **`docs/dogfooding.md`** — the dogfood scenario guide. SRS is a semantic system: dogfooding proves the change advances a *meaningful intention*, not just that a command returns `ok: true`. Read the guide's principles before driving any command.
+
 **Skip this stage** if the change is purely internal (refactor, test-only, doc-only, build tooling) with no new or modified CLI commands, flags, stdin shapes, or observable behaviours. State the skip reason explicitly; do not skip silently.
 
-**Otherwise:** exercise every new or modified CLI surface end-to-end using a real SRS repository.
+**Otherwise:**
 
 1. **Build the CLI** from the merged state (pull main first):
    ```bash
@@ -240,26 +243,32 @@ Verify with `git worktree list` that the worktree is gone. Report the result.
    cargo build --bin srs
    ```
 
-2. **Prepare a test repository.** Prefer creating a fresh one so you are not working against a repo that was set up before this feature existed:
-   ```bash
-   cargo run --bin srs -- repo init /tmp/dogfood-<slug>
-   ```
-   If the feature targets an existing repo structure (e.g. requires records already present), use `srs/srs` as the target — it is always valid and representative.
+2. **Find the covering scenario(s).** Open `docs/dogfooding.md` and use the **Coverage matrix** to map the surface this PR changed to the scenario(s) that exercise it. Note whether the surface is currently a `gap` row or entirely new.
 
-3. **Drive the new surface.** For each new or changed command, flag, or stdin shape added in this PR:
-   - Run the happy path and confirm output matches the payload contract.
-   - Run at least one negative case (bad input, missing field, wrong type) and confirm the error envelope is correct.
-   - Run any edge cases called out in the plan's acceptance criteria.
+3. **Prepare a repository** as the scenario directs — a fresh `srs repo create --repo /tmp/dogfood-<slug> --namespace com.example.dogfood` by default, or `../srs/srs` when the scenario needs pre-existing structure.
 
-4. **Log findings as GitHub issues:**
+4. **Run the scenario end-to-end.** Drive the happy path *and* the scenario's named negative case. For each new or changed command, flag, or stdin shape:
+   - Confirm output matches the payload contract.
+   - Confirm the negative case produces a correct error envelope or diagnostic.
+   - Confirm each "Done when" semantic signal (and run `srs repo validate` — diagnostics live in the payload, not the exit code).
+   Run any extra edge cases called out in the plan's acceptance criteria.
+
+5. **Update the guide so the scenarios keep pace with the CLI.** This is part of the same PR's diff — `docs/dogfooding.md` lives in `srs-rust`.
+   - If a scenario already covers the surface and the change altered the workflow, update that scenario's steps / "Done when".
+   - If the surface was a `gap` row or entirely new, either extend an existing scenario or add a new one — a new scenario **must lead with a meaningful intention**. If you cannot state the intention, note that on the issue rather than inventing a hollow scenario.
+   - Update the **Coverage matrix** in the same change so it never drifts.
+   - Verify every command block you touched still runs against a real repo.
+   Commit with `docs: update dogfood scenarios for <slug> (#N)`.
+
+6. **Log findings as GitHub issues:**
    - **Bug** (something doesn't work as designed): file immediately with label `bug`. Patch it in a follow-up commit on main (or a new branch if non-trivial). Do not leave a `bug`-labelled issue open without at least a comment saying what the fix is.
    - **Feature gap** (an essential step in a real workflow has no built-in way to accomplish it — you had to manually edit JSON, chain commands awkwardly, or give up): file with label `enhancement`. Describe the missing primitive and the workflow it blocks.
    - Do not file issues for cosmetic nits or hypothetical future improvements — only gaps that would block a real use of the feature.
 
-5. **Summarise.** Report: commands exercised, happy-path results, issues filed (URLs), and whether you patched any bugs inline.
+7. **Summarise.** Report: scenario(s) run, commands exercised, happy-path results, the dogfood-guide updates made (scenario edited/added + matrix), issues filed (URLs), and whether you patched any bugs inline.
 
 ---
 
 ## Output contract
 
-When done, report: issue #, plan path, ADRs created (if any), worktree path cleaned up (Stage 10), branch deleted, number of review rounds, **the docs updated in Stage 7.5 (or "none — internal change")**, the PR URL, and dogfooding summary (Stage 11 — commands exercised, bugs filed, feature gaps filed, or "skipped — internal change"). If you stopped early, say exactly which stage and why.
+When done, report: issue #, plan path, ADRs created (if any), worktree path cleaned up (Stage 10), branch deleted, number of review rounds, **the docs updated in Stage 7.5 (or "none — internal change")**, the PR URL, and dogfooding summary (Stage 11 — scenario(s) run, commands exercised, dogfood-guide updates made, bugs filed, feature gaps filed, or "skipped — internal change"). If you stopped early, say exactly which stage and why.
