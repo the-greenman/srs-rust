@@ -93,18 +93,14 @@ fn cmd_vocabulary_promote(ctx: CliContext, id: String) -> Result<String> {
                 unresolvable_keys,
             }) = e.downcast_ref::<RepositoryError>()
             {
-                return output::err_with_payload(
+                return Ok(output::err_with_payload(
                     "vocabulary promote",
-                    vec![format!(
-                        "vocabulary '{}' promotion blocked: {} in-use key(s) have no active term in the vocabulary",
-                        vocabulary_id,
-                        unresolvable_keys.len()
-                    )],
+                    vec![e.to_string()],
                     PromoteVocabularyBlockedPayload {
                         vocabulary_id: vocabulary_id.clone(),
                         unresolvable_keys: unresolvable_keys.clone(),
                     },
-                );
+                ));
             }
             Err(e)
         }

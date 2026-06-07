@@ -6075,10 +6075,15 @@ fn vocabulary_promote_succeeds_when_all_keys_resolvable() {
         .to_string();
 
     let term_json = serde_json::json!({"version": 1, "namespace": "com.test", "key": "gamma"});
-    run_srs_stdin_in_dir(
+    let term_result = run_srs_stdin_in_dir(
         &repo,
         &["vocabulary", "term-create", "--vocabulary-id", &vocab_id],
         &term_json.to_string(),
+    );
+    assert_eq!(
+        term_result["ok"], true,
+        "term-create failed: {:?}",
+        term_result
     );
 
     // Create a note tagged with "gamma" (has active term)

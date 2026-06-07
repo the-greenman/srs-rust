@@ -111,17 +111,14 @@ pub fn err(command: &str, diagnostics: Vec<String>) -> String {
 }
 
 /// Emit an `ok: false` envelope with a typed payload (for structured error responses).
-/// Note: like `output::err`, this hardcodes `Json, false` — `--pretty` and `--format`
-/// are not honoured on error paths. This is consistent with the existing `output::err`
-/// behaviour; tracked for a future format-aware output refactor.
+/// Returns compact JSON; `main.rs` re-renders with `--format`/`--pretty` like all other handlers.
+/// Returns `String` (infallible) to match the `output::err` convention; callers use `Ok(...)`.
 pub fn err_with_payload<T: serde::Serialize>(
     command: &str,
     diagnostics: Vec<String>,
     payload: T,
-) -> anyhow::Result<String> {
-    let value = serde_json::to_value(payload).map_err(|e| {
-        anyhow::anyhow!("Failed to serialize error payload for '{}': {}", command, e)
-    })?;
+) -> String {
+    let value = serde_json::to_value(payload).unwrap_or(serde_json::json!(null));
     let dto = OutputDTO {
         ok: false,
         command: command.to_string(),
@@ -129,5 +126,5 @@ pub fn err_with_payload<T: serde::Serialize>(
         payload: Some(value),
         diagnostics: Some(diagnostics),
     };
-    Ok(dto.render(OutputFormat::Json, false))
+    dto.render(OutputFormat::Json, false)
 }
