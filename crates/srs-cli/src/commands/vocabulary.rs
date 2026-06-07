@@ -1,7 +1,8 @@
 use crate::commands::{with_store, CliContext, VocabularyCommand};
 use crate::output;
 use crate::payload::{
-    TermCreatePayload, VocabularyCreatePayload, VocabularyGetPayload, VocabularyListPayload,
+    PromoteVocabularyPayload, TermCreatePayload, VocabularyCreatePayload, VocabularyGetPayload,
+    VocabularyListPayload,
 };
 use anyhow::Result;
 use srs_core::types::{term::Term, vocabulary::Vocabulary};
@@ -14,6 +15,7 @@ pub fn dispatch(ctx: CliContext, cmd: VocabularyCommand) -> Result<String> {
         VocabularyCommand::Get { id, json: _ } => cmd_vocabulary_get(ctx, id),
         VocabularyCommand::Create => cmd_vocabulary_create(ctx),
         VocabularyCommand::TermCreate { vocabulary_id } => cmd_term_create(ctx, vocabulary_id),
+        VocabularyCommand::Promote { id } => cmd_vocabulary_promote(ctx, id),
     }
 }
 
@@ -64,6 +66,21 @@ fn cmd_term_create(ctx: CliContext, vocabulary_id: String) -> Result<String> {
         "vocabulary term-create",
         TermCreatePayload {
             term: result.term,
+            vocabulary: result.vocabulary,
+        },
+    )
+}
+
+fn cmd_vocabulary_promote(ctx: CliContext, id: String) -> Result<String> {
+    let result = with_store(&ctx, |store| {
+        Ok(vocabulary_service::promote_vocabulary(
+            store,
+            vocabulary_service::PromoteVocabularyInput { vocabulary_id: id },
+        )?)
+    })?;
+    output::serialize(
+        "vocabulary promote",
+        PromoteVocabularyPayload {
             vocabulary: result.vocabulary,
         },
     )

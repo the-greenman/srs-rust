@@ -15,6 +15,7 @@ pub mod relation_type;
 pub mod render;
 pub mod repo;
 pub mod tag;
+pub mod term;
 pub mod theme;
 pub mod tree;
 pub mod view;
@@ -303,6 +304,9 @@ pub enum Commands {
     /// Lifecycle definition commands (RFC-006)
     #[command(subcommand)]
     Lifecycle(LifecycleCommand),
+    /// Term definition commands (RFC-006)
+    #[command(subcommand)]
+    Term(TermCommand),
     /// Show the hierarchical record tree rooted at top-level or specified instances
     Tree(TreeArgs),
 }
@@ -651,6 +655,11 @@ pub enum VocabularyCommand {
         #[arg(long = "vocabulary-id")]
         vocabulary_id: String,
     },
+    /// Promote a vocabulary from open to closed mode (V10 pre-flight)
+    Promote {
+        /// Vocabulary UUID id to promote
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -666,6 +675,17 @@ pub enum LifecycleCommand {
         id: String,
         #[arg(long, hide = true)]
         json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum TermCommand {
+    /// List all terms from all package vocabularies
+    List,
+    /// Get a term by id
+    Get {
+        /// Term UUID id
+        id: String,
     },
 }
 
@@ -1324,6 +1344,7 @@ pub fn dispatch(cli: Cli) -> Result<String> {
         Commands::DocumentView(dv_cmd) => document_view::dispatch(ctx, dv_cmd),
         Commands::Vocabulary(vocab_cmd) => vocabulary::dispatch(ctx, vocab_cmd),
         Commands::Lifecycle(lc_cmd) => lifecycle::dispatch(ctx, lc_cmd),
+        Commands::Term(term_cmd) => term::dispatch(ctx, term_cmd),
         Commands::Tree(args) => tree::dispatch(ctx, args),
     }
 }

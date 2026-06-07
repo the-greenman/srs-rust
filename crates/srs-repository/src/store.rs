@@ -1569,6 +1569,10 @@ impl RepositoryStore for FileStore {
         };
         let mut pkg_json = self.read_json(&pkg_json_path)?;
         let key = definition_kind_key(kind);
+        // Insert an empty array if the key is absent (e.g. pre-RFC-006 package.json files).
+        if pkg_json[key].is_null() {
+            pkg_json[key] = serde_json::json!([]);
+        }
         let arr = pkg_json[key]
             .as_array_mut()
             .ok_or_else(|| RepositoryError::PackageLoad {
@@ -2008,7 +2012,9 @@ pub mod memory {
                 "relationTypes": [],
                 "views": [],
                 "documentViews": [],
-                "blueprints": []
+                "blueprints": [],
+                "vocabularies": [],
+                "lifecycles": []
             })
         }
 
@@ -2420,6 +2426,17 @@ pub mod memory {
         ) -> Result<(), RepositoryError> {
             let v = serde_json::to_value(vocabulary).unwrap();
             self.data.borrow_mut().insert(relative_path.to_string(), v);
+            // Keep self.package in sync so load_package() reflects writes.
+            let mut pkg = self.package.borrow_mut();
+            if let Some(existing) = pkg
+                .vocabularies
+                .iter_mut()
+                .find(|vc| vc.id == vocabulary.id)
+            {
+                *existing = vocabulary.clone();
+            } else {
+                pkg.vocabularies.push(vocabulary.clone());
+            }
             Ok(())
         }
 
@@ -2760,7 +2777,9 @@ pub mod memory {
                     {
                         boundary.type_paths.push(path.to_string());
                     }
-                    _ => {} // View/DocumentView/RelationType — no-op in this phase
+                    _ => {} // View/DocumentView/RelationType/Vocabulary/Lifecycle — PackageBoundary
+                            // only tracks field_paths and type_paths; other kinds are resolved via
+                            // package.json in the data map (kept in sync by memory_store_sync_pkg_json)
                 }
             }
             // Sync the data["<prefix>/package.json"] so load_package_json stays consistent

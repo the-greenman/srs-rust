@@ -5752,3 +5752,229 @@ fn type_schema_unknown_type_returns_error_envelope() {
     assert_eq!(result["ok"], false);
     assert!(result["diagnostics"].is_array());
 }
+
+// ── RFC-006 vocabulary / term / lifecycle integration tests ─────────────────
+
+fn create_repo_with_package(temp: &TempDir, slug: &str) -> std::path::PathBuf {
+    let repo_dir = temp.path().join(slug);
+    std::fs::create_dir_all(&repo_dir).unwrap();
+    let repo_str = repo_dir.to_str().unwrap();
+    let result = run_srs_in_dir(
+        temp.path(),
+        &[
+            "--repo",
+            repo_str,
+            "repo",
+            "create",
+            "--namespace",
+            "com.test",
+        ],
+    );
+    assert_eq!(result["ok"], true, "repo create failed: {:?}", result);
+    repo_dir
+}
+
+#[test]
+fn vocabulary_list_returns_ok_envelope_no_package() {
+    let temp = create_temp_repo();
+    let result = run_srs_in_dir(temp.path(), &["vocabulary", "list"]);
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["command"], "vocabulary list");
+    assert!(result["payload"]["vocabularies"].is_array());
+    assert!(result["payload"]["vocabularies"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn vocabulary_list_contains_created_vocabulary() {
+    let temp = TempDir::new().unwrap();
+    let repo = create_repo_with_package(&temp, "vocab-list-repo");
+    let vocab_json = serde_json::json!({
+        "version": 1,
+        "namespace": "com.test",
+        "name": "my-vocab",
+        "mode": "open",
+        "terms": [],
+        "createdAt": "2026-01-01T00:00:00Z"
+    });
+    let created = run_srs_stdin_in_dir(&repo, &["vocabulary", "create"], &vocab_json.to_string());
+    assert_eq!(
+        created["ok"], true,
+        "vocabulary create failed: {:?}",
+        created
+    );
+    let list = run_srs_in_dir(&repo, &["vocabulary", "list"]);
+    assert_eq!(list["ok"], true);
+    let vocabs = list["payload"]["vocabularies"].as_array().unwrap();
+    assert_eq!(vocabs.len(), 1);
+    assert_eq!(vocabs[0]["name"], "my-vocab");
+}
+
+#[test]
+fn vocabulary_get_returns_not_found_for_unknown_id() {
+    let temp = TempDir::new().unwrap();
+    let repo = create_repo_with_package(&temp, "vocab-get-notfound");
+    let result = run_srs_in_dir(
+        &repo,
+        &["vocabulary", "get", "00000000-0000-4000-8000-deadbeef0000"],
+    );
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["payload"]["result"], "not_found");
+    assert_eq!(
+        result["payload"]["id"],
+        "00000000-0000-4000-8000-deadbeef0000"
+    );
+}
+
+#[test]
+fn vocabulary_get_found_after_creating() {
+    let temp = TempDir::new().unwrap();
+    let repo = create_repo_with_package(&temp, "vocab-get-found");
+    let vocab_json = serde_json::json!({
+        "version": 1,
+        "namespace": "com.test",
+        "name": "findable-vocab",
+        "mode": "open",
+        "terms": [],
+        "createdAt": "2026-01-01T00:00:00Z"
+    });
+    let created = run_srs_stdin_in_dir(&repo, &["vocabulary", "create"], &vocab_json.to_string());
+    assert_eq!(created["ok"], true);
+    let vocab_id = created["payload"]["vocabulary"]["id"].as_str().unwrap();
+    let result = run_srs_in_dir(&repo, &["vocabulary", "get", vocab_id]);
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["payload"]["result"], "found");
+    assert_eq!(result["payload"]["vocabulary"]["name"], "findable-vocab");
+}
+
+#[test]
+fn term_list_returns_ok_envelope_no_package() {
+    let temp = create_temp_repo();
+    let result = run_srs_in_dir(temp.path(), &["term", "list"]);
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["command"], "term list");
+    assert!(result["payload"]["terms"].is_array());
+    assert!(result["payload"]["terms"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn term_list_returns_terms_from_vocabulary() {
+    let temp = TempDir::new().unwrap();
+    let repo = create_repo_with_package(&temp, "term-list-repo");
+    let vocab_json = serde_json::json!({
+        "version": 1,
+        "namespace": "com.test",
+        "name": "term-source-vocab",
+        "mode": "open",
+        "terms": [],
+        "createdAt": "2026-01-01T00:00:00Z"
+    });
+    let created = run_srs_stdin_in_dir(&repo, &["vocabulary", "create"], &vocab_json.to_string());
+    assert_eq!(created["ok"], true);
+    let vocab_id = created["payload"]["vocabulary"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let term_json = serde_json::json!({"version": 1, "namespace": "com.test", "key": "alpha"});
+    let term_result = run_srs_stdin_in_dir(
+        &repo,
+        &["vocabulary", "term-create", "--vocabulary-id", &vocab_id],
+        &term_json.to_string(),
+    );
+    assert_eq!(
+        term_result["ok"], true,
+        "term-create failed: {:?}",
+        term_result
+    );
+
+    let list = run_srs_in_dir(&repo, &["term", "list"]);
+    assert_eq!(list["ok"], true);
+    let terms = list["payload"]["terms"].as_array().unwrap();
+    assert_eq!(terms.len(), 1);
+    assert_eq!(terms[0]["key"], "alpha");
+}
+
+#[test]
+fn term_get_returns_not_found_for_unknown_id() {
+    let temp = TempDir::new().unwrap();
+    let repo = create_repo_with_package(&temp, "term-get-notfound");
+    let result = run_srs_in_dir(
+        &repo,
+        &["term", "get", "00000000-0000-4000-8000-deadbeef0001"],
+    );
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["payload"]["result"], "not_found");
+    assert_eq!(
+        result["payload"]["id"],
+        "00000000-0000-4000-8000-deadbeef0001"
+    );
+}
+
+#[test]
+fn term_get_found_after_creating_term() {
+    let temp = TempDir::new().unwrap();
+    let repo = create_repo_with_package(&temp, "term-get-found");
+    let vocab_json = serde_json::json!({
+        "version": 1,
+        "namespace": "com.test",
+        "name": "term-vocab",
+        "mode": "open",
+        "terms": [],
+        "createdAt": "2026-01-01T00:00:00Z"
+    });
+    let created = run_srs_stdin_in_dir(&repo, &["vocabulary", "create"], &vocab_json.to_string());
+    assert_eq!(created["ok"], true);
+    let vocab_id = created["payload"]["vocabulary"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let term_json = serde_json::json!({"version": 1, "namespace": "com.test", "key": "beta"});
+    let term_result = run_srs_stdin_in_dir(
+        &repo,
+        &["vocabulary", "term-create", "--vocabulary-id", &vocab_id],
+        &term_json.to_string(),
+    );
+    assert_eq!(term_result["ok"], true);
+    let term_id = term_result["payload"]["term"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let get_result = run_srs_in_dir(&repo, &["term", "get", &term_id]);
+    assert_eq!(get_result["ok"], true);
+    assert_eq!(get_result["payload"]["result"], "found");
+    assert_eq!(get_result["payload"]["term"]["key"], "beta");
+}
+
+#[test]
+fn lifecycle_list_returns_ok_envelope_no_package() {
+    let temp = create_temp_repo();
+    let result = run_srs_in_dir(temp.path(), &["lifecycle", "list"]);
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["command"], "lifecycle list");
+    assert!(result["payload"]["lifecycles"].is_array());
+    assert!(result["payload"]["lifecycles"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn lifecycle_get_returns_not_found_for_unknown_id() {
+    let temp = TempDir::new().unwrap();
+    let repo = create_repo_with_package(&temp, "lc-get-notfound");
+    let result = run_srs_in_dir(
+        &repo,
+        &["lifecycle", "get", "00000000-0000-4000-8000-deadbeef0002"],
+    );
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["payload"]["result"], "not_found");
+    assert_eq!(
+        result["payload"]["id"],
+        "00000000-0000-4000-8000-deadbeef0002"
+    );
+}

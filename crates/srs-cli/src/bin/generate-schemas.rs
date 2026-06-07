@@ -168,6 +168,13 @@ fn main() {
     write_schema!("lifecycle-list", LifecycleListPayload);
     write_schema!("lifecycle-get", LifecycleGetPayload);
 
+    // Term payloads (RFC-006)
+    write_schema!("term-list", TermListPayload);
+    write_schema!("term-get", TermGetPayload);
+
+    // Vocabulary promote payload (RFC-006)
+    write_schema!("vocabulary-promote", PromoteVocabularyPayload);
+
     // Tree payloads
     write_schema!("tree", TreePayload);
 
