@@ -1,11 +1,12 @@
 use crate::commands::{with_store, CliContext, VocabularyCommand};
 use crate::output;
 use crate::payload::{
-    PromoteVocabularyPayload, TermCreatePayload, VocabularyCreatePayload, VocabularyGetPayload,
-    VocabularyListPayload,
+    PromoteVocabularyBlockedPayload, PromoteVocabularyPayload, TermCreatePayload,
+    VocabularyCreatePayload, VocabularyGetPayload, VocabularyListPayload,
 };
 use anyhow::Result;
 use srs_core::types::{term::Term, vocabulary::Vocabulary};
+use srs_repository::error::RepositoryError;
 use srs_repository::vocabulary_service;
 use std::io;
 
@@ -72,16 +73,40 @@ fn cmd_term_create(ctx: CliContext, vocabulary_id: String) -> Result<String> {
 }
 
 fn cmd_vocabulary_promote(ctx: CliContext, id: String) -> Result<String> {
-    let result = with_store(&ctx, |store| {
+    match with_store(&ctx, |store| {
         Ok(vocabulary_service::promote_vocabulary(
             store,
-            vocabulary_service::PromoteVocabularyInput { vocabulary_id: id },
+            vocabulary_service::PromoteVocabularyInput {
+                vocabulary_id: id.clone(),
+            },
         )?)
-    })?;
-    output::serialize(
-        "vocabulary promote",
-        PromoteVocabularyPayload {
-            vocabulary: result.vocabulary,
-        },
-    )
+    }) {
+        Ok(r) => output::serialize(
+            "vocabulary promote",
+            PromoteVocabularyPayload {
+                vocabulary: r.vocabulary,
+            },
+        ),
+        Err(e) => {
+            if let Some(RepositoryError::VocabularyPromotionBlocked {
+                vocabulary_id,
+                unresolvable_keys,
+            }) = e.downcast_ref::<RepositoryError>()
+            {
+                return output::err_with_payload(
+                    "vocabulary promote",
+                    vec![format!(
+                        "vocabulary '{}' promotion blocked: {} in-use key(s) have no active term in the vocabulary",
+                        vocabulary_id,
+                        unresolvable_keys.len()
+                    )],
+                    PromoteVocabularyBlockedPayload {
+                        vocabulary_id: vocabulary_id.clone(),
+                        unresolvable_keys: unresolvable_keys.clone(),
+                    },
+                );
+            }
+            Err(e)
+        }
+    }
 }
