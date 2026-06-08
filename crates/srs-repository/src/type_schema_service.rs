@@ -16,7 +16,7 @@ use crate::package_service::{get_type_by_id, get_type_by_id_latest};
 use crate::store::RepositoryStore;
 use serde_json::{json, Map, Value};
 use srs_core::types::field::{Field, ValueType};
-use srs_core::types::record_type::FieldAssignment;
+use srs_core::types::record_type::{FieldAssignment, FieldGroup};
 
 /// Input contract for [`type_schema`].
 #[derive(Debug, Clone)]
@@ -93,6 +93,19 @@ pub fn type_schema(
             required.push(Value::String(field.name.clone()));
         }
         properties.insert(field.name.clone(), property);
+    }
+
+    // ext:field-groups (RFC-007) — emit each repeatable/composite group as an
+    // array (or object) property so schema-driven editors can render it. The
+    // group's `groupId` is the property key; sub-fields become the item schema.
+    if let Some(groups) = &record_type.field_groups {
+        for group in groups {
+            let property = field_group_to_property(group, &package, &mut diagnostics);
+            if group.required {
+                required.push(Value::String(group.group_id.clone()));
+            }
+            properties.insert(group.group_id.clone(), property);
+        }
     }
 
     let schema = json!({
@@ -183,6 +196,75 @@ fn field_to_property(
         other => {
             prop.insert("x-srs-ai-guidance".into(), other.clone());
         }
+    }
+
+    Value::Object(prop)
+}
+
+/// Map a field group (ext:field-groups, RFC-007) to a draft-07 property schema.
+///
+/// A repeatable group becomes an `array` of objects; a non-repeatable group an
+/// `object`. The group's sub-fields become the item object's properties. The
+/// `x-srs-group-id`, `x-srs-composite-renderer`, and `x-srs-repeatable` hints let
+/// a schema-driven editor pick the right widget (e.g. a table grid).
+fn field_group_to_property(
+    group: &FieldGroup,
+    package: &crate::package::Package,
+    diagnostics: &mut Vec<String>,
+) -> Value {
+    let mut item_props = Map::new();
+    let mut item_required = Vec::new();
+    for fa in &group.fields {
+        match package.resolve_field(&fa.field_id) {
+            Some(field) => {
+                let prop = field_to_property(&field.clone(), fa, diagnostics);
+                if fa.required {
+                    item_required.push(Value::String(field.name.clone()));
+                }
+                item_props.insert(field.name.clone(), prop);
+            }
+            None => diagnostics.push(format!(
+                "field group '{}' references unknown fieldId '{}'; skipped",
+                group.group_id, fa.field_id
+            )),
+        }
+    }
+
+    let item = json!({
+        "type": "object",
+        "properties": Value::Object(item_props),
+        "required": Value::Array(item_required),
+        "additionalProperties": false
+    });
+
+    let mut prop = Map::new();
+    if group.repeatable {
+        prop.insert("type".into(), json!("array"));
+        prop.insert("items".into(), item);
+        if let Some(min) = group.min_items {
+            prop.insert("minItems".into(), json!(min));
+        }
+        if let Some(max) = group.max_items {
+            prop.insert("maxItems".into(), json!(max));
+        }
+    } else {
+        // Non-repeatable group: a single object with the same item shape.
+        if let Value::Object(obj) = item {
+            prop.extend(obj);
+        }
+    }
+
+    if let Some(label) = group.label.clone().filter(|s| !s.is_empty()) {
+        prop.insert("title".into(), json!(label));
+    }
+    if let Some(desc) = group.description.clone().filter(|s| !s.is_empty()) {
+        prop.insert("description".into(), json!(desc));
+    }
+    prop.insert("x-srs-order".into(), json!(group.order));
+    prop.insert("x-srs-group-id".into(), json!(group.group_id));
+    prop.insert("x-srs-repeatable".into(), json!(group.repeatable));
+    if let Some(renderer) = &group.composite_renderer {
+        prop.insert("x-srs-composite-renderer".into(), json!(renderer));
     }
 
     Value::Object(prop)
@@ -636,5 +718,56 @@ mod tests {
         );
         // Parent field is required, child field is not.
         assert_eq!(result.schema["required"], json!(["parent_field"]));
+    }
+
+    #[test]
+    fn type_schema_emits_field_groups_with_composite_renderer() {
+        let heading = field(&fid(0), "heading", ValueType::String);
+        let columns = field(&fid(1), "columns", ValueType::Text);
+        let rows = field(&fid(2), "rows", ValueType::Text);
+
+        let mut rt = make_type(TID, vec![assignment(&fid(0), 0, false)]);
+        rt.field_groups = Some(vec![FieldGroup {
+            group_id: "tables".to_string(),
+            order: 1,
+            fields: vec![assignment(&fid(1), 0, false), assignment(&fid(2), 1, true)],
+            label: Some("Tables".to_string()),
+            description: None,
+            required: false,
+            repeatable: true,
+            min_items: None,
+            max_items: None,
+            composite_renderer: Some("table".to_string()),
+        }]);
+
+        let store = store_with(vec![heading, columns, rows], rt);
+        let result = type_schema(
+            &store,
+            TypeSchemaInput {
+                type_id: TID.to_string(),
+                type_version: None,
+            },
+        )
+        .unwrap();
+
+        let props = result.schema["properties"].as_object().unwrap();
+        // Flat field still present alongside the group.
+        assert!(props.contains_key("heading"));
+
+        let tables = &props["tables"];
+        assert_eq!(tables["type"], "array", "repeatable group → array");
+        assert_eq!(tables["x-srs-composite-renderer"], "table");
+        assert_eq!(tables["x-srs-repeatable"], true);
+        assert_eq!(tables["x-srs-group-id"], "tables");
+        assert_eq!(tables["title"], "Tables");
+
+        let item_props = tables["items"]["properties"].as_object().unwrap();
+        assert!(item_props.contains_key("columns"));
+        assert!(item_props.contains_key("rows"));
+
+        // Required sub-field surfaces in the item object's `required`.
+        let item_required = tables["items"]["required"].as_array().unwrap();
+        assert!(item_required.iter().any(|v| v == "rows"));
+        assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
     }
 }
