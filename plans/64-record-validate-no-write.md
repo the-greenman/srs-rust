@@ -116,17 +116,17 @@ Specific tests (in `record_store.rs` `#[cfg(test)]`, against `MemoryStore`):
 
 #### Tasks
 
-- [ ] Add `Validate` variant to `RecordCommand` ("Validate a record input from stdin without persisting (preflight)").
+- [x] Add `Validate` variant to `RecordCommand` ("Validate a record input from stdin without persisting (preflight)").
 - [ ] Add `RecordValidatePayload { ok: bool, errors: Vec<String> }` to `payload.rs`.
-- [ ] Add `cmd_record_validate` to `commands/record.rs`: `serde_json::from_reader(io::stdin())` → `validate_record_input` → branch like container's `cmd_validate`.
-- [ ] Wire the variant in `record` dispatch.
-- [ ] Register `write_schema!("record-validate", RecordValidatePayload)`; regenerate; commit golden.
+- [x] Add `cmd_record_validate` to `commands/record.rs`: `serde_json::from_reader(io::stdin())` → `validate_record_input` → branch like container's `cmd_validate`.
+- [x] Wire the variant in `record` dispatch.
+- [x] Register `write_schema!("record-validate", RecordValidatePayload)`; regenerate; commit golden.
 
 #### Acceptance Criteria
 
-- [ ] `record validate` on valid stdin → `ok:true`, `command == "record validate"`, `payload.ok == true`, `payload.errors == []`.
-- [ ] Invalid stdin → envelope `ok:false`, diagnostics carry the error.
-- [ ] Golden `record-validate.json` committed; `payload_contracts` passes.
+- [x] `record validate` on valid stdin → `ok:true`, `command == "record validate"`, `payload.ok == true`, `payload.errors == []`.
+- [x] Invalid stdin → envelope `ok:false`, diagnostics carry the error.
+- [x] Golden `record-validate.json` committed; `payload_contracts` passes.
 
 #### Testing
 

@@ -4,15 +4,15 @@ use crate::commands::{
 use crate::output::{self, OutputDTO};
 use crate::payload::{
     DeletedPayload, RecordListPayload, RecordPayload, RecordSuccessorPayload, RecordTagAddPayload,
-    RecordTagListPayload, RevisionListPayload, RevisionPayload,
+    RecordTagListPayload, RecordValidatePayload, RevisionListPayload, RevisionPayload,
 };
 use anyhow::Result;
 use srs_repository::record_store::{
     add_record_tag, create_record_in_context, create_record_successor, delete_record_in_context,
     get_record_by_id, get_record_revision, list_record_revisions, list_record_tags,
     list_records_filtered, remove_record_tag, transition_record_lifecycle, update_record,
-    AddRecordTagResult, CreateRecordInput, CreateRecordSuccessorInput, RecordListFilter,
-    RemoveRecordTagResult, TransitionLifecycleInput,
+    validate_record_input, AddRecordTagResult, CreateRecordInput, CreateRecordSuccessorInput,
+    RecordListFilter, RemoveRecordTagResult, TransitionLifecycleInput, ValidateRecordInput,
 };
 use std::io::{self, Read};
 
@@ -31,6 +31,7 @@ pub fn dispatch(ctx: CliContext, cmd: RecordCommand) -> Result<String> {
             json: _,
         } => cmd_record_create(ctx, type_filter, version, dir),
         RecordCommand::Update { id, json: _ } => cmd_record_update(ctx, id),
+        RecordCommand::Validate => cmd_record_validate(ctx),
         RecordCommand::Delete { id, json: _ } => cmd_record_delete(ctx, id),
         RecordCommand::Transition { id } => cmd_record_transition(ctx, id),
         RecordCommand::Successor { id, dir } => cmd_record_successor(ctx, id, dir),
@@ -176,6 +177,33 @@ fn cmd_record_create(
             },
         ),
         Err(e) => Ok(output::err("record create", vec![e.to_string()])),
+    }
+}
+
+fn cmd_record_validate(ctx: CliContext) -> Result<String> {
+    let mut stdin = String::new();
+    io::stdin().read_to_string(&mut stdin)?;
+    let input: ValidateRecordInput = match serde_json::from_str(&stdin) {
+        Ok(v) => v,
+        Err(e) => {
+            return Ok(output::err(
+                "record validate",
+                vec![format!("Failed to parse record JSON from stdin: {}", e)],
+            ))
+        }
+    };
+
+    let report = with_store(&ctx, |store| Ok(validate_record_input(store, input)?))?;
+    if report.ok {
+        output::serialize(
+            "record validate",
+            RecordValidatePayload {
+                ok: true,
+                errors: vec![],
+            },
+        )
+    } else {
+        Ok(output::err("record validate", report.errors))
     }
 }
 

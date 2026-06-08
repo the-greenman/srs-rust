@@ -424,6 +424,14 @@ pub struct ContainerValidatePayload {
     pub errors: Vec<String>,
 }
 
+/// Payload for `record validate` — no-write record input validation (preflight).
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordValidatePayload {
+    pub ok: bool,
+    pub errors: Vec<String>,
+}
+
 // ── Tag payloads ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]

@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RecordValidatePayload",
+  "description": "Payload for `record validate` — no-write record input validation (preflight).",
+  "type": "object",
+  "required": [
+    "errors",
+    "ok"
+  ],
+  "properties": {
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "ok": {
+      "type": "boolean"
+    }
+  }
+}
