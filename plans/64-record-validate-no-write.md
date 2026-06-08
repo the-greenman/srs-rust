@@ -4,7 +4,7 @@
 
 ## Summary
 
-Multi-record editors (the guide editor, srs-vscode#14) save records in a loop via `record update` per section. To close the partial-save hole they must validate every section up front and only write if all pass — but today there is **no no-write validation path**: `record create`/`record update` always persist, and while `blueprint`/`container`/`protocol`/`repo` have `*-validate` commands, an unsaved record input does not. This plan adds `srs record validate`, which reads a self-contained record input from stdin, validates its field values against the resolved `typeId@typeVersion` (unknown/extra fields, missing required, type/enum mismatches — exactly the rules `record update` runs before persist), and returns diagnostics **without writing anything**.
+Multi-record editors (the guide editor, srs-vscode#14) save records in a loop via `record update` per section. To close the partial-save hole they must validate every section up front and only write if all pass — but today there is **no no-write validation path**: `record create`/`record update` always persist, and while `blueprint`/`container`/`protocol`/`repo` have `*-validate` commands, an unsaved record input does not. This plan adds `srs record validate`, which reads a self-contained record input from stdin, validates it against the resolved `typeId@typeVersion` (unknown/extra fields, missing required fields, repeatable/field-group cardinality — **exactly the rules `record update` runs before persist**, no more, no less), and returns diagnostics **without writing anything**.
 
 ## Agent Assignments
 
@@ -84,9 +84,10 @@ Verification: `cargo test --test payload_contracts` passes.
 - [x] Valid input → `{ ok:true, errors:[] }`.
 - [x] Missing required field → `{ ok:false, errors:[..] }` with a non-empty diagnostic.
 - [x] Unknown/extra field id → `{ ok:false, .. }`.
-- [x] Bad enum / type mismatch value → `{ ok:false, .. }`.
 - [x] Unresolved `typeId@typeVersion` → `{ ok:false, errors:["type not found: .."] }` (no panic, no error propagation).
 - [x] Repo state unchanged after the call (no files written).
+
+> **Scope correction (code review):** `validate` gives exact **parity with the write path** — it runs the same `validate_record` that create/update run before persist. That check covers unknown fields, missing required fields, and repeatable/field-group cardinality. It does **not** validate enum `allowedValues` or `valueType` conformance, because `srs_core::validation::record::validate_record` does not validate those today (so create/update don't either). Enum/value-type validation is a separate pre-existing gap, not something `validate` should diverge on. The earlier "bad enum / type mismatch" criterion was removed as inaccurate.
 
 #### Testing
 
@@ -99,6 +100,7 @@ Specific tests (in `record_store.rs` `#[cfg(test)]`, against `MemoryStore`):
 
 - `validate_record_input_accepts_valid` — clean input → ok.
 - `validate_record_input_rejects_missing_required` — ok:false + diagnostic.
+- `validate_record_input_rejects_unknown_field` — extra/unassigned field id → ok:false.
 - `validate_record_input_rejects_unknown_type` — type-not-found report.
 - `validate_record_input_does_not_write` — capture store state (record count / manifest) before and after; assert unchanged.
 
