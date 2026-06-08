@@ -4,6 +4,7 @@ use srs_core::types::relation::Relation;
 use srs_repository::blueprint_schema_service::{self, BlueprintSchemaInput};
 use srs_repository::record_store::{self, RecordListFilter, TransitionLifecycleInput};
 use srs_repository::relation_service::{self, ListRelationsFilter};
+use srs_repository::render_service::{self, RenderDocumentViewOptions};
 use srs_repository::services::{self, ListNotesFilter};
 use srs_repository::validation;
 use srs_repository::JsonStore;
@@ -197,6 +198,31 @@ impl SrsRepository {
         to_js(&serde_json::json!({
             "schema": result.schema,
             "diagnostics": result.diagnostics,
+        }))
+    }
+
+    /// Render a document view. `view_id` is the view's UUID; `format` is `"json"` or `"markdown"`;
+    /// `container_id` optionally scopes TypeQuery sections to a container's membership.
+    /// Returns `{ "rendered": <string>, "diagnostics": [...], "projection": <json|null> }`.
+    /// When `format == "json"`, `projection` is a `DocumentViewProjection` object; otherwise `null`.
+    pub fn render_document_view(
+        &self,
+        view_id: &str,
+        format: &str,
+        container_id: Option<String>,
+    ) -> Result<JsValue, JsValue> {
+        let result = render_service::render_document_view(RenderDocumentViewOptions {
+            store: &self.store,
+            view_id,
+            format: Some(format),
+            theme_variant: None,
+            container_id: container_id.as_deref(),
+        })
+        .map_err(js_err)?;
+        to_js(&serde_json::json!({
+            "rendered": result.rendered,
+            "diagnostics": result.diagnostics,
+            "projection": result.projection,
         }))
     }
 }
