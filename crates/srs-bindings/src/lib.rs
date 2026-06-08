@@ -1,6 +1,7 @@
 use serde::Deserialize;
 use srs_core::types::record::{FieldGroupValue, FieldValue};
 use srs_core::types::relation::Relation;
+use srs_repository::blueprint_schema_service::{self, BlueprintSchemaInput};
 use srs_repository::record_store::{self, RecordListFilter, TransitionLifecycleInput};
 use srs_repository::relation_service::{self, ListRelationsFilter};
 use srs_repository::services::{self, ListNotesFilter};
@@ -179,6 +180,24 @@ impl SrsRepository {
         let result = record_store::transition_record_lifecycle(&self.store, instance_id, input)
             .map_err(js_err)?;
         to_js(&result.record)
+    }
+
+    /// Project a blueprint into a nested draft-07 JSON Schema describing the whole
+    /// multi-record document it declares. `blueprint_id` is the blueprint's UUID.
+    /// Returns `{ "schema": <json-schema>, "diagnostics": [<string>, ...] }` as a JS value;
+    /// non-fatal projection problems surface in `diagnostics`.
+    pub fn blueprint_schema(&self, blueprint_id: &str) -> Result<JsValue, JsValue> {
+        let result = blueprint_schema_service::blueprint_schema(
+            &self.store,
+            BlueprintSchemaInput {
+                blueprint_id: blueprint_id.to_string(),
+            },
+        )
+        .map_err(js_err)?;
+        to_js(&serde_json::json!({
+            "schema": result.schema,
+            "diagnostics": result.diagnostics,
+        }))
     }
 }
 
