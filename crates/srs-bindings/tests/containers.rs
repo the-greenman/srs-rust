@@ -11,7 +11,9 @@
 //!   - `138e2fac…` root `9054911c…`, 7 members
 //!   - `f7562aa3…` root `ad159754…`, 6 members
 
-use srs_repository::container_service::{get_container, list_containers};
+use srs_repository::container_service::{
+    add_member, get_container, list_containers, remove_member,
+};
 use srs_repository::JsonStore;
 
 fn gallery_store() -> JsonStore {
@@ -54,4 +56,37 @@ fn get_container_returns_membership() {
         get_container(&store, "138e2fac-6a8a-4a06-9511-5aefd99ceae9").expect("container must load");
     let members = container.member_instance_ids.unwrap_or_default();
     assert_eq!(members.len(), 7, "container carries its seven members");
+}
+
+/// add_member / remove_member round-trip — the path the guides editor uses when
+/// adding or removing a section from a guide's container.
+#[test]
+fn add_then_remove_member_round_trips() {
+    let store = gallery_store();
+    let container_id = "138e2fac-6a8a-4a06-9511-5aefd99ceae9";
+    let new_id = "11111111-1111-4111-8111-111111111111";
+
+    let before = get_container(&store, container_id)
+        .unwrap()
+        .member_instance_ids
+        .unwrap_or_default()
+        .len();
+
+    let after_add = add_member(&store, container_id, new_id).expect("add must succeed");
+    assert!(
+        after_add.iter().any(|id| id == new_id),
+        "new member present"
+    );
+    assert_eq!(after_add.len(), before + 1);
+
+    // Idempotent: adding again does not duplicate.
+    let again = add_member(&store, container_id, new_id).expect("idempotent add");
+    assert_eq!(again.len(), before + 1, "add is idempotent");
+
+    let after_remove = remove_member(&store, container_id, new_id).expect("remove must succeed");
+    assert!(
+        !after_remove.iter().any(|id| id == new_id),
+        "member removed"
+    );
+    assert_eq!(after_remove.len(), before);
 }

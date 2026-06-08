@@ -219,7 +219,7 @@ pub(crate) fn list_members(
     Ok(combined)
 }
 
-pub(crate) fn add_member(
+pub fn add_member(
     store: &dyn RepositoryStore,
     container_id: &str,
     instance_id: &str,
@@ -236,7 +236,7 @@ pub(crate) fn add_member(
     Ok(members)
 }
 
-pub(crate) fn remove_member(
+pub fn remove_member(
     store: &dyn RepositoryStore,
     container_id: &str,
     instance_id: &str,
