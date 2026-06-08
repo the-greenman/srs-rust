@@ -275,6 +275,61 @@ pub fn update_record(
     Ok(updated_record)
 }
 
+/// Validate a prospective record input against its resolved `typeId@typeVersion`
+/// **without persisting anything**. Performs only reads; never writes a record or
+/// the manifest. Intended for editor preflight (validate a whole document before
+/// the per-record save loop). Reuses the same `validate_record` check that
+/// `create_record`/`update_record` run before persist, so a passing validate
+/// guarantees a passing write.
+pub fn validate_record_input(
+    store: &dyn RepositoryStore,
+    input: ValidateRecordInput,
+) -> Result<RecordValidateReport, RepositoryError> {
+    let package = store.load_package()?;
+    let record_type = match package.resolve_type(&input.type_id, input.type_version) {
+        Some(t) => t,
+        None => {
+            return Ok(RecordValidateReport {
+                ok: false,
+                errors: vec![format!(
+                    "type not found: {}@{}",
+                    input.type_id, input.type_version
+                )],
+            });
+        }
+    };
+
+    let record = Record {
+        instance_id: String::new(),
+        type_id: input.type_id.clone(),
+        type_version: input.type_version,
+        type_namespace: record_type.namespace.clone(),
+        type_name: record_type.name.clone(),
+        field_values: input.field_values,
+        group_values: input.group_values,
+        lifecycle_state: record_type
+            .lifecycle
+            .as_ref()
+            .map(|lc| lc.initial_state.clone()),
+        tags: input.tags,
+        created_at: None,
+        updated_at: None,
+        extra: HashMap::new(),
+    };
+
+    let effective_fields = package.effective_fields(record_type)?;
+    match validate_record(&record, record_type, &effective_fields) {
+        Ok(()) => Ok(RecordValidateReport {
+            ok: true,
+            errors: vec![],
+        }),
+        Err(e) => Ok(RecordValidateReport {
+            ok: false,
+            errors: vec![e.to_string()],
+        }),
+    }
+}
+
 /// Returns the IDs of any Relations that reference `instance_id` as source or target.
 fn find_relations_referencing_instance(
     store: &dyn RepositoryStore,
@@ -358,6 +413,31 @@ pub struct CreateRecordInput {
     pub group_values: Option<Vec<srs_core::types::record::FieldGroupValue>>,
     #[serde(default)]
     pub tags: Option<Vec<String>>,
+}
+
+/// Self-contained input for `validate_record_input` (no-write preflight).
+///
+/// Unlike `CreateRecordInput`, this carries its own type binding (`typeId`/
+/// `typeVersion`) so the input is fully self-describing and resolves via
+/// `package.resolve_type` — the same call the create/update paths use.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ValidateRecordInput {
+    pub type_id: String,
+    pub type_version: u32,
+    pub field_values: Vec<FieldValue>,
+    #[serde(default)]
+    pub group_values: Option<Vec<srs_core::types::record::FieldGroupValue>>,
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
+}
+
+/// Result of `validate_record_input`. Mirrors the `{ ok, errors }` shape of the
+/// other `*-validate` reports. `errors` is empty iff `ok` is true.
+#[derive(Debug, Clone)]
+pub struct RecordValidateReport {
+    pub ok: bool,
+    pub errors: Vec<String>,
 }
 
 /// Result for create_record_in_context
@@ -1319,6 +1399,127 @@ mod tests {
         )
         .expect("should create with only required field");
         assert_eq!(record.field_values.len(), 1);
+    }
+
+    #[test]
+    fn validate_record_input_accepts_valid() {
+        let store = make_store_with_package();
+        let report = validate_record_input(
+            &store,
+            ValidateRecordInput {
+                type_id: "type-test-001".to_string(),
+                type_version: 1,
+                field_values: vec![FieldValue {
+                    field_id: "field-name-001".to_string(),
+                    value: json!("Valid Name"),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                }],
+                group_values: None,
+                tags: None,
+            },
+        )
+        .expect("validate should not error");
+        assert!(report.ok, "expected ok, got errors: {:?}", report.errors);
+        assert!(report.errors.is_empty());
+    }
+
+    #[test]
+    fn validate_record_input_rejects_missing_required() {
+        let store = make_store_with_package();
+        // Only the optional status field — required name field is absent.
+        let report = validate_record_input(
+            &store,
+            ValidateRecordInput {
+                type_id: "type-test-001".to_string(),
+                type_version: 1,
+                field_values: vec![FieldValue {
+                    field_id: "field-status-001".to_string(),
+                    value: json!("active"),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                }],
+                group_values: None,
+                tags: None,
+            },
+        )
+        .expect("validate should not error");
+        assert!(!report.ok);
+        assert!(!report.errors.is_empty(), "expected a diagnostic");
+    }
+
+    #[test]
+    fn validate_record_input_rejects_unknown_type() {
+        let store = make_store_with_package();
+        let report = validate_record_input(
+            &store,
+            ValidateRecordInput {
+                type_id: "type-does-not-exist".to_string(),
+                type_version: 1,
+                field_values: vec![],
+                group_values: None,
+                tags: None,
+            },
+        )
+        .expect("validate should not error");
+        assert!(!report.ok);
+        assert!(
+            report.errors.iter().any(|e| e.contains("type not found")),
+            "expected a type-not-found diagnostic, got: {:?}",
+            report.errors
+        );
+    }
+
+    #[test]
+    fn validate_record_input_does_not_write() {
+        let store = make_store_with_package();
+        let index_before = store.load_manifest().unwrap().instance_index.len();
+
+        // Run a validation that fails (missing required) — must still write nothing.
+        let _ = validate_record_input(
+            &store,
+            ValidateRecordInput {
+                type_id: "type-test-001".to_string(),
+                type_version: 1,
+                field_values: vec![FieldValue {
+                    field_id: "field-status-001".to_string(),
+                    value: json!("active"),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                }],
+                group_values: None,
+                tags: None,
+            },
+        )
+        .unwrap();
+
+        // And one that passes — also writes nothing.
+        let _ = validate_record_input(
+            &store,
+            ValidateRecordInput {
+                type_id: "type-test-001".to_string(),
+                type_version: 1,
+                field_values: vec![FieldValue {
+                    field_id: "field-name-001".to_string(),
+                    value: json!("Valid Name"),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                }],
+                group_values: None,
+                tags: None,
+            },
+        )
+        .unwrap();
+
+        let index_after = store.load_manifest().unwrap().instance_index.len();
+        assert_eq!(
+            index_before, index_after,
+            "validate must not add any instance index entries"
+        );
     }
 
     #[test]
