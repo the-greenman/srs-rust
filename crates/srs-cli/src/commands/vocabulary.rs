@@ -110,32 +110,33 @@ fn cmd_vocabulary_promote(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_vocabulary_derive_tag_set(ctx: CliContext, id: String) -> Result<String> {
-    let outcome = with_store(
-        &ctx,
-        |store| match vocabulary_service::get_vocabulary_by_id(store, &id)? {
-            Some(vocabulary) => {
-                let result = vocabulary_service::derive_tag_set(
-                    store,
-                    vocabulary_service::DeriveTagSetInput {
-                        vocabulary_id: id.clone(),
-                    },
-                )?;
-                Ok(Some((vocabulary, result)))
-            }
-            None => Ok(None),
-        },
-    )?;
-    match outcome {
-        Some((vocabulary, result)) => output::serialize(
+    match with_store(&ctx, |store| {
+        Ok(vocabulary_service::derive_tag_set(
+            store,
+            vocabulary_service::DeriveTagSetInput {
+                vocabulary_id: id.clone(),
+            },
+        )?)
+    }) {
+        Ok(result) => output::serialize(
             "vocabulary derive-tag-set",
             VocabularyDeriveTagSetPayload {
-                vocabulary,
+                vocabulary: result.vocabulary,
                 entries: result.entries,
             },
         ),
-        None => Ok(output::err(
-            "vocabulary derive-tag-set",
-            vec![format!("vocabulary not found: {id}")],
-        )),
+        Err(e) => {
+            // Unknown vocabulary id → command ran, ok:false (exit 0), per the CLI contract.
+            if matches!(
+                e.downcast_ref::<RepositoryError>(),
+                Some(RepositoryError::NotFound { .. })
+            ) {
+                return Ok(output::err(
+                    "vocabulary derive-tag-set",
+                    vec![e.to_string()],
+                ));
+            }
+            Err(e)
+        }
     }
 }

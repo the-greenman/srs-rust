@@ -224,6 +224,8 @@ pub struct DeriveTagSetInput {
 
 /// Result of `derive_tag_set`.
 pub struct DeriveTagSetResult {
+    /// The resolved vocabulary the tag set was derived against.
+    pub vocabulary: Vocabulary,
     pub entries: Vec<TagSetEntry>,
 }
 
@@ -249,7 +251,10 @@ pub fn derive_tag_set(
         });
     }
     entries.sort_by(|a, b| a.key.cmp(&b.key));
-    Ok(DeriveTagSetResult { entries })
+    Ok(DeriveTagSetResult {
+        vocabulary: vocab,
+        entries,
+    })
 }
 
 fn classify_key_against_vocabulary(key: &str, vocab: &Vocabulary) -> TagSetEntryClassification {
