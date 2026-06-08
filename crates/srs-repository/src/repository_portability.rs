@@ -6,6 +6,7 @@ use crate::repository_lifecycle::{
     InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
 };
 use crate::store::RepositoryStore;
+use srs_core::types::blueprint::Blueprint;
 use srs_core::types::container::Container;
 use srs_core::types::field::Field;
 use srs_core::types::record_type::RecordType;
@@ -34,6 +35,8 @@ pub struct PackageBoundarySnapshot {
     pub relation_type_definitions: Vec<RelationTypeDefinition>,
     pub views: Vec<View>,
     pub document_views: Vec<DocumentView>,
+    #[serde(default)]
+    pub blueprints: Vec<Blueprint>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -64,6 +67,8 @@ struct RawPackageMetadata {
     views: Vec<String>,
     #[serde(default)]
     document_views: Vec<String>,
+    #[serde(default)]
+    blueprints: Vec<String>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -278,6 +283,7 @@ fn export_package_boundary(
             relation_type_definitions: pkg.relation_type_definitions,
             views: pkg.views,
             document_views: pkg.document_views,
+            blueprints: pkg.blueprints,
         });
     }
 
@@ -318,6 +324,11 @@ fn export_package_boundary(
         .iter()
         .map(|p| load_typed_json::<DocumentView>(source, &package_prefix, p))
         .collect::<Result<Vec<_>, _>>()?;
+    let blueprints = metadata
+        .blueprints
+        .iter()
+        .map(|p| load_typed_json::<Blueprint>(source, &package_prefix, p))
+        .collect::<Result<Vec<_>, _>>()?;
 
     Ok(PackageBoundarySnapshot {
         boundary_path,
@@ -332,6 +343,7 @@ fn export_package_boundary(
         relation_type_definitions,
         views,
         document_views,
+        blueprints,
     })
 }
 
@@ -402,6 +414,17 @@ fn import_package_boundary(
         doc_view_paths.push(path);
     }
 
+    let mut blueprint_paths = Vec::new();
+    for blueprint in &package.blueprints {
+        let path = format!(
+            "blueprints/{}-{}.json",
+            slugify(&blueprint.name),
+            id_prefix(&blueprint.id)?
+        );
+        write_repo_json(target, &base_prefix, &path, blueprint)?;
+        blueprint_paths.push(path);
+    }
+
     let package_json = serde_json::json!({
         "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
         "id": package.metadata.id,
@@ -416,7 +439,8 @@ fn import_package_boundary(
         "types": type_paths,
         "relationTypes": relation_type_paths,
         "views": view_paths,
-        "documentViews": doc_view_paths
+        "documentViews": doc_view_paths,
+        "blueprints": blueprint_paths
     });
     target.save_instance_json(&format!("{base_prefix}/package.json"), &package_json)?;
     Ok(())
@@ -620,6 +644,63 @@ mod tests {
     }
 
     #[test]
+    fn copy_round_trips_package_blueprints() {
+        use crate::blueprint_service::{get_blueprint_by_id, GetBlueprintResult};
+        use srs_core::types::blueprint::{Blueprint, TypeRef};
+
+        // Source repo with a blueprint in its primary package.
+        let source = MemoryStore::uninitialized();
+        source.initialize_repository(&make_input()).unwrap();
+        let mut snapshot = export_repository_snapshot(&source).unwrap();
+        snapshot.packages[0].blueprints.push(Blueprint {
+            id: "7bfa600b-f7b2-4a0e-82d4-34c02d9d6770".to_string(),
+            namespace: "com.semanticops.copy".to_string(),
+            name: "guide".to_string(),
+            version: 1,
+            description: "Guide blueprint".to_string(),
+            root_types: vec![TypeRef {
+                type_id: "8f138dd6-11d2-42a5-99ec-3d6e23bed54f".to_string(),
+                type_version: None,
+            }],
+            structure: vec![],
+            required_types: vec![],
+            ai_guidance: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            lineage: None,
+            provenance: None,
+        });
+
+        // Import into a JSON store (the .srsj bundle backend) and confirm the
+        // blueprint survives: get_blueprint_by_id is exactly the path the
+        // blueprint-schema service (and the web guides editor) consult.
+        let tmp = TempDir::new().unwrap();
+        let target = JsonStore::create(tmp.path().join("repo.srsj")).unwrap();
+        import_repository_snapshot(&target, &snapshot).unwrap();
+
+        // package.json must index the blueprint.
+        let pkg_json = target.load_instance_json("package/package.json").unwrap();
+        let blueprints = pkg_json
+            .get("blueprints")
+            .and_then(|v| v.as_array())
+            .expect("package.json must carry a blueprints array");
+        assert_eq!(
+            blueprints.len(),
+            1,
+            "one blueprint expected in package.json"
+        );
+
+        // And the blueprint must resolve by id through the real consumer path.
+        match get_blueprint_by_id(&target, "7bfa600b-f7b2-4a0e-82d4-34c02d9d6770").unwrap() {
+            GetBlueprintResult::Found(bp) => {
+                assert_eq!(bp.name, "guide");
+                assert_eq!(bp.root_types.len(), 1);
+            }
+            GetBlueprintResult::NotFound => panic!("blueprint lost during copy"),
+        }
+    }
+
+    #[test]
     fn copy_memory_repo_to_filestore_preserves_packages() {
         let source = MemoryStore::uninitialized();
         source.initialize_repository(&make_input()).unwrap();
@@ -637,6 +718,7 @@ mod tests {
             relation_type_definitions: vec![],
             views: vec![],
             document_views: vec![],
+            blueprints: vec![],
         });
 
         let temp = TempDir::new().unwrap();
