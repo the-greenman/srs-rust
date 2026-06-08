@@ -71,21 +71,22 @@ Each scenario uses a fixed template so the set stays comparable and updatable:
 
 **Intention.** *"This kind of record keeps recurring. I want a named, versioned shape so every instance carries the same meaning."*
 
-**Capabilities exercised.** Field as the atomic semantic unit with immutable semantics; Type as a composition of FieldAssignments; `valueType` validation; `displayLabel` is rendering-only and never changes meaning; `type schema` as the machine contract for a record's `fieldValues`.
+**Capabilities exercised.** Field as the atomic semantic unit with immutable semantics; Type as a composition of FieldAssignments; `displayLabel` is rendering-only and never changes meaning; `type schema` as the machine contract for a record's `fieldValues`; `record validate` as a no-write preflight that runs the same checks `record create`/`update` run before persist.
 
-**CLI surface.** `field create`, `field list`, `field get`, `type create`, `type get`, `type schema`, `record create`, `repo validate`.
+**CLI surface.** `field create`, `field list`, `field get`, `type create`, `type get`, `type schema`, `record validate`, `record create`, `repo validate`.
 
 **Steps.**
 1. Discover existing fields/types first — do not invent UUIDs: `srs field list`, `srs type list`.
 2. Create any missing Fields (each self-contained: `namespace`, `name`, `version`, `valueType`, optional `aiGuidance`).
 3. Compose a Type from those fields via FieldAssignments (`fieldId`, `order`, `required`, optional `displayLabel`).
 4. Resolve the type's field IDs with `srs type get --id <typeId>` — `fieldId` is authoritative, never the filename or `name`.
-5. Create a valid Record against the type.
-6. Emit the contract: `srs type schema <typeId>` and confirm it matches the fields.
+5. **Preflight a record input without writing it:** pipe `{ "typeId", "typeVersion", "fieldValues" }` to `srs record validate`. A clean input returns `payload.ok: true`; a missing required field or an unknown/extra `fieldId` returns `ok: false` with the problem in `diagnostics`. Confirm `srs record list` count is unchanged — nothing was persisted. This is the editor-preflight primitive: validate the whole document, then write only if all sections pass.
+6. Create the valid Record against the type (`record create`).
+7. Emit the contract: `srs type schema <typeId>` and confirm it matches the fields.
 
-**Negative case.** Send a `fieldValue` whose value violates the field's `valueType` (e.g. text for a `number`, or a value outside `select` options) — confirm validation reports it. Also confirm a `displayLabel` override does not change which field is resolved.
+**Negative case.** Send a `record validate` input that omits a **required** field, or carries a `fieldId` not assigned to the type — confirm each surfaces as a diagnostic with `ok: false`, and that `record list` count stays flat (no write). Confirm a `displayLabel` override does not change which field is resolved. *(Note: `validate` mirrors the write path exactly — it does **not** check enum `allowedValues` or `valueType` conformance, because the model's record validation does not validate those today; do not expect a value outside `select` options to be rejected here.)*
 
-**Done when.** `type get` resolves every `fieldId` in the package; the valid record validates clean; the invalid value surfaces as a diagnostic; `type schema` reflects required/optional and value types correctly.
+**Done when.** `type get` resolves every `fieldId` in the package; `record validate` passes a clean input and flags missing-required / unknown-field inputs as diagnostics **without persisting anything**; the valid record then creates clean; `type schema` reflects required/optional and value types correctly.
 
 ### S3 — Assert meaning between records (Relations)
 
@@ -158,19 +159,20 @@ This is the spec-as-repo pattern (`../srs/srs`): sections are records, order is 
 
 **Capabilities exercised.** Vocabulary `open` vs `closed` mode; Terms; the V10 promotion pre-flight (closing a vocabulary must not orphan in-use keys); lifecycle states and declared transitions; tagging records against a vocabulary.
 
-**CLI surface.** `vocabulary create`, `vocabulary get`, `vocabulary list`, `vocabulary term-create`, `vocabulary promote`, `term list`, `term get`, `lifecycle list`, `lifecycle get`, `record tag`, `record transition`.
+**CLI surface.** `vocabulary create`, `vocabulary get`, `vocabulary list`, `vocabulary term-create`, `vocabulary derive-tag-set`, `vocabulary promote`, `term list`, `term get`, `lifecycle list`, `lifecycle get`, `record tag`, `record transition`.
 
 **Steps.**
 1. Discover what exists: `srs vocabulary list`, `srs lifecycle list`.
 2. Create an `open` vocabulary; tag a record with an arbitrary key — confirm `open` accepts it.
 3. Add Terms for the keys you intend to keep: `srs vocabulary term-create`.
-4. Run promotion: `srs vocabulary promote <vocab>`. If an in-use key has no active term, confirm `ok: false` with `payload.unresolvableKeys` listing it (V10).
-5. Add the missing term (or accept the consequence), then promote successfully; confirm a now-`closed` vocabulary rejects an unknown key.
-6. Inspect a lifecycle (`lifecycle get`) and drive a record through an allowed transition.
+4. **Preview the consequences of closing without writing anything:** `srs vocabulary derive-tag-set <vocab>` (positional id). Read `payload.entries` — each in-use tag key is classified `used-and-active`, `read-only-after-close`, or `will-be-invalid`. The `will-be-invalid` keys are exactly what `promote` will block on. This is the read-only V10 oracle: run it before promoting so there are no surprises.
+5. Run promotion: `srs vocabulary promote <vocab>` (positional id). If an in-use key has no active term, confirm `ok: false` with `payload.unresolvableKeys` listing exactly the keys `derive-tag-set` flagged `will-be-invalid` (V10).
+6. Add the missing term (or accept the consequence). Re-run `derive-tag-set` to confirm the key is now `used-and-active`, then promote successfully; confirm a now-`closed` vocabulary rejects an unknown key.
+7. Inspect a lifecycle (`lifecycle get`) and drive a record through an allowed transition.
 
-**Negative case.** (a) Promote with an unresolvable in-use key and confirm the structured block payload. (b) Attempt a `record transition` not present in the lifecycle's `transitions` and confirm rejection.
+**Negative case.** (a) Promote with an unresolvable in-use key and confirm the structured block payload lists the same keys `derive-tag-set` classified `will-be-invalid`. (b) `derive-tag-set` on an unknown vocabulary id → `ok: false` with a diagnostic (no panic). (c) Attempt a `record transition` not present in the lifecycle's `transitions` and confirm rejection.
 
-**Done when.** `open` accepts arbitrary keys; `closed` rejects unknown keys; `promote` blocks with `unresolvableKeys` exactly when an in-use key lacks an active term (and succeeds within a grace `promotionWindow` if one is set); lifecycle transitions honour the declared state machine.
+**Done when.** `open` accepts arbitrary keys; `closed` rejects unknown keys; **`derive-tag-set`'s `will-be-invalid` set equals `promote`'s `unresolvableKeys`** — the read-only pre-flight predicts the write outcome exactly; `promote` blocks with `unresolvableKeys` exactly when an in-use key lacks an active term (and succeeds within a grace `promotionWindow` if one is set); lifecycle transitions honour the declared state machine.
 
 ### S7 — Verify a document type is correctly composed (Blueprint schema)
 
@@ -208,6 +210,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `field` (create/list/get/update/delete) | S2 |
 | `type` (create/get/list/schema/update/delete) | S2 |
 | `record` (create/get/list/update/delete) | S1, S2, S4 |
+| `record validate` (no-write preflight) | S2 |
 | `record transition` | S4, S6 |
 | `record successor` | S3, S4 |
 | `record tag` | S6 |
@@ -218,7 +221,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `render document-view` | S4, S5 |
 | `view` (L1) | _gap — no scenario yet_ |
 | `tree` | S5 |
-| `vocabulary` (create/get/list/term-create/promote) | S6 |
+| `vocabulary` (create/get/list/term-create/derive-tag-set/promote) | S6 |
 | `term` (list/get) | S6 |
 | `lifecycle` (list/get) | S4, S6 |
 | `blueprint` (list/get/validate/structure/schema) | S7 |
