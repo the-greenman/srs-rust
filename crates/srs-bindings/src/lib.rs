@@ -250,6 +250,30 @@ impl SrsRepository {
             container_service::get_container(&self.store, container_id).map_err(js_err)?;
         to_js(&container)
     }
+
+    /// Add an instance to a container's `memberInstanceIds` (idempotent).
+    /// Returns the updated member-id list as a JS array of strings.
+    pub fn add_container_member(
+        &self,
+        container_id: &str,
+        instance_id: &str,
+    ) -> Result<JsValue, JsValue> {
+        let members = container_service::add_member(&self.store, container_id, instance_id)
+            .map_err(js_err)?;
+        to_js(&members)
+    }
+
+    /// Remove an instance from a container's `memberInstanceIds`.
+    /// Returns the updated member-id list as a JS array of strings.
+    pub fn remove_container_member(
+        &self,
+        container_id: &str,
+        instance_id: &str,
+    ) -> Result<JsValue, JsValue> {
+        let members = container_service::remove_member(&self.store, container_id, instance_id)
+            .map_err(js_err)?;
+        to_js(&members)
+    }
 }
 
 /// Input shape for `list_containers` — parsed from caller-supplied JSON.
