@@ -2,6 +2,7 @@ use serde::Deserialize;
 use srs_core::types::record::{FieldGroupValue, FieldValue};
 use srs_core::types::relation::Relation;
 use srs_repository::blueprint_schema_service::{self, BlueprintSchemaInput};
+use srs_repository::container_service;
 use srs_repository::record_store::{self, RecordListFilter, TransitionLifecycleInput};
 use srs_repository::relation_service::{self, ListRelationsFilter};
 use srs_repository::render_service::{self, RenderDocumentViewOptions};
@@ -225,6 +226,42 @@ impl SrsRepository {
             "projection": result.projection,
         }))
     }
+
+    /// List container summaries. `filter_json` is a JSON string matching
+    /// `{ "containerType"?: string, "memberInstanceId"?: string, "rootInstanceId"?: string }`;
+    /// pass `"{}"` for all containers. Returns a JS array of `ContainerSummary` objects.
+    pub fn list_containers(&self, filter_json: &str) -> Result<JsValue, JsValue> {
+        let filter: ContainerListBindingFilter = serde_json::from_str(filter_json)
+            .map_err(|e| js_err(format!("invalid filter: {e}")))?;
+        let summaries = container_service::list_containers(
+            &self.store,
+            filter.container_type.as_deref(),
+            filter.member_instance_id.as_deref(),
+            filter.root_instance_id.as_deref(),
+        )
+        .map_err(js_err)?;
+        to_js(&summaries)
+    }
+
+    /// Get a single container by ID, including its `rootInstanceIds` and `memberInstanceIds`.
+    /// Returns the `Container` as a JS value.
+    pub fn get_container(&self, container_id: &str) -> Result<JsValue, JsValue> {
+        let container =
+            container_service::get_container(&self.store, container_id).map_err(js_err)?;
+        to_js(&container)
+    }
+}
+
+/// Input shape for `list_containers` — parsed from caller-supplied JSON.
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct ContainerListBindingFilter {
+    #[serde(default)]
+    container_type: Option<String>,
+    #[serde(default)]
+    member_instance_id: Option<String>,
+    #[serde(default)]
+    root_instance_id: Option<String>,
 }
 
 /// Input shape for `create_record` — parsed from caller-supplied JSON.
