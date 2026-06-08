@@ -33,7 +33,7 @@ use srs_core::types::record::{FieldValue, Record};
 use srs_core::types::relation::Relation;
 use srs_core::types::revision::{Revision, RevisionAgent, RevisionProvenance};
 use srs_core::validation::lifecycle::validate_type_lifecycle_v9;
-use srs_core::validation::record::{validate_record, validate_type_lifecycle};
+use srs_core::validation::record::{validate_record, validate_record_all, validate_type_lifecycle};
 use std::collections::HashMap;
 
 /// List all Tier 2 records in the repository, regardless of type.
@@ -278,9 +278,10 @@ pub fn update_record(
 /// Validate a prospective record input against its resolved `typeId@typeVersion`
 /// **without persisting anything**. Performs only reads; never writes a record or
 /// the manifest. Intended for editor preflight (validate a whole document before
-/// the per-record save loop). Reuses the same `validate_record` check that
-/// `create_record`/`update_record` run before persist, so a passing validate
-/// guarantees a passing write.
+/// the per-record save loop). Runs the same checks `create_record`/
+/// `update_record` run before persist (via `validate_record_all`), so a passing
+/// validate guarantees a passing write — but collects **all** diagnostics rather
+/// than stopping at the first, so an editor can surface every problem at once.
 pub fn validate_record_input(
     store: &dyn RepositoryStore,
     input: ValidateRecordInput,
@@ -318,16 +319,16 @@ pub fn validate_record_input(
     };
 
     let effective_fields = package.effective_fields(record_type)?;
-    match validate_record(&record, record_type, &effective_fields) {
-        Ok(()) => Ok(RecordValidateReport {
-            ok: true,
-            errors: vec![],
-        }),
-        Err(e) => Ok(RecordValidateReport {
-            ok: false,
-            errors: vec![e.to_string()],
-        }),
-    }
+    // Collect *all* diagnostics so a multi-record editor can show every problem
+    // in one pass, not one-fix-revalidate at a time (#111).
+    let errors: Vec<String> = validate_record_all(&record, record_type, &effective_fields)
+        .iter()
+        .map(|e| e.to_string())
+        .collect();
+    Ok(RecordValidateReport {
+        ok: errors.is_empty(),
+        errors,
+    })
 }
 
 /// Returns the IDs of any Relations that reference `instance_id` as source or target.
@@ -1482,6 +1483,47 @@ mod tests {
         .expect("validate should not error");
         assert!(!report.ok);
         assert!(!report.errors.is_empty(), "expected a diagnostic");
+    }
+
+    #[test]
+    fn validate_record_input_collects_multiple_diagnostics() {
+        // Input both omits the required "field-name-001" AND carries an unknown
+        // field id. validate must report BOTH problems, not just the first (#111).
+        let store = make_store_with_package();
+        let report = validate_record_input(
+            &store,
+            ValidateRecordInput {
+                type_id: "type-test-001".to_string(),
+                type_version: 1,
+                field_values: vec![
+                    // required "field-name-001" omitted
+                    FieldValue {
+                        field_id: "field-status-001".to_string(),
+                        value: json!("active"),
+                        entries: None,
+                        source: None,
+                        edited_at: None,
+                    },
+                    FieldValue {
+                        field_id: "field-nonexistent-999".to_string(),
+                        value: json!("stray"),
+                        entries: None,
+                        source: None,
+                        edited_at: None,
+                    },
+                ],
+                group_values: None,
+                tags: None,
+            },
+        )
+        .expect("validate should not error");
+        assert!(!report.ok);
+        assert!(
+            report.errors.len() >= 2,
+            "expected >= 2 diagnostics, got {}: {:?}",
+            report.errors.len(),
+            report.errors
+        );
     }
 
     #[test]

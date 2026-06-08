@@ -101,14 +101,14 @@ Specific tests:
 
 #### Tasks
 
-- [ ] In `validate_record_input` (`record_store.rs`), replace the single `validate_record` call with `validate_record_all`, mapping each `CoreError` via `to_string()` into `RecordValidateReport.errors`; `ok = errors.is_empty()`. Keep the type-not-found early return as-is.
-- [ ] Leave `create_record`/`update_record` calling `validate_record` (fail-fast) untouched.
+- [x] In `validate_record_input` (`record_store.rs`), replace the single `validate_record` call with `validate_record_all`, mapping each `CoreError` via `to_string()` into `RecordValidateReport.errors`; `ok = errors.is_empty()`. Keep the type-not-found early return as-is.
+- [x] Leave `create_record`/`update_record` calling `validate_record` (fail-fast) untouched.
 
 #### Acceptance Criteria
 
-- [ ] `validate_record_input` with ≥2 independent violations returns a report with ≥2 `errors`.
-- [ ] A clean input still returns `{ ok:true, errors:[] }`; a single violation still returns one error.
-- [ ] Repo state unchanged (no writes) — existing `validate_record_input_does_not_write` still passes.
+- [x] `validate_record_input` with ≥2 independent violations returns a report with ≥2 `errors`.
+- [x] A clean input still returns `{ ok:true, errors:[] }`; a single violation still returns one error.
+- [x] Repo state unchanged (no writes) — existing `validate_record_input_does_not_write` still passes.
 
 #### Testing
 
