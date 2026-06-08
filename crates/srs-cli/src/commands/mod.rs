@@ -913,6 +913,8 @@ pub enum RecordCommand {
         #[arg(long, hide = true)]
         json: bool,
     },
+    /// Validate a record input from stdin without persisting (editor preflight)
+    Validate,
     /// Delete a record by ID
     Delete {
         /// Record instance ID

@@ -6312,3 +6312,101 @@ fn lifecycle_get_returns_not_found_for_unknown_id() {
         "00000000-0000-4000-8000-deadbeef0002"
     );
 }
+
+// ── record validate (no-write preflight, #64) ───────────────────────────────
+
+/// Create a repo with a `decision` type: required `title` (string) + optional
+/// `status` (select: proposed|accepted). Returns (repo path, type_id).
+fn setup_repo_with_decision_type(temp: &TempDir, slug: &str) -> (std::path::PathBuf, String) {
+    let repo = create_repo_with_package(temp, slug);
+    let title_field_id = "00000000-0000-4000-8000-0000000a0101";
+    let status_field_id = "00000000-0000-4000-8000-0000000a0102";
+    let type_id = "00000000-0000-4000-8000-0000000a0201";
+
+    for field in [
+        serde_json::json!({
+            "id": title_field_id, "namespace": "com.test",
+            "name": "decision-title", "version": 1, "valueType": "string"
+        }),
+        serde_json::json!({
+            "id": status_field_id, "namespace": "com.test",
+            "name": "decision-status", "version": 1, "valueType": "select",
+            "allowedValues": ["proposed", "accepted"]
+        }),
+    ] {
+        let r = run_srs_stdin_in_dir(&repo, &["field", "create"], &field.to_string());
+        assert_eq!(r["ok"], true, "field create failed: {:?}", r);
+    }
+
+    let record_type = serde_json::json!({
+        "id": type_id, "namespace": "com.test", "name": "decision", "version": 1,
+        "description": "A decision record",
+        "fields": [
+            {"fieldId": title_field_id, "order": 0, "required": true, "displayLabel": "Title"},
+            {"fieldId": status_field_id, "order": 1, "required": false, "displayLabel": "Status"}
+        ],
+        "createdAt": "2026-01-01T00:00:00Z"
+    });
+    let r = run_srs_stdin_in_dir(&repo, &["type", "create"], &record_type.to_string());
+    assert_eq!(r["ok"], true, "type create failed: {:?}", r);
+
+    (repo, type_id.to_string())
+}
+
+#[test]
+fn record_validate_accepts_valid_input() {
+    let temp = TempDir::new().unwrap();
+    let (repo, type_id) = setup_repo_with_decision_type(&temp, "rec-validate-ok");
+    let input = serde_json::json!({
+        "typeId": type_id, "typeVersion": 1,
+        "fieldValues": [{"fieldId": "00000000-0000-4000-8000-0000000a0101", "value": "A title"}]
+    });
+    let result = run_srs_stdin_in_dir(&repo, &["record", "validate"], &input.to_string());
+    assert_eq!(result["ok"], true, "expected ok, got: {:?}", result);
+    assert_eq!(result["command"], "record validate");
+    assert_eq!(result["payload"]["ok"], true);
+    assert_eq!(result["payload"]["errors"].as_array().unwrap().len(), 0);
+}
+
+#[test]
+fn record_validate_rejects_invalid_input() {
+    let temp = TempDir::new().unwrap();
+    let (repo, type_id) = setup_repo_with_decision_type(&temp, "rec-validate-bad");
+    // Missing the required title field.
+    let input = serde_json::json!({
+        "typeId": type_id, "typeVersion": 1,
+        "fieldValues": [{"fieldId": "00000000-0000-4000-8000-0000000a0102", "value": "accepted"}]
+    });
+    let result = run_srs_stdin_in_dir(&repo, &["record", "validate"], &input.to_string());
+    assert_eq!(result["ok"], false, "expected ok:false, got: {:?}", result);
+    assert_eq!(result["command"], "record validate");
+    assert!(
+        !result["diagnostics"].as_array().unwrap().is_empty(),
+        "expected a diagnostic"
+    );
+}
+
+#[test]
+fn record_validate_does_not_persist() {
+    let temp = TempDir::new().unwrap();
+    let (repo, type_id) = setup_repo_with_decision_type(&temp, "rec-validate-nopersist");
+
+    let count_records = |repo: &std::path::Path| -> usize {
+        let list = run_srs_in_dir(repo, &["record", "list"]);
+        list["payload"]["records"].as_array().unwrap().len()
+    };
+    assert_eq!(count_records(&repo), 0, "repo should start with no records");
+
+    let input = serde_json::json!({
+        "typeId": type_id, "typeVersion": 1,
+        "fieldValues": [{"fieldId": "00000000-0000-4000-8000-0000000a0101", "value": "A title"}]
+    });
+    let result = run_srs_stdin_in_dir(&repo, &["record", "validate"], &input.to_string());
+    assert_eq!(result["ok"], true);
+
+    assert_eq!(
+        count_records(&repo),
+        0,
+        "record validate must not create any record"
+    );
+}
