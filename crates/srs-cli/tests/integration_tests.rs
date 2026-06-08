@@ -6189,6 +6189,102 @@ fn vocabulary_promote_succeeds_when_all_keys_resolvable() {
 }
 
 #[test]
+fn vocabulary_derive_tag_set_classifies_in_use_keys() {
+    // Setup: an open vocabulary with an active term "gamma". Two notes are tagged:
+    // one with "gamma" (has an active term → used-and-active) and one with "orphan"
+    // (no term → will-be-invalid). derive-tag-set should classify both, read-only.
+    let temp = TempDir::new().unwrap();
+    let repo = create_repo_with_package(&temp, "vocab-derive-tagset");
+
+    let vocab_json = serde_json::json!({
+        "version": 1,
+        "namespace": "com.test",
+        "name": "derive-vocab",
+        "mode": "open",
+        "terms": [],
+        "createdAt": "2026-01-01T00:00:00Z"
+    });
+    let created = run_srs_stdin_in_dir(&repo, &["vocabulary", "create"], &vocab_json.to_string());
+    assert_eq!(
+        created["ok"], true,
+        "vocabulary create failed: {:?}",
+        created
+    );
+    let vocab_id = created["payload"]["vocabulary"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let term_json = serde_json::json!({"version": 1, "namespace": "com.test", "key": "gamma"});
+    let term_result = run_srs_stdin_in_dir(
+        &repo,
+        &["vocabulary", "term-create", "--vocabulary-id", &vocab_id],
+        &term_json.to_string(),
+    );
+    assert_eq!(
+        term_result["ok"], true,
+        "term-create failed: {:?}",
+        term_result
+    );
+
+    // Note tagged with the active key "gamma".
+    let note_json =
+        serde_json::json!({"title": "n1", "sections": [{"name": "body", "content": "b"}]});
+    let n1 = run_srs_stdin_in_dir(&repo, &["note", "create"], &note_json.to_string());
+    let n1_id = n1["payload"]["note"]["instanceId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    run_srs_in_dir(&repo, &["note", "tag", "add", &n1_id, "gamma"]);
+
+    // Note tagged with an orphan key that has no term.
+    let note2_json =
+        serde_json::json!({"title": "n2", "sections": [{"name": "body", "content": "b"}]});
+    let n2 = run_srs_stdin_in_dir(&repo, &["note", "create"], &note2_json.to_string());
+    let n2_id = n2["payload"]["note"]["instanceId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    run_srs_in_dir(&repo, &["note", "tag", "add", &n2_id, "orphan"]);
+
+    let result = run_srs_in_dir(&repo, &["vocabulary", "derive-tag-set", &vocab_id]);
+    assert_eq!(result["ok"], true, "derive-tag-set failed: {:?}", result);
+    assert_eq!(result["command"], "vocabulary derive-tag-set");
+    assert_eq!(result["payload"]["vocabulary"]["id"], vocab_id);
+
+    let entries = result["payload"]["entries"].as_array().unwrap();
+    let by_key = |k: &str| entries.iter().find(|e| e["key"] == k).cloned();
+
+    let gamma = by_key("gamma").expect("gamma entry present");
+    assert_eq!(gamma["classification"], "used-and-active");
+    assert_eq!(gamma["usageCount"], 1);
+
+    let orphan = by_key("orphan").expect("orphan entry present");
+    assert_eq!(orphan["classification"], "will-be-invalid");
+    assert_eq!(orphan["usageCount"], 1);
+}
+
+#[test]
+fn vocabulary_derive_tag_set_unknown_id_returns_error() {
+    let temp = TempDir::new().unwrap();
+    let repo = create_repo_with_package(&temp, "vocab-derive-unknown");
+    let (_exit_ok, result) = run_srs_any_status_in_dir(
+        &repo,
+        &[
+            "vocabulary",
+            "derive-tag-set",
+            "00000000-0000-4000-8000-deadbeef0000",
+        ],
+    );
+    assert_eq!(
+        result["ok"], false,
+        "expected ok:false for unknown vocabulary id, got: {:?}",
+        result
+    );
+    assert_eq!(result["command"], "vocabulary derive-tag-set");
+}
+
+#[test]
 fn lifecycle_list_returns_ok_envelope_no_package() {
     let temp = create_temp_repo();
     let result = run_srs_in_dir(temp.path(), &["lifecycle", "list"]);

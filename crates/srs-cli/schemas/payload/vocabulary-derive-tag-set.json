@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "VocabularyDeriveTagSetPayload",
+  "description": "Payload for `vocabulary derive-tag-set`.\n\nLists every in-use tag key and classifies it against the vocabulary's effective terms (V10 pre-flight), so an author can inspect the live usage state of an open vocabulary before promoting it.",
+  "type": "object",
+  "required": [
+    "entries",
+    "vocabulary"
+  ],
+  "properties": {
+    "entries": {
+      "type": "array",
+      "items": true
+    },
+    "vocabulary": true
+  }
+}

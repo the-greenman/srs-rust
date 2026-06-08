@@ -41,6 +41,7 @@ use srs_repository::{
     theme_service::ThemeSummary,
     validation::{RepositoryValidationReport, ValidationSummary},
     view_service::{DocumentViewSummary, ViewSummary},
+    vocabulary_service::TagSetEntry,
 };
 use std::path::PathBuf;
 
@@ -536,6 +537,20 @@ pub struct PromoteVocabularyPayload {
 pub struct PromoteVocabularyBlockedPayload {
     pub vocabulary_id: String,
     pub unresolvable_keys: Vec<String>,
+}
+
+/// Payload for `vocabulary derive-tag-set`.
+///
+/// Lists every in-use tag key and classifies it against the vocabulary's
+/// effective terms (V10 pre-flight), so an author can inspect the live usage
+/// state of an open vocabulary before promoting it.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct VocabularyDeriveTagSetPayload {
+    #[schemars(with = "serde_json::Value")]
+    pub vocabulary: Vocabulary,
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub entries: Vec<TagSetEntry>,
 }
 
 // ── Field payloads ────────────────────────────────────────────────────────────

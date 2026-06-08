@@ -2,7 +2,8 @@ use crate::commands::{with_store, CliContext, VocabularyCommand};
 use crate::output;
 use crate::payload::{
     PromoteVocabularyBlockedPayload, PromoteVocabularyPayload, TermCreatePayload,
-    VocabularyCreatePayload, VocabularyGetPayload, VocabularyListPayload,
+    VocabularyCreatePayload, VocabularyDeriveTagSetPayload, VocabularyGetPayload,
+    VocabularyListPayload,
 };
 use anyhow::Result;
 use srs_core::types::{term::Term, vocabulary::Vocabulary};
@@ -17,6 +18,7 @@ pub fn dispatch(ctx: CliContext, cmd: VocabularyCommand) -> Result<String> {
         VocabularyCommand::Create => cmd_vocabulary_create(ctx),
         VocabularyCommand::TermCreate { vocabulary_id } => cmd_term_create(ctx, vocabulary_id),
         VocabularyCommand::Promote { id } => cmd_vocabulary_promote(ctx, id),
+        VocabularyCommand::DeriveTagSet { id } => cmd_vocabulary_derive_tag_set(ctx, id),
     }
 }
 
@@ -104,5 +106,36 @@ fn cmd_vocabulary_promote(ctx: CliContext, id: String) -> Result<String> {
             }
             Err(e)
         }
+    }
+}
+
+fn cmd_vocabulary_derive_tag_set(ctx: CliContext, id: String) -> Result<String> {
+    let outcome = with_store(
+        &ctx,
+        |store| match vocabulary_service::get_vocabulary_by_id(store, &id)? {
+            Some(vocabulary) => {
+                let result = vocabulary_service::derive_tag_set(
+                    store,
+                    vocabulary_service::DeriveTagSetInput {
+                        vocabulary_id: id.clone(),
+                    },
+                )?;
+                Ok(Some((vocabulary, result)))
+            }
+            None => Ok(None),
+        },
+    )?;
+    match outcome {
+        Some((vocabulary, result)) => output::serialize(
+            "vocabulary derive-tag-set",
+            VocabularyDeriveTagSetPayload {
+                vocabulary,
+                entries: result.entries,
+            },
+        ),
+        None => Ok(output::err(
+            "vocabulary derive-tag-set",
+            vec![format!("vocabulary not found: {id}")],
+        )),
     }
 }
