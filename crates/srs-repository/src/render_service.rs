@@ -691,15 +691,44 @@ fn resolve_active_theme(
         }
     };
 
-    if !theme.targets.iter().any(|target| target == format) {
-        diagnostics.push(format!(
-            "[T-2] view {} theme {} does not target format {}; skipping theme",
-            dv.id, theme.id, format
-        ));
-        return None;
+    if theme.targets.iter().any(|target| target == format) {
+        return Some(theme);
     }
 
-    Some(theme)
+    // Default theme doesn't target this format. If no explicit variant was requested,
+    // auto-select the first themeVariant whose resolved theme does target this format.
+    if theme_variant.is_none() {
+        if let Some(variants) = dv.theme_variants.as_ref() {
+            let matches: Vec<(String, Theme)> = variants
+                .iter()
+                .filter_map(|variant| {
+                    let tid = variant.theme_ref.theme_id.as_deref()?;
+                    let t = package.resolve_theme(tid)?.clone();
+                    if t.targets.iter().any(|tgt| tgt == format) {
+                        Some((variant.name.clone(), t))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            if matches.len() > 1 {
+                diagnostics.push(format!(
+                    "[T-3] view {}: multiple themeVariants target format {}; using first match '{}'",
+                    dv.id, format, matches[0].0
+                ));
+            }
+            if let Some((_, matched_theme)) = matches.into_iter().next() {
+                return Some(matched_theme);
+            }
+        }
+    }
+
+    diagnostics.push(format!(
+        "[T-2] view {} theme {} does not target format {}; skipping theme",
+        dv.id, theme.id, format
+    ));
+    None
 }
 
 fn select_section_wrapper<'a>(theme: &'a Theme, section_id: &str) -> Option<&'a str> {
@@ -4133,6 +4162,379 @@ mod tests {
             section.records[2].record_heading.as_deref(),
             Some("A-first"),
             "third record should be A-first"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // Theme auto-selection tests (#121)
+    // ---------------------------------------------------------------------------
+
+    /// Build a minimal MemoryStore for theme auto-selection tests. The document view has a
+    /// themeRef targeting "markdown" plus optional themeVariants. One record with a body field.
+    fn make_auto_select_store(
+        extra_variants: Vec<srs_core::types::view::ThemeVariant>,
+        extra_themes: Vec<srs_core::types::theme::Theme>,
+    ) -> crate::store::memory::MemoryStore {
+        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::record_type::{FieldAssignment, RecordType};
+        use srs_core::types::theme::{ElementTemplates, Theme};
+        use srs_core::types::view::{
+            DocumentSection, DocumentView, EmptyBehavior, SectionSource, ThemeMode, ThemeReference,
+        };
+
+        let body_field = Field {
+            id: "f-auto-body".to_string(),
+            namespace: "com.test".to_string(),
+            name: "body".to_string(),
+            version: 1,
+            value_type: ValueType::Text,
+            description: "Body".to_string(),
+            ai_guidance: serde_json::json!(null),
+            allowed_values: None,
+            vocabulary_ref: None,
+            default_value: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let rt = RecordType {
+            id: "t-auto".to_string(),
+            namespace: "com.test".to_string(),
+            name: "section".to_string(),
+            version: 1,
+            description: "Section".to_string(),
+            fields: vec![FieldAssignment {
+                field_id: "f-auto-body".to_string(),
+                order: 0,
+                required: true,
+                display_label: None,
+                repeatable: false,
+                min_items: None,
+                max_items: None,
+            }],
+            field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        // Base theme targets markdown only.
+        let base_theme = Theme {
+            id: "theme-auto-base".to_string(),
+            namespace: "com.test".to_string(),
+            name: "base".to_string(),
+            version: 1,
+            description: "Markdown base theme".to_string(),
+            targets: vec!["markdown".to_string()],
+            assets: None,
+            css_class_fields: None,
+            page_templates: None,
+            element_templates: Some(ElementTemplates {
+                document_wrapper: None,
+                section_wrapper: Some("BASE[{{content}}]".to_string()),
+                section_wrapper_overrides: None,
+                record_wrapper: None,
+                record_wrapper_overrides: None,
+                field_row: Some("BASE:{{field-value}}\n".to_string()),
+                group_field_row_templates: None,
+                composite_renderer_config: None,
+            }),
+            stylesheet: None,
+            typography: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let mut themes = vec![base_theme];
+        themes.extend(extra_themes);
+
+        let doc_view = DocumentView {
+            id: "dv-auto-select".to_string(),
+            namespace: "com.test".to_string(),
+            name: "auto-select-view".to_string(),
+            version: 1,
+            description: "Auto-select test view".to_string(),
+            container_type: None,
+            preamble: None,
+            sections: vec![DocumentSection {
+                section_id: "s-auto".to_string(),
+                order: 0,
+                title: None,
+                description: None,
+                title_field_id: None,
+                render_view_id: None,
+                source: SectionSource::TypeQuery {
+                    semantic_object_type: "com.test/section".to_string(),
+                    lifecycle_state: None,
+                    container_ids: None,
+                },
+                ordering: None,
+                required: None,
+                empty_behavior: Some(EmptyBehavior::Hide),
+            }],
+            navigation_links: None,
+            theme_ref: Some(ThemeReference {
+                mode: ThemeMode::Bundled,
+                theme_id: Some("theme-auto-base".to_string()),
+                path: None,
+                url: None,
+            }),
+            theme_variants: if extra_variants.is_empty() {
+                None
+            } else {
+                Some(extra_variants)
+            },
+            format: Some("markdown".to_string()),
+            depth_offset: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let manifest = crate::manifest::Manifest {
+            instance_index: vec![],
+            extra: HashMap::new(),
+            root: std::path::PathBuf::from("/memory"),
+        };
+
+        let package = crate::package::Package {
+            id: "00000000-0000-4000-8000-000000000p01".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test-pkg".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![body_field],
+            record_types: vec![rt],
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![doc_view],
+            themes,
+            blueprints: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+
+        crate::store::memory::MemoryStore::new(manifest, package)
+    }
+
+    /// Make a theme that targets html with a distinctive document_wrapper so assertions
+    /// can confirm the theme was applied even when there are no records to render.
+    fn make_html_theme(id: &str, name: &str) -> srs_core::types::theme::Theme {
+        use srs_core::types::theme::{ElementTemplates, Theme};
+        Theme {
+            id: id.to_string(),
+            namespace: "com.test".to_string(),
+            name: name.to_string(),
+            version: 1,
+            description: "HTML theme".to_string(),
+            targets: vec!["html".to_string()],
+            assets: None,
+            css_class_fields: None,
+            page_templates: None,
+            element_templates: Some(ElementTemplates {
+                document_wrapper: Some(format!("<div class=\"{name}\">{{{{content}}}}</div>")),
+                section_wrapper: None,
+                section_wrapper_overrides: None,
+                record_wrapper: None,
+                record_wrapper_overrides: None,
+                field_row: Some(format!("<p class=\"{name}\">{{{{field-value}}}}</p>\n")),
+                group_field_row_templates: None,
+                composite_renderer_config: None,
+            }),
+            stylesheet: None,
+            typography: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn auto_select_theme_variant_by_format() {
+        use srs_core::types::view::{ThemeMode, ThemeReference, ThemeVariant};
+
+        let html_theme = make_html_theme("theme-auto-html", "html-prose");
+        let variant = ThemeVariant {
+            name: "html".to_string(),
+            description: None,
+            theme_ref: ThemeReference {
+                mode: ThemeMode::Bundled,
+                theme_id: Some("theme-auto-html".to_string()),
+                path: None,
+                url: None,
+            },
+        };
+        let store = make_auto_select_store(vec![variant], vec![html_theme]);
+
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-auto-select",
+            format: Some("html"),
+            theme_variant: None,
+            container_id: None,
+        })
+        .expect("render should succeed");
+
+        assert!(
+            !result.diagnostics.iter().any(|d| d.contains("[T-2]")),
+            "expected no [T-2] diagnostic when auto-select finds a match, got: {:?}",
+            result.diagnostics
+        );
+        // document_wrapper from the html theme wraps everything in a distinctive div
+        assert!(
+            result.rendered.contains("class=\"html-prose\""),
+            "expected html-prose document_wrapper applied, got: {}",
+            result.rendered
+        );
+    }
+
+    #[test]
+    fn auto_select_no_variant_match_emits_t2() {
+        use srs_core::types::view::{ThemeMode, ThemeReference, ThemeVariant};
+
+        // Variant targets "text", not "html" — so html request should still get [T-2].
+        let text_theme = {
+            use srs_core::types::theme::Theme;
+            Theme {
+                id: "theme-auto-text".to_string(),
+                namespace: "com.test".to_string(),
+                name: "text-prose".to_string(),
+                version: 1,
+                description: "Text theme".to_string(),
+                targets: vec!["text".to_string()],
+                assets: None,
+                css_class_fields: None,
+                page_templates: None,
+                element_templates: None,
+                stylesheet: None,
+                typography: None,
+                tags: None,
+                created_at: "2026-01-01T00:00:00Z".to_string(),
+                extra: HashMap::new(),
+            }
+        };
+        let variant = ThemeVariant {
+            name: "text".to_string(),
+            description: None,
+            theme_ref: ThemeReference {
+                mode: ThemeMode::Bundled,
+                theme_id: Some("theme-auto-text".to_string()),
+                path: None,
+                url: None,
+            },
+        };
+        let store = make_auto_select_store(vec![variant], vec![text_theme]);
+
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-auto-select",
+            format: Some("html"),
+            theme_variant: None,
+            container_id: None,
+        })
+        .expect("render should succeed");
+
+        assert!(
+            result.diagnostics.iter().any(|d| d.contains("[T-2]")),
+            "expected [T-2] diagnostic when no variant matches, got: {:?}",
+            result.diagnostics
+        );
+        assert!(
+            !result.rendered.contains("BASE:"),
+            "expected plain render without theme, got: {}",
+            result.rendered
+        );
+    }
+
+    #[test]
+    fn auto_select_multiple_variants_match_uses_first() {
+        use srs_core::types::view::{ThemeMode, ThemeReference, ThemeVariant};
+
+        let html_theme_a = make_html_theme("theme-auto-html-a", "html-a");
+        let html_theme_b = make_html_theme("theme-auto-html-b", "html-b");
+        let variants = vec![
+            ThemeVariant {
+                name: "html-a".to_string(),
+                description: None,
+                theme_ref: ThemeReference {
+                    mode: ThemeMode::Bundled,
+                    theme_id: Some("theme-auto-html-a".to_string()),
+                    path: None,
+                    url: None,
+                },
+            },
+            ThemeVariant {
+                name: "html-b".to_string(),
+                description: None,
+                theme_ref: ThemeReference {
+                    mode: ThemeMode::Bundled,
+                    theme_id: Some("theme-auto-html-b".to_string()),
+                    path: None,
+                    url: None,
+                },
+            },
+        ];
+        let store = make_auto_select_store(variants, vec![html_theme_a, html_theme_b]);
+
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-auto-select",
+            format: Some("html"),
+            theme_variant: None,
+            container_id: None,
+        })
+        .expect("render should succeed");
+
+        assert!(
+            result.diagnostics.iter().any(|d| d.contains("[T-3]")),
+            "expected [T-3] ambiguity diagnostic, got: {:?}",
+            result.diagnostics
+        );
+        // document_wrapper from html-a theme should wrap the document
+        assert!(
+            result.rendered.contains("class=\"html-a\""),
+            "expected first variant (html-a) document_wrapper, got: {}",
+            result.rendered
+        );
+        assert!(
+            !result.rendered.contains("class=\"html-b\""),
+            "expected second variant (html-b) document_wrapper NOT used, got: {}",
+            result.rendered
+        );
+    }
+
+    #[test]
+    fn explicit_variant_overrides_auto_select() {
+        // When an explicit theme_variant is requested, the existing path is used unchanged —
+        // auto-selection does not run.
+        let repo_root = repeatable_fixture_root();
+        let store = FileStore::new(&repo_root);
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "00000000-0000-4000-8000-000000000987",
+            format: None,
+            theme_variant: Some("print"),
+            container_id: None,
+        })
+        .expect("render should succeed");
+
+        // The existing fixture view uses a "print" themeVariant — verify it still applies.
+        assert!(
+            result.rendered.contains("PRINTDOC["),
+            "expected explicit variant still applied, got: {}",
+            result.rendered
+        );
+        assert!(
+            !result.diagnostics.iter().any(|d| d.contains("[T-3]")),
+            "expected no [T-3] ambiguity diagnostic for explicit variant, got: {:?}",
+            result.diagnostics
         );
     }
 }
