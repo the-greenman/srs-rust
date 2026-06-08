@@ -274,6 +274,12 @@ impl JsonStore {
     }
 
     fn flush(&self) -> Result<(), RepositoryError> {
+        // In-memory stores (loaded from a string via `from_srsj`) use the sentinel
+        // path "<memory>" and must not attempt file I/O. This is the normal
+        // operating mode for the WASM browser binding.
+        if self.file_path == std::path::Path::new("<memory>") {
+            return Ok(());
+        }
         let json = self.to_srsj_string()?;
         std::fs::write(&self.file_path, json).map_err(|source| RepositoryError::Io {
             path: self.file_path.clone(),
