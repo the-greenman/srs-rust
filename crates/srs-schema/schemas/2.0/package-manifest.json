@@ -81,6 +81,11 @@
       "items": { "type": "string" },
       "description": "Relative paths from this package directory to Lifecycle definition files (RFC-006)."
     },
+    "blueprints": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Relative paths from this package directory to Blueprint definition files (ext:blueprint). Omit or use empty array if the package defines no Blueprints."
+    },
     "dependencyRefs": {
       "type": "array",
       "items": { "$ref": "#/$defs/DependencyRef" },
