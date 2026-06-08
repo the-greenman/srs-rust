@@ -2,7 +2,8 @@ use crate::commands::{with_store, CliContext, VocabularyCommand};
 use crate::output;
 use crate::payload::{
     PromoteVocabularyBlockedPayload, PromoteVocabularyPayload, TermCreatePayload,
-    VocabularyCreatePayload, VocabularyGetPayload, VocabularyListPayload,
+    VocabularyCreatePayload, VocabularyDeriveTagSetPayload, VocabularyGetPayload,
+    VocabularyListPayload,
 };
 use anyhow::Result;
 use srs_core::types::{term::Term, vocabulary::Vocabulary};
@@ -17,6 +18,7 @@ pub fn dispatch(ctx: CliContext, cmd: VocabularyCommand) -> Result<String> {
         VocabularyCommand::Create => cmd_vocabulary_create(ctx),
         VocabularyCommand::TermCreate { vocabulary_id } => cmd_term_create(ctx, vocabulary_id),
         VocabularyCommand::Promote { id } => cmd_vocabulary_promote(ctx, id),
+        VocabularyCommand::DeriveTagSet { id } => cmd_vocabulary_derive_tag_set(ctx, id),
     }
 }
 
@@ -100,6 +102,38 @@ fn cmd_vocabulary_promote(ctx: CliContext, id: String) -> Result<String> {
                         vocabulary_id: vocabulary_id.clone(),
                         unresolvable_keys: unresolvable_keys.clone(),
                     },
+                ));
+            }
+            Err(e)
+        }
+    }
+}
+
+fn cmd_vocabulary_derive_tag_set(ctx: CliContext, id: String) -> Result<String> {
+    match with_store(&ctx, |store| {
+        Ok(vocabulary_service::derive_tag_set(
+            store,
+            vocabulary_service::DeriveTagSetInput {
+                vocabulary_id: id.clone(),
+            },
+        )?)
+    }) {
+        Ok(result) => output::serialize(
+            "vocabulary derive-tag-set",
+            VocabularyDeriveTagSetPayload {
+                vocabulary: result.vocabulary,
+                entries: result.entries,
+            },
+        ),
+        Err(e) => {
+            // Unknown vocabulary id → command ran, ok:false (exit 0), per the CLI contract.
+            if matches!(
+                e.downcast_ref::<RepositoryError>(),
+                Some(RepositoryError::NotFound { .. })
+            ) {
+                return Ok(output::err(
+                    "vocabulary derive-tag-set",
+                    vec![e.to_string()],
                 ));
             }
             Err(e)

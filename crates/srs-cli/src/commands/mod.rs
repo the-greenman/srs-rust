@@ -638,6 +638,11 @@ pub enum VocabularyCommand {
         /// Vocabulary UUID id to promote
         id: String,
     },
+    /// Inspect the in-use tag set for an open vocabulary (V10 pre-flight, read-only)
+    DeriveTagSet {
+        /// Vocabulary UUID id to derive the tag set for
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]

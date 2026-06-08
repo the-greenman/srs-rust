@@ -179,6 +179,7 @@ fn main() {
         "vocabulary-promote-blocked",
         PromoteVocabularyBlockedPayload
     );
+    write_schema!("vocabulary-derive-tag-set", VocabularyDeriveTagSetPayload);
 
     // Tree payloads
     write_schema!("tree", TreePayload);
