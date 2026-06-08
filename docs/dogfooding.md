@@ -29,7 +29,7 @@ These existing repos anchor the scenarios — use them as the representative tar
 | Repo | Path | What it demonstrates |
 |---|---|---|
 | Spec-as-repo | `../srs/srs` | The SRS spec authored as an SRS repository: sections/subsections, `precedes` ordering, document-view rendering. Always valid. |
-| Gallery example | `../srs/docs/spec/examples/gallery-project`, `…/gallery-project-v2` | A general project repo (notes → typed records → records, relations, federation, containers) and the governance v2 layout (containers, document-views). |
+| Gallery example | `../srs/docs/spec/examples/gallery-project-v2` | The LiMoMa governance repo: notes → typed records → records, relations, containers, document-views, and a shared `Lifecycle` bound via `Type.lifecycleRef` (records carry `lifecycleState`). |
 | Governance profile | `../srs/docs/spec/profiles/governance-profile.md` | The semantic vocabulary for decisions, exercises, articles, roles, ratifications, and the deliberation protocols. |
 | muDemocracy guide repo | `../../muDemocracy.org/muSrs` | Governance profile in live use: guide containers, decision/exercise records, document views. |
 
