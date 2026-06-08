@@ -1451,6 +1451,40 @@ mod tests {
     }
 
     #[test]
+    fn validate_record_input_rejects_unknown_field() {
+        let store = make_store_with_package();
+        let report = validate_record_input(
+            &store,
+            ValidateRecordInput {
+                type_id: "type-test-001".to_string(),
+                type_version: 1,
+                field_values: vec![
+                    FieldValue {
+                        field_id: "field-name-001".to_string(),
+                        value: json!("Valid Name"),
+                        entries: None,
+                        source: None,
+                        edited_at: None,
+                    },
+                    // Not assigned to this type.
+                    FieldValue {
+                        field_id: "field-nonexistent-999".to_string(),
+                        value: json!("stray"),
+                        entries: None,
+                        source: None,
+                        edited_at: None,
+                    },
+                ],
+                group_values: None,
+                tags: None,
+            },
+        )
+        .expect("validate should not error");
+        assert!(!report.ok);
+        assert!(!report.errors.is_empty(), "expected a diagnostic");
+    }
+
+    #[test]
     fn validate_record_input_rejects_unknown_type() {
         let store = make_store_with_package();
         let report = validate_record_input(
