@@ -13,6 +13,33 @@ pub fn validate_record(
     record_type: &RecordType,
     effective_fields: &[FieldAssignment],
 ) -> Result<(), CoreError> {
+    // Fail-fast wrapper over the accumulating validator: returns the first
+    // diagnostic in check order, identical to the historical behaviour relied
+    // on by create / update / repo-validate.
+    match validate_record_all(record, record_type, effective_fields)
+        .into_iter()
+        .next()
+    {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
+}
+
+/// Validates a record against its record type definition, collecting **all**
+/// diagnostics rather than stopping at the first. Diagnostics are pushed in the
+/// same check order `validate_record` uses, so the first element is exactly what
+/// the fail-fast variant returns. An empty vec means the record is valid.
+///
+/// `effective_fields` is the pre-computed merged field list (base + own for
+/// inheriting types, or simply `record_type.fields` for non-inheriting types).
+/// The caller is responsible for computing this via `Package::effective_fields()`.
+pub fn validate_record_all(
+    record: &Record,
+    record_type: &RecordType,
+    effective_fields: &[FieldAssignment],
+) -> Vec<CoreError> {
+    let mut diagnostics = Vec::new();
+
     let valid_field_ids: HashSet<&str> = effective_fields
         .iter()
         .map(|fa| fa.field_id.as_str())
@@ -20,7 +47,7 @@ pub fn validate_record(
 
     for field_value in &record.field_values {
         if !valid_field_ids.contains(field_value.field_id.as_str()) {
-            return Err(CoreError::UnknownField {
+            diagnostics.push(CoreError::UnknownField {
                 field_id: field_value.field_id.clone(),
             });
         }
@@ -36,7 +63,7 @@ pub fn validate_record(
         if field_assignment.is_required()
             && !present_field_ids.contains(field_assignment.field_id.as_str())
         {
-            return Err(CoreError::MissingRequiredField {
+            diagnostics.push(CoreError::MissingRequiredField {
                 field_id: field_assignment.field_id.clone(),
             });
         }
@@ -48,7 +75,7 @@ pub fn validate_record(
         };
 
         if !field_assignment.repeatable && field_value.entries.is_some() {
-            return Err(CoreError::EntriesOnNonRepeatableField {
+            diagnostics.push(CoreError::EntriesOnNonRepeatableField {
                 field_id: field_assignment.field_id.clone(),
             });
         }
@@ -57,7 +84,7 @@ pub fn validate_record(
             let count = field_value.entries.as_ref().map(|e| e.len()).unwrap_or(0);
             if let Some(min) = field_assignment.min_items {
                 if count < min as usize {
-                    return Err(CoreError::TooFewEntries {
+                    diagnostics.push(CoreError::TooFewEntries {
                         field_id: field_assignment.field_id.clone(),
                         count,
                         min,
@@ -66,7 +93,7 @@ pub fn validate_record(
             }
             if let Some(max) = field_assignment.max_items {
                 if count > max as usize {
-                    return Err(CoreError::TooManyEntries {
+                    diagnostics.push(CoreError::TooManyEntries {
                         field_id: field_assignment.field_id.clone(),
                         count,
                         max,
@@ -80,7 +107,7 @@ pub fn validate_record(
         for group in field_groups {
             let group_value = record.find_group_value(&group.group_id);
             if group.required && group_value.is_none() {
-                return Err(CoreError::MissingRequiredFieldGroup {
+                diagnostics.push(CoreError::MissingRequiredFieldGroup {
                     group_id: group.group_id.clone(),
                 });
             }
@@ -88,7 +115,7 @@ pub fn validate_record(
                 let count = group_value.entries.len();
                 if let Some(min) = group.min_items {
                     if count < min as usize {
-                        return Err(CoreError::TooFewGroupEntries {
+                        diagnostics.push(CoreError::TooFewGroupEntries {
                             group_id: group.group_id.clone(),
                             count,
                             min,
@@ -97,7 +124,7 @@ pub fn validate_record(
                 }
                 if let Some(max) = group.max_items {
                     if count > max as usize {
-                        return Err(CoreError::TooManyGroupEntries {
+                        diagnostics.push(CoreError::TooManyGroupEntries {
                             group_id: group.group_id.clone(),
                             count,
                             max,
@@ -113,7 +140,7 @@ pub fn validate_record(
     if let Some(tags) = &record.tags {
         for tag in tags {
             if tag.is_empty() {
-                return Err(CoreError::InvalidTagValue { tag: tag.clone() });
+                diagnostics.push(CoreError::InvalidTagValue { tag: tag.clone() });
             }
         }
     }
@@ -123,13 +150,13 @@ pub fn validate_record(
     if let (Some(state), Some(lc)) = (&record.lifecycle_state, &record_type.lifecycle) {
         let valid = lc.states.iter().any(|s| &s.key == state);
         if !valid {
-            return Err(CoreError::InvalidLifecycleState {
+            diagnostics.push(CoreError::InvalidLifecycleState {
                 state: state.clone(),
             });
         }
     }
 
-    Ok(())
+    diagnostics
 }
 
 /// Validate a Type's lifecycle definition (Invariants 4 and 5, ext:lifecycle).
@@ -315,6 +342,73 @@ mod tests {
         ]);
 
         assert!(validate_record(&record, &record_type, &record_type.fields).is_ok());
+    }
+
+    #[test]
+    fn validate_record_all_collects_multiple() {
+        // Record both omits a required field AND carries an unknown field —
+        // validate_record_all must report both, not stop at the first.
+        let record_type = create_test_record_type();
+        let record = create_record_with_fields(vec![
+            // "required-field" omitted → MissingRequiredField
+            FieldValue {
+                field_id: "explicit-required".to_string(),
+                value: json!("v"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            },
+            FieldValue {
+                field_id: "unknown-field".to_string(),
+                value: json!("v"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            },
+        ]);
+
+        let diags = validate_record_all(&record, &record_type, &record_type.fields);
+        assert!(
+            diags.len() >= 2,
+            "expected >= 2 diagnostics, got {}: {:?}",
+            diags.len(),
+            diags
+        );
+        assert!(diags.iter().any(
+            |e| matches!(e, CoreError::UnknownField { field_id } if field_id == "unknown-field")
+        ));
+        assert!(diags
+            .iter()
+            .any(|e| matches!(e, CoreError::MissingRequiredField { field_id } if field_id == "required-field")));
+        // Check order is preserved: unknown fields are reported before missing required.
+        assert!(matches!(diags[0], CoreError::UnknownField { .. }));
+        // The fail-fast wrapper must surface that same first diagnostic.
+        assert!(matches!(
+            validate_record(&record, &record_type, &record_type.fields),
+            Err(CoreError::UnknownField { .. })
+        ));
+    }
+
+    #[test]
+    fn validate_record_all_empty_when_valid() {
+        let record_type = create_test_record_type();
+        let record = create_record_with_fields(vec![
+            FieldValue {
+                field_id: "required-field".to_string(),
+                value: json!("v1"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            },
+            FieldValue {
+                field_id: "explicit-required".to_string(),
+                value: json!("v2"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            },
+        ]);
+        assert!(validate_record_all(&record, &record_type, &record_type.fields).is_empty());
     }
 
     #[test]
