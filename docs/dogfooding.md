@@ -172,6 +172,29 @@ This is the spec-as-repo pattern (`../srs/srs`): sections are records, order is 
 
 **Done when.** `open` accepts arbitrary keys; `closed` rejects unknown keys; `promote` blocks with `unresolvableKeys` exactly when an in-use key lacks an active term (and succeeds within a grace `promotionWindow` if one is set); lifecycle transitions honour the declared state machine.
 
+### S7 — Verify a document type is correctly composed (Blueprint schema)
+
+**Intention.** *"I've declared a guide document type — a root record plus an ordered set of section types. Before building an editor or a render pipeline on top of it, I want to verify the composition is correct and machine-readable: all section types are reachable, each type's fields are discoverable, and composite groups (like data tables) surface with enough metadata for a generic authoring tool."*
+
+**Capabilities exercised.** Blueprint as a composition validator; `blueprint schema` as the machine contract for a multi-record document; the field-group (`x-srs-composite-renderer`) hint for composite sections; how an authoring tool or agent discovers the correct form shape without type-specific code.
+
+**CLI surface.** `blueprint list`, `blueprint get`, `blueprint validate`, `blueprint structure`, `blueprint schema`.
+
+**Steps.**
+1. Discover the repo's blueprints: `srs blueprint list --repo ../../muDemocracy.org/muSrs --pretty`. Identify the guide blueprint ID.
+2. Inspect its declaration: `srs blueprint get --repo ../../muDemocracy.org/muSrs --blueprint 7bfa600b-f7b2-4a0e-82d4-34c02d9d6770 --pretty`. Note `rootTypes[]` and `structure[]`.
+3. Validate the blueprint itself: `srs blueprint validate --blueprint 7bfa600b-f7b2-4a0e-82d4-34c02d9d6770 --repo ../../muDemocracy.org/muSrs --pretty`. Should return zero `payload.diagnostics`.
+4. Project the schema: `srs blueprint schema 7bfa600b-f7b2-4a0e-82d4-34c02d9d6770 --repo ../../muDemocracy.org/muSrs --pretty`.
+5. Confirm the schema shape:
+   - `payload.schema.properties.root.$ref` resolves to the guide type definition in `definitions`.
+   - `payload.schema.properties.contains.items.oneOf` lists exactly 4 `$ref` entries — one per section type declared in the blueprint.
+   - Each `definitions[<section-type-id>]` has a `properties` map with `x-srs-field-id` and `x-srs-order` annotations on every flat field.
+6. For the table section type (`d8d09d3b-8253-4d8d-b187-42f35c8446a7`), confirm its definition includes a `tables` array property carrying `x-srs-group-id`, `x-srs-repeatable: true`, and `x-srs-composite-renderer: "table"`, with sub-fields (`columns`, `rows`) inside `items.properties`. This proves a generic editor can discover the table widget from schema alone — no type-specific code needed.
+
+**Negative case.** `srs blueprint schema <nonexistent-uuid> --repo ../../muDemocracy.org/muSrs --pretty` → `ok: false` with a diagnostic naming the unknown blueprint ID.
+
+**Done when.** `payload.schema.properties.contains.items.oneOf` has exactly the section types declared in the blueprint; the table section type's definition includes the `x-srs-composite-renderer: "table"` group property; removing a type from the blueprint's `structure[]` and re-projecting drops it from `items.oneOf` — the schema is derived, not cached; `blueprint validate` shows zero diagnostics.
+
 ---
 
 ## Coverage matrix
@@ -198,7 +221,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `vocabulary` (create/get/list/term-create/promote) | S6 |
 | `term` (list/get) | S6 |
 | `lifecycle` (list/get) | S4, S6 |
-| `blueprint` | _gap — no scenario yet_ |
+| `blueprint` (list/get/validate/structure/schema) | S7 |
 | `protocol` | _gap — no scenario yet (governance protocols described in S4 prose)_ |
 | `theme` | _gap — no scenario yet_ |
 | `extension` | _gap — no scenario yet_ |
