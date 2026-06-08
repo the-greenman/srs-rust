@@ -84,9 +84,9 @@ Each scenario uses a fixed template so the set stays comparable and updatable:
 6. Create the valid Record against the type (`record create`).
 7. Emit the contract: `srs type schema <typeId>` and confirm it matches the fields.
 
-**Negative case.** Send a `record validate` input that omits a **required** field, or carries a `fieldId` not assigned to the type — confirm each surfaces as a diagnostic with `ok: false`, and that `record list` count stays flat (no write). Confirm a `displayLabel` override does not change which field is resolved. *(Note: `validate` mirrors the write path exactly — it does **not** check enum `allowedValues` or `valueType` conformance, because the model's record validation does not validate those today; do not expect a value outside `select` options to be rejected here.)*
+**Negative case.** Send a `record validate` input that omits a **required** field *and* carries a `fieldId` not assigned to the type — confirm **both** problems come back in `diagnostics` from the single call (`validate` reports every violation at once, not just the first), with `ok: false` and `record list` count flat (no write). Confirm a `displayLabel` override does not change which field is resolved. *(Note: `validate` mirrors the write path exactly — it does **not** check enum `allowedValues` or `valueType` conformance, because the model's record validation does not validate those today; do not expect a value outside `select` options to be rejected here.)*
 
-**Done when.** `type get` resolves every `fieldId` in the package; `record validate` passes a clean input and flags missing-required / unknown-field inputs as diagnostics **without persisting anything**; the valid record then creates clean; `type schema` reflects required/optional and value types correctly.
+**Done when.** `type get` resolves every `fieldId` in the package; `record validate` passes a clean input and, for an input with multiple problems, returns **all** of them as diagnostics in one pass **without persisting anything**; the valid record then creates clean; `type schema` reflects required/optional and value types correctly.
 
 ### S3 — Assert meaning between records (Relations)
 
