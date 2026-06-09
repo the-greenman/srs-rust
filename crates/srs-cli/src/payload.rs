@@ -719,7 +719,7 @@ pub struct BriefField {
     pub order: u32,
     pub required: bool,
     pub value_type: String,
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(with = "Option<serde_json::Value>")]
     pub ai_guidance: Option<serde_json::Value>,
 }
 
@@ -729,7 +729,7 @@ pub struct BriefType {
     pub type_id: String,
     pub namespace: String,
     pub name: String,
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(with = "Option<serde_json::Value>")]
     pub ai_guidance: Option<serde_json::Value>,
     pub fields: Vec<BriefField>,
 }
@@ -740,7 +740,10 @@ pub struct BriefRelationSpec {
     pub relation_type: String,
     pub source_type_id: String,
     pub target_type_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cardinality: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required: Option<bool>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -753,7 +756,7 @@ pub struct BriefStage {
     pub question: Option<String>,
     pub completion_criteria: Option<String>,
     pub contributes_to: Option<Vec<String>>,
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(with = "Option<serde_json::Value>")]
     pub ai_guidance: Option<serde_json::Value>,
 }
 
@@ -774,7 +777,7 @@ pub struct BlueprintBriefPayload {
     pub namespace: String,
     pub name: String,
     pub version: u32,
-    #[schemars(with = "serde_json::Value")]
+    #[schemars(with = "Option<serde_json::Value>")]
     pub ai_guidance: Option<serde_json::Value>,
     #[schemars(with = "Vec<serde_json::Value>")]
     pub required_types: Vec<serde_json::Value>,
