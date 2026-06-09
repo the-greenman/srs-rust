@@ -5676,9 +5676,9 @@ fn type_schema_emits_draft07_for_record_field_values() {
         schema["properties"]["status"]["enum"],
         serde_json::json!(["proposed", "accepted"])
     );
-    // order recoverable
-    assert_eq!(schema["properties"]["title"]["x-srs-order"], 0);
-    assert_eq!(schema["properties"]["status"]["x-srs-order"], 1);
+    // order recoverable: x-srs-order is 1-based position in effective field list
+    assert_eq!(schema["properties"]["title"]["x-srs-order"], 1);
+    assert_eq!(schema["properties"]["status"]["x-srs-order"], 2);
 }
 
 #[test]
