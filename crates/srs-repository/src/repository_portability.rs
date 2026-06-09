@@ -12,6 +12,7 @@ use srs_core::types::field::Field;
 use srs_core::types::record_type::RecordType;
 use srs_core::types::relation::Relation;
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
+use srs_core::types::theme::Theme;
 use srs_core::types::view::{DocumentView, View};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -37,6 +38,8 @@ pub struct PackageBoundarySnapshot {
     pub document_views: Vec<DocumentView>,
     #[serde(default)]
     pub blueprints: Vec<Blueprint>,
+    #[serde(default)]
+    pub themes: Vec<Theme>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -69,6 +72,8 @@ struct RawPackageMetadata {
     document_views: Vec<String>,
     #[serde(default)]
     blueprints: Vec<String>,
+    #[serde(default)]
+    themes: Vec<String>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -284,6 +289,7 @@ fn export_package_boundary(
             views: pkg.views,
             document_views: pkg.document_views,
             blueprints: pkg.blueprints,
+            themes: pkg.themes,
         });
     }
 
@@ -329,6 +335,11 @@ fn export_package_boundary(
         .iter()
         .map(|p| load_typed_json::<Blueprint>(source, &package_prefix, p))
         .collect::<Result<Vec<_>, _>>()?;
+    let themes = metadata
+        .themes
+        .iter()
+        .map(|p| load_typed_json::<Theme>(source, &package_prefix, p))
+        .collect::<Result<Vec<_>, _>>()?;
 
     Ok(PackageBoundarySnapshot {
         boundary_path,
@@ -344,6 +355,7 @@ fn export_package_boundary(
         views,
         document_views,
         blueprints,
+        themes,
     })
 }
 
@@ -425,6 +437,17 @@ fn import_package_boundary(
         blueprint_paths.push(path);
     }
 
+    let mut theme_paths = Vec::new();
+    for theme in &package.themes {
+        let path = format!(
+            "themes/{}-{}.json",
+            slugify(&theme.name),
+            id_prefix(&theme.id)?
+        );
+        write_repo_json(target, &base_prefix, &path, theme)?;
+        theme_paths.push(path);
+    }
+
     let package_json = serde_json::json!({
         "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
         "id": package.metadata.id,
@@ -440,7 +463,8 @@ fn import_package_boundary(
         "relationTypes": relation_type_paths,
         "views": view_paths,
         "documentViews": doc_view_paths,
-        "blueprints": blueprint_paths
+        "blueprints": blueprint_paths,
+        "themes": theme_paths
     });
     target.save_instance_json(&format!("{base_prefix}/package.json"), &package_json)?;
     Ok(())
@@ -719,6 +743,7 @@ mod tests {
             views: vec![],
             document_views: vec![],
             blueprints: vec![],
+            themes: vec![],
         });
 
         let temp = TempDir::new().unwrap();

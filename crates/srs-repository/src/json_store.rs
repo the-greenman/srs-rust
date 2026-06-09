@@ -9,6 +9,7 @@ use srs_core::types::record_type::{
     FieldAssignment, FieldAssignmentOverride, FieldGroup, RecordType, TypeLifecycle,
 };
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
+use srs_core::types::theme::Theme;
 use srs_core::types::view::{DocumentView, View};
 use srs_core::validation::relation_type_definition::validate_relation_type_definition;
 use srs_core::validation::view::{validate_document_view, validate_view};
@@ -51,6 +52,8 @@ struct PackageMetadata {
     views: Vec<String>,
     #[serde(default)]
     document_views: Vec<String>,
+    #[serde(default)]
+    themes: Vec<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -332,6 +335,7 @@ impl JsonStore {
             Vec<RecordType>,
             Vec<View>,
             Vec<DocumentView>,
+            Vec<Theme>,
         ),
         RepositoryError,
     > {
@@ -512,7 +516,26 @@ impl JsonStore {
             document_views.push(view);
         }
 
-        Ok((metadata, fields, record_types, views, document_views))
+        let mut themes = Vec::new();
+        for rel_path in &metadata.themes {
+            let full = format!("{package_prefix}/{rel_path}");
+            let theme: Theme = serde_json::from_value(self.data_get(&full)?).map_err(|source| {
+                RepositoryError::PackageLoad {
+                    path: PathBuf::from(&full),
+                    source,
+                }
+            })?;
+            themes.push(theme);
+        }
+
+        Ok((
+            metadata,
+            fields,
+            record_types,
+            views,
+            document_views,
+            themes,
+        ))
     }
 }
 
@@ -612,7 +635,7 @@ impl RepositoryStore for JsonStore {
     fn load_package(&self) -> Result<Package, RepositoryError> {
         let manifest = self.load_manifest()?;
         let mut rt_by_type: HashMap<String, (RelationTypeDefinition, PathBuf)> = HashMap::new();
-        let (root_meta, mut fields, mut record_types, mut views, mut document_views) =
+        let (root_meta, mut fields, mut record_types, mut views, mut document_views, mut themes) =
             self.load_package_from_prefix("package", &mut rt_by_type)?;
 
         if let Some(pkg_refs) = manifest.extra.get("packageRefs").and_then(|v| v.as_array()) {
@@ -642,7 +665,7 @@ impl RepositoryStore for JsonStore {
                     Some(p) => p,
                     None => continue,
                 };
-                let (.., sub_fields, sub_types, sub_views, sub_doc_views) =
+                let (.., sub_fields, sub_types, sub_views, sub_doc_views, sub_themes) =
                     self.load_package_from_prefix(rel_path, &mut rt_by_type)?;
 
                 for field in sub_fields {
@@ -720,6 +743,13 @@ impl RepositoryStore for JsonStore {
                         document_views.push(dv);
                     }
                 }
+                // Themes have no merge-conflict check — later definitions of the same id
+                // replace earlier ones (sub-packages may overlay the primary package's themes).
+                for theme in sub_themes {
+                    if !themes.iter().any(|t| t.id == theme.id) {
+                        themes.push(theme);
+                    }
+                }
             }
         }
 
@@ -733,7 +763,7 @@ impl RepositoryStore for JsonStore {
             relation_type_definitions: rt_by_type.into_values().map(|(def, _)| def).collect(),
             views,
             document_views,
-            themes: vec![],
+            themes,
             blueprints: vec![],
             root: self.repository_root(),
             dependency_refs: vec![],
