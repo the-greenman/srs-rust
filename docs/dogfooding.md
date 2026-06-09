@@ -174,13 +174,13 @@ This is the spec-as-repo pattern (`../srs/srs`): sections are records, order is 
 
 **Done when.** `open` accepts arbitrary keys; `closed` rejects unknown keys; **`derive-tag-set`'s `will-be-invalid` set equals `promote`'s `unresolvableKeys`** — the read-only pre-flight predicts the write outcome exactly; `promote` blocks with `unresolvableKeys` exactly when an in-use key lacks an active term (and succeeds within a grace `promotionWindow` if one is set); lifecycle transitions honour the declared state machine.
 
-### S7 — Verify a document type is correctly composed (Blueprint schema)
+### S7 — Verify a document type is correctly composed (Blueprint schema + brief)
 
-**Intention.** *"I've declared a guide document type — a root record plus an ordered set of section types. Before building an editor or a render pipeline on top of it, I want to verify the composition is correct and machine-readable: all section types are reachable, each type's fields are discoverable, and composite groups (like data tables) surface with enough metadata for a generic authoring tool."*
+**Intention.** *"I've declared a guide document type — a root record plus an ordered set of section types. Before building an editor, an extraction pipeline, or an AI prompt on top of it, I want to verify the composition is correct and machine-readable: all section types are reachable, each type's fields are discoverable, and composite groups (like data tables) surface with enough metadata for a generic authoring tool. I also want the layered AI guidance context — field semantics, extraction hints, and any targeting protocol — composed into a single brief I can hand directly to an agent."*
 
-**Capabilities exercised.** Blueprint as a composition validator; `blueprint schema` as the machine contract for a multi-record document; the field-group (`x-srs-composite-renderer`) hint for composite sections; how an authoring tool or agent discovers the correct form shape without type-specific code.
+**Capabilities exercised.** Blueprint as a composition validator; `blueprint schema` as the machine contract for a multi-record document; the field-group (`x-srs-composite-renderer`) hint for composite sections; `blueprint brief` as the layered guidance context for AI extraction pipelines (blueprint `aiGuidance`, each root type's `aiGuidance` + fields in `order`, structure RelationSpecs, and any targeting Protocol); non-fatal diagnostics when a root type is unresolvable or no protocol is found.
 
-**CLI surface.** `blueprint list`, `blueprint get`, `blueprint validate`, `blueprint structure`, `blueprint schema`.
+**CLI surface.** `blueprint list`, `blueprint get`, `blueprint validate`, `blueprint structure`, `blueprint schema`, `blueprint brief`.
 
 **Steps.**
 1. Discover the repo's blueprints: `srs blueprint list --repo ../../muDemocracy.org/muSrs --pretty`. Identify the guide blueprint ID.
@@ -192,10 +192,24 @@ This is the spec-as-repo pattern (`../srs/srs`): sections are records, order is 
    - `payload.schema.properties.contains.items.oneOf` lists exactly 4 `$ref` entries — one per section type declared in the blueprint.
    - Each `definitions[<section-type-id>]` has a `properties` map with `x-srs-field-id` and `x-srs-order` annotations on every flat field.
 6. For the table section type (`d8d09d3b-8253-4d8d-b187-42f35c8446a7`), confirm its definition includes a `tables` array property carrying `x-srs-group-id`, `x-srs-repeatable: true`, and `x-srs-composite-renderer: "table"`, with sub-fields (`columns`, `rows`) inside `items.properties`. This proves a generic editor can discover the table widget from schema alone — no type-specific code needed.
+7. Compose the AI guidance brief:
+   ```
+   srs blueprint brief 7bfa600b-f7b2-4a0e-82d4-34c02d9d6770 \
+     --repo ../../muDemocracy.org/muSrs --pretty
+   ```
+   Confirm:
+   - `ok: true`, `payload.diagnostics` is empty.
+   - `payload.types` contains the root type (`com.mudemocracy/guide`) with its fields listed in `order`.
+   - Every field has a `fieldId`, `name`, `valueType`, `required` flag, and an `aiGuidance` object (or `null` if none declared).
+   - `payload.structure` lists the 4 `contains` RelationSpecs with `cardinality` and `required` (all `false` / `0..*` for the guide blueprint).
+   - `payload.protocol` is `null` (the guide blueprint has no targeting extraction protocol yet).
+   - `payload.rendered` is a non-empty markdown string beginning with `# Blueprint:` that an agent can consume directly.
 
-**Negative case.** `srs blueprint schema <nonexistent-uuid> --repo ../../muDemocracy.org/muSrs --pretty` → `ok: false` with a diagnostic naming the unknown blueprint ID.
+**Negative case.**
+- `srs blueprint schema <nonexistent-uuid> --repo ../../muDemocracy.org/muSrs --pretty` → `ok: false` with a diagnostic naming the unknown blueprint ID.
+- `srs blueprint brief 00000000-0000-0000-0000-000000000000 --repo ../../muDemocracy.org/muSrs --pretty` → `ok: false`, `diagnostics[0]` names the unknown blueprint ID; no crash or empty envelope.
 
-**Done when.** `payload.schema.properties.contains.items.oneOf` has exactly the section types declared in the blueprint; the table section type's definition includes the `x-srs-composite-renderer: "table"` group property; removing a type from the blueprint's `structure[]` and re-projecting drops it from `items.oneOf` — the schema is derived, not cached; `blueprint validate` shows zero diagnostics.
+**Done when.** `payload.schema.properties.contains.items.oneOf` has exactly the section types declared in the blueprint; the table section type's definition includes the `x-srs-composite-renderer: "table"` group property; removing a type from the blueprint's `structure[]` and re-projecting drops it from `items.oneOf` — the schema is derived, not cached; `blueprint validate` shows zero diagnostics. `blueprint brief` returns a non-empty `rendered` string and structured `types[]` with field-level `aiGuidance`; missing-blueprint input yields a correct `ok: false` envelope.
 
 ### S8 — Render a document view in multiple formats with per-format themes
 
@@ -253,7 +267,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `vocabulary` (create/get/list/term-create/derive-tag-set/promote) | S6 |
 | `term` (list/get) | S6 |
 | `lifecycle` (list/get) | S4, S6 |
-| `blueprint` (list/get/validate/structure/schema) | S7 |
+| `blueprint` (list/get/validate/structure/schema/brief) | S7 |
 | `protocol` | _gap — no scenario yet (governance protocols described in S4 prose)_ |
 | `theme` | S8 |
 | `extension` | _gap — no scenario yet_ |
