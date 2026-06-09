@@ -157,7 +157,7 @@ This is the spec-as-repo pattern (`../srs/srs`): sections are records, order is 
 
 **Intention.** *"I want tags to mean something — a controlled vocabulary, not a free-for-all — and I want record state changes to follow a defined lifecycle."*
 
-**Capabilities exercised.** Vocabulary `open` vs `closed` mode; Terms; the V10 promotion pre-flight (closing a vocabulary must not orphan in-use keys); lifecycle states and declared transitions; tagging records against a vocabulary.
+**Capabilities exercised.** Vocabulary `open` vs `closed` mode; Terms; the V10 promotion pre-flight (closing a vocabulary must not orphan in-use keys); lifecycle states and declared transitions (both inline `lifecycle` and referenceable `lifecycleRef` forms); tagging records against a vocabulary.
 
 **CLI surface.** `vocabulary create`, `vocabulary get`, `vocabulary list`, `vocabulary term-create`, `vocabulary derive-tag-set`, `vocabulary promote`, `term list`, `term get`, `lifecycle list`, `lifecycle get`, `record tag`, `record transition`.
 
@@ -169,10 +169,12 @@ This is the spec-as-repo pattern (`../srs/srs`): sections are records, order is 
 5. Run promotion: `srs vocabulary promote <vocab>` (positional id). If an in-use key has no active term, confirm `ok: false` with `payload.unresolvableKeys` listing exactly the keys `derive-tag-set` flagged `will-be-invalid` (V10).
 6. Add the missing term (or accept the consequence). Re-run `derive-tag-set` to confirm the key is now `used-and-active`, then promote successfully; confirm a now-`closed` vocabulary rejects an unknown key.
 7. Inspect a lifecycle (`lifecycle get`) and drive a record through an allowed transition.
+   - If the type uses an inline `lifecycle`, the steps above work as described.
+   - To exercise the referenceable form: create a type with `lifecycleRef` pointing to an installed `Lifecycle` (visible via `srs lifecycle list`). Confirm `record create` sets `lifecycleState` to the lifecycle's `initialState`, and `record transition` advances through the declared transitions. (This path was broken before #114 — records were created without an initial state and transitions were rejected.)
 
-**Negative case.** (a) Promote with an unresolvable in-use key and confirm the structured block payload lists the same keys `derive-tag-set` classified `will-be-invalid`. (b) `derive-tag-set` on an unknown vocabulary id → `ok: false` with a diagnostic (no panic). (c) Attempt a `record transition` not present in the lifecycle's `transitions` and confirm rejection.
+**Negative case.** (a) Promote with an unresolvable in-use key and confirm the structured block payload lists the same keys `derive-tag-set` classified `will-be-invalid`. (b) `derive-tag-set` on an unknown vocabulary id → `ok: false` with a diagnostic (no panic). (c) Attempt a `record transition` not present in the lifecycle's `transitions` and confirm rejection — this applies to both inline and `lifecycleRef`-bound Types.
 
-**Done when.** `open` accepts arbitrary keys; `closed` rejects unknown keys; **`derive-tag-set`'s `will-be-invalid` set equals `promote`'s `unresolvableKeys`** — the read-only pre-flight predicts the write outcome exactly; `promote` blocks with `unresolvableKeys` exactly when an in-use key lacks an active term (and succeeds within a grace `promotionWindow` if one is set); lifecycle transitions honour the declared state machine.
+**Done when.** `open` accepts arbitrary keys; `closed` rejects unknown keys; **`derive-tag-set`'s `will-be-invalid` set equals `promote`'s `unresolvableKeys`** — the read-only pre-flight predicts the write outcome exactly; `promote` blocks with `unresolvableKeys` exactly when an in-use key lacks an active term (and succeeds within a grace `promotionWindow` if one is set); lifecycle transitions honour the declared state machine for both inline and `lifecycleRef`-bound Types.
 
 ### S7 — Verify a document type is correctly composed (Blueprint schema + brief)
 
@@ -267,6 +269,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `vocabulary` (create/get/list/term-create/derive-tag-set/promote) | S6 |
 | `term` (list/get) | S6 |
 | `lifecycle` (list/get) | S4, S6 |
+| `lifecycleRef` create/transition (referenceable lifecycle) | S6 (step 7 extended) |
 | `blueprint` (list/get/validate/structure/schema/brief) | S7 |
 | `protocol` | _gap — no scenario yet (governance protocols described in S4 prose)_ |
 | `theme` | S8 |
