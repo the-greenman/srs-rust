@@ -10,7 +10,7 @@
   "fields": ["fields/title.json", "fields/body.json"],
   "types": ["types/repeatable-type.json"],
   "relationTypes": [],
-  "views": ["views/labeled-body-view.json"],
+  "views": ["views/labeled-body-view.json", "views/hidden-field-view.json"],
   "themes": ["themes/base-theme.json", "themes/print-theme.json"],
   "documentViews": [
     "document-views/repeatable-doc-view.json",
@@ -19,7 +19,8 @@
     "document-views/labeled-field-view.json",
     "document-views/bad-semantic-type-view.json",
     "document-views/themed-document-view.json",
-    "document-views/missing-theme-view.json"
+    "document-views/missing-theme-view.json",
+    "document-views/json-hidden-field-view.json"
   ],
   "createdAt": "2026-05-01T00:00:00Z"
 }
