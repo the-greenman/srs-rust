@@ -439,9 +439,9 @@ fn project_record_json(
             let mut field_views = view.field_views.clone();
             field_views.sort_by_key(|fv| fv.order);
             for fv in field_views {
-                if fv.visible == Some(false) {
-                    continue;
-                }
+                // `visible` is a rendering hint for text/markdown output — do not apply it
+                // here. The JSON projection exports data; all fields must be included
+                // regardless of their display visibility.
                 fields_to_render.push(ResolvedFieldRender {
                     field_id: fv.field_id,
                     required: fv.required == Some(true),

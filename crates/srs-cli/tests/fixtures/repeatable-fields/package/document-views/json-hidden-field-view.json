@@ -1,0 +1,22 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json",
+  "id": "00000000-0000-4000-8000-000000000992",
+  "namespace": "fixture.repeatable",
+  "name": "json-hidden-field-view",
+  "version": 1,
+  "description": "JSON-format document view exercising visible:false projection regression.",
+  "format": "json",
+  "sections": [
+    {
+      "sectionId": "items",
+      "title": "Items",
+      "order": 0,
+      "source": {
+        "type": "type-query",
+        "semanticObjectType": "fixture.repeatable/repeatable-item"
+      },
+      "renderViewId": "00000000-0000-4000-8000-000000000989"
+    }
+  ],
+  "createdAt": "2026-01-01T00:00:00Z"
+}
