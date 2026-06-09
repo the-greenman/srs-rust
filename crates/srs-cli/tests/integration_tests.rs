@@ -989,9 +989,14 @@ fn note_create_mints_id_writes_file_and_updates_manifest() {
     assert_eq!(retrieved["payload"]["note"]["instanceId"], id);
     assert_eq!(retrieved["payload"]["note"]["title"], "Test Note");
 
-    // Verify file was created
-    let note_file = repo_path.join("records/notes/test-note.json");
-    assert!(note_file.exists(), "Note file should exist");
+    // Verify file was created using slug-id8 naming
+    let id8 = &id[..8];
+    let note_file = repo_path.join(format!("records/notes/test-note-{id8}.json"));
+    assert!(
+        note_file.exists(),
+        "Note file should exist at {}",
+        note_file.display()
+    );
 
     // Verify manifest was updated
     let manifest: Value =
@@ -2611,7 +2616,10 @@ fn record_create_writes_file_and_manifest_entry() {
         .expect("instanceId should be present");
     assert!(
         temp.path()
-            .join(format!("package/records/{}.json", record_id))
+            .join(format!(
+                "package/records/test-item-{}.json",
+                &record_id[..8]
+            ))
             .exists(),
         "record file should be created"
     );
