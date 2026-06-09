@@ -56,6 +56,9 @@ pub struct EffectiveLifecycle<'a> {
 pub struct EffectiveFieldsAndGroups {
     /// Fields in their final sorted/fieldOrder-reordered order (same as `effective_fields`).
     pub fields: Vec<FieldAssignment>,
+    /// 1-based position of each field in the merged field+group sequence.
+    /// Parallel to `fields`: `field_positions[i]` is the merged position of `fields[i]`.
+    pub field_positions: Vec<usize>,
     /// Groups with their 1-based position in the merged field+group sequence.
     pub groups: Vec<OrderedGroup>,
 }
@@ -340,8 +343,11 @@ impl Package {
         };
 
         if groups.is_empty() {
+            // No groups: field positions are their 1-based index in effective_fields.
+            let field_positions = (1..=fields.len()).collect();
             return Ok(EffectiveFieldsAndGroups {
                 fields,
+                field_positions,
                 groups: vec![],
             });
         }
@@ -376,8 +382,11 @@ impl Package {
                 }
             }
 
-            // Walk field_order sequentially (1-based), recording each group's position.
+            // Walk field_order sequentially (1-based), recording positions for fields and groups.
             let mut ordered_groups: Vec<OrderedGroup> = Vec::new();
+            // field_positions maps field_id → merged position; filled as we walk.
+            let mut field_pos_map: std::collections::HashMap<&str, usize> =
+                std::collections::HashMap::new();
             for (pos, id) in field_order.iter().enumerate() {
                 let merged_position = pos + 1;
                 if let Some(group) = groups.iter().find(|g| g.group_id == *id) {
@@ -385,11 +394,19 @@ impl Package {
                         group: group.clone(),
                         merged_position,
                     });
+                } else {
+                    field_pos_map.insert(id.as_str(), merged_position);
                 }
             }
+            // Build field_positions in the same order as `fields`.
+            let field_positions: Vec<usize> = fields
+                .iter()
+                .map(|fa| *field_pos_map.get(fa.field_id.as_str()).unwrap_or(&0))
+                .collect();
 
             Ok(EffectiveFieldsAndGroups {
                 fields,
+                field_positions,
                 groups: ordered_groups,
             })
         } else {
@@ -405,6 +422,7 @@ impl Package {
             let mut group_idx = 0usize;
             let mut position = 0usize;
             let mut ordered_groups: Vec<OrderedGroup> = Vec::new();
+            let mut field_positions: Vec<usize> = vec![0; fields.len()];
 
             while field_idx < fields.len() || group_idx < groups_sorted.len() {
                 position += 1;
@@ -418,8 +436,8 @@ impl Package {
                 };
 
                 if take_field {
+                    field_positions[field_idx] = position;
                     field_idx += 1;
-                    // Fields' positions are implicit in their index — no recording needed.
                 } else {
                     ordered_groups.push(OrderedGroup {
                         group: groups_sorted[group_idx].clone(),
@@ -431,6 +449,7 @@ impl Package {
 
             Ok(EffectiveFieldsAndGroups {
                 fields,
+                field_positions,
                 groups: ordered_groups,
             })
         }
