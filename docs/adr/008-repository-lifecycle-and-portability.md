@@ -33,7 +33,7 @@ The project also needs a clear sequencing rule: repository lifecycle/storage fou
 - `srs repo create` and `srs repo copy` become thin orchestration over repository services.
 
 **Negative / trade-offs:**
-- Snapshot import currently materializes canonical file-backed paths in FileStore, which is acceptable for parity but leaves room for richer path policy later.
+- Snapshot import materializes canonical file-backed paths in FileStore using a `{slug}-{id8}.json` convention (slug from title for notes, typeName for records). The "richer path policy" anticipated here was implemented in issue #140.
 - Additional adapter methods are required to persist complete package/relation data without leaking path traversal logic into services.
 
 **Neutral:**
