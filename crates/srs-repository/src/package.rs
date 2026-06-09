@@ -1,6 +1,6 @@
 use srs_core::types::blueprint::Blueprint;
 use srs_core::types::field::Field;
-use srs_core::types::lifecycle::Lifecycle;
+use srs_core::types::lifecycle::{Lifecycle, LifecycleState, LifecycleTransition};
 use srs_core::types::record_type::{FieldAssignment, RecordType};
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::types::term::Term;
@@ -39,6 +39,16 @@ pub struct DependencyRef {
     pub namespace: String,
     pub name: String,
     pub version: String,
+}
+
+/// Unified view of a resolved lifecycle — returned by `Package::effective_lifecycle`.
+/// Borrows from either an inline `TypeLifecycle` or a standalone `Lifecycle`, depending
+/// on which the RecordType uses.
+#[derive(Debug)]
+pub struct EffectiveLifecycle<'a> {
+    pub initial_state: &'a str,
+    pub states: &'a [LifecycleState],
+    pub transitions: &'a [LifecycleTransition],
 }
 
 impl Package {
@@ -308,6 +318,32 @@ impl Package {
     pub fn resolve_term_by_key(&self, vocabulary_id: &str, key: &str) -> Option<&Term> {
         self.resolve_vocabulary(vocabulary_id)
             .and_then(|v| v.resolve_term_by_key(key))
+    }
+
+    /// Resolve the effective lifecycle for a RecordType.
+    ///
+    /// Priority: `lifecycle_ref` (resolved via the package's standalone lifecycles) >
+    /// inline `lifecycle`. Returns `None` in two cases:
+    /// - The type has neither `lifecycle` nor `lifecycle_ref`.
+    /// - `lifecycle_ref` is set but the UUID does not resolve in this package (dangling ref —
+    ///   this should have been caught at package load time; treat as no lifecycle).
+    pub fn effective_lifecycle<'a>(
+        &'a self,
+        record_type: &'a RecordType,
+    ) -> Option<EffectiveLifecycle<'a>> {
+        if let Some(ref_id) = &record_type.lifecycle_ref {
+            self.resolve_lifecycle(ref_id).map(|lc| EffectiveLifecycle {
+                initial_state: &lc.initial_state,
+                states: &lc.states,
+                transitions: &lc.transitions,
+            })
+        } else {
+            record_type.lifecycle.as_ref().map(|lc| EffectiveLifecycle {
+                initial_state: &lc.initial_state,
+                states: &lc.states,
+                transitions: &lc.transitions,
+            })
+        }
     }
 }
 
@@ -1362,6 +1398,168 @@ mod tests {
         assert!(
             validate_record(&record_no_f1, &child, &effective).is_err(),
             "record missing inherited required field should fail"
+        );
+    }
+
+    // ── effective_lifecycle tests ──────────────────────────────────────────────
+
+    fn make_lc_states() -> Vec<srs_core::types::lifecycle::LifecycleState> {
+        vec![
+            srs_core::types::lifecycle::LifecycleState {
+                id: None,
+                version: None,
+                namespace: None,
+                key: "draft".to_string(),
+                label: None,
+                description: None,
+                aliases: None,
+                is_initial: Some(true),
+                is_final: None,
+                status: None,
+                properties: None,
+            },
+            srs_core::types::lifecycle::LifecycleState {
+                id: None,
+                version: None,
+                namespace: None,
+                key: "active".to_string(),
+                label: None,
+                description: None,
+                aliases: None,
+                is_initial: None,
+                is_final: Some(true),
+                status: None,
+                properties: None,
+            },
+        ]
+    }
+
+    fn make_lc_transitions() -> Vec<srs_core::types::lifecycle::LifecycleTransition> {
+        vec![srs_core::types::lifecycle::LifecycleTransition {
+            id: None,
+            name: "publish".to_string(),
+            from: "draft".to_string(),
+            to: "active".to_string(),
+            description: None,
+            properties: None,
+        }]
+    }
+
+    fn make_minimal_record_type(
+        lifecycle: Option<srs_core::types::record_type::TypeLifecycle>,
+        lifecycle_ref: Option<String>,
+    ) -> srs_core::types::record_type::RecordType {
+        srs_core::types::record_type::RecordType {
+            id: "rt-test".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test-type".to_string(),
+            version: 1,
+            description: "test".to_string(),
+            fields: vec![],
+            field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            lifecycle,
+            lifecycle_ref,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: std::collections::HashMap::new(),
+        }
+    }
+
+    fn make_minimal_package(lifecycles: Vec<srs_core::types::lifecycle::Lifecycle>) -> Package {
+        Package {
+            id: "pkg-test".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test-pkg".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![],
+            record_types: vec![],
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![],
+            themes: vec![],
+            blueprints: vec![],
+            root: PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles,
+        }
+    }
+
+    #[test]
+    fn effective_lifecycle_inline_resolves() {
+        let inline_lc = srs_core::types::record_type::TypeLifecycle {
+            states: make_lc_states(),
+            transitions: make_lc_transitions(),
+            initial_state: "draft".to_string(),
+        };
+        let rt = make_minimal_record_type(Some(inline_lc), None);
+        let pkg = make_minimal_package(vec![]);
+        let eff = pkg.effective_lifecycle(&rt).expect("should resolve");
+        assert_eq!(eff.initial_state, "draft");
+        assert_eq!(eff.states.len(), 2);
+        assert_eq!(eff.transitions.len(), 1);
+    }
+
+    #[test]
+    fn effective_lifecycle_ref_resolves() {
+        let standalone = srs_core::types::lifecycle::Lifecycle {
+            id: "lc-ref-standalone-001".to_string(),
+            version: 1,
+            namespace: "com.test".to_string(),
+            name: "test-lc".to_string(),
+            states: make_lc_states(),
+            transitions: make_lc_transitions(),
+            initial_state: "draft".to_string(),
+            extends_lifecycle_id: None,
+            extends_lifecycle_version: None,
+            description: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let rt = make_minimal_record_type(None, Some("lc-ref-standalone-001".to_string()));
+        let pkg = make_minimal_package(vec![standalone]);
+        let eff = pkg.effective_lifecycle(&rt).expect("should resolve");
+        assert_eq!(eff.initial_state, "draft");
+        assert_eq!(eff.states.len(), 2);
+        assert_eq!(eff.transitions.len(), 1);
+    }
+
+    #[test]
+    fn effective_lifecycle_none_when_absent() {
+        let rt = make_minimal_record_type(None, None);
+        let pkg = make_minimal_package(vec![]);
+        assert!(pkg.effective_lifecycle(&rt).is_none());
+    }
+
+    #[test]
+    fn effective_lifecycle_ref_wins_over_inline() {
+        let inline_lc = srs_core::types::record_type::TypeLifecycle {
+            states: make_lc_states(),
+            transitions: make_lc_transitions(),
+            initial_state: "inline-initial".to_string(),
+        };
+        let standalone = srs_core::types::lifecycle::Lifecycle {
+            id: "lc-ref-standalone-001".to_string(),
+            version: 1,
+            namespace: "com.test".to_string(),
+            name: "test-lc".to_string(),
+            states: make_lc_states(),
+            transitions: make_lc_transitions(),
+            initial_state: "ref-initial".to_string(),
+            extends_lifecycle_id: None,
+            extends_lifecycle_version: None,
+            description: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let rt =
+            make_minimal_record_type(Some(inline_lc), Some("lc-ref-standalone-001".to_string()));
+        let pkg = make_minimal_package(vec![standalone]);
+        let eff = pkg.effective_lifecycle(&rt).expect("should resolve");
+        assert_eq!(
+            eff.initial_state, "ref-initial",
+            "lifecycle_ref must take priority over inline"
         );
     }
 }
