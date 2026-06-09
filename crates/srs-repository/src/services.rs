@@ -23,7 +23,9 @@ use crate::container_service;
 use crate::error::RepositoryError;
 use crate::loader::load_note;
 use crate::store::RepositoryStore;
-use crate::writer::{new_instance_id, upsert_index_entry, write_manifest, write_note};
+use crate::writer::{
+    new_instance_id, slugify_instance_name, upsert_index_entry, write_manifest, write_note,
+};
 use serde::{Deserialize, Serialize};
 use srs_core::types::note::Note;
 use srs_core::validation::note::validate_note;
@@ -347,9 +349,14 @@ pub fn create_note(
     let slug = note
         .title
         .as_ref()
-        .map(|t| slugify_title(t))
-        .unwrap_or_else(|| note.instance_id.clone());
-    let relative_path = format!("records/notes/{}.json", slug);
+        .map(|t| slugify_instance_name(t))
+        .unwrap_or_default();
+    let id8 = &note.instance_id[..8];
+    let relative_path = if slug.is_empty() {
+        format!("records/notes/{id8}.json")
+    } else {
+        format!("records/notes/{slug}-{id8}.json")
+    };
 
     store.ensure_instance_dir("records/notes")?;
     write_note(store, &note, &relative_path)?;
@@ -922,10 +929,12 @@ mod tests {
         let result = create_note(&store, note).unwrap();
         assert!(!result.note.instance_id.is_empty());
 
-        // Note should be loadable from store
-        let stored = store
-            .load_instance_json("records/notes/my-new-note.json")
-            .unwrap();
+        // Note should be loadable from store using slug-id8 path
+        let expected_path = format!(
+            "records/notes/my-new-note-{}.json",
+            &result.note.instance_id[..8]
+        );
+        let stored = store.load_instance_json(&expected_path).unwrap();
         assert_eq!(
             stored["instanceId"].as_str(),
             Some(result.note.instance_id.as_str())
@@ -938,6 +947,35 @@ mod tests {
             manifest.instance_index[0].instance_id(),
             result.note.instance_id
         );
+    }
+
+    #[test]
+    fn note_create_no_title_produces_id_only_filename() {
+        use srs_core::types::note::NoteSection;
+        let store = MemoryStore::default();
+        let note = Note {
+            instance_id: "".to_string(),
+            title: None,
+            tags: None,
+            sections: vec![NoteSection {
+                name: "body".to_string(),
+                label: None,
+                content: "untitled".to_string(),
+                content_hint: None,
+                tags: None,
+            }],
+            graduated_at: None,
+            source_refs: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+        };
+
+        let result = create_note(&store, note).unwrap();
+        let expected_path = format!("records/notes/{}.json", &result.note.instance_id[..8]);
+        store
+            .load_instance_json(&expected_path)
+            .expect("note with no title should use id-only filename");
     }
 
     #[test]
