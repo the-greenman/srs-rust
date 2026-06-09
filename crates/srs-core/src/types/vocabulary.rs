@@ -182,7 +182,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_term_alias_secondary_to_key() {
+    fn resolve_term_by_alias_secondary_to_key() {
         // term1 has key="foo", term2 has alias="foo" — key match wins
         let term1 = make_term("id1", "foo", None);
         let term2 = make_term("id2", "bar", Some(vec!["foo"]));
