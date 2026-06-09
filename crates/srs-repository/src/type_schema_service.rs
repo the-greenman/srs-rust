@@ -76,7 +76,7 @@ pub fn type_schema(
     let mut properties = Map::new();
     let mut required = Vec::new();
 
-    for fa in &assignments {
+    for (position, fa) in assignments.iter().enumerate() {
         let field = match package.resolve_field(&fa.field_id) {
             Some(f) => f.clone(),
             None => {
@@ -88,7 +88,14 @@ pub fn type_schema(
             }
         };
 
-        let property = field_to_property(&field, fa, &mut diagnostics);
+        let mut property = field_to_property(&field, fa, &mut diagnostics);
+        // Use the position in the effective field list (1-based) as x-srs-order so
+        // that fieldOrder reordering is reflected in the schema. assignment.order
+        // values are not globally unique across inheritance levels and cannot be
+        // used directly for cross-type ordering.
+        if let Some(obj) = property.as_object_mut() {
+            obj.insert("x-srs-order".into(), json!(position + 1));
+        }
         if fa.required {
             required.push(Value::String(field.name.clone()));
         }
@@ -535,7 +542,9 @@ mod tests {
                 field(&fid(1), "a", ValueType::String),
                 field(&fid(2), "b", ValueType::String),
             ],
-            // Declared out of order; service sorts by `order`.
+            // Declared out of order; service sorts by `assignment.order` (2 < 5),
+            // then emits 1-based positional x-srs-order so fieldOrder reordering
+            // is reflected without collisions across inheritance levels.
             make_type(
                 TID,
                 vec![assignment(&fid(2), 5, false), assignment(&fid(1), 2, false)],
@@ -549,8 +558,9 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(result.schema["properties"]["a"]["x-srs-order"], json!(2));
-        assert_eq!(result.schema["properties"]["b"]["x-srs-order"], json!(5));
+        // a has assignment.order=2 (sorted first), so position 1; b has order=5, position 2.
+        assert_eq!(result.schema["properties"]["a"]["x-srs-order"], json!(1));
+        assert_eq!(result.schema["properties"]["b"]["x-srs-order"], json!(2));
     }
 
     #[test]
