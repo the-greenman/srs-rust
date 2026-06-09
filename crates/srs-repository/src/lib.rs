@@ -4,6 +4,7 @@ pub mod blueprint_schema_service;
 pub mod blueprint_service;
 pub mod container_service;
 pub mod detect;
+pub mod diff;
 pub mod error;
 pub mod extension_service;
 pub mod index;
