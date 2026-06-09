@@ -197,6 +197,35 @@ This is the spec-as-repo pattern (`../srs/srs`): sections are records, order is 
 
 **Done when.** `payload.schema.properties.contains.items.oneOf` has exactly the section types declared in the blueprint; the table section type's definition includes the `x-srs-composite-renderer: "table"` group property; removing a type from the blueprint's `structure[]` and re-projecting drops it from `items.oneOf` — the schema is derived, not cached; `blueprint validate` shows zero diagnostics.
 
+### S8 — Render a document view in multiple formats with per-format themes
+
+**Intention.** *"My document view renders cleanly in my editor's markdown preview, but I also need it to render as valid HTML for a web preview — without maintaining two separate document views or changing how I call the render command."*
+
+This is the muSrs guide pattern: `guide-body-view` has a default `themeRef` targeting `markdown` and a `themeVariant` named `html` targeting `html`. The render command auto-selects the correct theme based on `--view-format`, with no caller change required.
+
+**Capabilities exercised.** `theme list` to discover available themes and their format targets; `theme get` to inspect element templates; `themeVariants[]` on a document view as named format alternates; format-driven auto-selection in `resolve_active_theme` (`[T-2]` diagnostic when no theme targets the requested format; `[T-3]` when multiple variants match).
+
+**CLI surface.** `theme list`, `theme get`, `document-view get`, `render document-view --view-format`.
+
+**Steps.**
+1. Discover available themes: `srs theme list --repo ../../muDemocracy.org/muSrs --pretty`. Note `guide-prose` (targets `markdown`) and `guide-prose-html` (targets `html`).
+2. Inspect the HTML theme's templates: `srs theme get <guide-prose-html-id> --repo ../../muDemocracy.org/muSrs --pretty`. Confirm `fieldRow`, `groupFieldRowTemplates` for `item-term` and `item-body`.
+3. Inspect the document view: `srs document-view get --view 2aba4d85-317b-44e1-a600-d38a743b4cb4 --repo ../../muDemocracy.org/muSrs --pretty`. Confirm `themeRef` → `guide-prose` and `themeVariants[0]` → `guide-prose-html` with `name: "html"`.
+4. Render as HTML:
+   ```
+   srs render document-view --repo ../../muDemocracy.org/muSrs \
+     --view 2aba4d85-317b-44e1-a600-d38a743b4cb4 \
+     --container 1c843817-c0f9-4ba6-b65f-c6d23af161a7 \
+     --view-format html --pretty
+   ```
+   Confirm `payload.diagnostics` has no `[T-2]`, output contains `<p>` tags, no `field-label` spans.
+5. Render as markdown (same command without `--view-format`, or `--view-format markdown`). Confirm `**` bold markers present, no `[T-2]` or `[T-3]` diagnostics.
+6. Confirm both renders produce non-empty `payload.rendered` with clean prose — no raw field-name labels (`item-term`, `item-body`).
+
+**Negative case.** Render with `--view-format text` (no theme targets `text`) — confirm `payload.diagnostics` contains a `[T-2]` entry naming the view and theme IDs, and `payload.rendered` is non-empty (render proceeds without theme).
+
+**Done when.** HTML render has no `[T-2]`, uses `<p>` and `<strong>` tags, no field-label spans; markdown render is unchanged; `text` format triggers `[T-2]` cleanly; both renders reflect actual record content (prose, not plumbing labels). The two format renders differ only in markup — not in what records or sections they include.
+
 ---
 
 ## Coverage matrix
@@ -218,7 +247,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `relation-type` | _gap — no scenario yet_ |
 | `container` (create/members/roots/validate/…) | S4 |
 | `document-view` (create/get/list/…) | S4, S5 |
-| `render document-view` | S4, S5 |
+| `render document-view` | S4, S5, S8 |
 | `view` (L1) | _gap — no scenario yet_ |
 | `tree` | S5 |
 | `vocabulary` (create/get/list/term-create/derive-tag-set/promote) | S6 |
@@ -226,7 +255,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `lifecycle` (list/get) | S4, S6 |
 | `blueprint` (list/get/validate/structure/schema) | S7 |
 | `protocol` | _gap — no scenario yet (governance protocols described in S4 prose)_ |
-| `theme` | _gap — no scenario yet_ |
+| `theme` | S8 |
 | `extension` | _gap — no scenario yet_ |
 | `migrate` | _gap — no scenario yet_ |
 | `tag` (definition) | _gap — being deprecated; see open issues_ |
