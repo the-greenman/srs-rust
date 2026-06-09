@@ -519,19 +519,6 @@ pub fn delete_note(
     })
 }
 
-/// Library-owned slugification for note paths
-pub fn slugify_title(title: &str) -> String {
-    title
-        .to_lowercase()
-        .chars()
-        .map(|c| if c.is_alphanumeric() { c } else { '-' })
-        .collect::<String>()
-        .split('-')
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join("-")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -797,12 +784,16 @@ mod tests {
 
     #[test]
     fn slugify_handles_punctuation_and_collapse() {
+        use crate::writer::slugify_instance_name;
         assert_eq!(
-            slugify_title("AI-Native SRS Repositories"),
+            slugify_instance_name("AI-Native SRS Repositories"),
             "ai-native-srs-repositories"
         );
-        assert_eq!(slugify_title("Meaning: AI + Humans"), "meaning-ai-humans");
-        assert_eq!(slugify_title("  spaces  "), "spaces");
+        assert_eq!(
+            slugify_instance_name("Meaning: AI + Humans"),
+            "meaning-ai-humans"
+        );
+        assert_eq!(slugify_instance_name("  spaces  "), "spaces");
     }
 
     #[test]
