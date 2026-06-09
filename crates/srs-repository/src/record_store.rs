@@ -130,10 +130,9 @@ pub fn create_record(
         }
     }
 
-    let initial_lifecycle_state = record_type
-        .lifecycle
-        .as_ref()
-        .map(|lc| lc.initial_state.clone());
+    let initial_lifecycle_state = package
+        .effective_lifecycle(record_type)
+        .map(|lc| lc.initial_state.to_string());
 
     // Normalise tags: treat Some([]) as None (no tags) to keep the record body clean.
     let initial_tags = match tags {
@@ -672,13 +671,11 @@ pub fn transition_record_lifecycle(
             version: record.type_version,
         })?;
 
-    let lifecycle =
-        record_type
-            .lifecycle
-            .as_ref()
-            .ok_or_else(|| RepositoryError::LifecycleNotDefined {
-                id: instance_id.to_string(),
-            })?;
+    let lifecycle = package.effective_lifecycle(record_type).ok_or_else(|| {
+        RepositoryError::LifecycleNotDefined {
+            id: instance_id.to_string(),
+        }
+    })?;
 
     // Resolve target state name from either `to` or `by_transition`
     let target_state = match (&input.to, &input.by_transition) {
@@ -2701,5 +2698,237 @@ mod tests {
             entry.tags,
             Some(vec!["new-tag-1".to_string(), "new-tag-2".to_string()])
         );
+    }
+
+    // ── lifecycleRef write-path regression tests ───────────────────────────────
+
+    fn make_store_with_lifecycle_ref() -> MemoryStore {
+        use crate::package::Package;
+        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::lifecycle::{Lifecycle, LifecycleState, LifecycleTransition};
+        use srs_core::types::record_type::{FieldAssignment, RecordType};
+        use srs_core::types::relation_type_definition::{
+            RelationTypeCategory, RelationTypeDefinition,
+        };
+
+        let title_field = Field {
+            id: "field-title-lcref".to_string(),
+            namespace: "com.test".to_string(),
+            name: "title".to_string(),
+            version: 1,
+            value_type: ValueType::String,
+            description: "Title".to_string(),
+            ai_guidance: json!(null),
+            allowed_values: None,
+            vocabulary_ref: None,
+            default_value: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        // Standalone lifecycle referenced by UUID.
+        let standalone_lc = Lifecycle {
+            id: "lc-ref-standalone-001".to_string(),
+            version: 1,
+            namespace: "com.test".to_string(),
+            name: "item-lifecycle".to_string(),
+            states: vec![
+                LifecycleState {
+                    id: None,
+                    version: None,
+                    namespace: None,
+                    key: "draft".to_string(),
+                    label: None,
+                    description: None,
+                    aliases: None,
+                    is_initial: Some(true),
+                    is_final: None,
+                    status: None,
+                    properties: None,
+                },
+                LifecycleState {
+                    id: None,
+                    version: None,
+                    namespace: None,
+                    key: "active".to_string(),
+                    label: None,
+                    description: None,
+                    aliases: None,
+                    is_initial: None,
+                    is_final: None,
+                    status: None,
+                    properties: None,
+                },
+                LifecycleState {
+                    id: None,
+                    version: None,
+                    namespace: None,
+                    key: "archived".to_string(),
+                    label: None,
+                    description: None,
+                    aliases: None,
+                    is_initial: None,
+                    is_final: Some(true),
+                    status: None,
+                    properties: None,
+                },
+            ],
+            transitions: vec![
+                LifecycleTransition {
+                    id: None,
+                    name: "promote".to_string(),
+                    from: "draft".to_string(),
+                    to: "active".to_string(),
+                    description: None,
+                    properties: None,
+                },
+                LifecycleTransition {
+                    id: None,
+                    name: "archive".to_string(),
+                    from: "active".to_string(),
+                    to: "archived".to_string(),
+                    description: None,
+                    properties: None,
+                },
+            ],
+            initial_state: "draft".to_string(),
+            extends_lifecycle_id: None,
+            extends_lifecycle_version: None,
+            description: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        // RecordType binds lifecycle via lifecycleRef; inline lifecycle is None.
+        let lcref_type = RecordType {
+            id: "type-lc-ref-001".to_string(),
+            namespace: "com.test".to_string(),
+            name: "lifecycle-ref-type".to_string(),
+            version: 1,
+            description: "Type with lifecycleRef".to_string(),
+            fields: vec![FieldAssignment {
+                field_id: "field-title-lcref".to_string(),
+                order: 0,
+                required: true,
+                display_label: None,
+                repeatable: false,
+                min_items: None,
+                max_items: None,
+            }],
+            field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            lifecycle: None,
+            lifecycle_ref: Some("lc-ref-standalone-001".to_string()),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let supersedes_def = RelationTypeDefinition {
+            schema: None,
+            id: "rtd-supersedes-lcref".to_string(),
+            version: 1,
+            key: "supersedes".to_string(),
+            namespace: "com.semanticops.srs".to_string(),
+            label: "Supersedes".to_string(),
+            description: "The source record supersedes the target.".to_string(),
+            category: RelationTypeCategory::Refinement,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            canonical_direction: None,
+            inverse_type: None,
+            irreflexive: Some(true),
+            allowed_source_types: None,
+            allowed_target_types: None,
+            require_same_semantic_object_type: None,
+            status: None,
+            updated_at: None,
+            properties: None,
+        };
+
+        let manifest = Manifest {
+            instance_index: vec![],
+            extra: HashMap::new(),
+            root: PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "test-package-lcref".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test-package-lcref".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![title_field],
+            record_types: vec![lcref_type],
+            relation_type_definitions: vec![supersedes_def],
+            views: vec![],
+            document_views: vec![],
+            themes: vec![],
+            blueprints: vec![],
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![standalone_lc],
+            root: PathBuf::from("/memory"),
+        };
+        MemoryStore::new(manifest, package)
+    }
+
+    fn create_lc_ref_record(store: &MemoryStore) -> Record {
+        create_record(
+            store,
+            "type-lc-ref-001",
+            1,
+            vec![FieldValue {
+                field_id: "field-title-lcref".to_string(),
+                value: json!("Test Item"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            }],
+            None,
+            None,
+            "records/lcref-items",
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn create_record_with_lifecycle_ref_sets_initial_state() {
+        let store = make_store_with_lifecycle_ref();
+        let record = create_lc_ref_record(&store);
+        assert_eq!(record.lifecycle_state.as_deref(), Some("draft"));
+    }
+
+    #[test]
+    fn transition_with_lifecycle_ref_succeeds() {
+        let store = make_store_with_lifecycle_ref();
+        let record = create_lc_ref_record(&store);
+        let result = transition_record_lifecycle(
+            &store,
+            &record.instance_id,
+            TransitionLifecycleInput {
+                to: None,
+                by_transition: Some("promote".to_string()),
+            },
+        )
+        .unwrap();
+        assert_eq!(result.record.lifecycle_state.as_deref(), Some("active"));
+    }
+
+    #[test]
+    fn transition_with_lifecycle_ref_invalid_transition_fails() {
+        let store = make_store_with_lifecycle_ref();
+        let record = create_lc_ref_record(&store);
+        // draft → archived is not a defined transition
+        let result = transition_record_lifecycle(
+            &store,
+            &record.instance_id,
+            TransitionLifecycleInput {
+                to: Some("archived".to_string()),
+                by_transition: None,
+            },
+        );
+        assert!(matches!(
+            result,
+            Err(RepositoryError::LifecycleTransitionNotAllowed { .. })
+        ));
     }
 }
