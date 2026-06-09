@@ -1517,6 +1517,7 @@ mod tests {
             extends_lifecycle_version: None,
             description: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: std::collections::HashMap::new(),
         };
         let rt = make_minimal_record_type(None, Some("lc-ref-standalone-001".to_string()));
         let pkg = make_minimal_package(vec![standalone]);
@@ -1552,6 +1553,7 @@ mod tests {
             extends_lifecycle_version: None,
             description: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: std::collections::HashMap::new(),
         };
         let rt =
             make_minimal_record_type(Some(inline_lc), Some("lc-ref-standalone-001".to_string()));

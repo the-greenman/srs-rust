@@ -65,7 +65,7 @@ pub struct LifecycleTransition {
 /// A standalone, installable, referenceable lifecycle container.
 /// Types may reference this via `lifecycleRef` instead of declaring an inline lifecycle.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct Lifecycle {
     pub id: String,
     pub version: u32,
@@ -81,6 +81,8 @@ pub struct Lifecycle {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub created_at: String,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
 }
 
 #[cfg(test)]
@@ -188,12 +190,35 @@ mod tests {
             extends_lifecycle_version: None,
             description: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: std::collections::HashMap::new(),
         };
         let json = serde_json::to_string(&lc).unwrap();
         let parsed: Lifecycle = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.states.len(), 2);
         assert_eq!(parsed.transitions[0].name, "publish");
         assert_eq!(parsed.initial_state, "draft");
+    }
+
+    #[test]
+    fn lifecycle_accepts_schema_key() {
+        let json = r#"{
+            "$schema": "https://srs.semanticops.com/schema/2.0/lifecycle.json",
+            "id": "lc-test",
+            "version": 1,
+            "namespace": "com.test",
+            "name": "test-lc",
+            "states": [],
+            "transitions": [],
+            "initialState": "draft",
+            "createdAt": "2026-01-01T00:00:00Z"
+        }"#;
+        let lc: Lifecycle = serde_json::from_str(json).expect("must accept $schema");
+        assert_eq!(lc.id, "lc-test");
+        let serialized = serde_json::to_string(&lc).unwrap();
+        assert!(
+            !serialized.contains("\"extra\""),
+            "flatten must not emit an 'extra' key"
+        );
     }
 
     #[test]

@@ -1,5 +1,6 @@
 use super::term::Term;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -15,7 +16,7 @@ pub struct PromotionWindow {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct Vocabulary {
     #[serde(default)]
     pub id: String,
@@ -33,6 +34,8 @@ pub struct Vocabulary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub created_at: String,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
 }
 
 impl Vocabulary {
@@ -110,6 +113,7 @@ mod tests {
             promotion_window: None,
             description: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
         }
     }
 
@@ -178,7 +182,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_term_by_alias_secondary_to_key() {
+    fn resolve_term_alias_secondary_to_key() {
         // term1 has key="foo", term2 has alias="foo" — key match wins
         let term1 = make_term("id1", "foo", None);
         let term2 = make_term("id2", "bar", Some(vec!["foo"]));
@@ -198,8 +202,39 @@ mod tests {
     }
 
     #[test]
-    fn vocabulary_deny_unknown_fields() {
-        let json = r#"{"id":"v","version":1,"namespace":"ns","name":"n","mode":"open","terms":[],"createdAt":"2026-01-01T00:00:00Z","unknownField":"oops"}"#;
-        assert!(serde_json::from_str::<Vocabulary>(json).is_err());
+    fn vocabulary_accepts_schema_key() {
+        let json = r#"{
+            "$schema": "https://srs.semanticops.com/schema/2.0/vocabulary.json",
+            "id": "v-test",
+            "version": 1,
+            "namespace": "com.test",
+            "name": "test-vocab",
+            "mode": "open",
+            "terms": [],
+            "createdAt": "2026-01-01T00:00:00Z"
+        }"#;
+        let v: Vocabulary = serde_json::from_str(json).expect("must accept $schema");
+        assert_eq!(v.id, "v-test");
+        let serialized = serde_json::to_string(&v).unwrap();
+        assert!(
+            !serialized.contains("\"extra\""),
+            "flatten must not emit an 'extra' key"
+        );
+    }
+
+    #[test]
+    fn vocabulary_absorbs_unknown_fields() {
+        let json = r#"{
+            "id": "v-test",
+            "version": 1,
+            "namespace": "com.test",
+            "name": "test-vocab",
+            "mode": "open",
+            "terms": [],
+            "createdAt": "2026-01-01T00:00:00Z",
+            "futureExtension": "some-value"
+        }"#;
+        let v: Vocabulary = serde_json::from_str(json).expect("unknown fields must be absorbed");
+        assert_eq!(v.id, "v-test");
     }
 }

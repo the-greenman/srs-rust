@@ -200,6 +200,7 @@ pub fn validate_type_lifecycle_v9(
         extends_lifecycle_version: None,
         description: None,
         created_at: String::new(),
+        extra: std::collections::HashMap::new(),
     };
     validate_lifecycle(&lc)
 }
@@ -266,6 +267,7 @@ mod tests {
             extends_lifecycle_version: None,
             description: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: std::collections::HashMap::new(),
         }
     }
 
