@@ -399,6 +399,8 @@ impl Package {
                 }
             }
             // Build field_positions in the same order as `fields`.
+            // unwrap_or(&0) is safe: every field_id in `fields` was in field_order
+            // (validated above via effective_fields), so it was inserted into field_pos_map.
             let field_positions: Vec<usize> = fields
                 .iter()
                 .map(|fa| *field_pos_map.get(fa.field_id.as_str()).unwrap_or(&0))
