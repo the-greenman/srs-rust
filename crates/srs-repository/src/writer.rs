@@ -54,6 +54,19 @@ pub fn new_instance_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
+/// Canonical slug algorithm for instance file naming.
+///
+/// Replaces every non-alphanumeric character with `-`, splits on `-`, filters
+/// empty parts, and rejoins. Returns `""` on empty input — callers produce an
+/// id-only filename (`{id8}.json`) when the slug is empty.
+pub(crate) fn slugify_instance_name(name: &str) -> String {
+    let parts: Vec<&str> = name
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|s| !s.is_empty())
+        .collect();
+    parts.join("-").to_lowercase()
+}
+
 /// Write a Note to the store at the given relative path.
 pub fn write_note(
     store: &dyn RepositoryStore,

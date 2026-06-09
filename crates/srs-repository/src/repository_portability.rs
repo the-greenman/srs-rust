@@ -6,6 +6,7 @@ use crate::repository_lifecycle::{
     InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
 };
 use crate::store::RepositoryStore;
+use crate::writer::slugify_instance_name;
 use srs_core::types::blueprint::Blueprint;
 use srs_core::types::container::Container;
 use srs_core::types::field::Field;
@@ -228,7 +229,7 @@ pub fn import_repository_snapshot(
 
     manifest.instance_index = Vec::new();
     for instance in &snapshot.instances {
-        let rel_path = canonical_instance_path(instance.tier, &instance.instance_id);
+        let rel_path = canonical_instance_path(instance);
         ensure_instance_parent(target, &rel_path)?;
         target.save_instance_json(&rel_path, &instance.value)?;
         manifest.instance_index.push(InstanceIndexEntry {
@@ -530,11 +531,33 @@ fn ensure_target_empty(target: &dyn RepositoryStore) -> Result<(), RepositoryErr
     Ok(())
 }
 
-fn canonical_instance_path(tier: u8, instance_id: &str) -> String {
-    match tier {
-        0 => format!("records/notes/{instance_id}.json"),
-        3 => format!("records/tag-definitions/{instance_id}.json"),
-        _ => format!("records/tier-{tier}/{instance_id}.json"),
+fn canonical_instance_path(instance: &SnapshotInstance) -> String {
+    let id8 = &instance.instance_id[..8];
+    let slug = match instance.tier {
+        0 => instance
+            .title
+            .as_ref()
+            .and_then(|v| v.as_str())
+            .map(slugify_instance_name)
+            .unwrap_or_default(),
+        1 | 2 => instance
+            .value
+            .get("typeName")
+            .and_then(|v| v.as_str())
+            .map(slugify_instance_name)
+            .unwrap_or_default(),
+        _ => String::new(),
+    };
+    let filename = if slug.is_empty() {
+        format!("{id8}.json")
+    } else {
+        format!("{slug}-{id8}.json")
+    };
+    match instance.tier {
+        0 => format!("records/notes/{filename}"),
+        1 => format!("records/tier-1/{filename}"),
+        2 => format!("records/tier-2/{filename}"),
+        tier => format!("records/tier-{tier}/{filename}"),
     }
 }
 
@@ -628,6 +651,10 @@ mod tests {
     }
 
     #[test]
+    // The snapshot DTO must not serialize the file-backed `path` field from
+    // `InstanceIndexEntry` — paths are a FileStore adapter concern, not part
+    // of the logical snapshot. This guards against accidental `#[serde(flatten)]`
+    // or field leakage that would couple the snapshot format to storage layout.
     fn repository_snapshot_contains_no_paths() {
         let source = MemoryStore::uninitialized();
         source.initialize_repository(&make_input()).unwrap();
@@ -872,5 +899,124 @@ mod tests {
 
         let report = validate_repository(&file_store).unwrap();
         assert!(report.is_ok(), "{:?}", report.diagnostics);
+    }
+
+    #[test]
+    fn copy_file_to_file_produces_slug_id_filename() {
+        let source = MemoryStore::uninitialized();
+        source.initialize_repository(&make_input()).unwrap();
+        let mut snapshot = export_repository_snapshot(&source).unwrap();
+        snapshot.instances.push(SnapshotInstance {
+            instance_id: "11111111-1111-4111-8111-111111111111".to_string(),
+            tier: 0,
+            title: Some(serde_json::Value::String("My Note".to_string())),
+            tags: None,
+            value: serde_json::json!({
+                "instanceId": "11111111-1111-4111-8111-111111111111",
+                "sections": [{"name":"body","content":"hello"}]
+            }),
+        });
+
+        let temp = TempDir::new().unwrap();
+        let target = FileStore::new(temp.path());
+        import_repository_snapshot(&target, &snapshot).unwrap();
+
+        assert!(
+            temp.path()
+                .join("records/notes/my-note-11111111.json")
+                .exists(),
+            "expected records/notes/my-note-11111111.json"
+        );
+    }
+
+    #[test]
+    fn copy_file_to_file_no_title_produces_id_only_filename() {
+        let source = MemoryStore::uninitialized();
+        source.initialize_repository(&make_input()).unwrap();
+        let mut snapshot = export_repository_snapshot(&source).unwrap();
+        snapshot.instances.push(SnapshotInstance {
+            instance_id: "22222222-2222-4222-8222-222222222222".to_string(),
+            tier: 0,
+            title: None,
+            tags: None,
+            value: serde_json::json!({
+                "instanceId": "22222222-2222-4222-8222-222222222222",
+                "sections": [{"name":"body","content":"no title"}]
+            }),
+        });
+
+        let temp = TempDir::new().unwrap();
+        let target = FileStore::new(temp.path());
+        import_repository_snapshot(&target, &snapshot).unwrap();
+
+        assert!(
+            temp.path().join("records/notes/22222222.json").exists(),
+            "expected records/notes/22222222.json (id-only, no title)"
+        );
+    }
+
+    #[test]
+    fn file_json_file_roundtrip_produces_slug_id_filename() {
+        let source = MemoryStore::uninitialized();
+        source.initialize_repository(&make_input()).unwrap();
+        let mut snapshot = export_repository_snapshot(&source).unwrap();
+        snapshot.instances.push(SnapshotInstance {
+            instance_id: "33333333-3333-4333-8333-333333333333".to_string(),
+            tier: 0,
+            title: Some(serde_json::Value::String("Round Trip".to_string())),
+            tags: None,
+            value: serde_json::json!({
+                "instanceId": "33333333-3333-4333-8333-333333333333",
+                "sections": [{"name":"body","content":"round trip"}]
+            }),
+        });
+
+        let tmp = TempDir::new().unwrap();
+        let json_path = tmp.path().join("repo.srsj");
+        let json_store = JsonStore::create(&json_path).unwrap();
+        import_repository_snapshot(&json_store, &snapshot).unwrap();
+
+        let out = TempDir::new().unwrap();
+        let file_store = FileStore::new(out.path());
+        copy_repository(&json_store, &file_store).unwrap();
+
+        assert!(
+            out.path()
+                .join("records/notes/round-trip-33333333.json")
+                .exists(),
+            "expected records/notes/round-trip-33333333.json after file→json→file round-trip"
+        );
+    }
+
+    #[test]
+    fn copy_tier2_record_uses_type_slug_id_filename() {
+        let source = MemoryStore::uninitialized();
+        source.initialize_repository(&make_input()).unwrap();
+        let mut snapshot = export_repository_snapshot(&source).unwrap();
+        snapshot.instances.push(SnapshotInstance {
+            instance_id: "44444444-4444-4444-a444-444444444444".to_string(),
+            tier: 2,
+            title: None,
+            tags: None,
+            value: serde_json::json!({
+                "instanceId": "44444444-4444-4444-a444-444444444444",
+                "typeId": "some-type-id",
+                "typeName": "section",
+                "typeNamespace": "com.example",
+                "typeVersion": 1,
+                "fieldValues": []
+            }),
+        });
+
+        let temp = TempDir::new().unwrap();
+        let target = FileStore::new(temp.path());
+        import_repository_snapshot(&target, &snapshot).unwrap();
+
+        assert!(
+            temp.path()
+                .join("records/tier-2/section-44444444.json")
+                .exists(),
+            "expected records/tier-2/section-44444444.json"
+        );
     }
 }

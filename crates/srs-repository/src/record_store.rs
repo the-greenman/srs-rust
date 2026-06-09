@@ -27,7 +27,7 @@ use crate::package_service::{get_type_by_name, GetTypeResult};
 use crate::relation_service;
 use crate::revision_service;
 use crate::store::RepositoryStore;
-use crate::writer::{new_instance_id, write_manifest};
+use crate::writer::{new_instance_id, slugify_instance_name, write_manifest};
 use serde::{Deserialize, Serialize};
 use srs_core::types::record::{FieldValue, Record};
 use srs_core::types::relation::Relation;
@@ -167,7 +167,13 @@ pub fn create_record(
 
     store.ensure_instance_dir(relative_dir)?;
 
-    let relative_path = format!("{}/{}.json", relative_dir, record.instance_id);
+    let type_slug = slugify_instance_name(&record.type_name);
+    let id8 = &record.instance_id[..8];
+    let relative_path = if type_slug.is_empty() {
+        format!("{relative_dir}/{id8}.json")
+    } else {
+        format!("{relative_dir}/{type_slug}-{id8}.json")
+    };
     write_record(store, &record, &relative_path)?;
 
     let mut manifest = store.load_manifest()?;
@@ -1332,8 +1338,11 @@ mod tests {
         assert!(!record.instance_id.is_empty());
         assert_eq!(record.type_id, "type-test-001");
 
-        // Record stored in memory
-        let key = format!("records/test-items/{}.json", record.instance_id);
+        // Record stored under slug-id8 path
+        let key = format!(
+            "records/test-items/test-type-{}.json",
+            &record.instance_id[..8]
+        );
         store
             .load_instance_json(&key)
             .expect("should find stored record");
@@ -1648,7 +1657,7 @@ mod tests {
         assert_eq!(updated.field_values[0].value, json!("Updated Name"));
 
         // Verify stored value
-        let key = format!("records/test-items/{}.json", instance_id);
+        let key = format!("records/test-items/test-type-{}.json", &instance_id[..8]);
         let stored_val = store.load_instance_json(&key).unwrap();
         let stored: Record = serde_json::from_value(stored_val).unwrap();
         assert_eq!(stored.field_values[0].value, json!("Updated Name"));
@@ -1793,7 +1802,7 @@ mod tests {
         )
         .unwrap();
         let instance_id = record.instance_id.clone();
-        let key = format!("records/test-items/{}.json", instance_id);
+        let key = format!("records/test-items/test-type-{}.json", &instance_id[..8]);
 
         assert!(store.load_instance_json(&key).is_ok());
 
