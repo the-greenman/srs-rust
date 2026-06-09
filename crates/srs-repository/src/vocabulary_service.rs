@@ -386,6 +386,7 @@ mod tests {
             promotion_window: None,
             description: None,
             created_at: String::new(),
+            extra: std::collections::HashMap::new(),
         }
     }
 
