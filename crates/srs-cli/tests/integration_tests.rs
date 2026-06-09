@@ -1266,6 +1266,44 @@ fn render_document_view_markup_no_projection_in_payload() {
 }
 
 #[test]
+fn render_document_view_json_includes_visible_false_fields() {
+    // Regression: `visible: false` in a fieldView must not exclude the field from the JSON
+    // projection. `visible` is a rendering hint for text/markdown output only.
+    let fixture = repeatable_fields_fixture_dir();
+    let result = run_srs_in_dir(
+        &fixture,
+        &[
+            "render",
+            "document-view",
+            "--view",
+            "00000000-0000-4000-8000-000000000992",
+            "--view-format",
+            "json",
+        ],
+    );
+    assert_eq!(result["ok"], true);
+    let sections = result["payload"]["projection"]["sections"]
+        .as_array()
+        .unwrap();
+    let records = sections[0]["records"].as_array().unwrap();
+    let record = records
+        .iter()
+        .find(|r| r["instanceId"] == "00000000-0000-4000-8000-000000000991")
+        .expect("valid record must be present in projection");
+    let fields = record["fields"]
+        .as_object()
+        .expect("fields must be an object");
+    assert!(
+        fields.contains_key("00000000-0000-4000-8000-000000000901"),
+        "title field (visible:true) must appear in JSON projection"
+    );
+    assert!(
+        fields.contains_key("00000000-0000-4000-8000-000000000903"),
+        "body field (visible:false) must appear in JSON projection — visible is a render concept only"
+    );
+}
+
+#[test]
 fn render_document_view_unknown_view_id_returns_error() {
     let fixture = field_groups_fixture_dir();
     let (ok, raw) = run_srs_raw(
