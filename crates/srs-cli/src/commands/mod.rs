@@ -1173,6 +1173,11 @@ pub enum BlueprintCommand {
         /// Blueprint definition ID (UUID)
         id: String,
     },
+    /// Compose full layered guidance context (aiGuidance + fields + protocol) for a Blueprint
+    Brief {
+        /// Blueprint definition ID (UUID)
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]

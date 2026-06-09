@@ -330,6 +330,11 @@ fn blueprint_schema() {
     check::<BlueprintSchemaPayload>("blueprint-schema");
 }
 
+#[test]
+fn blueprint_brief() {
+    check::<BlueprintBriefPayload>("blueprint-brief");
+}
+
 // ── View ──────────────────────────────────────────────────────────────────────
 
 #[test]
