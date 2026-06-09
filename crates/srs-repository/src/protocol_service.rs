@@ -402,6 +402,59 @@ pub fn delete_protocol(
     Ok(DeleteProtocolResult { instance_id })
 }
 
+/// Result for finding a protocol by its target type ID.
+#[derive(Debug, Clone)]
+pub struct FindProtocolByTargetTypeResult {
+    pub protocol_id: String,
+    pub protocol_name: String,
+    /// Raw stage JSON values, preserving all fields beyond the srs-core ProtocolStage struct.
+    pub stages_raw: Vec<serde_json::Value>,
+}
+
+/// Find the first protocol whose `targetType` matches `target_type_id`.
+///
+/// Returns `None` when no protocol targets that type. Non-fatal scan errors are silently
+/// skipped — the caller receives `None` rather than a hard error.
+pub fn find_protocol_by_target_type(
+    store: &dyn RepositoryStore,
+    target_type_id: &str,
+) -> Result<Option<FindProtocolByTargetTypeResult>, RepositoryError> {
+    use crate::record_store::list_records_by_type;
+
+    let records = list_records_by_type(store, "com.semanticops.srs", "meta.protocol")?;
+
+    for record in records {
+        let fv = &record.field_values;
+        let Some(target_val) = find_fv(fv, FIELD_PROTOCOL_TARGET_TYPE) else {
+            continue;
+        };
+        let Some(target_str) = target_val.as_str() else {
+            continue;
+        };
+        if target_str != target_type_id {
+            continue;
+        }
+        let protocol_id = match get_string_fv(fv, FIELD_PROTOCOL_ID, "protocol-id") {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let protocol_name = match get_string_fv(fv, FIELD_PROTOCOL_NAME, "protocol-name") {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let stages_raw: Vec<serde_json::Value> = find_fv(fv, FIELD_PROTOCOL_STAGES)
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+        return Ok(Some(FindProtocolByTargetTypeResult {
+            protocol_id,
+            protocol_name,
+            stages_raw,
+        }));
+    }
+
+    Ok(None)
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
