@@ -245,6 +245,58 @@ This is the muSrs guide pattern: `guide-body-view` has a default `themeRef` targ
 
 ---
 
+### S9 — Migrate a working repository to a new location (repo copy)
+
+**Intention.** *"I want to move my notes repository from one place to another — maybe from a local path to a shared drive, or from a `.srsj` bundle back to a file store — and I want to see my familiar filenames, not raw UUIDs, when I open the target directory."*
+
+**Capabilities exercised.** `srs repo copy` (file → file and `.srsj` bundle → file); the `{slug}-{id8}.json` filename convention; copy rejection on a non-empty target; `repo validate` confirming structural integrity after copy.
+
+**CLI surface.** `repo create`, `note create`, `repo copy`, `repo validate`.
+
+**Steps.**
+
+1. Create a fresh source repo:
+   ```
+   srs repo create --repo /tmp/s9-src --namespace com.example.s9
+   ```
+2. Add a titled note and an untitled note:
+   ```
+   echo '{"title":"Deployment Checklist","sections":[{"name":"body","content":"Steps to verify before any release."}]}' \
+     | srs note create --repo /tmp/s9-src
+   echo '{"sections":[{"name":"body","content":"Quick scratch thought."}]}' \
+     | srs note create --repo /tmp/s9-src
+   ```
+3. Confirm source filenames follow the convention:
+   ```
+   ls /tmp/s9-src/records/notes/
+   # deployment-checklist-<id8>.json
+   # <id8>.json  (untitled falls back to id-only)
+   ```
+4. Copy to a new file store:
+   ```
+   srs repo copy --from /tmp/s9-src --to /tmp/s9-dst
+   ```
+5. Confirm destination filenames match source exactly:
+   ```
+   ls /tmp/s9-dst/records/notes/
+   # same two files as step 3
+   ```
+6. Validate the destination:
+   ```
+   srs repo validate --repo /tmp/s9-dst
+   ```
+
+**Negative case.** Run `srs repo copy` a second time targeting the same non-empty `/tmp/s9-dst` — confirm `ok: false` and a diagnostic naming "target is not empty".
+
+**Done when.**
+- The titled note file in the destination is named `deployment-checklist-<id8>.json` (slug from title, 8-char UUID prefix) — not a bare UUID.
+- The untitled note file is named `<id8>.json` (id-only fallback).
+- Filenames in source and destination are identical.
+- `srs repo validate` on the destination returns `ok: true` with 0 errors and `summary.checked` equal to the instance count.
+- The non-empty-target copy returns `ok: false` with a clear diagnostic.
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -252,6 +304,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | Command group | Exercised by |
 |---|---|
 | `repo` (map, validate, init) | S1–S6 (orientation + validation in every scenario) |
+| `repo copy` | S9 |
 | `note` (create/get/list/update/delete) | S1 |
 | `field` (create/list/get/update/delete) | S2 |
 | `type` (create/get/list/schema/update/delete) | S2 |
