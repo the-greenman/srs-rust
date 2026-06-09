@@ -1019,4 +1019,32 @@ mod tests {
             "expected records/tier-2/section-44444444.json"
         );
     }
+
+    #[test]
+    fn copy_tier1_record_no_type_name_produces_id_only_filename() {
+        // Tier-1 TypedRecords have named fields but no type binding — they
+        // carry no `typeName` field, so the slug falls back to id-only.
+        let source = MemoryStore::uninitialized();
+        source.initialize_repository(&make_input()).unwrap();
+        let mut snapshot = export_repository_snapshot(&source).unwrap();
+        snapshot.instances.push(SnapshotInstance {
+            instance_id: "55555555-5555-4555-b555-555555555555".to_string(),
+            tier: 1,
+            title: None,
+            tags: None,
+            value: serde_json::json!({
+                "instanceId": "55555555-5555-4555-b555-555555555555",
+                "fields": [{"name": "description", "value": "some text"}]
+            }),
+        });
+
+        let temp = TempDir::new().unwrap();
+        let target = FileStore::new(temp.path());
+        import_repository_snapshot(&target, &snapshot).unwrap();
+
+        assert!(
+            temp.path().join("records/tier-1/55555555.json").exists(),
+            "expected records/tier-1/55555555.json (id-only — tier-1 has no typeName)"
+        );
+    }
 }
