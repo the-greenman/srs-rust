@@ -1,0 +1,228 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BlueprintBriefPayload",
+  "type": "object",
+  "required": [
+    "aiGuidance",
+    "blueprintId",
+    "diagnostics",
+    "name",
+    "namespace",
+    "rendered",
+    "requiredTypes",
+    "structure",
+    "types",
+    "version"
+  ],
+  "properties": {
+    "aiGuidance": true,
+    "blueprintId": {
+      "type": "string"
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "name": {
+      "type": "string"
+    },
+    "namespace": {
+      "type": "string"
+    },
+    "protocol": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/BriefProtocol"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "rendered": {
+      "description": "Markdown prose in AI guidance composition order. Always populated.",
+      "type": "string"
+    },
+    "requiredTypes": {
+      "type": "array",
+      "items": true
+    },
+    "structure": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/BriefRelationSpec"
+      }
+    },
+    "types": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/BriefType"
+      }
+    },
+    "version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0.0
+    }
+  },
+  "definitions": {
+    "BriefField": {
+      "type": "object",
+      "required": [
+        "aiGuidance",
+        "fieldId",
+        "name",
+        "order",
+        "required",
+        "valueType"
+      ],
+      "properties": {
+        "aiGuidance": true,
+        "fieldId": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "order": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "valueType": {
+          "type": "string"
+        }
+      }
+    },
+    "BriefProtocol": {
+      "type": "object",
+      "required": [
+        "protocolId",
+        "protocolName",
+        "stages"
+      ],
+      "properties": {
+        "protocolId": {
+          "type": "string"
+        },
+        "protocolName": {
+          "type": "string"
+        },
+        "stages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/BriefStage"
+          }
+        }
+      }
+    },
+    "BriefRelationSpec": {
+      "type": "object",
+      "required": [
+        "relationType",
+        "sourceTypeId",
+        "targetTypeId"
+      ],
+      "properties": {
+        "cardinality": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "relationType": {
+          "type": "string"
+        },
+        "sourceTypeId": {
+          "type": "string"
+        },
+        "targetTypeId": {
+          "type": "string"
+        }
+      }
+    },
+    "BriefStage": {
+      "type": "object",
+      "required": [
+        "aiGuidance",
+        "dependsOn",
+        "name",
+        "order",
+        "stageId"
+      ],
+      "properties": {
+        "aiGuidance": true,
+        "completionCriteria": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "contributesTo": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "dependsOn": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "name": {
+          "type": "string"
+        },
+        "order": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "question": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stageId": {
+          "type": "string"
+        }
+      }
+    },
+    "BriefType": {
+      "type": "object",
+      "required": [
+        "aiGuidance",
+        "fields",
+        "name",
+        "namespace",
+        "typeId"
+      ],
+      "properties": {
+        "aiGuidance": true,
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/BriefField"
+          }
+        },
+        "name": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "typeId": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

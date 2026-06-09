@@ -711,6 +711,79 @@ pub struct BlueprintSchemaPayload {
     pub diagnostics: Vec<String>,
 }
 
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BriefField {
+    pub field_id: String,
+    pub name: String,
+    pub order: u32,
+    pub required: bool,
+    pub value_type: String,
+    #[schemars(with = "serde_json::Value")]
+    pub ai_guidance: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BriefType {
+    pub type_id: String,
+    pub namespace: String,
+    pub name: String,
+    #[schemars(with = "serde_json::Value")]
+    pub ai_guidance: Option<serde_json::Value>,
+    pub fields: Vec<BriefField>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BriefRelationSpec {
+    pub relation_type: String,
+    pub source_type_id: String,
+    pub target_type_id: String,
+    pub cardinality: Option<String>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BriefStage {
+    pub stage_id: String,
+    pub name: String,
+    pub order: i32,
+    pub depends_on: Vec<String>,
+    pub question: Option<String>,
+    pub completion_criteria: Option<String>,
+    pub contributes_to: Option<Vec<String>>,
+    #[schemars(with = "serde_json::Value")]
+    pub ai_guidance: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BriefProtocol {
+    pub protocol_id: String,
+    pub protocol_name: String,
+    pub stages: Vec<BriefStage>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BlueprintBriefPayload {
+    /// Markdown prose in AI guidance composition order. Always populated.
+    pub rendered: String,
+    pub blueprint_id: String,
+    pub namespace: String,
+    pub name: String,
+    pub version: u32,
+    #[schemars(with = "serde_json::Value")]
+    pub ai_guidance: Option<serde_json::Value>,
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub required_types: Vec<serde_json::Value>,
+    pub types: Vec<BriefType>,
+    pub structure: Vec<BriefRelationSpec>,
+    pub protocol: Option<BriefProtocol>,
+    pub diagnostics: Vec<String>,
+}
+
 // ── View payloads ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]

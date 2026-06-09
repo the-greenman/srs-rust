@@ -1,12 +1,19 @@
 use crate::commands::{with_store, BlueprintCommand, CliContext};
 use crate::output;
 use crate::payload::{
-    BlueprintDeletePayload, BlueprintListEntry, BlueprintListPayload, BlueprintPayload,
-    BlueprintSchemaPayload, BlueprintStructurePayload, BlueprintValidatePayload, RelationSpecEntry,
+    BlueprintBriefPayload, BlueprintDeletePayload, BlueprintListEntry, BlueprintListPayload,
+    BlueprintPayload, BlueprintSchemaPayload, BlueprintStructurePayload, BlueprintValidatePayload,
+    BriefField, BriefProtocol, BriefRelationSpec, BriefStage, BriefType, RelationSpecEntry,
 };
 use anyhow::Result;
 use srs_core::types::blueprint::Blueprint;
-use srs_repository::blueprint_schema_service::{self, BlueprintSchemaInput};
+use srs_repository::blueprint_brief_service::{
+    self as blueprint_brief_service, BlueprintBriefInput, BriefProtocolResult, BriefStageResult,
+    BriefTypeResult,
+};
+use srs_repository::blueprint_schema_service::{
+    self as blueprint_schema_svc, BlueprintSchemaInput,
+};
 use srs_repository::blueprint_service::{
     create_blueprint, delete_blueprint, get_blueprint_by_id, list_blueprint_structure,
     list_blueprints_summary, update_blueprint, validate_blueprint_by_id, GetBlueprintResult,
@@ -24,6 +31,7 @@ pub fn dispatch(ctx: CliContext, cmd: BlueprintCommand) -> Result<String> {
         BlueprintCommand::Validate { id } => cmd_blueprint_validate(ctx, id),
         BlueprintCommand::Structure { id } => cmd_blueprint_structure(ctx, id),
         BlueprintCommand::Schema { id } => cmd_blueprint_schema(ctx, id),
+        BlueprintCommand::Brief { id } => cmd_blueprint_brief(ctx, id),
     }
 }
 
@@ -129,6 +137,99 @@ fn cmd_blueprint_delete(ctx: CliContext, id: String) -> Result<String> {
     }
 }
 
+fn cmd_blueprint_brief(ctx: CliContext, id: String) -> Result<String> {
+    match with_store(&ctx, |store| {
+        Ok(blueprint_brief_service::blueprint_brief(
+            store,
+            BlueprintBriefInput {
+                blueprint_id: id.clone(),
+            },
+        )?)
+    }) {
+        Ok(result) => {
+            let rendered = blueprint_brief_service::render_brief_markdown(&result);
+            output::serialize(
+                "blueprint brief",
+                BlueprintBriefPayload {
+                    rendered,
+                    blueprint_id: result.blueprint_id,
+                    namespace: result.namespace,
+                    name: result.name,
+                    version: result.version,
+                    ai_guidance: result.ai_guidance,
+                    required_types: result.required_types,
+                    types: result.types.into_iter().map(map_brief_type).collect(),
+                    structure: result
+                        .structure
+                        .into_iter()
+                        .map(|rs| BriefRelationSpec {
+                            relation_type: rs.relation_type,
+                            source_type_id: rs.source_type_id,
+                            target_type_id: rs.target_type_id,
+                            cardinality: rs.cardinality,
+                        })
+                        .collect(),
+                    protocol: result.protocol.map(map_brief_protocol),
+                    diagnostics: result.diagnostics,
+                },
+            )
+        }
+        Err(e) => {
+            if let Some(RepositoryError::BlueprintNotFound { .. }) =
+                e.downcast_ref::<RepositoryError>()
+            {
+                return Ok(output::err(
+                    "blueprint brief",
+                    vec![format!("Blueprint '{id}' not found")],
+                ));
+            }
+            Err(e)
+        }
+    }
+}
+
+fn map_brief_type(t: BriefTypeResult) -> BriefType {
+    BriefType {
+        type_id: t.type_id,
+        namespace: t.namespace,
+        name: t.name,
+        ai_guidance: t.ai_guidance,
+        fields: t
+            .fields
+            .into_iter()
+            .map(|f| BriefField {
+                field_id: f.field_id,
+                name: f.name,
+                order: f.order,
+                required: f.required,
+                value_type: f.value_type,
+                ai_guidance: f.ai_guidance,
+            })
+            .collect(),
+    }
+}
+
+fn map_brief_protocol(p: BriefProtocolResult) -> BriefProtocol {
+    BriefProtocol {
+        protocol_id: p.protocol_id,
+        protocol_name: p.protocol_name,
+        stages: p.stages.into_iter().map(map_brief_stage).collect(),
+    }
+}
+
+fn map_brief_stage(s: BriefStageResult) -> BriefStage {
+    BriefStage {
+        stage_id: s.stage_id,
+        name: s.name,
+        order: s.order,
+        depends_on: s.depends_on,
+        question: s.question,
+        completion_criteria: s.completion_criteria,
+        contributes_to: s.contributes_to,
+        ai_guidance: s.ai_guidance,
+    }
+}
+
 fn cmd_blueprint_validate(ctx: CliContext, id: String) -> Result<String> {
     let result = match with_store(&ctx, |store| Ok(validate_blueprint_by_id(store, &id)?)) {
         Ok(r) => r,
@@ -190,7 +291,7 @@ fn cmd_blueprint_structure(ctx: CliContext, id: String) -> Result<String> {
 
 fn cmd_blueprint_schema(ctx: CliContext, id: String) -> Result<String> {
     match with_store(&ctx, |store| {
-        Ok(blueprint_schema_service::blueprint_schema(
+        Ok(blueprint_schema_svc::blueprint_schema(
             store,
             BlueprintSchemaInput {
                 blueprint_id: id.clone(),
