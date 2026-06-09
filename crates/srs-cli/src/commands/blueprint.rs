@@ -8,8 +8,8 @@ use crate::payload::{
 use anyhow::Result;
 use srs_core::types::blueprint::Blueprint;
 use srs_repository::blueprint_brief_service::{
-    self as blueprint_brief_service, BlueprintBriefInput, BriefProtocolResult, BriefStageResult,
-    BriefTypeResult,
+    self as blueprint_brief_service, BlueprintBriefInput, BriefProtocolResult,
+    BriefRelationSpecResult, BriefStageResult, BriefTypeResult,
 };
 use srs_repository::blueprint_schema_service::{
     self as blueprint_schema_svc, BlueprintSchemaInput,
@@ -162,12 +162,7 @@ fn cmd_blueprint_brief(ctx: CliContext, id: String) -> Result<String> {
                     structure: result
                         .structure
                         .into_iter()
-                        .map(|rs| BriefRelationSpec {
-                            relation_type: rs.relation_type,
-                            source_type_id: rs.source_type_id,
-                            target_type_id: rs.target_type_id,
-                            cardinality: rs.cardinality,
-                        })
+                        .map(map_brief_relation_spec)
                         .collect(),
                     protocol: result.protocol.map(map_brief_protocol),
                     diagnostics: result.diagnostics,
@@ -206,6 +201,16 @@ fn map_brief_type(t: BriefTypeResult) -> BriefType {
                 ai_guidance: f.ai_guidance,
             })
             .collect(),
+    }
+}
+
+fn map_brief_relation_spec(rs: BriefRelationSpecResult) -> BriefRelationSpec {
+    BriefRelationSpec {
+        relation_type: rs.relation_type,
+        source_type_id: rs.source_type_id,
+        target_type_id: rs.target_type_id,
+        cardinality: rs.cardinality,
+        required: rs.required,
     }
 }
 

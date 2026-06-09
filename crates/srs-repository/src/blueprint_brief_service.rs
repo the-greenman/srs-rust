@@ -52,6 +52,7 @@ pub struct BriefRelationSpecResult {
     pub source_type_id: String,
     pub target_type_id: String,
     pub cardinality: Option<String>,
+    pub required: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -127,6 +128,7 @@ pub fn blueprint_brief(
             source_type_id: rs.source_type.type_id.clone(),
             target_type_id: rs.target_type.type_id.clone(),
             cardinality: rs.cardinality.clone(),
+            required: rs.required,
         })
         .collect();
 
@@ -435,8 +437,9 @@ mod tests {
     use crate::blueprint_service::create_blueprint;
     use crate::manifest::Manifest;
     use crate::package::Package;
+    use crate::protocol_service::{import_protocol, ImportProtocolInput};
     use crate::store::memory::MemoryStore;
-    use srs_core::types::blueprint::{Blueprint, TypeRef};
+    use srs_core::types::blueprint::{Blueprint, RelationSpec, TypeRef};
     use srs_core::types::field::{Field, ValueType};
     use srs_core::types::record_type::{FieldAssignment, RecordType};
     use std::collections::HashMap;
@@ -694,5 +697,227 @@ mod tests {
         let v = serde_json::json!({ "name": "no-id-stage", "order": 1 });
         let err = deserialize_stage(&v).unwrap_err();
         assert!(err.contains("stageId"), "error should mention stageId");
+    }
+
+    /// Build fields and RecordType for the meta.protocol system type (matching
+    /// the UUIDs in srs/srs/package/).
+    fn make_protocol_fields_and_type() -> (Vec<Field>, RecordType) {
+        const FIELDS: &[(&str, &str, ValueType)] = &[
+            (
+                "6c66d06c-3f95-4d17-8ecf-e1046a6f2ec1",
+                "protocol-id",
+                ValueType::String,
+            ),
+            (
+                "8d0f55f9-80e3-4dd6-a05c-10c4b6b6cc87",
+                "protocol-namespace",
+                ValueType::String,
+            ),
+            (
+                "09c5e389-cf6c-4f72-aad6-8cf26bce0b78",
+                "protocol-name",
+                ValueType::String,
+            ),
+            (
+                "f7d28d9d-f90c-4a01-a3eb-2ff4cad54ff6",
+                "protocol-version",
+                ValueType::Number,
+            ),
+            (
+                "4939a29b-7f70-481f-bf6b-bf693f8bd67f",
+                "protocol-target-type",
+                ValueType::String,
+            ),
+            (
+                "0f1232c6-0db5-4383-b91d-64d81195f1c4",
+                "protocol-stages",
+                ValueType::Text,
+            ),
+            (
+                "b953f716-383a-4218-bebf-96e93c4747a4",
+                "protocol-created-at",
+                ValueType::Date,
+            ),
+        ];
+
+        let fields: Vec<Field> = FIELDS
+            .iter()
+            .map(|(id, name, vt)| Field {
+                id: id.to_string(),
+                namespace: "com.semanticops.srs".to_string(),
+                name: name.to_string(),
+                version: 1,
+                description: format!("{name} field"),
+                ai_guidance: serde_json::Value::Null,
+                value_type: *vt,
+                allowed_values: None,
+                vocabulary_ref: None,
+                default_value: None,
+                created_at: "2026-01-01T00:00:00Z".to_string(),
+                extra: HashMap::new(),
+            })
+            .collect();
+
+        let assignments: Vec<FieldAssignment> = FIELDS
+            .iter()
+            .enumerate()
+            .map(|(i, (id, _, _))| FieldAssignment {
+                field_id: id.to_string(),
+                order: i as u32,
+                required: true,
+                display_label: None,
+                repeatable: false,
+                min_items: None,
+                max_items: None,
+            })
+            .collect();
+
+        let proto_type = RecordType {
+            id: "48a03f5d-4f27-42f4-b791-999f6c22f8d2".to_string(),
+            namespace: "com.semanticops.srs".to_string(),
+            name: "meta.protocol".to_string(),
+            version: 1,
+            description: "Protocol definition type".to_string(),
+            fields: assignments,
+            field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        (fields, proto_type)
+    }
+
+    #[test]
+    fn test_brief_structure_relay() {
+        let store = make_package_store(
+            vec![make_field("field-aaa", "title", ValueType::String)],
+            vec![make_article_type()],
+        );
+        let blueprint = Blueprint {
+            id: String::new(),
+            namespace: "test.ns".to_string(),
+            name: "relay-blueprint".to_string(),
+            version: 1,
+            description: String::new(),
+            root_types: vec![TypeRef {
+                type_id: "type-111".to_string(),
+                type_version: None,
+            }],
+            structure: vec![RelationSpec {
+                relation_type: "contains".to_string(),
+                source_type: TypeRef {
+                    type_id: "type-111".to_string(),
+                    type_version: None,
+                },
+                target_type: TypeRef {
+                    type_id: "type-222".to_string(),
+                    type_version: None,
+                },
+                cardinality: Some("1..*".to_string()),
+                required: Some(true),
+            }],
+            required_types: vec![],
+            ai_guidance: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            lineage: None,
+            provenance: None,
+        };
+        let created = create_blueprint(&store, blueprint, None).unwrap();
+        let result = blueprint_brief(
+            &store,
+            BlueprintBriefInput {
+                blueprint_id: created.blueprint.id,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.structure.len(), 1);
+        assert_eq!(result.structure[0].relation_type, "contains");
+        assert_eq!(result.structure[0].source_type_id, "type-111");
+        assert_eq!(result.structure[0].target_type_id, "type-222");
+        assert_eq!(result.structure[0].cardinality.as_deref(), Some("1..*"));
+        assert_eq!(result.structure[0].required, Some(true));
+    }
+
+    #[test]
+    fn test_brief_finds_protocol_for_root_type() {
+        let (proto_fields, proto_type) = make_protocol_fields_and_type();
+        let store = make_package_store(
+            [
+                vec![make_field("field-aaa", "title", ValueType::String)],
+                proto_fields,
+            ]
+            .concat(),
+            vec![make_article_type(), proto_type],
+        );
+        // Create a blueprint whose root type is "type-111"
+        let blueprint = Blueprint {
+            id: String::new(),
+            namespace: "test.ns".to_string(),
+            name: "protocol-blueprint".to_string(),
+            version: 1,
+            description: String::new(),
+            root_types: vec![TypeRef {
+                type_id: "type-111".to_string(),
+                type_version: None,
+            }],
+            structure: vec![],
+            required_types: vec![],
+            ai_guidance: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            lineage: None,
+            provenance: None,
+        };
+        let created = create_blueprint(&store, blueprint, None).unwrap();
+
+        // Import a protocol that targets "type-111"
+        import_protocol(
+            &store,
+            ImportProtocolInput {
+                raw: serde_json::json!({
+                    "protocolId": "proto-001",
+                    "protocolNamespace": "test.ns",
+                    "protocolName": "Article Protocol",
+                    "protocolVersion": 1,
+                    "protocolTargetType": "type-111",
+                    "protocolCreatedAt": "2026-01-01T00:00:00Z",
+                    "protocolStages": [{
+                        "stageId": "s1",
+                        "name": "Gather",
+                        "order": 1,
+                        "dependsOn": [],
+                        "question": "What is the topic?"
+                    }]
+                }),
+            },
+        )
+        .unwrap();
+
+        let result = blueprint_brief(
+            &store,
+            BlueprintBriefInput {
+                blueprint_id: created.blueprint.id,
+            },
+        )
+        .unwrap();
+
+        assert!(result.protocol.is_some(), "protocol should be found");
+        let proto = result.protocol.unwrap();
+        assert_eq!(proto.protocol_id, "proto-001");
+        assert_eq!(proto.protocol_name, "Article Protocol");
+        assert_eq!(proto.stages.len(), 1);
+        assert_eq!(proto.stages[0].stage_id, "s1");
+        assert_eq!(
+            proto.stages[0].question.as_deref(),
+            Some("What is the topic?")
+        );
     }
 }

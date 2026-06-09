@@ -3,7 +3,6 @@
   "title": "BlueprintBriefPayload",
   "type": "object",
   "required": [
-    "aiGuidance",
     "blueprintId",
     "diagnostics",
     "name",
@@ -71,7 +70,6 @@
     "BriefField": {
       "type": "object",
       "required": [
-        "aiGuidance",
         "fieldId",
         "name",
         "order",
@@ -138,6 +136,12 @@
         "relationType": {
           "type": "string"
         },
+        "required": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "sourceTypeId": {
           "type": "string"
         },
@@ -149,7 +153,6 @@
     "BriefStage": {
       "type": "object",
       "required": [
-        "aiGuidance",
         "dependsOn",
         "name",
         "order",
@@ -199,7 +202,6 @@
     "BriefType": {
       "type": "object",
       "required": [
-        "aiGuidance",
         "fields",
         "name",
         "namespace",
