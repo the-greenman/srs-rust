@@ -1,11 +1,15 @@
 use crate::commands::{with_store, CliContext, RepoCommand, RepoExtensionsCommand, StoreBackend};
 use crate::output;
 use crate::payload::{
-    RepoCopyPayload, RepoCreatePayload, RepoExtensionsMutatePayload, RepoExtensionsPayload,
-    RepoMapPayload, RepoValidatePayload,
+    RepoCopyPayload, RepoCreatePayload, RepoDiffInstanceAdded, RepoDiffInstanceModified,
+    RepoDiffInstanceRemoved, RepoDiffInstances, RepoDiffManifest, RepoDiffPayload,
+    RepoDiffRelationAdded, RepoDiffRelationModified, RepoDiffRelationRemoved, RepoDiffRelations,
+    RepoDiffSummary, RepoExtensionsMutatePayload, RepoExtensionsPayload, RepoMapPayload,
+    RepoValidatePayload,
 };
 use anyhow::{Context, Result};
 use srs_repository::analysis::build_repo_map;
+use srs_repository::diff::diff_repositories;
 use srs_repository::manifest_service::{
     add_declared_extension, list_declared_extensions, remove_declared_extension,
 };
@@ -48,6 +52,12 @@ pub fn dispatch(ctx: CliContext, cmd: RepoCommand) -> Result<String> {
             from_store,
             to_store,
         } => cmd_repo_copy(ctx, from, to, from_store, to_store),
+        RepoCommand::Diff {
+            from,
+            to,
+            from_store,
+            to_store,
+        } => cmd_repo_diff(ctx, from, to, from_store, to_store),
         RepoCommand::Validate { json: _ } => cmd_repo_validate(ctx),
         RepoCommand::Extensions(ext_cmd) => cmd_repo_extensions_dispatch(ctx, ext_cmd),
     }
@@ -195,6 +205,129 @@ fn cmd_repo_copy(
         }
     }
     output::serialize("repo copy", RepoCopyPayload { from, to })
+}
+
+fn cmd_repo_diff(
+    _ctx: CliContext,
+    from: std::path::PathBuf,
+    to: std::path::PathBuf,
+    from_store: Option<StoreBackend>,
+    to_store: Option<StoreBackend>,
+) -> Result<String> {
+    let from_store = from_store.unwrap_or_else(|| infer_copy_store(&from));
+    let to_store = to_store.unwrap_or_else(|| infer_copy_store(&to));
+
+    let diff = match (from_store, to_store) {
+        (StoreBackend::File, StoreBackend::File) => {
+            let source = FileStore::new(&from);
+            let target = FileStore::new(&to);
+            diff_repositories(&source, &target)?
+        }
+        (StoreBackend::File, StoreBackend::Json) => {
+            let source = FileStore::new(&from);
+            let target = JsonStore::open(&to)
+                .with_context(|| format!("Failed to open JsonStore at {}", to.display()))?;
+            diff_repositories(&source, &target)?
+        }
+        (StoreBackend::Json, StoreBackend::File) => {
+            let source = JsonStore::open(&from)
+                .with_context(|| format!("Failed to open JsonStore at {}", from.display()))?;
+            let target = FileStore::new(&to);
+            diff_repositories(&source, &target)?
+        }
+        (StoreBackend::Json, StoreBackend::Json) => {
+            let source = JsonStore::open(&from)
+                .with_context(|| format!("Failed to open JsonStore at {}", from.display()))?;
+            let target = JsonStore::open(&to)
+                .with_context(|| format!("Failed to open JsonStore at {}", to.display()))?;
+            diff_repositories(&source, &target)?
+        }
+    };
+
+    output::serialize(
+        "repo diff",
+        RepoDiffPayload {
+            from,
+            to,
+            summary: RepoDiffSummary {
+                instances_added: diff.summary.instances_added,
+                instances_removed: diff.summary.instances_removed,
+                instances_modified: diff.summary.instances_modified,
+                relations_added: diff.summary.relations_added,
+                relations_removed: diff.summary.relations_removed,
+                relations_modified: diff.summary.relations_modified,
+            },
+            manifest: RepoDiffManifest {
+                namespace_changed: diff.manifest.namespace_changed,
+                srs_version_changed: diff.manifest.srs_version_changed,
+                extensions_added: diff.manifest.extensions_added,
+                extensions_removed: diff.manifest.extensions_removed,
+            },
+            instances: RepoDiffInstances {
+                added: diff
+                    .instances
+                    .added
+                    .into_iter()
+                    .map(|i| RepoDiffInstanceAdded {
+                        instance_id: i.instance_id,
+                        tier: i.tier,
+                        value: i.value,
+                    })
+                    .collect(),
+                removed: diff
+                    .instances
+                    .removed
+                    .into_iter()
+                    .map(|i| RepoDiffInstanceRemoved {
+                        instance_id: i.instance_id,
+                        tier: i.tier,
+                        value: i.value,
+                    })
+                    .collect(),
+                modified: diff
+                    .instances
+                    .modified
+                    .into_iter()
+                    .map(|i| RepoDiffInstanceModified {
+                        instance_id: i.instance_id,
+                        tier: i.tier,
+                        from_value: i.from_value,
+                        to_value: i.to_value,
+                    })
+                    .collect(),
+            },
+            relations: RepoDiffRelations {
+                added: diff
+                    .relations
+                    .added
+                    .into_iter()
+                    .map(|r| RepoDiffRelationAdded {
+                        relation_id: r.relation_id,
+                        value: r.value,
+                    })
+                    .collect(),
+                removed: diff
+                    .relations
+                    .removed
+                    .into_iter()
+                    .map(|r| RepoDiffRelationRemoved {
+                        relation_id: r.relation_id,
+                        value: r.value,
+                    })
+                    .collect(),
+                modified: diff
+                    .relations
+                    .modified
+                    .into_iter()
+                    .map(|r| RepoDiffRelationModified {
+                        relation_id: r.relation_id,
+                        from_value: r.from_value,
+                        to_value: r.to_value,
+                    })
+                    .collect(),
+            },
+        },
+    )
 }
 
 fn infer_copy_store(path: &std::path::Path) -> StoreBackend {

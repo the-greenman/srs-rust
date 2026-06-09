@@ -149,6 +149,7 @@ fn main() {
     write_schema!("repo-create", RepoCreatePayload);
     write_schema!("repo-map", RepoMapPayload);
     write_schema!("repo-copy", RepoCopyPayload);
+    write_schema!("repo-diff", RepoDiffPayload);
     write_schema!("repo-validate", RepoValidatePayload);
     write_schema!("repo-extensions-list", RepoExtensionsPayload);
     write_schema!("repo-extensions-enable", RepoExtensionsMutatePayload);

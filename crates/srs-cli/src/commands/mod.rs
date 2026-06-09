@@ -504,6 +504,21 @@ pub enum RepoCommand {
         #[arg(long = "to-store", value_enum)]
         to_store: Option<StoreBackend>,
     },
+    /// Diff two repository copies, keyed on stable instance_id / relation_id
+    Diff {
+        /// Source (from) repository root
+        #[arg(long = "from")]
+        from: PathBuf,
+        /// Target (to) repository root
+        #[arg(long = "to")]
+        to: PathBuf,
+        /// Source store backend override. By default inferred from --from.
+        #[arg(long = "from-store", value_enum)]
+        from_store: Option<StoreBackend>,
+        /// Target store backend override. By default inferred from --to.
+        #[arg(long = "to-store", value_enum)]
+        to_store: Option<StoreBackend>,
+    },
     /// Emit a deterministic repository map
     Map {
         /// Deprecated: JSON output is now the default (no-op)
@@ -1296,16 +1311,18 @@ pub fn dispatch(cli: Cli) -> Result<String> {
         Commands::Repo(RepoCommand::Create { .. }) => {
             resolve_repo_for_create(cli.repo.clone(), cli.store)?
         }
-        Commands::Repo(RepoCommand::Copy { .. }) => match &cli.repo {
-            Some(path) => RepositoryLocation {
-                path: path.clone(),
-                store: cli.store.unwrap_or_else(|| infer_store_from_location(path)),
-            },
-            None => RepositoryLocation {
-                path: std::env::current_dir()?,
-                store: cli.store.unwrap_or(StoreBackend::File),
-            },
-        },
+        Commands::Repo(RepoCommand::Copy { .. }) | Commands::Repo(RepoCommand::Diff { .. }) => {
+            match &cli.repo {
+                Some(path) => RepositoryLocation {
+                    path: path.clone(),
+                    store: cli.store.unwrap_or_else(|| infer_store_from_location(path)),
+                },
+                None => RepositoryLocation {
+                    path: std::env::current_dir()?,
+                    store: cli.store.unwrap_or(StoreBackend::File),
+                },
+            }
+        }
         _ => resolve_repo(cli.repo.clone(), cli.store)?,
     };
 

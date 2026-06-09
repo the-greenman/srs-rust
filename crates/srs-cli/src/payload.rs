@@ -956,6 +956,108 @@ pub struct RepoCopyPayload {
 
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+pub struct RepoDiffSummary {
+    pub instances_added: usize,
+    pub instances_removed: usize,
+    pub instances_modified: usize,
+    pub relations_added: usize,
+    pub relations_removed: usize,
+    pub relations_modified: usize,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoDiffManifest {
+    pub namespace_changed: bool,
+    pub srs_version_changed: bool,
+    pub extensions_added: Vec<String>,
+    pub extensions_removed: Vec<String>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoDiffInstanceAdded {
+    pub instance_id: String,
+    pub tier: u8,
+    #[schemars(with = "serde_json::Value")]
+    pub value: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoDiffInstanceRemoved {
+    pub instance_id: String,
+    pub tier: u8,
+    #[schemars(with = "serde_json::Value")]
+    pub value: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoDiffInstanceModified {
+    pub instance_id: String,
+    pub tier: u8,
+    #[schemars(with = "serde_json::Value")]
+    pub from_value: serde_json::Value,
+    #[schemars(with = "serde_json::Value")]
+    pub to_value: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoDiffInstances {
+    pub added: Vec<RepoDiffInstanceAdded>,
+    pub removed: Vec<RepoDiffInstanceRemoved>,
+    pub modified: Vec<RepoDiffInstanceModified>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoDiffRelationAdded {
+    pub relation_id: String,
+    #[schemars(with = "serde_json::Value")]
+    pub value: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoDiffRelationRemoved {
+    pub relation_id: String,
+    #[schemars(with = "serde_json::Value")]
+    pub value: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoDiffRelationModified {
+    pub relation_id: String,
+    #[schemars(with = "serde_json::Value")]
+    pub from_value: serde_json::Value,
+    #[schemars(with = "serde_json::Value")]
+    pub to_value: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoDiffRelations {
+    pub added: Vec<RepoDiffRelationAdded>,
+    pub removed: Vec<RepoDiffRelationRemoved>,
+    pub modified: Vec<RepoDiffRelationModified>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoDiffPayload {
+    pub from: PathBuf,
+    pub to: PathBuf,
+    pub summary: RepoDiffSummary,
+    pub manifest: RepoDiffManifest,
+    pub instances: RepoDiffInstances,
+    pub relations: RepoDiffRelations,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct RepoValidatePayload {
     /// Diagnostic entries serialized from `ValidationDiagnostic` objects.
     /// Each entry contains `severity`, `path`, `schemaId?`, and `message`.
