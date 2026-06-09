@@ -1,0 +1,698 @@
+//! `blueprint brief` composition service.
+//!
+//! Assembles, for one Blueprint, the full layered guidance context in the spec's recommended
+//! AI guidance composition order:
+//!
+//! 1. Blueprint `aiGuidance` + `requiredTypes`
+//! 2. For each root Type: Type `aiGuidance`, then each Field in `order` with its guidance
+//! 3. `structure[]` RelationSpecs
+//! 4. First Protocol whose `targetType` matches a root Type (if any)
+//!
+//! Also provides `render_brief_markdown` for human/LLM-readable prose output.
+
+use crate::blueprint_service::{get_blueprint_by_id, GetBlueprintResult};
+use crate::error::RepositoryError;
+use crate::package_service::{
+    get_field_by_id, get_type_by_id, get_type_by_id_latest, GetFieldResult, GetTypeResult,
+};
+use crate::protocol_service::find_protocol_by_target_type;
+use crate::store::RepositoryStore;
+use srs_core::types::blueprint::TypeRef;
+
+// ---------------------------------------------------------------------------
+// Input / output types
+// ---------------------------------------------------------------------------
+
+pub struct BlueprintBriefInput {
+    pub blueprint_id: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct BriefFieldResult {
+    pub field_id: String,
+    pub name: String,
+    pub order: u32,
+    pub required: bool,
+    pub value_type: String,
+    pub ai_guidance: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BriefTypeResult {
+    pub type_id: String,
+    pub namespace: String,
+    pub name: String,
+    pub ai_guidance: Option<serde_json::Value>,
+    pub fields: Vec<BriefFieldResult>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BriefRelationSpecResult {
+    pub relation_type: String,
+    pub source_type_id: String,
+    pub target_type_id: String,
+    pub cardinality: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BriefStageResult {
+    pub stage_id: String,
+    pub name: String,
+    pub order: i32,
+    pub depends_on: Vec<String>,
+    pub question: Option<String>,
+    pub completion_criteria: Option<String>,
+    pub contributes_to: Option<Vec<String>>,
+    pub ai_guidance: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BriefProtocolResult {
+    pub protocol_id: String,
+    pub protocol_name: String,
+    pub stages: Vec<BriefStageResult>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BlueprintBriefResult {
+    pub blueprint_id: String,
+    pub namespace: String,
+    pub name: String,
+    pub version: u32,
+    pub ai_guidance: Option<serde_json::Value>,
+    /// Raw TypeRef values passed through for the payload.
+    pub required_types: Vec<serde_json::Value>,
+    pub types: Vec<BriefTypeResult>,
+    pub structure: Vec<BriefRelationSpecResult>,
+    pub protocol: Option<BriefProtocolResult>,
+    pub diagnostics: Vec<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Public service functions
+// ---------------------------------------------------------------------------
+
+/// Compose the full layered guidance context for one Blueprint.
+///
+/// Returns `Err(RepositoryError::BlueprintNotFound)` when the blueprint cannot be resolved.
+/// All other failures (unresolvable type refs, missing fields) are non-fatal and reported
+/// in `result.diagnostics`.
+pub fn blueprint_brief(
+    store: &dyn RepositoryStore,
+    input: BlueprintBriefInput,
+) -> Result<BlueprintBriefResult, RepositoryError> {
+    let blueprint = match get_blueprint_by_id(store, &input.blueprint_id)? {
+        GetBlueprintResult::Found(bp) => *bp,
+        GetBlueprintResult::NotFound => {
+            return Err(RepositoryError::BlueprintNotFound {
+                blueprint_id: input.blueprint_id,
+            })
+        }
+    };
+
+    let mut diagnostics: Vec<String> = Vec::new();
+    let mut types: Vec<BriefTypeResult> = Vec::new();
+
+    for type_ref in &blueprint.root_types {
+        if let Some(brief_type) = resolve_brief_type(store, type_ref, &mut diagnostics)? {
+            types.push(brief_type);
+        }
+    }
+
+    let structure = blueprint
+        .structure
+        .iter()
+        .map(|rs| BriefRelationSpecResult {
+            relation_type: rs.relation_type.clone(),
+            source_type_id: rs.source_type.type_id.clone(),
+            target_type_id: rs.target_type.type_id.clone(),
+            cardinality: rs.cardinality.clone(),
+        })
+        .collect();
+
+    let required_types = blueprint
+        .required_types
+        .iter()
+        .filter_map(|tr| serde_json::to_value(tr).ok())
+        .collect();
+
+    let protocol = find_protocol_for_roots(store, &blueprint.root_types, &mut diagnostics)?;
+
+    Ok(BlueprintBriefResult {
+        blueprint_id: blueprint.id,
+        namespace: blueprint.namespace,
+        name: blueprint.name,
+        version: blueprint.version,
+        ai_guidance: blueprint.ai_guidance,
+        required_types,
+        types,
+        structure,
+        protocol,
+        diagnostics,
+    })
+}
+
+/// Render a `BlueprintBriefResult` as human/LLM-readable markdown.
+pub fn render_brief_markdown(result: &BlueprintBriefResult) -> String {
+    let mut out = String::new();
+
+    out.push_str(&format!(
+        "# Blueprint: {}/{} v{}\n\n",
+        result.namespace, result.name, result.version
+    ));
+
+    if let Some(guidance) = &result.ai_guidance {
+        out.push_str(&format_guidance_prose(guidance));
+        out.push('\n');
+    }
+
+    if !result.required_types.is_empty() {
+        out.push_str("**Required types:**\n");
+        for rt in &result.required_types {
+            if let Some(id) = rt.get("typeId").and_then(|v| v.as_str()) {
+                out.push_str(&format!("- `{id}`\n"));
+            }
+        }
+        out.push('\n');
+    }
+
+    for t in &result.types {
+        out.push_str(&format!("## Type: {}/{}\n\n", t.namespace, t.name));
+        if let Some(guidance) = &t.ai_guidance {
+            out.push_str(&format_guidance_prose(guidance));
+            out.push('\n');
+        }
+        if !t.fields.is_empty() {
+            out.push_str(
+                "| Field | ValueType | Required | Purpose | Extraction | Negative | Examples |\n",
+            );
+            out.push_str("|---|---|---|---|---|---|---|\n");
+            for f in &t.fields {
+                let purpose = extract_str_field(&f.ai_guidance, "purpose");
+                let extraction = extract_str_field(&f.ai_guidance, "extraction");
+                let negative = extract_str_field(&f.ai_guidance, "negativeGuidance");
+                let examples = extract_str_field(&f.ai_guidance, "examples");
+                let required = if f.required { "yes" } else { "no" };
+                out.push_str(&format!(
+                    "| `{}` | {} | {} | {} | {} | {} | {} |\n",
+                    f.name, f.value_type, required, purpose, extraction, negative, examples
+                ));
+            }
+            out.push('\n');
+        }
+    }
+
+    if !result.structure.is_empty() {
+        out.push_str("## Structure\n\n");
+        for rs in &result.structure {
+            let card = rs
+                .cardinality
+                .as_deref()
+                .map(|c| format!(" ({c})"))
+                .unwrap_or_default();
+            out.push_str(&format!(
+                "- `{}` → `{}` via `{}`{}\n",
+                rs.source_type_id, rs.target_type_id, rs.relation_type, card
+            ));
+        }
+        out.push('\n');
+    }
+
+    if let Some(proto) = &result.protocol {
+        out.push_str(&format!("## Protocol: {}\n\n", proto.protocol_name));
+        for stage in &proto.stages {
+            out.push_str(&format!("### {}. {}\n\n", stage.order, stage.name));
+            if let Some(q) = &stage.question {
+                out.push_str(&format!("**Question:** {q}\n\n"));
+            }
+            if let Some(cc) = &stage.completion_criteria {
+                out.push_str(&format!("**Done when:** {cc}\n\n"));
+            }
+            if let Some(ct) = &stage.contributes_to {
+                if !ct.is_empty() {
+                    out.push_str(&format!("**Contributes to:** {}\n\n", ct.join(", ")));
+                }
+            }
+            if let Some(dep) = stage.ai_guidance.as_ref() {
+                out.push_str(&format_guidance_prose(dep));
+                out.push('\n');
+            }
+        }
+    }
+
+    out
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+fn resolve_brief_type(
+    store: &dyn RepositoryStore,
+    type_ref: &TypeRef,
+    diagnostics: &mut Vec<String>,
+) -> Result<Option<BriefTypeResult>, RepositoryError> {
+    let record_type = match type_ref.type_version {
+        Some(v) => match get_type_by_id(store, &type_ref.type_id, v)? {
+            GetTypeResult::Found(rt) => rt,
+            GetTypeResult::NotFound => {
+                diagnostics.push(format!(
+                    "root type {} v{} not found in package",
+                    type_ref.type_id, v
+                ));
+                return Ok(None);
+            }
+        },
+        None => match get_type_by_id_latest(store, &type_ref.type_id)? {
+            GetTypeResult::Found(rt) => rt,
+            GetTypeResult::NotFound => {
+                diagnostics.push(format!(
+                    "root type {} not found in package",
+                    type_ref.type_id
+                ));
+                return Ok(None);
+            }
+        },
+    };
+
+    let ai_guidance = record_type.extra.get("aiGuidance").cloned();
+
+    let mut field_assignments = record_type.fields.clone();
+    field_assignments.sort_by_key(|fa| fa.order);
+
+    let mut fields = Vec::new();
+    for fa in &field_assignments {
+        match get_field_by_id(store, &fa.field_id)? {
+            GetFieldResult::Found(field) => {
+                let field_ai = if field.ai_guidance.is_null() {
+                    None
+                } else {
+                    Some(field.ai_guidance.clone())
+                };
+                let value_type = serde_json::to_value(&field.value_type)
+                    .ok()
+                    .and_then(|v| v.as_str().map(|s| s.to_string()))
+                    .unwrap_or_default();
+                fields.push(BriefFieldResult {
+                    field_id: field.id.clone(),
+                    name: field.name.clone(),
+                    order: fa.order,
+                    required: fa.required,
+                    value_type,
+                    ai_guidance: field_ai,
+                });
+            }
+            GetFieldResult::NotFound => {
+                diagnostics.push(format!("field {} not found in package", fa.field_id));
+            }
+        }
+    }
+
+    Ok(Some(BriefTypeResult {
+        type_id: record_type.id.clone(),
+        namespace: record_type.namespace.clone(),
+        name: record_type.name.clone(),
+        ai_guidance,
+        fields,
+    }))
+}
+
+fn find_protocol_for_roots(
+    store: &dyn RepositoryStore,
+    root_types: &[TypeRef],
+    diagnostics: &mut Vec<String>,
+) -> Result<Option<BriefProtocolResult>, RepositoryError> {
+    for type_ref in root_types {
+        match find_protocol_by_target_type(store, &type_ref.type_id)? {
+            Some(proto_raw) => {
+                let mut stages: Vec<BriefStageResult> = Vec::new();
+                for raw_val in &proto_raw.stages_raw {
+                    match deserialize_stage(raw_val) {
+                        Ok(stage) => stages.push(stage),
+                        Err(msg) => diagnostics.push(format!("protocol stage: {msg}")),
+                    }
+                }
+                stages.sort_by_key(|s| s.order);
+                return Ok(Some(BriefProtocolResult {
+                    protocol_id: proto_raw.protocol_id,
+                    protocol_name: proto_raw.protocol_name,
+                    stages,
+                }));
+            }
+            None => continue,
+        }
+    }
+    Ok(None)
+}
+
+fn deserialize_stage(v: &serde_json::Value) -> Result<BriefStageResult, String> {
+    let stage_id = v
+        .get("stageId")
+        .and_then(|x| x.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| "missing stageId".to_string())?;
+    let name = v
+        .get("name")
+        .and_then(|x| x.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| format!("stage {stage_id}: missing name"))?;
+    let order = v
+        .get("order")
+        .and_then(|x| x.as_i64())
+        .map(|n| n as i32)
+        .ok_or_else(|| format!("stage {stage_id}: missing order"))?;
+    let depends_on = v
+        .get("dependsOn")
+        .and_then(|x| x.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|e| e.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let question = v
+        .get("question")
+        .and_then(|x| x.as_str())
+        .map(|s| s.to_string());
+    let completion_criteria = v
+        .get("completionCriteria")
+        .and_then(|x| x.as_str())
+        .map(|s| s.to_string());
+    let contributes_to = v
+        .get("contributesTo")
+        .and_then(|x| x.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|e| e.as_str().map(|s| s.to_string()))
+                .collect()
+        });
+    let ai_guidance = v.get("aiGuidance").cloned();
+    Ok(BriefStageResult {
+        stage_id,
+        name,
+        order,
+        depends_on,
+        question,
+        completion_criteria,
+        contributes_to,
+        ai_guidance,
+    })
+}
+
+fn format_guidance_prose(guidance: &serde_json::Value) -> String {
+    if let Some(s) = guidance.as_str() {
+        return format!("{s}\n");
+    }
+    let mut out = String::new();
+    if let Some(purpose) = guidance.get("purpose").and_then(|v| v.as_str()) {
+        out.push_str(&format!("{purpose}\n"));
+    }
+    if let Some(extraction) = guidance.get("extraction").and_then(|v| v.as_str()) {
+        out.push_str(&format!("\n**Extraction:** {extraction}\n"));
+    }
+    if let Some(neg) = guidance.get("negativeGuidance").and_then(|v| v.as_str()) {
+        out.push_str(&format!("\n**Avoid:** {neg}\n"));
+    }
+    out
+}
+
+fn extract_str_field(guidance: &Option<serde_json::Value>, key: &str) -> String {
+    guidance
+        .as_ref()
+        .and_then(|g| g.get(key))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::blueprint_service::create_blueprint;
+    use crate::manifest::Manifest;
+    use crate::package::Package;
+    use crate::store::memory::MemoryStore;
+    use srs_core::types::blueprint::{Blueprint, TypeRef};
+    use srs_core::types::field::{Field, ValueType};
+    use srs_core::types::record_type::{FieldAssignment, RecordType};
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    /// Build a MemoryStore pre-populated with two fields and one type.
+    fn make_package_store(fields: Vec<Field>, record_types: Vec<RecordType>) -> MemoryStore {
+        let manifest = Manifest {
+            instance_index: vec![],
+            extra: HashMap::new(),
+            root: PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "test-pkg".to_string(),
+            namespace: "test.ns".to_string(),
+            name: "test".to_string(),
+            version: "1.0.0".to_string(),
+            fields,
+            record_types,
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![],
+            themes: vec![],
+            blueprints: vec![],
+            root: PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = MemoryStore::new(manifest, package);
+        store.register_package_boundary(&None).unwrap();
+        store
+    }
+
+    fn make_field(id: &str, name: &str, vt: ValueType) -> Field {
+        Field {
+            id: id.to_string(),
+            namespace: "test.ns".to_string(),
+            name: name.to_string(),
+            version: 1,
+            description: format!("A {name}"),
+            ai_guidance: serde_json::json!({ "purpose": format!("captures the {name}") }),
+            value_type: vt,
+            allowed_values: None,
+            vocabulary_ref: None,
+            default_value: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        }
+    }
+
+    fn make_article_type() -> RecordType {
+        let mut extra = HashMap::new();
+        extra.insert(
+            "aiGuidance".to_string(),
+            serde_json::json!("Extract a structured article."),
+        );
+        RecordType {
+            id: "type-111".to_string(),
+            namespace: "test.ns".to_string(),
+            name: "article".to_string(),
+            version: 1,
+            description: "Article type".to_string(),
+            // order=2 for title (field-aaa), order=1 for summary (field-bbb)
+            // → sorted result is [summary(1), title(2)]
+            fields: vec![
+                FieldAssignment {
+                    field_id: "field-aaa".to_string(),
+                    order: 2,
+                    required: true,
+                    display_label: None,
+                    repeatable: false,
+                    min_items: None,
+                    max_items: None,
+                },
+                FieldAssignment {
+                    field_id: "field-bbb".to_string(),
+                    order: 1,
+                    required: false,
+                    display_label: None,
+                    repeatable: false,
+                    min_items: None,
+                    max_items: None,
+                },
+            ],
+            field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra,
+        }
+    }
+
+    fn make_store_with_blueprint_and_type() -> (MemoryStore, String) {
+        let store = make_package_store(
+            vec![
+                make_field("field-aaa", "title", ValueType::String),
+                make_field("field-bbb", "summary", ValueType::Text),
+            ],
+            vec![make_article_type()],
+        );
+        let blueprint = Blueprint {
+            id: String::new(),
+            namespace: "test.ns".to_string(),
+            name: "test-blueprint".to_string(),
+            version: 1,
+            description: "A test blueprint".to_string(),
+            root_types: vec![TypeRef {
+                type_id: "type-111".to_string(),
+                type_version: None,
+            }],
+            structure: vec![],
+            required_types: vec![],
+            ai_guidance: Some(serde_json::json!("Extract articles from the document.")),
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            lineage: None,
+            provenance: None,
+        };
+        let created = create_blueprint(&store, blueprint, None).unwrap();
+        let bp_id = created.blueprint.id.clone();
+        (store, bp_id)
+    }
+
+    #[test]
+    fn test_brief_blueprint_not_found() {
+        let store = MemoryStore::default();
+        let result = blueprint_brief(
+            &store,
+            BlueprintBriefInput {
+                blueprint_id: "does-not-exist".to_string(),
+            },
+        );
+        assert!(matches!(
+            result,
+            Err(RepositoryError::BlueprintNotFound { .. })
+        ));
+    }
+
+    #[test]
+    fn test_brief_basic_composition_fields_sorted_by_order() {
+        let (store, bp_id) = make_store_with_blueprint_and_type();
+        let result = blueprint_brief(
+            &store,
+            BlueprintBriefInput {
+                blueprint_id: bp_id,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.diagnostics, Vec::<String>::new());
+        assert_eq!(result.types.len(), 1);
+        let t = &result.types[0];
+        assert_eq!(t.fields.len(), 2);
+        // order=1 (summary) first, order=2 (title) second
+        assert_eq!(t.fields[0].order, 1);
+        assert_eq!(t.fields[0].name, "summary");
+        assert_eq!(t.fields[1].order, 2);
+        assert_eq!(t.fields[1].name, "title");
+    }
+
+    #[test]
+    fn test_brief_unresolvable_type_is_diagnostic() {
+        let store = make_package_store(vec![], vec![]);
+        let blueprint = Blueprint {
+            id: String::new(),
+            namespace: "test.ns".to_string(),
+            name: "broken-blueprint".to_string(),
+            version: 1,
+            description: String::new(),
+            root_types: vec![TypeRef {
+                type_id: "no-such-type".to_string(),
+                type_version: None,
+            }],
+            structure: vec![],
+            required_types: vec![],
+            ai_guidance: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            lineage: None,
+            provenance: None,
+        };
+        let created = create_blueprint(&store, blueprint, None).unwrap();
+
+        let result = blueprint_brief(
+            &store,
+            BlueprintBriefInput {
+                blueprint_id: created.blueprint.id,
+            },
+        )
+        .unwrap();
+
+        assert!(!result.diagnostics.is_empty());
+        assert!(result.diagnostics[0].contains("no-such-type"));
+        assert_eq!(result.types.len(), 0);
+    }
+
+    #[test]
+    fn test_brief_protocol_no_match() {
+        let store = MemoryStore::default();
+        let proto = find_protocol_by_target_type(&store, "type-999").unwrap();
+        assert!(proto.is_none());
+    }
+
+    #[test]
+    fn test_render_markdown_contains_blueprint_name() {
+        let (store, bp_id) = make_store_with_blueprint_and_type();
+        let result = blueprint_brief(
+            &store,
+            BlueprintBriefInput {
+                blueprint_id: bp_id,
+            },
+        )
+        .unwrap();
+        let md = render_brief_markdown(&result);
+        assert!(
+            md.contains("test-blueprint"),
+            "rendered markdown must contain blueprint name"
+        );
+        assert!(
+            md.contains("title") || md.contains("summary"),
+            "must contain at least one field name"
+        );
+    }
+
+    #[test]
+    fn test_deserialize_stage_required_fields() {
+        let v = serde_json::json!({
+            "stageId": "s1",
+            "name": "Gather context",
+            "order": 1,
+            "dependsOn": [],
+            "question": "What is the main topic?",
+            "completionCriteria": "Topic identified.",
+            "contributesTo": ["field-aaa"],
+            "aiGuidance": "Focus on primary subjects."
+        });
+        let stage = deserialize_stage(&v).unwrap();
+        assert_eq!(stage.stage_id, "s1");
+        assert_eq!(stage.order, 1);
+        assert_eq!(stage.question.as_deref(), Some("What is the main topic?"));
+        assert_eq!(
+            stage.completion_criteria.as_deref(),
+            Some("Topic identified.")
+        );
+        assert_eq!(stage.contributes_to, Some(vec!["field-aaa".to_string()]));
+    }
+
+    #[test]
+    fn test_deserialize_stage_missing_required_errors() {
+        let v = serde_json::json!({ "name": "no-id-stage", "order": 1 });
+        let err = deserialize_stage(&v).unwrap_err();
+        assert!(err.contains("stageId"), "error should mention stageId");
+    }
+}
