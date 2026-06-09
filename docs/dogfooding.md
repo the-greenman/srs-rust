@@ -170,7 +170,7 @@ This is the spec-as-repo pattern (`../srs/srs`): sections are records, order is 
 6. Add the missing term (or accept the consequence). Re-run `derive-tag-set` to confirm the key is now `used-and-active`, then promote successfully; confirm a now-`closed` vocabulary rejects an unknown key.
 7. Inspect a lifecycle (`lifecycle get`) and drive a record through an allowed transition.
    - If the type uses an inline `lifecycle`, the steps above work as described.
-   - To exercise the referenceable form: create a type with `lifecycleRef` pointing to an installed `Lifecycle` (visible via `srs lifecycle list`). Confirm `record create` sets `lifecycleState` to the lifecycle's `initialState`, and `record transition` advances through the declared transitions. (This path was broken before #114 — records were created without an initial state and transitions were rejected.)
+   - To exercise the referenceable form: use the gallery-project-v2 or any repo with a standalone `Lifecycle` referenced via `lifecycleRef`. Confirm `record create` sets `lifecycleState` to the lifecycle's `initialState` (e.g. `"draft"`). Then pipe `{"byTransition": "<name>"}` or `{"to": "<state>"}` to `record transition` and confirm the state advances. (This path was broken before #114 — records were created without an initial state and transitions were rejected.)
 
 **Negative case.** (a) Promote with an unresolvable in-use key and confirm the structured block payload lists the same keys `derive-tag-set` classified `will-be-invalid`. (b) `derive-tag-set` on an unknown vocabulary id → `ok: false` with a diagnostic (no panic). (c) Attempt a `record transition` not present in the lifecycle's `transitions` and confirm rejection — this applies to both inline and `lifecycleRef`-bound Types.
 
