@@ -1,0 +1,263 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RepoDiffPayload",
+  "type": "object",
+  "required": [
+    "from",
+    "instances",
+    "manifest",
+    "relations",
+    "summary",
+    "to"
+  ],
+  "properties": {
+    "from": {
+      "type": "string"
+    },
+    "instances": {
+      "$ref": "#/definitions/RepoDiffInstances"
+    },
+    "manifest": {
+      "$ref": "#/definitions/RepoDiffManifest"
+    },
+    "relations": {
+      "$ref": "#/definitions/RepoDiffRelations"
+    },
+    "summary": {
+      "$ref": "#/definitions/RepoDiffSummary"
+    },
+    "to": {
+      "type": "string"
+    }
+  },
+  "definitions": {
+    "RepoDiffInstanceAdded": {
+      "type": "object",
+      "required": [
+        "instanceId",
+        "tier",
+        "value"
+      ],
+      "properties": {
+        "instanceId": {
+          "type": "string"
+        },
+        "tier": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0.0
+        },
+        "value": true
+      }
+    },
+    "RepoDiffInstanceModified": {
+      "type": "object",
+      "required": [
+        "fromValue",
+        "instanceId",
+        "tier",
+        "toValue"
+      ],
+      "properties": {
+        "fromValue": true,
+        "instanceId": {
+          "type": "string"
+        },
+        "tier": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0.0
+        },
+        "toValue": true
+      }
+    },
+    "RepoDiffInstanceRemoved": {
+      "type": "object",
+      "required": [
+        "instanceId",
+        "tier",
+        "value"
+      ],
+      "properties": {
+        "instanceId": {
+          "type": "string"
+        },
+        "tier": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0.0
+        },
+        "value": true
+      }
+    },
+    "RepoDiffInstances": {
+      "type": "object",
+      "required": [
+        "added",
+        "modified",
+        "removed"
+      ],
+      "properties": {
+        "added": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RepoDiffInstanceAdded"
+          }
+        },
+        "modified": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RepoDiffInstanceModified"
+          }
+        },
+        "removed": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RepoDiffInstanceRemoved"
+          }
+        }
+      }
+    },
+    "RepoDiffManifest": {
+      "type": "object",
+      "required": [
+        "extensionsAdded",
+        "extensionsRemoved",
+        "namespaceChanged",
+        "srsVersionChanged"
+      ],
+      "properties": {
+        "extensionsAdded": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "extensionsRemoved": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "namespaceChanged": {
+          "type": "boolean"
+        },
+        "srsVersionChanged": {
+          "type": "boolean"
+        }
+      }
+    },
+    "RepoDiffRelationAdded": {
+      "type": "object",
+      "required": [
+        "relationId",
+        "value"
+      ],
+      "properties": {
+        "relationId": {
+          "type": "string"
+        },
+        "value": true
+      }
+    },
+    "RepoDiffRelationModified": {
+      "type": "object",
+      "required": [
+        "fromValue",
+        "relationId",
+        "toValue"
+      ],
+      "properties": {
+        "fromValue": true,
+        "relationId": {
+          "type": "string"
+        },
+        "toValue": true
+      }
+    },
+    "RepoDiffRelationRemoved": {
+      "type": "object",
+      "required": [
+        "relationId",
+        "value"
+      ],
+      "properties": {
+        "relationId": {
+          "type": "string"
+        },
+        "value": true
+      }
+    },
+    "RepoDiffRelations": {
+      "type": "object",
+      "required": [
+        "added",
+        "modified",
+        "removed"
+      ],
+      "properties": {
+        "added": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RepoDiffRelationAdded"
+          }
+        },
+        "modified": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RepoDiffRelationModified"
+          }
+        },
+        "removed": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RepoDiffRelationRemoved"
+          }
+        }
+      }
+    },
+    "RepoDiffSummary": {
+      "type": "object",
+      "required": [
+        "instancesAdded",
+        "instancesModified",
+        "instancesRemoved",
+        "relationsAdded",
+        "relationsModified",
+        "relationsRemoved"
+      ],
+      "properties": {
+        "instancesAdded": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "instancesModified": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "instancesRemoved": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "relationsAdded": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "relationsModified": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "relationsRemoved": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    }
+  }
+}
