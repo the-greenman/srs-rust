@@ -12,6 +12,7 @@ use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::types::theme::Theme;
 use srs_core::types::view::{DocumentView, View};
 use srs_core::validation::relation_type_definition::validate_relation_type_definition;
+use srs_core::validation::theme::validate_theme;
 use srs_core::validation::view::{validate_document_view, validate_view};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -525,6 +526,10 @@ impl JsonStore {
                     source,
                 }
             })?;
+            validate_theme(&theme).map_err(|source| RepositoryError::ThemeValidation {
+                path: PathBuf::from(&full),
+                source,
+            })?;
             themes.push(theme);
         }
 
@@ -743,8 +748,10 @@ impl RepositoryStore for JsonStore {
                         document_views.push(dv);
                     }
                 }
-                // Themes have no merge-conflict check — later definitions of the same id
-                // replace earlier ones (sub-packages may overlay the primary package's themes).
+                // Themes: first definition of each id wins (primary package takes precedence
+                // over sub-packages). Silent skip matches the bundled-theme lookup model
+                // where themes are identified by stable UUID — duplicate IDs in different
+                // packages indicate a packaging error, not a semantic override.
                 for theme in sub_themes {
                     if !themes.iter().any(|t| t.id == theme.id) {
                         themes.push(theme);
