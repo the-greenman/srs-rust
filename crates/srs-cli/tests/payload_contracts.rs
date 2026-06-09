@@ -394,6 +394,11 @@ fn repo_copy() {
 }
 
 #[test]
+fn repo_diff() {
+    check::<RepoDiffPayload>("repo-diff");
+}
+
+#[test]
 fn repo_validate() {
     check::<RepoValidatePayload>("repo-validate");
 }
