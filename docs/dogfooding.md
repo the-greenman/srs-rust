@@ -157,7 +157,7 @@ This is the spec-as-repo pattern (`../srs/srs`): sections are records, order is 
 
 **Intention.** *"I want tags to mean something — a controlled vocabulary, not a free-for-all — and I want record state changes to follow a defined lifecycle."*
 
-**Capabilities exercised.** Vocabulary `open` vs `closed` mode; Terms; the V10 promotion pre-flight (closing a vocabulary must not orphan in-use keys); lifecycle states and declared transitions (both inline `lifecycle` and referenceable `lifecycleRef` forms); tagging records against a vocabulary.
+**Capabilities exercised.** Vocabulary `open` vs `closed` mode; Terms; the V10 promotion pre-flight (closing a vocabulary must not orphan in-use keys); lifecycle states and declared transitions (both inline `lifecycle` and referenceable `lifecycleRef` forms); tagging records against a vocabulary; `$schema` editor hints are silently absorbed by Lifecycle and Vocabulary loaders (#117).
 
 **CLI surface.** `vocabulary create`, `vocabulary get`, `vocabulary list`, `vocabulary term-create`, `vocabulary derive-tag-set`, `vocabulary promote`, `term list`, `term get`, `lifecycle list`, `lifecycle get`, `record tag`, `record transition`.
 
@@ -171,10 +171,11 @@ This is the spec-as-repo pattern (`../srs/srs`): sections are records, order is 
 7. Inspect a lifecycle (`lifecycle get`) and drive a record through an allowed transition.
    - If the type uses an inline `lifecycle`, the steps above work as described.
    - To exercise the referenceable form: use the gallery-project-v2 or any repo with a standalone `Lifecycle` referenced via `lifecycleRef`. Confirm `record create` sets `lifecycleState` to the lifecycle's `initialState` (e.g. `"draft"`). Then pipe `{"byTransition": "<name>"}` or `{"to": "<state>"}` to `record transition` and confirm the state advances. (This path was broken before #114 — records were created without an initial state and transitions were rejected.)
+8. **`$schema` loader tolerance (#117):** If your editor adds a top-level `"$schema"` key to lifecycle or vocabulary JSON files (the standard JSON Schema association hint), confirm `lifecycle list` and `vocabulary list` still succeed. Before #117, the Lifecycle loader rejected `$schema` with "unknown field". Note: adding `$schema` via CLI is not yet supported — you will encounter this in practice when an editor or schema-aware tool writes the file. The gap (no `lifecycle create` CLI command) is tracked in issue #116.
 
-**Negative case.** (a) Promote with an unresolvable in-use key and confirm the structured block payload lists the same keys `derive-tag-set` classified `will-be-invalid`. (b) `derive-tag-set` on an unknown vocabulary id → `ok: false` with a diagnostic (no panic). (c) Attempt a `record transition` not present in the lifecycle's `transitions` and confirm rejection — this applies to both inline and `lifecycleRef`-bound Types.
+**Negative case.** (a) Promote with an unresolvable in-use key and confirm the structured block payload lists the same keys `derive-tag-set` classified `will-be-invalid`. (b) `derive-tag-set` on an unknown vocabulary id → `ok: false` with a diagnostic (no panic). (c) Attempt a `record transition` not present in the lifecycle's `transitions` and confirm rejection — this applies to both inline and `lifecycleRef`-bound Types. (d) Confirm `lifecycle list` succeeds even when a lifecycle file carries a `"$schema"` key (the old rejection error no longer occurs).
 
-**Done when.** `open` accepts arbitrary keys; `closed` rejects unknown keys; **`derive-tag-set`'s `will-be-invalid` set equals `promote`'s `unresolvableKeys`** — the read-only pre-flight predicts the write outcome exactly; `promote` blocks with `unresolvableKeys` exactly when an in-use key lacks an active term (and succeeds within a grace `promotionWindow` if one is set); lifecycle transitions honour the declared state machine for both inline and `lifecycleRef`-bound Types.
+**Done when.** `open` accepts arbitrary keys; `closed` rejects unknown keys; **`derive-tag-set`'s `will-be-invalid` set equals `promote`'s `unresolvableKeys`** — the read-only pre-flight predicts the write outcome exactly; `promote` blocks with `unresolvableKeys` exactly when an in-use key lacks an active term (and succeeds within a grace `promotionWindow` if one is set); lifecycle transitions honour the declared state machine for both inline and `lifecycleRef`-bound Types; lifecycle and vocabulary files with a `$schema` key load without error.
 
 ### S7 — Verify a document type is correctly composed (Blueprint schema + brief)
 
