@@ -295,9 +295,20 @@ impl Package {
                 }
             }
 
-            // fieldOrder must not reference unknown fields (not in effective set)
+            // fieldOrder must not reference unknown fields (not in effective set).
+            // Group IDs are allowed through here — they are not field IDs but are valid
+            // fieldOrder entries handled by effective_fields_and_groups.
+            let group_ids_in_type: HashSet<&str> = record_type
+                .field_groups
+                .as_deref()
+                .unwrap_or(&[])
+                .iter()
+                .map(|g| g.group_id.as_str())
+                .collect();
             for fid in field_order {
-                if !effective_ids.contains(fid.as_str()) {
+                if !effective_ids.contains(fid.as_str())
+                    && !group_ids_in_type.contains(fid.as_str())
+                {
                     return Err(RepositoryError::FieldOrderMismatch {
                         type_id: record_type.id.clone(),
                         field_id: fid.clone(),
@@ -1391,6 +1402,53 @@ mod tests {
             "expected FieldOrderMismatch for unknown fieldOrder entry, got {:?}",
             result
         );
+    }
+
+    #[test]
+    fn effective_fields_field_order_group_id_is_allowed() {
+        // A group ID in fieldOrder is valid — effective_fields must pass it through silently
+        // so that effective_fields_and_groups can handle it. A group ID is not a field ID
+        // and must not be treated as "unknown".
+        let rt = srs_core::types::record_type::RecordType {
+            id: "t".to_string(),
+            namespace: "com.test".to_string(),
+            name: "t".to_string(),
+            version: 1,
+            description: String::new(),
+            fields: vec![fa("f1", 0, true), fa("f2", 1, false)],
+            field_groups: Some(vec![srs_core::types::record_type::FieldGroup {
+                group_id: "my-group".to_string(),
+                order: 0,
+                fields: vec![],
+                label: None,
+                description: None,
+                required: false,
+                repeatable: false,
+                min_items: None,
+                max_items: None,
+                composite_renderer: None,
+            }]),
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: Some(vec![
+                "f1".to_string(),
+                "my-group".to_string(),
+                "f2".to_string(),
+            ]),
+            field_assignment_overrides: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: std::collections::HashMap::new(),
+        };
+        let pkg = make_package_with_types(vec![rt.clone()]);
+        let fields = pkg
+            .effective_fields(&rt)
+            .expect("group ID in fieldOrder must not cause an error");
+        // Only field IDs returned; group ID is skipped during reordering.
+        assert_eq!(fields.len(), 2);
+        assert_eq!(fields[0].field_id, "f1");
+        assert_eq!(fields[1].field_id, "f2");
     }
 
     #[test]
