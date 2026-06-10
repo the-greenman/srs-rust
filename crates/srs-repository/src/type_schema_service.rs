@@ -11,6 +11,7 @@
 //! [`RepositoryError`].
 
 use crate::error::RepositoryError;
+use crate::package::{EffectiveFieldsAndGroups, OrderedGroup};
 use crate::package_service::GetTypeResult;
 use crate::package_service::{get_type_by_id, get_type_by_id_latest};
 use crate::store::RepositoryStore;
@@ -68,15 +69,20 @@ pub fn type_schema(
 
     let package = store.load_package()?;
     // Walk the inheritance chain to collect all effective field assignments
-    // (own + inherited), sorted by order. Uses the same path as record_store and
-    // validation to ensure inherited types are fully represented in the schema.
-    let assignments = package.effective_fields(&record_type)?;
+    // (own + inherited), sorted by order. Also computes each group's 1-based
+    // position in the merged field+group sequence so x-srs-order is consistent
+    // across fields and groups in the same schema.
+    let EffectiveFieldsAndGroups {
+        fields: assignments,
+        field_positions,
+        groups: ordered_groups,
+    } = package.effective_fields_and_groups(&record_type)?;
 
     let mut diagnostics = Vec::new();
     let mut properties = Map::new();
     let mut required = Vec::new();
 
-    for (position, fa) in assignments.iter().enumerate() {
+    for (idx, fa) in assignments.iter().enumerate() {
         let field = match package.resolve_field(&fa.field_id) {
             Some(f) => f.clone(),
             None => {
@@ -89,12 +95,12 @@ pub fn type_schema(
         };
 
         let mut property = field_to_property(&field, fa, &mut diagnostics);
-        // Use the position in the effective field list (1-based) as x-srs-order so
-        // that fieldOrder reordering is reflected in the schema. assignment.order
-        // values are not globally unique across inheritance levels and cannot be
-        // used directly for cross-type ordering.
+        // Use the merged position (1-based) as x-srs-order so that fields and groups
+        // share a single consistent position namespace. When no groups are present,
+        // field_positions[i] == i+1, giving the same behaviour as before.
+        let merged_pos = field_positions.get(idx).copied().unwrap_or(idx + 1);
         if let Some(obj) = property.as_object_mut() {
-            obj.insert("x-srs-order".into(), json!(position + 1));
+            obj.insert("x-srs-order".into(), json!(merged_pos));
         }
         if fa.required {
             required.push(Value::String(field.name.clone()));
@@ -105,14 +111,18 @@ pub fn type_schema(
     // ext:field-groups (RFC-007) — emit each repeatable/composite group as an
     // array (or object) property so schema-driven editors can render it. The
     // group's `groupId` is the property key; sub-fields become the item schema.
-    if let Some(groups) = &record_type.field_groups {
-        for group in groups {
-            let property = field_group_to_property(group, &package, &mut diagnostics);
-            if group.required {
-                required.push(Value::String(group.group_id.clone()));
-            }
-            properties.insert(group.group_id.clone(), property);
+    // merged_position is the 1-based position in the combined field+group sequence,
+    // ensuring groups and fields share a single consistent x-srs-order namespace.
+    for OrderedGroup {
+        group,
+        merged_position,
+    } in &ordered_groups
+    {
+        let property = field_group_to_property(group, &package, *merged_position, &mut diagnostics);
+        if group.required {
+            required.push(Value::String(group.group_id.clone()));
         }
+        properties.insert(group.group_id.clone(), property);
     }
 
     let schema = json!({
@@ -214,9 +224,14 @@ fn field_to_property(
 /// `object`. The group's sub-fields become the item object's properties. The
 /// `x-srs-group-id`, `x-srs-composite-renderer`, and `x-srs-repeatable` hints let
 /// a schema-driven editor pick the right widget (e.g. a table grid).
+///
+/// `merged_position` is the 1-based position of this group in the combined
+/// field+group sequence; it is written to `x-srs-order` so editors can correctly
+/// interleave groups and fields.
 fn field_group_to_property(
     group: &FieldGroup,
     package: &crate::package::Package,
+    merged_position: usize,
     diagnostics: &mut Vec<String>,
 ) -> Value {
     let mut item_props = Map::new();
@@ -267,7 +282,7 @@ fn field_group_to_property(
     if let Some(desc) = group.description.clone().filter(|s| !s.is_empty()) {
         prop.insert("description".into(), json!(desc));
     }
-    prop.insert("x-srs-order".into(), json!(group.order));
+    prop.insert("x-srs-order".into(), json!(merged_position));
     prop.insert("x-srs-group-id".into(), json!(group.group_id));
     prop.insert("x-srs-repeatable".into(), json!(group.repeatable));
     if let Some(renderer) = &group.composite_renderer {
@@ -778,6 +793,131 @@ mod tests {
         // Required sub-field surfaces in the item object's `required`.
         let item_required = tables["items"]["required"].as_array().unwrap();
         assert!(item_required.iter().any(|v| v == "rows"));
+        assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
+        // heading(order=0) gets position 1; tables(order=1) gets position 2 in merged sort.
+        assert_eq!(tables["x-srs-order"], json!(2));
+    }
+
+    #[test]
+    fn type_schema_group_order_is_positional_not_raw() {
+        // group(raw order=0) with fields at order=1 and order=2, no fieldOrder.
+        // Merged sort: group(order=0) < field(order=1) → group gets position 1.
+        // This is the bug from issue #148: previously the group would get x-srs-order=0
+        // (raw group.order), colliding with field positions 1 and 2.
+        let f1 = field(&fid(1), "alpha", ValueType::String);
+        let f2 = field(&fid(2), "beta", ValueType::String);
+        let mut rt = make_type(
+            TID,
+            vec![assignment(&fid(1), 1, false), assignment(&fid(2), 2, false)],
+        );
+        rt.field_groups = Some(vec![FieldGroup {
+            group_id: "items".to_string(),
+            order: 0,
+            fields: vec![],
+            label: None,
+            description: None,
+            required: false,
+            repeatable: true,
+            min_items: None,
+            max_items: None,
+            composite_renderer: None,
+        }]);
+
+        let store = store_with(vec![f1, f2], rt);
+        let result = type_schema(
+            &store,
+            TypeSchemaInput {
+                type_id: TID.to_string(),
+                type_version: None,
+            },
+        )
+        .unwrap();
+
+        let props = result.schema["properties"].as_object().unwrap();
+        // group at order=0 sorts before fields at order=1 and order=2 → position 1.
+        assert_eq!(
+            props["items"]["x-srs-order"],
+            json!(1),
+            "group at raw order=0 must get merged position 1, not raw 0"
+        );
+        // fields get positions 2 and 3.
+        assert_eq!(props["alpha"]["x-srs-order"], json!(2));
+        assert_eq!(props["beta"]["x-srs-order"], json!(3));
+        assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
+    }
+
+    #[test]
+    fn type_schema_field_order_interleaves_groups() {
+        // fieldOrder: [field_a, group_id, field_b] → positions 1, 2, 3.
+        let fa_field = field(&fid(1), "field_a", ValueType::String);
+        let fb_field = field(&fid(2), "field_b", ValueType::String);
+        let mut rt = make_type(
+            TID,
+            vec![assignment(&fid(1), 0, false), assignment(&fid(2), 1, false)],
+        );
+        rt.field_groups = Some(vec![FieldGroup {
+            group_id: "grp".to_string(),
+            order: 99,
+            fields: vec![],
+            label: None,
+            description: None,
+            required: false,
+            repeatable: false,
+            min_items: None,
+            max_items: None,
+            composite_renderer: None,
+        }]);
+        rt.field_order = Some(vec![fid(1), "grp".to_string(), fid(2)]);
+
+        let store = store_with(vec![fa_field, fb_field], rt);
+        let result = type_schema(
+            &store,
+            TypeSchemaInput {
+                type_id: TID.to_string(),
+                type_version: None,
+            },
+        )
+        .unwrap();
+
+        let props = result.schema["properties"].as_object().unwrap();
+        assert_eq!(props["field_a"]["x-srs-order"], json!(1));
+        assert_eq!(props["grp"]["x-srs-order"], json!(2));
+        assert_eq!(props["field_b"]["x-srs-order"], json!(3));
+        assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
+    }
+
+    #[test]
+    fn type_schema_no_groups_retains_field_order() {
+        // Regression guard: a type with three fields and no groups still gets
+        // 1-based positional x-srs-order on each field.
+        let store = store_with(
+            vec![
+                field(&fid(1), "a", ValueType::String),
+                field(&fid(2), "b", ValueType::String),
+                field(&fid(3), "c", ValueType::String),
+            ],
+            make_type(
+                TID,
+                vec![
+                    assignment(&fid(1), 0, false),
+                    assignment(&fid(2), 1, false),
+                    assignment(&fid(3), 2, false),
+                ],
+            ),
+        );
+        let result = type_schema(
+            &store,
+            TypeSchemaInput {
+                type_id: TID.to_string(),
+                type_version: None,
+            },
+        )
+        .unwrap();
+
+        let props = result.schema["properties"].as_object().unwrap();
+        assert_eq!(props["a"]["x-srs-order"], json!(1));
+        assert_eq!(props["b"]["x-srs-order"], json!(2));
+        assert_eq!(props["c"]["x-srs-order"], json!(3));
         assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
     }
 }
