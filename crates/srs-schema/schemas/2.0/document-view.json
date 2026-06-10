@@ -34,7 +34,12 @@
     },
     "containerType": {
       "type": "string",
-      "description": "When set, this DocumentView is intended for Containers of this type."
+      "description": "Soft-deprecated back-compat hint. When rootTypeRefs is present, MUST NOT be used for Container matching. Retained for pre-RFC-009 tools."
+    },
+    "rootTypeRefs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ExactTypeRef" },
+      "description": "When set, this DocumentView applies to Containers whose root Record's resolved Type (typeId + typeVersion) matches one of these refs (version-exact, RFC-009). When absent, no root-type restriction applies."
     },
     "sections": {
       "type": "array",
@@ -254,6 +259,24 @@
         },
         "description": { "type": "string" },
         "themeRef": { "$ref": "#/$defs/ThemeReference" }
+      }
+    },
+    "ExactTypeRef": {
+      "type": "object",
+      "description": "RFC-009. A version-exact reference to a Type, used in DocumentView.rootTypeRefs. Distinct from the spec-level TypeRef (Protocol/Blueprint) where typeVersion is optional. Both typeId and typeVersion are required — this is a package-validation-time claim against a specific type version.",
+      "required": ["typeId", "typeVersion"],
+      "additionalProperties": false,
+      "properties": {
+        "typeId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable UUID of the Type (the Type's id field)."
+        },
+        "typeVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Version of the Type this ref targets (required — version-exact anchor)."
+        }
       }
     }
   }
