@@ -83,10 +83,14 @@ Each scenario uses a fixed template so the set stays comparable and updatable:
 5. **Preflight a record input without writing it:** pipe `{ "typeId", "typeVersion", "fieldValues" }` to `srs record validate`. A clean input returns `payload.ok: true`; a missing required field or an unknown/extra `fieldId` returns `ok: false` with the problem in `diagnostics`. Confirm `srs record list` count is unchanged — nothing was persisted. This is the editor-preflight primitive: validate the whole document, then write only if all sections pass.
 6. Create the valid Record against the type (`record create`).
 7. Emit the contract: `srs type schema <typeId>` and confirm it matches the fields.
+   - Flat fields carry `x-srs-field-id` and a 1-based `x-srs-order` reflecting their merged position.
+   - If the type declares `fieldGroups`, each group appears as an array property with `x-srs-group-id`, `x-srs-repeatable`, and an `x-srs-order` drawn from the **same** positional sequence as the flat fields — not from the raw `group.order` integer. No two entries (fields or groups) share the same `x-srs-order` value. This is the invariant fixed in #148.
 
 **Negative case.** Send a `record validate` input that omits a **required** field *and* carries a `fieldId` not assigned to the type — confirm **both** problems come back in `diagnostics` from the single call (`validate` reports every violation at once, not just the first), with `ok: false` and `record list` count flat (no write). Confirm a `displayLabel` override does not change which field is resolved. *(Note: `validate` mirrors the write path exactly — it does **not** check enum `allowedValues` or `valueType` conformance, because the model's record validation does not validate those today; do not expect a value outside `select` options to be rejected here.)*
 
-**Done when.** `type get` resolves every `fieldId` in the package; `record validate` passes a clean input and, for an input with multiple problems, returns **all** of them as diagnostics in one pass **without persisting anything**; the valid record then creates clean; `type schema` reflects required/optional and value types correctly.
+Also confirm `srs type schema <nonexistent-uuid>` → `ok: false` with a diagnostic naming the unknown type.
+
+**Done when.** `type get` resolves every `fieldId` in the package; `record validate` passes a clean input and, for an input with multiple problems, returns **all** of them as diagnostics in one pass **without persisting anything**; the valid record then creates clean; `type schema` reflects required/optional and value types correctly; for types with `fieldGroups`, every `x-srs-order` value in the schema is unique across both fields and groups — no positional collisions.
 
 ### S3 — Assert meaning between records (Relations)
 
