@@ -123,7 +123,7 @@
         "description": { "type": "string" },
         "containerType": {
           "type": "string",
-          "description": "Free-form hint, e.g. 'project', 'meeting', 'sprint'."
+          "description": "Soft-deprecated hint (RFC-009). When rootInstanceIds is present, SHOULD equal the resolved root Type's name field (bare name, not namespace/name). A mismatch is diagnostic-only; the Container remains valid. See RFC-009 I-64."
         },
         "rootInstanceIds": {
           "type": "array",
@@ -150,7 +150,10 @@
           "type": "string",
           "description": "Relative path from manifest.json to the container file."
         },
-        "containerType": { "type": "string" },
+        "containerType": {
+          "type": "string",
+          "description": "Soft-deprecated hint (RFC-009). SHOULD equal the resolved root Type's name field. See RFC-009 I-64."
+        },
         "tags": { "type": "array", "items": { "type": "string" } }
       }
     },

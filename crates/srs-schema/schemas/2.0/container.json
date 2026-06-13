@@ -32,7 +32,7 @@
     },
     "containerType": {
       "type": "string",
-      "description": "Free-form hint, e.g. 'project', 'meeting', 'sprint'."
+      "description": "Soft-deprecated hint (RFC-009). When rootInstanceIds is present, SHOULD equal the resolved root Type's name field (bare name, not namespace/name). A mismatch is diagnostic-only; the Container remains valid. See RFC-009 I-64."
     },
     "rootInstanceIds": {
       "type": "array",
@@ -47,7 +47,7 @@
     "tags": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Free-form topic labels."
+      "description": "Vocabulary-backed topic labels (RFC-009 + RFC-006). When a Vocabulary in the package declares Terms for a tag key, tags MUST resolve per RFC-006 vocabulary resolution rules. Free-string tags are valid when no Vocabulary governs the key."
     },
     "createdAt": {
       "type": "string",
