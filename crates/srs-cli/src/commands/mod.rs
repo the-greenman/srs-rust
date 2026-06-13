@@ -764,6 +764,9 @@ pub enum DocumentViewCommand {
         /// Filter by containerType
         #[arg(long = "container-type")]
         container_type: Option<String>,
+        /// Filter to views whose rootTypeRefs include this Type UUID (RFC-009)
+        #[arg(long = "root-type")]
+        root_type: Option<String>,
     },
     /// Get a document view definition by ID
     Get {

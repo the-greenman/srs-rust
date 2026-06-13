@@ -6,7 +6,7 @@ use srs_core::types::view::DocumentView;
 use srs_repository::view_service::{
     create_document_view, delete_document_view, get_document_view_by_id,
     list_document_views_summary, update_document_view, CreateDocumentViewResult,
-    DeleteDocumentViewResult, GetDocumentViewResult,
+    DeleteDocumentViewResult, DocumentViewListFilter, GetDocumentViewResult,
 };
 use std::io::{self, Read};
 
@@ -15,7 +15,8 @@ pub fn dispatch(ctx: CliContext, cmd: DocumentViewCommand) -> Result<String> {
         DocumentViewCommand::List {
             namespace,
             container_type,
-        } => cmd_document_view_list(ctx, namespace, container_type),
+            root_type,
+        } => cmd_document_view_list(ctx, namespace, container_type, root_type),
         DocumentViewCommand::Get { id } => cmd_document_view_get(ctx, id),
         DocumentViewCommand::Create { package } => cmd_document_view_create(ctx, package),
         DocumentViewCommand::Update { id } => cmd_document_view_update(ctx, id),
@@ -27,20 +28,20 @@ fn cmd_document_view_list(
     ctx: CliContext,
     namespace: Option<String>,
     container_type: Option<String>,
+    root_type: Option<String>,
 ) -> Result<String> {
-    match with_store(&ctx, |store| Ok(list_document_views_summary(store)?)) {
-        Ok(mut document_views) => {
-            if let Some(ns) = namespace {
-                document_views.retain(|s| s.namespace == ns);
-            }
-            if let Some(ct) = container_type {
-                document_views.retain(|s| s.container_type.as_deref() == Some(ct.as_str()));
-            }
-            output::serialize(
-                "document-view list",
-                DocumentViewListPayload { document_views },
-            )
-        }
+    let filter = DocumentViewListFilter {
+        namespace,
+        container_type,
+        root_type_id: root_type,
+    };
+    match with_store(&ctx, |store| {
+        Ok(list_document_views_summary(store, &filter)?)
+    }) {
+        Ok(document_views) => output::serialize(
+            "document-view list",
+            DocumentViewListPayload { document_views },
+        ),
         Err(e) => Ok(output::err("document-view list", vec![e.to_string()])),
     }
 }
