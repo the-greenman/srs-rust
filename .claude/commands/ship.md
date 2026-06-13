@@ -73,8 +73,8 @@ A spec change is required if the feature:
 ## Stage 3 — Plan review loop
 
 1. Spawn review agents **in parallel** (one Agent call, multiple invokes):
-   - **Architecture Reviewer** (`agents.md#architecture-reviewer`) — must check the plan against **every** ADR for system boundaries, DRYness, consistent coding style, and ADR coverage.
-   - **Plan Reviewer** (`agents.md#plan-reviewer`) — completeness, contracts, scope discipline, testability.
+   - **Architecture Reviewer** (`agents.md#architecture-reviewer`) `model: "sonnet"` — checks the plan against **every** ADR for system boundaries, DRYness, consistent coding style, and ADR coverage.
+   - **Plan Reviewer** (`agents.md#plan-reviewer`) `model: "haiku"` — completeness, contracts, scope discipline, testability.
    Give each agent the plan file path and the relevant CLAUDE.md / ADR paths. They are read-only and return numbered findings with severity (`blocking` / `should-fix` / `nit`).
 2. Post **all** findings as comments on the issue: `gh issue comment N --body "<findings>"` (one comment per reviewer, clearly attributed).
 3. Respond to the review: update the plan to resolve every `blocking` and `should-fix` finding; for any finding you decline, record why in an issue comment. Re-sync the issue body: `gh issue edit N --body-file <plan>`.
@@ -146,7 +146,9 @@ All checks must pass before proceeding.
 
 ## Stage 7 — Code review loop
 
-1. Spawn the **Architecture Reviewer** (`agents.md#architecture-reviewer`) and the **Verification Agent** (`agents.md#verification-agent`) against the **diff** (`git diff main...HEAD`). Architecture Reviewer audits the code against every ADR + crate-boundary rules; Verification Agent runs tests and produces the boundary/duplication report.
+1. Spawn in parallel against the diff (`git diff main...HEAD`):
+   - **Architecture Reviewer** (`agents.md#architecture-reviewer`) `model: "sonnet"` — audits code against every ADR + crate-boundary rules.
+   - **Verification Agent** (`agents.md#verification-agent`) `model: "haiku"` — runs tests, produces the boundary/duplication report.
 2. Post findings as issue comments.
 3. Respond: fix every `blocking` and `should-fix` finding, committing the fixes. Decline-with-reason for anything not fixed.
 4. **Loop:** on a large change, repeat the code review until a pass yields zero blocking findings.
@@ -230,42 +232,26 @@ Verify with `git worktree list` that the worktree is gone. Report the result.
 
 ## Stage 11 — Dogfooding
 
-The reference for this stage is **`docs/dogfooding.md`** — the dogfood scenario guide. SRS is a semantic system: dogfooding proves the change advances a *meaningful intention*, not just that a command returns `ok: true`. Read the guide's principles before driving any command.
+Reference: `docs/dogfooding.md`. Read its principles first — dogfooding proves the change advances a *meaningful intention*, not just that a command returns `ok: true`.
 
-**Skip this stage** if the change is purely internal (refactor, test-only, doc-only, build tooling) with no new or modified CLI commands, flags, stdin shapes, or observable behaviours. State the skip reason explicitly; do not skip silently.
+**Skip** if purely internal (refactor, test-only, doc-only, build tooling). State the reason; do not skip silently.
 
-**Otherwise:**
-
-1. **Build the CLI** from the merged state (pull main first):
+1. **Build** from merged main:
    ```bash
-   cd srs-rust
-   git checkout main && git pull origin main
-   cargo build --bin srs
+   cd srs-rust && git checkout main && git pull origin main && cargo build --bin srs
    ```
 
-2. **Find the covering scenario(s).** Open `docs/dogfooding.md` and use the **Coverage matrix** to map the surface this PR changed to the scenario(s) that exercise it. Note whether the surface is currently a `gap` row or entirely new.
+2. **Find scenario(s)** using the Coverage matrix in `docs/dogfooding.md`. Note if it's a `gap` row or entirely new surface.
 
-3. **Prepare a repository** as the scenario directs — a fresh `srs repo create --repo /tmp/dogfood-<slug> --namespace com.example.dogfood` by default, or `../srs/srs` when the scenario needs pre-existing structure.
+3. **Prepare repo** per scenario — default: `srs repo create --repo /tmp/dogfood-<slug> --namespace com.example.dogfood`.
 
-4. **Run the scenario end-to-end.** Drive the happy path *and* the scenario's named negative case. For each new or changed command, flag, or stdin shape:
-   - Confirm output matches the payload contract.
-   - Confirm the negative case produces a correct error envelope or diagnostic.
-   - Confirm each "Done when" semantic signal (and run `srs repo validate` — diagnostics live in the payload, not the exit code).
-   Run any extra edge cases called out in the plan's acceptance criteria.
+4. **Run end-to-end:** happy path + named negative case. Confirm output matches the payload contract, negative case returns a correct error envelope, and "Done when" signals hold. Run `srs repo validate` (diagnostics are in the payload, not the exit code). Run extra edge cases from the plan's acceptance criteria.
 
-5. **Update the guide so the scenarios keep pace with the CLI.** This is part of the same PR's diff — `docs/dogfooding.md` lives in `srs-rust`.
-   - If a scenario already covers the surface and the change altered the workflow, update that scenario's steps / "Done when".
-   - If the surface was a `gap` row or entirely new, either extend an existing scenario or add a new one — a new scenario **must lead with a meaningful intention**. If you cannot state the intention, note that on the issue rather than inventing a hollow scenario.
-   - Update the **Coverage matrix** in the same change so it never drifts.
-   - Verify every command block you touched still runs against a real repo.
-   Commit with `docs: update dogfood scenarios for <slug> (#N)`.
+5. **Update `docs/dogfooding.md`** (part of this PR's diff): update scenario steps/"Done when" for changed surfaces; add a new scenario for new surfaces (must lead with a meaningful intention — if you can't state it, note it on the issue instead); update the Coverage matrix. Verify every touched command block still runs. Commit: `docs: update dogfood scenarios for <slug> (#N)`.
 
-6. **Log findings as GitHub issues:**
-   - **Bug** (something doesn't work as designed): file immediately with label `bug`. Patch it in a follow-up commit on main (or a new branch if non-trivial). Do not leave a `bug`-labelled issue open without at least a comment saying what the fix is.
-   - **Feature gap** (an essential step in a real workflow has no built-in way to accomplish it — you had to manually edit JSON, chain commands awkwardly, or give up): file with label `enhancement`. Describe the missing primitive and the workflow it blocks.
-   - Do not file issues for cosmetic nits or hypothetical future improvements — only gaps that would block a real use of the feature.
+6. **File issues:** `bug` for anything not working as designed (patch immediately if trivial); `enhancement` for workflow gaps that required workarounds. No cosmetic/hypothetical issues.
 
-7. **Summarise.** Report: scenario(s) run, commands exercised, happy-path results, the dogfood-guide updates made (scenario edited/added + matrix), issues filed (URLs), and whether you patched any bugs inline.
+7. **Summarise:** scenarios run, commands exercised, guide updates made, issues filed, bugs patched inline.
 
 ---
 
