@@ -37,6 +37,7 @@ pub struct ThemeSummary {
     pub name: String,
     pub version: u32,
     pub description: String,
+    pub targets: Vec<String>,
     /// Boundary path of the package that owns this theme.
     /// `None` = primary package (`package/`); `Some(path)` = sub-package path.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -149,6 +150,7 @@ pub fn list_themes_summary(
                 name: t.name,
                 version: t.version,
                 description: t.description,
+                targets: t.targets,
                 source_package,
             }
         })
