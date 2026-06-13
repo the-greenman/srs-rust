@@ -436,6 +436,83 @@ pub fn validate_repository(
         }
     }
 
+    // --- RFC-009 root-type anchor diagnostics (I-63, I-64) ---
+    // Both are advisory (Warning): neither invalidates the repository. See RFC-009.
+    if let Ok(pkg) = store.load_package() {
+        // I-63: each DocumentView.rootTypeRefs entry MUST resolve to a Type in the package.
+        // An unresolved entry is reported and "will not be used for Container matching".
+        if let Ok(views) = crate::view_service::list_document_views(store) {
+            for dv in &views {
+                if let Some(refs) = &dv.root_type_refs {
+                    for r in refs {
+                        if pkg.resolve_type(&r.type_id, r.type_version).is_none() {
+                            diagnostics.push(ValidationDiagnostic {
+                                severity: DiagnosticSeverity::Warning,
+                                relative_path: "package/package.json".to_string(),
+                                schema_id: None,
+                                message: format!(
+                                    "RFC-009 I-63: documentView '{}' rootTypeRefs entry '{}@{}' does not resolve to a Type in the package; it will not be used for Container matching",
+                                    dv.id, r.type_id, r.type_version
+                                ),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // I-64: when a Container has rootInstanceIds and a containerType, containerType SHOULD
+        // equal the resolved root Type's bare `name`. A mismatch is a stale hint, not an error.
+        // Edge cases (unloadable root Record, unresolved Type) skip the check — never error here.
+        let id_to_path: HashMap<String, String> = manifest
+            .instance_index
+            .iter()
+            .map(|e| (e.instance_id().to_string(), e.path().to_string()))
+            .collect();
+        if let Ok(container_summaries) = store.list_container_summaries() {
+            for (container_id, _title) in container_summaries {
+                let container = match store.load_container(&container_id) {
+                    Ok(c) => c,
+                    Err(_) => continue,
+                };
+                let (Some(ctype), Some(roots)) =
+                    (&container.container_type, &container.root_instance_ids)
+                else {
+                    continue;
+                };
+                let Some(first_root) = roots.first() else {
+                    continue;
+                };
+                let Some(path) = id_to_path.get(first_root) else {
+                    continue;
+                };
+                let Ok(val) = store.load_instance_json(path) else {
+                    continue;
+                };
+                let (Some(type_id), Some(type_version)) = (
+                    val.get("typeId").and_then(|v| v.as_str()),
+                    val.get("typeVersion").and_then(|v| v.as_u64()),
+                ) else {
+                    continue;
+                };
+                let Some(rt) = pkg.resolve_type(type_id, type_version as u32) else {
+                    continue;
+                };
+                if ctype != &rt.name {
+                    diagnostics.push(ValidationDiagnostic {
+                        severity: DiagnosticSeverity::Warning,
+                        relative_path: format!("container {container_id}"),
+                        schema_id: None,
+                        message: format!(
+                            "RFC-009 I-64: container '{}' containerType '{}' does not equal the resolved root Type's name '{}'; the hint is stale (the container remains valid)",
+                            container_id, ctype, rt.name
+                        ),
+                    });
+                }
+            }
+        }
+    }
+
     let errors = diagnostics
         .iter()
         .filter(|d| d.severity == DiagnosticSeverity::Error)
@@ -1776,6 +1853,208 @@ mod tests {
             report.is_ok(),
             "live srs repo has {} schema errors",
             report.summary.errors
+        );
+    }
+
+    // ── RFC-009 root-type anchor diagnostics (I-63, I-64) ────────────────────
+
+    #[test]
+    fn validate_flags_unresolved_root_type_ref() {
+        // I-63: a DocumentView rootTypeRefs entry that does not resolve to a package
+        // Type produces a Warning; the repository stays valid (is_ok).
+        let temp = TempDir::new().unwrap();
+        write_json(temp.path(), "manifest.json", &minimal_manifest(json!([])));
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                "id": "00000000-0000-4000-8000-000000000010",
+                "namespace": "com.test",
+                "name": "test-package",
+                "title": "Test Package",
+                "description": "test package",
+                "status": "active",
+                "version": "1.0.0",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "fields": [],
+                "types": [],
+                "views": [],
+                "documentViews": ["document-views/dv.json"]
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/document-views/dv.json",
+            &json!({
+                "id": "00000000-0000-4000-8000-0000000000d1",
+                "namespace": "com.test",
+                "name": "dv",
+                "version": 1,
+                "description": "test doc view",
+                "rootTypeRefs": [{
+                    "typeId": "00000000-0000-4000-8000-0000000dead0",
+                    "typeVersion": 1
+                }],
+                "sections": [{
+                    "sectionId": "s1",
+                    "order": 0,
+                    "source": {"type": "fixed-instances", "instanceIds": []}
+                }],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        assert!(
+            report.is_ok(),
+            "I-63 is advisory; repo must stay ok: {:?}",
+            report.diagnostics
+        );
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("I-63") && d.severity == DiagnosticSeverity::Warning),
+            "expected an I-63 warning, got {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn validate_flags_stale_container_type_hint() {
+        // I-64: containerType that does not equal the resolved root Type's bare name
+        // produces a Warning; the container (and repo) remain valid.
+        let temp = TempDir::new().unwrap();
+        let type_id = "00000000-0000-4000-8000-000000000abc";
+        write_json(temp.path(), "manifest.json", &minimal_manifest(json!([])));
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                "id": "00000000-0000-4000-8000-000000000010",
+                "namespace": "com.test",
+                "name": "test-package",
+                "title": "Test Package",
+                "description": "test package",
+                "status": "active",
+                "version": "1.0.0",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "fields": [],
+                "types": ["types/guide.json"],
+                "views": [],
+                "documentViews": []
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/types/guide.json",
+            &json!({
+                "id": type_id,
+                "namespace": "com.test",
+                "name": "guide",
+                "version": 1,
+                "description": "guide type",
+                "fields": [],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        // Create a tier-2 record of the guide type via the service (keeps index valid).
+        let record =
+            crate::record_store::create_record(&store, type_id, 1, vec![], None, None, "records")
+                .unwrap();
+        // Container rooted in that record, but with a stale containerType hint.
+        let container = srs_core::types::container::Container {
+            container_id: "00000000-0000-4000-8000-0000000000c1".to_string(),
+            title: "Guide container".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: Some("not-guide".to_string()),
+            root_instance_ids: Some(vec![record.instance_id.clone()]),
+            member_instance_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: std::collections::HashMap::new(),
+        };
+        crate::container_service::create_container(&store, container).unwrap();
+
+        let report = validate_repository(&store).unwrap();
+        assert!(
+            report.is_ok(),
+            "I-64 mismatch is a warning; repo must stay ok: {:?}",
+            report.diagnostics
+        );
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("I-64") && d.severity == DiagnosticSeverity::Warning),
+            "expected an I-64 warning, got {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn validate_skips_container_type_without_roots() {
+        // A Container carrying containerType but no rootInstanceIds must not trigger I-64.
+        let temp = TempDir::new().unwrap();
+        write_json(temp.path(), "manifest.json", &minimal_manifest(json!([])));
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                "id": "00000000-0000-4000-8000-000000000010",
+                "namespace": "com.test",
+                "name": "test-package",
+                "title": "Test Package",
+                "description": "test package",
+                "status": "active",
+                "version": "1.0.0",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "fields": [],
+                "types": [],
+                "views": [],
+                "documentViews": []
+            }),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let container = srs_core::types::container::Container {
+            container_id: "00000000-0000-4000-8000-0000000000c2".to_string(),
+            title: "Unrooted container".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: Some("guide".to_string()),
+            root_instance_ids: None,
+            member_instance_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: std::collections::HashMap::new(),
+        };
+        crate::container_service::create_container(&store, container).unwrap();
+
+        let report = validate_repository(&store).unwrap();
+        assert!(
+            !report
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("I-64")),
+            "I-64 must not fire for a container without rootInstanceIds: {:?}",
+            report.diagnostics
         );
     }
 }
