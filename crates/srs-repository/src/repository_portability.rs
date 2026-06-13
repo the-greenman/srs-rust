@@ -10,11 +10,13 @@ use crate::writer::slugify_instance_name;
 use srs_core::types::blueprint::Blueprint;
 use srs_core::types::container::Container;
 use srs_core::types::field::Field;
+use srs_core::types::lifecycle::Lifecycle;
 use srs_core::types::record_type::RecordType;
 use srs_core::types::relation::Relation;
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::types::theme::Theme;
 use srs_core::types::view::{DocumentView, View};
+use srs_core::types::vocabulary::Vocabulary;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,6 +43,10 @@ pub struct PackageBoundarySnapshot {
     pub blueprints: Vec<Blueprint>,
     #[serde(default)]
     pub themes: Vec<Theme>,
+    #[serde(default)]
+    pub vocabularies: Vec<Vocabulary>,
+    #[serde(default)]
+    pub lifecycles: Vec<Lifecycle>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -75,6 +81,10 @@ struct RawPackageMetadata {
     blueprints: Vec<String>,
     #[serde(default)]
     themes: Vec<String>,
+    #[serde(default)]
+    vocabularies: Vec<String>,
+    #[serde(default)]
+    lifecycles: Vec<String>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -291,6 +301,8 @@ fn export_package_boundary(
             document_views: pkg.document_views,
             blueprints: pkg.blueprints,
             themes: pkg.themes,
+            vocabularies: pkg.vocabularies,
+            lifecycles: pkg.lifecycles,
         });
     }
 
@@ -341,6 +353,16 @@ fn export_package_boundary(
         .iter()
         .map(|p| load_typed_json::<Theme>(source, &package_prefix, p))
         .collect::<Result<Vec<_>, _>>()?;
+    let vocabularies = metadata
+        .vocabularies
+        .iter()
+        .map(|p| load_typed_json::<Vocabulary>(source, &package_prefix, p))
+        .collect::<Result<Vec<_>, _>>()?;
+    let lifecycles = metadata
+        .lifecycles
+        .iter()
+        .map(|p| load_typed_json::<Lifecycle>(source, &package_prefix, p))
+        .collect::<Result<Vec<_>, _>>()?;
 
     Ok(PackageBoundarySnapshot {
         boundary_path,
@@ -357,6 +379,8 @@ fn export_package_boundary(
         document_views,
         blueprints,
         themes,
+        vocabularies,
+        lifecycles,
     })
 }
 
@@ -449,6 +473,28 @@ fn import_package_boundary(
         theme_paths.push(path);
     }
 
+    let mut vocabulary_paths = Vec::new();
+    for vocab in &package.vocabularies {
+        let path = format!(
+            "vocabularies/{}-{}.json",
+            slugify(&vocab.name),
+            id_prefix(&vocab.id)?
+        );
+        write_repo_json(target, &base_prefix, &path, vocab)?;
+        vocabulary_paths.push(path);
+    }
+
+    let mut lifecycle_paths = Vec::new();
+    for lc in &package.lifecycles {
+        let path = format!(
+            "lifecycles/{}-{}.json",
+            slugify(&lc.name),
+            id_prefix(&lc.id)?
+        );
+        write_repo_json(target, &base_prefix, &path, lc)?;
+        lifecycle_paths.push(path);
+    }
+
     let package_json = serde_json::json!({
         "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
         "id": package.metadata.id,
@@ -465,7 +511,9 @@ fn import_package_boundary(
         "views": view_paths,
         "documentViews": doc_view_paths,
         "blueprints": blueprint_paths,
-        "themes": theme_paths
+        "themes": theme_paths,
+        "vocabularies": vocabulary_paths,
+        "lifecycles": lifecycle_paths
     });
     target.save_instance_json(&format!("{base_prefix}/package.json"), &package_json)?;
     Ok(())
@@ -771,6 +819,8 @@ mod tests {
             document_views: vec![],
             blueprints: vec![],
             themes: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
         });
 
         let temp = TempDir::new().unwrap();
