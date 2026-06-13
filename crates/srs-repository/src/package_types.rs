@@ -45,5 +45,6 @@ pub enum DefinitionKind {
     RelationType,
     Blueprint,
     Vocabulary,
+    Lifecycle,
     Theme,
 }

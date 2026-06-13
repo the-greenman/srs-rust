@@ -1,5 +1,7 @@
 use crate::error::RepositoryError;
+use crate::package_types::DefinitionKind;
 use crate::store::RepositoryStore;
+use crate::writer::new_instance_id;
 use srs_core::types::lifecycle::Lifecycle;
 
 pub fn list_lifecycles(store: &dyn RepositoryStore) -> Result<Vec<Lifecycle>, RepositoryError> {
@@ -19,6 +21,44 @@ pub fn get_lifecycle_by_id(
         Err(RepositoryError::Io { .. }) | Err(RepositoryError::PackageLoad { .. }) => Ok(None),
         Err(e) => Err(e),
     }
+}
+
+/// Result of `create_lifecycle`.
+pub struct CreateLifecycleResult {
+    pub lifecycle: Lifecycle,
+}
+
+/// Create a new Lifecycle in the primary package.
+///
+/// Writes `package/lifecycles/{slug}-{id}.json` and adds the path to
+/// `package/package.json` → `lifecycles[]`. If `lifecycle.id` is empty,
+/// a new UUID is generated. If `lifecycle.created_at` is empty, the
+/// current timestamp is used.
+pub fn create_lifecycle(
+    store: &dyn RepositoryStore,
+    mut lifecycle: Lifecycle,
+) -> Result<CreateLifecycleResult, RepositoryError> {
+    store.load_package_boundary(&None)?;
+
+    if lifecycle.id.trim().is_empty() {
+        lifecycle.id = new_instance_id();
+    }
+    if lifecycle.created_at.trim().is_empty() {
+        lifecycle.created_at = chrono::Utc::now().to_rfc3339();
+    }
+
+    let slug = lifecycle
+        .name
+        .to_lowercase()
+        .replace(|c: char| !c.is_alphanumeric() && c != '-', "-");
+    let rel_filename = format!("lifecycles/{}-{}.json", slug, &lifecycle.id[..8]);
+    let full_path = format!("package/{rel_filename}");
+
+    store.ensure_lifecycles_dir("package/lifecycles")?;
+    store.save_lifecycle(&full_path, &lifecycle)?;
+    store.add_definition_to_boundary(&None, DefinitionKind::Lifecycle, &rel_filename)?;
+
+    Ok(CreateLifecycleResult { lifecycle })
 }
 
 #[cfg(test)]
@@ -90,6 +130,22 @@ mod tests {
         let store = MemoryStore::default();
         let result = get_lifecycle_by_id(&store, "00000000-0000-0000-0000-000000000000").unwrap();
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn create_lifecycle_assigns_id_and_is_retrievable() {
+        let store = MemoryStore::default();
+        let lc = make_lifecycle();
+        let result = create_lifecycle(&store, lc).unwrap();
+        assert_eq!(result.lifecycle.name, "test-lifecycle");
+        assert!(!result.lifecycle.id.is_empty());
+
+        let lifecycles = list_lifecycles(&store).unwrap();
+        assert_eq!(lifecycles.len(), 1);
+        assert_eq!(lifecycles[0].name, "test-lifecycle");
+
+        let found = get_lifecycle_by_id(&store, &result.lifecycle.id).unwrap();
+        assert!(found.is_some());
     }
 
     #[test]

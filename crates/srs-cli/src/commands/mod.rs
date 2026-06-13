@@ -674,6 +674,8 @@ pub enum LifecycleCommand {
         #[arg(long, hide = true)]
         json: bool,
     },
+    /// Create a lifecycle (reads full Lifecycle JSON from stdin)
+    Create,
 }
 
 #[derive(Subcommand)]

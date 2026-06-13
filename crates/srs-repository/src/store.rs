@@ -146,6 +146,15 @@ pub trait RepositoryStore {
     ) -> Result<(), RepositoryError>;
     fn ensure_vocabularies_dir(&self, relative_dir: &str) -> Result<(), RepositoryError>;
 
+    // --- Lifecycles ---
+
+    fn save_lifecycle(
+        &self,
+        relative_path: &str,
+        lifecycle: &Lifecycle,
+    ) -> Result<(), RepositoryError>;
+    fn ensure_lifecycles_dir(&self, relative_dir: &str) -> Result<(), RepositoryError>;
+
     // --- Instances (Notes, TypedRecords, Records) ---
 
     fn load_instance_json(&self, relative_path: &str)
@@ -1289,6 +1298,22 @@ impl RepositoryStore for FileStore {
         self.ensure_dir(&self.abs(relative_dir))
     }
 
+    fn save_lifecycle(
+        &self,
+        relative_path: &str,
+        lifecycle: &Lifecycle,
+    ) -> Result<(), RepositoryError> {
+        let value = serde_json::to_value(lifecycle).map_err(|e| RepositoryError::Serialize {
+            path: self.abs(relative_path),
+            source: e,
+        })?;
+        self.write_json(&self.abs(relative_path), &value)
+    }
+
+    fn ensure_lifecycles_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
+        self.ensure_dir(&self.abs(relative_dir))
+    }
+
     // --- Instances ---
 
     fn load_instance_json(
@@ -1726,6 +1751,7 @@ pub(crate) fn definition_kind_key(kind: DefinitionKind) -> &'static str {
         DefinitionKind::RelationType => "relationTypes",
         DefinitionKind::Blueprint => "blueprints",
         DefinitionKind::Vocabulary => "vocabularies",
+        DefinitionKind::Lifecycle => "lifecycles",
         DefinitionKind::Theme => "themes",
     }
 }
@@ -2442,6 +2468,27 @@ pub mod memory {
         }
 
         fn ensure_vocabularies_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
+            Ok(())
+        }
+
+        fn save_lifecycle(
+            &self,
+            relative_path: &str,
+            lifecycle: &Lifecycle,
+        ) -> Result<(), RepositoryError> {
+            let v = serde_json::to_value(lifecycle).unwrap();
+            self.data.borrow_mut().insert(relative_path.to_string(), v);
+            // Keep self.package in sync so load_package() reflects writes.
+            let mut pkg = self.package.borrow_mut();
+            if let Some(existing) = pkg.lifecycles.iter_mut().find(|lc| lc.id == lifecycle.id) {
+                *existing = lifecycle.clone();
+            } else {
+                pkg.lifecycles.push(lifecycle.clone());
+            }
+            Ok(())
+        }
+
+        fn ensure_lifecycles_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
             Ok(())
         }
 
