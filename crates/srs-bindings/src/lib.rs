@@ -99,7 +99,7 @@ impl SrsRepository {
             input.field_values,
             input.group_values,
             input.tags,
-            "records",
+            "records/tier-2",
         )
         .map_err(js_err)?;
         to_js(&record)
