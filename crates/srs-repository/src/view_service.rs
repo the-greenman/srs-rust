@@ -26,7 +26,7 @@ use crate::error::RepositoryError;
 use crate::package_types::{DefinitionKind, PackageSelector};
 use crate::store::RepositoryStore;
 use crate::writer::new_instance_id;
-use srs_core::types::view::{DocumentView, View};
+use srs_core::types::view::{DocumentView, ExactTypeRef, View};
 use srs_core::validation::view::{validate_document_view, validate_view};
 
 // ── Result enums (read-only) ──────────────────────────────────────────────────
@@ -71,10 +71,23 @@ pub struct DocumentViewSummary {
     pub description: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub container_type: Option<String>,
+    /// RFC-009: version-exact Type anchors this DocumentView applies to (OR semantics).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_type_refs: Option<Vec<ExactTypeRef>>,
     /// Boundary path of the package that owns this document view.
     /// `None` = primary package (`package/`); `Some(path)` = sub-package path.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_package: Option<String>,
+}
+
+/// Filter for [`list_document_views_summary`]. All criteria are AND-combined; a `None`
+/// field imposes no constraint. `root_type_id` matches when the view's `root_type_refs`
+/// contains an `ExactTypeRef` with that `type_id` (any version).
+#[derive(Debug, Clone, Default)]
+pub struct DocumentViewListFilter {
+    pub namespace: Option<String>,
+    pub container_type: Option<String>,
+    pub root_type_id: Option<String>,
 }
 
 // ── Result structs (mutating operations) ─────────────────────────────────────
@@ -256,6 +269,7 @@ pub fn list_views_summary(
 
 pub fn list_document_views_summary(
     store: &dyn RepositoryStore,
+    filter: &DocumentViewListFilter,
 ) -> Result<Vec<DocumentViewSummary>, RepositoryError> {
     // Build provenance map: document view id → boundary selector
     let mut provenance: std::collections::HashMap<String, Option<String>> =
@@ -284,6 +298,31 @@ pub fn list_document_views_summary(
 
     Ok(list_document_views(store)?
         .into_iter()
+        .filter(|v| {
+            // namespace: exact match
+            if let Some(ns) = &filter.namespace {
+                if &v.namespace != ns {
+                    return false;
+                }
+            }
+            // container_type: exact match against the (optional) hint
+            if let Some(ct) = &filter.container_type {
+                if v.container_type.as_deref() != Some(ct.as_str()) {
+                    return false;
+                }
+            }
+            // root_type_id: at least one ExactTypeRef with this type_id (any version)
+            if let Some(rt) = &filter.root_type_id {
+                let matches = v
+                    .root_type_refs
+                    .as_ref()
+                    .is_some_and(|refs| refs.iter().any(|r| &r.type_id == rt));
+                if !matches {
+                    return false;
+                }
+            }
+            true
+        })
         .map(|v| {
             let source_package = provenance.get(&v.id).cloned().flatten();
             DocumentViewSummary {
@@ -293,6 +332,7 @@ pub fn list_document_views_summary(
                 version: v.version,
                 description: v.description,
                 container_type: v.container_type,
+                root_type_refs: v.root_type_refs,
                 source_package,
             }
         })
@@ -538,6 +578,7 @@ mod tests {
             version: 1,
             description: "test doc view".to_string(),
             container_type: None,
+            root_type_refs: None,
             sections: vec![DocumentSection {
                 section_id: "s1".to_string(),
                 title: None,
@@ -789,8 +830,48 @@ mod tests {
 
         let created =
             create_document_view(&store, minimal_document_view("listed-dv"), None).unwrap();
-        let summaries = list_document_views_summary(&store).unwrap();
+        let summaries =
+            list_document_views_summary(&store, &DocumentViewListFilter::default()).unwrap();
         assert!(summaries.iter().any(|s| s.id == created.document_view.id));
+    }
+
+    #[test]
+    fn list_document_views_summary_filters_by_root_type() {
+        let temp = tempfile::TempDir::new().unwrap();
+        setup_minimal_repo(temp.path());
+        let store = FileStore::new(temp.path());
+
+        let type_id = "00000000-0000-4000-8000-00000000aaaa";
+        let mut anchored = minimal_document_view("anchored-dv");
+        anchored.root_type_refs = Some(vec![ExactTypeRef {
+            type_id: type_id.to_string(),
+            type_version: 1,
+        }]);
+        let anchored = create_document_view(&store, anchored, None).unwrap();
+        // A second view with no rootTypeRefs — must be excluded by the filter.
+        create_document_view(&store, minimal_document_view("unanchored-dv"), None).unwrap();
+
+        // Matching root_type_id returns only the anchored view; its summary carries rootTypeRefs.
+        let filter = DocumentViewListFilter {
+            root_type_id: Some(type_id.to_string()),
+            ..Default::default()
+        };
+        let matched = list_document_views_summary(&store, &filter).unwrap();
+        assert_eq!(matched.len(), 1, "expected exactly the anchored view");
+        assert_eq!(matched[0].id, anchored.document_view.id);
+        assert_eq!(
+            matched[0].root_type_refs.as_ref().unwrap()[0].type_id,
+            type_id
+        );
+
+        // A non-matching type id returns nothing.
+        let none_filter = DocumentViewListFilter {
+            root_type_id: Some("00000000-0000-4000-8000-00000000ffff".to_string()),
+            ..Default::default()
+        };
+        assert!(list_document_views_summary(&store, &none_filter)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -989,7 +1070,8 @@ mod tests {
 
         create_document_view(&store, minimal_document_view("primary-dv"), None).unwrap();
 
-        let summaries = list_document_views_summary(&store).unwrap();
+        let summaries =
+            list_document_views_summary(&store, &DocumentViewListFilter::default()).unwrap();
         assert!(
             summaries.iter().any(|s| s.source_package.is_none()),
             "primary package document views should have source_package = None"

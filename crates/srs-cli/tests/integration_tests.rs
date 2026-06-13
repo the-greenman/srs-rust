@@ -1070,6 +1070,39 @@ fn repeatable_fields_fixture_dir() -> std::path::PathBuf {
 }
 
 #[test]
+fn document_view_list_root_type_filter_is_wired() {
+    // RFC-009: `document-view list --root-type <uuid>` filters by rootTypeRefs.
+    let fixture = repeatable_fields_fixture_dir();
+
+    // Unfiltered listing returns the fixture's document views.
+    let all = run_srs_in_dir(&fixture, &["document-view", "list"]);
+    assert_eq!(all["ok"], true, "unfiltered list should succeed: {all}");
+    let total = all["payload"]["documentViews"].as_array().unwrap().len();
+    assert!(total > 0, "fixture should declare document views");
+
+    // A root-type UUID that no fixture view anchors to yields an empty list (still ok:true).
+    let filtered = run_srs_in_dir(
+        &fixture,
+        &[
+            "document-view",
+            "list",
+            "--root-type",
+            "11111111-1111-4111-8111-111111111111",
+        ],
+    );
+    assert_eq!(filtered["ok"], true);
+    assert_eq!(filtered["command"], "document-view list");
+    assert_eq!(
+        filtered["payload"]["documentViews"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0,
+        "no fixture view should match an unknown root-type uuid"
+    );
+}
+
+#[test]
 fn render_document_view_json_returns_projection_payload() {
     let fixture = field_groups_fixture_dir();
     let result = run_srs_in_dir(
