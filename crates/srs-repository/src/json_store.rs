@@ -5,12 +5,14 @@ use crate::repository_lifecycle::{CreateRepositoryResult, InitializeRepositoryIn
 use crate::store::RepositoryStore;
 use serde::de::Error as SerdeDeError;
 use srs_core::types::field::{Field, ValueType};
+use srs_core::types::lifecycle::Lifecycle;
 use srs_core::types::record_type::{
     FieldAssignment, FieldAssignmentOverride, FieldGroup, RecordType, TypeLifecycle,
 };
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::types::theme::Theme;
 use srs_core::types::view::{DocumentView, View};
+use srs_core::types::vocabulary::Vocabulary;
 use srs_core::validation::relation_type_definition::validate_relation_type_definition;
 use srs_core::validation::theme::validate_theme;
 use srs_core::validation::view::{validate_document_view, validate_view};
@@ -55,6 +57,10 @@ struct PackageMetadata {
     document_views: Vec<String>,
     #[serde(default)]
     themes: Vec<String>,
+    #[serde(default)]
+    vocabularies: Vec<String>,
+    #[serde(default)]
+    lifecycles: Vec<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -337,6 +343,8 @@ impl JsonStore {
             Vec<View>,
             Vec<DocumentView>,
             Vec<Theme>,
+            Vec<Vocabulary>,
+            Vec<Lifecycle>,
         ),
         RepositoryError,
     > {
@@ -533,6 +541,32 @@ impl JsonStore {
             themes.push(theme);
         }
 
+        let mut vocabularies = Vec::new();
+        for rel_path in &metadata.vocabularies {
+            let full = format!("{package_prefix}/{rel_path}");
+            let vocab: Vocabulary =
+                serde_json::from_value(self.data_get(&full)?).map_err(|source| {
+                    RepositoryError::PackageLoad {
+                        path: PathBuf::from(&full),
+                        source,
+                    }
+                })?;
+            vocabularies.push(vocab);
+        }
+
+        let mut lifecycles = Vec::new();
+        for rel_path in &metadata.lifecycles {
+            let full = format!("{package_prefix}/{rel_path}");
+            let lc: Lifecycle =
+                serde_json::from_value(self.data_get(&full)?).map_err(|source| {
+                    RepositoryError::PackageLoad {
+                        path: PathBuf::from(&full),
+                        source,
+                    }
+                })?;
+            lifecycles.push(lc);
+        }
+
         Ok((
             metadata,
             fields,
@@ -540,6 +574,8 @@ impl JsonStore {
             views,
             document_views,
             themes,
+            vocabularies,
+            lifecycles,
         ))
     }
 }
@@ -640,8 +676,16 @@ impl RepositoryStore for JsonStore {
     fn load_package(&self) -> Result<Package, RepositoryError> {
         let manifest = self.load_manifest()?;
         let mut rt_by_type: HashMap<String, (RelationTypeDefinition, PathBuf)> = HashMap::new();
-        let (root_meta, mut fields, mut record_types, mut views, mut document_views, mut themes) =
-            self.load_package_from_prefix("package", &mut rt_by_type)?;
+        let (
+            root_meta,
+            mut fields,
+            mut record_types,
+            mut views,
+            mut document_views,
+            mut themes,
+            mut vocabularies,
+            mut lifecycles,
+        ) = self.load_package_from_prefix("package", &mut rt_by_type)?;
 
         if let Some(pkg_refs) = manifest.extra.get("packageRefs").and_then(|v| v.as_array()) {
             let mut field_sources: HashMap<String, PathBuf> = HashMap::new();
@@ -670,8 +714,16 @@ impl RepositoryStore for JsonStore {
                     Some(p) => p,
                     None => continue,
                 };
-                let (.., sub_fields, sub_types, sub_views, sub_doc_views, sub_themes) =
-                    self.load_package_from_prefix(rel_path, &mut rt_by_type)?;
+                let (
+                    ..,
+                    sub_fields,
+                    sub_types,
+                    sub_views,
+                    sub_doc_views,
+                    sub_themes,
+                    sub_vocabs,
+                    sub_lcs,
+                ) = self.load_package_from_prefix(rel_path, &mut rt_by_type)?;
 
                 for field in sub_fields {
                     if let Some(first_path) = field_sources.get(&field.id) {
@@ -757,6 +809,16 @@ impl RepositoryStore for JsonStore {
                         themes.push(theme);
                     }
                 }
+                for vocab in sub_vocabs {
+                    if !vocabularies.iter().any(|v| v.id == vocab.id) {
+                        vocabularies.push(vocab);
+                    }
+                }
+                for lc in sub_lcs {
+                    if !lifecycles.iter().any(|l| l.id == lc.id) {
+                        lifecycles.push(lc);
+                    }
+                }
             }
         }
 
@@ -774,8 +836,8 @@ impl RepositoryStore for JsonStore {
             blueprints: vec![],
             root: self.repository_root(),
             dependency_refs: vec![],
-            vocabularies: vec![],
-            lifecycles: vec![],
+            vocabularies,
+            lifecycles,
         })
     }
 
@@ -2095,5 +2157,90 @@ mod tests {
             Some("1"),
             "srsj key must equal \"1\""
         );
+    }
+
+    #[test]
+    fn copy_file_to_json_preserves_vocabularies_and_lifecycles() {
+        use crate::repository_lifecycle::create_repository;
+        use crate::repository_portability::copy_repository;
+
+        let src_tmp = TempDir::new().unwrap();
+        let src_store = FileStore::new(src_tmp.path());
+        create_repository(&src_store, &init_input()).unwrap();
+
+        // Write a vocabulary and a lifecycle directly as JSON files into the source
+        // file-store, then register them in package.json.
+        let vocab_json = serde_json::json!({
+            "id": "voc-test-01",
+            "version": 1,
+            "namespace": "com.semanticops.json",
+            "name": "test-vocab",
+            "mode": "open",
+            "terms": [],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        std::fs::create_dir_all(src_tmp.path().join("package/vocabularies")).unwrap();
+        std::fs::write(
+            src_tmp
+                .path()
+                .join("package/vocabularies/test-vocab-voc-test-0.json"),
+            serde_json::to_string_pretty(&vocab_json).unwrap(),
+        )
+        .unwrap();
+
+        let lc_json = serde_json::json!({
+            "id": "lc-test-01",
+            "version": 1,
+            "namespace": "com.semanticops.json",
+            "name": "test-lifecycle",
+            "states": [
+                {"id": "s1", "key": "draft", "isInitial": true},
+                {"id": "s2", "key": "active", "isFinal": true}
+            ],
+            "transitions": [{"name": "publish", "from": "draft", "to": "active"}],
+            "initialState": "draft",
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        std::fs::create_dir_all(src_tmp.path().join("package/lifecycles")).unwrap();
+        std::fs::write(
+            src_tmp
+                .path()
+                .join("package/lifecycles/test-lifecycle-lc-test-0.json"),
+            serde_json::to_string_pretty(&lc_json).unwrap(),
+        )
+        .unwrap();
+
+        // Register both in package.json
+        let pkg_path = src_tmp.path().join("package/package.json");
+        let mut pkg: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&pkg_path).unwrap()).unwrap();
+        pkg["vocabularies"] = serde_json::json!(["vocabularies/test-vocab-voc-test-0.json"]);
+        pkg["lifecycles"] = serde_json::json!(["lifecycles/test-lifecycle-lc-test-0.json"]);
+        std::fs::write(&pkg_path, serde_json::to_string_pretty(&pkg).unwrap()).unwrap();
+
+        // Copy file→json
+        let dst_tmp = TempDir::new().unwrap();
+        let dst_path = dst_tmp.path().join("copy.srsj");
+        let dst_store = JsonStore::create(&dst_path).unwrap();
+        copy_repository(&src_store, &dst_store).unwrap();
+        drop(dst_store);
+
+        // Reopen the .srsj and verify vocabularies and lifecycles survive the round-trip
+        let reopened = JsonStore::open(&dst_path).unwrap();
+        let pkg = reopened.load_package().unwrap();
+        assert_eq!(
+            pkg.vocabularies.len(),
+            1,
+            "expected 1 vocabulary in srsj, got {}",
+            pkg.vocabularies.len()
+        );
+        assert_eq!(pkg.vocabularies[0].name, "test-vocab");
+        assert_eq!(
+            pkg.lifecycles.len(),
+            1,
+            "expected 1 lifecycle in srsj, got {}",
+            pkg.lifecycles.len()
+        );
+        assert_eq!(pkg.lifecycles[0].name, "test-lifecycle");
     }
 }
