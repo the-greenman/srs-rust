@@ -735,6 +735,16 @@ mod tests {
             fn ensure_vocabularies_dir(&self, _: &str) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
+            fn save_lifecycle(
+                &self,
+                _: &str,
+                _: &srs_core::types::lifecycle::Lifecycle,
+            ) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn ensure_lifecycles_dir(&self, _: &str) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
             fn load_instance_json(&self, _: &str) -> Result<serde_json::Value, RepositoryError> {
                 unimplemented!()
             }

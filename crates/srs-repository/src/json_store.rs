@@ -1086,6 +1086,26 @@ impl RepositoryStore for JsonStore {
         Ok(())
     }
 
+    fn save_lifecycle(
+        &self,
+        relative_path: &str,
+        lifecycle: &srs_core::types::lifecycle::Lifecycle,
+    ) -> Result<(), RepositoryError> {
+        let v = serde_json::to_value(lifecycle).map_err(|source| RepositoryError::Serialize {
+            path: PathBuf::from(relative_path),
+            source,
+        })?;
+        self.state
+            .borrow_mut()
+            .data
+            .insert(relative_path.to_string(), v);
+        self.flush()
+    }
+
+    fn ensure_lifecycles_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
+        Ok(())
+    }
+
     fn load_instance_json(
         &self,
         relative_path: &str,
