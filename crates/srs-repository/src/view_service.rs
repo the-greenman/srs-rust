@@ -538,6 +538,7 @@ mod tests {
             version: 1,
             description: "test doc view".to_string(),
             container_type: None,
+            root_type_refs: None,
             sections: vec![DocumentSection {
                 section_id: "s1".to_string(),
                 title: None,

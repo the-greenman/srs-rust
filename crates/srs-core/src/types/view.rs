@@ -181,6 +181,19 @@ pub struct ThemeVariant {
     pub theme_ref: ThemeReference,
 }
 
+/// A version-exact reference to a Type, used in `DocumentView.root_type_refs` (RFC-009).
+///
+/// Distinct from the blueprint-level [`crate::types::blueprint::TypeRef`], where
+/// `type_version` is optional. `ExactTypeRef` requires `type_version` because it is a
+/// package-validation-time anchor (RFC-009 I-63): each entry must resolve to a specific
+/// Type version in the package.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExactTypeRef {
+    pub type_id: String,
+    pub type_version: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentView {
@@ -192,6 +205,11 @@ pub struct DocumentView {
     pub description: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub container_type: Option<String>,
+    /// RFC-009: version-exact Type anchors. When present and non-empty, this DocumentView
+    /// applies to Containers whose root Record resolves to one of these Types (OR semantics).
+    /// Replaces `container_type` as the load-bearing join; `container_type` is a back-compat hint.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_type_refs: Option<Vec<ExactTypeRef>>,
     pub sections: Vec<DocumentSection>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub navigation_links: Option<Vec<NavigationLink>>,
@@ -227,6 +245,10 @@ mod tests {
             version: 1,
             description: "desc".to_string(),
             container_type: Some("spec".to_string()),
+            root_type_refs: Some(vec![ExactTypeRef {
+                type_id: "11111111-1111-4111-8111-111111111111".to_string(),
+                type_version: 2,
+            }]),
             sections: vec![DocumentSection {
                 section_id: "spec-sections".to_string(),
                 title: Some("Specification".to_string()),
@@ -277,8 +299,17 @@ mod tests {
         };
 
         let json = serde_json::to_string(&dv).unwrap();
+        assert!(
+            json.contains("\"rootTypeRefs\""),
+            "rootTypeRefs must serialize with camelCase key"
+        );
         let parsed: DocumentView = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, dv);
+        assert_eq!(
+            parsed.root_type_refs.as_ref().unwrap()[0].type_version,
+            2,
+            "ExactTypeRef.typeVersion must survive the roundtrip"
+        );
     }
 
     #[test]

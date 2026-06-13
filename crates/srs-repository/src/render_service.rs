@@ -2841,6 +2841,7 @@ mod tests {
             version: 1,
             description: "Heterogeneous container document view".to_string(),
             container_type: None,
+            root_type_refs: None,
             sections: vec![DocumentSection {
                 section_id: "body".to_string(),
                 title: Some("Body".to_string()),
@@ -3403,6 +3404,7 @@ mod tests {
             version: 1,
             description: "Table document view".to_string(),
             container_type: None,
+            root_type_refs: None,
             sections: vec![DocumentSection {
                 section_id: "tables".to_string(),
                 title: None,
@@ -3708,6 +3710,7 @@ mod tests {
             version: 1,
             description: "d".to_string(),
             container_type: None,
+            root_type_refs: None,
             sections: vec![DocumentSection {
                 section_id: "s".to_string(),
                 title: None,
@@ -3915,6 +3918,7 @@ mod tests {
             version: 1,
             description: "View for field ordering".to_string(),
             container_type: None,
+            root_type_refs: None,
             sections: vec![DocumentSection {
                 section_id: "items".to_string(),
                 title: Some("Items".to_string()),
@@ -4262,6 +4266,7 @@ mod tests {
             description: "Auto-select test view".to_string(),
             container_type: None,
             preamble: None,
+            root_type_refs: None,
             sections: vec![DocumentSection {
                 section_id: "s-auto".to_string(),
                 order: 0,
