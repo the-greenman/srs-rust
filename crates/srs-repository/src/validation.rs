@@ -3,6 +3,7 @@ use crate::store::RepositoryStore;
 use serde_json::Value;
 use srs_core::types::record::Record;
 use srs_core::types::relation::RelationsCollection;
+use srs_core::validation::lifecycle::{validate_lifecycle, LifecycleDiagnosticSeverity};
 use srs_core::validation::record::validate_record;
 use srs_core::validation::relation::{validate_relation, RelationValidationContext};
 use srs_schema::{SchemaRegistry, NOTE_SCHEMA_ID, RECORD_SCHEMA_ID};
@@ -525,25 +526,27 @@ fn validate_vocabulary_invariants(
         }
     }
 
-    // V9: each Lifecycle must have exactly one isInitial state, and its key must match initialState
+    // V5/V9: full lifecycle invariant validation for every standalone Lifecycle
     for lc in &pkg.lifecycles {
+        for diag in validate_lifecycle(lc) {
+            let severity = match diag.severity {
+                LifecycleDiagnosticSeverity::Error => DiagnosticSeverity::Error,
+            };
+            diagnostics.push(ValidationDiagnostic {
+                severity,
+                relative_path: "package/package.json".to_string(),
+                schema_id: None,
+                message: diag.message,
+            });
+        }
+
+        // V9: initialState field must match the key of the isInitial state
         let initial_states: Vec<&srs_core::types::lifecycle::LifecycleState> = lc
             .states
             .iter()
             .filter(|s| s.is_initial == Some(true))
             .collect();
-        let count = initial_states.len();
-        if count != 1 {
-            diagnostics.push(ValidationDiagnostic {
-                severity: DiagnosticSeverity::Error,
-                relative_path: "package/package.json".to_string(),
-                schema_id: None,
-                message: format!(
-                    "V9: lifecycle '{}' must have exactly one isInitial state (found {})",
-                    lc.name, count
-                ),
-            });
-        } else {
+        if initial_states.len() == 1 {
             let initial_key = &initial_states[0].key;
             if initial_key != &lc.initial_state {
                 diagnostics.push(ValidationDiagnostic {
@@ -1451,13 +1454,12 @@ mod tests {
 
         let store = crate::store::FileStore::new(temp.path());
         let report = validate_repository(&store).unwrap();
-        let v9_error = report
-            .diagnostics
-            .iter()
-            .find(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("V9"));
+        let err = report.diagnostics.iter().find(|d| {
+            d.severity == DiagnosticSeverity::Error && d.message.contains("no initial state")
+        });
         assert!(
-            v9_error.is_some(),
-            "expected V9 error for zero isInitial states, got: {:?}",
+            err.is_some(),
+            "expected error for zero isInitial states, got: {:?}",
             report.diagnostics
         );
     }
@@ -1487,13 +1489,12 @@ mod tests {
 
         let store = crate::store::FileStore::new(temp.path());
         let report = validate_repository(&store).unwrap();
-        let v9_error = report
-            .diagnostics
-            .iter()
-            .find(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("V9"));
+        let err = report.diagnostics.iter().find(|d| {
+            d.severity == DiagnosticSeverity::Error && d.message.contains("initial states")
+        });
         assert!(
-            v9_error.is_some(),
-            "expected V9 error for multiple isInitial states, got: {:?}",
+            err.is_some(),
+            "expected error for multiple isInitial states, got: {:?}",
             report.diagnostics
         );
     }
@@ -1519,15 +1520,15 @@ mod tests {
 
         let store = crate::store::FileStore::new(temp.path());
         let report = validate_repository(&store).unwrap();
-        let v9_errors: Vec<_> = report
+        let lc_errors: Vec<_> = report
             .diagnostics
             .iter()
-            .filter(|d| d.message.contains("V9"))
+            .filter(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("initial"))
             .collect();
         assert!(
-            v9_errors.is_empty(),
-            "expected no V9 errors for valid lifecycle, got: {:?}",
-            v9_errors
+            lc_errors.is_empty(),
+            "expected no lifecycle errors for valid lifecycle, got: {:?}",
+            lc_errors
         );
     }
 
@@ -1556,6 +1557,71 @@ mod tests {
         assert!(
             v9_error.is_some(),
             "expected V9 error for initialState/isInitial key mismatch, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    // --- V9c: standalone lifecycle transition references undefined state (#135) ---
+
+    #[test]
+    fn lifecycle_standalone_transition_to_undefined_state_produces_error() {
+        let temp = TempDir::new().unwrap();
+        let lc_id = "00000000-0000-4000-8000-000000000050";
+
+        setup_package_only_repo(
+            &temp,
+            &minimal_package_json_full(&[], &[], &[], &["lifecycles/test-lc.json"]),
+        );
+        // Transition references "ghost" which is not in states[]
+        let mut lc_json = minimal_lifecycle_json(
+            lc_id,
+            "draft",
+            json!([{"key": "draft", "isInitial": true}, {"key": "active"}]),
+        );
+        lc_json["transitions"] = json!([{"name": "promote", "from": "draft", "to": "ghost"}]);
+        write_json(temp.path(), "package/lifecycles/test-lc.json", &lc_json);
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let err = report
+            .diagnostics
+            .iter()
+            .find(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("ghost"));
+        assert!(
+            err.is_some(),
+            "expected error for transition to undefined state 'ghost', got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    // --- V7: dangling lifecycleRef produces a clear diagnostic (#136) ---
+
+    #[test]
+    fn dangling_lifecycle_ref_produces_clear_v7_diagnostic() {
+        let temp = TempDir::new().unwrap();
+        let type_id = "00000000-0000-4000-8000-000000000040";
+        let missing_lc_id = "ffffffff-0000-4000-8000-000000000099";
+
+        setup_package_only_repo(
+            &temp,
+            &minimal_package_json_full(&[], &["types/test-type.json"], &[], &[]),
+        );
+        write_json(
+            temp.path(),
+            "package/types/test-type.json",
+            &minimal_type_json_with_lifecycle_ref(type_id, missing_lc_id),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let v7 = report.diagnostics.iter().find(|d| {
+            d.severity == DiagnosticSeverity::Error
+                && d.message.contains("V7")
+                && d.message.contains(missing_lc_id)
+        });
+        assert!(
+            v7.is_some(),
+            "expected V7 diagnostic naming the dangling UUID, got: {:?}",
             report.diagnostics
         );
     }
