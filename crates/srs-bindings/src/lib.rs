@@ -8,6 +8,7 @@ use srs_repository::relation_service::{self, ListRelationsFilter};
 use srs_repository::render_service::{self, RenderDocumentViewOptions};
 use srs_repository::services::{self, ListNotesFilter};
 use srs_repository::validation;
+use srs_repository::view_service::{self, DocumentViewListFilter};
 use srs_repository::JsonStore;
 use wasm_bindgen::prelude::*;
 
@@ -227,6 +228,24 @@ impl SrsRepository {
         }))
     }
 
+    /// List document-view (L2) summaries. `filter_json` is a JSON string matching
+    /// `{ "namespace"?: string, "containerType"?: string, "rootTypeId"?: string }`;
+    /// pass `"{}"` for all document views. `rootTypeId` keeps only views whose
+    /// `rootTypeRefs` include that Type UUID (RFC-009). Returns a JS array of objects
+    /// `{ id, namespace, name, version, description, containerType?, rootTypeRefs?, sourcePackage? }`.
+    pub fn list_document_views(&self, filter_json: &str) -> Result<JsValue, JsValue> {
+        let parsed: DocumentViewListBindingFilter = serde_json::from_str(filter_json)
+            .map_err(|e| js_err(format!("invalid filter: {e}")))?;
+        let filter = DocumentViewListFilter {
+            namespace: parsed.namespace,
+            container_type: parsed.container_type,
+            root_type_id: parsed.root_type_id,
+        };
+        let summaries =
+            view_service::list_document_views_summary(&self.store, &filter).map_err(js_err)?;
+        to_js(&summaries)
+    }
+
     /// List container summaries. `filter_json` is a JSON string matching
     /// `{ "containerType"?: string, "memberInstanceId"?: string, "rootInstanceId"?: string }`;
     /// pass `"{}"` for all containers. Returns a JS array of `ContainerSummary` objects.
@@ -274,6 +293,18 @@ impl SrsRepository {
             .map_err(js_err)?;
         to_js(&members)
     }
+}
+
+/// Input shape for `list_document_views` — parsed from caller-supplied JSON.
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct DocumentViewListBindingFilter {
+    #[serde(default)]
+    namespace: Option<String>,
+    #[serde(default)]
+    container_type: Option<String>,
+    #[serde(default)]
+    root_type_id: Option<String>,
 }
 
 /// Input shape for `list_containers` — parsed from caller-supplied JSON.
