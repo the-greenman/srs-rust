@@ -429,11 +429,14 @@ pub fn create_document_view(
 }
 
 /// Update an existing DocumentView (full replace). Validates, locates existing file, overwrites.
+/// The `id` field of the written file is always set to `document_view_id` — the caller's JSON may
+/// omit or leave it blank; the positional argument is authoritative.
 pub fn update_document_view(
     store: &dyn RepositoryStore,
     document_view_id: &str,
-    document_view: DocumentView,
+    mut document_view: DocumentView,
 ) -> Result<UpdateDocumentViewResult, RepositoryError> {
+    document_view.id = document_view_id.to_string();
     validate_document_view(&document_view).map_err(|e| {
         RepositoryError::DocumentViewValidation {
             path: std::path::PathBuf::from("package/document-views"),
@@ -829,6 +832,34 @@ mod tests {
 
         let result = update_document_view(&store, &created.document_view.id, updated).unwrap();
         assert_eq!(result.document_view.description, "updated dv description");
+    }
+
+    #[test]
+    fn update_document_view_preserves_id_when_input_id_is_empty() {
+        let temp = tempfile::TempDir::new().unwrap();
+        setup_minimal_repo(temp.path());
+        let store = FileStore::new(temp.path());
+
+        let created =
+            create_document_view(&store, minimal_document_view("id-preserve-dv"), None).unwrap();
+        let authoritative_id = created.document_view.id.clone();
+
+        // Simulate caller sending update JSON with id stripped out
+        let mut updated = created.document_view.clone();
+        updated.id = String::new();
+
+        let result = update_document_view(&store, &authoritative_id, updated).unwrap();
+        assert_eq!(
+            result.document_view.id, authoritative_id,
+            "update must restore the id from the positional argument even when input id is empty"
+        );
+
+        // Confirm the file on disk has the correct id
+        let fetched = get_document_view_by_id(&store, &authoritative_id).unwrap();
+        assert!(
+            matches!(fetched, GetDocumentViewResult::Found(dv) if dv.id == authoritative_id),
+            "persisted file must have the authoritative id"
+        );
     }
 
     #[test]
