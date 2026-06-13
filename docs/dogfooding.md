@@ -141,21 +141,22 @@ This is the governance-profile workflow (`governance-profile.md` §6.3–6.4, §
 
 This is the spec-as-repo pattern (`../srs/srs`): sections are records, order is a relation, the markdown is a projection.
 
-**Capabilities exercised.** Ordering relations (`precedes`, or `members[]` sequence relations like `section-sequence`); document views (`ext:views-l2`); `render` as a pure projection of records + relations; `tree` as the hierarchy view.
+**Capabilities exercised.** Ordering relations (`precedes`, or `members[]` sequence relations like `section-sequence`); document views (`ext:views-l2`); the RFC-009 typed anchor (`DocumentView.rootTypeRefs` — version-exact `ExactTypeRef`, the validated successor to the free-string `containerType` join); `render` as a pure projection of records + relations; `tree` as the hierarchy view.
 
-**CLI surface.** `document-view create`, `document-view list`, `document-view get`, `render document-view`, `relation create`, `tree`.
+**CLI surface.** `document-view create`, `document-view list` (incl. `--root-type <typeId>`), `document-view get`, `render document-view`, `relation create`, `tree`.
 
 **Steps.**
 1. Inspect the spec repo to see the target shape: `srs document-view list --repo ../srs/srs`, `srs render document-view --repo ../srs/srs --view <view>`.
-2. In a working repo, define (or reuse) a document view that selects records by type and renders them.
+2. In a working repo, define (or reuse) a document view that selects records by type and renders them. Anchor it to its root type with `rootTypeRefs: [{ "typeId": <type-uuid>, "typeVersion": <n> }]` (keep `containerType` as a human-readable hint if you like).
 3. Establish order with `precedes` (or a `members[]` sequence relation).
 4. `srs render document-view --view <view>` and read the output.
 5. Reorder the records (change the `precedes`/`members` relation) and re-render — confirm the output order changed.
 6. `srs tree --repo <repo>` to see the derived hierarchy.
+7. Find views by anchor: `srs document-view list --root-type <type-uuid>` returns only views whose `rootTypeRefs` include that Type id; each summary carries `rootTypeRefs`.
 
-**Negative case.** Render a view that references a type with no instances, or a view ID that doesn't exist — confirm an empty-but-valid render or a correct error envelope (not a crash).
+**Negative case.** Render a view that references a type with no instances, or a view ID that doesn't exist — confirm an empty-but-valid render or a correct error envelope (not a crash). `srs document-view list --root-type <unknown-uuid>` returns an empty list with `ok: true` (not an error). RFC-009 validation diagnostics are **advisory `Warning`s** that never change `errors`/exit code: declare a `rootTypeRefs` entry that does not resolve to a package Type and confirm `repo validate` emits **I-63** (the entry is ignored for matching); give a rooted Container a `containerType` that differs from its root Record's resolved Type `name` and confirm **I-64** (the hint is stale; the container stays valid).
 
-**Done when.** The render reflects record content and the ordering relation; **changing the relation changes the render** (proving the markdown is derived); `tree` shows the expected hierarchy.
+**Done when.** The render reflects record content and the ordering relation; **changing the relation changes the render** (proving the markdown is derived); `tree` shows the expected hierarchy; `document-view list --root-type` narrows to the anchored views, and a stale `containerType` surfaces as an advisory I-64 warning with `repo validate` still reporting `0 errors`.
 
 ### S6 — Govern the tag space and record states (vocabulary + lifecycle, RFC-006)
 
