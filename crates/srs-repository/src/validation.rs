@@ -441,8 +441,9 @@ pub fn validate_repository(
     if let Ok(pkg) = store.load_package() {
         // I-63: each DocumentView.rootTypeRefs entry MUST resolve to a Type in the package.
         // An unresolved entry is reported and "will not be used for Container matching".
-        if let Ok(views) = crate::view_service::list_document_views(store) {
-            for dv in &views {
+        // Read views from the already-loaded `pkg` (avoids a second package load).
+        {
+            for dv in &pkg.document_views {
                 if let Some(refs) = &dv.root_type_refs {
                     for r in refs {
                         if pkg.resolve_type(&r.type_id, r.type_version).is_none() {
@@ -2055,6 +2056,161 @@ mod tests {
                 .any(|d| d.message.contains("I-64")),
             "I-64 must not fire for a container without rootInstanceIds: {:?}",
             report.diagnostics
+        );
+    }
+
+    #[test]
+    fn validate_skips_i64_when_root_record_unresolved() {
+        // I-64 must skip (not error) when the first rootInstanceId cannot be loaded.
+        let temp = TempDir::new().unwrap();
+        write_json(temp.path(), "manifest.json", &minimal_manifest(json!([])));
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                "id": "00000000-0000-4000-8000-000000000010",
+                "namespace": "com.test",
+                "name": "test-package",
+                "title": "Test Package",
+                "description": "test package",
+                "status": "active",
+                "version": "1.0.0",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "fields": [],
+                "types": [],
+                "views": [],
+                "documentViews": []
+            }),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let container = srs_core::types::container::Container {
+            container_id: "00000000-0000-4000-8000-0000000000c3".to_string(),
+            title: "Dangling-root container".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: Some("guide".to_string()),
+            // Root id that is not present in the manifest index.
+            root_instance_ids: Some(vec!["99999999-9999-4999-8999-999999999999".to_string()]),
+            member_instance_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: std::collections::HashMap::new(),
+        };
+        crate::container_service::create_container(&store, container).unwrap();
+
+        let report = validate_repository(&store).unwrap();
+        assert!(
+            !report
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("I-64")),
+            "I-64 must skip when the root Record is unresolvable: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn validate_root_type_diagnostics_consistent_across_stores() {
+        // Cross-store roundtrip: the same fixture must produce the same I-64 diagnostic
+        // from FileStore and from a JsonStore reconstructed via snapshot import.
+        let temp = TempDir::new().unwrap();
+        let type_id = "00000000-0000-4000-8000-000000000abc";
+        write_json(temp.path(), "manifest.json", &minimal_manifest(json!([])));
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                "id": "00000000-0000-4000-8000-000000000010",
+                "namespace": "com.test",
+                "name": "test-package",
+                "title": "Test Package",
+                "description": "test package",
+                "status": "active",
+                "version": "1.0.0",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "fields": [],
+                "types": ["types/guide.json"],
+                "views": [],
+                "documentViews": []
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/types/guide.json",
+            &json!({
+                "id": type_id,
+                "namespace": "com.test",
+                "name": "guide",
+                "version": 1,
+                "description": "guide type",
+                "fields": [],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+
+        let file_store = crate::store::FileStore::new(temp.path());
+        let record = crate::record_store::create_record(
+            &file_store,
+            type_id,
+            1,
+            vec![],
+            None,
+            None,
+            "records",
+        )
+        .unwrap();
+        let container = srs_core::types::container::Container {
+            container_id: "00000000-0000-4000-8000-0000000000c4".to_string(),
+            title: "Guide container".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: Some("not-guide".to_string()),
+            root_instance_ids: Some(vec![record.instance_id.clone()]),
+            member_instance_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: std::collections::HashMap::new(),
+        };
+        crate::container_service::create_container(&file_store, container).unwrap();
+
+        // Reconstruct the same repository in a JsonStore via snapshot import.
+        let snapshot =
+            crate::repository_portability::export_repository_snapshot(&file_store).unwrap();
+        let tmp2 = TempDir::new().unwrap();
+        let json_store =
+            crate::json_store::JsonStore::create(tmp2.path().join("repo.srsj")).unwrap();
+        crate::repository_portability::import_repository_snapshot(&json_store, &snapshot).unwrap();
+
+        let count_i64 = |r: &RepositoryValidationReport| {
+            r.diagnostics
+                .iter()
+                .filter(|d| d.message.contains("I-64"))
+                .count()
+        };
+        let file_report = validate_repository(&file_store).unwrap();
+        let json_report = validate_repository(&json_store).unwrap();
+        assert_eq!(
+            count_i64(&file_report),
+            1,
+            "FileStore: {:?}",
+            file_report.diagnostics
+        );
+        assert_eq!(
+            count_i64(&json_report),
+            count_i64(&file_report),
+            "I-64 diagnostics must be store-agnostic (json: {:?})",
+            json_report.diagnostics
         );
     }
 }
