@@ -10,7 +10,7 @@ use srs_repository::record_store::{self, TransitionLifecycleInput};
 use srs_repository::relation_service::{self, ListRelationsFilter};
 use srs_repository::JsonStore;
 
-const GALLERY_SRSJ: &str = include_str!("../../../../srs/docs/spec/examples/gallery.srsj");
+const GALLERY_SRSJ: &str = include_str!("fixtures/gallery.srsj");
 
 // Two tier-2 instance IDs present in gallery.srsj (no existing "evidences" relation between them)
 const GALLERY_SRC: &str = "ad159754-2edd-4bf8-a70f-a29a617e5809";

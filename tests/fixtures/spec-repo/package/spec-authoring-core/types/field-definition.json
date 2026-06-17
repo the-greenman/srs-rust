@@ -1,0 +1,59 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "2a000011-0000-4000-a000-000000000011",
+  "namespace": "com.semanticops.spec",
+  "name": "field-definition",
+  "version": 1,
+  "description": "A field definition record, documenting one of the specification's defined fields as normative content.",
+  "fields": [
+    {
+      "fieldId": "1a000016-0000-4000-a000-000000000016",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Identifier"
+    },
+    {
+      "fieldId": "1a000014-0000-4000-a000-000000000014",
+      "order": 1,
+      "required": true,
+      "displayLabel": "Namespace"
+    },
+    {
+      "fieldId": "1a000015-0000-4000-a000-000000000015",
+      "order": 2,
+      "required": true,
+      "displayLabel": "Name"
+    },
+    {
+      "fieldId": "1a000010-0000-4000-a000-000000000010",
+      "order": 3,
+      "required": true,
+      "displayLabel": "Version"
+    },
+    {
+      "fieldId": "1a000012-0000-4000-a000-000000000012",
+      "order": 4,
+      "required": true,
+      "displayLabel": "Description"
+    },
+    {
+      "fieldId": "1a000023-0000-4000-a000-000000000023",
+      "order": 5,
+      "required": false,
+      "displayLabel": "Allowed Values"
+    },
+    {
+      "fieldId": "1a000024-0000-4000-a000-000000000024",
+      "order": 6,
+      "required": false,
+      "displayLabel": "Default Value"
+    },
+    {
+      "fieldId": "1a000003-0000-4000-a000-000000000003",
+      "order": 7,
+      "required": false,
+      "displayLabel": "Normative Statement"
+    }
+  ],
+  "createdAt": "2026-05-27T00:00:00Z"
+}

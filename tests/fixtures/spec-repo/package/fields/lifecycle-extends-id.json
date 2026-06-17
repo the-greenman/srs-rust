@@ -1,0 +1,13 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "2b053e03-63a9-45dc-8cca-7d80c55dddf6",
+  "namespace": "com.semanticops.srs",
+  "name": "lifecycle_extends_id",
+  "version": 1,
+  "description": "UUID of the upstream Lifecycle this container extends. Its states and transitions merge into the effective set. Must be paired with lifecycle_extends_version.",
+  "valueType": "string",
+  "createdAt": "2026-06-03T00:00:00Z",
+  "aiGuidance": {
+    "purpose": "Identifies the upstream lifecycle being extended. A downstream package uses this to add states or transitions without forking the upstream definition."
+  }
+}

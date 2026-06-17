@@ -1,0 +1,14 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "b9c0d1e2-f3a4-4b5c-8d7e-8f9a0b1c2d3e",
+  "namespace": "com.semanticops.srs",
+  "name": "name",
+  "version": 1,
+  "description": "The local name of the definition within its namespace.",
+  "aiGuidance": {
+    "purpose": "Names should be lowercase, use hyphens or underscores for separation, and be unique within the namespace. This is the local part of the canonical key."
+  },
+  "valueType": "string",
+  "editorHint": "singleline",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

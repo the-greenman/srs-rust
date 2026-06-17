@@ -1,0 +1,13 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
+  "id": "b2000003-0000-4000-a000-000000000003",
+  "version": 1,
+  "key": "com.semanticops.srs/design-note-sequence",
+  "namespace": "com.semanticops.srs",
+  "label": "Design note sequence",
+  "description": "Orders all design-note records for the rationale document.",
+  "category": "sequence",
+  "irreflexive": true,
+  "status": "deprecated",
+  "createdAt": "2026-05-29T00:00:00Z"
+}

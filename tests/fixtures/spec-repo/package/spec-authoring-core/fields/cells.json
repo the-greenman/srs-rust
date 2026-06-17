@@ -1,0 +1,14 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "1a000033-0000-4000-a000-000000000033",
+  "namespace": "com.semanticops.spec",
+  "name": "cells",
+  "version": 1,
+  "valueType": "string",
+  "editorHint": "singleline",
+  "description": "Ordered cell values for one table row. Position corresponds to the columns field declaration. Requires ext:repeatable-fields.",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "aiGuidance": {
+    "purpose": "Ordered cell values for one table row. Position corresponds to the columns field declaration. Requires ext:repeatable-fields."
+  }
+}

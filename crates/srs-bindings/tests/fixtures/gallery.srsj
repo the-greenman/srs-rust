@@ -1,0 +1,1497 @@
+{
+  "srsj": "1",
+  "manifest": {
+    "instanceIndex": [
+      {
+        "instanceId": "e4f2a891-3c7d-4b5e-9f12-8a6d0b1c2e3f",
+        "path": "records/notes/e4f2a891-3c7d-4b5e-9f12-8a6d0b1c2e3f.json",
+        "tags": [],
+        "tier": 0,
+        "title": "Initial brain dump"
+      },
+      {
+        "instanceId": "ad159754-2edd-4bf8-a70f-a29a617e5809",
+        "path": "records/tier-2/ad159754-2edd-4bf8-a70f-a29a617e5809.json",
+        "tier": 2
+      },
+      {
+        "instanceId": "31291422-cd8b-4840-b884-d55023d938cb",
+        "path": "records/tier-2/31291422-cd8b-4840-b884-d55023d938cb.json",
+        "tier": 2
+      },
+      {
+        "instanceId": "7560efe9-27e3-4186-8b9d-6ab48283f1df",
+        "path": "records/tier-2/7560efe9-27e3-4186-8b9d-6ab48283f1df.json",
+        "tier": 2
+      },
+      {
+        "instanceId": "0482c489-37b4-4342-adaa-36e69dc6f780",
+        "path": "records/tier-2/0482c489-37b4-4342-adaa-36e69dc6f780.json",
+        "tier": 2
+      },
+      {
+        "instanceId": "c503fae5-c3ab-452e-a0b4-5682ca204288",
+        "path": "records/tier-2/c503fae5-c3ab-452e-a0b4-5682ca204288.json",
+        "tier": 2
+      },
+      {
+        "instanceId": "cc58c0dd-8e3a-4dc5-9b58-f3273911a9a9",
+        "path": "records/tier-2/cc58c0dd-8e3a-4dc5-9b58-f3273911a9a9.json",
+        "tier": 2
+      },
+      {
+        "instanceId": "5bbf9209-1dc9-44b2-b0a3-f2192db5a879",
+        "path": "records/tier-2/5bbf9209-1dc9-44b2-b0a3-f2192db5a879.json",
+        "tier": 2
+      },
+      {
+        "instanceId": "8ed62308-f7b4-47e1-b1a2-5490908efd86",
+        "path": "records/tier-2/8ed62308-f7b4-47e1-b1a2-5490908efd86.json",
+        "tier": 2
+      },
+      {
+        "instanceId": "448d64d4-ae82-4971-b027-3b78b9c7a90a",
+        "path": "records/tier-2/448d64d4-ae82-4971-b027-3b78b9c7a90a.json",
+        "tier": 2
+      },
+      {
+        "instanceId": "9054911c-5285-4c3e-8198-4b9650169001",
+        "path": "records/tier-2/9054911c-5285-4c3e-8198-4b9650169001.json",
+        "tier": 2
+      },
+      {
+        "instanceId": "eb4024a0-486f-4d64-a4e4-5d80297129d2",
+        "path": "records/tier-2/eb4024a0-486f-4d64-a4e4-5d80297129d2.json",
+        "tier": 2
+      },
+      {
+        "instanceId": "3be7b057-9167-42a4-b0db-2a8b30666cef",
+        "path": "records/tier-2/3be7b057-9167-42a4-b0db-2a8b30666cef.json",
+        "tier": 2
+      },
+      {
+        "instanceId": "9af57e54-03fb-4625-9a4c-8d2a254ff2b7",
+        "path": "records/tier-2/9af57e54-03fb-4625-9a4c-8d2a254ff2b7.json",
+        "tier": 2
+      },
+      {
+        "instanceId": "4a989562-4a9d-4c86-a365-91bf14d55f06",
+        "path": "records/tier-2/4a989562-4a9d-4c86-a365-91bf14d55f06.json",
+        "tier": 2
+      },
+      {
+        "instanceId": "dd715d4a-8640-4641-b79d-e44f728c547b",
+        "path": "records/tier-2/dd715d4a-8640-4641-b79d-e44f728c547b.json",
+        "tier": 2
+      },
+      {
+        "instanceId": "a9ca11cf-fd34-4901-b5f6-51e20737cb56",
+        "path": "records/tier-2/a9ca11cf-fd34-4901-b5f6-51e20737cb56.json",
+        "tier": 2
+      }
+    ],
+    "namespace": "com.limoma",
+    "repositoryId": "8ae058dc-b52d-4e52-8e7e-969018532a04",
+    "srsVersion": "2.0-draft"
+  },
+  "data": {
+    "records/tier-2/8ed62308-f7b4-47e1-b1a2-5490908efd86.json": {
+      "createdAt": "2026-05-31T14:55:35.198208984+00:00",
+      "fieldValues": [
+        {
+          "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+          "value": "R-002 Curatorial Lead"
+        },
+        {
+          "fieldId": "a6c19b95-4f8f-5b07-93f8-3426c545277e",
+          "value": "Immo Klink"
+        },
+        {
+          "fieldId": "d25da548-79d6-555b-8878-f40b685b3955",
+          "value": "May select which works are exhibited and which artists are invited to show during Phase 1. May decide placement and arrangement within the space, subject to Building Authority approval of any installation method. May set the thematic direction of a show."
+        },
+        {
+          "fieldId": "3c39ee1f-6fe0-5da7-a0b6-928aa3a63211",
+          "value": "Cannot approve installation methods or fixings — that is Building Authority. Cannot commit to showing work that would require structural changes not yet approved. Cannot enter financial agreements on behalf of the group."
+        },
+        {
+          "fieldId": "9a32dc01-f348-5e05-9f54-bb6d21239f04",
+          "value": "Delegated by the founding group at the founding meeting, May 2026. Role is Phase 1 scoped — to be reviewed at the pilot review in December 2026."
+        },
+        {
+          "fieldId": "c04b7f84-9a55-5353-8c9f-2b62f6a1e34e",
+          "value": "December 2026 pilot review."
+        }
+      ],
+      "instanceId": "8ed62308-f7b4-47e1-b1a2-5490908efd86",
+      "lifecycleState": "ratified",
+      "typeId": "e53dce11-6b83-5714-a8fe-f730edb500fa",
+      "typeName": "role",
+      "typeNamespace": "governance",
+      "typeVersion": 1,
+      "updatedAt": "2026-06-08T21:05:18.757652487+00:00"
+    },
+    "package/relation-types/delegates-31c82363.json": {
+      "category": "governance",
+      "createdAt": "2026-05-31T00:00:00Z",
+      "description": "Source delegates responsibility or authority to target.",
+      "id": "31c82363-2d6b-4ddd-9aa9-fb9ec7722e63",
+      "key": "delegates",
+      "label": "Delegates",
+      "namespace": "governance",
+      "version": 1
+    },
+    "package/fields/title-d7e82557.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-05-25T00:00:00Z",
+      "description": "Short human-readable name for the record.",
+      "id": "d7e82557-9045-5e92-a494-d99112bbec4a",
+      "name": "title",
+      "namespace": "governance",
+      "valueType": "string",
+      "version": 1
+    },
+    "package/fields/decisionquestion-73cd845a.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-05-26T00:00:00Z",
+      "description": "The single concrete question this decision answers.",
+      "id": "73cd845a-3623-5bc6-8ade-42a7cd64740c",
+      "name": "decision_question",
+      "namespace": "governance",
+      "valueType": "string",
+      "version": 1
+    },
+    "records/tier-2/c503fae5-c3ab-452e-a0b4-5682ca204288.json": {
+      "createdAt": "2026-05-31T14:55:35.188976549+00:00",
+      "fieldValues": [
+        {
+          "fieldId": "60be1468-01bc-5d12-9eea-628f02801893",
+          "value": "A-005"
+        },
+        {
+          "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+          "value": "Care of the building"
+        },
+        {
+          "fieldId": "8aa3eba2-204b-5ebd-ba7a-be0f066027d6",
+          "value": "We will leave the building in no worse condition than we found it. Installation work must be carried out carefully: minimum drilled holes, no continuous re-drilling into the same plaster, and all fixings made good when removed. The member with Building Authority (R-001) has final say on what is and is not acceptable. This article cannot be weakened or removed without the explicit agreement of the Party Utility."
+        },
+        {
+          "fieldId": "3340532b-d845-5e54-92b3-819ed05365c5",
+          "value": "Our right to use this space depends on the trust of the Party Utility and the building community. Demonstrating care of the building is not optional — it is the basis on which the experiment is allowed to continue."
+        },
+        {
+          "fieldId": "1f01bc6b-39c8-58d7-b1a3-79142623fece",
+          "value": "Unanimous agreement of all current members AND agreement of the Party Utility."
+        },
+        {
+          "fieldId": "0df40543-f72a-5471-a7f1-c85c1f1f93e4",
+          "value": "Protected — requires Party Utility agreement to amend"
+        }
+      ],
+      "instanceId": "c503fae5-c3ab-452e-a0b4-5682ca204288",
+      "lifecycleState": "ratified",
+      "typeId": "a1142ac3-5385-5c0e-8630-1dd3432cdf7f",
+      "typeName": "article",
+      "typeNamespace": "governance",
+      "typeVersion": 1,
+      "updatedAt": "2026-06-08T21:05:17.566879595+00:00"
+    },
+    "records/tier-2/448d64d4-ae82-4971-b027-3b78b9c7a90a.json": {
+      "createdAt": "2026-05-31T14:55:35.200802911+00:00",
+      "fieldValues": [
+        {
+          "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+          "value": "R-003 Clerk"
+        },
+        {
+          "fieldId": "a6c19b95-4f8f-5b07-93f8-3426c545277e",
+          "value": "Peter Brownell"
+        },
+        {
+          "fieldId": "d25da548-79d6-555b-8878-f40b685b3955",
+          "value": "May write up and maintain the decision log, Articles, and role records. May flag when a proposed action appears inconsistent with a recorded decision or article. Responsible for ensuring that Article A-006 (On ending) obligations are discharged when the time comes."
+        },
+        {
+          "fieldId": "3c39ee1f-6fe0-5da7-a0b6-928aa3a63211",
+          "value": "Cannot decide what is shown or how it is installed. The Clerk's role is to maintain the record faithfully — not to determine its content. Cannot amend a decision unilaterally; can only record what the group has agreed."
+        },
+        {
+          "fieldId": "9a32dc01-f348-5e05-9f54-bb6d21239f04",
+          "value": "Established by Article A-004 (How we make decisions)."
+        }
+      ],
+      "instanceId": "448d64d4-ae82-4971-b027-3b78b9c7a90a",
+      "lifecycleState": "ratified",
+      "typeId": "e53dce11-6b83-5714-a8fe-f730edb500fa",
+      "typeName": "role",
+      "typeNamespace": "governance",
+      "typeVersion": 1,
+      "updatedAt": "2026-06-08T21:05:18.539183633+00:00"
+    },
+    "records/tier-2/eb4024a0-486f-4d64-a4e4-5d80297129d2.json": {
+      "createdAt": "2026-05-31T14:55:35.208193625+00:00",
+      "fieldValues": [
+        {
+          "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+          "value": "Mounting system"
+        },
+        {
+          "fieldId": "73cd845a-3623-5bc6-8ade-42a7cd64740c",
+          "value": "Should we install permanent fixings in the stairwell walls, or use a removable or flexible mounting approach for each show?"
+        },
+        {
+          "fieldId": "9889052c-9313-5e2f-a2ac-15baa3c6983e",
+          "value": "The stairwell is an old building with plaster walls. The group had already been hanging art informally using various ad-hoc methods. A six-month pilot gallery experiment was being planned, requiring a repeatable and durable solution. The building is a shared cooperative space, so any approach must protect the walls and be acceptable to the wider building."
+        },
+        {
+          "fieldId": "1a1c0a5d-a1df-5d03-95f2-32af73bb71da",
+          "value": "The walls crumble when repeatedly drilled — every new hole degrades the plaster further. There is currently no consistent hanging system, so each person uses whatever is to hand (blue tack, tape, random screws), which looks poor and provides no standard for the pilot gallery. Something needs to be installed once and reused across shows."
+        },
+        {
+          "fieldId": "636ce948-2110-57b4-a3ed-04354ec17843",
+          "value": "Hanging rails — inflexible, institutional-looking, poor fit for the angles in this stairwell. Command strips — fail on these walls, require grease-free surface, come off after about a week. Bolt systems — overkill for the weights involved. Sacrificial backing boards — interesting but adds complexity; may revisit for Phase 2. Central suspension from ceiling/beam — technically interesting but complex to engineer safely."
+        },
+        {
+          "fieldId": "a952604c-d150-5315-bfc1-7229ddc1d636",
+          "value": "Must not continuously damage old plaster walls (non-negotiable). Must accommodate different artwork sizes, weights, and formats across multiple shows. Must look intentional — not like a DIY bodge — when fixings are not in use. Must be simple enough to install correctly the first time. Should protect the building, which is a shared cooperative space. Aesthetics vs practicality was the main tension discussed: the group accepted a slightly visible fixing system in exchange for durability and flexibility."
+        },
+        {
+          "fieldId": "de1296e0-e083-58d9-97a0-cb2b91fec02e",
+          "value": "Permanent 6mm wall plugs (brown equivalent) with screws, drilled once and left in place. Typically two screws per position. Caps or covers fabricated for unused fixings between shows."
+        },
+        {
+          "fieldId": "3340532b-d845-5e54-92b3-819ed05365c5",
+          "value": "Repeated drilling degrades these walls faster than permanent fixings. Once drilled correctly, the plug can be reused indefinitely. Keeping a cap on unused fixings means the system looks intentional between shows rather than abandoned."
+        },
+        {
+          "fieldId": "c04b7f84-9a55-5353-8c9f-2b62f6a1e34e",
+          "value": "Wall condition deteriorates significantly, or Phase 2 requires a different approach for the main hallway."
+        },
+        {
+          "fieldId": "4181f210-f4be-5587-950e-890eda2a5590",
+          "value": "Brian to sketch mounting ideas and share with the group. Trial 6mm plugs in back stairwell as Phase 1 experiment. Fabricate decorative caps for unused fixings between shows. Phase 2 approach for main hallway to be decided separately."
+        }
+      ],
+      "instanceId": "eb4024a0-486f-4d64-a4e4-5d80297129d2",
+      "lifecycleState": "ratified",
+      "typeId": "1fcad6a2-9f78-5e41-94ba-d82e88b822f3",
+      "typeName": "decision",
+      "typeNamespace": "governance",
+      "typeVersion": 1,
+      "updatedAt": "2026-06-08T21:05:18.424529117+00:00"
+    },
+    "package/document-views/decision-log-b5c8d124.json": {
+      "createdAt": "2026-05-31T00:00:00Z",
+      "description": "Decision log view — compact summary showing only decision statement, alternatives considered, rationale, and revisit trigger.",
+      "format": "markdown",
+      "id": "b5c8d124-2084-4a6b-a231-425e800e1e55",
+      "name": "decision-log",
+      "namespace": "governance",
+      "sections": [
+        {
+          "emptyBehavior": "hide",
+          "order": 0,
+          "renderViewId": "faebd240-83c4-4bc8-a383-8335f841a234",
+          "sectionId": "decisions",
+          "source": {
+            "containerId": "138e2fac-6a8a-4a06-9511-5aefd99ceae9",
+            "type": "container-subset"
+          },
+          "title": "Decision Log",
+          "titleFieldId": "d7e82557-9045-5e92-a494-d99112bbec4a"
+        }
+      ],
+      "version": 1
+    },
+    "package/types/decision-1fcad6a2.json": {
+      "createdAt": "2026-05-25T00:00:00Z",
+      "description": "A settled commitment, choice, policy, or direction of action.",
+      "fields": [
+        {
+          "displayLabel": "Title",
+          "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+          "order": 0,
+          "repeatable": false,
+          "required": true
+        },
+        {
+          "displayLabel": "Decision Question",
+          "fieldId": "73cd845a-3623-5bc6-8ade-42a7cd64740c",
+          "order": 1,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Context",
+          "fieldId": "9889052c-9313-5e2f-a2ac-15baa3c6983e",
+          "order": 2,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Friction",
+          "fieldId": "1a1c0a5d-a1df-5d03-95f2-32af73bb71da",
+          "order": 3,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Alternatives Considered",
+          "fieldId": "636ce948-2110-57b4-a3ed-04354ec17843",
+          "order": 4,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Key Requirements",
+          "fieldId": "a952604c-d150-5315-bfc1-7229ddc1d636",
+          "order": 5,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Decision Statement",
+          "fieldId": "de1296e0-e083-58d9-97a0-cb2b91fec02e",
+          "order": 6,
+          "repeatable": false,
+          "required": true
+        },
+        {
+          "displayLabel": "Rationale",
+          "fieldId": "3340532b-d845-5e54-92b3-819ed05365c5",
+          "order": 7,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Revisit When",
+          "fieldId": "c04b7f84-9a55-5353-8c9f-2b62f6a1e34e",
+          "order": 8,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Next Steps",
+          "fieldId": "4181f210-f4be-5587-950e-890eda2a5590",
+          "order": 9,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Owner",
+          "fieldId": "4b34847c-26d1-56be-bc10-844aeb704df7",
+          "order": 10,
+          "repeatable": false,
+          "required": false
+        }
+      ],
+      "id": "1fcad6a2-9f78-5e41-94ba-d82e88b822f3",
+      "lifecycleRef": "3c504040-7920-43aa-8fbd-eda21dc7c07b",
+      "name": "decision",
+      "namespace": "governance",
+      "version": 1
+    },
+    "package/fields/revisitwhen-c04b7f84.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-05-25T00:00:00Z",
+      "description": "Conditions, dates, or triggers that should cause the record to be reviewed.",
+      "id": "c04b7f84-9a55-5353-8c9f-2b62f6a1e34e",
+      "name": "revisit_when",
+      "namespace": "governance",
+      "valueType": "text",
+      "version": 1
+    },
+    "records/tier-2/5bbf9209-1dc9-44b2-b0a3-f2192db5a879.json": {
+      "createdAt": "2026-05-31T14:55:35.195104906+00:00",
+      "fieldValues": [
+        {
+          "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+          "value": "R-001 Building Authority"
+        },
+        {
+          "fieldId": "a6c19b95-4f8f-5b07-93f8-3426c545277e",
+          "value": "Sam Hayder"
+        },
+        {
+          "fieldId": "d25da548-79d6-555b-8878-f40b685b3955",
+          "value": "May decide what fixings and mounting methods are acceptable for the physical fabric of the building. May halt or reverse installation work that risks damage to walls, plaster, or structural elements. Has final say on whether a proposed intervention is safe and appropriate."
+        },
+        {
+          "fieldId": "3c39ee1f-6fe0-5da7-a0b6-928aa3a63211",
+          "value": "Cannot decide what artwork is shown or how it is curated — that is the Curatorial Lead's authority. Cannot commit the group to structural changes without Party Utility agreement. Cannot override A-005 (Care of the building)."
+        },
+        {
+          "fieldId": "9a32dc01-f348-5e05-9f54-bb6d21239f04",
+          "value": "Inherited from the Party Utility, who granted access to the back stairs and entrusted Sam with responsibility for the physical space."
+        }
+      ],
+      "instanceId": "5bbf9209-1dc9-44b2-b0a3-f2192db5a879",
+      "lifecycleState": "ratified",
+      "typeId": "e53dce11-6b83-5714-a8fe-f730edb500fa",
+      "typeName": "role",
+      "typeNamespace": "governance",
+      "typeVersion": 1,
+      "updatedAt": "2026-06-08T21:05:18.642631786+00:00"
+    },
+    "package/views/decision-log-faebd240.json": {
+      "createdAt": "2026-06-01T00:00:00Z",
+      "description": "Compact decision log field view showing statement, alternatives, rationale, and revisit trigger.",
+      "fieldViews": [
+        {
+          "displayLabel": "Decision",
+          "fieldId": "de1296e0-e083-58d9-97a0-cb2b91fec02e",
+          "order": 0,
+          "required": true,
+          "visible": true
+        },
+        {
+          "displayLabel": "Alternatives",
+          "fieldId": "636ce948-2110-57b4-a3ed-04354ec17843",
+          "order": 1,
+          "required": false,
+          "visible": true
+        },
+        {
+          "displayLabel": "Rationale",
+          "fieldId": "3340532b-d845-5e54-92b3-819ed05365c5",
+          "order": 2,
+          "required": false,
+          "visible": true
+        },
+        {
+          "displayLabel": "Revisit",
+          "fieldId": "c04b7f84-9a55-5353-8c9f-2b62f6a1e34e",
+          "order": 3,
+          "required": false,
+          "visible": true
+        }
+      ],
+      "id": "faebd240-83c4-4bc8-a383-8335f841a234",
+      "name": "decision-log",
+      "namespace": "governance",
+      "version": 1
+    },
+    "package/fields/nextsteps-4181f210.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-05-26T00:00:00Z",
+      "description": "Actions or tasks that emerge from the decision.",
+      "id": "4181f210-f4be-5587-950e-890eda2a5590",
+      "name": "next_steps",
+      "namespace": "governance",
+      "valueType": "text",
+      "version": 1
+    },
+    "package/fields/amendmentrule-1f01bc6b.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-05-26T00:00:00Z",
+      "description": "The process or conditions under which this article may be amended or repealed.",
+      "id": "1f01bc6b-39c8-58d7-b1a3-79142623fece",
+      "name": "amendment_rule",
+      "namespace": "governance",
+      "valueType": "text",
+      "version": 1
+    },
+    "package/types/article-a1142ac3.json": {
+      "createdAt": "2026-05-26T00:00:00Z",
+      "description": "A durable governance rule, boundary, constitutional clause, or standing commitment.",
+      "fields": [
+        {
+          "displayLabel": "Article Number",
+          "fieldId": "60be1468-01bc-5d12-9eea-628f02801893",
+          "order": 0,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Title",
+          "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+          "order": 1,
+          "repeatable": false,
+          "required": true
+        },
+        {
+          "displayLabel": "Article Text",
+          "fieldId": "8aa3eba2-204b-5ebd-ba7a-be0f066027d6",
+          "order": 2,
+          "repeatable": false,
+          "required": true
+        },
+        {
+          "displayLabel": "Rationale",
+          "fieldId": "3340532b-d845-5e54-92b3-819ed05365c5",
+          "order": 3,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Amendment Rule",
+          "fieldId": "1f01bc6b-39c8-58d7-b1a3-79142623fece",
+          "order": 4,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Protected Status",
+          "fieldId": "0df40543-f72a-5471-a7f1-c85c1f1f93e4",
+          "order": 5,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Revisit When",
+          "fieldId": "c04b7f84-9a55-5353-8c9f-2b62f6a1e34e",
+          "order": 7,
+          "repeatable": false,
+          "required": false
+        }
+      ],
+      "id": "a1142ac3-5385-5c0e-8630-1dd3432cdf7f",
+      "lifecycleRef": "3c504040-7920-43aa-8fbd-eda21dc7c07b",
+      "name": "article",
+      "namespace": "governance",
+      "version": 1
+    },
+    "records/tier-2/ad159754-2edd-4bf8-a70f-a29a617e5809.json": {
+      "createdAt": "2026-05-31T14:55:35.167441369+00:00",
+      "fieldValues": [
+        {
+          "fieldId": "60be1468-01bc-5d12-9eea-628f02801893",
+          "value": "A-001"
+        },
+        {
+          "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+          "value": "What this is"
+        },
+        {
+          "fieldId": "8aa3eba2-204b-5ebd-ba7a-be0f066027d6",
+          "value": "LiMoMa — the Limehouse Museum of Maybe Art — is a community gallery initiative that uses the back stairs and landings of Limehouse Town Hall as a space for exhibiting artwork. It exists as a voluntary association of members with no formal legal status. The pilot runs for six months from June 2026."
+        },
+        {
+          "fieldId": "3340532b-d845-5e54-92b3-819ed05365c5",
+          "value": "The name and definition set the frame for all subsequent decisions. 'Maybe Art' signals that the space is exploratory — not a conventional gallery with commercial or institutional expectations."
+        },
+        {
+          "fieldId": "1f01bc6b-39c8-58d7-b1a3-79142623fece",
+          "value": "Unanimous agreement of all current members."
+        }
+      ],
+      "instanceId": "ad159754-2edd-4bf8-a70f-a29a617e5809",
+      "lifecycleState": "ratified",
+      "typeId": "a1142ac3-5385-5c0e-8630-1dd3432cdf7f",
+      "typeName": "article",
+      "typeNamespace": "governance",
+      "typeVersion": 1,
+      "updatedAt": "2026-06-08T21:05:17.461645865+00:00"
+    },
+    "package/document-views/articles-and-roles-78b11038.json": {
+      "createdAt": "2026-05-31T00:00:00Z",
+      "description": "Renders the Articles of Association together with the current role holders.",
+      "format": "markdown",
+      "id": "78b11038-e5d8-4269-9982-fe5c459802b2",
+      "name": "articles-and-roles",
+      "namespace": "governance",
+      "sections": [
+        {
+          "emptyBehavior": "hide",
+          "order": 0,
+          "ordering": {
+            "direction": "asc",
+            "fieldId": "60be1468-01bc-5d12-9eea-628f02801893"
+          },
+          "sectionId": "articles",
+          "source": {
+            "containerId": "f7562aa3-98c7-44be-b4c5-5474df6441f2",
+            "type": "container-subset"
+          },
+          "title": "Articles of Association",
+          "titleFieldId": "d7e82557-9045-5e92-a494-d99112bbec4a"
+        },
+        {
+          "emptyBehavior": "hide",
+          "order": 1,
+          "sectionId": "roles",
+          "source": {
+            "containerId": "b30db206-e9a7-4588-a9aa-53451aacd243",
+            "type": "container-subset"
+          },
+          "title": "Roles",
+          "titleFieldId": "d7e82557-9045-5e92-a494-d99112bbec4a"
+        }
+      ],
+      "version": 1
+    },
+    "records/tier-2/9054911c-5285-4c3e-8198-4b9650169001.json": {
+      "createdAt": "2026-05-31T14:55:35.204278944+00:00",
+      "fieldValues": [
+        {
+          "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+          "value": "Pilot duration and review"
+        },
+        {
+          "fieldId": "de1296e0-e083-58d9-97a0-cb2b91fec02e",
+          "value": "Six-month pilot, June to December 2026. At the end of that period the group meets to decide what comes next: continue, extend, change scope, or close."
+        },
+        {
+          "fieldId": "3340532b-d845-5e54-92b3-819ed05365c5",
+          "value": "A defined lifespan makes the review real rather than optional. Open-ended pilots drift without a moment of explicit recommitment."
+        },
+        {
+          "fieldId": "636ce948-2110-57b4-a3ed-04354ec17843",
+          "value": "Open-ended pilot with no fixed review date — judged too likely to drift."
+        },
+        {
+          "fieldId": "c04b7f84-9a55-5353-8c9f-2b62f6a1e34e",
+          "value": "December 2026. The review meeting produces a new decision that either supersedes this one or records closure."
+        }
+      ],
+      "instanceId": "9054911c-5285-4c3e-8198-4b9650169001",
+      "lifecycleState": "ratified",
+      "typeId": "1fcad6a2-9f78-5e41-94ba-d82e88b822f3",
+      "typeName": "decision",
+      "typeNamespace": "governance",
+      "typeVersion": 1,
+      "updatedAt": "2026-06-08T21:05:17.994750915+00:00"
+    },
+    "records/tier-2/9af57e54-03fb-4625-9a4c-8d2a254ff2b7.json": {
+      "createdAt": "2026-05-31T14:55:35.213599116+00:00",
+      "fieldValues": [
+        {
+          "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+          "value": "Artist liability"
+        },
+        {
+          "fieldId": "de1296e0-e083-58d9-97a0-cb2b91fec02e",
+          "value": "Artists retain ownership of and responsibility for their own work. The project does not insure exhibited work. Artists are informed of this before agreeing to show."
+        },
+        {
+          "fieldId": "9889052c-9313-5e2f-a2ac-15baa3c6983e",
+          "value": "The back stairwell cannot be locked — it is also a fire escape route. There is no practical mechanism to insure or protect work against theft or accidental damage in an open-access space."
+        },
+        {
+          "fieldId": "3340532b-d845-5e54-92b3-819ed05365c5",
+          "value": "Artists must make their own insurance decisions. The project is not in a position to take on liability for others' work and is not a commercial operation. Informing artists upfront keeps the arrangement honest."
+        }
+      ],
+      "instanceId": "9af57e54-03fb-4625-9a4c-8d2a254ff2b7",
+      "lifecycleState": "ratified",
+      "typeId": "1fcad6a2-9f78-5e41-94ba-d82e88b822f3",
+      "typeName": "decision",
+      "typeNamespace": "governance",
+      "typeVersion": 1,
+      "updatedAt": "2026-06-08T21:05:18.116808017+00:00"
+    },
+    "records/tier-2/a9ca11cf-fd34-4901-b5f6-51e20737cb56.json": {
+      "createdAt": "2026-05-31T14:55:35.221994141+00:00",
+      "fieldValues": [
+        {
+          "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+          "value": "Closure obligations"
+        },
+        {
+          "fieldId": "73cd845a-3623-5bc6-8ade-42a7cd64740c",
+          "value": "What specific obligations do we commit to if and when the project closes?"
+        },
+        {
+          "fieldId": "9889052c-9313-5e2f-a2ac-15baa3c6983e",
+          "value": "The founding meeting discussed the importance of being honest with artists about what happens if the project ends. Article A-006 states the constitutional commitment; this decision makes it operational and specific."
+        },
+        {
+          "fieldId": "de1296e0-e083-58d9-97a0-cb2b91fec02e",
+          "value": "On closure the group commits to: (1) returning all artworks to their makers within 14 days of the closure decision; (2) making good all fixings and mounts within 28 days; (3) settling any outstanding commitments to artists before disbanding; (4) transferring any remaining group funds to the Party Utility. The Clerk records when each obligation is discharged."
+        },
+        {
+          "fieldId": "3340532b-d845-5e54-92b3-819ed05365c5",
+          "value": "Specific timelines make the commitment real. Without them, 'we will return work' is a statement of intent that can drift indefinitely."
+        }
+      ],
+      "instanceId": "a9ca11cf-fd34-4901-b5f6-51e20737cb56",
+      "lifecycleState": "ratified",
+      "typeId": "1fcad6a2-9f78-5e41-94ba-d82e88b822f3",
+      "typeName": "decision",
+      "typeNamespace": "governance",
+      "typeVersion": 1,
+      "updatedAt": "2026-06-08T21:05:18.222683383+00:00"
+    },
+    "containers/f7562aa3-98c7-44be-b4c5-5474df6441f2.json": {
+      "containerId": "f7562aa3-98c7-44be-b4c5-5474df6441f2",
+      "containerType": "document",
+      "createdAt": "2026-05-31T00:00:00Z",
+      "memberInstanceIds": [
+        "0482c489-37b4-4342-adaa-36e69dc6f780",
+        "31291422-cd8b-4840-b884-d55023d938cb",
+        "7560efe9-27e3-4186-8b9d-6ab48283f1df",
+        "ad159754-2edd-4bf8-a70f-a29a617e5809",
+        "c503fae5-c3ab-452e-a0b4-5682ca204288",
+        "cc58c0dd-8e3a-4dc5-9b58-f3273911a9a9"
+      ],
+      "rootInstanceIds": [
+        "ad159754-2edd-4bf8-a70f-a29a617e5809"
+      ],
+      "title": "Articles"
+    },
+    "package/fields/articlenumber-60be1468.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-05-26T00:00:00Z",
+      "description": "Stable local reference identifier for the article, e.g. A-001.",
+      "id": "60be1468-01bc-5d12-9eea-628f02801893",
+      "name": "article_number",
+      "namespace": "governance",
+      "valueType": "string",
+      "version": 1
+    },
+    "records/notes/e4f2a891-3c7d-4b5e-9f12-8a6d0b1c2e3f.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+      "createdAt": "2026-05-25T00:00:00Z",
+      "instanceId": "e4f2a891-3c7d-4b5e-9f12-8a6d0b1c2e3f",
+      "sections": [
+        {
+          "content": "Put art in the back stairwell of the town hall. Immo has work. Sam and Brian can do the mounting. Lets just try it. The space is underused and a bit grim - it could be something. Not a gallery exactly. More like making the building interesting to be in.",
+          "name": "the_idea"
+        },
+        {
+          "content": "Immo - has the work and the eye. Would need to be curatorial lead, he should pick what goes up.\nSam - his building, or close to it. Party Utility liaison. Knows what we can and cant fix to walls. Nothing happens without him knowing.\nBrian - practical, knows how to mount things properly.\nPeter - holding the project together, writing things down.",
+          "name": "people"
+        },
+        {
+          "content": "Its Limehouse Town Hall. Party Utility runs it. The back stairwell is the obvious place to start - its ours to use and nobody has done anything with it. The main hallway might come later but thats more complicated, more visible, more people have opinions.\nWe cannot leave the walls in a worse state than we found them. That has to be a given. Whatever we put up has to come down cleanly or be finished properly.",
+          "name": "building"
+        },
+        {
+          "content": "Not a commercial gallery. Not trying to be one. We dont own the work. We just show it. We dont manage the building - we work inside it.",
+          "name": "what_we_are_not"
+        },
+        {
+          "content": "How long do we run this? Is it permanent or are we doing a pilot?\nDo we need formal sign-off from Party Utility or does Sam being involved cover that?\nWhat happens to the work if we stop - whos responsible for getting it back to the artists?\nAre other tenants going to have views about this?\nDo we need to insure the work? Probably not but we should think about it.\nPainting - the walls are not great. Does the work need a clean ground or can we work with what we have?",
+          "name": "open_questions"
+        },
+        {
+          "content": "Keep it simple. Start small. Back stairs only. Get one show up and see how it feels. We can always extend. Harder to walk back something that got complicated.",
+          "name": "instinct"
+        },
+        {
+          "content": "Walked the space in the meeting. More wall than we thought - the whole run of the stairwell plus the hallway into the back office. Old plaster walls. Not solid. If you keep drilling you crumble them. The back hallway could do with some TLC but thats not a blocker. Lighting is a separate problem - existing fittings are there but not ideal. Summer show might not need it resolved because its a sauna up there anyway and gets natural light most of the day.",
+          "name": "space_assessment"
+        },
+        {
+          "content": "Long discussion about how to hang things. Hanging rails came up early - ruled out, looks institutional and inflexible for this space. Command strips - Brian has bad experience taking them down, Sam says they always fail in this building after a week or so. The walls need to be completely grease-free and they are not. Something permanent seems right but we are not sure yet whether that means simple plugs and screws or something more engineered. Brian had ideas about bars, bolts, a sacrificial layer. We did not land anywhere by the end of this phase.",
+          "name": "mounting_first_thoughts"
+        }
+      ],
+      "tags": [],
+      "title": "Initial brain dump"
+    },
+    "package/fields/roleholder-a6c19b95.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-05-26T00:00:00Z",
+      "description": "The person, team, group, or function currently holding this role.",
+      "id": "a6c19b95-4f8f-5b07-93f8-3426c545277e",
+      "name": "role_holder",
+      "namespace": "governance",
+      "valueType": "string",
+      "version": 1
+    },
+    "package/fields/articletext-8aa3eba2.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-05-26T00:00:00Z",
+      "description": "The operative text of the article.",
+      "id": "8aa3eba2-204b-5ebd-ba7a-be0f066027d6",
+      "name": "article_text",
+      "namespace": "governance",
+      "valueType": "text",
+      "version": 1
+    },
+    "package/fields/boundary-3c39ee1f.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-05-26T00:00:00Z",
+      "description": "The limits of this role — where the role's authority ends or must be shared.",
+      "id": "3c39ee1f-6fe0-5da7-a0b6-928aa3a63211",
+      "name": "boundary",
+      "namespace": "governance",
+      "valueType": "text",
+      "version": 1
+    },
+    "package/types/role-e53dce11.json": {
+      "createdAt": "2026-05-26T00:00:00Z",
+      "description": "An authority boundary. Defines who may decide or act on what, without requiring group agreement.",
+      "fields": [
+        {
+          "displayLabel": "Title",
+          "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+          "order": 0,
+          "repeatable": false,
+          "required": true
+        },
+        {
+          "displayLabel": "Role Holder",
+          "fieldId": "a6c19b95-4f8f-5b07-93f8-3426c545277e",
+          "order": 1,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Authority",
+          "fieldId": "d25da548-79d6-555b-8878-f40b685b3955",
+          "order": 2,
+          "repeatable": false,
+          "required": true
+        },
+        {
+          "displayLabel": "Boundary",
+          "fieldId": "3c39ee1f-6fe0-5da7-a0b6-928aa3a63211",
+          "order": 3,
+          "repeatable": false,
+          "required": true
+        },
+        {
+          "displayLabel": "Source of Authority",
+          "fieldId": "9a32dc01-f348-5e05-9f54-bb6d21239f04",
+          "order": 4,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Revisit When",
+          "fieldId": "c04b7f84-9a55-5353-8c9f-2b62f6a1e34e",
+          "order": 6,
+          "repeatable": false,
+          "required": false
+        }
+      ],
+      "id": "e53dce11-6b83-5714-a8fe-f730edb500fa",
+      "lifecycleRef": "3c504040-7920-43aa-8fbd-eda21dc7c07b",
+      "name": "role",
+      "namespace": "governance",
+      "version": 1
+    },
+    "package/fields/authority-d25da548.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-05-26T00:00:00Z",
+      "description": "What this role may decide or act on without requiring group agreement.",
+      "id": "d25da548-79d6-555b-8878-f40b685b3955",
+      "name": "authority",
+      "namespace": "governance",
+      "valueType": "text",
+      "version": 1
+    },
+    "manifest.json": {
+      "containerIndex": [
+        {
+          "containerId": "f7562aa3-98c7-44be-b4c5-5474df6441f2",
+          "title": "Articles"
+        },
+        {
+          "containerId": "b30db206-e9a7-4588-a9aa-53451aacd243",
+          "title": "Roles"
+        },
+        {
+          "containerId": "138e2fac-6a8a-4a06-9511-5aefd99ceae9",
+          "title": "Decisions"
+        }
+      ]
+    },
+    "package/fields/context-9889052c.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-05-25T00:00:00Z",
+      "description": "Background that makes the matter meaningful.",
+      "id": "9889052c-9313-5e2f-a2ac-15baa3c6983e",
+      "name": "context",
+      "namespace": "governance",
+      "valueType": "text",
+      "version": 1
+    },
+    "containers/138e2fac-6a8a-4a06-9511-5aefd99ceae9.json": {
+      "containerId": "138e2fac-6a8a-4a06-9511-5aefd99ceae9",
+      "containerType": "document",
+      "createdAt": "2026-05-31T00:00:00Z",
+      "memberInstanceIds": [
+        "3be7b057-9167-42a4-b0db-2a8b30666cef",
+        "4a989562-4a9d-4c86-a365-91bf14d55f06",
+        "9054911c-5285-4c3e-8198-4b9650169001",
+        "9af57e54-03fb-4625-9a4c-8d2a254ff2b7",
+        "a9ca11cf-fd34-4901-b5f6-51e20737cb56",
+        "dd715d4a-8640-4641-b79d-e44f728c547b",
+        "eb4024a0-486f-4d64-a4e4-5d80297129d2"
+      ],
+      "rootInstanceIds": [
+        "9054911c-5285-4c3e-8198-4b9650169001"
+      ],
+      "title": "Decisions"
+    },
+    "records/tier-2/0482c489-37b4-4342-adaa-36e69dc6f780.json": {
+      "createdAt": "2026-05-31T14:55:35.184158383+00:00",
+      "fieldValues": [
+        {
+          "fieldId": "60be1468-01bc-5d12-9eea-628f02801893",
+          "value": "A-004"
+        },
+        {
+          "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+          "value": "How we make decisions"
+        },
+        {
+          "fieldId": "8aa3eba2-204b-5ebd-ba7a-be0f066027d6",
+          "value": "Decisions are made by talk and agreement. We do not vote. Where we cannot agree, the matter stays open or is recorded as an exercise. Once a decision is agreed, it is written down in the decision log and does not change silently — a new decision supersedes an old one by name. These Articles may be amended by unanimous agreement of all current members. The Clerk is responsible for maintaining the coherence of the record."
+        },
+        {
+          "fieldId": "3340532b-d845-5e54-92b3-819ed05365c5",
+          "value": "Writing things down is the mechanism by which we hold ourselves accountable and remain honest with artists who exhibit with us."
+        },
+        {
+          "fieldId": "1f01bc6b-39c8-58d7-b1a3-79142623fece",
+          "value": "Unanimous agreement of all current members."
+        }
+      ],
+      "instanceId": "0482c489-37b4-4342-adaa-36e69dc6f780",
+      "lifecycleState": "ratified",
+      "typeId": "a1142ac3-5385-5c0e-8630-1dd3432cdf7f",
+      "typeName": "article",
+      "typeNamespace": "governance",
+      "typeVersion": 1,
+      "updatedAt": "2026-06-08T21:05:17.133891065+00:00"
+    },
+    "package/fields/alternativesconsidered-636ce948.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-05-25T00:00:00Z",
+      "description": "Options that were considered but not chosen.",
+      "id": "636ce948-2110-57b4-a3ed-04354ec17843",
+      "name": "alternatives_considered",
+      "namespace": "governance",
+      "valueType": "text",
+      "version": 1
+    },
+    "records/tier-2/7560efe9-27e3-4186-8b9d-6ab48283f1df.json": {
+      "createdAt": "2026-05-31T14:55:35.178917705+00:00",
+      "fieldValues": [
+        {
+          "fieldId": "60be1468-01bc-5d12-9eea-628f02801893",
+          "value": "A-003"
+        },
+        {
+          "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+          "value": "Who we are"
+        },
+        {
+          "fieldId": "8aa3eba2-204b-5ebd-ba7a-be0f066027d6",
+          "value": "The founding members of LiMoMa are Sam Hayder, Immo Klink, Peter Brownell, and Brian. New members may be admitted by agreement of all current members. Membership carries no financial obligation. Any member may resign at any time without formality. The group has no quorum rules during the pilot phase: decisions require that all members have had a reasonable opportunity to be heard."
+        },
+        {
+          "fieldId": "1f01bc6b-39c8-58d7-b1a3-79142623fece",
+          "value": "Unanimous agreement of all current members. Admission of a new member requires unanimous agreement."
+        }
+      ],
+      "instanceId": "7560efe9-27e3-4186-8b9d-6ab48283f1df",
+      "lifecycleState": "ratified",
+      "typeId": "a1142ac3-5385-5c0e-8630-1dd3432cdf7f",
+      "typeName": "article",
+      "typeNamespace": "governance",
+      "typeVersion": 1,
+      "updatedAt": "2026-06-08T21:05:17.363275919+00:00"
+    },
+    "records/tier-2/4a989562-4a9d-4c86-a365-91bf14d55f06.json": {
+      "createdAt": "2026-05-31T14:55:35.216705494+00:00",
+      "fieldValues": [
+        {
+          "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+          "value": "Phase 1 scope"
+        },
+        {
+          "fieldId": "73cd845a-3623-5bc6-8ade-42a7cd64740c",
+          "value": "Should Phase 1 cover the full stairwell including the main hallway, or just the back stairs and landings?"
+        },
+        {
+          "fieldId": "9889052c-9313-5e2f-a2ac-15baa3c6983e",
+          "value": "The back stairs have a large amount of wall space across multiple landings. The main hallway was also discussed as a potential exhibition space, but adding it in Phase 1 would significantly increase the scope of the first experiment."
+        },
+        {
+          "fieldId": "1a1c0a5d-a1df-5d03-95f2-32af73bb71da",
+          "value": "Taking on too much in Phase 1 risks overextending the group's capacity before the mounting system and workflow have been tested."
+        },
+        {
+          "fieldId": "636ce948-2110-57b4-a3ed-04354ec17843",
+          "value": "Including the main hallway in Phase 1. Deferred to Phase 2."
+        },
+        {
+          "fieldId": "de1296e0-e083-58d9-97a0-cb2b91fec02e",
+          "value": "Phase 1 covers the back stairs and landings only. The main hallway is explicitly deferred to Phase 2, contingent on Phase 1 working well."
+        },
+        {
+          "fieldId": "3340532b-d845-5e54-92b3-819ed05365c5",
+          "value": "Starting smaller allows the group to test the mounting system, workflow, and artist relations before expanding. The main hallway is more visible and involves more parties."
+        },
+        {
+          "fieldId": "c04b7f84-9a55-5353-8c9f-2b62f6a1e34e",
+          "value": "December 2026 pilot review — if Phase 1 is working, bring main hallway into scope for Phase 2."
+        }
+      ],
+      "instanceId": "4a989562-4a9d-4c86-a365-91bf14d55f06",
+      "lifecycleState": "ratified",
+      "typeId": "1fcad6a2-9f78-5e41-94ba-d82e88b822f3",
+      "typeName": "decision",
+      "typeNamespace": "governance",
+      "typeVersion": 1,
+      "updatedAt": "2026-06-08T21:05:17.881907273+00:00"
+    },
+    "containers/b30db206-e9a7-4588-a9aa-53451aacd243.json": {
+      "containerId": "b30db206-e9a7-4588-a9aa-53451aacd243",
+      "containerType": "document",
+      "createdAt": "2026-05-31T00:00:00Z",
+      "memberInstanceIds": [
+        "448d64d4-ae82-4971-b027-3b78b9c7a90a",
+        "5bbf9209-1dc9-44b2-b0a3-f2192db5a879",
+        "8ed62308-f7b4-47e1-b1a2-5490908efd86"
+      ],
+      "rootInstanceIds": [
+        "5bbf9209-1dc9-44b2-b0a3-f2192db5a879"
+      ],
+      "title": "Roles"
+    },
+    "package/relation-types/derived-from-36b78f14.json": {
+      "category": "derivation",
+      "createdAt": "2026-05-31T00:00:00Z",
+      "description": "Target was derived or adapted from source.",
+      "id": "36b78f14-c6dc-46c4-845d-ed107528a88c",
+      "key": "derived-from",
+      "label": "Derived From",
+      "namespace": "governance",
+      "version": 1
+    },
+    "relations/relations-collection.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
+      "relations": [
+        {
+          "createdAt": "2026-05-31T00:00:00Z",
+          "relationId": "33bafd90-6748-47dd-a302-3c06f22fbe05",
+          "relationType": "precedes",
+          "sourceInstanceId": "ad159754-2edd-4bf8-a70f-a29a617e5809",
+          "targetInstanceId": "31291422-cd8b-4840-b884-d55023d938cb"
+        },
+        {
+          "createdAt": "2026-05-31T00:00:00Z",
+          "relationId": "96d89162-fbf7-4036-a38c-3b09452ec073",
+          "relationType": "precedes",
+          "sourceInstanceId": "31291422-cd8b-4840-b884-d55023d938cb",
+          "targetInstanceId": "7560efe9-27e3-4186-8b9d-6ab48283f1df"
+        },
+        {
+          "createdAt": "2026-05-31T00:00:00Z",
+          "relationId": "ae90c407-4b89-444c-b55c-c47c321d620d",
+          "relationType": "precedes",
+          "sourceInstanceId": "7560efe9-27e3-4186-8b9d-6ab48283f1df",
+          "targetInstanceId": "0482c489-37b4-4342-adaa-36e69dc6f780"
+        },
+        {
+          "createdAt": "2026-05-31T00:00:00Z",
+          "relationId": "9271b98a-0993-4c15-8a03-c500e8ce1c03",
+          "relationType": "precedes",
+          "sourceInstanceId": "0482c489-37b4-4342-adaa-36e69dc6f780",
+          "targetInstanceId": "c503fae5-c3ab-452e-a0b4-5682ca204288"
+        },
+        {
+          "createdAt": "2026-05-31T00:00:00Z",
+          "relationId": "b5806157-21bf-4304-a6be-fb648f38e6a4",
+          "relationType": "precedes",
+          "sourceInstanceId": "c503fae5-c3ab-452e-a0b4-5682ca204288",
+          "targetInstanceId": "cc58c0dd-8e3a-4dc5-9b58-f3273911a9a9"
+        },
+        {
+          "createdAt": "2026-05-31T00:00:00Z",
+          "relationId": "3163376c-b056-464a-87e9-f31f0067a1d3",
+          "relationType": "derived-from",
+          "sourceInstanceId": "448d64d4-ae82-4971-b027-3b78b9c7a90a",
+          "targetInstanceId": "0482c489-37b4-4342-adaa-36e69dc6f780"
+        },
+        {
+          "createdAt": "2026-05-31T00:00:00Z",
+          "relationId": "74329aa8-bda6-4d4d-a67b-61466eb0028a",
+          "relationType": "derived-from",
+          "sourceInstanceId": "9054911c-5285-4c3e-8198-4b9650169001",
+          "targetInstanceId": "31291422-cd8b-4840-b884-d55023d938cb"
+        },
+        {
+          "createdAt": "2026-05-31T00:00:00Z",
+          "relationId": "9f3638e9-08cd-483b-9f11-b8b2e791d7f6",
+          "relationType": "derived-from",
+          "sourceInstanceId": "a9ca11cf-fd34-4901-b5f6-51e20737cb56",
+          "targetInstanceId": "cc58c0dd-8e3a-4dc5-9b58-f3273911a9a9"
+        },
+        {
+          "createdAt": "2026-05-31T00:00:00Z",
+          "relationId": "e458157d-6f9a-4c56-92d6-25954780c664",
+          "relationType": "evidences",
+          "sourceInstanceId": "eb4024a0-486f-4d64-a4e4-5d80297129d2",
+          "targetInstanceId": "c503fae5-c3ab-452e-a0b4-5682ca204288"
+        },
+        {
+          "createdAt": "2026-05-31T00:00:00Z",
+          "relationId": "c7a2f118-c201-4296-8ed0-8aac2e86b9ef",
+          "relationType": "evidences",
+          "sourceInstanceId": "4a989562-4a9d-4c86-a365-91bf14d55f06",
+          "targetInstanceId": "c503fae5-c3ab-452e-a0b4-5682ca204288"
+        },
+        {
+          "createdAt": "2026-05-31T00:00:00Z",
+          "relationId": "749dc20a-ba74-4f39-b619-5869a652e616",
+          "relationType": "evidences",
+          "sourceInstanceId": "9af57e54-03fb-4625-9a4c-8d2a254ff2b7",
+          "targetInstanceId": "c503fae5-c3ab-452e-a0b4-5682ca204288"
+        },
+        {
+          "createdAt": "2026-05-31T00:00:00Z",
+          "relationId": "fa46f4c2-ef60-4f26-82bc-f28d3f99bf75",
+          "relationType": "delegates",
+          "sourceInstanceId": "0482c489-37b4-4342-adaa-36e69dc6f780",
+          "targetInstanceId": "8ed62308-f7b4-47e1-b1a2-5490908efd86"
+        },
+        {
+          "createdAt": "2026-05-31T00:00:00Z",
+          "relationId": "e1967251-6eca-45e9-a95c-b6c6d36f9518",
+          "relationType": "delegates",
+          "sourceInstanceId": "0482c489-37b4-4342-adaa-36e69dc6f780",
+          "targetInstanceId": "5bbf9209-1dc9-44b2-b0a3-f2192db5a879"
+        },
+        {
+          "createdAt": "2026-05-31T00:00:00Z",
+          "relationId": "a069348a-c079-43a3-afd8-5e2633c8993a",
+          "relationType": "evidences",
+          "sourceInstanceId": "dd715d4a-8640-4641-b79d-e44f728c547b",
+          "targetInstanceId": "8ed62308-f7b4-47e1-b1a2-5490908efd86"
+        },
+        {
+          "createdAt": "2026-05-31T00:00:00Z",
+          "relationId": "783716de-7cf3-49c5-8c35-b2e46f247ea2",
+          "relationType": "evidences",
+          "sourceInstanceId": "3be7b057-9167-42a4-b0db-2a8b30666cef",
+          "targetInstanceId": "8ed62308-f7b4-47e1-b1a2-5490908efd86"
+        }
+      ]
+    },
+    "package/fields/decisionstatement-de1296e0.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-05-25T00:00:00Z",
+      "description": "What was decided.",
+      "id": "de1296e0-e083-58d9-97a0-cb2b91fec02e",
+      "name": "decision_statement",
+      "namespace": "governance",
+      "valueType": "text",
+      "version": 1
+    },
+    "package/fields/keyrequirements-a952604c.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-05-26T00:00:00Z",
+      "description": "The standards, values, constraints, and trade-offs used to evaluate options.",
+      "id": "a952604c-d150-5315-bfc1-7229ddc1d636",
+      "name": "key_requirements",
+      "namespace": "governance",
+      "valueType": "text",
+      "version": 1
+    },
+    "package/fields/rationale-3340532b.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-05-25T00:00:00Z",
+      "description": "Reasoning behind the decision.",
+      "id": "3340532b-d845-5e54-92b3-819ed05365c5",
+      "name": "rationale",
+      "namespace": "governance",
+      "valueType": "text",
+      "version": 1
+    },
+    "package/relation-types/precedes-b24aaf29.json": {
+      "category": "sequence",
+      "createdAt": "2026-05-31T00:00:00Z",
+      "description": "Source comes before target in a sequence.",
+      "id": "b24aaf29-73b2-4ac2-8dfb-3c848ccbd9ed",
+      "irreflexive": true,
+      "key": "precedes",
+      "label": "Precedes",
+      "namespace": "governance",
+      "version": 1
+    },
+    "package/fields/friction-1a1c0a5d.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-05-26T00:00:00Z",
+      "description": "The specific pain, conflict, or gap that makes a decision necessary now.",
+      "id": "1a1c0a5d-a1df-5d03-95f2-32af73bb71da",
+      "name": "friction",
+      "namespace": "governance",
+      "valueType": "text",
+      "version": 1
+    },
+    "package/relation-types/evidences-35c7aba2.json": {
+      "category": "evidence",
+      "createdAt": "2026-05-31T00:00:00Z",
+      "description": "Source provides evidence for or supports the target.",
+      "id": "35c7aba2-72f3-42ef-8e44-e3ddd9db969e",
+      "key": "evidences",
+      "label": "Evidences",
+      "namespace": "governance",
+      "version": 1
+    },
+    "records/tier-2/cc58c0dd-8e3a-4dc5-9b58-f3273911a9a9.json": {
+      "createdAt": "2026-05-31T14:55:35.192383646+00:00",
+      "fieldValues": [
+        {
+          "fieldId": "60be1468-01bc-5d12-9eea-628f02801893",
+          "value": "A-006"
+        },
+        {
+          "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+          "value": "On ending"
+        },
+        {
+          "fieldId": "8aa3eba2-204b-5ebd-ba7a-be0f066027d6",
+          "value": "When LiMoMa closes — whether at the end of the pilot, by group decision, or by necessity — the group will: (1) return all artworks to their makers within a reasonable period; (2) remove or make good all fixings and mounts; (3) leave no unresolved commitments to artists, the building, or third parties; (4) transfer any remaining shared funds to the Party Utility for building improvement. The Clerk is responsible for ensuring these obligations are discharged and recorded."
+        },
+        {
+          "fieldId": "3340532b-d845-5e54-92b3-819ed05365c5",
+          "value": "Ending cleanly is a commitment we make to artists before they show with us, not something we work out at the end. This article makes that commitment concrete."
+        },
+        {
+          "fieldId": "1f01bc6b-39c8-58d7-b1a3-79142623fece",
+          "value": "Unanimous agreement of all current members."
+        }
+      ],
+      "instanceId": "cc58c0dd-8e3a-4dc5-9b58-f3273911a9a9",
+      "lifecycleState": "ratified",
+      "typeId": "a1142ac3-5385-5c0e-8630-1dd3432cdf7f",
+      "typeName": "article",
+      "typeNamespace": "governance",
+      "typeVersion": 1,
+      "updatedAt": "2026-06-08T21:05:17.669351506+00:00"
+    },
+    "records/tier-2/3be7b057-9167-42a4-b0db-2a8b30666cef.json": {
+      "createdAt": "2026-05-31T14:55:35.210869640+00:00",
+      "fieldValues": [
+        {
+          "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+          "value": "Eye level standard"
+        },
+        {
+          "fieldId": "de1296e0-e083-58d9-97a0-cb2b91fec02e",
+          "value": "Centre of all works at 165cm from floor. Standard for all installations unless the curatorial lead specifies otherwise for a particular show."
+        },
+        {
+          "fieldId": "3340532b-d845-5e54-92b3-819ed05365c5",
+          "value": "Establishes a consistent baseline that removes ad-hoc judgement from each installation. Curatorial override preserved where needed."
+        }
+      ],
+      "instanceId": "3be7b057-9167-42a4-b0db-2a8b30666cef",
+      "lifecycleState": "ratified",
+      "typeId": "1fcad6a2-9f78-5e41-94ba-d82e88b822f3",
+      "typeName": "decision",
+      "typeNamespace": "governance",
+      "typeVersion": 1,
+      "updatedAt": "2026-06-08T21:05:17.769391769+00:00"
+    },
+    "records/tier-2/dd715d4a-8640-4641-b79d-e44f728c547b.json": {
+      "createdAt": "2026-05-31T14:55:35.219217083+00:00",
+      "fieldValues": [
+        {
+          "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+          "value": "Curatorial lead for Phase 1"
+        },
+        {
+          "fieldId": "73cd845a-3623-5bc6-8ade-42a7cd64740c",
+          "value": "Who will take the curatorial lead role for Phase 1, selecting and placing the work?"
+        },
+        {
+          "fieldId": "9889052c-9313-5e2f-a2ac-15baa3c6983e",
+          "value": "The group agreed that a single named person should lead curatorial decisions during Phase 1 to avoid decisions-by-committee on what is shown. The role was discussed as a practical necessity to get the first show up."
+        },
+        {
+          "fieldId": "de1296e0-e083-58d9-97a0-cb2b91fec02e",
+          "value": "Immo Klink is the curatorial lead for Phase 1. Immo has authority to select which works are shown and to decide their placement in the space, subject to Building Authority approval of any installation method."
+        },
+        {
+          "fieldId": "3340532b-d845-5e54-92b3-819ed05365c5",
+          "value": "Immo is the most experienced exhibitor in the group and is providing the first show's work. Having a single decision-maker for curation avoids gridlock and makes the show happen."
+        },
+        {
+          "fieldId": "c04b7f84-9a55-5353-8c9f-2b62f6a1e34e",
+          "value": "December 2026 pilot review. The role may be rotated, shared, or redefined for Phase 2."
+        }
+      ],
+      "instanceId": "dd715d4a-8640-4641-b79d-e44f728c547b",
+      "lifecycleState": "ratified",
+      "typeId": "1fcad6a2-9f78-5e41-94ba-d82e88b822f3",
+      "typeName": "decision",
+      "typeNamespace": "governance",
+      "typeVersion": 1,
+      "updatedAt": "2026-06-08T21:05:18.321607177+00:00"
+    },
+    "package/document-views/decision-deliberation-5a3ce87e.json": {
+      "createdAt": "2026-05-31T00:00:00Z",
+      "description": "Full deliberation view — shows all fields including question, context, friction, alternatives, requirements, statement, rationale, next steps, owner, revisit, and status.",
+      "format": "markdown",
+      "id": "5a3ce87e-8340-4d91-a140-ab56b57f704f",
+      "name": "decision-deliberation",
+      "namespace": "governance",
+      "sections": [
+        {
+          "emptyBehavior": "hide",
+          "order": 0,
+          "sectionId": "decisions",
+          "source": {
+            "containerId": "138e2fac-6a8a-4a06-9511-5aefd99ceae9",
+            "type": "container-subset"
+          },
+          "title": "Decisions",
+          "titleFieldId": "d7e82557-9045-5e92-a494-d99112bbec4a"
+        }
+      ],
+      "version": 1
+    },
+    "package/package.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+      "blueprints": [],
+      "createdAt": "2026-01-01T00:00:00Z",
+      "description": "",
+      "documentViews": [
+        "document-views/articles-and-roles-78b11038.json",
+        "document-views/decision-deliberation-5a3ce87e.json",
+        "document-views/decision-log-b5c8d124.json"
+      ],
+      "fields": [
+        "fields/title-d7e82557.json",
+        "fields/decisionstatement-de1296e0.json",
+        "fields/context-9889052c.json",
+        "fields/rationale-3340532b.json",
+        "fields/alternativesconsidered-636ce948.json",
+        "fields/revisitwhen-c04b7f84.json",
+        "fields/owner-4b34847c.json",
+        "fields/friction-1a1c0a5d.json",
+        "fields/decisionquestion-73cd845a.json",
+        "fields/keyrequirements-a952604c.json",
+        "fields/nextsteps-4181f210.json",
+        "fields/articletext-8aa3eba2.json",
+        "fields/articlenumber-60be1468.json",
+        "fields/amendmentrule-1f01bc6b.json",
+        "fields/protectedstatus-0df40543.json",
+        "fields/roleholder-a6c19b95.json",
+        "fields/authority-d25da548.json",
+        "fields/boundary-3c39ee1f.json",
+        "fields/sourceofauthority-9a32dc01.json"
+      ],
+      "id": "90677fae-16a7-49ec-8aee-1872cbf8e381",
+      "name": "governance-core",
+      "namespace": "com.limoma",
+      "relationTypes": [
+        "relation-types/precedes-b24aaf29.json",
+        "relation-types/delegates-31c82363.json",
+        "relation-types/evidences-35c7aba2.json",
+        "relation-types/derived-from-36b78f14.json"
+      ],
+      "status": "active",
+      "title": "governance-core",
+      "types": [
+        "types/decision-1fcad6a2.json",
+        "types/article-a1142ac3.json",
+        "types/role-e53dce11.json"
+      ],
+      "version": "1.0.0",
+      "views": [
+        "views/decision-log-faebd240.json"
+      ]
+    },
+    "package/fields/owner-4b34847c.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-05-25T00:00:00Z",
+      "description": "Person, role, group, or function responsible for stewardship of this record.",
+      "id": "4b34847c-26d1-56be-bc10-844aeb704df7",
+      "name": "owner",
+      "namespace": "governance",
+      "valueType": "string",
+      "version": 1
+    },
+    "package/fields/sourceofauthority-9a32dc01.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-05-26T00:00:00Z",
+      "description": "How this authority was conferred: inherited, delegated, elected, appointed, constitutional, etc.",
+      "id": "9a32dc01-f348-5e05-9f54-bb6d21239f04",
+      "name": "source_of_authority",
+      "namespace": "governance",
+      "valueType": "string",
+      "version": 1
+    },
+    "package/fields/protectedstatus-0df40543.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-05-26T00:00:00Z",
+      "description": "Whether this article is protected from ordinary amendment by the group.",
+      "id": "0df40543-f72a-5471-a7f1-c85c1f1f93e4",
+      "name": "protected_status",
+      "namespace": "governance",
+      "valueType": "string",
+      "version": 1
+    },
+    "records/tier-2/31291422-cd8b-4840-b884-d55023d938cb.json": {
+      "createdAt": "2026-05-31T14:55:35.173940496+00:00",
+      "fieldValues": [
+        {
+          "fieldId": "60be1468-01bc-5d12-9eea-628f02801893",
+          "value": "A-002"
+        },
+        {
+          "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+          "value": "What we are here to do"
+        },
+        {
+          "fieldId": "8aa3eba2-204b-5ebd-ba7a-be0f066027d6",
+          "value": "LiMoMa exists to curate, install, and maintain a rotating display of artwork in the back stairwell and landings of the building. We select work, agree on placement, and manage the practical business of mounting and demounting. We are not a commercial gallery: we do not sell work on behalf of artists, take commission, or enter into financial relationships with artists in exchange for showing their work."
+        },
+        {
+          "fieldId": "3340532b-d845-5e54-92b3-819ed05365c5",
+          "value": "Stating what we are not — a commercial gallery — is as important as stating what we are. This protects artists who exhibit with us and is honest about our amateur, community basis."
+        },
+        {
+          "fieldId": "1f01bc6b-39c8-58d7-b1a3-79142623fece",
+          "value": "Unanimous agreement of all current members."
+        }
+      ],
+      "instanceId": "31291422-cd8b-4840-b884-d55023d938cb",
+      "lifecycleState": "ratified",
+      "typeId": "a1142ac3-5385-5c0e-8630-1dd3432cdf7f",
+      "typeName": "article",
+      "typeNamespace": "governance",
+      "typeVersion": 1,
+      "updatedAt": "2026-06-08T21:05:17.266092197+00:00"
+    }
+  }
+}

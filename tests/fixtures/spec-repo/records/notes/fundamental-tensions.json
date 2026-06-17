@@ -1,0 +1,34 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+  "createdAt": "2026-05-28T00:00:00Z",
+  "instanceId": "7f46a5b2-7c5c-4c2c-9d79-6ef5a4a7c201",
+  "sections": [
+    {
+      "content": "A fundamental tension is a durable opposition inside a domain or challenge space. It is not merely a conflict to resolve or a risk to manage. It is a generative pressure that reveals why the domain is difficult, why simple answers fail, and why different valid positions can pull against each other.",
+      "name": "definition"
+    },
+    {
+      "content": "Problems are often named too early. When a spec starts from a problem statement, it may inherit a hidden framing and prematurely privilege one side of the domain. Starting from fundamental tensions keeps the opposites visible. It lets the spec ask what is being held in balance before deciding which problems, features, or requirements deserve formal shape.",
+      "name": "why tensions come first"
+    },
+    {
+      "content": "Tensions generate problem formulations, design principles, tradeoff language, acceptance criteria, feature boundaries, and projection needs. A single tension may produce several problems. A single problem may express several tensions. Treating tensions as first-class working material prevents later requirements from appearing arbitrary or merely stylistic.",
+      "name": "what_tensions_generate"
+    },
+    {
+      "content": "For SRS itself, the central tension is between semantic meaning and communicative form. People need readable artifacts, but interoperability depends on meaning that survives beyond any artifact. Other tensions follow: flexibility versus fidelity, AI assistance versus human authority, domain neutrality versus practical usefulness, historical preservation versus current clarity, and local autonomy versus shared interoperability.",
+      "name": "relationship_to_srs"
+    },
+    {
+      "content": "A tension should not be reduced to a heading in a document outline. It may be rendered as a heading, table row, diagram node, facilitation prompt, or traceability view, but those are projections. The important thing is that the tension remains addressable as meaning so the problems and design moves derived from it can stay connected to their source.",
+      "name": "not_a_document_section"
+    }
+  ],
+  "tags": [
+    "fundamental-tensions",
+    "meaning-first",
+    "challenge-space",
+    "foundations"
+  ],
+  "title": "Fundamental Tensions as the Generative Root"
+}

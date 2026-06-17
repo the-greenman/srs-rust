@@ -1,0 +1,40 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000018-0000-4000-a000-000000000018",
+      "value": "ext:field-groups"
+    },
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Field Groups"
+    },
+    {
+      "fieldId": "1a000019-0000-4000-a000-000000000019",
+      "value": ""
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "**Required for**: Record types where multiple Fields are semantically paired and repeat together as a unit.\n\nUse when parallel `multiselect` arrays would lose pairing (e.g. a contact record with `name` + `email`). Preserves internal pairing across repeated items.\n\n#### `FieldGroup`\n\nA named, ordered group of Fields that repeat together as a unit within a Type.\n\n```typescript\n{\n  groupId: string        // stable key within the Type\n  label?: string\n  description?: string\n\n  order: integer         // min: 0; position relative to other Fields and Groups\n\n  required?: boolean     // default: false\n  repeatable?: boolean   // default: false\n  minItems?: integer\n  maxItems?: integer\n\n  fields: FieldAssignment[]\n\n  compositeRenderer?: string\n  // RFC-007 [FG-Cx0]–[FG-Cx4]: dispatch rendering to a named composite renderer.\n  //\n  // Naming convention:\n  //   Bare identifiers (no \"/\") are reserved for SRS-defined renderers; only introduced by\n  //   a ratified RFC. Vendor values MUST use \"{reverse-domain}/{name}\" with at least two\n  //   labels in the reverse-domain (e.g. \"com.example/gantt\"). Single-label left-hand sides\n  //   (e.g. \"example/gantt\") are malformed and treated as unrecognised [FG-Cx1].\n  //\n  // Unknown values fall back to per-field baseline with a diagnostic [FG-Cx1].\n  //\n  // SRS-defined value: \"table\" — each entry resolved via FieldGroup.fields[].fieldId →\n  // Field.name. Recognised field names:\n  //   columns: string[]         (required — at least one element, else entry skipped [FG-Cx2])\n  //   rows: string[][]          (required — at least one element, else entry skipped [FG-Cx2])\n  //   widths: number[] (0–1)    (optional; out-of-range values clamped [FG-Cx3];\n  //                              length mismatch with columns handled per [FG-Cx4])\n  //   subheading: string        (optional)\n  //   label: string             (optional)\n  // Markdown: GFM pipe table; widths ≤0.3 → :--- (left), ≥0.7 → ---: (right), else ---.\n  // HTML: <figure>/<table> structure; widths rendered as <col style=\"width:N%\">.\n  // Multi-entry: entries separated by blank line (markdown); each in own <figure> (HTML).\n}\n```\n\n#### `FieldGroupEntry`\n\nOne entry in a repeatable Field Group.\n\n```typescript\n{\n  entryId?: UUID         // stable key for this entry; allows referencing or updating\n  fieldValues: FieldValue[]\n}\n```\n\n#### `FieldGroupValue`\n\nThe current value of a Field Group within a Record.\n\n```typescript\n{\n  groupId: string           // references FieldGroup.groupId in the Type definition\n  entries: FieldGroupEntry[]\n}\n```\n\nA `FieldGroup` does not create a new semantic instance. Its entries are embedded structured context within the enclosing Record. Use separate Records connected by Relations when group entries need their own identity, lifecycle, provenance, or reuse across Records.\n\n`FieldGroup.repeatable`, `minItems`, and `maxItems` define group-level repeatability — whether the group as a whole can appear multiple times within a Record. This is structurally independent from `ext:repeatable-fields`, which adds scalar repeatability to individual Fields. An implementation may adopt `ext:field-groups` without `ext:repeatable-fields`; the repeatability mechanics in each extension are self-contained.\n\nWhen `ext:field-groups` is in use, `Type` gains `fieldGroups?: FieldGroup[]` and `Record` gains `groupValues?: FieldGroupValue[]`.\n\n**Repeatability pattern guide:**\n\n| Pattern | Use | Example |\n|---|---|---|\n| Repeatable scalar | `FieldAssignment.repeatable` (ext:repeatable-fields) | Multiple assigned person names |\n| Repeatable structured context | `FieldGroup` | Contacts with name + email pairs |\n| Repeated semantic objects | Separate Records + Relations | Tasks assigned to roles |\n\n---"
+    }
+  ],
+  "instanceId": "8e542d9f-d981-50f0-a044-867cafe088aa",
+  "sourceRefs": [
+    {
+      "note": "Extension ext:field-groups from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:extensibility",
+    "construct:field",
+    "topic:extensions"
+  ],
+  "typeId": "2a000008-0000-4000-a000-000000000008",
+  "typeName": "extension",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

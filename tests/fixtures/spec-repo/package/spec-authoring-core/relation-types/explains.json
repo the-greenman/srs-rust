@@ -1,0 +1,13 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
+  "id": "b2000005-0000-4000-a000-000000000005",
+  "version": 1,
+  "key": "com.semanticops.srs/explains",
+  "namespace": "com.semanticops.srs",
+  "label": "Explains",
+  "description": "Source design-note record explains or provides rationale for target record.",
+  "category": "evidence",
+  "irreflexive": true,
+  "status": "deprecated",
+  "createdAt": "2026-05-29T00:00:00Z"
+}

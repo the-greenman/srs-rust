@@ -1,0 +1,32 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "ext:registry"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "**Required for**: multi-publisher ecosystems; discoverable definition catalogs.\n\n#### `RegistryEntry`\n\nOne entry in a Registry catalog.\n\n```typescript\n{\n  packageId: UUID\n  packageName: string\n  packageVersion: string\n  publisher: string\n  description?: string\n  publishedAt: ISO8601\n  homepage?: string\n  tags?: string[]\n  fieldCount: integer       // min: 0\n  typeCount: integer        // min: 0\n  viewCount?: integer\n  schemaCount?: integer\n  protocolCount?: integer\n  relationTypeCount?: integer\n  downloadUrl?: string\n  checksum?: string         // SHA-256 hex digest for integrity verification\n}\n```\n\n#### `Registry`\n\nA registry's published index.\n\n```typescript\n{\n  schemaVersion: string\n  registryId: UUID\n  registryName: string\n  catalogVersion: string    // registry's own version (semver)\n  updatedAt: ISO8601\n  homepage?: string\n  entries: RegistryEntry[]\n}\n```\n\nMultiple Registries may coexist. A consumer may index multiple catalogs. The specification does not define registry authority, authentication, or federation.\n\n---"
+    }
+  ],
+  "instanceId": "c90aef1e-af6e-550e-ad07-1d5f1bfdf67f",
+  "sourceRefs": [
+    {
+      "note": "Subsection 07-13 from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:extensibility",
+    "concern:federation",
+    "topic:extensions"
+  ],
+  "typeId": "2a000003-0000-4000-a000-000000000003",
+  "typeName": "subsection",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

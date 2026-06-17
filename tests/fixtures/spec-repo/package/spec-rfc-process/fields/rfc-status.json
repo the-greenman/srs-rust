@@ -1,0 +1,24 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "5a000002-0000-4000-a000-000000000002",
+  "namespace": "com.semanticops.spec",
+  "name": "rfc-status",
+  "version": 1,
+  "description": "The editorial status of an RFC.",
+  "aiGuidance": {
+    "purpose": "The editorial status of an RFC.",
+    "extraction": "draft: under discussion, not ready for review. proposed: ready for community review. accepted: approved but not necessarily applied. implemented: accepted and applied to active spec artifacts. rejected: not accepted. superseded: replaced by a later RFC. withdrawn: intentionally stopped by the author."
+  },
+  "valueType": "select",
+  "editorHint": "dropdown",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "allowedValues": [
+    "draft",
+    "proposed",
+    "accepted",
+    "implemented",
+    "rejected",
+    "superseded",
+    "withdrawn"
+  ]
+}

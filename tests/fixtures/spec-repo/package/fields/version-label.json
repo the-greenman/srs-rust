@@ -1,0 +1,14 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "f7a8b9c0-d1e2-4f3a-8b5c-6d7e8f9a0b1c",
+  "namespace": "com.semanticops.srs",
+  "name": "version_label",
+  "version": 1,
+  "description": "The version identifier for this record or definition.",
+  "aiGuidance": {
+    "purpose": "Use semantic versioning (e.g., '1.0.0', '2.1.0-draft'). For specifications, use draft/active/final status combined with version numbers."
+  },
+  "valueType": "string",
+  "editorHint": "singleline",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

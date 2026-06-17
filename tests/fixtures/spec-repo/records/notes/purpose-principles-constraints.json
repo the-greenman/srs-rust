@@ -1,0 +1,54 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+  "instanceId": "2bd94648-85c0-4e2a-a8a8-4db54895c65d",
+  "title": "Purpose, Principles, and Constraints of Meaning-First SRS",
+  "tags": ["purpose", "principles", "constraints", "meaning-first", "foundations"],
+  "sections": [
+    {
+      "name": "purpose",
+      "tags": ["purpose"],
+      "content": "SRS exists to make negotiated semantic state interoperable across independent systems. It defines how meaning can be captured, refined, related, versioned, and projected without being locked to a document format, persistence layer, API design, renderer, or AI implementation. The standard does not decide what a domain means. It defines the mechanics by which domain authors can preserve and exchange meaning once they have begun to articulate it."
+    },
+    {
+      "name": "meaning_first_sequence",
+      "tags": ["meaning-first", "evolution"],
+      "content": "A meaning-first spec evolves from domain understanding, not document layout. The intended progression is: domain -> challenge space -> fundamental tensions -> problems -> ideas -> features or requirements -> projections. The order matters because premature document structure can make an immature interpretation look settled. SRS should keep early uncertainty addressable instead of forcing it into headings."
+    },
+    {
+      "name": "principles",
+      "tags": ["principles", "architecture"],
+      "content": "Principles are the load-bearing ideas that explain why specific rules exist.\n\n1. Semantic state is primary; documents are projections. The same state may be rendered as a specification, board paper, dashboard, AI context package, or collaborative editor view. None of these projections is the source of truth.\n\n2. Fundamental tensions are generative. A domain becomes understandable when its durable tensions are named. Those tensions produce opposites, tradeoffs, questions, problems, principles, and design moves.\n\n3. Fields are reusable semantic atoms. A Field's meaning belongs to the Field, not to any Type, View, or projection that uses it.\n\n4. Types are compositions, not owners of meaning. A Type describes a kind of semantic object by composing Fields. It may frame use, but it must not redefine the Fields it includes.\n\n5. Relations carry semantic claims. The graph between instances is not decoration around a document; it is part of the meaning.\n\n6. Lineage and provenance are first-class. Understanding evolves, forks, and is revised. Prior semantic state remains valuable because it explains how the current state came to exist.\n\n7. AI assists refinement but does not become authority. AI may extract, compare, synthesize, and check consistency, but accepted semantic state remains a human or system-governed commitment."
+    },
+    {
+      "name": "objectives",
+      "tags": ["objectives"],
+      "content": "The system must make these outcomes possible:\n\n- A domain can begin as notes or source material and progressively become structured semantic state.\n- Fundamental tensions, problems, ideas, requirements, and projections can be represented without collapsing into one document outline.\n- A Field or Type definition created in one system can be imported and used by another without loss of semantic fidelity.\n- Multiple implementations can exchange Records and Relations while preserving provenance and lineage.\n- The same underlying semantic state can produce multiple projections for different audiences and purposes.\n- Superseded, contested, partial, or abandoned understanding remains available as part of institutional memory."
+    },
+    {
+      "name": "constraints",
+      "tags": ["constraints", "non-goals", "boundaries"],
+      "content": "SRS must preserve these boundaries:\n\n- It must not treat sections, subsections, or document order as the primary authoring model.\n- It must not define a universal ontology for all domains. Domain vocabularies belong to namespace authors.\n- It must not prescribe governance processes, authority structures, or decision rules.\n- It must not require a particular AI capability or model.\n- A Type or View must not override the semantic content of a Field it uses.\n- A projection must not delete or silently rewrite underlying semantic state.\n- Superseded instances must not be discarded when their history is needed for provenance.\n- Relation directionality must remain consistent so federated graphs do not fragment."
+    },
+    {
+      "name": "document_form",
+      "tags": ["projections", "documents"],
+      "content": "Document form remains useful, but it is downstream. A document view is a communication surface over meaning that already exists or is being assembled. It can impose order for reading, conformance, review, or publication. It must not be confused with the thing being specified. The source of truth is the semantic state and its relations, not the rendered artifact."
+    }
+  ],
+  "sourceRefs": [
+    {
+      "sourceType": "repository-document",
+      "sourceId": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+      "relationType": "evidence",
+      "note": "ChatGPT origin session - initial conception, core thesis, and six principles"
+    },
+    {
+      "sourceType": "repository-document",
+      "sourceId": "d4e5f6a7-b8c9-4d0e-8f2a-3b4c5d6e7f8a",
+      "relationType": "evidence",
+      "note": "Claude collaborative session - full specification development including invariants, non-goals, and constraint formulation"
+    }
+  ],
+  "createdAt": "2026-05-28T00:00:00Z",
+  "updatedAt": "2026-05-28T00:00:00Z"
+}

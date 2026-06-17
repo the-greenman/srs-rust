@@ -1,0 +1,42 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000018-0000-4000-a000-000000000018",
+      "value": "ext:views-l2"
+    },
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Views L2"
+    },
+    {
+      "fieldId": "1a000019-0000-4000-a000-000000000019",
+      "value": "- ext:views-l1"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "Document projection — assembling multiple Records from a Container into a coherent, ordered document. Depends on `ext:views-l1`.\n\nSee section `ext:views-l2` for type definitions (`SectionSource`, `DocumentSection`, `DocumentView`, `ThemeReference`, `ThemeVariant`), the default rendering baseline, the L1/L2 ExportConfig boundary rule, heading hierarchy, and conformance rules [N]–[N+8]."
+    }
+  ],
+  "instanceId": "87e912b6-b3f3-5207-a71b-73ce5cd6b8b7",
+  "sourceRefs": [
+    {
+      "note": "Extension ext:views-l2 from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:extensibility",
+    "concern:rendering",
+    "construct:view",
+    "topic:extensions"
+  ],
+  "typeId": "2a000008-0000-4000-a000-000000000008",
+  "typeName": "extension",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-05-29T00:00:00Z"
+}

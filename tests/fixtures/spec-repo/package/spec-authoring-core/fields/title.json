@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "1a000001-0000-4000-a000-000000000001",
+  "namespace": "com.semanticops.spec",
+  "name": "title",
+  "version": 1,
+  "description": "The human-readable title of a spec record.",
+  "aiGuidance": {
+    "purpose": "The human-readable title of a spec record.",
+    "extraction": "Use clear, descriptive titles that summarise the content. For sections and subsections, write the plain title without section number prefixes — ordering comes from relations."
+  },
+  "valueType": "string",
+  "editorHint": "singleline",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

@@ -15,7 +15,7 @@ use srs_repository::render_service::{render_document_view, RenderDocumentViewOpt
 use srs_repository::JsonStore;
 
 fn gallery_store() -> JsonStore {
-    let srsj = include_str!("../../../../srs/docs/spec/examples/gallery.srsj");
+    let srsj = include_str!("fixtures/gallery.srsj");
     JsonStore::from_srsj(srsj).expect("gallery srsj must load")
 }
 

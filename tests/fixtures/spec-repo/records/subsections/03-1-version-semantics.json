@@ -1,0 +1,32 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Version semantics"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "Version numbers are positive integers scoped to a definition's UUID lineage.\n\n| Change | Version action |\n|---|---|\n| Documentation, typo, formatting only | Optional bump |\n| `description`, `instructions`, or `aiGuidance.purpose` reworded without semantic change | Minor bump recommended |\n| `aiGuidance.extraction` or `aiGuidance.purpose` changed in meaning | Version bump required |\n| `valueType`, `selectOptions`, or `validationRules` changed | Version bump required |\n| `name` changed | New definition required (new UUID) |\n| `namespace` changed | New definition required (new UUID) |\n\nWhen in doubt: if a downstream consumer's AI extraction, validation, or governance logic would behave differently, a version bump is required.\n\n---"
+    }
+  ],
+  "instanceId": "8e3fb02c-3863-55a9-8bcd-0580e0c7b3a9",
+  "sourceRefs": [
+    {
+      "note": "Subsection 03-1 from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:identity",
+    "construct:reference",
+    "topic:meta"
+  ],
+  "typeId": "2a000003-0000-4000-a000-000000000003",
+  "typeName": "subsection",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

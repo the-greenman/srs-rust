@@ -1,0 +1,31 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Extensions"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "Extensions are optional, independently adoptable. Each extension section declares its identifier, dependencies, and the types it defines.\n\n---"
+    }
+  ],
+  "instanceId": "4244a790-72ff-5e1c-9b60-d4b58b90f92c",
+  "sourceRefs": [
+    {
+      "note": "Section 07 from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:extensibility",
+    "topic:extensions"
+  ],
+  "typeId": "2a000002-0000-4000-a000-000000000002",
+  "typeName": "section",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

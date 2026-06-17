@@ -1,0 +1,31 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Conversation Layer"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "> **Standalone repository note**: The conversation layer is optional infrastructure. An implementation declaring only `SRS 2.0 Core + ext:repository` does not require a TSS, ext:protocol, ext:addressability, AttentionState, or any live conversation store. Source documents stored in `source-documents/` are sufficient evidence storage for standalone use. This section describes the full-stack integration model; implementers building file-based or offline repositories may skip it entirely.\n\nThe conversation layer is a permanent architectural boundary distinct from SRS. It captures raw multimodal source material; SRS captures negotiated semantic state. They reference each other bidirectionally via `SourceReference` (document → conversation) and `AttentionState` tags (conversation → document, via `ext:addressability`).\n\n```\nConversation layer  →  raw multimodal source material (speech, threads, annotations)\n                        elements tagged with Address at production time\nProtocol layer      →  structures the facilitation process; advances AttentionState\nSRS layer          →  captures negotiated semantic state; Records carry SourceReferences\nPresentation layer  →  renders SRS state via Views\n```\n\nThree conversation types are in scope:\n\n| Type | Structure | Anchoring |\n|---|---|---|\n| Meeting transcript | Linear, time-ordered chunks | Tagged with AttentionState at production time |\n| Threaded conversation | Tree of replies | Thread root anchored to a document element Address |\n| Web UI annotations | Attached to content | Anchored to a Field or Record Address |\n\nTranscript chunks referenced in `SourceReference` are source material — addressable evidence. They do not become Notes or Records automatically. A transcript chunk referenced in `sourceRefs` is evidence supporting a field value; it is not itself a Note unless someone deliberately models it as one.\n\n---"
+    }
+  ],
+  "instanceId": "6cb78382-35a5-5acc-a26c-774a2c288e23",
+  "sourceRefs": [
+    {
+      "note": "Section 06 from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "construct:address",
+    "topic:conversation"
+  ],
+  "typeId": "2a000002-0000-4000-a000-000000000002",
+  "typeName": "section",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

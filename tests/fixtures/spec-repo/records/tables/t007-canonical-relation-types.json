@@ -1,0 +1,212 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000025-0000-4000-a000-000000000025",
+      "value": "**Canonical relation types** (use exact strings):"
+    },
+    {
+      "fieldId": "1a000026-0000-4000-a000-000000000026",
+      "value": "Implementations must store only the canonical (forward) form and derive the inverse when needed."
+    },
+    {
+      "entries": [
+        {
+          "value": "Canonical"
+        },
+        {
+          "value": "Converse"
+        },
+        {
+          "value": "Category"
+        }
+      ],
+      "fieldId": "1a000032-0000-4000-a000-000000000032",
+      "value": [
+        "Canonical",
+        "Converse",
+        "Category"
+      ]
+    }
+  ],
+  "groupValues": [
+    {
+      "entries": [
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "`contains`"
+                },
+                {
+                  "value": "`part-of`"
+                },
+                {
+                  "value": "Composition"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "`contains`",
+                "`part-of`",
+                "Composition"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "`depends-on`"
+                },
+                {
+                  "value": "`required-by`"
+                },
+                {
+                  "value": "Dependency"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "`depends-on`",
+                "`required-by`",
+                "Dependency"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "`supersedes`"
+                },
+                {
+                  "value": "`superseded-by`"
+                },
+                {
+                  "value": "Governance"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "`supersedes`",
+                "`superseded-by`",
+                "Governance"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "`refines`"
+                },
+                {
+                  "value": "`refined-by`"
+                },
+                {
+                  "value": "Refinement"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "`refines`",
+                "`refined-by`",
+                "Refinement"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "`derived-from`"
+                },
+                {
+                  "value": "`source-of`"
+                },
+                {
+                  "value": "Derivation"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "`derived-from`",
+                "`source-of`",
+                "Derivation"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "`evidences`"
+                },
+                {
+                  "value": "`evidenced-by`"
+                },
+                {
+                  "value": "Evidence"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "`evidences`",
+                "`evidenced-by`",
+                "Evidence"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "`precedes`"
+                },
+                {
+                  "value": "`follows`"
+                },
+                {
+                  "value": "Sequence"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "`precedes`",
+                "`follows`",
+                "Sequence"
+              ]
+            }
+          ]
+        }
+      ],
+      "groupId": "rows"
+    }
+  ],
+  "instanceId": "b1000000-0000-4000-a000-000000000007",
+  "tags": [
+    "construct:reference",
+    "construct:relation",
+    "construct:type",
+    "topic:foundation"
+  ],
+  "typeId": "2a000013-0000-4000-a000-000000000013",
+  "typeName": "table",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 2
+}

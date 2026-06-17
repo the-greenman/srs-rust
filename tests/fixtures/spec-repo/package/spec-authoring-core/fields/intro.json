@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "1a000025-0000-4000-a000-000000000025",
+  "namespace": "com.semanticops.spec",
+  "name": "intro",
+  "version": 1,
+  "description": "Introductory prose displayed before a structured element such as a table.",
+  "valueType": "text",
+  "contentFormat": "markdown",
+  "editorHint": "textarea",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "aiGuidance": {
+    "purpose": "Introductory prose displayed before a structured element such as a table."
+  }
+}

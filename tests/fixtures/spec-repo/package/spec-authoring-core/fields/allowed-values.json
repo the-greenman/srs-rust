@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "1a000023-0000-4000-a000-000000000023",
+  "namespace": "com.semanticops.spec",
+  "name": "allowed-values",
+  "version": 1,
+  "description": "The enumeration of valid values for a field or property being documented.",
+  "aiGuidance": {
+    "purpose": "The enumeration of valid values for a field or property being documented.",
+    "extraction": "List each allowed value and its meaning. Use a markdown list or table. For select fields, this maps directly to the allowedValues array in the field definition."
+  },
+  "valueType": "text",
+  "contentFormat": "markdown",
+  "editorHint": "textarea",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

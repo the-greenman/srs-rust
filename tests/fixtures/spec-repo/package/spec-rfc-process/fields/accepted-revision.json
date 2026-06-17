@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "5a000011-0000-4000-a000-000000000011",
+  "namespace": "com.semanticops.spec",
+  "name": "accepted-revision",
+  "version": 1,
+  "description": "The RFC revision number that was accepted.",
+  "aiGuidance": {
+    "purpose": "Identifies the exact RFC revision approved by a decision.",
+    "extraction": "Use the numeric revision from the RFC revision history that was accepted. Leave absent until an RFC is accepted."
+  },
+  "valueType": "number",
+  "editorHint": "singleline",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

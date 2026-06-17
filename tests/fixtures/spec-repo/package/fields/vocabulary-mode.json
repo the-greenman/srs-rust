@@ -1,0 +1,14 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "c013a1af-363f-4ad9-9c3d-47f99c7b3c6b",
+  "namespace": "com.semanticops.srs",
+  "name": "vocabulary_mode",
+  "version": 1,
+  "description": "Whether this vocabulary is open (usage-authoritative; undefined values valid) or closed (vocabulary-authoritative; values must resolve under V1).",
+  "valueType": "select",
+  "allowedValues": ["open", "closed"],
+  "createdAt": "2026-06-03T00:00:00Z",
+  "aiGuidance": {
+    "purpose": "open means instances define what exists; the Vocabulary is a curation overlay. closed means values must resolve to a Term — non-resolving values are invalid (V1)."
+  }
+}

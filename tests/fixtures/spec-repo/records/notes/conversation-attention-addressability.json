@@ -1,0 +1,79 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+  "instanceId": "8c0bcb3b-bd82-4d84-b9ef-8e64f69d9ac7",
+  "title": "Conversation Attention and Addressability",
+  "tags": ["addressability", "conversation", "attention", "federation", "linking", "meaning-making"],
+  "sections": [
+    {
+      "name": "purpose",
+      "tags": ["purpose"],
+      "content": "SRS evolved from the need to create meaning collectively: to capture and guide conversation so that rough ideas can become structured shared understanding. Addressability, linking, and federation are not secondary technical features. They are required because collective meaning-making happens across time, people, records, fields, transcripts, chats, documents, and repositories."
+    },
+    {
+      "name": "core_need",
+      "tags": ["conversation", "fields", "traceability"],
+      "content": "The core need is a two-way mapping between raw conversation and structured semantic state. From a field, record, or item in SRS, a person should be able to ask: what was the conversation around this? From a transcript, chat log, meeting segment, or annotation, a person should be able to say: this part of the conversation is about this thing in the semantic record."
+    },
+    {
+      "name": "timestream_and_attention",
+      "tags": ["timestream", "attention"],
+      "content": "Raw conversation is a timestream. It may be a meeting transcript, chat thread, annotation stream, or mixed multimodal record. During that timestream, the group's attention moves: sometimes the conversation is about a whole domain, sometimes a problem, sometimes a specific record, sometimes a field value, sometimes a protocol stage. SRS needs a way to record that attention so later meaning can be traced back to the relevant conversation."
+    },
+    {
+      "name": "field_to_conversation",
+      "tags": ["field-context", "source-material"],
+      "content": "The field-to-conversation direction answers: what source material produced or shaped this value? A user inspecting a field should be able to see the transcript segments, chat messages, annotations, protocol stages, and prior revisions that explain why the current value says what it says. This is essential for trust, review, challenge, learning, and future refinement."
+    },
+    {
+      "name": "conversation_to_field",
+      "tags": ["annotation", "attention-state"],
+      "content": "The conversation-to-field direction answers: what semantic object was this part of the conversation about? While exploring a transcript or chat log, a user should be able to identify the domain, tension, problem, record, field, or protocol stage that the conversation is addressing. This lets raw conversation become navigable semantic evidence rather than a disconnected archive."
+    },
+    {
+      "name": "attention_state",
+      "tags": ["attention-state", "addressability"],
+      "content": "AttentionState is the bridge between live conversation and SRS state. It records the current semantic focus while conversation is happening. A transcript chunk tagged with an AttentionState can later be found by asking for all conversation produced while attention was on a particular field, record, stage, or container. SourceReference can then record deliberate retrospective evidence links after extraction or review."
+    },
+    {
+      "name": "protocol_guides_attention",
+      "tags": ["protocol", "attention-state", "facilitation"],
+      "content": "Protocols give attention a meaning-making structure. A facilitator view may focus the group on one field, question, or stage at a time while the live transcript is tagged to that focus. The protocol explains why that focus matters, what question is being discussed, what prior understanding it depends on, and what field or record should be refined from the conversation."
+    },
+    {
+      "name": "why_addresses_matter",
+      "tags": ["addresses", "linking"],
+      "content": "This only works if the things being linked are addressable. Conversation chunks, records, fields, revisions, protocol runs, stages, containers, and source excerpts need stable references. Without addresses, links collapse into prose notes or brittle UI state. With addresses, the system can support traceability, context assembly, annotation, review, federation, and AI assistance."
+    },
+    {
+      "name": "why_federation_matters",
+      "tags": ["federation", "distributed-knowledge"],
+      "content": "Conversation and meaning will not always live in the same repository or system. A community may own its SRS repository, a meeting platform may store transcript chunks, an organization may keep a registry, and another tool may render projections. Federation matters because links across these boundaries must be preserved even when every system is independently owned and not always reachable."
+    },
+    {
+      "name": "design_implications",
+      "tags": ["design", "requirements"],
+      "content": "- SRS should distinguish raw conversation material from negotiated semantic state.\n- Conversation chunks should be linkable to semantic addresses without automatically becoming Records.\n- Fields and Records should be able to cite source material that shaped their values.\n- Transcript exploration should support attaching semantic attention after the fact.\n- Live facilitation should be able to tag conversation with current AttentionState as it happens.\n- Context assembly should be able to gather relevant conversation for a field, record, stage, or revision.\n- Cross-repository links should degrade gracefully when a referenced repository or source system is unavailable."
+    },
+    {
+      "name": "ai_collaboration",
+      "tags": ["ai", "human-ai-collaboration"],
+      "content": "This addressability layer also makes AI collaboration safer. AI can assemble focused context, propose field updates, identify unresolved tensions, or compare revisions against source conversation. In a protocol-guided editor, AI can transform the conversation around the current focus into candidate field text. But because the relevant source material remains addressable, humans can inspect the evidence, iterate the statement, accept it, and protect it from silent rewriting."
+    }
+  ],
+  "sourceRefs": [
+    {
+      "sourceType": "repository-document",
+      "sourceId": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+      "relationType": "evidence",
+      "note": "ChatGPT origin session - transcript to semantic extraction, evidence links, and AI-assisted refinement"
+    },
+    {
+      "sourceType": "repository-document",
+      "sourceId": "d4e5f6a7-b8c9-4d0e-8f2a-3b4c5d6e7f8a",
+      "relationType": "evidence",
+      "note": "Claude collaborative session - ext:addressability, AttentionState, SourceReference, and federation design"
+    }
+  ],
+  "createdAt": "2026-05-28T00:00:00Z",
+  "updatedAt": "2026-05-28T00:00:00Z"
+}

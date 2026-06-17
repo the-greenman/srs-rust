@@ -1,0 +1,13 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "0f1232c6-0db5-4383-b91d-64d81195f1c4",
+  "namespace": "com.semanticops.srs",
+  "name": "protocol-stages",
+  "version": 1,
+  "description": "Ordered stages defining the protocol workflow.",
+  "valueType": "text",
+  "aiGuidance": {
+    "purpose": "Capture the stage sequence and stage details that define protocol execution."
+  },
+  "createdAt": "2026-05-29T00:00:00Z"
+}

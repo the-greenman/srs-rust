@@ -1,0 +1,13 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
+  "id": "a1000004-0000-4000-b000-000000000004",
+  "version": 1,
+  "key": "com.semanticops.spec/rfc-targets-section",
+  "namespace": "com.semanticops.spec",
+  "label": "RFC targets section",
+  "description": "Links an RFC to the section, subsection, or extension record it proposes to change.",
+  "category": "association",
+  "canonicalDirection": "source is the RFC; target is the affected section, subsection, extension, or related spec record",
+  "status": "deprecated",
+  "createdAt": "2026-05-29T00:00:00Z"
+}

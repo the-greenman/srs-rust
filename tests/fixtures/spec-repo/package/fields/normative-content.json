@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "436786e4-d51e-5275-9654-bc4b5ee82b1a",
+  "namespace": "com.semanticops.srs",
+  "name": "normative_content",
+  "version": 1,
+  "description": "The normative prose body of a spec section, subsection, or extension record.",
+  "aiGuidance": {
+    "purpose": "Write clear, testable specification content. Use RFC 2119 keywords (MUST, SHOULD, MAY) for normative requirements. Structure with headings and lists for readability."
+  },
+  "valueType": "text",
+  "contentFormat": "markdown",
+  "editorHint": "textarea",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

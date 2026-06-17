@@ -1,0 +1,194 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000025-0000-4000-a000-000000000025",
+      "value": "**Relation category taxonomy:**"
+    },
+    {
+      "entries": [
+        {
+          "value": "Category"
+        },
+        {
+          "value": "Examples"
+        }
+      ],
+      "fieldId": "1a000032-0000-4000-a000-000000000032",
+      "value": [
+        "Category",
+        "Examples"
+      ]
+    }
+  ],
+  "groupValues": [
+    {
+      "entries": [
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Composition"
+                },
+                {
+                  "value": "`contains`, `part-of`, `has-section`"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Composition",
+                "`contains`, `part-of`, `has-section`"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Refinement"
+                },
+                {
+                  "value": "`refines`, `expands`, `summarises`"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Refinement",
+                "`refines`, `expands`, `summarises`"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Dependency"
+                },
+                {
+                  "value": "`depends-on`, `requires`, `blocks`, `enables`"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Dependency",
+                "`depends-on`, `requires`, `blocks`, `enables`"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Sequence"
+                },
+                {
+                  "value": "`precedes`, `follows`, `overlaps`"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Sequence",
+                "`precedes`, `follows`, `overlaps`"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Derivation"
+                },
+                {
+                  "value": "`derived-from`, `extracted-from`, `based-on`"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Derivation",
+                "`derived-from`, `extracted-from`, `based-on`"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Evidence"
+                },
+                {
+                  "value": "`evidences`, `supports`, `contradicts`"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Evidence",
+                "`evidences`, `supports`, `contradicts`"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Governance"
+                },
+                {
+                  "value": "`supersedes`, `amends`, `ratifies`, `delegates`"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Governance",
+                "`supersedes`, `amends`, `ratifies`, `delegates`"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Association"
+                },
+                {
+                  "value": "`relates-to`, `links-to`"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Association",
+                "`relates-to`, `links-to`"
+              ]
+            }
+          ]
+        }
+      ],
+      "groupId": "rows"
+    }
+  ],
+  "instanceId": "b1000000-0000-4000-a000-000000000008",
+  "tags": [
+    "construct:reference",
+    "construct:relation",
+    "topic:foundation"
+  ],
+  "typeId": "2a000013-0000-4000-a000-000000000013",
+  "typeName": "table",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 2
+}

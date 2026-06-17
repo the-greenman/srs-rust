@@ -1,0 +1,21 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "e6f7a8b9-c0d1-4e2f-8a4b-5c6d7e8f9a0b",
+  "namespace": "com.semanticops.srs",
+  "name": "status",
+  "version": 1,
+  "description": "The lifecycle status of the record.",
+  "aiGuidance": {
+    "purpose": "Status values have defined semantics: draft (under development), active (current), deprecated (still valid but discouraged), obsolete (superseded)."
+  },
+  "valueType": "select",
+  "allowedValues": [
+    "draft",
+    "active",
+    "deprecated",
+    "obsolete"
+  ],
+  "defaultValue": "draft",
+  "editorHint": "dropdown",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

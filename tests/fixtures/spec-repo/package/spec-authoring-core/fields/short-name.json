@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "1a000017-0000-4000-a000-000000000017",
+  "namespace": "com.semanticops.spec",
+  "name": "short-name",
+  "version": 1,
+  "description": "A short identifier or abbreviation, suitable for compact displays and cross-references.",
+  "aiGuidance": {
+    "purpose": "A short identifier or abbreviation, suitable for compact displays and cross-references.",
+    "extraction": "2–20 characters, alphanumeric with hyphens. Used in navigation, breadcrumbs, and compact citation forms."
+  },
+  "valueType": "string",
+  "editorHint": "singleline",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

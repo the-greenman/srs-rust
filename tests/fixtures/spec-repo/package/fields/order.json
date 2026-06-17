@@ -1,0 +1,14 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "d1e2f3a4-b5c6-4d7e-8f9a-0b1c2d3e4f5a",
+  "namespace": "com.semanticops.srs",
+  "name": "order",
+  "version": 1,
+  "description": "The ordering value for this record within a sequence or collection.",
+  "aiGuidance": {
+    "purpose": "Order values can be numeric (0, 1, 2...) or lexicographic ('01', '02', '1.1', '1.2'). Use consistent ordering within a sequence."
+  },
+  "valueType": "string",
+  "editorHint": "singleline",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

@@ -1,0 +1,59 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+  "instanceId": "82de2b6e-9589-4b82-a59f-417eec5c59d1",
+  "title": "Meaning Evolution Path",
+  "tags": ["meaning-evolution", "domain", "challenge-space", "projections", "foundations"],
+  "sections": [
+    {
+      "name": "path",
+      "tags": ["sequence", "meaning-first"],
+      "content": "The foundation path for a meaning-first spec is: domain -> challenge space -> fundamental tensions -> problems -> ideas -> features or requirements -> projections. This is not a mandatory workflow or a rigid lifecycle. It is a conceptual order that protects meaning from being flattened into document form too early."
+    },
+    {
+      "name": "domain",
+      "tags": ["domain"],
+      "content": "A domain names the area of reality or practice being worked on. It sets the boundary for what kinds of meaning may matter, but it does not yet decide what the spec will contain. Domain understanding may begin as notes, transcripts, examples, prior documents, field definitions, or informal vocabulary."
+    },
+    {
+      "name": "challenge_space",
+      "tags": ["challenge-space"],
+      "content": "A challenge space is the part of the domain where meaningful difficulty lives. It gathers the pressures, actors, constraints, ambitions, histories, and uncertainties that make the work non-trivial. It is broader than a problem statement because it can contain multiple possible problem framings."
+    },
+    {
+      "name": "tensions_to_problems",
+      "tags": ["fundamental-tensions", "problems"],
+      "content": "Fundamental tensions make the challenge space intelligible. Problems emerge when a tension becomes actionable: something needs to be resolved, balanced, supported, prevented, clarified, or made interoperable. A healthy problem statement should be traceable back to the tension that generated it."
+    },
+    {
+      "name": "ideas_to_features",
+      "tags": ["ideas", "features", "requirements"],
+      "content": "Ideas are possible moves in response to problems. Features and requirements are ideas that have been shaped enough to be implemented, tested, or conformed to. They should retain links to the problems and tensions that justify them so later readers can understand why the feature exists and what tradeoff it serves."
+    },
+    {
+      "name": "projections",
+      "tags": ["projections", "documents"],
+      "content": "Projections communicate the current semantic state to an audience. A projection may be a specification document, rationale, dashboard, AI context package, review checklist, map, or export. Projections can be ordered and polished, but their order is not the authoring truth. They are views over the evolving semantic graph."
+    },
+    {
+      "name": "implication_for_repository_shape",
+      "tags": ["repository", "migration"],
+      "content": "The current SRS repository still contains many document-shaped records. This note does not migrate them. It establishes the direction for future work: preserve the existing records as projections or historical material while introducing meaning-first records and relations that can explain why the document-shaped artifacts exist."
+    }
+  ],
+  "sourceRefs": [
+    {
+      "sourceType": "repository-document",
+      "sourceId": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+      "relationType": "inspired-by",
+      "note": "ChatGPT origin session - conversation to semantic extraction to multiple projections"
+    },
+    {
+      "sourceType": "repository-document",
+      "sourceId": "d4e5f6a7-b8c9-4d0e-8f2a-3b4c5d6e7f8a",
+      "relationType": "inspired-by",
+      "note": "Claude collaborative session - rationale and projection boundaries"
+    }
+  ],
+  "createdAt": "2026-05-28T00:00:00Z",
+  "updatedAt": "2026-05-28T00:00:00Z"
+}

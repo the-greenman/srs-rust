@@ -1,0 +1,33 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "ext:protocol × ext:addressability"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "**Trigger**: an implementation declares both `ext:protocol` and `ext:addressability`.\n\n**Required behaviour**: Protocol stage advancement updates `AttentionState`. When a Protocol run advances from one stage to another, the active `AttentionState` must reflect the new stage before any conversation material is tagged.\n\nSpecifically:\n\n- `AttentionState.protocolRunId` references the active Protocol run\n- `AttentionState.stageId` reflects the current stage\n- `AttentionState.fieldId`, when a specific field is the current focus within a stage, is set accordingly\n\nConversation chunks produced while `AttentionState.stageId` is set are associated with that stage. This makes stage-level Context Queries (`{runId}/{stageId}`) return the correct material.\n\n---"
+    }
+  ],
+  "instanceId": "1ff855f5-b20f-52c7-bc1d-c7e6311743a6",
+  "sourceRefs": [
+    {
+      "note": "Subsection 08-5 from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:extensibility",
+    "construct:address",
+    "construct:protocol",
+    "topic:extensions"
+  ],
+  "typeId": "2a000003-0000-4000-a000-000000000003",
+  "typeName": "subsection",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

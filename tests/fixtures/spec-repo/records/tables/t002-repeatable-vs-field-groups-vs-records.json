@@ -1,0 +1,118 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000026-0000-4000-a000-000000000026",
+      "value": "A Field Group entry does not have its own `instanceId`, lifecycle state, or Relation endpoints. If a group entry will ever need to be referenced independently, related to other Records, or reused across multiple Records, it should be a separate Record connected by a `contains` or `derived-from` Relation."
+    },
+    {
+      "entries": [
+        {
+          "value": "Pattern"
+        },
+        {
+          "value": "When to use"
+        },
+        {
+          "value": "Example"
+        }
+      ],
+      "fieldId": "1a000032-0000-4000-a000-000000000032",
+      "value": [
+        "Pattern",
+        "When to use",
+        "Example"
+      ]
+    }
+  ],
+  "groupValues": [
+    {
+      "entries": [
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Repeatable scalar (`ext:repeatable-fields`)"
+                },
+                {
+                  "value": "Multiple values of the same type, no pairing needed"
+                },
+                {
+                  "value": "Multiple assigned person names"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Repeatable scalar (`ext:repeatable-fields`)",
+                "Multiple values of the same type, no pairing needed",
+                "Multiple assigned person names"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Field Group (`ext:field-groups`)"
+                },
+                {
+                  "value": "Multiple structured entries that must be read together"
+                },
+                {
+                  "value": "Contacts with name + email"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Field Group (`ext:field-groups`)",
+                "Multiple structured entries that must be read together",
+                "Contacts with name + email"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Separate Records + Relations"
+                },
+                {
+                  "value": "Repeated items need their own identity, lifecycle, or reuse"
+                },
+                {
+                  "value": "Tasks assigned to roles"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Separate Records + Relations",
+                "Repeated items need their own identity, lifecycle, or reuse",
+                "Tasks assigned to roles"
+              ]
+            }
+          ]
+        }
+      ],
+      "groupId": "rows"
+    }
+  ],
+  "instanceId": "b1000000-0000-4000-a000-000000000002",
+  "tags": [
+    "construct:field",
+    "construct:lifecycle",
+    "construct:record",
+    "construct:reference",
+    "construct:relation",
+    "topic:extensions"
+  ],
+  "typeId": "2a000013-0000-4000-a000-000000000013",
+  "typeName": "table",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 2
+}

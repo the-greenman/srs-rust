@@ -1,0 +1,13 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "6c66d06c-3f95-4d17-8ecf-e1046a6f2ec1",
+  "namespace": "com.semanticops.srs",
+  "name": "protocol-id",
+  "version": 1,
+  "description": "Unique identifier for the protocol definition.",
+  "valueType": "string",
+  "aiGuidance": {
+    "purpose": "Capture the stable identifier of a protocol definition."
+  },
+  "createdAt": "2026-05-29T00:00:00Z"
+}

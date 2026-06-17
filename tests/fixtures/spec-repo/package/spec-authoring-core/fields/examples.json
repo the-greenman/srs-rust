@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "1a000005-0000-4000-a000-000000000005",
+  "namespace": "com.semanticops.spec",
+  "name": "examples",
+  "version": 1,
+  "description": "Concrete examples illustrating the concept, requirement, or type definition.",
+  "aiGuidance": {
+    "purpose": "Concrete examples illustrating the concept, requirement, or type definition.",
+    "extraction": "Examples are non-normative. Provide realistic, specific examples that demonstrate correct usage. Use code blocks, JSON snippets, or scenario descriptions as appropriate."
+  },
+  "valueType": "text",
+  "contentFormat": "markdown",
+  "editorHint": "textarea",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "What this specification defines"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "The Semantic Record System (SRS) specification defines an interoperable standard for semantic field and type definitions, records, relations, and the mechanisms by which these artefacts are created, shared, versioned, and distributed across independent implementations.\n\nThis specification covers:\n\n- **Field** — atomic reusable semantic unit\n- **Type** — named composition of fields for a specific semantic object type\n- **Record** — instantiated type with field values; three semantic maturity tiers (Note, Typed Record, Record)\n- **Relation** — first-class typed link between records\n- **Container** — grouping boundary for record collections\n- **Distribution** — Package, Reference, Lineage, Provenance\n- **Extensions** — optional, independently adoptable capabilities declared by conforming implementations"
+    }
+  ],
+  "instanceId": "859c6150-4a5c-5229-934b-14223a072bdb",
+  "sourceRefs": [
+    {
+      "note": "Subsection 01-1 from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "topic:meta"
+  ],
+  "typeId": "2a000003-0000-4000-a000-000000000003",
+  "typeName": "subsection",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

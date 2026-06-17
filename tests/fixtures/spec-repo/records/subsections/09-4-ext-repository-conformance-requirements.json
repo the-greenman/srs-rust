@@ -1,0 +1,31 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "ext:repository conformance requirements"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "An implementation declaring `ext:repository` must:\n- Produce repositories with a `.srs` marker and `manifest.json` at root, with content in the prescribed folder layout\n- Maintain a complete and accurate `instanceIndex` in the manifest; the index must reflect the actual files present\n- Produce archives that satisfy all self-containment requirements (Invariants 49 and 51)\n- Consume archives by parsing the manifest first and resolving all instances via the index before processing content\n- Resolve `SourceReference` entries with `sourceType: \"repository-document\"` via the sidecar in `sourceDocumentsPath`\n- Enforce Invariants 45–55\n- Require no TSS, Protocol, Addressability infrastructure, or external registry when `PackageRef.mode === \"local\"`. The repository is fully operable with only its own files.\n\nAn implementation that can produce archives but not consume them (or vice versa) must declare this limitation explicitly. Partial repository support is not conformant."
+    }
+  ],
+  "instanceId": "d311183c-c402-5096-b961-ed925167e3b8",
+  "sourceRefs": [
+    {
+      "note": "Subsection 09-4 from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:extensibility",
+    "topic:conformance"
+  ],
+  "typeId": "2a000003-0000-4000-a000-000000000003",
+  "typeName": "subsection",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

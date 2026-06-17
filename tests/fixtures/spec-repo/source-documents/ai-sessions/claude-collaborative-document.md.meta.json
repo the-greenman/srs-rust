@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/source-document.json",
+  "documentId": "d4e5f6a7-b8c9-4d0e-1f2a-3b4c5d6e7f8a",
+  "contentPath": "claude-collaborative-document.md",
+  "contentType": "text/markdown",
+  "encoding": "utf-8",
+  "title": "Claude Collaborative Document Session",
+  "description": "Claude AI collaborative session transcript for specification development.",
+  "tags": ["source-material", "collaboration", "claude"],
+  "createdAt": "2026-05-27T00:00:00Z",
+  "importedAt": "2026-05-27T15:00:00Z",
+  "meta": {
+    "originalPath": "source-documents/ai-sessions/claude-collaborative-document.md",
+    "sessionType": "collaboration"
+  }
+}

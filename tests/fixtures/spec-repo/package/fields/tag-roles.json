@@ -1,0 +1,18 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "d4e5f6a7-b8c9-4d0e-8f2a-3b4c5d6e7f8a",
+  "namespace": "com.semanticops.srs",
+  "name": "tag-roles",
+  "version": 1,
+  "description": "Semantic roles assigned to this tag that drive system behavior (e.g., foundation tags trigger foundation note collection).",
+  "valueType": "multiselect",
+  "allowedValues": [
+    "foundation",
+    "navigation",
+    "lifecycle"
+  ],
+  "createdAt": "2026-05-28T00:00:00Z",
+  "aiGuidance": {
+    "purpose": "Semantic roles that drive system behavior. 'foundation' causes the tag service to include matching notes in foundation note collection."
+  }
+}

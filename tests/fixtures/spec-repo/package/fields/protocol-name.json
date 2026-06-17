@@ -1,0 +1,13 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "09c5e389-cf6c-4f72-aad6-8cf26bce0b78",
+  "namespace": "com.semanticops.srs",
+  "name": "protocol-name",
+  "version": 1,
+  "description": "Name of the protocol.",
+  "valueType": "string",
+  "aiGuidance": {
+    "purpose": "Capture the machine-readable protocol name."
+  },
+  "createdAt": "2026-05-29T00:00:00Z"
+}

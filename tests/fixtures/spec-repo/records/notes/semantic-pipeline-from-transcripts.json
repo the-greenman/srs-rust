@@ -1,0 +1,97 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+  "createdAt": "2026-05-28T00:00:00Z",
+  "instanceId": "609370d7-03cf-4501-894a-02276621df8e",
+  "sections": [
+    {
+      "content": "A semantic pipeline is a protocol-driven way to turn source material, such as transcripts, notes, documents, and chat logs, into layered semantic objects. The aim is not to ask AI for a single summary, but to guide AI through a sequence of constrained meaning-making steps where each output can be inspected, corrected, accepted, locked, or rerun before becoming context for the next step.",
+      "name": "purpose",
+      "tags": [
+        "purpose",
+        "pipeline",
+        "protocol"
+      ]
+    },
+    {
+      "content": "Unguided AI summarisation gives the user little control over where meaning ends up. The model chooses what to compress, what to omit, what to merge, and what shape the output should take. Even when the result is fluent, it is hard to audit because the intermediate interpretive moves were never made explicit. SRS protocols should replace one-shot summarisation with visible layers of semantic construction.",
+      "name": "control_problem",
+      "tags": [
+        "summarisation",
+        "control",
+        "auditability"
+      ]
+    },
+    {
+      "content": "The source-documents directory can hold the raw or lightly prepared material that a pipeline works from. A protocol run then reads that material and produces structured SRS objects: notes, typed records, field values, relations, tags, source references, confidence markers, review states, or other artifacts defined by the active package. Those objects are not final merely because AI created them; they are proposed semantic layers for human review.",
+      "name": "source_documents_to_semantic_objects",
+      "tags": [
+        "source-documents",
+        "records",
+        "review"
+      ]
+    },
+    {
+      "content": "A pipeline can be composed from multiple protocol runs. An early pass might segment transcripts into addressable evidence. A second pass might extract topics, claims, tensions, open questions, or candidate decisions. A third pass might use those accepted objects as focused context for more precise extraction. Later passes might consolidate, relate, validate, or render the material into a formatted view. Each layer narrows the context and raises the semantic resolution.",
+      "name": "layered_extraction",
+      "tags": [
+        "layers",
+        "extraction",
+        "context-assembly"
+      ]
+    },
+    {
+      "content": "The key design move is that protocol outputs become first-class repository context. Once a protocol has produced reviewed SRS objects, the next protocol should not start from the whole transcript again unless it needs to. It should assemble context from the prior objects, their source references, their relations, and any unresolved review markers. This makes later AI work more focused, cheaper, easier to check, and less likely to drift.",
+      "name": "protocol_outputs_as_context",
+      "tags": [
+        "protocol-chaining",
+        "context",
+        "provenance"
+      ]
+    },
+    {
+      "content": "A useful pipeline shape is: source documents -> evidence units -> candidate semantic objects -> reviewed semantic objects -> derived higher-order objects -> exported views. The concrete protocols will differ by goal: research synthesis, governance decisions, product discovery, legal review, meeting memory, specification writing, or planning. The invariant is that meaning is built in inspectable layers rather than hidden inside a single model response.",
+      "name": "pipeline_shape",
+      "tags": [
+        "workflow",
+        "views",
+        "reuse"
+      ]
+    },
+    {
+      "content": "This requires provenance at every layer. Each generated object should preserve sourceRefs to the source documents or prior semantic objects it depends on. Relations such as derived-from, evidences, refines, depends-on, contradicts, or supersedes-context should make the chain traversable. A user should be able to challenge a final exported statement and walk back through the pipeline to see which protocol produced it, which objects informed it, and which transcript passages or documents grounded it.",
+      "name": "provenance_and_challenge",
+      "tags": [
+        "provenance",
+        "relations",
+        "challenge"
+      ]
+    },
+    {
+      "content": "- Treat summarisation as only one possible protocol stage, not the pipeline goal.\n- Make every protocol run produce addressable artifacts, not only prose output.\n- Preserve review state so human acceptance is distinguishable from AI proposal.\n- Let accepted objects become context for subsequent protocols.\n- Prefer smaller, inspectable semantic layers over large opaque transformations.\n- Keep sourceRefs and relations complete enough to audit the path from final view back to source material.\n- Allow protocols to be swapped, forked, and specialised for different goals while keeping the same repository substrate.",
+      "name": "design_implications",
+      "tags": [
+        "design",
+        "requirements"
+      ]
+    }
+  ],
+  "sourceRefs": [
+    {
+      "note": "User-provided semantic pipeline use case: use SRS protocols to guide AI through layered meaning-making from transcripts in source-documents, with each protocol output becoming structured context for later extraction and formatted export.",
+      "relationType": "inspired-by",
+      "sourceId": "user-provided-semantic-pipeline-use-case-2026-05-28",
+      "sourceType": "external-document"
+    }
+  ],
+  "tags": [
+    "semantic-pipeline",
+    "protocol",
+    "source-documents",
+    "transcripts",
+    "layered-extraction",
+    "human-ai-collaboration",
+    "provenance"
+  ],
+  "title": "Semantic Pipeline from Transcripts",
+  "updatedAt": "2026-05-28T00:00:00Z"
+}

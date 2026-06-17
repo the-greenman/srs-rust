@@ -1,0 +1,14 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "a8b9c0d1-e2f3-4a4b-8c6d-7e8f9a0b1c2d",
+  "namespace": "com.semanticops.srs",
+  "name": "namespace",
+  "version": 1,
+  "description": "The namespace for this definition or record.",
+  "aiGuidance": {
+    "purpose": "Namespaces use dot-separated lowercase alphanumeric identifiers (e.g., 'com.example.app', 'core', 'community.adr'). The 'core' namespace is reserved."
+  },
+  "valueType": "string",
+  "editorHint": "singleline",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

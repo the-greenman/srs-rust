@@ -1,0 +1,34 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000013-0000-4000-a000-000000000013",
+      "value": "com.semanticops.srs.rationale"
+    },
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Semantic Record System — Design Rationale"
+    },
+    {
+      "fieldId": "1a000010-0000-4000-a000-000000000010",
+      "value": "2.0"
+    },
+    {
+      "fieldId": "1a000009-0000-4000-a000-000000000009",
+      "value": "active"
+    },
+    {
+      "fieldId": "1a000011-0000-4000-a000-000000000011",
+      "value": "Non-normative companion to the SRS specification. Explains the design decisions, core thesis, usage guidance, extension rationale, and future directions that inform the SRS 2.0 vocabulary."
+    }
+  ],
+  "instanceId": "d0100002-0000-4000-a000-000000000002",
+  "tags": [
+    "topic:meta"
+  ],
+  "typeId": "2a000001-0000-4000-a000-000000000001",
+  "typeName": "specification",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

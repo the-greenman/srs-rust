@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "1a000004-0000-4000-a000-000000000004",
+  "namespace": "com.semanticops.spec",
+  "name": "rationale",
+  "version": 1,
+  "description": "The reasoning behind a design decision, constraint, or normative requirement.",
+  "aiGuidance": {
+    "purpose": "The reasoning behind a design decision, constraint, or normative requirement.",
+    "extraction": "Explain why this is specified this way, not just what it says. Include trade-offs considered and alternatives rejected. Rationale is non-normative."
+  },
+  "valueType": "text",
+  "contentFormat": "markdown",
+  "editorHint": "textarea",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

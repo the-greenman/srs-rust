@@ -1,0 +1,23 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "7f069d35-4316-5d9c-bb52-a5aa5d211319",
+  "namespace": "com.semanticops.srs",
+  "name": "meta.example",
+  "version": 1,
+  "description": "An illustrative example associated with a spec section or type-definition.",
+  "fields": [
+    {
+      "fieldId": "96f04d9d-9432-5628-8664-0d92e50f6fd0",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Title"
+    },
+    {
+      "fieldId": "436786e4-d51e-5275-9654-bc4b5ee82b1a",
+      "order": 1,
+      "required": true,
+      "displayLabel": "Content"
+    }
+  ],
+  "createdAt": "2026-05-27T00:00:00Z"
+}

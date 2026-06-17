@@ -1,0 +1,184 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+  "instanceId": "c1a5f920-9de7-4f99-8cfd-b4b8cbb7b09a",
+  "title": "Potential Problems in the SRS Domain",
+  "tags": ["domain", "problems", "srs", "meaning-first", "semantic-state"],
+  "sections": [
+    {
+      "name": "purpose",
+      "tags": ["purpose"],
+      "content": "This note identifies potential problems within the Semantic Record System domain. Problems are not implementation tasks yet. They are actionable formulations of the domain's tensions: places where meaning may be lost, distorted, fragmented, over-constrained, or made too expensive to preserve."
+    },
+    {
+      "name": "document_form_becomes_the_model",
+      "tags": ["documents", "projection", "meaning-first"],
+      "content": "The most central problem is that document form can quietly become the semantic model. If sections, subsections, headings, or rendered order are treated as the source of truth, SRS collapses back into a document system. The system then preserves communicative form better than it preserves meaning, which directly contradicts the purpose of SRS."
+    },
+    {
+      "name": "meaning_is_extracted_without_provenance",
+      "tags": ["provenance", "source-material", "ai"],
+      "content": "Conversation, notes, and source documents can be converted into semantic records without preserving enough evidence about where each claim came from. This creates attractive but untrustworthy structure. AI-assisted extraction makes this problem sharper because fluent synthesis can hide the difference between observed source material, inferred interpretation, and accepted commitment."
+    },
+    {
+      "name": "tensions_are_flattened_into_premature_problems",
+      "tags": ["fundamental-tensions", "problem-framing"],
+      "content": "A domain tension can be prematurely rewritten as a single problem statement. This loses the opposing pressures that make the domain difficult. Once the tension disappears, later features and requirements can look reasonable while serving only one side of the tradeoff."
+    },
+    {
+      "name": "field_meaning_drifts_across_contexts",
+      "tags": ["fields", "types", "semantic-drift"],
+      "content": "Fields are intended to be reusable semantic atoms, but their meaning can drift if Types, Views, prompts, or local implementations treat labels and guidance as opportunities to redefine them. Field reuse becomes unsafe if two systems share an identifier but do not preserve the same semantic intent."
+    },
+    {
+      "name": "relations_become_decoration",
+      "tags": ["relations", "graph"],
+      "content": "Relations can be treated as secondary metadata around records instead of as first-class semantic claims. If this happens, the graph cannot explain why records exist, how ideas depend on one another, where tensions generate problems, or how requirements trace back to evidence."
+    },
+    {
+      "name": "history_is_cleaned_until_it_loses_value",
+      "tags": ["history", "lineage", "provenance"],
+      "content": "Systems often prefer a clean current state. SRS needs current clarity too, but if superseded, partial, contested, or abandoned meaning is deleted or hidden too aggressively, the provenance chain breaks. Future readers can no longer reconstruct how understanding developed."
+    },
+    {
+      "name": "the_standard_becomes_domain_shaped",
+      "tags": ["domain-neutrality", "scope"],
+      "content": "Because SRS emerged from collaborative decision-making and specification work, there is a risk that the standard accidentally becomes governance-shaped, document-shaped, or software-specification-shaped. That would reduce its usefulness as a general semantic coordination substrate."
+    },
+    {
+      "name": "interoperability_is_claimed_without_shared_semantics",
+      "tags": ["interoperability", "definitions"],
+      "content": "Two systems can exchange JSON while failing to exchange meaning. Real interoperability requires stable identity, compatible Field and Type definitions, preserved source references, consistent relation directionality, and clear extension support. Without those, SRS becomes a file format rather than a semantic standard."
+    },
+    {
+      "name": "progressive_formalization_becomes_all_or_nothing",
+      "tags": ["notes", "typed-records", "records"],
+      "content": "If implementations make formal Types too expensive or make Notes too unstructured to graduate, users will either over-model too early or never formalize at all. SRS needs a credible path from rough source material to structured semantic records without forcing premature certainty."
+    },
+    {
+      "name": "groups_do_not_know_where_meaning_belongs",
+      "tags": ["shared-meaning", "governance", "organization"],
+      "content": "Groups lose meaning because decisions, roles, policies, obligations, rationale, open questions, review triggers, and working notes do not have obvious homes. They scatter across files, folders, chats, documents, and memories. SRS must solve the practical problem of where the different pieces of shared understanding go without forcing all meaning into one document outline."
+    },
+    {
+      "name": "governing_documents_flatten_different_semantic_objects",
+      "tags": ["governing-documents", "projection", "semantic-objects"],
+      "content": "A governing document may need to include articles, roles, decisions, open exercises, obligations, and authority boundaries, but those are different semantic objects. If the document is the only model, these objects are flattened into prose and tables. SRS needs to preserve their different meanings while still allowing them to manifest as one readable governing artifact."
+    },
+    {
+      "name": "raw_conversation_and_negotiated_state_collapse",
+      "tags": ["conversation-layer", "source-material", "semantic-state"],
+      "content": "Raw multimodal conversation and negotiated semantic state can be collapsed into one layer. If transcript chunks, annotations, notes, records, and accepted commitments are not distinguished, the system cannot tell whether something was said, inferred, refined, or agreed. The spec addresses this with SourceReferences, the conversation-layer boundary, addressability, and provenance conventions."
+    },
+    {
+      "name": "context_cannot_be_reassembled_when_it_is_needed",
+      "tags": ["addressability", "context-assembly", "ai"],
+      "content": "A later user or AI assistant may need the evidence and surrounding discussion for a specific field, record, protocol stage, or revision, but the relevant material may not be findable. Without stable addresses and attention state, context assembly becomes search over a pile of source material rather than a reliable query over semantic focus."
+    },
+    {
+      "name": "conversation_attention_is_lost",
+      "tags": ["conversation", "attention-state", "addressability"],
+      "content": "A group may have a rich conversation while attention moves across domains, problems, records, fields, and protocol stages, but the movement of attention can be lost. Later, the transcript still exists, but no one can tell which part of the conversation shaped which part of the semantic record. This breaks the bridge from rough ideas to structured shared understanding."
+    },
+    {
+      "name": "transcripts_cannot_be_explored_semantically",
+      "tags": ["transcripts", "annotation", "linking"],
+      "content": "A transcript or chat log can become a flat archive that can only be searched textually. If users cannot explore the source material and mark that a conversation segment is about a particular field, record, tension, problem, or stage, then source material remains disconnected from the semantic graph it helped produce."
+    },
+    {
+      "name": "process_order_is_mistaken_for_epistemic_dependency",
+      "tags": ["protocol", "workflow", "epistemic-order"],
+      "content": "A facilitated workflow can treat stage order as a simple presentation sequence even when the underlying work has epistemic dependencies. People may evaluate options before criteria exist, make decisions before the problem is decomposed, or fill final fields before exploratory understanding is sufficient. The Protocol model exists to distinguish display order from dependency order."
+    },
+    {
+      "name": "protocols_become_forms_instead_of_meaning_making",
+      "tags": ["protocol", "facilitation", "meaning-making"],
+      "content": "A protocol can degrade into a form with ordered fields. This loses the point of the protocol: to guide a group through the phases of meaning-making, ask the right questions, focus attention, and create enough shared understanding for a high-quality output. If protocols become forms, SRS loses the facilitation layer that makes structured meaning trustworthy."
+    },
+    {
+      "name": "accepted_field_text_is_rewritten_without_consent",
+      "tags": ["locking", "ai", "lifecycle"],
+      "content": "AI-assisted editors can make text feel fluid, but accepted meaning sometimes needs protection. If a group has reviewed and accepted a field value, the system should not silently rewrite it through later AI synthesis or workflow automation. Without locking or lifecycle protection, people cannot trust that accepted meaning remains stable."
+    },
+    {
+      "name": "schema_and_view_are_confused",
+      "tags": ["schema", "views", "extraction", "projection"],
+      "content": "A projection view can be mistaken for an extraction schema, or an extraction schema can be mistaken for a rendering plan. This matters because one answers what should be extracted from source material, while the other answers how existing Records should be assembled for an audience. Confusing them makes both extraction and projection brittle."
+    },
+    {
+      "name": "extension_support_fragments_interoperability",
+      "tags": ["extensions", "conformance", "interoperability"],
+      "content": "Optional extensions let the standard stay modular, but they also create the risk that two implementations both claim SRS compatibility while supporting different behavioral surfaces. Without explicit conformance declarations, dependency rules, and graceful degradation, extension adoption can fragment the ecosystem."
+    },
+    {
+      "name": "type_specialization_breaks_base_processability",
+      "tags": ["type-inheritance", "fields", "interoperability"],
+      "content": "A specialized Type can become unreadable to systems that only understand the base Type if inheritance changes inherited semantics, duplicates inherited Fields, or discards unknown specialization content. The intended problem is to allow local specialization while preserving base-Type processability and semantic fidelity."
+    },
+    {
+      "name": "embedded_structure_is_used_when_identity_is_needed",
+      "tags": ["repeatable-fields", "field-groups", "records", "identity"],
+      "content": "Lists, repeated field values, and grouped field values are convenient, but they can be used for things that actually need their own identity, lifecycle, provenance, reuse, or graph position. The spec's repeatable-field and field-group distinctions address the problem of deciding when something is embedded structure versus a separate semantic object."
+    },
+    {
+      "name": "packages_can_be_imported_without_dependency_truth",
+      "tags": ["packages", "distribution", "dependency-resolution"],
+      "content": "A package can claim to provide usable Types, Views, Schemas, or Protocols while omitting the Field and Type definitions they depend on. Consumers may then validate JSON successfully but fail to resolve meaning. Distribution rules and package invariants address the problem of making definition dependencies explicit and portable."
+    },
+    {
+      "name": "import_and_reimport_create_duplicates_or_silent_conflicts",
+      "tags": ["import", "identity", "conflicts", "repository"],
+      "content": "When repositories or packages are imported more than once, systems can accidentally create duplicates based on filenames or paths, silently overwrite local changes, or discard incoming differences. SRS needs identity-based import semantics, conflict surfacing, and checksums so re-import is safe and auditable."
+    },
+    {
+      "name": "file_archives_lose_semantic_completeness",
+      "tags": ["repository", "archive", "source-documents"],
+      "content": "A file-based repository or archive can appear complete while missing relation files, source-document sidecars, source content, package definitions, or indexed instances. The repository/archive extension addresses the problem of making portable SRS content self-contained enough to round-trip without data loss."
+    },
+    {
+      "name": "cross_repository_links_are_treated_as_local_or_disposable",
+      "tags": ["federation", "cross-repository-relations"],
+      "content": "Relations may need to point across repository boundaries, but implementations can either treat foreign instance IDs as local or drop unresolved foreign references. Federation addresses the problem of preserving cross-repository semantic claims even when the target repository cannot currently be resolved."
+    },
+    {
+      "name": "conformance_is_not_testable",
+      "tags": ["conformance", "validation", "invariants"],
+      "content": "A standard can describe useful concepts without giving implementers a way to tell whether behavior is conformant. SRS needs explicit invariants for Field semantics, relation directionality, package dependencies, schema/view references, repository manifests, archives, imports, and federation so compatibility is testable rather than aspirational."
+    },
+    {
+      "name": "ai_outputs_are_mistaken_for_authority",
+      "tags": ["ai", "trust", "authority"],
+      "content": "AI can help identify patterns, extract claims, suggest relations, and check consistency. The problem appears when generated outputs are treated as accepted semantic state without review, provenance, or lifecycle distinction. SRS must preserve the difference between proposal, interpretation, and commitment."
+    },
+    {
+      "name": "humans_outsource_meaning_to_ai",
+      "tags": ["meaning-making", "human-ai-collaboration", "ai"],
+      "content": "A deeper problem than AI error is that humans may stop treating meaning as their responsibility. If AI-generated structure feels authoritative, people may stop doing the interpretive and social work required to decide what a community means, values, accepts, or commits to. SRS should help AI assist that work without replacing it."
+    },
+    {
+      "name": "knowledge_becomes_platform_captive",
+      "tags": ["distributed-knowledge", "ownership", "decentralization", "repository"],
+      "content": "Semantic state can become captive to the platform that stores it. If a central SaaS service is required to preserve, interpret, validate, or exchange knowledge, then communities do not truly own their own memory. SRS must address this by making knowledge portable, inspectable, and exchangeable outside any single service."
+    },
+    {
+      "name": "projections_hide_underlying_complexity",
+      "tags": ["projections", "views"],
+      "content": "A polished projection can make the underlying semantic state appear more settled than it is. This is dangerous when a document, dashboard, or AI context package hides unresolved tensions, contested interpretations, missing provenance, or unsupported assumptions."
+    }
+  ],
+  "sourceRefs": [
+    {
+      "sourceType": "repository-document",
+      "sourceId": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+      "relationType": "evidence",
+      "note": "ChatGPT origin session - conversation to semantic extraction, structured meaning, and multiple projections"
+    },
+    {
+      "sourceType": "repository-document",
+      "sourceId": "d4e5f6a7-b8c9-4d0e-8f2a-3b4c5d6e7f8a",
+      "relationType": "evidence",
+      "note": "Claude collaborative session - specification constraints, invariants, and rationale development"
+    }
+  ],
+  "createdAt": "2026-05-28T00:00:00Z",
+  "updatedAt": "2026-05-28T00:00:00Z"
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "5a000004-0000-4000-a000-000000000004",
+  "namespace": "com.semanticops.spec",
+  "name": "decision-date",
+  "version": 1,
+  "description": "The date when this RFC was accepted, rejected, or superseded.",
+  "aiGuidance": {
+    "purpose": "The date when this RFC was accepted, rejected, or superseded.",
+    "extraction": "ISO 8601 date format: YYYY-MM-DD. Leave absent for RFCs still in draft or proposed state."
+  },
+  "valueType": "date",
+  "editorHint": "singleline",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

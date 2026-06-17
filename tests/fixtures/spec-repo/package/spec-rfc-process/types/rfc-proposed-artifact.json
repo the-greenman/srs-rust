@@ -1,0 +1,41 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "6a000006-0000-4000-a000-000000000006",
+  "namespace": "com.semanticops.spec",
+  "name": "rfc-proposed-artifact",
+  "version": 1,
+  "description": "An artifact belonging to an RFC proposal rather than active spec state.",
+  "fields": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Title"
+    },
+    {
+      "fieldId": "5a000017-0000-4000-a000-000000000017",
+      "order": 1,
+      "required": true,
+      "displayLabel": "Artifact Kind"
+    },
+    {
+      "fieldId": "5a000016-0000-4000-a000-000000000016",
+      "order": 2,
+      "required": true,
+      "displayLabel": "Proposal Artifact Path"
+    },
+    {
+      "fieldId": "1a000012-0000-4000-a000-000000000012",
+      "order": 3,
+      "required": false,
+      "displayLabel": "Description"
+    },
+    {
+      "fieldId": "1a000006-0000-4000-a000-000000000006",
+      "order": 4,
+      "required": false,
+      "displayLabel": "Notes"
+    }
+  ],
+  "createdAt": "2026-05-27T00:00:00Z"
+}

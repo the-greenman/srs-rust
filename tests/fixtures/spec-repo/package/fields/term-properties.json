@@ -1,0 +1,14 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "2a785e90-8798-4268-85eb-b0272122af13",
+  "namespace": "com.semanticops.srs",
+  "name": "term_properties",
+  "version": 1,
+  "description": "Arbitrary entry metadata (color, order, icon, mergedFrom) stored as a JSON object. The single extensibility point under the one-policy rule: unknown top-level fields are rejected; domain metadata goes here.",
+  "valueType": "text",
+  "contentFormat": "plain",
+  "createdAt": "2026-06-03T00:00:00Z",
+  "aiGuidance": {
+    "purpose": "Carry UI or domain metadata for this term that does not fit the standard substrate fields. JSON object form."
+  }
+}

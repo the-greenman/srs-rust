@@ -1,0 +1,41 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "a3b4c5d6-e7f8-4a9b-8c1d-2e3f4a5b6c7d",
+  "namespace": "com.semanticops.srs",
+  "name": "meta.concept",
+  "version": 1,
+  "description": "Named concept, principle, or explanatory construct.",
+  "fields": [
+    {
+      "fieldId": "f1a2b3c4-d5e6-4a7b-8c9d-0e1f2a3b4c5c",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Canonical Key"
+    },
+    {
+      "fieldId": "a2b3c4d5-e6f7-4a8b-9c0d-1e2f3a4b5c6d",
+      "order": 1,
+      "required": true,
+      "displayLabel": "Title"
+    },
+    {
+      "fieldId": "d5e6f7a8-b9c0-4d1e-8f3a-4b5c6d7e8f9a",
+      "order": 2,
+      "required": true,
+      "displayLabel": "Description"
+    },
+    {
+      "fieldId": "3c4d5e6f-7a8b-4c9d-8e1f-2a3b4c5d6e7f",
+      "order": 3,
+      "required": false,
+      "displayLabel": "Notes"
+    },
+    {
+      "fieldId": "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
+      "order": 4,
+      "required": false,
+      "displayLabel": "Examples"
+    }
+  ],
+  "createdAt": "2026-05-27T00:00:00Z"
+}

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-06-06T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "ext:lifecycle × ext:addressability"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "**Trigger**: an implementation declares both `ext:lifecycle` and `ext:addressability`.\n\n**Required behaviour**: A lifecycle state transition on a Record MUST produce a `Revision` snapshot for each current field value at the moment of transition. The snapshot `Revision` MUST carry:\n\n- `provenance.lifecycleTransition` set to the name of the target lifecycle state\n- `provenance.transitionedAt` set to the transition timestamp\n\nThis makes the record's field values at the moment of each lifecycle transition addressable — a consumer can reconstruct what the record looked like when it entered `active`, `archived`, or any other state, without timestamp correlation.\n\n**Invariant [LC-AX1]**: When a repository declares both `ext:lifecycle` and `ext:addressability`, every lifecycle state transition on a Record MUST be recorded as a `Revision` per field value with `provenance.lifecycleTransition` set. An implementation that performs a lifecycle transition without creating these snapshots is non-conformant.\n\n**Invariant [LC-AX2]**: The `Revision` snapshot created for a lifecycle transition MUST be created atomically with the transition — both the new `lifecycleState` value on the Record and the snapshot `Revision` records MUST be committed together. A record in state `active` with no corresponding `Revision` snapshot bearing `provenance.lifecycleTransition: \"active\"` is a conformance violation.\n\n---"
+    }
+  ],
+  "instanceId": "b3c4d5e6-f7a8-4b9c-ad1e-2f3a4b5c6d7e",
+  "sourceRefs": [
+    {
+      "note": "Authored for issue #4 — lifecycle + addressability spec updates",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:extensibility",
+    "construct:lifecycle",
+    "construct:address",
+    "topic:extensions"
+  ],
+  "typeId": "2a000003-0000-4000-a000-000000000003",
+  "typeName": "subsection",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

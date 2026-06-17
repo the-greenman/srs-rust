@@ -1,0 +1,23 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json",
+  "id": "3a000003-0000-4000-a000-000000000003",
+  "namespace": "com.semanticops.spec",
+  "name": "rationale-document-view",
+  "version": 1,
+  "description": "Renders all design-note records as a standalone rationale document.",
+  "format": "markdown",
+  "sections": [
+    {
+      "sectionId": "design-notes",
+      "title": "Design Rationale",
+      "order": 0,
+      "source": {
+        "type": "type-query",
+        "semanticObjectType": "com.semanticops.spec/design-note"
+      },
+      "titleFieldId": "1a000001-0000-4000-a000-000000000001",
+      "emptyBehavior": "hide"
+    }
+  ],
+  "createdAt": "2026-05-27T00:00:00Z"
+}

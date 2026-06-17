@@ -1,0 +1,22 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "1a000008-0000-4000-a000-000000000008",
+  "namespace": "com.semanticops.spec",
+  "name": "conformance-level",
+  "version": 1,
+  "description": "The RFC 2119 conformance classification for a requirement.",
+  "aiGuidance": {
+    "purpose": "The RFC 2119 conformance classification for a requirement.",
+    "extraction": "MUST: absolute requirement, no deviation permitted. SHOULD: recommended; valid reasons to ignore exist. MAY: truly optional. MUST-NOT and SHOULD-NOT are the negatives. Use consistent classification — do not downgrade MUST to SHOULD for convenience."
+  },
+  "valueType": "select",
+  "editorHint": "dropdown",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "allowedValues": [
+    "MUST",
+    "SHOULD",
+    "MAY",
+    "MUST-NOT",
+    "SHOULD-NOT"
+  ]
+}

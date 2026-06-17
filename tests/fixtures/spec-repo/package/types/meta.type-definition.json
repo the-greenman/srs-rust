@@ -1,0 +1,23 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "31a5a746-d2d6-5c56-a4b3-10fa07483a73",
+  "namespace": "com.semanticops.srs",
+  "name": "meta.type-definition",
+  "version": 1,
+  "description": "A formal type-definition record for one of the core SRS entity types (Field, Type, Record, etc.).",
+  "fields": [
+    {
+      "fieldId": "96f04d9d-9432-5628-8664-0d92e50f6fd0",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Type name"
+    },
+    {
+      "fieldId": "436786e4-d51e-5275-9654-bc4b5ee82b1a",
+      "order": 1,
+      "required": true,
+      "displayLabel": "Normative content"
+    }
+  ],
+  "createdAt": "2026-05-27T00:00:00Z"
+}

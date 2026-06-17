@@ -1,0 +1,41 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "2a000006-0000-4000-a000-000000000006",
+  "namespace": "com.semanticops.spec",
+  "name": "invariant",
+  "version": 1,
+  "description": "A single numbered normative invariant. Invariants are constraints that conforming implementations must always uphold.",
+  "fields": [
+    {
+      "fieldId": "1a000020-0000-4000-a000-000000000020",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Number"
+    },
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "order": 1,
+      "required": true,
+      "displayLabel": "Title"
+    },
+    {
+      "fieldId": "1a000003-0000-4000-a000-000000000003",
+      "order": 2,
+      "required": true,
+      "displayLabel": "Constraint"
+    },
+    {
+      "fieldId": "1a000021-0000-4000-a000-000000000021",
+      "order": 3,
+      "required": false,
+      "displayLabel": "Applies To"
+    },
+    {
+      "fieldId": "1a000004-0000-4000-a000-000000000004",
+      "order": 4,
+      "required": false,
+      "displayLabel": "Rationale"
+    }
+  ],
+  "createdAt": "2026-05-27T00:00:00Z"
+}

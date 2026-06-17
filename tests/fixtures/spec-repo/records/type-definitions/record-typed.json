@@ -1,0 +1,32 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "record-typed"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "SRS supports three semantic maturity tiers. Implementations are not required to support all three; they may begin at Tier 2.\n\n| Tier | Type | Structure | Semantics |\n|---|---|---|---|\n| **0** | `Note` | Named sections + free text | None |\n| **1** | `Typed Record` | Named fields with types and values | Minimal |\n| **2** | `Record` | Fields bound to a `Type` definition | Full |\n\nGraduation path: Note → Typed Record → Record.\n\n#### `TypedField`\n\nA field within a Typed Record.\n\n```typescript\n{\n  name: string\n  label?: string\n  valueType?: \"string\" | \"text\" | \"number\" | \"boolean\" | \"date\" | \"url\" | \"select\" | \"multiselect\"\n  selectOptions?: string[]\n  value: string | number | boolean | string[] | null\n  source?: \"human\" | \"ai\" | \"imported\" | \"derived\"\n  editedAt?: ISO8601\n}\n```\n\n#### `Typed Record`\n\nA structured instance with named, typed fields but no Type binding.\n\n```typescript\n{\n  instanceId: UUID\n\n  title?: string\n  instanceType?: string  // lightweight semantic hint; not a formal type declaration\n\n  fields: TypedField[]\n\n  graduatedAt?: ISO8601\n\n  sourceRefs?: SourceReference[]\n  // Instance-level source references. TypedField has no sourceRefs of its own,\n  // so this is the appropriate place to record provenance for the record as a whole.\n\n  createdAt?: ISO8601\n  updatedAt?: ISO8601\n  meta?: Record<string, unknown>\n}\n```\n\n#### `SourceReference`\n\nA pointer from a field value or instance back to source material.\n\n```typescript\n{\n  sourceType: \"transcript-chunk\" | \"transcript-segment\" | \"external-document\"\n  sourceId: string\n  sourceStandard?: string   // versioned standard the source conforms to\n  streamId?: UUID           // for transcript sources: originating stream\n\n  relationType?: \"evidence\" | \"derived-from\" | \"quoted-from\" | \"inspired-by\" | \"supersedes-context\"\n\n  confidence?: number       // 0.0–1.0\n  note?: string\n}\n```\n\n`\"transcript-chunk\"` and `\"transcript-segment\"` are intended for implementations that have a stable conversation or time-stream layer with durable chunk or segment identifiers. A standalone repository that stores transcript exports, chat dumps, email threads, or similar source material directly under `source-documents/` should generally cite those files using `sourceType: \"repository-document\"` (see `ext:repository`) rather than inventing pseudo-chunk IDs."
+    }
+  ],
+  "instanceId": "44a1638e-923e-5a23-ae71-8b85b29d7149",
+  "sourceRefs": [
+    {
+      "note": "Type definition record-typed from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "construct:record",
+    "construct:type",
+    "topic:foundation"
+  ],
+  "typeId": "2a000005-0000-4000-a000-000000000005",
+  "typeName": "type-definition",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

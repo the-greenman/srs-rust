@@ -1,0 +1,31 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "ext:repository (self-contained) profile"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "A named stricter profile for standalone, offline-operable repositories:\n\n```\nSRS 2.0 Core + ext:repository (self-contained)\n```\n\nAn implementation declaring this profile must satisfy all `ext:repository` conformance requirements and additionally:\n\n- `packageRef` must be present with `mode: \"local\"`. Absent or external package references are not permitted.\n- The local package must be `mode: \"bundled\"` (Invariant 50 is always in effect).\n- No external registry, TSS, Protocol stack, Addressability infrastructure, AttentionState, or live conversation store is required or assumed. The repository directory (or archive) is the complete and sufficient deployment unit.\n- An archive produced under this profile must be openable and fully processable by a consumer with no prior installation, no network access, and no running services.\n\nThis profile is appropriate for: standalone tools, file-based backups, air-gapped or offline deployments, inter-organisational exchange, and any context where zero-dependency portability is required."
+    }
+  ],
+  "instanceId": "8e7eb9f3-c773-5429-b4f8-2c68328928d9",
+  "sourceRefs": [
+    {
+      "note": "Subsection 09-5 from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:extensibility",
+    "topic:conformance"
+  ],
+  "typeId": "2a000003-0000-4000-a000-000000000003",
+  "typeName": "subsection",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

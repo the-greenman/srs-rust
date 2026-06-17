@@ -1,0 +1,34 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000013-0000-4000-a000-000000000013",
+      "value": "com.semanticops.srs"
+    },
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Semantic Record System Specification"
+    },
+    {
+      "fieldId": "1a000010-0000-4000-a000-000000000010",
+      "value": "2.0-draft"
+    },
+    {
+      "fieldId": "1a000009-0000-4000-a000-000000000009",
+      "value": "draft"
+    },
+    {
+      "fieldId": "1a000011-0000-4000-a000-000000000011",
+      "value": "Defines an interoperable standard for semantic field and type definitions, records, relations, containers, and distribution — plus optional extensions covering addressability, lifecycle, protocol, schema, type inheritance, views, repeatable fields, field groups, cross-field validation, recommended relations, import tracking, and registry."
+    }
+  ],
+  "instanceId": "d0100001-0000-4000-a000-000000000001",
+  "tags": [
+    "topic:meta"
+  ],
+  "typeId": "2a000001-0000-4000-a000-000000000001",
+  "typeName": "specification",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

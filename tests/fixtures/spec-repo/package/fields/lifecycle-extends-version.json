@@ -1,0 +1,13 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "92189935-d59a-4cf0-be90-7731eb8e882a",
+  "namespace": "com.semanticops.srs",
+  "name": "lifecycle_extends_version",
+  "version": 1,
+  "description": "Version of the upstream Lifecycle being extended. Must equal the resolved upstream version; a mismatch is a hard validation error (V5).",
+  "valueType": "number",
+  "createdAt": "2026-06-03T00:00:00Z",
+  "aiGuidance": {
+    "purpose": "Pins the extension to a specific upstream version to prevent silent state-set changes."
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000018-0000-4000-a000-000000000018",
+      "value": "ext:recommended-relations"
+    },
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Recommended Relations (compatibility label only)"
+    },
+    {
+      "fieldId": "1a000019-0000-4000-a000-000000000019",
+      "value": ""
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "**Status: compatibility label only.** This extension has no normative semantics as of RFC-005. Declaring it has no effect.\n\nThe canonical SRS relation type vocabulary (`contains`, `depends-on`, `supersedes`, `refines`, `derived-from`, `evidences`, `precedes`) is now defined as installed `RelationTypeDefinition` records in the `com.semanticops.srs` core package (`package/relation-types/`). Definition lookup is mandatory for all implementations — see RFC-005 and the core `Relation` validation rules.\n\nRepositories that previously declared `ext:recommended-relations` may remove it. The canonical definitions are unconditionally available to any repo using the SRS package.\n\n---"
+    }
+  ],
+  "instanceId": "ed9f0446-800c-5428-8780-09bb499f76aa",
+  "sourceRefs": [
+    {
+      "note": "Extension ext:recommended-relations from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:extensibility",
+    "construct:relation",
+    "topic:extensions"
+  ],
+  "typeId": "2a000008-0000-4000-a000-000000000008",
+  "typeName": "extension",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "2a000010-0000-4000-a000-000000000010",
+  "namespace": "com.semanticops.spec",
+  "name": "requirement",
+  "version": 1,
+  "description": "A single normative requirement extracted for individual addressability and conformance testing.",
+  "fields": [
+    {
+      "fieldId": "1a000013-0000-4000-a000-000000000013",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Canonical Key"
+    },
+    {
+      "fieldId": "1a000008-0000-4000-a000-000000000008",
+      "order": 1,
+      "required": true,
+      "displayLabel": "Conformance Level"
+    },
+    {
+      "fieldId": "1a000003-0000-4000-a000-000000000003",
+      "order": 2,
+      "required": true,
+      "displayLabel": "Normative Statement"
+    },
+    {
+      "fieldId": "1a000004-0000-4000-a000-000000000004",
+      "order": 3,
+      "required": false,
+      "displayLabel": "Rationale"
+    }
+  ],
+  "createdAt": "2026-05-27T00:00:00Z"
+}
