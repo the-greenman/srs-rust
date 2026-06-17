@@ -1,6 +1,7 @@
 use crate::container_service::{create_container, get_container, list_containers};
 use crate::error::RepositoryError;
 use crate::index::InstanceIndexEntry;
+use std::collections::HashMap;
 use crate::relation_service::load_relations;
 use crate::repository_lifecycle::{
     InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
@@ -245,8 +246,8 @@ pub fn import_repository_snapshot(
         );
     }
 
-    let mut used_paths: std::collections::HashMap<String, String> =
-        std::collections::HashMap::with_capacity(snapshot.instances.len());
+    let mut used_paths: HashMap<String, String> =
+        HashMap::with_capacity(snapshot.instances.len());
     manifest.instance_index = Vec::new();
     for instance in &snapshot.instances {
         let rel_path = canonical_instance_path(instance);
@@ -750,7 +751,7 @@ mod tests {
             vocabulary_ref: None,
             default_value: None,
             created_at: "".to_string(),
-            extra: std::collections::HashMap::new(),
+            extra: HashMap::new(),
         });
 
         let target = MemoryStore::uninitialized();
@@ -885,7 +886,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
-            extra: std::collections::HashMap::new(),
+            extra: HashMap::new(),
         });
         snapshot.relations.push(Relation {
             relation_id: "33333333-3333-4333-8333-333333333333".to_string(),
