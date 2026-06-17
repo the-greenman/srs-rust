@@ -18,7 +18,7 @@ There are four **deliberate human checkpoints** where you must stop and wait:
 |---|---|---|
 | RFC gate | 1.5 | Feature requires a spec change → file RFC, stop |
 | Design decisions | 2 | Long-term architectural choices → present trade-offs, wait for input |
-| PR review & merge | 9 | PR is open → hand off to human, stop |
+| PR review & merge | 9 | CI green → hand off to human, stop (do not close issue yet) |
 | Post-merge continuation | 10 | User resumes after merge → cleanup + dogfood |
 
 Outside these checkpoints, keep going. If a stage is genuinely blocked (auth failure, unresolvable conflict, ambiguous requirement that changes the deliverable), stop and report.
@@ -189,6 +189,13 @@ The pipeline is not done until the docs match the code. This stage runs after th
 
 ## Stage 8 — PR
 
+Before pushing, run a final lint gate:
+```bash
+cargo clippy -- -D warnings
+```
+If clippy reports errors, fix them and commit before proceeding.
+
+Then push and open the PR:
 ```bash
 cd srs-rust
 git push -u origin feat/$ISSUE_N-$SLUG
@@ -202,17 +209,19 @@ End the body with the Claude Code attribution line. Link the PR back on the issu
 
 **If this PR includes schema mirror changes** (files under `crates/srs-schema/schemas/`): this PR must be merged before the corresponding `srs` spec PR, so the release-drift CI in `srs` sees the updated schemas at HEAD. Open a matching PR in `srs-vscode` for its schema mirror at the same time. See `srs/RELEASING.md` for the full multi-repo ordering.
 
-## Stage 9 — Sweep open issues and close
+## Stage 9 — Sweep open issues + CI watch
 
 1. Run `gh issue list --state open` and check whether any open issue is now addressable by this change or is a quick adjacent fix. Address what you reasonably can within this branch/PR; for the rest, leave a comment noting status. Do not scope-creep the PR with unrelated large work — note those as follow-ups instead.
-2. **Close the primary issue.** The `Closes #N` in the PR body triggers automatic closure on merge, but only if the repo has that setting enabled. To be safe, also close it explicitly once the PR is open:
-   ```bash
-   gh issue close N --comment "Implemented in PR #<PR number>."
-   ```
 
-**Stop here.** Stages 10 and 11 require the PR to be merged by a human. Report the PR URL and instruct the user to run `/ship` again (or continue this session) once the PR is merged.
+2. **Watch CI and fix failures.** Subscribe to PR activity using `subscribe_pr_activity`, then:
+   - When a CI check fails, fetch the job logs (`mcp__github__get_job_logs` or `gh run view --log-failed`), diagnose the root cause, push a fix commit, and repeat.
+   - Keep fixing until all required checks are green or you hit a blocker you cannot resolve (external flake, infrastructure outage, requires human decision).
+   - If a failure is a pre-existing flake unrelated to this change, note it in a PR comment and move on.
+   - Do not close the PR or give up silently — always report status.
 
-## Stage 10 — Post-merge worktree cleanup
+**Stop here** once all CI checks pass (or a blocker is hit). Do NOT close the issue yet — wait for the human to merge the PR. Report the PR URL and instruct the user to resume this session (or run `/ship` again) once the PR is merged.
+
+## Stage 10 — Post-merge: close issue + worktree cleanup
 
 **Prerequisite:** confirm the PR is merged before proceeding.
 ```bash
@@ -221,12 +230,20 @@ gh pr view <PR-number> --json state --jq '.state'   # must return MERGED
 If it is not yet merged, stop and wait — do not clean up a worktree for an open or closed-without-merge PR.
 
 Once confirmed:
-```bash
-cd srs-rust
-git fetch origin --prune
-git worktree remove ../.worktrees/<slug> --force
-git branch -d feat/<slug> 2>/dev/null || true
-```
+
+1. **Close the primary issue** (the `Closes #N` in the PR body may have done this automatically, but confirm and close explicitly if still open):
+   ```bash
+   gh issue view N --json state --jq '.state'   # check first
+   gh issue close N --comment "Implemented in PR #<PR number>."
+   ```
+
+2. **Clean up worktree and branch:**
+   ```bash
+   cd srs-rust
+   git fetch origin --prune
+   git worktree remove ../.worktrees/<slug> --force
+   git branch -d feat/<slug> 2>/dev/null || true
+   ```
 
 Verify with `git worktree list` that the worktree is gone. Report the result.
 
