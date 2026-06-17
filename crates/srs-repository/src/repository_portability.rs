@@ -1,7 +1,6 @@
 use crate::container_service::{create_container, get_container, list_containers};
 use crate::error::RepositoryError;
 use crate::index::InstanceIndexEntry;
-use std::collections::HashMap;
 use crate::relation_service::load_relations;
 use crate::repository_lifecycle::{
     InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
@@ -18,6 +17,7 @@ use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::types::theme::Theme;
 use srs_core::types::view::{DocumentView, View};
 use srs_core::types::vocabulary::Vocabulary;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -102,13 +102,14 @@ pub fn export_repository_snapshot(
 
     let mut instances = Vec::new();
     for entry in &manifest.instance_index {
-        let value = source.load_instance_json(entry.path()).map_err(|e| {
-            RepositoryError::InstanceLoad {
-                instance_id: entry.instance_id.clone(),
-                path: std::path::PathBuf::from(entry.path()),
-                source: Box::new(e) as Box<dyn std::error::Error + Send + Sync>,
-            }
-        })?;
+        let value =
+            source
+                .load_instance_json(entry.path())
+                .map_err(|e| RepositoryError::InstanceLoad {
+                    instance_id: entry.instance_id.clone(),
+                    path: std::path::PathBuf::from(entry.path()),
+                    source: Box::new(e) as Box<dyn std::error::Error + Send + Sync>,
+                })?;
         instances.push(SnapshotInstance {
             instance_id: entry.instance_id.clone(),
             tier: entry.tier,
@@ -137,11 +138,11 @@ pub fn export_repository_snapshot(
     let mut package_boundaries: Vec<Option<String>> = vec![None];
     let refs: Vec<RawPackageRef> = match manifest.extra.get("packageRefs") {
         None => Vec::new(),
-        Some(v) => serde_json::from_value(v.clone()).map_err(|e| {
-            RepositoryError::InvalidSnapshotData {
+        Some(v) => {
+            serde_json::from_value(v.clone()).map_err(|e| RepositoryError::InvalidSnapshotData {
                 message: format!("malformed packageRefs in manifest: {e}"),
-            }
-        })?,
+            })?
+        }
     };
     package_boundaries.extend(
         refs.into_iter()
@@ -246,8 +247,7 @@ pub fn import_repository_snapshot(
         );
     }
 
-    let mut used_paths: HashMap<String, String> =
-        HashMap::with_capacity(snapshot.instances.len());
+    let mut used_paths: HashMap<String, String> = HashMap::with_capacity(snapshot.instances.len());
     manifest.instance_index = Vec::new();
     for instance in &snapshot.instances {
         let rel_path = canonical_instance_path(instance);
@@ -1128,13 +1128,15 @@ mod tests {
 
         // Inject a manifest entry whose path has no corresponding data entry.
         let mut manifest = source.load_manifest().unwrap();
-        manifest.instance_index.push(crate::index::InstanceIndexEntry {
-            instance_id: "deadbeef-dead-4ead-8ead-deadbeefcafe".to_string(),
-            tier: 0,
-            path: "records/notes/ghost.json".to_string(),
-            title: None,
-            tags: None,
-        });
+        manifest
+            .instance_index
+            .push(crate::index::InstanceIndexEntry {
+                instance_id: "deadbeef-dead-4ead-8ead-deadbeefcafe".to_string(),
+                tier: 0,
+                path: "records/notes/ghost.json".to_string(),
+                title: None,
+                tags: None,
+            });
         source.save_manifest(&manifest).unwrap();
 
         let result = export_repository_snapshot(&source);
