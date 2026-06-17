@@ -1,0 +1,48 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+  "instanceId": "d5c7e536-5f7d-491a-8166-5ee25a954377",
+  "title": "Origin: From Conversation to Negotiated Meaning",
+  "tags": ["purpose", "origin", "meaning-first", "semantic-state", "architecture"],
+  "sections": [
+    {
+      "name": "origin_problem",
+      "tags": ["origin", "problem"],
+      "content": "SRS began from a practical problem: groups generate meaning through conversation, source material, disagreement, refinement, and eventual commitment, but the tools around them usually preserve only document form. Rich-text documents, exported summaries, and structured forms can all capture pieces of the work, but they tend to mix evidence, interpretation, presentation, and agreement into one surface. Once meaning is trapped in that surface, it becomes hard to query, reuse, challenge, evolve, or render differently."
+    },
+    {
+      "name": "founding_inversion",
+      "tags": ["thesis", "semantic-state"],
+      "content": "The founding inversion is that a spec is not primarily a document. A spec is an evolving body of negotiated semantic state. Text is one projection of that state, not the source of truth. Sections, subsections, tables, dashboards, prompts, timelines, and export documents are useful views over the underlying meaning, but they must not become the model itself."
+    },
+    {
+      "name": "meaning_before_form",
+      "tags": ["meaning-first", "architecture"],
+      "content": "The work of a spec begins before there is a document shape. It begins with a domain, a challenge space, and the fundamental tensions inside that space. Those tensions generate opposites, tradeoffs, questions, problem formulations, principles, ideas, and eventually features or requirements. Document structure is a later projection that helps people read and communicate the state of understanding at a moment in time."
+    },
+    {
+      "name": "source_material_and_refinement",
+      "tags": ["source-material", "provenance", "ai"],
+      "content": "Conversation, transcripts, prior documents, sketches, and AI-assisted synthesis are source material. They are evidence and working material, not the final semantic state. SRS exists to support the refinement path from raw source material into reusable meaning while preserving provenance: what was said, what was inferred, what was accepted, what was superseded, and why the current understanding took its shape."
+    },
+    {
+      "name": "not_a_document_schema",
+      "tags": ["constraints", "non-goals"],
+      "content": "SRS is not a document schema, a CMS block system, a form builder, or a governance workflow disguised as a standard. It may render documents and support workflows, but its center is the semantic graph of understanding. A decision record, a project plan, a technical specification, an AI context package, and a public summary can all be projections over the same underlying state."
+    },
+    {
+      "name": "success_shape",
+      "tags": ["objectives", "interoperability"],
+      "content": "SRS succeeds when independent tools can exchange meaning without agreeing on storage, UI, rendering, or AI implementation. A system should be able to start with a messy note or transcript, identify the tensions and problems that matter, refine them into semantic records, connect them through typed relations, and render whatever projection the audience needs without losing the underlying history."
+    }
+  ],
+  "sourceRefs": [
+    {
+      "sourceType": "repository-document",
+      "sourceId": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+      "relationType": "evidence",
+      "note": "ChatGPT origin session - initial conception and design of SRS, May 2026"
+    }
+  ],
+  "createdAt": "2026-05-28T00:00:00Z",
+  "updatedAt": "2026-05-28T00:00:00Z"
+}

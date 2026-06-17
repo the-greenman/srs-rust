@@ -1,0 +1,13 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
+  "id": "e5f6a7b8-c9d0-4e1f-8a2b-3c4d5e6f7a8b",
+  "version": 1,
+  "key": "refines",
+  "namespace": "com.semanticops.srs",
+  "label": "Refines",
+  "description": "Source instance is a more specific, detailed, or precise version of target instance. Does not replace or invalidate target.",
+  "category": "refinement",
+  "canonicalDirection": "source is the more specific instance; target is the general instance",
+  "irreflexive": true,
+  "createdAt": "2026-05-29T00:00:00Z"
+}

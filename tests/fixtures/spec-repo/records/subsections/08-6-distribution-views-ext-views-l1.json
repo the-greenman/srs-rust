@@ -1,0 +1,33 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Distribution — Views (ext:views-l1)"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "**15.** Every `fieldId` referenced by any `View.fieldViews[]` entry in `Package.views[]` must appear in `Package.dependencyRefs` with `definitionType: \"field\"` or be present in `Package.fields[]`. If `mode === \"bundled\"`, that `Field` must be present in `fields[]`."
+    }
+  ],
+  "instanceId": "826039b6-5575-5071-bd10-3b0ef9b345a5",
+  "sourceRefs": [
+    {
+      "note": "Subsection 08-6 from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:extensibility",
+    "concern:rendering",
+    "construct:view",
+    "topic:conformance"
+  ],
+  "typeId": "2a000003-0000-4000-a000-000000000003",
+  "typeName": "subsection",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

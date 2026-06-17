@@ -1,0 +1,48 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+  "instanceId": "4d9f78b5-3138-4d8a-a443-e39f5af0a830",
+  "title": "Shared Meaning and Governing Documents",
+  "tags": ["shared-meaning", "governance", "projection", "where-things-go", "limoma"],
+  "sections": [
+    {
+      "name": "purpose",
+      "tags": ["purpose", "governance"],
+      "content": "One of the key goals of SRS is to help groups manage shared meaning in a structured form that can manifest as a governing document. A governing document should be a projection of organized semantic state, not the only place where the group's memory exists."
+    },
+    {
+      "name": "where_things_go",
+      "tags": ["organization", "shared-understanding"],
+      "content": "A recurring challenge for any group is knowing where to put things. Decisions, roles, policies, open questions, obligations, rationale, review triggers, authority boundaries, and unfinished exercises often scatter across files, chats, folders, meeting notes, and people's memories. Meaning gets lost because each piece has a different natural home, and ordinary document systems force the group either to duplicate it or bury it."
+    },
+    {
+      "name": "limoma_example",
+      "tags": ["example", "limoma", "governing-document"],
+      "content": "The LiMoMa foundation document shows the need clearly. It contains articles that define the project, roles that name authority, a decision log that records commitments and rationale, and an Exercise Book that preserves unresolved thinking. These are different semantic objects, but they need to appear together as a coherent governing document so the group can act from shared understanding."
+    },
+    {
+      "name": "semantic_home_before_document_place",
+      "tags": ["meaning-first", "projection"],
+      "content": "SRS should give each piece of meaning a semantic home before asking where it appears in a document. A role belongs in the role graph. A decision belongs in the decision log and relation graph. An unresolved issue belongs in open work. A building-care obligation may belong both to the governing articles and to the constraints around future decisions. A projection can then assemble these pieces into a readable document without making the document outline the source of truth."
+    },
+    {
+      "name": "projection_as_governing_artifact",
+      "tags": ["projection", "governing-document"],
+      "content": "A governing document matters because groups need a human-readable artifact they can review, ratify, share, and use. SRS should support that artifact while keeping the underlying semantic state addressable and reusable. The document can say what is currently settled, what authority exists, what decisions are active, what remains open, and what must be revisited."
+    },
+    {
+      "name": "design_implications",
+      "tags": ["design", "requirements"],
+      "content": "- SRS should support multiple semantic object types appearing in one governing projection.\n- The same semantic object should not need to be duplicated just because it belongs in multiple views.\n- Open questions and unresolved exercises should be first-class, not treated as failed decisions.\n- Decisions should be able to supersede articles, refine prior commitments, or trigger future review.\n- Roles and authority boundaries should be addressable and linkable to decisions and obligations.\n- Document views should answer how to read the shared state, not where the shared state lives.\n- Groups should be able to preserve practical governing memory without scattering it across folders."
+    }
+  ],
+  "sourceRefs": [
+    {
+      "sourceType": "external-document",
+      "sourceId": "srs/examples/examples/limoma.md",
+      "relationType": "evidence",
+      "note": "LiMoMa foundation document example showing articles, roles, decision log, and exercise book as one governing projection"
+    }
+  ],
+  "createdAt": "2026-05-28T00:00:00Z",
+  "updatedAt": "2026-05-28T00:00:00Z"
+}

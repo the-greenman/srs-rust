@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "5a000013-0000-4000-a000-000000000013",
+  "namespace": "com.semanticops.spec",
+  "name": "implementation-status",
+  "version": 1,
+  "description": "The implementation state of an accepted RFC.",
+  "aiGuidance": {
+    "purpose": "Separates approval of a proposal from application of that proposal to active spec artifacts.",
+    "extraction": "Use not-started until implementation begins, in-progress while applying changes, implemented when active spec artifacts have been updated, or reverted if an implementation was backed out."
+  },
+  "valueType": "select",
+  "allowedValues": ["not-started", "in-progress", "implemented", "reverted"],
+  "editorHint": "dropdown",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

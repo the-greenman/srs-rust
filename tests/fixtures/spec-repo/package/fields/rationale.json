@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "f3a4b5c6-d7e8-4f9a-8b1c-2d3e4f5a6b7c",
+  "namespace": "com.semanticops.srs",
+  "name": "rationale",
+  "version": 1,
+  "description": "The reasoning behind a design decision or normative requirement.",
+  "aiGuidance": {
+    "purpose": "Rationale explains why something is specified this way. Include trade-offs considered, alternatives rejected, and principles applied."
+  },
+  "valueType": "text",
+  "contentFormat": "markdown",
+  "editorHint": "textarea",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

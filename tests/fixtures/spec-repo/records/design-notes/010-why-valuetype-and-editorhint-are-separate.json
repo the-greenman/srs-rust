@@ -1,0 +1,31 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Why `valueType` and `editorHint` are separate"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "\nA Field with `valueType: \"text\"` might be edited via textarea in a web form, captured via voice in a mobile app, or extracted directly from a transcript with no editing UI. The semantic type is stable; the editing surface is a rendering decision.\n\nAI extraction logic, validation rules, and export formatting depend only on `valueType`. `editorHint` is a default that implementations and Views may override. Conflating the two would mean that changing the preferred editor for a field could inadvertently break AI extraction rules."
+    }
+  ],
+  "instanceId": "f1000010-0000-4000-a000-000000000010",
+  "sourceRefs": [
+    {
+      "note": "Imported from scds-rationale.md: \"Why `valueType` and `editorHint` are separate\"",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "construct:field",
+    "topic:foundation"
+  ],
+  "typeId": "2a000012-0000-4000-a000-000000000012",
+  "typeName": "design-note",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

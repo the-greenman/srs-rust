@@ -1,0 +1,32 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Field groups (ext:field-groups)"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "**25.** Every `groupId` in `Record.groupValues[]` must reference a `groupId` declared in the associated `Type.fieldGroups[]`.\n\n**26.** Within a `FieldGroupEntry.fieldValues[]`, every `fieldId` must appear in the enclosing `FieldGroup.fields[].fieldId`.\n\n**27.** A `FieldGroupValue.entries` list must satisfy `FieldGroup.minItems` and `maxItems` where specified.\n\n**[FG-Cx0]** Bare `compositeRenderer` identifiers (containing no `/` character) are reserved for SRS-defined renderers and MUST only be introduced by a ratified RFC. Vendor-defined renderer identifiers MUST use the form `{reverse-domain}/{name}` where `reverse-domain` is a dot-separated string with at least two labels (e.g. `\"com.example\"`) and `name` is a non-empty string with no `/` character (e.g. `\"com.example/gantt\"`). Single-label left-hand sides (e.g. `\"example/gantt\"`) MUST be treated as malformed and are subject to `[FG-Cx1]`. An identifier that is neither a bare SRS-reserved name nor a valid `{reverse-domain}/{name}` form MUST be treated as unrecognised; `[FG-Cx1]` applies.\n\n**[FG-Cx1]** When `FieldGroup.compositeRenderer` is set to a value not recognised by the implementation, the implementation MUST fall back to the default per-field rendering baseline and MUST emit a diagnostic identifying the unrecognised renderer value and the group. The fallback MUST NOT suppress group content.\n\n**[FG-Cx2]** For `compositeRenderer: \"table\"`, if a group entry contains neither a `columns` field with at least one element nor a `rows` field with at least one element, that entry MUST be skipped and the implementation MUST emit a diagnostic identifying the group and the entry. Other entries in the same group that satisfy the field contract MUST continue to render normally.\n\n**[FG-Cx3]** Values in a `widths` array that fall outside [0.0, 1.0] MUST be clamped to [0.0, 1.0] before alignment or width calculation. Implementations SHOULD emit a diagnostic identifying the out-of-range value and the group entry.\n\n**[FG-Cx4]** When the `widths` array has fewer elements than `columns`, the remaining columns MUST use the default alignment (`---` in markdown; no `style` attribute in HTML). When `widths` has more elements than `columns`, the excess elements MUST be silently ignored. In either case, implementations SHOULD emit a diagnostic identifying the mismatch."
+    }
+  ],
+  "instanceId": "1373ac6c-4491-509d-90ff-40b111d844d6",
+  "sourceRefs": [
+    {
+      "note": "Subsection 08-11 from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:extensibility",
+    "construct:field",
+    "topic:conformance"
+  ],
+  "typeId": "2a000003-0000-4000-a000-000000000003",
+  "typeName": "subsection",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

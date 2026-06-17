@@ -1,0 +1,85 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+  "instanceId": "9d78580b-bfd8-48e0-8893-f7f09602ac8d",
+  "title": "Domain Definition: Semantic Record System",
+  "tags": ["domain", "domain-definition", "srs", "meaning-first", "semantic-state"],
+  "sections": [
+    {
+      "name": "identity",
+      "tags": ["identity", "domain"],
+      "content": "Domain ID: DOM-SemanticRecordSystem\nDomain name: Semantic Record System\nAliases: SRS\nBrief description: A semantic architecture for capturing, refining, exchanging, and projecting negotiated meaning independently of document form, storage technology, rendering surface, or AI implementation."
+    },
+    {
+      "name": "overview",
+      "tags": ["overview", "purpose"],
+      "content": "The Semantic Record System domain covers the representation, evolution, provenance, exchange, and projection of negotiated semantic state. It exists for situations where humans, tools, and AI systems need to turn source material such as conversations, notes, transcripts, prior documents, and structured records into reusable meaning without treating any rendered document as the source of truth.\n\nThe domain's purpose is to provide a meaning-first substrate: a way to define semantic atoms, compose them into typed objects, instantiate those objects as records, relate them through explicit semantic claims, preserve lineage and provenance, and render many projections for different audiences. It should help groups answer the practical question of where shared meaning belongs, so articles, roles, decisions, obligations, open questions, and working notes do not disappear into files and folders. It should enable distributed knowledge ownership rather than depend on a central SaaS authority. It should support human-AI collaboration while preserving the human responsibility for meaning. It must provide a two-way bridge between conversation and semantic state: from a field or record to the conversation that shaped it, and from a transcript or chat segment to the semantic object it concerns. It must also support protocols as structured, shareable ways to make meaning together. The current foundation notes establish that SRS should begin from domain understanding and fundamental tensions rather than from sections, subsections, or document layout."
+    },
+    {
+      "name": "key_stakeholders",
+      "tags": ["stakeholders"],
+      "content": "- Domain authors who define Fields, Types, relations, and vocabularies for their own areas of practice.\n- Communities and organizations that need to own, preserve, exchange, and govern their own knowledge without depending on a central platform.\n- Teams using SRS to preserve shared understanding, decisions, plans, requirements, policies, or institutional memory.\n- Implementers building editors, CLIs, databases, import/export tools, validators, renderers, and AI-assisted workflows.\n- AI assistants and extraction systems that need durable semantic guidance, provenance, and context assembly.\n- Reviewers, auditors, governance participants, and future maintainers who need to understand why a record, feature, requirement, or projection exists.\n- Interoperating systems that need to exchange meaning while keeping their own storage, UI, and runtime architecture."
+    },
+    {
+      "name": "in_scope",
+      "tags": ["boundaries", "in-scope"],
+      "content": "- Structural schemas for Notes, TypedRecords, Records, Fields, Types, Relations, Packages, manifests, source-document metadata, and related interoperability objects.\n- Semantic identity, versioning, lineage, provenance, and source references.\n- Definition of reusable semantic atoms and typed semantic object compositions.\n- Relation graphs that express semantic claims between instances.\n- Progressive formalization from rough notes to typed records to formally bound records.\n- Semantic organization for shared governing knowledge such as articles, roles, decisions, obligations, open questions, and review triggers.\n- Protocols that guide collective meaning-making through questions, stages, dependencies, and completion criteria.\n- Addressability, linking, AttentionState, and context assembly between raw conversation and structured semantic state.\n- Repository, archive, import, export, and federation conventions that make semantic state portable and community-owned.\n- Projection mechanisms that render semantic state as documents, dashboards, AI context packages, review artifacts, governing documents, or other audience-specific views.\n- AI guidance attached to semantic definitions and workflows, where the AI remains assistive rather than authoritative.\n- Meaning-first authoring concepts such as domains, challenge spaces, fundamental tensions, problems, ideas, features, and requirements."
+    },
+    {
+      "name": "out_of_scope",
+      "tags": ["boundaries", "out-of-scope"],
+      "content": "- A universal ontology for all possible domains.\n- Domain-specific governance rules, authority models, decision procedures, or workflow mandates.\n- A required storage backend, database technology, API design, programming language, UI framework, or central SaaS platform.\n- A required AI model, vendor, capability level, or automated decision authority.\n- Outsourcing meaning-making, judgment, or commitment to AI.\n- Rich-text editing as the primary source of truth.\n- Treating document sections, subsections, or rendered order as the canonical authoring model.\n- Replacing source systems such as transcript stores, project management tools, document editors, or knowledge bases.\n- Defining the substantive meaning of a namespace owned by a domain author."
+    },
+    {
+      "name": "domain_tensions",
+      "tags": ["fundamental-tensions", "tradeoffs"],
+      "content": "- Meaning versus form: people need readable artifacts, but interoperability depends on semantic state that survives beyond any artifact.\n- Flexibility versus fidelity: the system must support rough, evolving understanding without losing precise identity, validation, and lineage.\n- Domain neutrality versus practical usefulness: SRS must avoid hardcoding one domain while still offering enough structure to be useful.\n- AI assistance versus human authority: AI can extract, synthesize, and check consistency, but accepted semantic state must remain accountable.\n- Current clarity versus historical preservation: systems need clean current views while retaining superseded, partial, or contested meaning for provenance.\n- Local autonomy versus shared interoperability: implementers should choose their own storage and workflow while preserving exchangeable semantics.\n- Simplicity versus expressiveness: the core must be small enough to implement, while extensions must support richer use cases without fragmenting the standard.\n- Document compatibility versus meaning-first evolution: SRS must render conventional documents while not letting document structure dominate the model."
+    },
+    {
+      "name": "key_concepts",
+      "tags": ["concepts", "terminology"],
+      "content": "- Semantic state: structured meaning as understood, asserted, negotiated, or committed at a point in time.\n- Negotiated meaning: meaning produced through human, organizational, or system-mediated interpretation rather than objective truth claims.\n- Source material: raw or prior material such as transcripts, notes, documents, excerpts, prompts, or imports that semantic state cites as evidence.\n- Note: a low-ceremony Tier 0 instance for preserving free-form or early-stage meaning.\n- TypedRecord: a Tier 1 instance with named fields but no formal Type binding.\n- Record: a Tier 2 instance bound to a Type and carrying field values, provenance, and lifecycle state where applicable.\n- Field: a reusable semantic atom with stable identity, value type, guidance, and validation semantics.\n- Type: a composition of Fields that defines a kind of semantic object without owning Field semantics.\n- Relation: a typed semantic claim connecting instances.\n- Projection: a rendering or assembly of semantic state for a purpose or audience, such as a spec document, dashboard, or AI context package.\n- Domain: the highest-level area of meaning being worked on.\n- Challenge space: the area of durable difficulty inside a domain.\n- Fundamental tension: a generative opposition within a challenge space that gives rise to problems and design moves.\n- Lineage: the evolution, versioning, and derivation path of definitions or instances.\n- Provenance: evidence about where a value, claim, record, or interpretation came from."
+    },
+    {
+      "name": "related_systems_and_domains",
+      "tags": ["related-systems", "landscape"],
+      "content": "- JSON Schema and structural validation systems.\n- Knowledge graphs and semantic web concepts, especially typed relations and graph traversal.\n- Document models, rich-text editors, CMS systems, and document projection pipelines.\n- Workflow, governance, decision-record, and requirements-management systems.\n- Source-document repositories, transcript stores, meeting tools, and conversation layers.\n- AI extraction, synthesis, retrieval, and context-assembly systems.\n- Version-control, package-management, import/export, and archive formats.\n- Domain modeling, ontology design, and conceptual analysis practices."
+    },
+    {
+      "name": "domain_landscape",
+      "tags": ["landscape", "context"],
+      "content": "Most existing tools preserve either document form, application-specific database state, or unstructured conversational residue. Document systems are readable but weak at semantic reuse. Databases are structured but often local to one application. AI summarizers can produce useful text but often collapse evidence, interpretation, and commitment into a single artifact. Knowledge graphs can represent relationships but may lack practical authoring, provenance, and projection workflows.\n\nSRS sits between these areas. It treats source material as evidence, semantic records as the negotiated state, relations as graph structure, and projections as communication surfaces. Its landscape includes independent implementations that may differ radically in storage or user experience but can still interoperate if they preserve Field, Type, Record, Relation, lineage, and provenance semantics."
+    },
+    {
+      "name": "common_challenges",
+      "tags": ["challenges", "risks"],
+      "content": "- Prematurely treating a document outline as the semantic model.\n- Losing provenance when AI or humans summarize source material.\n- Allowing Types, Views, or projections to redefine Field meaning.\n- Creating domain-specific assumptions in the standard core.\n- Making the core too abstract for implementers to use confidently.\n- Creating extension mechanisms that improve expressiveness but damage interoperability.\n- Preserving historical meaning without making current-state views unusably noisy.\n- Supporting progressive formalization without forcing teams to model everything up front.\n- Keeping relation directionality and identity stable across repositories and implementations.\n- Explaining why a feature or requirement exists after its originating tension has been forgotten."
+    },
+    {
+      "name": "source_material_used",
+      "tags": ["source-material", "traceability"],
+      "content": "This domain definition uses the current foundation notes as its core reasoning: `origin-purpose` for the founding inversion from document form to negotiated meaning; `purpose-principles-constraints` for purpose, principles, and boundaries; `fundamental-tensions` for the generative role of tensions; `meaning-evolution-path` for the progression from domain to projections; and `domain-definition-template` as historical source material for the original outside-system template."
+    }
+  ],
+  "sourceRefs": [
+    {
+      "sourceType": "repository-document",
+      "sourceId": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+      "relationType": "evidence",
+      "note": "ChatGPT origin session - founding inversion from document to semantic state"
+    },
+    {
+      "sourceType": "repository-document",
+      "sourceId": "d4e5f6a7-b8c9-4d0e-8f2a-3b4c5d6e7f8a",
+      "relationType": "evidence",
+      "note": "Claude collaborative session - constraints, invariants, and rationale development"
+    },
+    {
+      "sourceType": "external-document",
+      "sourceId": "user-provided-domain-template-2026-05-28",
+      "relationType": "inspired-by",
+      "note": "Outside-system Domain Definition template supplied by the user"
+    }
+  ],
+  "createdAt": "2026-05-28T00:00:00Z",
+  "updatedAt": "2026-05-28T00:00:00Z"
+}

@@ -1,0 +1,74 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+  "instanceId": "a8ecf7de-c92c-4d1c-80c7-8288329b7a91",
+  "title": "Protocols as Shareable Meaning-Making",
+  "tags": ["protocol", "meaning-making", "facilitation", "human-ai-collaboration", "attention"],
+  "sections": [
+    {
+      "name": "purpose",
+      "tags": ["purpose", "protocol"],
+      "content": "Protocols are structured, shareable ways to make meaning. They encode a reusable path through a domain's uncertainty: what questions to ask, what groundwork must exist before moving forward, what fields or records each stage contributes to, and how a group knows that enough understanding has been built to proceed."
+    },
+    {
+      "name": "decision_protocol",
+      "tags": ["decision", "deliberation"],
+      "content": "A decision should not begin at the moment of choosing. A decision protocol walks people through the phases of meaning-making required for a good decision: clarifying context, surfacing tensions, identifying stakeholders, establishing criteria, exploring options, weighing tradeoffs, and only then forming a decision statement. The decision record is the compressed result of the protocol, not a form that was merely filled in."
+    },
+    {
+      "name": "domain_tension_problem_protocol",
+      "tags": ["domain", "tensions", "problems"],
+      "content": "The current domain -> tension -> problem process is itself a protocol. It guides a group from rough domain awareness into structured shared understanding by asking what domain is being worked on, what challenge space matters, what tensions generate difficulty, and which problems emerge from those tensions. This protocol should be reusable across domains, not hardcoded into one document."
+    },
+    {
+      "name": "editor_facilitation",
+      "tags": ["editor", "facilitation", "attention-state"],
+      "content": "An SRS editor should be able to facilitate meaning-making through protocols. In the original implementation shape, the facilitator view lets a group focus on one field at a time. The group discusses the question linked to that field while the live transcript is linked to the current attention focus. This creates a direct bridge between guided conversation and the semantic field being refined."
+    },
+    {
+      "name": "field_questions",
+      "tags": ["fields", "questions", "ai-guidance"],
+      "content": "A field is not merely a data slot. In a protocol, a field can become the focus of a question. The protocol frames why the question matters, what prior stages it depends on, what completion looks like, and which Field or Record the resulting understanding should contribute to. Field AI guidance then helps an AI agent understand what kind of statement belongs there."
+    },
+    {
+      "name": "ai_transformation",
+      "tags": ["ai", "transcript", "drafting"],
+      "content": "AI guidance provides the information an AI agent needs to transform live conversation into a candidate written statement. The AI can listen across the focused transcript, synthesize the relevant meaning, and propose text for the field. That text remains a proposal until the group reviews, edits, and accepts it."
+    },
+    {
+      "name": "review_iteration_and_locking",
+      "tags": ["review", "locking", "lifecycle"],
+      "content": "Meaning-making is iterative. A group may discuss a field, let AI draft a candidate statement, review the text, revise it, return to conversation, and repeat. When the group is happy with the text, the editor should support locking or otherwise marking the value so it is not rewritten without their knowledge. Locking is a trust mechanism: it protects accepted meaning from silent AI or workflow mutation."
+    },
+    {
+      "name": "protocol_and_attention",
+      "tags": ["protocol", "attention-state", "addressability"],
+      "content": "Protocol stages and AttentionState belong together. The protocol says what question the group is working on and what understanding is being built. AttentionState records where the group is focused while the conversation happens. Together, they make it possible to trace a field value back to the exact conversation and facilitation stage that shaped it."
+    },
+    {
+      "name": "shareability",
+      "tags": ["shareability", "distributed-knowledge"],
+      "content": "Protocols should be shareable knowledge assets. A community should be able to publish, adapt, fork, and improve protocols for decisions, domain definition, problem discovery, proposal review, governance, planning, or other meaning-making processes. This supports decentralized knowledge ownership: not only records and fields are portable, but ways of making meaning can be portable too."
+    },
+    {
+      "name": "design_implications",
+      "tags": ["design", "requirements"],
+      "content": "- Protocols should encode epistemic dependencies, not just display order.\n- Protocol stages should be able to focus attention on records, fields, tensions, problems, or intermediate outputs.\n- Protocol stages should ask questions that guide discussion, not merely request field input.\n- AI guidance should transform focused conversation into candidate field text for human review.\n- Accepted field text should be protectable from silent rewriting.\n- Protocol outputs should preserve source references, attention links, and revision history.\n- Protocols should be packageable, versioned, shareable, and adaptable across communities."
+    }
+  ],
+  "sourceRefs": [
+    {
+      "sourceType": "repository-document",
+      "sourceId": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+      "relationType": "evidence",
+      "note": "ChatGPT origin session - guided templates, AI-assisted synthesis, and conversation to structured meaning"
+    },
+    {
+      "sourceType": "repository-document",
+      "sourceId": "d4e5f6a7-b8c9-4d0e-8f2a-3b4c5d6e7f8a",
+      "relationType": "evidence",
+      "note": "Claude collaborative session - Protocol, AttentionState, lifecycle, and addressability design"
+    }
+  ],
+  "createdAt": "2026-05-28T00:00:00Z",
+  "updatedAt": "2026-05-28T00:00:00Z"
+}

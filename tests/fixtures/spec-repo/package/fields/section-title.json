@@ -1,0 +1,14 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "96f04d9d-9432-5628-8664-0d92e50f6fd0",
+  "namespace": "com.semanticops.srs",
+  "name": "section_title",
+  "version": 1,
+  "description": "The numbered title of a spec section or subsection.",
+  "aiGuidance": {
+    "purpose": "Use consistent numbering format (e.g., '01. Purpose and Scope', '02-1. Convention'). Section numbers establish ordering and hierarchy."
+  },
+  "valueType": "string",
+  "editorHint": "singleline",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

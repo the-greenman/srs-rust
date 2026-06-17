@@ -1,0 +1,13 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/view.json",
+  "id": "3a000003-0000-4000-a000-000000000003",
+  "namespace": "com.semanticops.spec",
+  "title": "Rationale Document View",
+  "description": "Renders all design-note records as a standalone rationale document ordered by precedes relation.",
+  "outputFormats": ["markdown", "html", "text"],
+  "rootType": "com.semanticops.spec/design-note",
+  "ordering": {
+    "relationType": "precedes"
+  },
+  "createdAt": "2026-05-27T00:00:00Z"
+}

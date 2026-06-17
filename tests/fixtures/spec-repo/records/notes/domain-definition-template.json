@@ -1,0 +1,45 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+  "instanceId": "c0f264d7-3b9e-44b9-9446-04adf55576a0",
+  "title": "Domain Definition Template",
+  "tags": ["domain", "template", "meaning-first", "challenge-space", "fundamental-tensions"],
+  "sections": [
+    {
+      "name": "purpose",
+      "tags": ["purpose", "domain"],
+      "content": "This note preserves the current Domain Definition template as Tier 0 source material. Domains are the highest level of organization in the semantic architecture. A domain definition names the domain, establishes its scope, identifies stakeholders and boundaries, surfaces domain tensions, and records the concepts, neighboring systems, landscape, and common challenges that shape later semantic work."
+    },
+    {
+      "name": "meaning_first_role",
+      "tags": ["meaning-first", "challenge-space", "fundamental-tensions"],
+      "content": "The template fits the meaning-first foundation by creating the first stable anchor before problem or feature formalization. It begins with domain identity and context, then moves through boundaries and tensions before listing challenges. In the future formal model, this note should likely graduate into a Domain type or a Domain Definition schema, with domain tensions represented as first-class semantic objects rather than prose inside a document section."
+    },
+    {
+      "name": "template_content",
+      "tags": ["template", "source-material"],
+      "contentHint": "markdown",
+      "content": "---\ntemplate_id: TEMPLATE-DomainDefinition\ntemplate_version: 2.5.3\n---\n---\ndomain_id: DOM-{{document_slug}}\ndomain_name: {{domain_name}}\nbrief_description: {{brief_description}}\ntemplate_id: {{template.template_id}}\ntemplate_version: {{template.template_version}}\naliases:\n  - DOM-{{document_slug}}\n---\n\n# Domain Definition\n\n## Domain Name:\n*The official name of the domain being defined.*\n<!-- Give the domain a name -->\n{{domain_name}}\n\n## 1. Domain Overview:\n*Summarize what this domain covers and its main purpose in a few sentences.*\n*This helps everyone quickly understand the domain's scope and relevance.*\n<!-- Describe the domain in a few sentences -->\n{{domain_overview}}\n\n## 2. Key Stakeholders:\n*Identify the main individuals or groups with a vested interest in this domain.*\n*Knowing stakeholders ensures that all relevant perspectives and needs are considered.*\n<!-- List the key stakeholders for the domain -->\n{{key_stakeholders}}\n\n## 3. Domain Boundaries:\n*Clarify what is included and excluded from this domain.*\n*Clear boundaries prevent confusion and scope creep during discussions or projects.*\n### In Scope:\n<!-- List the in scope items for the domain -->\n{{domain_boundaries_in_scope}}\n\n### Out of Scope:\n<!-- List the out of scope items for the domain -->\n\n{{domain_boundaries_out_of_scope}}\n\n## 4. Domain tensions\n*Describe any conflicts, trade-offs, or tensions that exist within this domain.*\n*Understanding tensions helps anticipate challenges and manage competing priorities.*\n<!-- List the domain tensions for the domain -->\n{{domain_tensions}}\n\n## 5. Key Concepts and Terminology:\n*List and define important terms and concepts relevant to this domain.*\n*Shared terminology ensures clear communication and reduces misunderstandings.*\n<!-- List the key concepts and terminology for the domain -->\n{{key_concepts_terminology}}\n\n## 6. Related Systems and Domains:\n*Mention systems, domains, or areas that interact with or overlap this domain.*\n*This highlights dependencies and integration points with other areas.*\n<!-- List the related systems and domains for the domain -->\n{{related_systems_domains}}\n\n## 7. Domain Landscape:\n*Describe the broader environment, context, or ecosystem in which this domain exists.*\n*Contextual awareness helps identify influences and opportunities outside the immediate domain.*\n<!-- List the domain landscape for the domain -->\n{{domain_landscape}}\n\n## 8. Common Challenges:\n*Identify typical problems or obstacles encountered in this domain.*\n*Recognizing common challenges prepares teams to address them proactively.*\n<!-- List the common challenges for the domain -->\n{{common_challenges}}\n"
+    },
+    {
+      "name": "creation_prompt",
+      "tags": ["prompt", "generation"],
+      "contentHint": "markdown",
+      "content": "---\nname: \"Create Domain Definition\"\ndescription: \"Generate a new domain definition for a specific domain\"\nversion: \"1.0\"\nentity_type: \"domain\"\noperation: \"create\"\nmodel: \"any\"\n---\n\n## Context\n<context>\nDomains are the highest level of organization in the semantic architecture.\n\nOUTPUT FORMAT INSTRUCTIONS: Your response must begin DIRECTLY with the template content. Do not include any commentary, explanations, or notes before, during, or after the template. The output should start with \"---\" and contain ONLY the filled template.\n</context>\n\n## Input\n<input>\nDomain ID: {{input.domain_id}}\nDomain Name: {{input.domain_name}}\nBrief Description: {{input.brief_description}}\nTemplate Version: {{template.version}}\n\n## Specific Guidance\n<guidance>\n{{input.guidance}}\n</guidance>\n\n<expert_notes>\n{{expert_notes}}\n</expert_notes>\n\n## Analysis Context\n<analysis_context>\nUse the following analysis to inform your definition:\n{{domain_analysis}}\n</analysis_context>\n\n</input>\n\n## Instructions\n<instructions>\n1. Create a comprehensive domain definition following the template structure exactly\n2. Generate a DocumentSlug by converting the domain name to PascalCase (e.g., \"Legacy System Migration\" -> \"LegacySystemMigration\")\n3. Use the domain name to create the DomainSlug in the same format\n4. Use source material in sources/notes as the core reasoning for the domain definition. Explicitly reference the source material in the domain definition.\n5. Replace all placeholder text in square brackets with detailed, specific content\n6. Ensure all sections are comprehensive and specific to the domain\n7. Use bullet points for lists where appropriate\n8. Maintain consistent formatting throughout the document\n9. Ensure the Domain Definition clearly articulates the challenge\n10. This is using template version {{template.version}} - please include this version number in the TemplateVersion field\n</instructions>\n\n## Template Reference\n<template>\n{{template.content}}\n</template>\n"
+    },
+    {
+      "name": "future_formalization_candidates",
+      "tags": ["future-formalization", "types", "fields"],
+      "content": "Candidate semantic objects implied by this template include Domain, Domain Boundary, Stakeholder, Fundamental Tension, Concept, Related Domain, Landscape Factor, and Common Challenge. Candidate relations include has-boundary, includes-stakeholder, contains-tension, generates-challenge, overlaps-domain, depends-on-system, and defines-concept. These are not implemented here; the note only records the template as source material for later formalization."
+    }
+  ],
+  "sourceRefs": [
+    {
+      "sourceType": "external-document",
+      "sourceId": "user-provided-domain-template-2026-05-28",
+      "relationType": "derived-from",
+      "note": "Domain Definition template and creation prompt provided by the user on 2026-05-28"
+    }
+  ],
+  "createdAt": "2026-05-28T00:00:00Z",
+  "updatedAt": "2026-05-28T00:00:00Z"
+}

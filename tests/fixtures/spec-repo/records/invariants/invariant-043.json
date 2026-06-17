@@ -1,0 +1,42 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000020-0000-4000-a000-000000000020",
+      "value": 43
+    },
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "When ext:type-inheritance is declared, Package.dependencyRefs must…"
+    },
+    {
+      "fieldId": "1a000003-0000-4000-a000-000000000003",
+      "value": "When `ext:type-inheritance` is declared, `Package.dependencyRefs` must include a `Reference` for every Type in the transitive closure of base Types for any Type in `Package.types[]`. If `mode === \"bundled\"`, all such base Types must be present in `types[]`."
+    },
+    {
+      "fieldId": "1a000021-0000-4000-a000-000000000021",
+      "value": "ext:type-inheritance"
+    }
+  ],
+  "instanceId": "e1000043-0000-4000-a000-000000000043",
+  "sourceRefs": [
+    {
+      "note": "Invariant 43 from srs-spec.md section 08",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:extensibility",
+    "concern:validation",
+    "construct:package",
+    "construct:type",
+    "topic:conformance"
+  ],
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

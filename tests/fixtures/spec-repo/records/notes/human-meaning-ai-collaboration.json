@@ -1,0 +1,43 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+  "instanceId": "c0f7c97d-84a9-48a5-bc4d-41d7ee5f8cd9",
+  "title": "Human Meaning and AI Collaboration",
+  "tags": ["meaning-making", "human-ai-collaboration", "ai", "authority", "trust"],
+  "sections": [
+    {
+      "name": "purpose",
+      "tags": ["purpose", "meaning-making"],
+      "content": "SRS should help humans remember that meaning is their job. AI can assist with extraction, synthesis, critique, comparison, and context assembly, but it cannot become the authority that decides what something means for a community, organization, or domain."
+    },
+    {
+      "name": "human_responsibility",
+      "tags": ["humans", "authority"],
+      "content": "Meaning is not only pattern recognition. It involves responsibility, context, judgment, values, memory, consent, and commitment. A Record may capture negotiated semantic state, but the negotiation is a human and social act. SRS should make that act more legible, not replace it."
+    },
+    {
+      "name": "better_ai_collaboration",
+      "tags": ["human-ai-collaboration", "ai"],
+      "content": "When humans keep responsibility for meaning, collaboration with AI becomes stronger. AI can propose structure without pretending to settle it. It can surface tensions without resolving them too early. It can assemble evidence, suggest relations, detect inconsistency, and draft candidate records. Humans can then accept, reject, revise, contextualize, and commit."
+    },
+    {
+      "name": "design_implications",
+      "tags": ["design", "trust"],
+      "content": "- AI-generated outputs should remain proposals until accepted through an explicit human or governance process.\n- Records should preserve source references so people can inspect the evidence behind AI-assisted claims.\n- The system should distinguish observation, interpretation, proposal, and commitment.\n- AI guidance should support better human judgment, not bypass it.\n- Projections should not hide uncertainty, contested meaning, or missing provenance when those matter.\n- Lifecycle and provenance metadata should make it clear what has been accepted and what remains provisional."
+    },
+    {
+      "name": "failure_mode",
+      "tags": ["risks", "ai"],
+      "content": "The failure mode is not simply that AI makes mistakes. The deeper failure is that humans stop practicing meaning-making because AI-generated structure feels complete. SRS should resist that failure by keeping source material, provenance, uncertainty, and acceptance boundaries visible."
+    }
+  ],
+  "sourceRefs": [
+    {
+      "sourceType": "repository-document",
+      "sourceId": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+      "relationType": "evidence",
+      "note": "ChatGPT origin session - AI as facilitator, extractor, synthesiser, and consistency checker rather than authority"
+    }
+  ],
+  "createdAt": "2026-05-28T00:00:00Z",
+  "updatedAt": "2026-05-28T00:00:00Z"
+}

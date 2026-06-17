@@ -1,0 +1,47 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "e1f2a3b4-c5d6-4e7f-8a9b-0c1d2e3f4a5b",
+  "namespace": "com.semanticops.srs",
+  "name": "meta.specification",
+  "version": 1,
+  "description": "Top-level specification identity, version, status, and summary.",
+  "fields": [
+    {
+      "fieldId": "f1a2b3c4-d5e6-4a7b-8c9d-0e1f2a3b4c5c",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Canonical Key"
+    },
+    {
+      "fieldId": "a2b3c4d5-e6f7-4a8b-9c0d-1e2f3a4b5c6d",
+      "order": 1,
+      "required": true,
+      "displayLabel": "Title"
+    },
+    {
+      "fieldId": "f7a8b9c0-d1e2-4f3a-8b5c-6d7e8f9a0b1c",
+      "order": 2,
+      "required": true,
+      "displayLabel": "Version"
+    },
+    {
+      "fieldId": "e6f7a8b9-c0d1-4e2f-8a4b-5c6d7e8f9a0b",
+      "order": 3,
+      "required": true,
+      "displayLabel": "Status"
+    },
+    {
+      "fieldId": "c4d5e6f7-a8b9-4c0d-8e2f-3a4b5c6d7e8f",
+      "order": 4,
+      "required": false,
+      "displayLabel": "Summary"
+    },
+    {
+      "fieldId": "d5e6f7a8-b9c0-4d1e-8f3a-4b5c6d7e8f9a",
+      "order": 5,
+      "required": false,
+      "displayLabel": "Description"
+    }
+  ],
+  "createdAt": "2026-05-27T00:00:00Z"
+}

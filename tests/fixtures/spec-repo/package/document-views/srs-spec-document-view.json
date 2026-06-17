@@ -1,0 +1,22 @@
+{
+  "id": "ec34f54b-8636-5c8b-af5b-c9eb3df24fe6",
+  "namespace": "com.semanticops.srs",
+  "name": "srs-spec-document-view",
+  "version": 1,
+  "description": "Renders the full SRS specification as a structured markdown document",
+  "format": "markdown",
+  "sections": [
+    {
+      "sectionId": "spec-sections",
+      "title": "Specification",
+      "order": 0,
+      "source": {
+        "type": "type-query",
+        "semanticObjectType": "com.semanticops.srs/meta.section"
+      },
+      "titleFieldId": "96f04d9d-9432-5628-8664-0d92e50f6fd0",
+      "emptyBehavior": "hide"
+    }
+  ],
+  "createdAt": "2026-05-29T00:00:00Z"
+}

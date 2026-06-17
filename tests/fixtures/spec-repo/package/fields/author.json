@@ -1,0 +1,14 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "5e6f7a8b-9c0d-4e1f-8a3b-4c5d6e7f8a9b",
+  "namespace": "com.semanticops.srs",
+  "name": "author",
+  "version": 1,
+  "description": "The author or primary contributor of the record.",
+  "aiGuidance": {
+    "purpose": "Use the author's full name or established identifier. For multiple authors, create separate field assignments or use a structured format."
+  },
+  "valueType": "string",
+  "editorHint": "singleline",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

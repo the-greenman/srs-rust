@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "5a000003-0000-4000-a000-000000000003",
+  "namespace": "com.semanticops.spec",
+  "name": "author",
+  "version": 1,
+  "description": "The author or primary contributor of this RFC.",
+  "aiGuidance": {
+    "purpose": "The author or primary contributor of this RFC.",
+    "extraction": "Use the author's full name or established identifier. For multiple authors, use comma-separated names."
+  },
+  "valueType": "string",
+  "editorHint": "singleline",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

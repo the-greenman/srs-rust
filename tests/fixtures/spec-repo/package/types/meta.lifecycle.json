@@ -1,0 +1,41 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "6e83623b-6931-4350-8564-4988020274e0",
+  "namespace": "com.semanticops.srs",
+  "name": "lifecycle",
+  "version": 1,
+  "description": "A named, versioned state machine — a closed vocabulary of LifecycleStates plus the transitions between them. Installable in packages and referenceable by many Types via lifecycleRef.",
+  "fields": [
+    {
+      "fieldId": "a2b3c4d5-e6f7-4a8b-9c0d-1e2f3a4b5c6d",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Name"
+    },
+    {
+      "fieldId": "d5e6f7a8-b9c0-4d1e-8f3a-4b5c6d7e8f9a",
+      "order": 1,
+      "required": false,
+      "displayLabel": "Description"
+    },
+    {
+      "fieldId": "896eb1fe-7efb-4c6b-953a-76cb4a068de7",
+      "order": 2,
+      "required": true,
+      "displayLabel": "Initial State Key"
+    },
+    {
+      "fieldId": "2b053e03-63a9-45dc-8cca-7d80c55dddf6",
+      "order": 3,
+      "required": false,
+      "displayLabel": "Extends Lifecycle ID"
+    },
+    {
+      "fieldId": "92189935-d59a-4cf0-be90-7731eb8e882a",
+      "order": 4,
+      "required": false,
+      "displayLabel": "Extends Lifecycle Version"
+    }
+  ],
+  "createdAt": "2026-06-03T00:00:00Z"
+}

@@ -1,0 +1,57 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+  "id": "4a000002-0000-4000-a000-000000000002",
+  "namespace": "com.semanticops.spec",
+  "name": "spec-rfc-process",
+  "version": "1.0.0",
+  "title": "Spec RFC Process",
+  "description": "Types and fields for RFC-based change management in a specification. Provides the rfc, rfc-change, and rfc-revision types plus their associated fields. Repos that do not use RFC process do not need this package.",
+  "status": "draft",
+  "dependencyRefs": [
+    {
+      "namespace": "com.semanticops.spec",
+      "name": "spec-authoring-core",
+      "version": "1.0.0"
+    }
+  ],
+  "fields": [
+    "fields/rfc-number.json",
+    "fields/rfc-status.json",
+    "fields/author.json",
+    "fields/decision-date.json",
+    "fields/revision-history.json",
+    "fields/proposed-change.json",
+    "fields/consequences.json",
+    "fields/open-questions.json",
+    "fields/affected-components.json",
+    "fields/dependency-refs.json",
+    "fields/accepted-revision.json",
+    "fields/decision-rationale.json",
+    "fields/implementation-status.json",
+    "fields/implemented-at.json",
+    "fields/implementation-commit.json",
+    "fields/proposal-artifact-path.json",
+    "fields/artifact-kind.json",
+    "fields/revision-number.json"
+  ],
+  "types": [
+    "types/rfc.json",
+    "types/rfc-change.json",
+    "types/rfc-revision.json",
+    "types/rfc-decision.json",
+    "types/rfc-implementation.json",
+    "types/rfc-proposed-artifact.json"
+  ],
+  "views": [],
+  "documentViews": [
+    "document-views/rfc-document-view.json"
+  ],
+  "relationTypes": [
+    "relation-types/rfc-targets-section.json",
+    "relation-types/rfc-change-sequence.json",
+    "relation-types/rfc-revision-sequence.json",
+    "relation-types/rfc-proposed-artifact-sequence.json"
+  ],
+  "createdAt": "2026-05-27T00:00:00Z",
+  "updatedAt": "2026-05-27T00:00:00Z"
+}

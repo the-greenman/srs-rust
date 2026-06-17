@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "5a000009-0000-4000-a000-000000000009",
+  "namespace": "com.semanticops.spec",
+  "name": "affected-components",
+  "version": 1,
+  "description": "The spec sections, extensions, or types that this RFC changes.",
+  "aiGuidance": {
+    "purpose": "The spec sections, extensions, or types that this RFC changes.",
+    "extraction": "List the section numbers, extension identifiers (ext:name), or type names that will be modified if this RFC is accepted. E.g. 'Section 05, ext:views-l2, DocumentView type'."
+  },
+  "valueType": "text",
+  "editorHint": "textarea",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

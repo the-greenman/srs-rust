@@ -1,0 +1,30 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+  "instanceId": "fa1d2160-0117-47c3-9c86-12a811911e3e",
+  "sections": [
+    {
+      "content": "Tags emerged from a concrete problem in note-taking: when building up a body of notes, there was no lightweight way to say these notes are related or this note belongs to this topic cluster without creating a formal Relation or binding to a Type.\n\nRaw string tags on Notes filled that gap. A tag is not a claim about structure — it is a claim about topic membership. Notes about the same problem domain, design thread, or concern can share a tag, and that shared tag is enough to surface them together.",
+      "contentHint": "markdown",
+      "label": "Origin",
+      "name": "origin"
+    },
+    {
+      "content": "As tag vocabularies grew, the tags themselves needed properties. Two problems appeared:\n\n1. Disambiguation: the same string could mean different things in different contexts. A label is not enough — description and aliases matter.\n2. Roles: some tags were structural signals rather than topic labels. The 'foundation' tag marks notes that should always be included in an AI context handoff. That is a semantic role, not just a category.\n\nThis led to TagDefinition — an addressable Tier 3 record that gives a tag a stable identity, description, roles, and aliases. A tag does not require a definition to be used; definitions are additive enrichment. But when a tag carries structural meaning (like 'foundation'), its definition is what makes that meaning machine-readable.",
+      "contentHint": "markdown",
+      "label": "Evolution to definitions",
+      "name": "evolution"
+    },
+    {
+      "content": "Tags are a peer to Field and Type in the SRS data model — not an extension, not an afterthought. They are defined natively in srs-core with dedicated service functions, not modelled as user-defined package types. This is because the operations that depend on tags (especially foundation note selection for AI context) are universal across all SRS repositories, not specific to any one repo's package.",
+      "contentHint": "markdown",
+      "label": "Design principle",
+      "name": "design-principle"
+    }
+  ],
+  "tags": [
+    "foundation",
+    "design-rationale",
+    "tags"
+  ],
+  "title": "Why tags exist: from clustering to definitions"
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "0eafae91-91a8-4115-a95f-fde3d22a87af",
+  "namespace": "com.semanticops.srs",
+  "name": "protocol-tags",
+  "version": 1,
+  "description": "Tags associated with the protocol.",
+  "valueType": "multiselect",
+  "aiGuidance": {
+    "purpose": "Capture classification tags used to group and discover protocols."
+  },
+  "createdAt": "2026-05-29T00:00:00Z"
+}

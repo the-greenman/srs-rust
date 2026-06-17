@@ -1,0 +1,13 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "5efb5f25-f2b4-4af0-950f-c1b64c9a32a6",
+  "namespace": "com.semanticops.srs",
+  "name": "promotion_window_until",
+  "version": 1,
+  "description": "The explicit end of the V10 grace window when promoting a Vocabulary from open to closed. An ISO8601 date or target package version string. Required if a grace window is declared; absent means promotion takes effect immediately.",
+  "valueType": "string",
+  "createdAt": "2026-06-03T00:00:00Z",
+  "aiGuidance": {
+    "purpose": "Bounds the grace window after open-to-closed promotion. Until this date/version, V1 violations are warnings; after it, they are errors. No unbounded windows allowed."
+  }
+}

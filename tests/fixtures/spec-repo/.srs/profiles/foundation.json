@@ -1,0 +1,18 @@
+{
+  "profileId": "foundation",
+  "description": "Repository-local deterministic profile for selecting notes that participate in foundation migration handoff.",
+  "includeTags": [
+    "foundations",
+    "meaning-first",
+    "semantic-state",
+    "fundamental-tensions",
+    "domain",
+    "problems",
+    "protocol",
+    "projection",
+    "projections",
+    "human-ai-collaboration",
+    "distributed-knowledge",
+    "addressability"
+  ]
+}

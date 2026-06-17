@@ -1,0 +1,73 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+  "createdAt": "2026-05-28T00:00:00Z",
+  "instanceId": "09b57270-d763-4a7c-b6fa-182e03365aab",
+  "sections": [
+    {
+      "content": "SRS is an attempt to create a data structure for an AI age. It assumes that AI will be involved in the creation, maintenance, traversal, validation, projection, and refinement of semantic repositories. This means the repository must be legible not only to dedicated SRS tools, but also to an AI agent encountering it for the first time.",
+      "name": "purpose",
+      "tags": [
+        "purpose",
+        "ai-native"
+      ]
+    },
+    {
+      "content": "An SRS repository should feel native to an AI in the same way a well-designed codebase feels navigable to a developer. File names, schemas, manifests, types, fields, relations, source references, and notes should give enough orientation that an AI can infer what kind of thing it is looking at, what role it plays, and how it connects to the rest of the repository.",
+      "name": "native_to_ai",
+      "tags": [
+        "ai",
+        "comprehension"
+      ]
+    },
+    {
+      "content": "Every important artifact should declare its structural role. The manifest should identify the repository and index its instances. Each JSON file should declare a schema. Notes should say what they are for. Records should carry type identity. Relations should state semantic claims explicitly. Source references should tell the AI where evidence came from. The repository should teach its own shape as it is read.",
+      "name": "self_describing_structure",
+      "tags": [
+        "self-describing",
+        "schemas",
+        "manifest"
+      ]
+    },
+    {
+      "content": "A useful test is the zero-context agent test: if an AI that knows nothing about SRS is given an SRS repository, can it work out the main concepts, current state, source material, and safe next actions by reading the repository itself? It should not need private platform knowledge, hidden application state, or an external SaaS service to understand the basics.",
+      "name": "zero_context_agent",
+      "tags": [
+        "agent",
+        "onboarding"
+      ]
+    },
+    {
+      "content": "AI-native does not mean AI-owned. The structure should help AI collaborate better, but humans remain responsible for meaning. AI can discover, summarize, suggest, validate, and connect. Humans accept, reject, revise, govern, and commit. The repository should make that boundary visible.",
+      "name": "human_meaning_still_leads",
+      "tags": [
+        "meaning-making",
+        "human-ai-collaboration"
+      ]
+    },
+    {
+      "content": "- Use explicit schemas and stable identifiers so AI can recognize artifact roles.\n- Keep manifests complete enough for traversal and discovery.\n- Preserve source references so AI suggestions can be grounded in evidence.\n- Prefer typed relations over implicit prose links when the relationship matters.\n- Make notes and rationale available so AI can understand why structures exist.\n- Preserve unknown content rather than dropping it, because future agents may understand more than current tools.\n- Ensure repositories remain inspectable as files, not only through an application UI.",
+      "name": "design_implications",
+      "tags": [
+        "design",
+        "requirements"
+      ]
+    }
+  ],
+  "sourceRefs": [
+    {
+      "note": "User statement that SRS is a data structure for an AI age and should be understandable to an AI that knows nothing about SRS",
+      "relationType": "inspired-by",
+      "sourceId": "user-provided-ai-native-repository-note-2026-05-28",
+      "sourceType": "external-document"
+    }
+  ],
+  "tags": [
+    "ai-native",
+    "repository",
+    "self-describing",
+    "maintenance",
+    "human-ai-collaboration"
+  ],
+  "title": "AI-Native SRS Repositories",
+  "updatedAt": "2026-05-28T00:00:00Z"
+}

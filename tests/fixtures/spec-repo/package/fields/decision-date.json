@@ -1,0 +1,14 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "6f7a8b9c-0d1e-4f2a-8b4c-5d6e7f8a9b0c",
+  "namespace": "com.semanticops.srs",
+  "name": "decision_date",
+  "version": 1,
+  "description": "The date when a decision was made or when the record became effective.",
+  "aiGuidance": {
+    "purpose": "Use ISO 8601 date format: YYYY-MM-DD. For RFCs, this is typically the date of the decision or the last revision."
+  },
+  "valueType": "string",
+  "editorHint": "singleline",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "7d1d2f86-b5b6-4f95-82c9-dd8f820b1d04",
+  "namespace": "com.semanticops.srs",
+  "name": "protocol-description",
+  "version": 1,
+  "description": "Description of the protocol purpose and behavior.",
+  "valueType": "string",
+  "aiGuidance": {
+    "purpose": "Capture a human-readable summary of what the protocol does."
+  },
+  "createdAt": "2026-05-29T00:00:00Z"
+}

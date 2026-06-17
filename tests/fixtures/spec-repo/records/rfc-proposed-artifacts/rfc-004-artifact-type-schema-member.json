@@ -1,0 +1,39 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "RFC-004 Artifact: type-schema-member"
+    },
+    {
+      "fieldId": "5a000017-0000-4000-a000-000000000017",
+      "value": "type"
+    },
+    {
+      "fieldId": "5a000016-0000-4000-a000-000000000016",
+      "value": "rfcs/rfc-004/proposed-package/spec-authoring-core/types/schema-member.json"
+    },
+    {
+      "fieldId": "1a000012-0000-4000-a000-000000000012",
+      "value": "Proposed schema-member type."
+    }
+  ],
+  "instanceId": "0ace152b-c847-5541-8353-6bcbf0d6e5fd",
+  "sourceRefs": [
+    {
+      "note": "Structured RFC-004 process record derived from the RFC-004 proposal content.",
+      "relationType": "derived-from",
+      "sourceId": "a4b5c6d7-e8f9-4a0b-8c2d-3e4f5a6b7c8d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "construct:type",
+    "topic:rfc"
+  ],
+  "typeId": "6a000006-0000-4000-a000-000000000006",
+  "typeName": "rfc-proposed-artifact",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

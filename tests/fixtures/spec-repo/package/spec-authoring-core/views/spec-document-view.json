@@ -1,0 +1,13 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/view.json",
+  "id": "3a000001-0000-4000-a000-000000000001",
+  "namespace": "com.semanticops.spec",
+  "title": "Specification Document View",
+  "description": "Renders a specification as a structured document ordered by precedes and subprecedes relations.",
+  "outputFormats": ["markdown", "html", "text"],
+  "rootType": "com.semanticops.spec/section",
+  "ordering": {
+    "relationType": "precedes"
+  },
+  "createdAt": "2026-05-27T00:00:00Z"
+}

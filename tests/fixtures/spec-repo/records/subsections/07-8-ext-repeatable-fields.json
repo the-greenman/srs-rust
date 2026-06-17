@@ -1,0 +1,32 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "ext:repeatable-fields"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "**Required for**: any Record type that needs lists of values within a single Field.\n\nAdds repeatability to `FieldAssignment` and defines `FieldValueEntry`.\n\n#### `FieldValueEntry`\n\nA single entry in a repeatable field.\n\n```typescript\n{\n  value: string | number | boolean | string[] | null\n  source?: \"human\" | \"ai\" | \"imported\" | \"derived\"\n  editedAt?: ISO8601\n}\n```\n\n#### FieldAssignment additions\n\nWhen `ext:repeatable-fields` is in use, `FieldAssignment` gains:\n\n```typescript\nrepeatable?: boolean  // default: false; when true, multiple values are allowed\nminItems?: integer    // meaningful only when repeatable === true\nmaxItems?: integer    // meaningful only when repeatable === true\n```\n\nAnd `FieldValue.entries` becomes active: use `entries` when `repeatable === true`, `value` otherwise.\n\nA repeatable field entry does not create a new semantic instance. Use separate Records connected by Relations when repeated items need their own identity, lifecycle, or graph position.\n\n---"
+    }
+  ],
+  "instanceId": "b9d40b80-3ca0-5daa-bd1f-6a8a47118156",
+  "sourceRefs": [
+    {
+      "note": "Subsection 07-8 from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:extensibility",
+    "construct:field",
+    "topic:extensions"
+  ],
+  "typeId": "2a000003-0000-4000-a000-000000000003",
+  "typeName": "subsection",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

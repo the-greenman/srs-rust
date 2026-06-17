@@ -1,0 +1,38 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+  "instanceId": "f13e9f41-2a98-4f2d-a66e-55e546cd7585",
+  "title": "Distributed Knowledge Ownership",
+  "tags": ["distributed-knowledge", "ownership", "decentralization", "repository", "community"],
+  "sections": [
+    {
+      "name": "purpose",
+      "tags": ["purpose"],
+      "content": "SRS should enable distributed knowledge, not merely structured data inside one platform. Communities, teams, and individuals should be able to own, inspect, move, preserve, fork, merge, and exchange their semantic state without depending on a central SaaS service as the authority."
+    },
+    {
+      "name": "why_it_matters",
+      "tags": ["values", "community"],
+      "content": "Knowledge ownership is social and political, not only technical. If the only real copy of a community's meaning lives inside a central platform, then the platform becomes the practical authority over memory, access, continuity, and interpretation. SRS should make semantic state portable enough that communities can keep custody of their own knowledge while still participating in shared ecosystems."
+    },
+    {
+      "name": "design_implications",
+      "tags": ["design", "repository", "federation"],
+      "content": "- Repository and archive formats matter because they let knowledge travel outside a running service.\n- Stable internal identities matter because meaning must not be tied to filenames, URLs, database rows, or platform-local IDs.\n- Federation must preserve unresolved references instead of discarding them, because decentralized systems often encounter partial connectivity.\n- Import and re-import must be identity-based so communities can sync without duplication or silent overwrite.\n- Source documents and provenance must travel with semantic records when they are needed to preserve trust.\n- Package and registry mechanisms should support many publishers rather than a single central authority."
+    },
+    {
+      "name": "non_goal",
+      "tags": ["non-goals", "boundaries"],
+      "content": "SRS does not need to reject hosted services. A SaaS implementation can be useful. The constraint is that no SaaS platform should be required to preserve, validate, interpret, or exchange SRS knowledge. Hosted tools should be participants in the ecosystem, not the source of authority."
+    }
+  ],
+  "sourceRefs": [
+    {
+      "sourceType": "repository-document",
+      "sourceId": "d4e5f6a7-b8c9-4d0e-8f2a-3b4c5d6e7f8a",
+      "relationType": "evidence",
+      "note": "Claude collaborative session - repository, federation, archive, and import/export design"
+    }
+  ],
+  "createdAt": "2026-05-28T00:00:00Z",
+  "updatedAt": "2026-05-28T00:00:00Z"
+}

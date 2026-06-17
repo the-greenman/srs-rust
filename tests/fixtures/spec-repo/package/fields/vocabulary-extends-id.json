@@ -1,0 +1,13 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "ed953703-cd0d-476c-b10a-a765b221a05f",
+  "namespace": "com.semanticops.srs",
+  "name": "vocabulary_extends_id",
+  "version": 1,
+  "description": "UUID of the upstream Vocabulary this container extends. Its terms merge into the upstream effective entry set. Must be paired with vocabulary_extends_version.",
+  "valueType": "string",
+  "createdAt": "2026-06-03T00:00:00Z",
+  "aiGuidance": {
+    "purpose": "Identifies the upstream vocabulary being extended. A downstream package uses this to add terms without forking the upstream definition."
+  }
+}

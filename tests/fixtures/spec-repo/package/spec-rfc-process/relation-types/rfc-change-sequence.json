@@ -1,0 +1,13 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
+  "id": "a1000001-0000-4000-b000-000000000001",
+  "version": 1,
+  "key": "com.semanticops.spec/rfc-change-sequence",
+  "namespace": "com.semanticops.spec",
+  "label": "RFC change sequence",
+  "description": "Orders rfc-change records belonging to an RFC.",
+  "category": "sequence",
+  "canonicalDirection": "source is the RFC; members are ordered rfc-change records",
+  "status": "deprecated",
+  "createdAt": "2026-05-29T00:00:00Z"
+}

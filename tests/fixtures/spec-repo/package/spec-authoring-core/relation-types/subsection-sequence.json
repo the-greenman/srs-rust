@@ -1,0 +1,13 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
+  "id": "b2000002-0000-4000-a000-000000000002",
+  "version": 1,
+  "key": "com.semanticops.srs/subsection-sequence",
+  "namespace": "com.semanticops.srs",
+  "label": "Subsection sequence",
+  "description": "Orders subsection records belonging to a parent section for document-view rendering.",
+  "category": "sequence",
+  "irreflexive": true,
+  "status": "deprecated",
+  "createdAt": "2026-05-29T00:00:00Z"
+}

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Type"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "A named, versioned composition of Fields for a specific semantic object type.\n\n```typescript\n{\n  // Stable identity\n  id: UUID\n  namespace: string\n  name: string\n  version: integer   // min: 1\n\n  // Content\n  description: string        // when to use this Type; what semantic object it defines\n  aiGuidance?: AiGuidance    // Type-level LLM framing; see AI guidance composition in rationale\n\n  // Semantic object type (optional, informative)\n  semanticObjectType?: string\n  // e.g. \"decision\", \"task\", \"risk\", \"budget_line\", \"requirement\"\n  // Free-form. Implementations may use as a rendering or grouping hint.\n  // No conforming implementation is required to act on it.\n\n  // Composition\n  fields: FieldAssignment[]\n  // type inheritance, fieldGroups, and validationRules are extensions; see\n  // ext:type-inheritance, ext:field-groups, and ext:cross-field-validation\n\n  // lifecycle is an extension; see ext:lifecycle\n\n  // Classification\n  tags?: string[]\n\n  // Metadata\n  createdAt: ISO8601\n  lineage?: Lineage\n  provenance?: Provenance\n}\n```\n\n#### `FieldAssignment`\n\nA Field reference within a Type. Configures presentation without redefining field semantics.\n\n```typescript\n{\n  fieldId: UUID     // references Field.id\n  order: integer    // min: 0; display and processing order within the Type\n  required?: boolean  // default: true\n\n  // Presentation-only — must NOT affect AI guidance, extraction, valueType, or validation\n  displayLabel?: string\n  displayHint?: string\n}\n```\n\n`displayLabel` and `displayHint` are strictly for rendering. If a materially different label or meaning is needed, a distinct Field with its own lineage is required.\n\nRepeatability fields (`repeatable`, `minItems`, `maxItems`) are defined in `ext:repeatable-fields`.\n\nThe Type's effective field list is `fields[]` unless `ext:type-inheritance` is declared and the Type extends another Type. In that case, the effective field list also includes inherited fields as defined by `ext:type-inheritance`.\n\n**AI guidance composition order** (recommended):\n\n1. Type framing (`Type.aiGuidance.extraction`) — establishes the semantic object type\n2. View framing (`View.aiGuidance.extraction`, if `ext:views-l1` is in use) — workflow-specific context\n3. Field extraction guidance (`Field.aiGuidance.extraction`)\n4. Negative guidance (`Field.aiGuidance.negativeGuidance`)\n5. Examples (`Field.aiGuidance.examples`)\n\nThis is a recommended default, not a required invariant. Implementations that compose differently will produce different AI behaviour from the same definitions.\n\n**On instance migration when a Type version changes:**\nA Record binds to a specific `typeVersion` at creation time. Existing Records do not automatically migrate when a new Type version is published. Conformance is measured against the version the Record was instantiated under. When a Record is migrated and exchanged, it should carry the version it now conforms to, and the original Record should be preserved and linked via a `supersedes` Relation.\n\n#### `lifecycleRef` — referencing shared lifecycle definitions\n\nWhen `ext:lifecycle` is in use, a Type declares a lifecycle in exactly one of two mutually exclusive forms (V7):\n\n```typescript\n// Inline — simple cases; effective set is own states/transitions only:\nlifecycle?: { states: LifecycleState[]; transitions: LifecycleTransition[]; initialState: string }\n\n// Referenced — shared, installable Lifecycle:\nlifecycleRef?: Reference   // resolves to an installed Lifecycle (V8)\n```\n\nDeclaring both is a validation error. An inline lifecycle cannot extend; use `lifecycleRef` when the same state machine is needed across multiple Types.\n\n---"
+    }
+  ],
+  "instanceId": "4e1ca747-254d-5a7a-b0f2-d4f253189f98",
+  "sourceRefs": [
+    {
+      "note": "Subsection 04-3 from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "construct:type",
+    "topic:foundation"
+  ],
+  "typeId": "2a000003-0000-4000-a000-000000000003",
+  "typeName": "subsection",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-06-03T00:00:00Z"
+}

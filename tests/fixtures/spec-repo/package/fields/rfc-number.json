@@ -1,0 +1,14 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "4d5e6f7a-8b9c-4d0e-8f2a-3b4c5d6e7f8a",
+  "namespace": "com.semanticops.srs",
+  "name": "rfc_number",
+  "version": 1,
+  "description": "The RFC number for a request for comments document.",
+  "aiGuidance": {
+    "purpose": "RFC numbers are sequential integers starting from 001. Format as three digits with leading zeros."
+  },
+  "valueType": "string",
+  "editorHint": "singleline",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

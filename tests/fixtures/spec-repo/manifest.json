@@ -1,0 +1,2618 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+  "containerIndex": [
+    {
+      "containerId": "5c923d50-90ba-4fae-bf62-9af86324f30b",
+      "path": "containers/rfc001-implementation-5c923d50.json",
+      "title": "RFC001 Implementation"
+    },
+    {
+      "containerId": "ec796aad-8e4a-4b16-ad65-594675c048bd",
+      "path": "containers/rfc001-scratch-ec796aad.json",
+      "title": "RFC001 Scratch"
+    }
+  ],
+  "declaredExtensions": [
+    "ext:addressability",
+    "ext:lifecycle",
+    "ext:recommended-relations",
+    "ext:repository",
+    "ext:themes-l1",
+    "ext:type-inheritance",
+    "ext:views-l1",
+    "ext:views-l2"
+  ],
+  "description": "The SRS specification, authored as an SRS repository. The rendered specification is a DocumentView export of the records in this repository.",
+  "instanceIndex": [
+    {
+      "instanceId": "d5c7e536-5f7d-491a-8166-5ee25a954377",
+      "path": "records/notes/origin-purpose.json",
+      "tier": 0,
+      "title": "Origin: From Conversation to Negotiated Meaning"
+    },
+    {
+      "instanceId": "2bd94648-85c0-4e2a-a8a8-4db54895c65d",
+      "path": "records/notes/purpose-principles-constraints.json",
+      "tier": 0,
+      "title": "Purpose, Principles, and Constraints of Meaning-First SRS"
+    },
+    {
+      "instanceId": "7f46a5b2-7c5c-4c2c-9d79-6ef5a4a7c201",
+      "path": "records/notes/fundamental-tensions.json",
+      "tags": [
+        "fundamental-tensions",
+        "meaning-first",
+        "challenge-space",
+        "foundations"
+      ],
+      "tier": 0,
+      "title": "Fundamental Tensions as the Generative Root"
+    },
+    {
+      "instanceId": "82de2b6e-9589-4b82-a59f-417eec5c59d1",
+      "path": "records/notes/meaning-evolution-path.json",
+      "tier": 0,
+      "title": "Meaning Evolution Path"
+    },
+    {
+      "instanceId": "c0f264d7-3b9e-44b9-9446-04adf55576a0",
+      "path": "records/notes/domain-definition-template.json",
+      "tier": 0,
+      "title": "Domain Definition Template"
+    },
+    {
+      "instanceId": "9d78580b-bfd8-48e0-8893-f7f09602ac8d",
+      "path": "records/notes/srs-domain-definition.json",
+      "tier": 0,
+      "title": "Domain Definition: Semantic Record System"
+    },
+    {
+      "instanceId": "c1a5f920-9de7-4f99-8cfd-b4b8cbb7b09a",
+      "path": "records/notes/srs-domain-potential-problems.json",
+      "tier": 0,
+      "title": "Potential Problems in the SRS Domain"
+    },
+    {
+      "instanceId": "5ea8cdb1-35d9-49d3-8d6e-95e2dc8239a7",
+      "path": "records/notes/srs-domain-key-challenges.json",
+      "tier": 0,
+      "title": "Key Challenges in the SRS Domain"
+    },
+    {
+      "instanceId": "f13e9f41-2a98-4f2d-a66e-55e546cd7585",
+      "path": "records/notes/distributed-knowledge-ownership.json",
+      "tier": 0,
+      "title": "Distributed Knowledge Ownership"
+    },
+    {
+      "instanceId": "c0f7c97d-84a9-48a5-bc4d-41d7ee5f8cd9",
+      "path": "records/notes/human-meaning-ai-collaboration.json",
+      "tier": 0,
+      "title": "Human Meaning and AI Collaboration"
+    },
+    {
+      "instanceId": "8c0bcb3b-bd82-4d84-b9ef-8e64f69d9ac7",
+      "path": "records/notes/conversation-attention-addressability.json",
+      "tier": 0,
+      "title": "Conversation Attention and Addressability"
+    },
+    {
+      "instanceId": "a8ecf7de-c92c-4d1c-80c7-8288329b7a91",
+      "path": "records/notes/protocols-as-meaning-making.json",
+      "tier": 0,
+      "title": "Protocols as Shareable Meaning-Making"
+    },
+    {
+      "instanceId": "4d9f78b5-3138-4d8a-a443-e39f5af0a830",
+      "path": "records/notes/shared-meaning-governing-documents.json",
+      "tier": 0,
+      "title": "Shared Meaning and Governing Documents"
+    },
+    {
+      "instanceId": "d0100001-0000-4000-a000-000000000001",
+      "path": "records/specifications/srs-spec.json",
+      "tags": [
+        "topic:meta"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "d0100002-0000-4000-a000-000000000002",
+      "path": "records/specifications/srs-rationale.json",
+      "tags": [
+        "topic:meta"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "b1000000-0000-4000-a000-000000000001",
+      "path": "records/tables/t001-edit-in-place-vs-new-record.json",
+      "tags": [
+        "construct:record",
+        "construct:reference",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "b1000000-0000-4000-a000-000000000002",
+      "path": "records/tables/t002-repeatable-vs-field-groups-vs-records.json",
+      "tags": [
+        "construct:field",
+        "construct:lifecycle",
+        "construct:record",
+        "construct:reference",
+        "construct:relation",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "b1000000-0000-4000-a000-000000000003",
+      "path": "records/tables/t003-graduation-identity-continuity.json",
+      "tags": [
+        "concern:identity",
+        "construct:record",
+        "construct:reference",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "b1000000-0000-4000-a000-000000000004",
+      "path": "records/tables/t004-which-extensions-to-implement.json",
+      "tags": [
+        "construct:reference",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "b1000000-0000-4000-a000-000000000005",
+      "path": "records/tables/t005-democracy-mapping.json",
+      "tags": [
+        "construct:reference",
+        "construct:vocabulary",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "b1000000-0000-4000-a000-000000000006",
+      "path": "records/tables/t006-relation-directionality.json",
+      "tags": [
+        "construct:reference",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "b1000000-0000-4000-a000-000000000007",
+      "path": "records/tables/t007-canonical-relation-types.json",
+      "tags": [
+        "construct:reference",
+        "construct:relation",
+        "construct:type",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "b1000000-0000-4000-a000-000000000008",
+      "path": "records/tables/t008-relation-category-taxonomy.json",
+      "tags": [
+        "construct:reference",
+        "construct:relation",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "a10d49a3-06ae-5690-ad9b-81edd6886b6d",
+      "path": "records/extensions/ext-addressability.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:address",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "c16793d7-005a-58d2-88d0-9e7d9b4967b1",
+      "path": "records/extensions/ext-cross-field-validation.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:field",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "20dc444e-756e-5641-93c9-3083f3abb57f",
+      "path": "records/extensions/ext-federation.json",
+      "tags": [
+        "concern:extensibility",
+        "concern:federation",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "8e542d9f-d981-50f0-a044-867cafe088aa",
+      "path": "records/extensions/ext-field-groups.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:field",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "279877f5-dd9d-569c-94d6-358ad177a6fb",
+      "path": "records/extensions/ext-import-tracking.json",
+      "tags": [
+        "concern:extensibility",
+        "concern:federation",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "ef180de4-5ec3-5e92-94e4-0077fdc12ebe",
+      "path": "records/extensions/ext-lifecycle.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:lifecycle",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "d557206f-fd5f-5626-8f13-8781b684fd03",
+      "path": "records/extensions/ext-protocol.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:protocol",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "ed9f0446-800c-5428-8780-09bb499f76aa",
+      "path": "records/extensions/ext-recommended-relations.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:relation",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "48823261-d31e-5893-a968-20e5c1e3d0ae",
+      "path": "records/extensions/ext-registry.json",
+      "tags": [
+        "concern:extensibility",
+        "concern:federation",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "5adefe1b-906b-5f23-b4bf-30603ec73174",
+      "path": "records/extensions/ext-repeatable-fields.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:field",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "df2f6a2c-3601-5f19-89e1-05661d21e611",
+      "path": "records/extensions/ext-repository.json",
+      "tags": [
+        "concern:extensibility",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e47a2b91-0c3d-4f5e-a6b7-8c9d0e1f2a3b",
+      "path": "records/extensions/ext-json-store.json",
+      "tags": [
+        "concern:extensibility",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "c5bb163b-93eb-5f79-8ee8-2ec0bc5df50b",
+      "path": "records/extensions/ext-views-l1.json",
+      "tags": [
+        "concern:extensibility",
+        "concern:rendering",
+        "construct:view",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "87e912b6-b3f3-5207-a71b-73ce5cd6b8b7",
+      "path": "records/extensions/ext-views-l2.json",
+      "tags": [
+        "concern:extensibility",
+        "concern:rendering",
+        "construct:view",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "22aeac29-b51f-510e-bc99-aeb0020d2656",
+      "path": "records/rfcs/rfc-001-views-l2-rendering.json",
+      "tags": [
+        "concern:rendering",
+        "construct:view",
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "854eedf0-ddcf-5f17-bfef-28d27d1e9e6a",
+      "path": "records/rfcs/rfc-002-themes-l1.json",
+      "tags": [
+        "concern:extensibility",
+        "concern:rendering",
+        "construct:view",
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f7f41817-fe5e-53e9-9bb4-eb313ae6c539",
+      "path": "records/rfcs/rfc-003-distribution-and-slices.json",
+      "tags": [
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "a4b5c6d7-e8f9-4a0b-8c2d-3e4f5a6b7c8d",
+      "path": "records/rfcs/rfc-004-language-neutral-schema-notation.json",
+      "tags": [
+        "construct:record",
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "dd8920f0-458f-5b72-ad58-93229c777b87",
+      "path": "records/sections/01-purpose-and-scope.json",
+      "tags": [
+        "topic:meta"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "5bc9b930-462d-535d-91c5-bd9e2b17c91c",
+      "path": "records/sections/02-namespace-format.json",
+      "tags": [
+        "concern:identity",
+        "construct:reference",
+        "topic:meta"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "63065301-6afc-5ae6-8d62-59cae1a3154c",
+      "path": "records/sections/03-schema-notation.json",
+      "tags": [
+        "topic:meta"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "74746626-1a15-5430-931e-90a147961265",
+      "path": "records/sections/04-foundation-group-core.json",
+      "tags": [
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "5b507597-f824-576b-b577-fd8141f1eaf1",
+      "path": "records/sections/05-distribution-group-core.json",
+      "tags": [
+        "topic:distribution"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "6cb78382-35a5-5acc-a26c-774a2c288e23",
+      "path": "records/sections/06-conversation-layer.json",
+      "tags": [
+        "construct:address",
+        "topic:conversation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "4244a790-72ff-5e1c-9b60-d4b58b90f92c",
+      "path": "records/sections/07-extensions.json",
+      "tags": [
+        "concern:extensibility",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "a1fc7f7c-dcba-5f4b-b9fd-04f91b2762b3",
+      "path": "records/sections/08-5-extension-interactions.json",
+      "tags": [
+        "concern:extensibility",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "df42f888-4d95-5a51-963e-60d10c36533c",
+      "path": "records/sections/08-key-invariants.json",
+      "tags": [
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e538ea64-f93f-5c51-ade0-6cd358605e8c",
+      "path": "records/sections/09-conformance.json",
+      "tags": [
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "859c6150-4a5c-5229-934b-14223a072bdb",
+      "path": "records/subsections/01-1-what-this-specification-defines.json",
+      "tags": [
+        "topic:meta"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "7bf07a79-5f0d-5a22-b0b4-4c45e2dd76df",
+      "path": "records/subsections/01-2-what-this-specification-does-not-define.json",
+      "tags": [
+        "topic:meta"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "6a164d5b-3d5f-5b40-9a8c-6aac72a3db9b",
+      "path": "records/subsections/01-3-relationship-to-implementing-systems.json",
+      "tags": [
+        "construct:relation",
+        "topic:meta"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "9a358922-04fb-5730-807c-592da5269f9f",
+      "path": "records/subsections/01-4-extension-conformance-model.json",
+      "tags": [
+        "concern:extensibility",
+        "topic:meta"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "a79c0adc-c4a3-516e-8305-640045eda858",
+      "path": "records/subsections/02-1-convention.json",
+      "tags": [
+        "topic:meta"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "b3bc0140-505a-5ab6-bfe1-4271e3c6b42f",
+      "path": "records/subsections/02-2-reserved-namespaces.json",
+      "tags": [
+        "concern:identity",
+        "construct:reference",
+        "topic:meta"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "d13710f4-628e-50a0-9f12-f297a93dc25f",
+      "path": "records/subsections/02-3-reference-format.json",
+      "tags": [
+        "concern:resolution",
+        "construct:reference",
+        "topic:meta"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "7d22d50f-2dc2-51cb-ac43-dd1b0903d869",
+      "path": "records/subsections/02-4-name-convention.json",
+      "tags": [
+        "construct:reference",
+        "topic:meta"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "8e3fb02c-3863-55a9-8bcd-0580e0c7b3a9",
+      "path": "records/subsections/03-1-version-semantics.json",
+      "tags": [
+        "concern:identity",
+        "construct:reference",
+        "topic:meta"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "32edcb34-791f-5bfe-a3a0-d8a2cbea4ea7",
+      "path": "records/subsections/04-1-4-1-supporting-types.json",
+      "tags": [
+        "construct:type",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "656e5bbb-c29a-5020-9984-121191a4cf68",
+      "path": "records/subsections/04-2-4-2-field.json",
+      "tags": [
+        "construct:field",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "4e1ca747-254d-5a7a-b0f2-d4f253189f98",
+      "path": "records/subsections/04-3-4-3-type.json",
+      "tags": [
+        "construct:type",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "d1f518cc-0e25-5045-ae3d-9d68443c8150",
+      "path": "records/subsections/04-4-4-4-record-tiers.json",
+      "tags": [
+        "construct:record",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e9bb323b-dc48-5e6f-bb2a-3bd729ac70a6",
+      "path": "records/subsections/04-5-4-5-relation.json",
+      "tags": [
+        "construct:relation",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "9c202db2-d5c0-592f-b0da-7fd9f633a459",
+      "path": "records/subsections/04-6-4-6-container.json",
+      "tags": [
+        "construct:container",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "9a4a70af-dbce-55e3-abee-175d2491f656",
+      "path": "records/subsections/05-1-5-1-package.json",
+      "tags": [
+        "construct:package",
+        "topic:distribution"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "8ccf7519-68ac-532e-b32b-89c5007d4cf6",
+      "path": "records/subsections/05-2-5-2-reference.json",
+      "tags": [
+        "construct:reference",
+        "topic:distribution"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f7ffc0ea-89bb-548b-876b-d320c40c8c6a",
+      "path": "records/subsections/05-3-5-3-lineage.json",
+      "tags": [
+        "construct:provenance",
+        "topic:distribution"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "60dc0cbb-6c52-559b-9014-2fe0c41bacd1",
+      "path": "records/subsections/05-4-5-4-provenance.json",
+      "tags": [
+        "construct:provenance",
+        "topic:distribution"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "214a7c1f-1bb4-5c86-932e-b47b4fc3b57b",
+      "path": "records/subsections/07-1-ext-addressability.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:address",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "6d8d7d1a-0611-57ac-b2c5-654c53c941a1",
+      "path": "records/subsections/07-10-ext-cross-field-validation.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:field",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e327ca1f-4cc4-5322-b837-5a27906d5abf",
+      "path": "records/subsections/07-11-ext-recommended-relations.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:relation",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "6bb0f695-e004-5f14-a067-5cf922da5494",
+      "path": "records/subsections/07-12-ext-import-tracking.json",
+      "tags": [
+        "concern:extensibility",
+        "concern:federation",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "c90aef1e-af6e-550e-ad07-1d5f1bfdf67f",
+      "path": "records/subsections/07-13-ext-registry.json",
+      "tags": [
+        "concern:extensibility",
+        "concern:federation",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "dd0ed2ae-ada5-570c-8882-2ac89ca49c0f",
+      "path": "records/subsections/07-14-ext-federation.json",
+      "tags": [
+        "concern:extensibility",
+        "concern:federation",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "a75866ba-090f-5d62-9f7c-8e179ff1825f",
+      "path": "records/subsections/07-15-ext-repository.json",
+      "tags": [
+        "concern:extensibility",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f58b3ca2-1d4e-5f6a-b7c8-9d0e1f2a3b4c",
+      "path": "records/subsections/07-16-ext-json-store.json",
+      "tags": [
+        "concern:extensibility",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "d5d3f88f-8cc6-5247-8d35-41b189804dc5",
+      "path": "records/subsections/07-2-ext-lifecycle.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:lifecycle",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "ca3ea62e-effb-503f-ac04-22ce30ca4511",
+      "path": "records/subsections/07-3-ext-protocol.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:protocol",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "3db80d07-9d40-59e9-97b7-516a5ae212af",
+      "path": "records/subsections/07-4-ext-schema.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:blueprint",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "37e2f653-b3cc-5751-8f8f-2dfece3acf79",
+      "path": "records/subsections/07-5-ext-type-inheritance.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:type",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "d3b0ec85-760f-50d2-be4a-9edea5685740",
+      "path": "records/subsections/07-6-ext-views-l1.json",
+      "tags": [
+        "concern:extensibility",
+        "concern:rendering",
+        "construct:view",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "c9c16dcc-324a-5ab7-b7a5-d53ce48426bf",
+      "path": "records/subsections/07-7-ext-views-l2.json",
+      "tags": [
+        "concern:extensibility",
+        "concern:rendering",
+        "construct:view",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "b9d40b80-3ca0-5daa-bd1f-6a8a47118156",
+      "path": "records/subsections/07-8-ext-repeatable-fields.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:field",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "7196cf13-e961-5b8e-bcc5-2f91b61aaf9a",
+      "path": "records/subsections/07-9-ext-field-groups.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:field",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "812a7f7f-cb3e-5927-bc10-a097ffe28178",
+      "path": "records/subsections/08-1-field-semantics.json",
+      "tags": [
+        "construct:field",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "b8b7c8e0-9a24-585b-9192-75ad2b97cfd4",
+      "path": "records/subsections/08-10-repeatability-ext-repeatable-fields.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:field",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "1373ac6c-4491-509d-90ff-40b111d844d6",
+      "path": "records/subsections/08-11-field-groups-ext-field-groups.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:field",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "4fe78bbb-e1e7-587a-a45e-69ada9a4b8c7",
+      "path": "records/subsections/08-12-records.json",
+      "tags": [
+        "construct:record",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "b8fa7bbe-4ce5-5081-81bb-0e65bbff94b7",
+      "path": "records/subsections/08-13-protocol-ext-protocol.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:protocol",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "90db4d42-c1c3-5d59-80e8-654e549eac71",
+      "path": "records/subsections/08-14-views-l2-ext-views-l2.json",
+      "tags": [
+        "concern:extensibility",
+        "concern:rendering",
+        "construct:view",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "d95bae97-3af2-5e03-b290-4d9f19323b0b",
+      "path": "records/subsections/08-15-addressability-ext-addressability.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:address",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "fe0810ac-5ba0-5a37-8ab2-a845ea96b3af",
+      "path": "records/subsections/08-16-distribution-views-l2-ext-views-l2.json",
+      "tags": [
+        "concern:extensibility",
+        "concern:rendering",
+        "construct:view",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "1623bc16-c479-5fd0-8014-36a81c692690",
+      "path": "records/subsections/08-17-distribution-schema-ext-schema.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:blueprint",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f3e0eeb6-0844-5d87-ba39-222ba4454eea",
+      "path": "records/subsections/08-18-distribution-protocol-ext-protocol.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:protocol",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "31bc8a13-bcef-5c71-826d-2fd5528ce021",
+      "path": "records/subsections/08-19-field-semantics-content-format.json",
+      "tags": [
+        "construct:field",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "078b205b-a636-5f5c-b120-f84a7bcd5463",
+      "path": "records/subsections/08-2-lifecycle-ext-lifecycle.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:lifecycle",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "cd8fdb47-61c6-51e5-8b9a-31f7745b1b42",
+      "path": "records/subsections/08-20-type-inheritance-ext-type-inheritance.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:type",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "38d8c953-8133-51c7-aa5f-05ef5d7bf44f",
+      "path": "records/subsections/08-21-views-l2-navigation-ext-views-l2.json",
+      "tags": [
+        "concern:extensibility",
+        "concern:rendering",
+        "construct:view",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "8c665338-6466-5721-83d8-42caefcd6506",
+      "path": "records/subsections/08-22-repository-ext-repository.json",
+      "tags": [
+        "concern:extensibility",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "40eb2d7e-30c4-5b7b-8626-78c4e8ce98ed",
+      "path": "records/subsections/08-23-federation-ext-federation.json",
+      "tags": [
+        "concern:extensibility",
+        "concern:federation",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "a848ecbd-c284-5754-b8cf-1a596de42242",
+      "path": "records/subsections/08-3-distribution.json",
+      "tags": [
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "fee1b9fe-314d-5bb8-9318-35d4f03fff0b",
+      "path": "records/subsections/08-4-cross-field-validation-ext-cross-field-validation.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:field",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e2439781-004a-5997-bfc8-9d405232e223",
+      "path": "records/subsections/08-5-1-ext-federation-ext-repository.json",
+      "tags": [
+        "concern:extensibility",
+        "concern:federation",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "1ff855f5-b20f-52c7-bc1d-c7e6311743a6",
+      "path": "records/subsections/08-5-2-ext-protocol-ext-addressability.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:address",
+        "construct:protocol",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "6a3ae7a9-bb3e-5dc3-9d4e-8a2cea41fb77",
+      "path": "records/subsections/08-5-views-ext-views-l1.json",
+      "tags": [
+        "concern:extensibility",
+        "concern:rendering",
+        "construct:view",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "826039b6-5575-5071-bd10-3b0ef9b345a5",
+      "path": "records/subsections/08-6-distribution-views-ext-views-l1.json",
+      "tags": [
+        "concern:extensibility",
+        "concern:rendering",
+        "construct:view",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "bf712f2b-715b-5ea6-8aac-9bb065605bdd",
+      "path": "records/subsections/08-7-relations.json",
+      "tags": [
+        "construct:relation",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "250ab2e5-095f-5448-99ab-4e419f27d844",
+      "path": "records/subsections/08-8-notes-and-typed-records.json",
+      "tags": [
+        "construct:record",
+        "construct:type",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "84e538ce-2e65-5f5e-b73e-9d674d7a3af5",
+      "path": "records/subsections/08-9-containers.json",
+      "tags": [
+        "construct:container",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "ab421ac0-561d-5ec0-87b0-09e8bc930a4d",
+      "path": "records/subsections/09-1-core-conformance-requirements.json",
+      "tags": [
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "95bef379-2358-5848-abb1-ff72cb07a25e",
+      "path": "records/subsections/09-2-extension-conformance-requirements.json",
+      "tags": [
+        "concern:extensibility",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "3ed5c3d1-96f9-5a4d-a603-602b44bdc6af",
+      "path": "records/subsections/09-3-ext-federation-conformance-requirements.json",
+      "tags": [
+        "concern:extensibility",
+        "concern:federation",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "d311183c-c402-5096-b961-ed925167e3b8",
+      "path": "records/subsections/09-4-ext-repository-conformance-requirements.json",
+      "tags": [
+        "concern:extensibility",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "8e7eb9f3-c773-5429-b4f8-2c68328928d9",
+      "path": "records/subsections/09-5-ext-repository-self-contained-profile.json",
+      "tags": [
+        "concern:extensibility",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "a61d30ea-1d2b-5784-8589-9db7996f7122",
+      "path": "records/subsections/09-6-interoperability-note.json",
+      "tags": [
+        "construct:record",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000001-0000-4000-a000-000000000001",
+      "path": "records/invariants/invariant-001.json",
+      "tags": [
+        "concern:validation",
+        "construct:field",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000002-0000-4000-a000-000000000002",
+      "path": "records/invariants/invariant-002.json",
+      "tags": [
+        "concern:validation",
+        "construct:type",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000003-0000-4000-a000-000000000003",
+      "path": "records/invariants/invariant-003.json",
+      "tags": [
+        "concern:validation",
+        "construct:field",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000004-0000-4000-a000-000000000004",
+      "path": "records/invariants/invariant-004.json",
+      "tags": [
+        "concern:validation",
+        "construct:lifecycle",
+        "construct:reference",
+        "construct:type",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000005-0000-4000-a000-000000000005",
+      "path": "records/invariants/invariant-005.json",
+      "tags": [
+        "concern:validation",
+        "construct:lifecycle",
+        "construct:reference",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000006-0000-4000-a000-000000000006",
+      "path": "records/invariants/invariant-006.json",
+      "tags": [
+        "concern:validation",
+        "construct:lifecycle",
+        "construct:record",
+        "construct:reference",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000007-0000-4000-a000-000000000007",
+      "path": "records/invariants/invariant-007.json",
+      "tags": [
+        "concern:validation",
+        "construct:field",
+        "construct:reference",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000008-0000-4000-a000-000000000008",
+      "path": "records/invariants/invariant-008.json",
+      "tags": [
+        "concern:validation",
+        "construct:package",
+        "construct:reference",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000009-0000-4000-a000-000000000009",
+      "path": "records/invariants/invariant-009.json",
+      "tags": [
+        "concern:identity",
+        "concern:validation",
+        "construct:field",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000010-0000-4000-a000-000000000010",
+      "path": "records/invariants/invariant-010.json",
+      "tags": [
+        "concern:validation",
+        "construct:field",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000011-0000-4000-a000-000000000011",
+      "path": "records/invariants/invariant-011.json",
+      "tags": [
+        "concern:validation",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000012-0000-4000-a000-000000000012",
+      "path": "records/invariants/invariant-012.json",
+      "tags": [
+        "concern:rendering",
+        "concern:validation",
+        "construct:field",
+        "construct:reference",
+        "construct:view",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000013-0000-4000-a000-000000000013",
+      "path": "records/invariants/invariant-013.json",
+      "tags": [
+        "concern:validation",
+        "construct:field",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000014-0000-4000-a000-000000000014",
+      "path": "records/invariants/invariant-014.json",
+      "tags": [
+        "concern:rendering",
+        "concern:validation",
+        "construct:view",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000015-0000-4000-a000-000000000015",
+      "path": "records/invariants/invariant-015.json",
+      "tags": [
+        "concern:rendering",
+        "concern:validation",
+        "construct:package",
+        "construct:reference",
+        "construct:type",
+        "construct:view",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000016-0000-4000-a000-000000000016",
+      "path": "records/invariants/invariant-016.json",
+      "tags": [
+        "concern:validation",
+        "construct:provenance",
+        "construct:relation",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000017-0000-4000-a000-000000000017",
+      "path": "records/invariants/invariant-017.json",
+      "tags": [
+        "concern:validation",
+        "construct:relation",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000018-0000-4000-a000-000000000018",
+      "path": "records/invariants/invariant-018.json",
+      "tags": [
+        "concern:validation",
+        "construct:record",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000019-0000-4000-a000-000000000019",
+      "path": "records/invariants/invariant-019.json",
+      "tags": [
+        "concern:validation",
+        "construct:record",
+        "construct:type",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000020-0000-4000-a000-000000000020",
+      "path": "records/invariants/invariant-020.json",
+      "tags": [
+        "concern:validation",
+        "construct:container",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000021-0000-4000-a000-000000000021",
+      "path": "records/invariants/invariant-021.json",
+      "tags": [
+        "concern:validation",
+        "construct:container",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000022-0000-4000-a000-000000000022",
+      "path": "records/invariants/invariant-022.json",
+      "tags": [
+        "concern:validation",
+        "construct:field",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000023-0000-4000-a000-000000000023",
+      "path": "records/invariants/invariant-023.json",
+      "tags": [
+        "concern:validation",
+        "construct:field",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000024-0000-4000-a000-000000000024",
+      "path": "records/invariants/invariant-024.json",
+      "tags": [
+        "concern:validation",
+        "construct:field",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000025-0000-4000-a000-000000000025",
+      "path": "records/invariants/invariant-025.json",
+      "tags": [
+        "concern:validation",
+        "construct:record",
+        "construct:reference",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000026-0000-4000-a000-000000000026",
+      "path": "records/invariants/invariant-026.json",
+      "tags": [
+        "concern:validation",
+        "construct:field",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000027-0000-4000-a000-000000000027",
+      "path": "records/invariants/invariant-027.json",
+      "tags": [
+        "concern:validation",
+        "construct:field",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000028-0000-4000-a000-000000000028",
+      "path": "records/invariants/invariant-028.json",
+      "tags": [
+        "concern:identity",
+        "concern:validation",
+        "construct:record",
+        "construct:type",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000029-0000-4000-a000-000000000029",
+      "path": "records/invariants/invariant-029.json",
+      "tags": [
+        "concern:validation",
+        "construct:protocol",
+        "construct:reference",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000030-0000-4000-a000-000000000030",
+      "path": "records/invariants/invariant-030.json",
+      "tags": [
+        "concern:validation",
+        "construct:field",
+        "construct:protocol",
+        "construct:reference",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000031-0000-4000-a000-000000000031",
+      "path": "records/invariants/invariant-031.json",
+      "tags": [
+        "concern:validation",
+        "construct:protocol",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000032-0000-4000-a000-000000000032",
+      "path": "records/invariants/invariant-032.json",
+      "tags": [
+        "concern:validation",
+        "construct:package",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000033-0000-4000-a000-000000000033",
+      "path": "records/invariants/invariant-033.json",
+      "tags": [
+        "concern:validation",
+        "construct:reference",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000034-0000-4000-a000-000000000034",
+      "path": "records/invariants/invariant-034.json",
+      "tags": [
+        "concern:validation",
+        "construct:container",
+        "construct:reference",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000035-0000-4000-a000-000000000035",
+      "path": "records/invariants/invariant-035.json",
+      "tags": [
+        "concern:rendering",
+        "concern:validation",
+        "construct:view",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000036-0000-4000-a000-000000000036",
+      "path": "records/invariants/invariant-036.json",
+      "tags": [
+        "concern:validation",
+        "construct:blueprint",
+        "construct:reference",
+        "construct:type",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000037-0000-4000-a000-000000000037",
+      "path": "records/invariants/invariant-037.json",
+      "tags": [
+        "concern:validation",
+        "construct:protocol",
+        "construct:reference",
+        "construct:type",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000038-0000-4000-a000-000000000038",
+      "path": "records/invariants/invariant-038.json",
+      "tags": [
+        "concern:validation",
+        "construct:field",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000039-0000-4000-a000-000000000039",
+      "path": "records/invariants/invariant-039.json",
+      "tags": [
+        "concern:extensibility",
+        "concern:validation",
+        "construct:reference",
+        "construct:type",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000040-0000-4000-a000-000000000040",
+      "path": "records/invariants/invariant-040.json",
+      "tags": [
+        "concern:validation",
+        "construct:field",
+        "construct:type",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000041-0000-4000-a000-000000000041",
+      "path": "records/invariants/invariant-041.json",
+      "tags": [
+        "concern:validation",
+        "construct:field",
+        "construct:type",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000042-0000-4000-a000-000000000042",
+      "path": "records/invariants/invariant-042.json",
+      "tags": [
+        "concern:validation",
+        "construct:field",
+        "construct:reference",
+        "construct:type",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000043-0000-4000-a000-000000000043",
+      "path": "records/invariants/invariant-043.json",
+      "tags": [
+        "concern:extensibility",
+        "concern:validation",
+        "construct:package",
+        "construct:type",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000044-0000-4000-a000-000000000044",
+      "path": "records/invariants/invariant-044.json",
+      "tags": [
+        "concern:validation",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000045-0000-4000-a000-000000000045",
+      "path": "records/invariants/invariant-045.json",
+      "tags": [
+        "concern:validation",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000046-0000-4000-a000-000000000046",
+      "path": "records/invariants/invariant-046.json",
+      "tags": [
+        "concern:resolution",
+        "concern:validation",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000047-0000-4000-a000-000000000047",
+      "path": "records/invariants/invariant-047.json",
+      "tags": [
+        "concern:validation",
+        "construct:container",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000048-0000-4000-a000-000000000048",
+      "path": "records/invariants/invariant-048.json",
+      "tags": [
+        "concern:validation",
+        "construct:provenance",
+        "construct:reference",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000049-0000-4000-a000-000000000049",
+      "path": "records/invariants/invariant-049.json",
+      "tags": [
+        "concern:validation",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000050-0000-4000-a000-000000000050",
+      "path": "records/invariants/invariant-050.json",
+      "tags": [
+        "concern:validation",
+        "construct:package",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000051-0000-4000-a000-000000000051",
+      "path": "records/invariants/invariant-051.json",
+      "tags": [
+        "concern:validation",
+        "construct:provenance",
+        "construct:reference",
+        "construct:relation",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000052-0000-4000-a000-000000000052",
+      "path": "records/invariants/invariant-052.json",
+      "tags": [
+        "concern:validation",
+        "construct:provenance",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000053-0000-4000-a000-000000000053",
+      "path": "records/invariants/invariant-053.json",
+      "tags": [
+        "concern:validation",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000054-0000-4000-a000-000000000054",
+      "path": "records/invariants/invariant-054.json",
+      "tags": [
+        "concern:identity",
+        "concern:validation",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000055-0000-4000-a000-000000000055",
+      "path": "records/invariants/invariant-055.json",
+      "tags": [
+        "concern:validation",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000056-0000-4000-a000-000000000056",
+      "path": "records/invariants/invariant-056.json",
+      "tags": [
+        "concern:validation",
+        "construct:provenance",
+        "construct:relation",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000057-0000-4000-a000-000000000057",
+      "path": "records/invariants/invariant-057.json",
+      "tags": [
+        "concern:validation",
+        "construct:relation",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000058-0000-4000-a000-000000000058",
+      "path": "records/invariants/invariant-058.json",
+      "tags": [
+        "concern:validation",
+        "construct:provenance",
+        "construct:relation",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000059-0000-4000-a000-000000000059",
+      "path": "records/invariants/invariant-059.json",
+      "tags": [
+        "concern:federation",
+        "concern:validation",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000060-0000-4000-a000-000000000060",
+      "path": "records/invariants/invariant-060.json",
+      "tags": [
+        "concern:federation",
+        "concern:validation",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000061-0000-4000-a000-000000000061",
+      "path": "records/invariants/invariant-061.json",
+      "tags": [
+        "concern:federation",
+        "concern:validation",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "e1000062-0000-4000-a000-000000000062",
+      "path": "records/invariants/invariant-062.json",
+      "tags": [
+        "concern:federation",
+        "concern:validation",
+        "topic:conformance"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000001-0000-4000-a000-000000000001",
+      "path": "records/design-notes/001-core-thesis.json",
+      "tags": [
+        "topic:meta"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000002-0000-4000-a000-000000000002",
+      "path": "records/design-notes/002-design-decisions.json",
+      "tags": [
+        "topic:meta"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000003-0000-4000-a000-000000000003",
+      "path": "records/design-notes/003-why-field-and-type-are-separate.json",
+      "tags": [
+        "construct:field",
+        "construct:type",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000004-0000-4000-a000-000000000004",
+      "path": "records/design-notes/004-why-type-not-module.json",
+      "tags": [
+        "construct:type",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000005-0000-4000-a000-000000000005",
+      "path": "records/design-notes/005-why-record-tiers-exist-note-typed-record-record.json",
+      "tags": [
+        "construct:record",
+        "construct:type",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000006-0000-4000-a000-000000000006",
+      "path": "records/design-notes/006-why-protocol-replaces-templatefacilitationstep.json",
+      "tags": [
+        "construct:protocol",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000007-0000-4000-a000-000000000007",
+      "path": "records/design-notes/007-why-schema-is-a-new-concept.json",
+      "tags": [
+        "construct:blueprint",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000008-0000-4000-a000-000000000008",
+      "path": "records/design-notes/008-why-address-and-attentionstate-are-needed.json",
+      "tags": [
+        "construct:address",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000009-0000-4000-a000-000000000009",
+      "path": "records/design-notes/009-why-revision-is-addressable.json",
+      "tags": [
+        "construct:address",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000010-0000-4000-a000-000000000010",
+      "path": "records/design-notes/010-why-valuetype-and-editorhint-are-separate.json",
+      "tags": [
+        "construct:field",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000011-0000-4000-a000-000000000011",
+      "path": "records/design-notes/011-why-displaylabel-must-not-affect-extraction.json",
+      "tags": [
+        "construct:field",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000012-0000-4000-a000-000000000012",
+      "path": "records/design-notes/012-why-the-directionality-invariant-matters.json",
+      "tags": [
+        "construct:relation",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000013-0000-4000-a000-000000000013",
+      "path": "records/design-notes/013-why-containers-and-relations-are-complementary.json",
+      "tags": [
+        "construct:container",
+        "construct:relation",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000014-0000-4000-a000-000000000014",
+      "path": "records/design-notes/014-why-the-conversation-layer-is-a-permanent-boundary.json",
+      "tags": [
+        "construct:address",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000015-0000-4000-a000-000000000015",
+      "path": "records/design-notes/015-usage-guidance.json",
+      "tags": [
+        "topic:meta"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000016-0000-4000-a000-000000000016",
+      "path": "records/design-notes/016-ai-guidance-composition-order.json",
+      "tags": [
+        "construct:field",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000017-0000-4000-a000-000000000017",
+      "path": "records/design-notes/017-when-to-edit-in-place-vs-create-a-new-record.json",
+      "tags": [
+        "construct:record",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000018-0000-4000-a000-000000000018",
+      "path": "records/design-notes/018-choosing-between-repeatable-fields-field-groups-and-separate.json",
+      "tags": [
+        "construct:field",
+        "construct:record",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000019-0000-4000-a000-000000000019",
+      "path": "records/design-notes/019-graduation-when-and-how.json",
+      "tags": [
+        "construct:record",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000020-0000-4000-a000-000000000020",
+      "path": "records/design-notes/020-relation-taxonomy-usage.json",
+      "tags": [
+        "construct:relation",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000021-0000-4000-a000-000000000021",
+      "path": "records/design-notes/021-protocol-chaining-and-provenance-traces.json",
+      "tags": [
+        "construct:protocol",
+        "construct:provenance",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000022-0000-4000-a000-000000000022",
+      "path": "records/design-notes/022-graceful-degradation.json",
+      "tags": [
+        "topic:meta"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000023-0000-4000-a000-000000000023",
+      "path": "records/design-notes/023-extension-design-notes.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:record",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000024-0000-4000-a000-000000000024",
+      "path": "records/design-notes/024-how-to-decide-which-extensions-to-implement.json",
+      "tags": [
+        "concern:extensibility",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000025-0000-4000-a000-000000000025",
+      "path": "records/design-notes/025-addressability-as-a-prerequisite-for-live-facilitation.json",
+      "tags": [
+        "construct:address",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000026-0000-4000-a000-000000000026",
+      "path": "records/design-notes/026-schema-vs-view-the-extraction-gap.json",
+      "tags": [
+        "concern:rendering",
+        "construct:blueprint",
+        "construct:view",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000027-0000-4000-a000-000000000027",
+      "path": "records/design-notes/027-semanticobjecttype-as-a-federation-risk.json",
+      "tags": [
+        "concern:federation",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000028-0000-4000-a000-000000000028",
+      "path": "records/design-notes/028-protocol-loose-to-tight-spectrum.json",
+      "tags": [
+        "construct:protocol",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000029-0000-4000-a000-000000000029",
+      "path": "records/design-notes/029-why-type-inheritance-is-conservative.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:type",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000030-0000-4000-a000-000000000030",
+      "path": "records/design-notes/030-future-extensions.json",
+      "tags": [
+        "concern:extensibility",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000031-0000-4000-a000-000000000031",
+      "path": "records/design-notes/031-session.json",
+      "tags": [
+        "construct:address",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000032-0000-4000-a000-000000000032",
+      "path": "records/design-notes/032-full-projection-surface.json",
+      "tags": [
+        "concern:rendering",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000033-0000-4000-a000-000000000033",
+      "path": "records/design-notes/033-revision-history-exchange-format.json",
+      "tags": [
+        "construct:address",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000034-0000-4000-a000-000000000034",
+      "path": "records/design-notes/034-graduation-mapping-record.json",
+      "tags": [
+        "construct:record",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000035-0000-4000-a000-000000000035",
+      "path": "records/design-notes/035-field-domains.json",
+      "tags": [
+        "construct:field",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000036-0000-4000-a000-000000000036",
+      "path": "records/design-notes/036-view-inheritance-and-composition.json",
+      "tags": [
+        "concern:extensibility",
+        "concern:rendering",
+        "construct:view",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000037-0000-4000-a000-000000000037",
+      "path": "records/design-notes/037-instance-graph-exchange-format.json",
+      "tags": [
+        "construct:address",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000038-0000-4000-a000-000000000038",
+      "path": "records/design-notes/038-field-transclusion-in-document-views.json",
+      "tags": [
+        "concern:rendering",
+        "construct:field",
+        "construct:view",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000039-0000-4000-a000-000000000039",
+      "path": "records/design-notes/039-conditional-processing.json",
+      "tags": [
+        "topic:meta"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000040-0000-4000-a000-000000000040",
+      "path": "records/design-notes/040-sub-field-addressing.json",
+      "tags": [
+        "construct:address",
+        "construct:field",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f1000041-0000-4000-a000-000000000041",
+      "path": "records/design-notes/041-democracy-mapping.json",
+      "tags": [
+        "topic:meta"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "af489a79-3748-56a7-b21d-916da4a2ce08",
+      "path": "records/type-definitions/container.json",
+      "tags": [
+        "construct:container",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "206b93e5-c3a4-516c-9e50-9c1be3a7f25c",
+      "path": "records/type-definitions/field.json",
+      "tags": [
+        "construct:field",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "48b8b950-3ace-5b3e-b6a9-561b21dcb560",
+      "path": "records/type-definitions/record-note.json",
+      "tags": [
+        "construct:record",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "44a1638e-923e-5a23-ae71-8b85b29d7149",
+      "path": "records/type-definitions/record-typed.json",
+      "tags": [
+        "construct:record",
+        "construct:type",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "b6ab8ae4-0041-5f4b-acf8-66204495d636",
+      "path": "records/type-definitions/record.json",
+      "tags": [
+        "construct:record",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "eddeaecc-f30e-5919-b5ae-0bd4e38161ab",
+      "path": "records/type-definitions/relation.json",
+      "tags": [
+        "construct:relation",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "20ac347b-824d-5902-8dc6-6920d75b6dff",
+      "path": "records/type-definitions/type.json",
+      "tags": [
+        "construct:type",
+        "topic:foundation"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f3d9302c-ae06-5311-8928-54f5f01d34b1",
+      "path": "records/rfc-changes/rfc-004-change-a.json",
+      "tags": [
+        "construct:field",
+        "construct:type",
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "2925ab39-cbb1-58e2-8e56-7927d04e8890",
+      "path": "records/rfc-changes/rfc-004-change-b.json",
+      "tags": [
+        "concern:extensibility",
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "95aaa3b5-1866-5fa8-857b-026db49abaaf",
+      "path": "records/rfc-changes/rfc-004-change-c.json",
+      "tags": [
+        "construct:type",
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "2e7aee83-a9e8-57a8-89bf-08917c91a69f",
+      "path": "records/rfc-changes/rfc-004-change-d.json",
+      "tags": [
+        "construct:type",
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "694cfd3c-91a7-52b5-8082-20ed49976366",
+      "path": "records/rfc-changes/rfc-004-change-e.json",
+      "tags": [
+        "construct:type",
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "29b41659-4cf6-58e3-87ad-9edf01c9309e",
+      "path": "records/rfc-changes/rfc-004-change-f.json",
+      "tags": [
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "be9b259a-0697-5f8b-8a75-8c0c9f00d297",
+      "path": "records/rfc-changes/rfc-004-change-g.json",
+      "tags": [
+        "construct:relation",
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "978704cf-a41a-5e7b-887f-6a328f7502d9",
+      "path": "records/rfc-changes/rfc-004-change-h.json",
+      "tags": [
+        "concern:rendering",
+        "construct:package",
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "8149374a-c3ed-5efb-81cd-a99a00d61ba1",
+      "path": "records/rfc-changes/rfc-004-change-i.json",
+      "tags": [
+        "construct:package",
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "17eab013-627d-5fd2-8441-467097843508",
+      "path": "records/rfc-revisions/rfc-004-revision-1.json",
+      "tags": [
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "0f2a0ce5-cd4a-5f94-8b4e-c6b1dc600da6",
+      "path": "records/rfc-revisions/rfc-004-revision-2.json",
+      "tags": [
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "4f3fdbd8-e155-51d6-8488-4708b2e5c1c4",
+      "path": "records/rfc-proposed-artifacts/rfc-004-artifact-field-schema.json",
+      "tags": [
+        "construct:field",
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "4a12d726-5718-5215-8779-daf58477b50d",
+      "path": "records/rfc-proposed-artifacts/rfc-004-artifact-package-schema.json",
+      "tags": [
+        "construct:package",
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "a0d914fc-2d96-576c-811b-1249e533091f",
+      "path": "records/rfc-proposed-artifacts/rfc-004-artifact-core-package.json",
+      "tags": [
+        "construct:package",
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "0ee9f736-c16b-5358-87d3-1c1ae7448b8d",
+      "path": "records/rfc-proposed-artifacts/rfc-004-artifact-json-schema-package.json",
+      "tags": [
+        "construct:package",
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "4ed1593f-38ff-528c-846c-e961f0b55173",
+      "path": "records/rfc-proposed-artifacts/rfc-004-artifact-json-schema-rules.json",
+      "tags": [
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "c7a59785-cbc5-5375-8180-0ddfe92d9abe",
+      "path": "records/rfc-proposed-artifacts/rfc-004-artifact-readme.json",
+      "tags": [
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "f01b93ad-0bb5-5069-8d3c-3ddef324e8eb",
+      "path": "records/rfc-proposed-artifacts/rfc-004-artifact-field-schema-name.json",
+      "tags": [
+        "construct:field",
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "60f4c2b0-a514-53b5-8d8f-af072586d47d",
+      "path": "records/rfc-proposed-artifacts/rfc-004-artifact-field-member-name.json",
+      "tags": [
+        "construct:field",
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "14e86242-cc76-56a2-87b6-aaea17ef627e",
+      "path": "records/rfc-proposed-artifacts/rfc-004-artifact-field-type-expression.json",
+      "tags": [
+        "construct:field",
+        "construct:type",
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "6a8e6d05-111d-53f3-854c-a743c29a66b6",
+      "path": "records/rfc-proposed-artifacts/rfc-004-artifact-field-required.json",
+      "tags": [
+        "construct:field",
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "476e9067-bba3-5e82-89da-5c7218b8824e",
+      "path": "records/rfc-proposed-artifacts/rfc-004-artifact-field-nullable.json",
+      "tags": [
+        "construct:field",
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "8a4716e0-05cc-539b-8da8-ab0c884d7409",
+      "path": "records/rfc-proposed-artifacts/rfc-004-artifact-field-constraints.json",
+      "tags": [
+        "construct:field",
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "5303679e-54c2-5514-81cc-216efa2b95fd",
+      "path": "records/rfc-proposed-artifacts/rfc-004-artifact-field-schema-default-value.json",
+      "tags": [
+        "construct:field",
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "ea30e14e-e860-5320-8424-e3287ff53287",
+      "path": "records/rfc-proposed-artifacts/rfc-004-artifact-field-deprecated.json",
+      "tags": [
+        "construct:field",
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "20277726-5f1b-582a-8ada-b28609da6101",
+      "path": "records/rfc-proposed-artifacts/rfc-004-artifact-field-semantic-purpose.json",
+      "tags": [
+        "construct:field",
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "0912d44c-ea31-5ff1-8150-266239c49c36",
+      "path": "records/rfc-proposed-artifacts/rfc-004-artifact-type-schema-definition.json",
+      "tags": [
+        "construct:type",
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "0ace152b-c847-5541-8353-6bcbf0d6e5fd",
+      "path": "records/rfc-proposed-artifacts/rfc-004-artifact-type-schema-member.json",
+      "tags": [
+        "construct:type",
+        "topic:rfc"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "09b57270-d763-4a7c-b6fa-182e03365aab",
+      "path": "records/notes/ai-native-srs-repositories.json",
+      "tags": [
+        "ai-native",
+        "repository",
+        "self-describing",
+        "maintenance",
+        "human-ai-collaboration"
+      ],
+      "tier": 0,
+      "title": "AI-Native SRS Repositories"
+    },
+    {
+      "instanceId": "cdd08a86-4fb8-47a0-bcfd-1fd7b9449af9",
+      "path": "records/notes/tooling-design-principles-authority-and-determinism.json",
+      "tags": [
+        "design-principles",
+        "tooling",
+        "cli",
+        "library",
+        "authority",
+        "deterministic",
+        "dry-code",
+        "ai-native"
+      ],
+      "tier": 0,
+      "title": "Tooling Design Principles: Authority and Determinism"
+    },
+    {
+      "instanceId": "fa1d2160-0117-47c3-9c86-12a811911e3e",
+      "path": "records/notes/why-tags-exist-from-clustering-to-definitions.json",
+      "tags": [
+        "foundation",
+        "design-rationale",
+        "tags"
+      ],
+      "tier": 0,
+      "title": "Why tags exist: from clustering to definitions"
+    },
+    {
+      "instanceId": "f1000042-0000-4000-a000-000000000042",
+      "path": "records/design-notes/042-why-tags-exist.json",
+      "tags": [
+        "construct:vocabulary",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "c4d5e6f7-a8b9-4cad-be2f-3a4b5c6d7e8f",
+      "path": "records/design-notes/043-ext-federation-ext-lifecycle-interaction.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:lifecycle",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "b3c4d5e6-f7a8-4b9c-ad1e-2f3a4b5c6d7e",
+      "path": "records/subsections/08-5-3-ext-lifecycle-ext-addressability.json",
+      "tags": [
+        "concern:extensibility",
+        "construct:lifecycle",
+        "construct:address",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "609370d7-03cf-4501-894a-02276621df8e",
+      "path": "records/notes/semantic-pipeline-from-transcripts.json",
+      "tags": [
+        "semantic-pipeline",
+        "protocol",
+        "source-documents",
+        "transcripts",
+        "layered-extraction",
+        "human-ai-collaboration",
+        "provenance"
+      ],
+      "tier": 0,
+      "title": "Semantic Pipeline from Transcripts"
+    },
+    {
+      "instanceId": "3718815c-d505-40c1-a754-b0ab29e90b8f",
+      "path": "records/notes/rfc-005-relation-type-cardinality-decision.json",
+      "tags": [
+        "rfc-005",
+        "relation-types",
+        "design-decision",
+        "cardinality"
+      ],
+      "tier": 0,
+      "title": "RFC-005 Relation Type Cardinality Decision"
+    },
+    {
+      "instanceId": "3ac58ecc-dfc8-45cd-8ddb-2a3b429e768e",
+      "path": "records/notes/rfc-001-implementation-prerequisites.json",
+      "tags": [
+        "rfc-001",
+        "implementation",
+        "cli",
+        "views",
+        "schemas"
+      ],
+      "tier": 0,
+      "title": "RFC-001 Implementation Prerequisites"
+    },
+    {
+      "instanceId": "a3f7c9e1-2b4d-4f8a-9c1e-5d7b3a2f6e0c",
+      "path": "records/extensions/ext-themes-l1.json",
+      "tags": [
+        "concern:extensibility",
+        "concern:rendering",
+        "construct:view",
+        "topic:extensions"
+      ],
+      "tier": 2
+    },
+    {
+      "instanceId": "45cebefe-39ce-47d9-8753-b2b03ac25a18",
+      "path": "records/subsections/04-7-vocabulary-term-substrate.json",
+      "tags": [
+        "construct:vocabulary",
+        "topic:foundation"
+      ],
+      "tier": 2
+    }
+  ],
+  "meta": {
+    "renderedExports": [
+      {
+        "format": "markdown",
+        "outputPath": "../docs/spec/srs-spec.md",
+        "view": "srs-spec-document-view"
+      }
+    ],
+    "sourceOfTruth": "records"
+  },
+  "namespace": "com.semanticops.srs",
+  "packageRefs": [
+    {
+      "mode": "local",
+      "path": "package/spec-authoring-core"
+    },
+    {
+      "mode": "local",
+      "path": "package/spec-rfc-process"
+    }
+  ],
+  "relationsPath": "relations/relations.json",
+  "repositoryId": "4172fada-bc38-5479-ac18-4be3194a68ca",
+  "sourceDocumentIndex": [
+    "ai-sessions/chatgpt-origin.md.meta.json",
+    "ai-sessions/chatgpt-spec-review.md.meta.json",
+    "ai-sessions/claude-collaborative-document.md.meta.json",
+    "spec/srs-spec.md.meta.json"
+  ],
+  "sourceDocumentsPath": "source-documents",
+  "srsVersion": "2.0-draft",
+  "title": "Semantic Record System Specification",
+  "updatedAt": "2026-06-03T00:00:00Z"
+}

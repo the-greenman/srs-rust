@@ -1,0 +1,31 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "field"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "The atomic reusable semantic unit. Fields are defined once and composed into Types. A Field's `aiGuidance`, `validationRules`, and `valueType` belong to the Field, not to any Type that includes it.\n\n```typescript\n{\n  // Stable identity\n  id: UUID\n  namespace: string\n  name: string       // snake_case programmatic key\n  version: integer   // min: 1; increments within this id's lineage\n\n  // Semantic content\n  description: string      // one-sentence user-facing summary\n  instructions?: string    // fuller guidance for a human completing this field\n  aiGuidance: AiGuidance\n\n  // Value semantics — stable across renderers\n  valueType: \"string\" | \"text\" | \"number\" | \"boolean\" | \"date\" | \"url\" | \"select\" | \"multiselect\"\n  selectOptions?: string[]   // required when valueType is \"select\" or \"multiselect\"\n  validationRules?: ValidationRule[]\n  contentFormat?: \"plain\" | \"markdown\"\n  // Meaningful only when valueType is \"string\" or \"text\". Default: \"plain\".\n  // Describes the content of the value, not the editing surface (see editorHint).\n  // \"plain\"    — unformatted prose; renderers must not interpret markup\n  // \"markdown\" — CommonMark subset; renderers should parse and display formatting\n  // AI extractors must produce output conforming to this format: a field with\n  // contentFormat \"markdown\" should receive structured markdown from extraction.\n\n  // Editor hint — projection-specific default; implementations and Views may override\n  editorHint?: \"singleline\" | \"textarea\" | \"rich-text\" | \"date-picker\" | \"dropdown\" | \"multi-select\" | \"voice\"\n\n  // Classification\n  tags?: string[]\n\n  // Metadata\n  createdAt: ISO8601\n  lineage?: Lineage      // see Distribution group\n  provenance?: Provenance\n}\n```\n\n**`valueType` semantics:**\n\n| Value | Meaning |\n|---|---|\n| `\"string\"` | Short single-value text (typically one line) |\n| `\"text\"` | Potentially long multi-paragraph prose |\n| `\"number\"` | Numeric value |\n| `\"boolean\"` | True/false |\n| `\"date\"` | ISO 8601 date or datetime |\n| `\"url\"` | A URL string |\n| `\"select\"` | One value from `selectOptions` |\n| `\"multiselect\"` | One or more values from `selectOptions` |\n\n`valueType` is the stable semantic data type. `editorHint` is a rendering default. AI extraction, validation, and export formatting must depend only on `valueType`. `contentFormat` refines how `string` and `text` values should be produced and rendered, but does not alter the `valueType`.\n\n---"
+    }
+  ],
+  "instanceId": "206b93e5-c3a4-516c-9e50-9c1be3a7f25c",
+  "sourceRefs": [
+    {
+      "note": "Type definition field from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "construct:field",
+    "topic:foundation"
+  ],
+  "typeId": "2a000005-0000-4000-a000-000000000005",
+  "typeName": "type-definition",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

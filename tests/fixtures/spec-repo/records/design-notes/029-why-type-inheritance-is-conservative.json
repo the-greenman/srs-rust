@@ -1,0 +1,32 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Why Type inheritance is conservative"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "\n`ext:type-inheritance` adds one formal mechanism: a Type may specialize one base Type and still be processable as that base Type. This solves the common case where a domain-specific Type needs to add fields to a shared Type without duplicating the whole definition.\n\nThe extension is intentionally narrow. It supports inherited fields, added fields, explicit ordering, and presentation/workflow overrides for inherited fields. It does not let a specializing Type change Field semantics or relax base requirements. That keeps the central promise intact: a system that understands the base Type can still process the base portion of a specialized Record.\n\n`Type.fieldOrder` and `ExportConfig.fieldOrder` share a name but operate at different layers. `Type.fieldOrder` is a Type-level ordering declaration over the full effective field list, including inherited fields. `ExportConfig.fieldOrder` is a View export setting that controls rendered output order for a particular presentation. Validators should apply the `fieldAssignmentOverrides` inherited-field restriction only to `fieldAssignmentOverrides`, not to `Type.fieldOrder`.\n\n---"
+    }
+  ],
+  "instanceId": "f1000029-0000-4000-a000-000000000029",
+  "sourceRefs": [
+    {
+      "note": "Imported from scds-rationale.md: \"Why Type inheritance is conservative\"",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:extensibility",
+    "construct:type",
+    "topic:extensions"
+  ],
+  "typeId": "2a000012-0000-4000-a000-000000000012",
+  "typeName": "design-note",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "2a000001-0000-4000-a000-000000000001",
+  "namespace": "com.semanticops.spec",
+  "name": "specification",
+  "version": 1,
+  "description": "Top-level identity record for a specification: its name, version, status, and scope summary.",
+  "fields": [
+    {
+      "fieldId": "1a000013-0000-4000-a000-000000000013",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Canonical Key"
+    },
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "order": 1,
+      "required": true,
+      "displayLabel": "Title"
+    },
+    {
+      "fieldId": "1a000010-0000-4000-a000-000000000010",
+      "order": 2,
+      "required": true,
+      "displayLabel": "Version"
+    },
+    {
+      "fieldId": "1a000009-0000-4000-a000-000000000009",
+      "order": 3,
+      "required": true,
+      "displayLabel": "Status"
+    },
+    {
+      "fieldId": "1a000011-0000-4000-a000-000000000011",
+      "order": 4,
+      "required": false,
+      "displayLabel": "Summary"
+    },
+    {
+      "fieldId": "1a000012-0000-4000-a000-000000000012",
+      "order": 5,
+      "required": false,
+      "displayLabel": "Description"
+    }
+  ],
+  "createdAt": "2026-05-27T00:00:00Z"
+}

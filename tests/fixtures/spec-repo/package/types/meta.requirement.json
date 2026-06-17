@@ -1,0 +1,35 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "c5d6e7f8-a9b0-4c1d-8e3f-4a5b6c7d8e9f",
+  "namespace": "com.semanticops.srs",
+  "name": "meta.requirement",
+  "version": 1,
+  "description": "One normative requirement from the specification.",
+  "fields": [
+    {
+      "fieldId": "f1a2b3c4-d5e6-4a7b-8c9d-0e1f2a3b4c5c",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Canonical Key"
+    },
+    {
+      "fieldId": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "order": 1,
+      "required": true,
+      "displayLabel": "Conformance Level"
+    },
+    {
+      "fieldId": "e2f3a4b5-c6d7-4e8f-9a0b-1c2d3e4f5a6b",
+      "order": 2,
+      "required": true,
+      "displayLabel": "Normative Statement"
+    },
+    {
+      "fieldId": "f3a4b5c6-d7e8-4f9a-8b1c-2d3e4f5a6b7c",
+      "order": 3,
+      "required": false,
+      "displayLabel": "Rationale"
+    }
+  ],
+  "createdAt": "2026-05-27T00:00:00Z"
+}

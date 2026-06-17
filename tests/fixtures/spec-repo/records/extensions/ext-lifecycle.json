@@ -1,0 +1,40 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000018-0000-4000-a000-000000000018",
+      "value": "ext:lifecycle"
+    },
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Lifecycle"
+    },
+    {
+      "fieldId": "1a000019-0000-4000-a000-000000000019",
+      "value": ""
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "**Required for**: governance tools, decision logs, any implementation where records progress through defined states.\n\nAdds lifecycle state declarations to `Type` and lifecycle state tracking to `Record`.\n\n#### `LifecycleState`\n\n```typescript\n{\n  name: string\n  description?: string\n  isInitial?: boolean   // valid starting state for new Records\n  isFinal?: boolean     // no transitions out; Record is settled\n}\n```\n\n#### `LifecycleTransition`\n\n```typescript\n{\n  name: string       // e.g. \"promote\", \"approve\", \"supersede\"\n  from: string       // must match a state name in the enclosing lifecycle\n  to: string\n  description?: string\n}\n```\n\n#### Type lifecycle block (added by this extension)\n\nWhen `ext:lifecycle` is in use, `Type` gains:\n\n```typescript\nlifecycle?: {\n  states: LifecycleState[]           // min 1 state\n  transitions: LifecycleTransition[]\n  initialState: string               // must reference a state name where isInitial === true\n}\n```\n\n#### Record lifecycle state (added by this extension)\n\n`Record.lifecycleState` becomes meaningful: must match a state name in the associated `Type.lifecycle.states[]` when the Type declares a lifecycle.\n\nThe `lifecycle` block declares vocabulary. Implementations decide enforcement strictness. A state with `isFinal: true` signals that no further transitions are expected; implementations may use this to lock Record content.\n\n---"
+    }
+  ],
+  "instanceId": "ef180de4-5ec3-5e92-94e4-0077fdc12ebe",
+  "sourceRefs": [
+    {
+      "note": "Extension ext:lifecycle from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:extensibility",
+    "construct:lifecycle",
+    "topic:extensions"
+  ],
+  "typeId": "2a000008-0000-4000-a000-000000000008",
+  "typeName": "extension",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

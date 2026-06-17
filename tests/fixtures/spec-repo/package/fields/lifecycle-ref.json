@@ -1,0 +1,13 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "0d47a625-c4bc-4c42-851a-a1e36ea88d7f",
+  "namespace": "com.semanticops.srs",
+  "name": "lifecycle_ref",
+  "version": 1,
+  "description": "Reference to a named, installed Lifecycle (namespace/name@version). Used on Types as an alternative to an inline lifecycle block. Mutually exclusive with an inline lifecycle declaration (V7).",
+  "valueType": "string",
+  "createdAt": "2026-06-03T00:00:00Z",
+  "aiGuidance": {
+    "purpose": "Binds a Type to a shared, installable Lifecycle so one state machine is defined once and reused across many Types."
+  }
+}

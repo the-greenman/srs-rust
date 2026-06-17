@@ -1,0 +1,32 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-06-06T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "ext:federation × ext:lifecycle interaction"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "Three design decisions govern how `ext:lifecycle` and `ext:federation` interact.\n\n**1. Lifecycle state preservation on import**\n\nRecords imported via federation preserve their `lifecycleState`. An implementation MUST NOT reset a federated record's lifecycle state to `initialState` on import. Lifecycle state is part of the record's identity and governance history — it is not a local annotation that the receiving repository owns.\n\n**2. Cross-repository relations and lifecycle state**\n\nRelations targeting records in any lifecycle state — including `draft` and states where `isFinal: true` — are valid. Lifecycle is a governance concern, not an identity or structural concern. An implementation MAY surface a diagnostic warning when a relation targets a remote record whose lifecycle state is unresolvable (e.g. the remote repository is unavailable), but MUST NOT reject the relation on that basis alone.\n\n**3. Final-state records as federation targets**\n\nRecords in states where `isFinal: true` remain valid relation targets after federation operations. `isFinal` signals that the record's lifecycle has settled — it does not signal deletion or invalidity. A federated record in a final state retains its identity and may be referenced, linked, and included in containers."
+    }
+  ],
+  "instanceId": "c4d5e6f7-a8b9-4cad-be2f-3a4b5c6d7e8f",
+  "sourceRefs": [
+    {
+      "note": "Authored for issue #4 — ext:federation × ext:lifecycle interaction design decisions",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:extensibility",
+    "construct:lifecycle",
+    "topic:extensions"
+  ],
+  "typeId": "2a000012-0000-4000-a000-000000000012",
+  "typeName": "design-note",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

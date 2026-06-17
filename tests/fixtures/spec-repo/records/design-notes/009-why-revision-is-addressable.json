@@ -1,0 +1,31 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Why Revision is addressable"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "\nIn v1, field revision was an implementation concern. The spec described when to edit in-place versus create a new Record, but individual revisions were not addressable — you could not ask \"what did this field say before the last Protocol run?\" at the interoperability layer.\n\nThis matters for:\n- **Governance challenge**: if a Record is challenged, you need to trace which conversation produced each field value and which version was in place when a downstream decision was made.\n- **Context assembly**: when generating the next draft, knowing what changed between revision 2 and revision 3 — and what conversation produced that change — is more useful than knowing only the current value.\n- **Audit**: a complete audit trail requires addressable history, not just current state.\n\n`Revision` is the addressable audit trail. It does not replace the edit-in-place vs. new-Record judgment for minor corrections. That remains an implementation concern. Revision is the interoperability layer for cases where history itself is a first-class concern."
+    }
+  ],
+  "instanceId": "f1000009-0000-4000-a000-000000000009",
+  "sourceRefs": [
+    {
+      "note": "Imported from scds-rationale.md: \"Why Revision is addressable\"",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "construct:address",
+    "topic:extensions"
+  ],
+  "typeId": "2a000012-0000-4000-a000-000000000012",
+  "typeName": "design-note",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

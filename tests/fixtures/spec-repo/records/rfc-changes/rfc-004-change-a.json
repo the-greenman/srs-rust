@@ -1,0 +1,40 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "RFC-004 Change A: Add json as a core Field value type"
+    },
+    {
+      "fieldId": "5a000009-0000-4000-a000-000000000009",
+      "value": "schemas/field.json; schemas/package.json; spec-authoring-core"
+    },
+    {
+      "fieldId": "5a000006-0000-4000-a000-000000000006",
+      "value": "`Field.valueType` gains `json` for structured JSON values whose meaning is supplied by the field definition and validating schema. This supports recursive or nested semantic values such as type expressions and portable constraints."
+    },
+    {
+      "fieldId": "1a000004-0000-4000-a000-000000000004",
+      "value": "`json` is a storage primitive for structured semantic values inside SRS records; it is not a target renderer."
+    }
+  ],
+  "instanceId": "f3d9302c-ae06-5311-8928-54f5f01d34b1",
+  "sourceRefs": [
+    {
+      "note": "Structured RFC-004 process record derived from the RFC-004 proposal content.",
+      "relationType": "derived-from",
+      "sourceId": "a4b5c6d7-e8f9-4a0b-8c2d-3e4f5a6b7c8d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "construct:field",
+    "construct:type",
+    "topic:rfc"
+  ],
+  "typeId": "6a000002-0000-4000-a000-000000000002",
+  "typeName": "rfc-change",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

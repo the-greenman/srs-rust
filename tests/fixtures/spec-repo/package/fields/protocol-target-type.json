@@ -1,0 +1,13 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "4939a29b-7f70-481f-bf6b-bf693f8bd67f",
+  "namespace": "com.semanticops.srs",
+  "name": "protocol-target-type",
+  "version": 1,
+  "description": "The record type this protocol applies to.",
+  "valueType": "string",
+  "aiGuidance": {
+    "purpose": "Capture the target semantic object type this protocol is designed to produce or govern."
+  },
+  "createdAt": "2026-05-29T00:00:00Z"
+}

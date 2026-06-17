@@ -1,0 +1,14 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "2618ded3-aba7-5202-a1d9-a89157582f98",
+  "namespace": "com.semanticops.srs",
+  "name": "extension_id",
+  "version": 1,
+  "description": "The stable identifier for an extension, e.g. ext:lifecycle.",
+  "aiGuidance": {
+    "purpose": "Extension IDs use the format 'ext:name' (e.g., 'ext:lifecycle', 'ext:views-l2'). Names are lowercase with hyphens. Must be unique across the ecosystem."
+  },
+  "valueType": "string",
+  "editorHint": "singleline",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

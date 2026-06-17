@@ -1,0 +1,40 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000018-0000-4000-a000-000000000018",
+      "value": "ext:federation"
+    },
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Federation"
+    },
+    {
+      "fieldId": "1a000019-0000-4000-a000-000000000019",
+      "value": ""
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "**Required for**: implementations that maintain multiple SRS repositories within a single system, link instances across repository boundaries, or need to record merge, split, and import operations.\n\n`ext:registry` covers catalogs of Field and Type definition packages. `ext:federation` covers catalogs of SRS document repositories — the repositories that hold Notes, Records, and Relations — and the cross-repository links between their instances.\n\n#### Design principles\n\n- **Local-first**: every construct defined here works offline with no network connectivity and no central infrastructure. Federation is an optional layer, not a prerequisite.\n- **Unresolved references are not errors**: a cross-repository instance reference whose target repository cannot be located is a citation — preserved, surfaced, but not invalid.\n- **Join at whatever level makes sense**: a standalone repository, a team-level registry, an org-level registry, and a community-level registry are all structurally identical. A repository joins federation by pointing at whichever registry level it needs; the rest of the chain is followed automatically.\n\n---\n\n#### Cross-repository relations\n\nA standard `Relation` references instances within the same repository using bare UUIDs. When `ext:federation` is declared, `Relation` gains two optional qualifier fields:\n\n```typescript\n// Additional optional fields on Relation (ext:federation only):\nsourceRepositoryId?: UUID   // absent = source is in the current repository\ntargetRepositoryId?: UUID   // absent = target is in the current repository\n```\n\nWhen `sourceRepositoryId` or `targetRepositoryId` is present, the corresponding `sourceInstanceId` or `targetInstanceId` is the instance's UUID within the named foreign repository. Because SRS instance IDs are globally unique UUIDs, an unqualified UUID is unambiguous as an identity key — the repository qualifier is a resolution hint, not a disambiguation mechanism.\n\nA cross-repository `Relation` degrades gracefully when the named repository cannot be located: the relation is preserved with its external qualifier; the instance is treated as an unresolved citation. Implementations must not discard the relation or treat the unknown repository as an error during normal operation.\n\n---\n\n#### `RepositoryRegistryEntry`\n\nOne entry in a repository registry.\n\n```typescript\n{\n  repositoryId: UUID    // stable identity key; matches the repository's own repositoryId\n  title: string         // human-readable name; for display and disambiguation only\n  location?: string     // local path or URL; absent = ID-only citation (location unknown)\n  lastSeen?: ISO8601    // when this entry was last confirmed reachable\n  tags?: string[]\n}\n```\n\n`location` may be any form the implementation can resolve: a relative or absolute filesystem path, or a URL. When absent, the entry records that a repository with this `repositoryId` exists, but its location is not known to this registry.\n\n---\n\n#### `RepositoryRegistry`\n\nA local file listing the SRS document repositories known to this system or team. May be used standalone or as part of a federated hierarchy.\n\n```typescript\n{\n  registryId: UUID\n  title: string\n  updatedAt: ISO8601\n  entries: RepositoryRegistryEntry[]\n\n  childRegistries?: string[]\n  // Paths or URLs to subordinate RepositoryRegistry files.\n  // Resolution follows the chain: this registry → child registries → their children.\n  // Cycles must be detected and halted (Invariant 62).\n}\n```\n\nA registry is just a file. There is no registry server; no authentication is specified. A registry may live at any level of a filesystem or URL hierarchy. Teams may share a registry file in a shared folder; organisations may publish one at a stable URL; communities may federate by pointing at each other. Any of these are valid — none are required.\n\nResolution order when locating a repository by `repositoryId`: search `entries[]` of the current registry first, then follow each `childRegistries` pointer in declaration order, depth-first. Stop when a matching entry is found or the chain is exhausted.\n\n---\n\n#### `FederationEvent`\n\nA record of a merge, split, or import operation between repositories. Stored in a federation events file (not in the instance index) so that provenance of structural operations remains readable and auditable without polluting the instance graph.\n\n```typescript\n{\n  eventId: UUID\n  event: \"merge\" | \"split\" | \"import\"\n\n  at: ISO8601             // when the operation was performed\n  performedBy?: string    // name or identifier of the actor\n\n  sourceRepositoryId?: UUID\n  // Required for \"merge\" and \"import\": the repository instances arrived from.\n\n  targetRepositoryId?: UUID\n  // Required for \"split\": the new repository instances were moved into.\n\n  affectedInstanceIds: UUID[]\n  // The instance IDs involved. For \"merge\"/\"import\": IDs as they appear\n  // in the receiving repository after the operation. For \"split\": IDs as\n  // they appeared in the source repository before the operation.\n\n  strategy?: \"preserve-ids\" | \"new-ids-with-lineage\"\n  // The copy strategy used (see Section 7, Copy Semantics).\n  // Absent when strategy is not applicable or unknown.\n\n  note?: string\n  // Human-readable explanation of why the operation was performed.\n}\n```\n\nA `FederationEvent` with `event === \"merge\"` is recorded in the receiving repository. A `FederationEvent` with `event === \"split\"` is recorded in both the source repository (what left) and the new repository (what arrived). A `FederationEvent` with `event === \"import\"` is recorded in the consuming repository.\n\n---\n\n#### `FederationEventsFile`\n\nThe file that holds `FederationEvent` records for a repository.\n\n```typescript\n{\n  repositoryId: UUID       // the repository these events belong to; must match the enclosing repository's repositoryId\n  events: FederationEvent[]\n}\n```\n\n---\n\n#### Manifest extensions (`ext:federation`)\n\nWhen `ext:federation` is declared, `RepositoryManifest` gains two optional fields:\n\n```typescript\n// Optional additions to RepositoryManifest when ext:federation is declared:\nfederationPath?: string\n// Path to the RepositoryRegistry file for this repository.\n// Default when absent: \"federation/registry.json\"\n// Implementations must not fail if the file does not exist; absence means standalone.\n\nfederationEventsPath?: string\n// Path to the FederationEventsFile for this repository.\n// Default when absent: \"federation/events.json\"\n// Implementations must not fail if the file does not exist; absence means no events recorded.\n```\n\n---"
+    }
+  ],
+  "instanceId": "20dc444e-756e-5641-93c9-3083f3abb57f",
+  "sourceRefs": [
+    {
+      "note": "Extension ext:federation from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:extensibility",
+    "concern:federation",
+    "topic:extensions"
+  ],
+  "typeId": "2a000008-0000-4000-a000-000000000008",
+  "typeName": "extension",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "2a000013-0000-4000-a000-000000000013",
+  "namespace": "com.semanticops.spec",
+  "name": "table",
+  "version": 2,
+  "description": "A structured table with optional intro/outro prose, optional named columns, and repeatable rows of cell values. Requires ext:repeatable-fields and ext:field-groups.",
+  "fields": [
+    {
+      "fieldId": "1a000025-0000-4000-a000-000000000025",
+      "order": 0,
+      "required": false,
+      "displayLabel": "Intro"
+    },
+    {
+      "fieldId": "1a000026-0000-4000-a000-000000000026",
+      "order": 1,
+      "required": false,
+      "displayLabel": "Outro"
+    },
+    {
+      "fieldId": "1a000032-0000-4000-a000-000000000032",
+      "order": 2,
+      "required": false,
+      "repeatable": true,
+      "displayLabel": "Columns"
+    }
+  ],
+  "fieldGroups": [
+    {
+      "groupId": "rows",
+      "label": "Rows",
+      "order": 3,
+      "repeatable": true,
+      "minItems": 1,
+      "fields": [
+        {
+          "fieldId": "1a000033-0000-4000-a000-000000000033",
+          "order": 0,
+          "required": true,
+          "repeatable": true,
+          "displayLabel": "Cells"
+        }
+      ]
+    }
+  ],
+  "createdAt": "2026-05-27T00:00:00Z"
+}

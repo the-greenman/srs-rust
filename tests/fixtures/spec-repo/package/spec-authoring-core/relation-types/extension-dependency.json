@@ -1,0 +1,13 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
+  "id": "b2000004-0000-4000-a000-000000000004",
+  "version": 1,
+  "key": "com.semanticops.srs/extension-dependency",
+  "namespace": "com.semanticops.srs",
+  "label": "Extension dependency",
+  "description": "Source extension requires or depends on target extension.",
+  "category": "dependency",
+  "irreflexive": true,
+  "status": "deprecated",
+  "createdAt": "2026-05-29T00:00:00Z"
+}

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Namespace Format"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": ""
+    }
+  ],
+  "instanceId": "5bc9b930-462d-535d-91c5-bd9e2b17c91c",
+  "sourceRefs": [
+    {
+      "note": "Section 02 from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:identity",
+    "construct:reference",
+    "topic:meta"
+  ],
+  "typeId": "2a000002-0000-4000-a000-000000000002",
+  "typeName": "section",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

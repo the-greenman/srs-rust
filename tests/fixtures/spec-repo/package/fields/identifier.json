@@ -1,0 +1,14 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "c0d1e2f3-a4b5-4c6d-8e8f-9a0b1c2d3e4f",
+  "namespace": "com.semanticops.srs",
+  "name": "identifier",
+  "version": 1,
+  "description": "A unique identifier for this record, typically a UUID.",
+  "aiGuidance": {
+    "purpose": "Identifiers should be RFC 4122 UUIDs version 4 or 5. Use deterministic UUIDs derived from canonical keys where stability is required."
+  },
+  "valueType": "string",
+  "editorHint": "singleline",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "34783938-c390-4852-8dbf-8db45cc85e50",
+  "namespace": "com.semanticops.srs",
+  "name": "term",
+  "version": 1,
+  "description": "A vocabulary entry — the generalisation of TagDefinition. A defined option within a Vocabulary with a stable id and a key that appears in instance data. Satisfies the VocabularyEntry substrate contract.",
+  "fields": [
+    {
+      "fieldId": "aa9e4c56-d4ea-4868-b76e-476f580dee00",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Key"
+    },
+    {
+      "fieldId": "a2b3c4d5-e6f7-4a8b-9c0d-1e2f3a4b5c6d",
+      "order": 1,
+      "required": false,
+      "displayLabel": "Label"
+    },
+    {
+      "fieldId": "d5e6f7a8-b9c0-4d1e-8f3a-4b5c6d7e8f9a",
+      "order": 2,
+      "required": false,
+      "displayLabel": "Description"
+    },
+    {
+      "fieldId": "253c1577-0652-49fe-b97d-176f984abc68",
+      "order": 3,
+      "required": false,
+      "displayLabel": "Aliases"
+    },
+    {
+      "fieldId": "0003779b-74e3-44ab-aef2-bf8f46696a31",
+      "order": 4,
+      "required": false,
+      "displayLabel": "Roles"
+    },
+    {
+      "fieldId": "2a785e90-8798-4268-85eb-b0272122af13",
+      "order": 5,
+      "required": false,
+      "displayLabel": "Properties"
+    }
+  ],
+  "createdAt": "2026-06-03T00:00:00Z"
+}

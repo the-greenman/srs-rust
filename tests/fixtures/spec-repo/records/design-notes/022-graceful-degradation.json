@@ -1,0 +1,30 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Graceful degradation"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "\nIn a federated ecosystem, implementations will often receive SCDS content that uses extensions they do not support. The useful default is: understand what you can, preserve what you cannot.\n\nA conforming implementation should validate the core and extension content it recognises, surface unknown extension content clearly to users or downstream systems, and pass that unknown content through rather than silently discarding it. This is especially important for Records instantiated against a specializing Type: a system that knows only the base Type should still be able to read the inherited base fields correctly while preserving the specialization-specific fields.\n\n---"
+    }
+  ],
+  "instanceId": "f1000022-0000-4000-a000-000000000022",
+  "sourceRefs": [
+    {
+      "note": "Imported from scds-rationale.md: \"Graceful degradation\"",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "topic:meta"
+  ],
+  "typeId": "2a000012-0000-4000-a000-000000000012",
+  "typeName": "design-note",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

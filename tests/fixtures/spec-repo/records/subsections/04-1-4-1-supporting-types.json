@@ -1,0 +1,31 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Supporting types"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "#### `ValidationRule`\n\nA constraint applied to a field value.\n\n```typescript\n{\n  type: \"required\" | \"minLength\" | \"maxLength\" | \"pattern\" | \"enum\"\n  value?: string | number | string[]  // required for minLength, maxLength, pattern, enum\n  message?: string\n}\n```\n\n#### `AiGuidanceExample`\n\nA single example for AI guidance.\n\n```typescript\n{\n  description?: string  // labels this example\n  input?: string        // sample source text; omit for output-only examples\n  output: string        // the ideal value the AI should produce\n}\n```\n\n`output` is required. An example without `input` demonstrates expected output form without requiring a specific source.\n\n#### `AiGuidance`\n\nStructured AI guidance for a Field or Type.\n\n```typescript\n{\n  purpose: string            // what this field/type captures (1-2 sentences)\n  extraction?: string        // LLM instruction for how to extract or populate\n  negativeGuidance?: string  // what the LLM must NOT include or do\n  examples?: AiGuidanceExample[]\n}\n```\n\nThe minimum valid `AiGuidance` is `{ purpose: \"...\" }`.\n\n---"
+    }
+  ],
+  "instanceId": "32edcb34-791f-5bfe-a3a0-d8a2cbea4ea7",
+  "sourceRefs": [
+    {
+      "note": "Subsection 04-1 from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "construct:type",
+    "topic:foundation"
+  ],
+  "typeId": "2a000003-0000-4000-a000-000000000003",
+  "typeName": "subsection",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+  "instanceId": "3ac58ecc-dfc8-45cd-8ddb-2a3b429e768e",
+  "sections": [
+    {
+      "content": "Getting a working export flow is vital for usability.",
+      "name": "export_is_critical",
+      "tags": [
+        "priority",
+        "usability",
+        "export"
+      ]
+    },
+    {
+      "content": "What other CLI elements are required before export is fully useful? We may need schema and view support to come first.",
+      "name": "open_question",
+      "tags": [
+        "planning",
+        "dependencies"
+      ]
+    },
+    {
+      "content": "Likely prerequisites: schema-authoring commands (field/type), view authoring commands (L1/L2), and a basic render/export path that can consume those definitions end-to-end.",
+      "name": "initial_hypothesis",
+      "tags": [
+        "hypothesis",
+        "roadmap"
+      ]
+    }
+  ],
+  "sourceRefs": [
+    {
+      "note": "Working session note about RFC-001 implementation sequencing",
+      "relationType": "inspired-by",
+      "sourceId": "session-note-2026-05-29-rfc001-prereqs",
+      "sourceType": "external-document"
+    }
+  ],
+  "tags": [
+    "rfc-001",
+    "implementation",
+    "cli",
+    "views",
+    "schemas"
+  ],
+  "title": "RFC-001 Implementation Prerequisites"
+}

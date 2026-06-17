@@ -1,0 +1,308 @@
+{
+  "createdAt": "2026-06-06T16:02:21.805724740+00:00",
+  "description": "Faceted classification of the SRS specification's own records. Three facets, carried in each term's roles: topic: (where in the architecture), construct: (which data-model construct), concern: (cross-cutting theme).",
+  "id": "35ee9e9e-7c7d-4fa6-b9a3-02c8f07dae6c",
+  "mode": "open",
+  "name": "spec-taxonomy",
+  "namespace": "com.semanticops.spec",
+  "terms": [
+    {
+      "description": "Purpose, scope, namespace format, schema notation, and design rationale framing the spec.",
+      "id": "7d5c0625-ac36-4779-888e-497b26405b48",
+      "key": "topic:meta",
+      "label": "Meta / Front Matter",
+      "namespace": "com.semanticops.spec",
+      "roles": [
+        "topic"
+      ],
+      "version": 1
+    },
+    {
+      "description": "Core constructs every conforming implementation must support: Field, Type, Record, Relation, Container.",
+      "id": "b5db2773-cf71-454f-a4a6-ceada8fc8602",
+      "key": "topic:foundation",
+      "label": "Foundation Group",
+      "namespace": "com.semanticops.spec",
+      "roles": [
+        "topic"
+      ],
+      "version": 1
+    },
+    {
+      "description": "Packaging, repository layout, and distribution-level concerns.",
+      "id": "091603dc-f659-4e18-8f87-9384c68c9077",
+      "key": "topic:distribution",
+      "label": "Distribution Group",
+      "namespace": "com.semanticops.spec",
+      "roles": [
+        "topic"
+      ],
+      "version": 1
+    },
+    {
+      "description": "The conversation/session boundary and exchange formats.",
+      "id": "3e4b54a1-90bb-4784-a281-085507b0b039",
+      "key": "topic:conversation",
+      "label": "Conversation Layer",
+      "namespace": "com.semanticops.spec",
+      "roles": [
+        "topic"
+      ],
+      "version": 1
+    },
+    {
+      "description": "Optional capability modules and their interactions.",
+      "id": "865a2307-3b86-408c-a08d-7011ff59cdfd",
+      "key": "topic:extensions",
+      "label": "Extensions",
+      "namespace": "com.semanticops.spec",
+      "roles": [
+        "topic"
+      ],
+      "version": 1
+    },
+    {
+      "description": "Conformance profiles, requirements, and the key invariants implementations must uphold.",
+      "id": "a6c76f95-de7c-4934-b14c-c6cffe949485",
+      "key": "topic:conformance",
+      "label": "Conformance & Invariants",
+      "namespace": "com.semanticops.spec",
+      "roles": [
+        "topic"
+      ],
+      "version": 1
+    },
+    {
+      "description": "RFC records and their proposed artifacts, changes, and revisions driving spec evolution.",
+      "id": "5bc166d1-e079-4321-98f9-3602f492a2d1",
+      "key": "topic:rfc",
+      "label": "RFC / Evolution",
+      "namespace": "com.semanticops.spec",
+      "roles": [
+        "topic"
+      ],
+      "version": 1
+    },
+    {
+      "description": "Content about the atomic semantic unit (Field) and its valueType/aiGuidance.",
+      "id": "e2d4dd6d-f7f6-4783-877f-f037e58ee6d8",
+      "key": "construct:field",
+      "label": "Field",
+      "namespace": "com.semanticops.spec",
+      "roles": [
+        "construct"
+      ],
+      "version": 1
+    },
+    {
+      "description": "Content about Types — named, versioned compositions of Fields.",
+      "id": "2f1062b2-5c58-4ce2-a342-0b03078eb452",
+      "key": "construct:type",
+      "label": "Type",
+      "namespace": "com.semanticops.spec",
+      "roles": [
+        "construct"
+      ],
+      "version": 1
+    },
+    {
+      "description": "Content about record tiers (Note, TypedRecord, Record) and field values.",
+      "id": "52b73caa-3ac5-4e27-ba93-6d717a6a57a0",
+      "key": "construct:record",
+      "label": "Record",
+      "namespace": "com.semanticops.spec",
+      "roles": [
+        "construct"
+      ],
+      "version": 1
+    },
+    {
+      "description": "Content about typed edges between instances and relation semantics.",
+      "id": "6c51189c-1f7b-4b57-9849-cd13994edede",
+      "key": "construct:relation",
+      "label": "Relation",
+      "namespace": "com.semanticops.spec",
+      "roles": [
+        "construct"
+      ],
+      "version": 1
+    },
+    {
+      "description": "Content about grouping boundaries and membership.",
+      "id": "ecec5f8e-c60a-486c-b537-bbc2072c1d39",
+      "key": "construct:container",
+      "label": "Container",
+      "namespace": "com.semanticops.spec",
+      "roles": [
+        "construct"
+      ],
+      "version": 1
+    },
+    {
+      "description": "Content about packages and the definitions they distribute.",
+      "id": "ad8463ec-796d-45c3-b313-28a057926505",
+      "key": "construct:package",
+      "label": "Package",
+      "namespace": "com.semanticops.spec",
+      "roles": [
+        "construct"
+      ],
+      "version": 1
+    },
+    {
+      "description": "Content about references, namespaces, naming, and version semantics.",
+      "id": "a9c74309-193d-480b-a0cb-23ca3258baa7",
+      "key": "construct:reference",
+      "label": "Reference",
+      "namespace": "com.semanticops.spec",
+      "roles": [
+        "construct"
+      ],
+      "version": 1
+    },
+    {
+      "description": "Content about controlled vocabularies, terms, and tags (the substrate).",
+      "id": "dfc8693c-a160-4901-8054-620fc99b59e1",
+      "key": "construct:vocabulary",
+      "label": "Vocabulary / Term",
+      "namespace": "com.semanticops.spec",
+      "roles": [
+        "construct"
+      ],
+      "version": 1
+    },
+    {
+      "description": "Content about lifecycle state machines and transitions.",
+      "id": "673c5c23-0b22-4072-a654-468a5b168354",
+      "key": "construct:lifecycle",
+      "label": "Lifecycle",
+      "namespace": "com.semanticops.spec",
+      "roles": [
+        "construct"
+      ],
+      "version": 1
+    },
+    {
+      "description": "Content about views, rendering, and themes.",
+      "id": "c1c35302-283d-43b9-9886-e60e2306993d",
+      "key": "construct:view",
+      "label": "View / Render",
+      "namespace": "com.semanticops.spec",
+      "roles": [
+        "construct"
+      ],
+      "version": 1
+    },
+    {
+      "description": "Content about structured facilitation protocols and stages.",
+      "id": "3d1742ed-2a1c-44f8-abf5-e82f9fe28a93",
+      "key": "construct:protocol",
+      "label": "Protocol",
+      "namespace": "com.semanticops.spec",
+      "roles": [
+        "construct"
+      ],
+      "version": 1
+    },
+    {
+      "description": "Content about blueprint definitions.",
+      "id": "d6807791-7812-4a3f-a1f3-4807c682c2c8",
+      "key": "construct:blueprint",
+      "label": "Blueprint",
+      "namespace": "com.semanticops.spec",
+      "roles": [
+        "construct"
+      ],
+      "version": 1
+    },
+    {
+      "description": "Content about universal addressing and exchange across spaces.",
+      "id": "df1a996a-c37f-4571-b674-70542cdf2630",
+      "key": "construct:address",
+      "label": "Addressability",
+      "namespace": "com.semanticops.spec",
+      "roles": [
+        "construct"
+      ],
+      "version": 1
+    },
+    {
+      "description": "Content about provenance, lineage, and source anchoring.",
+      "id": "ecf48f40-90b9-41c4-b60e-3d81740d2fb5",
+      "key": "construct:provenance",
+      "label": "Provenance / Lineage",
+      "namespace": "com.semanticops.spec",
+      "roles": [
+        "construct"
+      ],
+      "version": 1
+    },
+    {
+      "description": "Cross-cutting concern: UUIDs, naming, and version lineage.",
+      "id": "df52d92a-beb7-4ba8-b15d-56151b067cca",
+      "key": "concern:identity",
+      "label": "Identity & Versioning",
+      "namespace": "com.semanticops.spec",
+      "roles": [
+        "concern"
+      ],
+      "version": 1
+    },
+    {
+      "description": "Cross-cutting concern: invariants, value validation, and conformance checks.",
+      "id": "d4a9a803-e759-44e9-8319-5dddda617388",
+      "key": "concern:validation",
+      "label": "Validation",
+      "namespace": "com.semanticops.spec",
+      "roles": [
+        "concern"
+      ],
+      "version": 1
+    },
+    {
+      "description": "Cross-cutting concern: resolving references, vocabularies, and lifecycle states.",
+      "id": "42d906a0-5fe2-4883-bed4-e0864f969ddc",
+      "key": "concern:resolution",
+      "label": "Resolution",
+      "namespace": "com.semanticops.spec",
+      "roles": [
+        "concern"
+      ],
+      "version": 1
+    },
+    {
+      "description": "Cross-cutting concern: extension model, downstream extension, and inheritance.",
+      "id": "7f9ab00a-d18d-4fff-9f61-ac56f3efce24",
+      "key": "concern:extensibility",
+      "label": "Extensibility",
+      "namespace": "com.semanticops.spec",
+      "roles": [
+        "concern"
+      ],
+      "version": 1
+    },
+    {
+      "description": "Cross-cutting concern: cross-repository relations, registry, and import tracking.",
+      "id": "6a32d5bf-1071-4d62-98d8-d721349947d0",
+      "key": "concern:federation",
+      "label": "Federation",
+      "namespace": "com.semanticops.spec",
+      "roles": [
+        "concern"
+      ],
+      "version": 1
+    },
+    {
+      "description": "Cross-cutting concern: projecting records into rendered output.",
+      "id": "9fc08cdc-91d2-415c-8779-f6b0b7c38865",
+      "key": "concern:rendering",
+      "label": "Rendering",
+      "namespace": "com.semanticops.spec",
+      "roles": [
+        "concern"
+      ],
+      "version": 1
+    }
+  ],
+  "version": 1
+}

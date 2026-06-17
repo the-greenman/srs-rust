@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "1a000020-0000-4000-a000-000000000020",
+  "namespace": "com.semanticops.spec",
+  "name": "invariant-number",
+  "version": 1,
+  "description": "The integer sequence number of this invariant within its specification.",
+  "aiGuidance": {
+    "purpose": "The integer sequence number of this invariant within its specification.",
+    "extraction": "Invariant numbers are positive integers assigned sequentially within a spec (1, 2, 3...). They are stable once assigned — do not renumber existing invariants when adding new ones."
+  },
+  "valueType": "number",
+  "editorHint": "singleline",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

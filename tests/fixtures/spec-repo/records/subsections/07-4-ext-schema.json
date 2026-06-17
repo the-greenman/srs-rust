@@ -1,0 +1,32 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "ext:blueprint"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "**Required for**: extraction pipelines, founding document workflows, any system that needs to specify what a document type IS before assembling it.\n\n#### `RelationSpec`\n\nDeclares an expected Relation between two Record types within a Blueprint.\n\n```typescript\n{\n  relationType: string\n  sourceType: TypeRef\n  targetType: TypeRef\n  cardinality?: \"one-to-one\" | \"one-to-many\" | \"many-to-many\"\n  required?: boolean\n}\n```\n\n#### `Blueprint`\n\nThe definition of a complete document type — which Types it contains, what Relations exist between resulting Records, and what \"complete\" means. A Blueprint is the artefact handed to an extraction pipeline.\n\n```typescript\n{\n  id: UUID\n  namespace: string\n  name: string\n  version: integer   // min: 1\n\n  description: string\n\n  rootTypes: TypeRef[]        // Types to extract\n  structure: RelationSpec[]   // expected Relations between extracted Records\n  requiredTypes: TypeRef[]    // what \"complete\" means for this document type\n\n  aiGuidance?: AiGuidance\n  // purpose: what kind of document type this Blueprint defines\n  // extraction: framing for extraction pipelines\n\n  tags?: string[]\n  createdAt: ISO8601\n  lineage?: Lineage\n  provenance?: Provenance\n}\n```\n\n**Blueprint vs View:**\n\n| | Blueprint | View / Document View |\n|---|---|---|\n| Question it answers | What IS this document type? What should be extracted? | How are existing Records assembled into readable output? |\n| Operates at | Definition time | Projection time |\n| Input | Source material (transcripts, conversations) | Existing Records in a Container |\n| Output | Extraction instructions → Records | Rendered document |\n\n---"
+    }
+  ],
+  "instanceId": "3db80d07-9d40-59e9-97b7-516a5ae212af",
+  "sourceRefs": [
+    {
+      "note": "Subsection 07-4 from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:extensibility",
+    "construct:blueprint",
+    "topic:extensions"
+  ],
+  "typeId": "2a000003-0000-4000-a000-000000000003",
+  "typeName": "subsection",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

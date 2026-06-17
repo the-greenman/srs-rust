@@ -1,0 +1,39 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "RFC-004 Change G: Add RFC schema relation semantics"
+    },
+    {
+      "fieldId": "5a000009-0000-4000-a000-000000000009",
+      "value": "relations; ext:recommended-relations conventions"
+    },
+    {
+      "fieldId": "5a000006-0000-4000-a000-000000000006",
+      "value": "Add `schema-member-sequence` and `defines-schema-for` relation semantics so schemas can order members and formalize existing type-definition records."
+    },
+    {
+      "fieldId": "1a000004-0000-4000-a000-000000000004",
+      "value": "Relations keep schema composition and migration links addressable rather than hidden inside prose."
+    }
+  ],
+  "instanceId": "be9b259a-0697-5f8b-8a75-8c0c9f00d297",
+  "sourceRefs": [
+    {
+      "note": "Structured RFC-004 process record derived from the RFC-004 proposal content.",
+      "relationType": "derived-from",
+      "sourceId": "a4b5c6d7-e8f9-4a0b-8c2d-3e4f5a6b7c8d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "construct:relation",
+    "topic:rfc"
+  ],
+  "typeId": "6a000002-0000-4000-a000-000000000002",
+  "typeName": "rfc-change",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

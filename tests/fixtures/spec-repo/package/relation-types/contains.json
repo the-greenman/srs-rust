@@ -1,0 +1,14 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
+  "id": "3a1b2c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+  "version": 1,
+  "key": "contains",
+  "namespace": "com.semanticops.srs",
+  "label": "Contains",
+  "description": "Source instance contains or is composed of target instance. Defines structural membership or composition boundaries.",
+  "category": "composition",
+  "canonicalDirection": "source is the container; target is the contained member",
+  "inverseType": "part-of",
+  "irreflexive": true,
+  "createdAt": "2026-05-29T00:00:00Z"
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "8d0f55f9-80e3-4dd6-a05c-10c4b6b6cc87",
+  "namespace": "com.semanticops.srs",
+  "name": "protocol-namespace",
+  "version": 1,
+  "description": "Namespace for the protocol.",
+  "valueType": "string",
+  "aiGuidance": {
+    "purpose": "Capture the namespace that owns the protocol definition."
+  },
+  "createdAt": "2026-05-29T00:00:00Z"
+}

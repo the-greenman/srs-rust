@@ -1,0 +1,31 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Why \"Type\" not \"Module\""
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "\n\"Module\" in v1 was accurate but implied a software analogy that didn't communicate the concept well to non-technical practitioners. \"Module\" suggests a composable software unit. \"Type\" says what it actually is: a type definition for a semantic object. A Decision is a Type. A Task is a Type. A Risk is a Type.\n\nThe rename also makes the Record/Type relationship legible by analogy: a Record is an instance of a Type, just as a value is an instance of a type in any typed system."
+    }
+  ],
+  "instanceId": "f1000004-0000-4000-a000-000000000004",
+  "sourceRefs": [
+    {
+      "note": "Imported from scds-rationale.md: \"Why \"Type\" not \"Module\"\"",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "construct:type",
+    "topic:foundation"
+  ],
+  "typeId": "2a000012-0000-4000-a000-000000000012",
+  "typeName": "design-note",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

@@ -50,6 +50,12 @@ mod tests {
             return PathBuf::from(p);
         }
         let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let vendored = manifest.join("../../tests/fixtures/spec-repo");
+        if let Ok(c) = vendored.canonicalize() {
+            if c.join(".srs").exists() {
+                return c;
+            }
+        }
         let mut dir = manifest.to_path_buf();
         loop {
             let candidate = dir.join("../srs/srs");

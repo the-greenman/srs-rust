@@ -1,0 +1,32 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Reference format"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "A specific version of a definition is referenced using the canonical form:\n\n```\nnamespace/name@version\n```\n\nExamples:\n```\ncore/decision_statement@2\ncommunity.adr/review_rationale@1\ncom.acme.hr/headcount_impact@3\n```\n\nThe `/` and `@` characters are reserved separators. They must not appear within a namespace component or a name."
+    }
+  ],
+  "instanceId": "d13710f4-628e-50a0-9f12-f297a93dc25f",
+  "sourceRefs": [
+    {
+      "note": "Subsection 02-3 from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:resolution",
+    "construct:reference",
+    "topic:meta"
+  ],
+  "typeId": "2a000003-0000-4000-a000-000000000003",
+  "typeName": "subsection",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

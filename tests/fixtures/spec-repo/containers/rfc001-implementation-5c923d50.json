@@ -1,0 +1,18 @@
+{
+  "containerId": "5c923d50-90ba-4fae-bf62-9af86324f30b",
+  "title": "RFC001 Implementation",
+  "description": "Working scope for implementing RFC-001 in the SRS spec repo",
+  "containerType": "project",
+  "rootInstanceIds": [
+    "22aeac29-b51f-510e-bc99-aeb0020d2656"
+  ],
+  "memberInstanceIds": [
+    "22aeac29-b51f-510e-bc99-aeb0020d2656",
+    "3ac58ecc-dfc8-45cd-8ddb-2a3b429e768e",
+    "854eedf0-ddcf-5f17-bfef-28d27d1e9e6a"
+  ],
+  "tags": [
+    "rfc001",
+    "implementation"
+  ]
+}

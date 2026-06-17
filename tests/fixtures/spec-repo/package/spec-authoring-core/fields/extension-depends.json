@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "1a000019-0000-4000-a000-000000000019",
+  "namespace": "com.semanticops.spec",
+  "name": "extension-depends",
+  "version": 1,
+  "description": "Extension identifiers that this extension depends on. Only hard dependencies — not recommendations.",
+  "aiGuidance": {
+    "purpose": "Extension identifiers that this extension depends on. Only hard dependencies — not recommendations.",
+    "extraction": "List only extensions that must be present for this extension to function correctly. Use comma-separated 'ext:name' values. Optional recommendations belong in the prose body, not here."
+  },
+  "valueType": "text",
+  "editorHint": "textarea",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

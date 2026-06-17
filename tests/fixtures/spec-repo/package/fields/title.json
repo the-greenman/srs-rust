@@ -1,0 +1,14 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "a2b3c4d5-e6f7-4a8b-9c0d-1e2f3a4b5c6d",
+  "namespace": "com.semanticops.srs",
+  "name": "title",
+  "version": 1,
+  "description": "The human-readable title of the record.",
+  "aiGuidance": {
+    "purpose": "Use clear, descriptive titles that summarize the content. Titles should be unique within their namespace when possible."
+  },
+  "valueType": "string",
+  "editorHint": "singleline",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

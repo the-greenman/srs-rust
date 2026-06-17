@@ -1,0 +1,35 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "6a000002-0000-4000-a000-000000000002",
+  "namespace": "com.semanticops.spec",
+  "name": "rfc-change",
+  "version": 1,
+  "description": "A single labelled change within an RFC (e.g. Change A, Change B). RFC changes are grouped into their parent RFC via rfc-change-sequence relations.",
+  "fields": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Title"
+    },
+    {
+      "fieldId": "5a000009-0000-4000-a000-000000000009",
+      "order": 1,
+      "required": false,
+      "displayLabel": "Affected Components"
+    },
+    {
+      "fieldId": "5a000006-0000-4000-a000-000000000006",
+      "order": 2,
+      "required": true,
+      "displayLabel": "Proposed Change"
+    },
+    {
+      "fieldId": "1a000004-0000-4000-a000-000000000004",
+      "order": 3,
+      "required": false,
+      "displayLabel": "Rationale"
+    }
+  ],
+  "createdAt": "2026-05-27T00:00:00Z"
+}

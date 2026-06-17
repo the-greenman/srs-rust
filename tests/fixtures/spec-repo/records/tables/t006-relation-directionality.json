@@ -1,0 +1,187 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000025-0000-4000-a000-000000000025",
+      "value": "**Directionality convention:**\n`sourceInstanceId` is the asserting instance; `targetInstanceId` is the related instance. The Relation reads: \"source [relationType] target.\""
+    },
+    {
+      "fieldId": "1a000026-0000-4000-a000-000000000026",
+      "value": "This convention must be consistent across implementations. See Invariant 16."
+    },
+    {
+      "entries": [
+        {
+          "value": "Relation"
+        },
+        {
+          "value": "source"
+        },
+        {
+          "value": "target"
+        }
+      ],
+      "fieldId": "1a000032-0000-4000-a000-000000000032",
+      "value": [
+        "Relation",
+        "source",
+        "target"
+      ]
+    }
+  ],
+  "groupValues": [
+    {
+      "entries": [
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "`supersedes`"
+                },
+                {
+                  "value": "the newer Record"
+                },
+                {
+                  "value": "the older Record"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "`supersedes`",
+                "the newer Record",
+                "the older Record"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "`contains`"
+                },
+                {
+                  "value": "the stage"
+                },
+                {
+                  "value": "the task inside it"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "`contains`",
+                "the stage",
+                "the task inside it"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "`depends-on`"
+                },
+                {
+                  "value": "the dependent task"
+                },
+                {
+                  "value": "the task it needs"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "`depends-on`",
+                "the dependent task",
+                "the task it needs"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "`refines`"
+                },
+                {
+                  "value": "the detailed version"
+                },
+                {
+                  "value": "the rough version"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "`refines`",
+                "the detailed version",
+                "the rough version"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "`derived-from`"
+                },
+                {
+                  "value": "the successor"
+                },
+                {
+                  "value": "the source Note or Record"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "`derived-from`",
+                "the successor",
+                "the source Note or Record"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "`evidences`"
+                },
+                {
+                  "value": "the source material"
+                },
+                {
+                  "value": "the claim it supports"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "`evidences`",
+                "the source material",
+                "the claim it supports"
+              ]
+            }
+          ]
+        }
+      ],
+      "groupId": "rows"
+    }
+  ],
+  "instanceId": "b1000000-0000-4000-a000-000000000006",
+  "tags": [
+    "construct:reference",
+    "topic:foundation"
+  ],
+  "typeId": "2a000013-0000-4000-a000-000000000013",
+  "typeName": "table",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 2
+}

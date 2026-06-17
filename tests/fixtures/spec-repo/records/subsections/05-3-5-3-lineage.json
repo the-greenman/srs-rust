@@ -1,0 +1,31 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Lineage"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "Upstream and fork tracking for a specific definition version.\n\n```typescript\n{\n  sourceDefinitionId?: UUID     // UUID of the upstream definition\n  sourceVersion?: integer       // upstream version at derivation time\n  forkedFromDefinitionId?: UUID // UUID of the definition deliberately forked from\n  forkedFromVersion?: integer   // version at the fork point\n}\n```\n\n| Field pair | Meaning |\n|---|---|\n| `sourceDefinition*` | Tracked copy; consumer expects upstream updates |\n| `forkedFrom*` | Deliberately diverged; no upstream tracking |\n\nBoth may be present during a transition from tracking to forking.\n\n---"
+    }
+  ],
+  "instanceId": "f7ffc0ea-89bb-548b-876b-d320c40c8c6a",
+  "sourceRefs": [
+    {
+      "note": "Subsection 05-3 from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "construct:provenance",
+    "topic:distribution"
+  ],
+  "typeId": "2a000003-0000-4000-a000-000000000003",
+  "typeName": "subsection",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

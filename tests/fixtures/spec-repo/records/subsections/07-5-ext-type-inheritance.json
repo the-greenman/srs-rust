@@ -1,0 +1,32 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "ext:type-inheritance"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "**Required for**: Type libraries that need formal specialization while preserving base-Type processability.\n\nDefines single inheritance for Types. A specializing Type inherits the fields and semantics of a base Type, may add fields, and remains processable as the base Type by systems that know the base Type but not the specialization.\n\nWhen `ext:type-inheritance` is in use, `Type` gains:\n\n```typescript\n{\n  extendsTypeId?: UUID\n  // UUID of the base Type this Type specializes.\n  // When present, the effective field list consists of inherited fields\n  // followed by this Type's own fields[], unless fieldOrder is present.\n\n  extendsTypeVersion?: integer\n  // Version of the base Type targeted by this specialization.\n\n  fieldOrder?: UUID[]\n  // Optional explicit ordering of all fields in the effective field list:\n  // inherited fields plus this Type's own fields[].\n  // This is an ordering declaration only; it does not re-declare field\n  // assignments or change Field semantics.\n\n  fieldAssignmentOverrides?: FieldAssignmentOverride[]\n  // Presentation and workflow overrides for inherited fields only.\n}\n```\n\n#### `FieldAssignmentOverride`\n\nOverrides presentation or workflow constraints for an inherited Field in a specializing Type. It does not change the Field's semantics.\n\n```typescript\n{\n  fieldId: UUID\n  displayLabel?: string\n  displayHint?: string\n  required?: boolean\n}\n```\n\n`displayLabel` and `displayHint` are presentation-only. `required` may tighten an inherited optional field (`false` to `true`) for the specializing Type. It must not relax an inherited required field (`true` to `false`), because a Record instantiated against the specializing Type must remain valid when processed as the base Type.\n\nThe effective field list for a specializing Type is the inherited effective field list of its base Type plus the specializing Type's own `fields[]`. A specializing Type must not duplicate an inherited `fieldId` in its own `fields[]`.\n\nExample:\n\n```text\nType: core/decision\n  fields: decision_statement, context, rationale, options_considered\n\nType: org.example/governance_decision\n  extendsTypeId: core/decision\n  adds: ratification_method, quorum_threshold, voting_record\n```\n\nA system that knows `core/decision` but not `org.example/governance_decision` can still read the inherited decision fields. The specializing fields are unknown extension content to that system and should be preserved rather than discarded.\n\n---"
+    }
+  ],
+  "instanceId": "37e2f653-b3cc-5751-8f8f-2dfece3acf79",
+  "sourceRefs": [
+    {
+      "note": "Subsection 07-5 from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:extensibility",
+    "construct:type",
+    "topic:extensions"
+  ],
+  "typeId": "2a000003-0000-4000-a000-000000000003",
+  "typeName": "subsection",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

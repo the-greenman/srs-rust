@@ -1,0 +1,31 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Extension conformance model"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "Implementations declare conformance as:\n\n```\nSRS Core [+ ext:<name> ...]\n```\n\n**Core** requires the Foundation group and Distribution group in full. No extension is required for core conformance. Extensions are independently adoptable; some declare dependencies on other extensions.\n\n| Extension | Identifier | Depends on | Notes |\n|---|---|---|---|\n| Addressability | `ext:addressability` | — | For live facilitation, declare together with `ext:protocol` |\n| Lifecycle | `ext:lifecycle` | — | |\n| Protocol | `ext:protocol` | `ext:lifecycle` (recommended) | For live facilitation, declare together with `ext:addressability` |\n| Blueprint | `ext:blueprint` | — | |\n| Type Inheritance | `ext:type-inheritance` | — | |\n| Views L1 | `ext:views-l1` | — | |\n| Views L2 | `ext:views-l2` | `ext:views-l1` | |\n| Repeatable Fields | `ext:repeatable-fields` | — | |\n| Field Groups | `ext:field-groups` | — | Group repeatability is self-contained; `ext:repeatable-fields` is not required |\n| Cross-Field Validation | `ext:cross-field-validation` | — | |\n| Recommended Relations | `ext:recommended-relations` | — | |\n| Import Tracking | `ext:import-tracking` | — | |\n| Registry | `ext:registry` | — | |\n| Federation | `ext:federation` | — | Cross-repository instance references, repository registry, and federation event log |\n| Repository | `ext:repository` | — | File-based live repository and archive (export/import) format |\n\n`ext:protocol` and `ext:addressability` are formally independent but are a functional co-dependency for live facilitation: a Protocol without `AttentionState` produces no live conversation tagging; `AttentionState` without Protocol stages has no stage context to capture. Implementations supporting live facilitation should declare both.\n\nExample declaration: `SRS Core + ext:lifecycle + ext:protocol + ext:views-l1 + ext:addressability`\n\n---"
+    }
+  ],
+  "instanceId": "9a358922-04fb-5730-807c-592da5269f9f",
+  "sourceRefs": [
+    {
+      "note": "Subsection 01-4 from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:extensibility",
+    "topic:meta"
+  ],
+  "typeId": "2a000003-0000-4000-a000-000000000003",
+  "typeName": "subsection",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}
