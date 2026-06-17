@@ -2,7 +2,42 @@
 
 Rust implementation of the SRS system: `srs-core`, `srs-repository`, `srs-cli`, `srs-bindings`, `srs-projection`.
 
-The top-level `semanticops/CLAUDE.md` contains the full SRS data model, CLI reference, and agentic usage rules. Read that first. This file adds rules specific to working inside the Rust codebase.
+This file covers everything needed to work in this repo. It is part of a monorepo (`srs`, `srs-rust`, `srs-vscode`, `srs-web`) — when using Claude Code on the web, each repo is accessed independently. The authoritative agent usage rules for SRS repositories live in `srs-usage.md` in the `srs` repo (accessible locally at `../srs/srs-usage.md`).
+
+## SRS data model (reference)
+
+**Field** — atomic semantic unit. UUID `id`, `namespace`, `name` (snake_case), `version` (integer), `valueType` (string|text|number|boolean|date|url|select|multiselect), optional `aiGuidance`. Field semantics are immutable.
+
+**Type** — named, versioned composition of Fields. Contains `fields[]` as FieldAssignments: `{ fieldId, order, required, displayLabel? }`. `displayLabel` is rendering-only and never affects semantics.
+
+**Record tiers:**
+- **Tier 0 (Note)**: free text, no type binding
+- **Tier 1 (TypedRecord)**: named fields with values, no Type binding
+- **Tier 2 (Record)**: instantiated Type via `typeId` + `typeVersion`; `fieldValues[]` maps `fieldId → value`
+
+**Relation** — typed edge between two instance UUIDs. Canonical types: `contains`, `depends-on`, `supersedes`, `refines`, `derived-from`, `evidences`, `precedes`.
+
+**Container** — lightweight grouping boundary. `containerId` is distinct from instance IDs.
+
+**Repository** — directory with `.srs/` marker + `manifest.json`. `instanceIndex` in the manifest is the authoritative member list.
+
+## CLI JSON envelope
+
+All `srs` commands return:
+```json
+{ "ok": true, "command": "...", "version": "0.1.0", "payload": { ... } }
+```
+On error: `"ok": false` with `"diagnostics": [...]`. Exit code 0 means the command ran — validate errors are in `payload.diagnostics`, not the exit code.
+
+## Git commit signing (local CLI use)
+
+All commits use an SSH signing key. Before committing, verify the key is loaded:
+
+```bash
+ssh-add -l | grep -q "SHA256:vHuO6si5w3RLL4IJZofWbyvEi42WA2fYX7bM" || echo "SIGNING KEY NOT LOADED"
+```
+
+If missing, stop — do not bypass signing.
 
 ## Commands
 
