@@ -1,0 +1,124 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+  "instanceId": "5ea8cdb1-35d9-49d3-8d6e-95e2dc8239a7",
+  "title": "Key Challenges in the SRS Domain",
+  "tags": ["domain", "challenges", "srs", "implementation", "adoption"],
+  "sections": [
+    {
+      "name": "purpose",
+      "tags": ["purpose"],
+      "content": "This note identifies the key challenges of working in the Semantic Record System domain. Challenges differ from problems: a problem names what the domain must solve; a challenge names what will make the solution difficult to design, implement, govern, adopt, or explain."
+    },
+    {
+      "name": "keeping_the_core_small",
+      "tags": ["core", "extensions", "complexity"],
+      "content": "SRS needs a small core that independent implementers can understand and implement, while still supporting rich semantics through extensions. The challenge is deciding what belongs in the core, what belongs in optional packages, and what should remain domain-specific."
+    },
+    {
+      "name": "making_meaning_visible_without_overwhelming_users",
+      "tags": ["ux", "authoring", "complexity"],
+      "content": "Meaning-first systems can expose a lot of structure: Fields, Types, Records, Relations, provenance, lineage, tensions, problems, and projections. Users need the benefit of that structure without being forced to think in all of it at once. The authoring experience must reveal complexity gradually."
+    },
+    {
+      "name": "supporting_rough_to_formal_work",
+      "tags": ["progressive-formalization", "notes"],
+      "content": "The system must support rough notes and source material as legitimate starting points while still enabling later formalization. The challenge is to make the transition from Note to TypedRecord to Record feel natural, auditable, and reversible in understanding even when the formalization path itself is one-way."
+    },
+    {
+      "name": "giving_every_piece_of_meaning_a_home",
+      "tags": ["shared-meaning", "organization", "governance"],
+      "content": "Groups need a place for every kind of shared understanding: articles, roles, decisions, obligations, open questions, rationale, authority boundaries, and review triggers. The challenge is to provide semantic homes for these pieces without recreating a confusing folder hierarchy or forcing everything into a single governing document."
+    },
+    {
+      "name": "projecting_governance_without_flattening_it",
+      "tags": ["governing-documents", "projection", "views"],
+      "content": "A group still needs a readable governing document, but that document should be assembled from structured semantic state. The challenge is to project articles, roles, decisions, and open exercises into a coherent artifact while preserving their separate identities, relations, statuses, and histories underneath."
+    },
+    {
+      "name": "designing_relation_taxonomy",
+      "tags": ["relations", "taxonomy"],
+      "content": "Relations need enough shared vocabulary to be interoperable, but not so much that the standard becomes a domain ontology. The hard part is distinguishing universal semantic relation patterns from relations that should belong to namespace authors."
+    },
+    {
+      "name": "preserving_provenance_at_useful_granularity",
+      "tags": ["provenance", "source-references"],
+      "content": "Fine-grained provenance can be costly to capture and noisy to use. Coarse provenance can be too vague to support trust. SRS needs practical conventions for citing source material, linking values to evidence, and preserving AI/human contribution boundaries without turning every edit into an administrative burden."
+    },
+    {
+      "name": "preventing_schema_and_view_confusion",
+      "tags": ["schemas", "views", "projections"],
+      "content": "Extraction schemas, semantic Types, Views, DocumentViews, templates, and rendered projections can easily blur together. The challenge is to keep each construct responsible for the right thing: what to extract, what kind of object exists, how fields are shown, how records are assembled, and how outputs are communicated."
+    },
+    {
+      "name": "maintaining_ai_as_assistant",
+      "tags": ["ai", "trust"],
+      "content": "AI should help extract, synthesize, critique, and connect semantic state, but it must not silently become the authority. The challenge is designing workflows and metadata that make AI contribution useful while preserving human acceptance, source traceability, and uncertainty."
+    },
+    {
+      "name": "protecting_human_meaning_making",
+      "tags": ["meaning-making", "human-ai-collaboration", "authority"],
+      "content": "SRS must preserve the human responsibility for meaning. The challenge is not merely preventing AI error; it is preventing humans from outsourcing interpretation, judgment, commitment, and social responsibility to fluent machine-generated structure. The system should make AI collaboration stronger by keeping human acceptance, context, and accountability explicit."
+    },
+    {
+      "name": "enabling_distributed_knowledge_ownership",
+      "tags": ["distributed-knowledge", "ownership", "decentralization"],
+      "content": "SRS should not require a central SaaS platform to preserve or manage knowledge. The challenge is to make semantic state portable, inspectable, syncable, and federatable so communities can own their own knowledge while still exchanging meaning with others."
+    },
+    {
+      "name": "mapping_conversation_attention",
+      "tags": ["addressability", "conversation", "attention-state"],
+      "content": "SRS needs a two-way bridge between raw conversation and structured semantic state. From a field or record, users should be able to find the conversation that shaped it. From a transcript or chat log, users should be able to mark what semantic object the conversation was about. The challenge is to make this precise enough for trust and AI context assembly without making live conversation feel mechanically over-instrumented."
+    },
+    {
+      "name": "facilitating_protocols_without_turning_them_into_forms",
+      "tags": ["protocol", "facilitation", "meaning-making"],
+      "content": "Protocols should guide people through meaning-making, not reduce deliberation to form filling. The challenge is to let an editor focus a group on one field, question, or stage at a time while preserving real conversation, uncertainty, iteration, and human acceptance."
+    },
+    {
+      "name": "protecting_accepted_text_from_silent_rewrite",
+      "tags": ["locking", "lifecycle", "ai"],
+      "content": "AI-assisted drafting makes it easy to rewrite a field repeatedly. The challenge is to support review and iteration while giving groups a way to lock or mark accepted text so it cannot be changed without their knowledge."
+    },
+    {
+      "name": "preserving_links_across_system_boundaries",
+      "tags": ["linking", "federation", "distributed-knowledge"],
+      "content": "Conversations, records, source documents, registries, and projections may live in different systems or repositories. The challenge is to preserve links across those boundaries, including unresolved links, so distributed knowledge remains navigable without requiring central platform custody."
+    },
+    {
+      "name": "versioning_meaning_not_just_files",
+      "tags": ["versioning", "lineage"],
+      "content": "File history, schema versioning, type versioning, record lineage, and field-level revision history are related but not the same. SRS must make semantic evolution explicit without pretending that storage history is enough to explain meaning."
+    },
+    {
+      "name": "making_interoperability_testable",
+      "tags": ["interoperability", "conformance"],
+      "content": "It is not enough for implementations to claim SRS compatibility. They need testable expectations around schema validation, package resolution, relation directionality, source-reference preservation, extension declarations, and graceful handling of unknown content."
+    },
+    {
+      "name": "avoiding_premature_ontology",
+      "tags": ["ontology", "domain-neutrality"],
+      "content": "The emerging meaning-first layer introduces domains, challenge spaces, tensions, problems, ideas, features, and requirements. The challenge is to use these as authoring concepts for SRS without freezing them too early into a universal ontology that may not fit every domain."
+    },
+    {
+      "name": "explaining_the_model",
+      "tags": ["communication", "adoption"],
+      "content": "SRS asks people to invert a familiar assumption: the document is not the thing; the meaning is the thing. This is powerful but cognitively expensive. The challenge is to explain the model with enough clarity that implementers and domain authors can adopt it without needing to absorb the entire rationale first."
+    }
+  ],
+  "sourceRefs": [
+    {
+      "sourceType": "repository-document",
+      "sourceId": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+      "relationType": "evidence",
+      "note": "ChatGPT origin session - semantic refinement pipeline and projection model"
+    },
+    {
+      "sourceType": "repository-document",
+      "sourceId": "d4e5f6a7-b8c9-4d0e-8f2a-3b4c5d6e7f8a",
+      "relationType": "evidence",
+      "note": "Claude collaborative session - constraints, extensions, conformance, and implementation rationale"
+    }
+  ],
+  "createdAt": "2026-05-28T00:00:00Z",
+  "updatedAt": "2026-05-28T00:00:00Z"
+}

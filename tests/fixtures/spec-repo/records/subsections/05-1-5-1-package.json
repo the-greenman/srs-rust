@@ -1,0 +1,31 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Package"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "The distributable artefact. Contains Field, Type, View, and Relation type definitions with a complete dependency manifest.\n\n```typescript\n{\n  schemaVersion: string      // SRS spec version, e.g. \"2.0\"\n  packageId: UUID\n  packageName: string\n  packageVersion: string     // semver, e.g. \"1.2.0\"\n  publishedAt: ISO8601\n  publisher?: string\n  description?: string\n  homepage?: string\n\n  // Content (at least one of fields or types must be non-empty)\n  fields: Field[]\n  types: Type[]\n  views?: View[]             // ext:views-l1; omit if not in use\n  documentViews?: DocumentView[]  // ext:views-l2; omit if not in use\n  blueprints?: Blueprint[]   // ext:blueprint; omit if not in use\n  protocols?: Protocol[]     // ext:protocol; omit if not in use\n  relationTypes?: RelationTypeDefinition[]  // relation type definitions\n  vocabularies?: Vocabulary[]               // RFC-006: named vocabulary definitions\n  lifecycles?: Lifecycle[]                  // RFC-006 ext:lifecycle: referenceable lifecycle definitions\n\n  mode: \"bundled\" | \"standalone\"\n\n  dependencyRefs: Reference[]\n}\n```\n\n**`mode` semantics:**\n\n| Mode | Meaning |\n|---|---|\n| `\"bundled\"` | All Field records referenced by any Type, all Type records referenced by any Type or View, and all View records referenced by any DocumentView are included in their respective arrays. Self-contained. |\n| `\"standalone\"` | Dependencies are expected pre-installed in the consumer's registry. `dependencyRefs` is the required manifest. |\n\n`dependencyRefs` is required in both modes. Consumers use it to validate completeness without parsing content internals.\n\n---"
+    }
+  ],
+  "instanceId": "9a4a70af-dbce-55e3-abee-175d2491f656",
+  "sourceRefs": [
+    {
+      "note": "Subsection 05-1 from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "construct:package",
+    "topic:distribution"
+  ],
+  "typeId": "2a000003-0000-4000-a000-000000000003",
+  "typeName": "subsection",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

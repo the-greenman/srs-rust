@@ -1,0 +1,120 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000025-0000-4000-a000-000000000025",
+      "value": "Graduation is the act of replacing a lower-tier instance with a higher-tier equivalent as its structure stabilises.\n\n**Identity continuity:**"
+    },
+    {
+      "fieldId": "1a000026-0000-4000-a000-000000000026",
+      "value": "**Graduation is not always one-to-one.** A single meeting Note may graduate into one Decision Record, three Task Records, and two Risk Records. Each resulting Record receives its own `instanceId` and links to the original via `derived-from`. The original Note is preserved as the semantic root of the derived graph.\n\nImplementations may automate graduation suggestions by matching section or field names against `Field.name` values in available Type definitions."
+    },
+    {
+      "entries": [
+        {
+          "value": "Scenario"
+        },
+        {
+          "value": "`instanceId`"
+        },
+        {
+          "value": "Relation"
+        }
+      ],
+      "fieldId": "1a000032-0000-4000-a000-000000000032",
+      "value": [
+        "Scenario",
+        "`instanceId`",
+        "Relation"
+      ]
+    }
+  ],
+  "groupValues": [
+    {
+      "entries": [
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Pure formalisation (section names map directly to field names, content unchanged)"
+                },
+                {
+                  "value": "Keep"
+                },
+                {
+                  "value": "None required"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Pure formalisation (section names map directly to field names, content unchanged)",
+                "Keep",
+                "None required"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Content interpreted or restructured during formalisation"
+                },
+                {
+                  "value": "New"
+                },
+                {
+                  "value": "`refines` from new to old"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Content interpreted or restructured during formalisation",
+                "New",
+                "`refines` from new to old"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "One Note splits into multiple Records"
+                },
+                {
+                  "value": "New IDs for all"
+                },
+                {
+                  "value": "`derived-from` from each new Record to the original"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "One Note splits into multiple Records",
+                "New IDs for all",
+                "`derived-from` from each new Record to the original"
+              ]
+            }
+          ]
+        }
+      ],
+      "groupId": "rows"
+    }
+  ],
+  "instanceId": "b1000000-0000-4000-a000-000000000003",
+  "tags": [
+    "concern:identity",
+    "construct:record",
+    "construct:reference",
+    "topic:foundation"
+  ],
+  "typeId": "2a000013-0000-4000-a000-000000000013",
+  "typeName": "table",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 2
+}

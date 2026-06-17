@@ -1,0 +1,29 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "2a000005-0000-4000-a000-000000000005",
+  "namespace": "com.semanticops.spec",
+  "name": "type-definition",
+  "version": 1,
+  "description": "A formal type definition record describing one of the spec's entity types. Schema members are linked via schema-member-sequence relations (ext:schema-notation) or embedded in the content field as prose.",
+  "fields": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Title"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "order": 1,
+      "required": true,
+      "displayLabel": "Content"
+    },
+    {
+      "fieldId": "1a000006-0000-4000-a000-000000000006",
+      "order": 2,
+      "required": false,
+      "displayLabel": "Notes"
+    }
+  ],
+  "createdAt": "2026-05-27T00:00:00Z"
+}

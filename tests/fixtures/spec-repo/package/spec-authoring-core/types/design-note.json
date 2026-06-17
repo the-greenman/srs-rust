@@ -1,0 +1,23 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "2a000012-0000-4000-a000-000000000012",
+  "namespace": "com.semanticops.spec",
+  "name": "design-note",
+  "version": 1,
+  "description": "A non-normative design explanation: records why a spec element was designed a certain way. Linked to the entity it explains via 'explains' relations.",
+  "fields": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Title"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "order": 1,
+      "required": true,
+      "displayLabel": "Content"
+    }
+  ],
+  "createdAt": "2026-05-27T00:00:00Z"
+}

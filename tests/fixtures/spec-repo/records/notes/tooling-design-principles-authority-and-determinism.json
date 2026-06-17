@@ -1,0 +1,87 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+  "createdAt": "2026-05-28T00:00:00Z",
+  "instanceId": "cdd08a86-4fb8-47a0-bcfd-1fd7b9449af9",
+  "sections": [
+    {
+      "content": "SRS tooling should be structured around clear domains of authority. The CLI and Rust libraries should make repository data legible, consistent, inspectable, and safe to hand to external agents. They should not quietly perform semantic judgment that belongs to humans or external AI workflows.",
+      "name": "purpose",
+      "tags": [
+        "purpose",
+        "tooling"
+      ]
+    },
+    {
+      "content": "Each layer should have an explicit job. The repository stores semantic artifacts and provenance. The library loads, validates, summarizes, and writes deterministic structures. The CLI exposes those capabilities as stable JSON command surfaces. External AI may propose interpretation or migration. Humans decide, accept, revise, and commit meaning.",
+      "name": "domains_of_authority",
+      "tags": [
+        "authority",
+        "architecture"
+      ]
+    },
+    {
+      "content": "The library should be deterministic and policy-light. It may accept policy as input, such as a list of tags used to select a foundation set, but it should not hardcode project-specific semantic policy as if it were universal SRS behavior. Library outputs should be reproducible from repository state and explicit parameters.",
+      "name": "library_boundary",
+      "tags": [
+        "library",
+        "deterministic",
+        "boundaries"
+      ]
+    },
+    {
+      "content": "The CLI may define named workflow profiles because it is closer to user intent. For example, a foundation migration packet can choose a foundation tag set and pass that policy into the library. The CLI should still remain transparent: profile choices should be visible in command names, flags, constants, and JSON output.",
+      "name": "cli_boundary",
+      "tags": [
+        "cli",
+        "policy",
+        "profiles"
+      ]
+    },
+    {
+      "content": "AI-facing tooling should package evidence and structure, not pretend that packaging is understanding. The CLI can produce migration packets for an AI agent, but the AI agent proposes and humans govern. This preserves the principle that meaning is human responsibility, while still making collaboration with AI practical.",
+      "name": "ai_boundary",
+      "tags": [
+        "ai",
+        "human-ai-collaboration",
+        "meaning-making"
+      ]
+    },
+    {
+      "content": "Repeated utility logic should be extracted to a shared owner. Repeated repository loads should be avoided when one loaded structure can be passed through internal functions. Constants should live at the layer that owns the decision they represent. Shared data shapes should be reused rather than reassembled ad hoc in each command.",
+      "name": "dry_code_and_single_source",
+      "tags": [
+        "dry-code",
+        "single-source",
+        "maintainability"
+      ]
+    },
+    {
+      "content": "When reviewing SRS tooling, look first for blurred authority boundaries, embedded semantic policy, avoidable duplication, hidden mutation, repeated parsing or loading, and output shapes that are hard for humans or AI agents to inspect. These are design problems, not only code style problems.",
+      "name": "review_standard",
+      "tags": [
+        "review",
+        "quality"
+      ]
+    }
+  ],
+  "sourceRefs": [
+    {
+      "note": "User review identifying duplicated resolve_repo logic, embedded foundation tag policy, repeated manifest loads, and the need for clear authority domains and DRY code.",
+      "relationType": "inspired-by",
+      "sourceId": "user-provided-tooling-design-principles-2026-05-28",
+      "sourceType": "external-document"
+    }
+  ],
+  "tags": [
+    "design-principles",
+    "tooling",
+    "cli",
+    "library",
+    "authority",
+    "deterministic",
+    "dry-code",
+    "ai-native"
+  ],
+  "title": "Tooling Design Principles: Authority and Determinism",
+  "updatedAt": "2026-05-28T00:00:00Z"
+}

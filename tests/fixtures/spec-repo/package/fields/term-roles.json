@@ -1,0 +1,14 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "0003779b-74e3-44ab-aef2-bf8f46696a31",
+  "namespace": "com.semanticops.srs",
+  "name": "term_roles",
+  "version": 1,
+  "description": "Semantic roles this term plays. Well-known values: foundation, navigation. Drives AI context selection and UI grouping.",
+  "valueType": "text",
+  "createdAt": "2026-06-03T00:00:00Z",
+  "aiGuidance": {
+    "purpose": "Classify what role this term serves. foundation terms are prioritised in AI context assembly; navigation terms are used for filtering and grouping.",
+    "extraction": "List each role on a separate line."
+  }
+}

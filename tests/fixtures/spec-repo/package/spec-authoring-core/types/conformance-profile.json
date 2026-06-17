@@ -1,0 +1,29 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "2a000007-0000-4000-a000-000000000007",
+  "namespace": "com.semanticops.spec",
+  "name": "conformance-profile",
+  "version": 1,
+  "description": "A named conformance profile declaring which extensions and requirements are mandatory for a specific use case or deployment context.",
+  "fields": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Title"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "order": 1,
+      "required": true,
+      "displayLabel": "Content"
+    },
+    {
+      "fieldId": "1a000022-0000-4000-a000-000000000022",
+      "order": 2,
+      "required": false,
+      "displayLabel": "Required For"
+    }
+  ],
+  "createdAt": "2026-05-27T00:00:00Z"
+}

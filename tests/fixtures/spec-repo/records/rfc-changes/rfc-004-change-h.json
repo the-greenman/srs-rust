@@ -1,0 +1,40 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "RFC-004 Change H: Add JSON Schema projection package"
+    },
+    {
+      "fieldId": "5a000009-0000-4000-a000-000000000009",
+      "value": "spec-authoring-json-schema"
+    },
+    {
+      "fieldId": "5a000006-0000-4000-a000-000000000006",
+      "value": "Add `com.semanticops.spec/spec-authoring-json-schema` as a target projection package with exact mapping rules for rendering schema definitions and members into JSON Schema."
+    },
+    {
+      "fieldId": "1a000004-0000-4000-a000-000000000004",
+      "value": "JSON Schema is the first exact projection, but it does not own the semantic source."
+    }
+  ],
+  "instanceId": "978704cf-a41a-5e7b-887f-6a328f7502d9",
+  "sourceRefs": [
+    {
+      "note": "Structured RFC-004 process record derived from the RFC-004 proposal content.",
+      "relationType": "derived-from",
+      "sourceId": "a4b5c6d7-e8f9-4a0b-8c2d-3e4f5a6b7c8d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:rendering",
+    "construct:package",
+    "topic:rfc"
+  ],
+  "typeId": "6a000002-0000-4000-a000-000000000002",
+  "typeName": "rfc-change",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

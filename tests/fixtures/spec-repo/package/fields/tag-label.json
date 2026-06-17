@@ -1,0 +1,13 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+  "namespace": "com.semanticops.srs",
+  "name": "tag-label",
+  "version": 1,
+  "description": "Human-readable display name for the tag.",
+  "valueType": "string",
+  "createdAt": "2026-05-28T00:00:00Z",
+  "aiGuidance": {
+    "purpose": "A human-readable display name for the tag, for use in UI and rendered output."
+  }
+}

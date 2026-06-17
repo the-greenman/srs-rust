@@ -1,0 +1,31 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "AI guidance composition order"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "\nWhen assembling an AI prompt from multiple `aiGuidance` blocks:\n\n1. **Type framing** — establishes what semantic object type is being worked on\n2. **View framing** (if using `ext:views-l1`) — workflow-specific context for this View\n3. **Field extraction guidance** — specific instruction for populating each Field\n4. **Negative guidance** — constraints applied after the extraction instruction\n5. **Examples** — few-shot demonstrations last, as final grounding\n\nThis ordering ensures broad context (what kind of object this is) precedes narrow directives (how to populate this specific Field). Template framing narrows the Type context — it does not replace it.\n\nThis is a recommended default. Implementations that compose differently will produce different AI behaviour from the same definitions."
+    }
+  ],
+  "instanceId": "f1000016-0000-4000-a000-000000000016",
+  "sourceRefs": [
+    {
+      "note": "Imported from scds-rationale.md: \"AI guidance composition order\"",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "construct:field",
+    "topic:foundation"
+  ],
+  "typeId": "2a000012-0000-4000-a000-000000000012",
+  "typeName": "design-note",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

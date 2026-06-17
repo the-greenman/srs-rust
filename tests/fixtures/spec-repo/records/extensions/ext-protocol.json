@@ -1,0 +1,40 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000018-0000-4000-a000-000000000018",
+      "value": "ext:protocol"
+    },
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Protocol"
+    },
+    {
+      "fieldId": "1a000019-0000-4000-a000-000000000019",
+      "value": "- ext:lifecycle"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "**Required for**: facilitation tools, structured deliberation, any implementation that guides users through epistemic stages.\n\nReplaces `TemplateFacilitationStep` from v1. Protocol is epistemically richer: stages have explicit dependencies, completion criteria, and may produce intermediate Records.\n\n#### `TypeRef`\n\nA reference to a specific Type, used within Protocol and Blueprint.\n\n```typescript\n{\n  typeId: UUID\n  typeVersion?: integer\n}\n```\n\n#### `FieldRef`\n\nA reference to a Field within a Type.\n\n```typescript\n{\n  fieldId: UUID\n  typeId?: UUID    // which Type this Field appears in\n}\n```\n\n#### `ProtocolStage`\n\nA named stage in a Protocol. Stages have epistemic dependencies (`dependsOn`) — not just ordering. A stage may only proceed when its dependencies are sufficient.\n\n```typescript\n{\n  stageId: string       // stable key within this Protocol\n  order: integer        // min: 0; display/presentation order only — see note below\n  purpose: string       // what understanding this stage builds\n  question: string      // the core question this stage answers\n  dependsOn: string[]   // stageId values; epistemic dependencies, not just ordering\n  completionCriteria: string   // how to know this stage is sufficient to proceed\n  contributesTo: FieldRef[]    // which Record Fields this stage feeds\n  outputType?: TypeRef         // if this stage produces its own intermediate Record\n  aiGuidance: AiGuidance\n}\n```\n\n**`order` vs `dependsOn`:** `order` is the display and presentation sequence — how stages are shown in a UI or facilitation guide. Execution sequence is determined by `dependsOn` resolution: a stage runs when all its declared dependencies are satisfied, regardless of its `order` value. Authors must ensure `order` is consistent with the partial order implied by `dependsOn` (i.e. a stage's `order` value should be greater than the `order` of any stage it depends on). See Invariant 31.\n\n#### `Protocol`\n\nAn epistemically ordered process for building quality Records through structured conversation or facilitation.\n\n```typescript\n{\n  id: UUID\n  namespace: string\n  name: string\n  version: integer   // min: 1\n\n  description: string\n\n  targetType?: TypeRef\n  // The Record type this Protocol produces. Absent for loose / exploratory Protocols\n  // (Brain Dump, Decomposition) whose output is input context for a tighter Protocol.\n\n  stages: ProtocolStage[]\n\n  tags?: string[]\n  createdAt: ISO8601\n  lineage?: Lineage\n  provenance?: Provenance\n}\n```\n\n**The Protocol spectrum:**\n\n```\nLoose                                                    Tight\n─────────────────────────────────────────────────────────────\nBrain Dump → Decomposition → Options Analysis → Decision\n```\n\nLoose Protocols produce open material. Tight Protocols converge on a specific Record type. The output of a loose Protocol is the input context for something tighter.\n\n**Generic Protocols** (reusable across domains):\n- Brain Dump — externalise all thinking without constraint\n- Decomposition — identify major components from raw material\n- Review — what is established, what is still open\n- Prioritisation — which components to resolve first\n\n**Domain-specific Protocols** (target a specific Record type):\n- Decision — context → criteria → options → evaluation → decision\n- Proposal — problem → solution shape → constraints → proposal\n\n**Protocol chaining and provenance**: The output of one Protocol is the input context for the next. This derivation chain is traceable through `derived-from` Relations, making the quality and history of the final Record auditable.\n\n**Non-normative example — Protocol chain for a governance decision:**\n\n```\nBrain Dump Protocol (loose, no targetType)\n  → AttentionState: { containerId: C1 }\n  → Produces: Note N1 (unstructured brainstorm)\n\nDecomposition Protocol (loose, targetType: Component)\n  → AttentionState: { containerId: C1, recordId: N1 }\n  → Produces: Notes N2, N3, N4  [derived-from N1]\n\nDecision Protocol (tight, targetType: Decision)\n  → AttentionState: { containerId: C1, protocolRunId: R1, stageId: \"criteria\" }\n  → Stage \"criteria\" produces: Options Analysis Record R-OA  [derived-from N2, N3]\n  → Stage \"decision\" produces: Decision Record R-D           [derived-from R-OA]\n\nConversation chunks produced during Decision stage:\n  chunk-42: { AttentionState: { containerId: C1, recordId: R-OA, fieldId: F-criteria, ... } }\n  chunk-43: { AttentionState: { containerId: C1, recordId: R-D, fieldId: F-outcome, ... } }\n\nContext query for R-D / F-outcome:\n  → Field aiGuidance from Decision Type + outcome Field\n  → Current value + Revision history for F-outcome\n  → Chunks tagged with { recordId: R-D, fieldId: F-outcome } — chunk-43\n  → Chunks tagged with { recordId: R-D } — broader session context\n  → Related Records via Relations — R-OA via derived-from\n```\n\nThe final Decision Record is auditable because every Protocol stage left addressable artefacts. The quality of the outcome is traceable to the conversation that produced it.\n\nViews (`ext:views-l1`) no longer contain facilitation logic. A View is a presentation concern; a Protocol is an epistemic one.\n\n---"
+    }
+  ],
+  "instanceId": "d557206f-fd5f-5626-8f13-8781b684fd03",
+  "sourceRefs": [
+    {
+      "note": "Extension ext:protocol from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:extensibility",
+    "construct:protocol",
+    "topic:extensions"
+  ],
+  "typeId": "2a000008-0000-4000-a000-000000000008",
+  "typeName": "extension",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

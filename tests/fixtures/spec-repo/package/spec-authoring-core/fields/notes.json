@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "1a000006-0000-4000-a000-000000000006",
+  "namespace": "com.semanticops.spec",
+  "name": "notes",
+  "version": 1,
+  "description": "Non-normative implementation guidance, edge cases, cross-references, or clarifying commentary.",
+  "aiGuidance": {
+    "purpose": "Non-normative implementation guidance, edge cases, cross-references, or clarifying commentary.",
+    "extraction": "Notes are non-normative. Use for implementation tips, edge cases, and cross-references that do not belong in the normative body."
+  },
+  "valueType": "text",
+  "contentFormat": "markdown",
+  "editorHint": "textarea",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

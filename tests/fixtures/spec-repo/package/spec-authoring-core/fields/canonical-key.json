@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "1a000013-0000-4000-a000-000000000013",
+  "namespace": "com.semanticops.spec",
+  "name": "canonical-key",
+  "version": 1,
+  "description": "A stable human-readable key for this record, used for deterministic identity and cross-referencing.",
+  "aiGuidance": {
+    "purpose": "A stable human-readable key for this record, used for deterministic identity and cross-referencing.",
+    "extraction": "Format: 'type:namespace/name' or 'record:path/identifier'. Canonical keys must be unique within the repository and stable across exports. Used where UUIDs are too opaque for humans to work with directly."
+  },
+  "valueType": "string",
+  "editorHint": "singleline",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

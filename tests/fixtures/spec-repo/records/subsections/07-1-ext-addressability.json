@@ -1,0 +1,32 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "ext:addressability"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "**Required for**: any implementation with live facilitation or multi-session extraction.\n\nDefines a universal addressing scheme and the mechanisms that connect conversation material to document elements.\n\n#### `Address`\n\nA stable, resolvable identifier for any element across document space, process space, and conversation space.\n\n```typescript\ntype Address =\n  | {\n      space: \"document\"\n      containerId: UUID\n      recordId?: UUID\n      fieldId?: UUID\n      revisionId?: UUID    // requires ext:addressability Revision\n    }\n  | {\n      space: \"process\"\n      runId: UUID          // Protocol run ID; requires ext:protocol\n      stageId?: string\n    }\n  | {\n      space: \"conversation\"\n      sessionId: UUID\n      chunkId?: UUID\n      annotationId?: UUID\n    }\n```\n\nEvery element that can be referred to has an Address. A transcript chunk and a field Revision are co-addressable because assertions about one referencing the other require both to be resolvable.\n\n#### `AttentionState`\n\nThe current focus of an active Protocol run — a live cursor across the address space. `AttentionState` and `Address` are structurally related but serve distinct roles: an `Address` is a stable, resolvable identifier for a specific element; `AttentionState` is the mutable cursor that records *where focus currently is* during an active session. An `AttentionState` value at a point in time resolves to a document-space `Address`, but it is stored separately because it changes continuously as the Protocol advances.\n\nConversation material is tagged with the active `AttentionState` as it is produced. This makes context assembly efficient: \"all chunks produced while focus was on this Field\" is a queryable address predicate.\n\n```typescript\n{\n  containerId: UUID\n  recordId?: UUID\n  fieldId?: UUID\n  protocolRunId?: UUID\n  stageId?: string\n}\n```\n\n`AttentionState` is set live by the session or Protocol runner. `SourceReference` is set retrospectively at extraction or editorial review time. Both are needed; they answer different questions.\n\n#### `Revision`\n\nA first-class, addressable snapshot of a `FieldValue` at a point in time. Carries the value, the agent, a timestamp, and source references to the conversation that produced the change.\n\n```typescript\n{\n  revisionId: UUID\n  fieldId: UUID\n  recordId: UUID\n\n  value: FieldValue\n  agent: \"human\" | \"ai\" | \"imported\"\n  createdAt: ISO8601\n\n  sourceRefs?: SourceReference[]\n  priorRevisionId?: UUID  // chain to the previous Revision for this field\n}\n```\n\nRevision does not replace the edit-in-place vs. new-Record judgment. Minor corrections remain in-place edits at the implementation layer. Revision is the addressable audit trail for interoperability — it makes field history queryable: \"what did this field say before the last Protocol run?\", \"which conversation produced the change from revision 2 to revision 3?\"\n\n#### Context Query (behavioural requirement)\n\nA conforming `ext:addressability` implementation must be able to assemble relevant material given an address and a purpose. This is a behavioural requirement, not a data shape.\n\n**Required query patterns:**\n\n| Pattern | Address | Returns |\n|---|---|---|\n| Field context | `{recordId}/{fieldId}` | Current value, Revision history, chunks tagged to this Field, Field `aiGuidance` |\n| Record context | `{recordId}` | All field values, chunks tagged to this Record, Relations, Protocol run history |\n| Stage context | `{runId}/{stageId}` | All chunks produced during this stage, Fields active in this stage |\n| Revision trace | `{fieldId}/{revisionId}` | Value at that Revision, the conversation that produced it, prior Revision chain |\n\n**Recommended assembly order for AI assistance:**\n\n1. Type and Field `aiGuidance` — what this field captures, how to extract it\n2. Current value and recent Revision history — what has already been established\n3. Chunks tagged to this Field via AttentionState — most focused context\n4. Chunks tagged to the parent Record — broader session context\n5. Related Records via Relations — structural context\n\n---"
+    }
+  ],
+  "instanceId": "214a7c1f-1bb4-5c86-932e-b47b4fc3b57b",
+  "sourceRefs": [
+    {
+      "note": "Subsection 07-1 from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:extensibility",
+    "construct:address",
+    "topic:extensions"
+  ],
+  "typeId": "2a000003-0000-4000-a000-000000000003",
+  "typeName": "subsection",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

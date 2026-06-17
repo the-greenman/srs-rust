@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "1a000002-0000-4000-a000-000000000002",
+  "namespace": "com.semanticops.spec",
+  "name": "content",
+  "version": 1,
+  "description": "The full prose body of a spec record in markdown. May contain normative statements (MUST/SHOULD/MAY), explanations, non-normative notes, code blocks, and tables.",
+  "aiGuidance": {
+    "purpose": "The full prose body of a spec record in markdown. May contain normative statements (MUST/SHOULD/MAY), explanations, non-normative notes, code blocks, and tables.",
+    "extraction": "Use RFC 2119 keywords (MUST, SHOULD, MAY, MUST NOT, SHOULD NOT) for normative statements within the body. Non-normative passages do not need special marking. Structure with markdown headings, lists, and code blocks as appropriate."
+  },
+  "valueType": "text",
+  "contentFormat": "markdown",
+  "editorHint": "textarea",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

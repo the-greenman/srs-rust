@@ -1,0 +1,23 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "2a000002-0000-4000-a000-000000000002",
+  "namespace": "com.semanticops.spec",
+  "name": "section",
+  "version": 1,
+  "description": "A top-level numbered section of a specification. Ordering is determined by section-sequence relations, not by section number embedded in the title.",
+  "fields": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Title"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "order": 1,
+      "required": true,
+      "displayLabel": "Content"
+    }
+  ],
+  "createdAt": "2026-05-27T00:00:00Z"
+}

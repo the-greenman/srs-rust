@@ -1,0 +1,23 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "b01527f9-1a4c-5e5f-8a36-29e7ae7c51c4",
+  "namespace": "com.semanticops.srs",
+  "name": "meta.subsection",
+  "version": 1,
+  "description": "A numbered subsection within a top-level spec section.",
+  "fields": [
+    {
+      "fieldId": "96f04d9d-9432-5628-8664-0d92e50f6fd0",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Title"
+    },
+    {
+      "fieldId": "436786e4-d51e-5275-9654-bc4b5ee82b1a",
+      "order": 1,
+      "required": true,
+      "displayLabel": "Normative content"
+    }
+  ],
+  "createdAt": "2026-05-27T00:00:00Z"
+}

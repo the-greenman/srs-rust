@@ -1,0 +1,21 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "1a000009-0000-4000-a000-000000000009",
+  "namespace": "com.semanticops.spec",
+  "name": "status",
+  "version": 1,
+  "description": "The lifecycle status of this spec record.",
+  "aiGuidance": {
+    "purpose": "The lifecycle status of this spec record.",
+    "extraction": "draft: under development, not yet normative. active: current and normative. deprecated: still valid but superseded; avoid for new work. obsolete: no longer applicable."
+  },
+  "valueType": "select",
+  "editorHint": "dropdown",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "allowedValues": [
+    "draft",
+    "active",
+    "deprecated",
+    "obsolete"
+  ]
+}

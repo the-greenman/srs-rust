@@ -1,0 +1,41 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "2a000004-0000-4000-a000-000000000004",
+  "namespace": "com.semanticops.spec",
+  "name": "concept",
+  "version": 1,
+  "description": "A named principle, design rationale, or explanatory construct. Not directly normative.",
+  "fields": [
+    {
+      "fieldId": "1a000013-0000-4000-a000-000000000013",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Canonical Key"
+    },
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "order": 1,
+      "required": true,
+      "displayLabel": "Title"
+    },
+    {
+      "fieldId": "1a000012-0000-4000-a000-000000000012",
+      "order": 2,
+      "required": true,
+      "displayLabel": "Description"
+    },
+    {
+      "fieldId": "1a000006-0000-4000-a000-000000000006",
+      "order": 3,
+      "required": false,
+      "displayLabel": "Notes"
+    },
+    {
+      "fieldId": "1a000005-0000-4000-a000-000000000005",
+      "order": 4,
+      "required": false,
+      "displayLabel": "Examples"
+    }
+  ],
+  "createdAt": "2026-05-27T00:00:00Z"
+}

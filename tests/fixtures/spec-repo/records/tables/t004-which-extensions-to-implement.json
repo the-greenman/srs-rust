@@ -1,0 +1,307 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000025-0000-4000-a000-000000000025",
+      "value": "Start with the question: what does your implementation need to do?"
+    },
+    {
+      "entries": [
+        {
+          "value": "Need"
+        },
+        {
+          "value": "Extensions"
+        }
+      ],
+      "fieldId": "1a000032-0000-4000-a000-000000000032",
+      "value": [
+        "Need",
+        "Extensions"
+      ]
+    }
+  ],
+  "groupValues": [
+    {
+      "entries": [
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Define and exchange Field and Type definitions"
+                },
+                {
+                  "value": "Core only"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Define and exchange Field and Type definitions",
+                "Core only"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Track definition origin and imports"
+                },
+                {
+                  "value": "`ext:import-tracking`"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Track definition origin and imports",
+                "`ext:import-tracking`"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Publish a definition catalog"
+                },
+                {
+                  "value": "`ext:registry`"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Publish a definition catalog",
+                "`ext:registry`"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Governance with lifecycle states"
+                },
+                {
+                  "value": "`ext:lifecycle`"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Governance with lifecycle states",
+                "`ext:lifecycle`"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Present and export Records"
+                },
+                {
+                  "value": "`ext:views-l1`"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Present and export Records",
+                "`ext:views-l1`"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Assemble multi-Record documents"
+                },
+                {
+                  "value": "`ext:views-l2`"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Assemble multi-Record documents",
+                "`ext:views-l2`"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Facilitate structured deliberation"
+                },
+                {
+                  "value": "`ext:protocol`"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Facilitate structured deliberation",
+                "`ext:protocol`"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Live facilitation with context assembly"
+                },
+                {
+                  "value": "`ext:addressability`"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Live facilitation with context assembly",
+                "`ext:addressability`"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Extraction from source material"
+                },
+                {
+                  "value": "`ext:blueprint`"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Extraction from source material",
+                "`ext:blueprint`"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Specialise Types while preserving base processability"
+                },
+                {
+                  "value": "`ext:type-inheritance`"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Specialise Types while preserving base processability",
+                "`ext:type-inheritance`"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Lists of values within a Record"
+                },
+                {
+                  "value": "`ext:repeatable-fields`"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Lists of values within a Record",
+                "`ext:repeatable-fields`"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Structured repeatable context in a Record"
+                },
+                {
+                  "value": "`ext:field-groups`"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Structured repeatable context in a Record",
+                "`ext:field-groups`"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Complex conditional validation"
+                },
+                {
+                  "value": "`ext:cross-field-validation`"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Complex conditional validation",
+                "`ext:cross-field-validation`"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Cross-system Relation interoperability"
+                },
+                {
+                  "value": "`ext:recommended-relations`"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Cross-system Relation interoperability",
+                "`ext:recommended-relations`"
+              ]
+            }
+          ]
+        }
+      ],
+      "groupId": "rows"
+    }
+  ],
+  "instanceId": "b1000000-0000-4000-a000-000000000004",
+  "tags": [
+    "construct:reference",
+    "topic:foundation"
+  ],
+  "typeId": "2a000013-0000-4000-a000-000000000013",
+  "typeName": "table",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 2
+}

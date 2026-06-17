@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "d5e6f7a8-b9c0-4d1e-8f3a-4b5c6d7e8f9a",
+  "namespace": "com.semanticops.srs",
+  "name": "description",
+  "version": 1,
+  "description": "A detailed description of the record.",
+  "aiGuidance": {
+    "purpose": "Descriptions can be multi-paragraph and may include markdown formatting. Explain the what, why, and how."
+  },
+  "valueType": "text",
+  "contentFormat": "markdown",
+  "editorHint": "textarea",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

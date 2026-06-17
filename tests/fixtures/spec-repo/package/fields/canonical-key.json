@@ -1,0 +1,14 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "f1a2b3c4-d5e6-4f7a-8b9c-0d1e2f3a4b5c",
+  "namespace": "com.semanticops.srs",
+  "name": "canonical_key",
+  "version": 1,
+  "description": "The canonical key for this record, used for deterministic identity and stable referencing.",
+  "aiGuidance": {
+    "purpose": "Use canonical keys for human-readable, stable identifiers. Format: 'type:namespace/name' or 'record:path/identifier'."
+  },
+  "valueType": "string",
+  "editorHint": "singleline",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

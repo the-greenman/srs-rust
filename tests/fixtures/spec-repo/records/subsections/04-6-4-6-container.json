@@ -1,0 +1,31 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Container"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "A lightweight grouping boundary over a collection of instances. Containers answer scoping questions — which instances belong together, what constitutes \"this project\" — that the Relation graph alone cannot answer.\n\nContainers are not semantic objects with Fields. They do not own semantic state; Records do. A `contains` Relation asserts \"A is part of B\" (a semantic claim); a Container asserts \"these instances form a unit for boundary purposes\" (a scope claim). Both are needed; neither replaces the other.\n\n```typescript\n{\n  containerId: UUID\n\n  namespace?: string\n  name?: string\n\n  title: string              // human-readable label\n\n  containerType?: string     // free-form hint; e.g. \"project\", \"meeting\", \"sprint\"\n\n  rootInstanceIds?: UUID[]\n  // Top-level instances this Container was created to hold. Implementations may\n  // derive nested members by traversing contains Relations from these roots.\n\n  memberInstanceIds?: UUID[]\n  // Explicit membership list for all instances in scope.\n  // When present, allows membership queries without graph traversal.\n  // When omitted, membership is defined by traversing contains Relations.\n\n  createdAt?: ISO8601\n  updatedAt?: ISO8601\n  meta?: Record<string, unknown>\n}\n```\n\n`Container.containerId` is not an instance ID and must not appear in `Relation.sourceInstanceId` or `targetInstanceId`. See Invariant 19.\n\n---"
+    }
+  ],
+  "instanceId": "9c202db2-d5c0-592f-b0da-7fd9f633a459",
+  "sourceRefs": [
+    {
+      "note": "Subsection 04-6 from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "construct:container",
+    "topic:foundation"
+  ],
+  "typeId": "2a000003-0000-4000-a000-000000000003",
+  "typeName": "subsection",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

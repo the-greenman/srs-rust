@@ -1,0 +1,14 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "1a000032-0000-4000-a000-000000000032",
+  "namespace": "com.semanticops.spec",
+  "name": "columns",
+  "version": 1,
+  "valueType": "string",
+  "editorHint": "singleline",
+  "description": "Ordered column name declarations for a table. Each entry names one column; position corresponds to cell values in row entries. Empty or absent means unlabeled columns. Requires ext:repeatable-fields.",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "aiGuidance": {
+    "purpose": "Ordered column name declarations for a table. Each entry names one column; position corresponds to cell values in row entries. Empty or absent means unlabeled columns. Requires ext:repeatable-fields."
+  }
+}

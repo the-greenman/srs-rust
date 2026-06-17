@@ -1,0 +1,13 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "c3d4e5f6-a7b8-4c9d-8e1f-2a3b4c5d6e7f",
+  "namespace": "com.semanticops.srs",
+  "name": "tag-description",
+  "version": 1,
+  "description": "What this tag means and when it should be used.",
+  "valueType": "text",
+  "createdAt": "2026-05-28T00:00:00Z",
+  "aiGuidance": {
+    "purpose": "Explains what this tag means and when a contributor should apply it. Non-normative guidance for authors."
+  }
+}

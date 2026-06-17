@@ -1,0 +1,29 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "6a000003-0000-4000-a000-000000000003",
+  "namespace": "com.semanticops.spec",
+  "name": "rfc-revision",
+  "version": 1,
+  "description": "A single revision history entry for an RFC, recording what changed and when. Revisions are ordered via rfc-revision-sequence relations.",
+  "fields": [
+    {
+      "fieldId": "5a000018-0000-4000-a000-000000000018",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Revision Number"
+    },
+    {
+      "fieldId": "5a000004-0000-4000-a000-000000000004",
+      "order": 1,
+      "required": true,
+      "displayLabel": "Date"
+    },
+    {
+      "fieldId": "1a000011-0000-4000-a000-000000000011",
+      "order": 2,
+      "required": true,
+      "displayLabel": "Summary"
+    }
+  ],
+  "createdAt": "2026-05-27T00:00:00Z"
+}

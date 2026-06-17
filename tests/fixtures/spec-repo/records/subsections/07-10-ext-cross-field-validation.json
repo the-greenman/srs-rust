@@ -1,0 +1,32 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "ext:cross-field-validation"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "**Required for**: Types with constraints that span multiple Fields.\n\n`ValidationRule` handles single-field constraints. `CrossFieldRule` handles constraints that require evaluating more than one Field together.\n\n#### `CrossFieldRule`\n\n```typescript\n{\n  type: \"conditional-required\" | \"field-ordering\" | \"mutual-exclusion\"\n  message?: string\n\n  // conditional-required: targetFieldId becomes required when predicateFieldId equals predicateValue\n  predicateFieldId?: UUID\n  predicateValue?: string\n  targetFieldId?: UUID\n\n  // field-ordering: targetFieldId must precede or follow predicateFieldId\n  // Applies only to fields with valueType \"date\" or \"number\".\n  effect?: \"must-precede\" | \"must-follow\"\n\n  // mutual-exclusion: at most one of the listed fields may have a non-empty value\n  fieldIds?: UUID[]   // min: 2\n}\n```\n\n| Rule type | Required fields |\n|---|---|\n| `conditional-required` | `predicateFieldId`, `predicateValue`, `targetFieldId` |\n| `field-ordering` | `predicateFieldId`, `targetFieldId`, `effect` |\n| `mutual-exclusion` | `fieldIds` (min 2) |\n\nWhen `ext:cross-field-validation` is in use, `Type` gains `validationRules?: CrossFieldRule[]`.\n\n---"
+    }
+  ],
+  "instanceId": "6d8d7d1a-0611-57ac-b2c5-654c53c941a1",
+  "sourceRefs": [
+    {
+      "note": "Subsection 07-10 from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:extensibility",
+    "construct:field",
+    "topic:extensions"
+  ],
+  "typeId": "2a000003-0000-4000-a000-000000000003",
+  "typeName": "subsection",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

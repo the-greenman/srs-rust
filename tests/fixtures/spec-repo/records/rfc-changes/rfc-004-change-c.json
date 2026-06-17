@@ -1,0 +1,39 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "RFC-004 Change C: Add schema-definition type"
+    },
+    {
+      "fieldId": "5a000009-0000-4000-a000-000000000009",
+      "value": "spec-authoring-core types"
+    },
+    {
+      "fieldId": "5a000006-0000-4000-a000-000000000006",
+      "value": "Add `com.semanticops.spec/schema-definition` to represent one logical data shape with namespace, schema name, version, description, semantic purpose, status, examples, deprecation, and notes."
+    },
+    {
+      "fieldId": "1a000004-0000-4000-a000-000000000004",
+      "value": "A schema-definition is not itself JSON Schema, TypeScript, or protobuf. It is the semantic source that target packages may render."
+    }
+  ],
+  "instanceId": "95aaa3b5-1866-5fa8-857b-026db49abaaf",
+  "sourceRefs": [
+    {
+      "note": "Structured RFC-004 process record derived from the RFC-004 proposal content.",
+      "relationType": "derived-from",
+      "sourceId": "a4b5c6d7-e8f9-4a0b-8c2d-3e4f5a6b7c8d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "construct:type",
+    "topic:rfc"
+  ],
+  "typeId": "6a000002-0000-4000-a000-000000000002",
+  "typeName": "rfc-change",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

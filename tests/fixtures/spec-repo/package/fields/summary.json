@@ -1,0 +1,14 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "c4d5e6f7-a8b9-4c0d-8e2f-3a4b5c6d7e8f",
+  "namespace": "com.semanticops.srs",
+  "name": "summary",
+  "version": 1,
+  "description": "A brief summary of the record's purpose and content.",
+  "aiGuidance": {
+    "purpose": "Summaries should be 1-3 sentences that capture the essence. Used in lists, indexes, and previews."
+  },
+  "valueType": "text",
+  "editorHint": "textarea",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

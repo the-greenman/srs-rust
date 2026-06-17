@@ -1,0 +1,59 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "6a000001-0000-4000-a000-000000000001",
+  "namespace": "com.semanticops.spec",
+  "name": "rfc",
+  "version": 1,
+  "description": "A Request for Comments proposing a change or addition to the specification.",
+  "fields": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Title"
+    },
+    {
+      "fieldId": "5a000001-0000-4000-a000-000000000001",
+      "order": 1,
+      "required": true,
+      "displayLabel": "RFC Number"
+    },
+    {
+      "fieldId": "5a000002-0000-4000-a000-000000000002",
+      "order": 2,
+      "required": true,
+      "displayLabel": "Status"
+    },
+    {
+      "fieldId": "5a000003-0000-4000-a000-000000000003",
+      "order": 3,
+      "required": false,
+      "displayLabel": "Author"
+    },
+    {
+      "fieldId": "5a000009-0000-4000-a000-000000000009",
+      "order": 4,
+      "required": false,
+      "displayLabel": "Affected Components"
+    },
+    {
+      "fieldId": "5a000010-0000-4000-a000-000000000010",
+      "order": 5,
+      "required": false,
+      "displayLabel": "Dependency Refs"
+    },
+    {
+      "fieldId": "5a000016-0000-4000-a000-000000000016",
+      "order": 6,
+      "required": false,
+      "displayLabel": "Proposal Artifact Path"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "order": 7,
+      "required": true,
+      "displayLabel": "Content"
+    }
+  ],
+  "createdAt": "2026-05-27T00:00:00Z"
+}

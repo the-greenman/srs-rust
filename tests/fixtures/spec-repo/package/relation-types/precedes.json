@@ -1,0 +1,14 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
+  "id": "f7a8b9c0-d1e2-4f3a-8b4c-5d6e7f8a9b0c",
+  "version": 1,
+  "key": "precedes",
+  "namespace": "com.semanticops.srs",
+  "label": "Precedes",
+  "description": "Source instance comes before target instance in a defined sequence or ordering.",
+  "category": "sequence",
+  "canonicalDirection": "source comes before target",
+  "inverseType": "follows",
+  "irreflexive": true,
+  "createdAt": "2026-05-29T00:00:00Z"
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "5a000016-0000-4000-a000-000000000016",
+  "namespace": "com.semanticops.spec",
+  "name": "proposal-artifact-path",
+  "version": 1,
+  "description": "A repository path to an artifact that belongs to an RFC proposal rather than active spec state.",
+  "aiGuidance": {
+    "purpose": "Keeps draft/proposed files discoverable without loading them into active packages or schemas.",
+    "extraction": "Use a relative repository path under the RFC proposal area, such as rfcs/rfc-004/proposed-package/..."
+  },
+  "valueType": "string",
+  "editorHint": "singleline",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "9aede8b8-d6ea-5da2-b02f-82ab3e823ff9",
+  "namespace": "com.semanticops.srs",
+  "name": "rfc_status",
+  "version": 1,
+  "description": "Editorial status of an RFC record.",
+  "aiGuidance": {
+    "purpose": "RFC lifecycle: draft (under discussion), proposed (ready for review), accepted (approved for implementation), rejected (not accepted), superseded (replaced by newer RFC)."
+  },
+  "valueType": "select",
+  "allowedValues": [
+    "draft",
+    "proposed",
+    "accepted",
+    "rejected",
+    "superseded"
+  ],
+  "editorHint": "dropdown",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000018-0000-4000-a000-000000000018",
+      "value": "ext:views-l1"
+    },
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Views L1"
+    },
+    {
+      "fieldId": "1a000019-0000-4000-a000-000000000019",
+      "value": ""
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "**Required for**: rendering and export workflows.\n\nDefines Views — versioned presentations over a field set.\n\n#### `FieldView`\n\nA field reference within a View. Controls presentation for this View without altering field semantics.\n\n```typescript\n{\n  fieldId: UUID       // must reference a valid Field.id in the effective package set\n  order: integer      // min: 0; display order within this View\n  required?: boolean  // View-level workflow constraint; does not alter Field contract\n  visible?: boolean   // default: true\n\n  // Presentation overrides — View scope only\n  displayLabel?: string\n  displayHint?: string\n  editorHintOverride?: string\n}\n```\n\nA Field hidden with `visible: false` remains in the Record and may appear in other Views.\n\n#### `ExportConfig`\n\nConfiguration for rendering a Record through this View as an exportable document.\n\n```typescript\n{\n  format?: string        // target format hint, e.g. \"markdown\", \"adoc\", \"json\"\n  preamble?: string\n  // Template string rendered before field values.\n  // Variable substitution uses {{variable-name}} syntax.\n  // Standard variables: {{instance-id}}, {{date}}, {{status}}, {{namespace}}, {{name}}\n\n  fieldOrder?: UUID[]    // explicit export field ordering; defaults to fieldViews[].order\n  omitEmptyFields?: boolean  // default: false\n}\n```\n\n#### `View`\n\nA versioned presentation and export configuration over a field set. A View is compatible with any Record containing its required fields.\n\n```typescript\n{\n  id: UUID\n  namespace: string\n  name: string\n  version: integer   // min: 1\n\n  description: string    // when to use this View; what workflow or audience it serves\n\n  aiGuidance?: AiGuidance\n  // purpose: the workflow context this View serves\n  // extraction: session-level framing injected before field extraction\n\n  fieldViews: FieldView[]\n\n  compatibleTypes?: string[]\n  // Optional semanticObjectType hints this View was designed for.\n  // Informative only. Compatibility is determined by field presence.\n\n  protection?: \"none\" | \"read-only\" | \"fill-in\"\n  // Default: \"none\".\n  // \"read-only\" — Records rendered through this View cannot be edited.\n  // \"fill-in\"   — only null or empty Field values may be populated.\n  // Protection is a View-level workflow constraint. It does not modify\n  // the Record or replace lifecycle states.\n\n  exportConfig?: ExportConfig\n\n  tags?: string[]\n  createdAt: ISO8601\n  lineage?: Lineage\n  provenance?: Provenance\n}\n```\n\nCompatibility is field-centric:\n- A Record is renderable through a View when it contains all `FieldView` entries with `required: true`.\n- Fields with `visible: true` but not required are rendered when present and omitted when absent.\n- Omitted Fields in `fieldViews[]` are treated as `visible: false`.\n\nA View may not reference unknown Fields: every `fieldId` in `View.fieldViews[]` must reference a valid `Field.id` in the effective package set.\n\n`View.protection` applies only to interactions through that View. A Record may be editable through one View and read-only through another. For record-level settlement, use `ext:lifecycle` states such as `isFinal`.\n\nFacilitation steps have been removed from View. Use `ext:protocol` Protocol stages instead.\n\n---"
+    }
+  ],
+  "instanceId": "c5bb163b-93eb-5f79-8ee8-2ec0bc5df50b",
+  "sourceRefs": [
+    {
+      "note": "Extension ext:views-l1 from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:extensibility",
+    "concern:rendering",
+    "construct:view",
+    "topic:extensions"
+  ],
+  "typeId": "2a000008-0000-4000-a000-000000000008",
+  "typeName": "extension",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

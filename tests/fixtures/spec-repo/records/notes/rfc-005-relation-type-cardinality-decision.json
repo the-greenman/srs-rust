@@ -1,0 +1,32 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+  "createdAt": "2026-05-29T00:00:00Z",
+  "instanceId": "3718815c-d505-40c1-a754-b0ab29e90b8f",
+  "sections": [
+    {
+      "content": "RFC-005 resolves canonical relation type cardinality by keeping canonical SRS relation types broad by default. `many-to-many` is the default unless a relation's meaning intrinsically requires stricter cardinality. `supersedes` remains `many-to-many` in the canonical SRS relation vocabulary. Domain packages may publish stricter relation types when their policy requires narrower cardinality, lifecycle preconditions, or source/target constraints.",
+      "contentHint": "markdown",
+      "label": "Decision",
+      "name": "decision"
+    },
+    {
+      "content": "Broad canonical cardinality keeps the base vocabulary reusable across spec, governance, provenance, and document-composition contexts. A single record may supersede several older records, several records may supersede different parts of one earlier record, and a consolidated record may supersede a cluster of prior material. Stricter supersession semantics are governance policy, so they belong in installed domain relation packages rather than in the canonical SRS relation vocabulary.",
+      "contentHint": "markdown",
+      "label": "Rationale",
+      "name": "rationale"
+    },
+    {
+      "content": "Captured while drafting `rfcs/rfc-005-installable-verifiable-relation-types.md`, Revision 3.",
+      "contentHint": "markdown",
+      "label": "Source",
+      "name": "source"
+    }
+  ],
+  "tags": [
+    "rfc-005",
+    "relation-types",
+    "design-decision",
+    "cardinality"
+  ],
+  "title": "RFC-005 Relation Type Cardinality Decision"
+}

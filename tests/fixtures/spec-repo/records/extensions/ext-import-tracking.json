@@ -1,0 +1,40 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000018-0000-4000-a000-000000000018",
+      "value": "ext:import-tracking"
+    },
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Import Tracking"
+    },
+    {
+      "fieldId": "1a000019-0000-4000-a000-000000000019",
+      "value": ""
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "**Required for**: implementations that receive packages from upstream publishers and need to track update and conflict state.\n\n#### `ImportMode`\n\n```typescript\n\"upstream-tracked\" | \"local-copy\" | \"local-fork\"\n```\n\n| Mode | Meaning |\n|---|---|\n| `\"upstream-tracked\"` | Consumer expects updates from the source Package. Conflicts surfaced when local and upstream diverge. |\n| `\"local-copy\"` | Imported as a snapshot. No update tracking. |\n| `\"local-fork\"` | Deliberately diverged. Upstream lineage preserved for reference. |\n\n#### `ImportRecord`\n\nOne record per imported definition in a consumer's local registry.\n\n```typescript\n{\n  definitionId: UUID\n  definitionType: \"field\" | \"type\" | \"view\" | \"blueprint\" | \"protocol\" | \"relation-type\"\n  namespace: string\n  name: string\n  version: integer\n\n  mode: ImportMode\n  importedAt: ISO8601\n\n  sourcePackageId: UUID\n  sourcePackageName: string\n  sourcePackageVersion: string\n\n  latestKnownUpstreamVersion?: integer\n  updateAvailable?: boolean\n  updateCheckedAt?: ISO8601\n\n  conflictState?: \"clean\" | \"local-ahead\" | \"upstream-ahead\" | \"diverged\"\n  conflictDetectedAt?: ISO8601\n\n  localVersion?: integer\n  localEditedAt?: ISO8601\n}\n```\n\n#### `ImportSummary`\n\nA consumer's complete picture of its imported definitions.\n\n```typescript\n{\n  generatedAt: ISO8601\n  fields: ImportRecord[]\n  types: ImportRecord[]\n  views: ImportRecord[]\n  blueprints: ImportRecord[]\n  protocols: ImportRecord[]\n  relationTypes: ImportRecord[]\n}\n```\n\n---"
+    }
+  ],
+  "instanceId": "279877f5-dd9d-569c-94d6-358ad177a6fb",
+  "sourceRefs": [
+    {
+      "note": "Extension ext:import-tracking from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:extensibility",
+    "concern:federation",
+    "topic:extensions"
+  ],
+  "typeId": "2a000008-0000-4000-a000-000000000008",
+  "typeName": "extension",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "6a000005-0000-4000-a000-000000000005",
+  "namespace": "com.semanticops.spec",
+  "name": "rfc-implementation",
+  "version": 1,
+  "description": "A record of applying an accepted RFC to active spec, package, schema, or tooling artifacts.",
+  "fields": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Title"
+    },
+    {
+      "fieldId": "5a000013-0000-4000-a000-000000000013",
+      "order": 1,
+      "required": true,
+      "displayLabel": "Implementation Status"
+    },
+    {
+      "fieldId": "5a000014-0000-4000-a000-000000000014",
+      "order": 2,
+      "required": false,
+      "displayLabel": "Implemented At"
+    },
+    {
+      "fieldId": "5a000015-0000-4000-a000-000000000015",
+      "order": 3,
+      "required": false,
+      "displayLabel": "Implementation Commit"
+    },
+    {
+      "fieldId": "1a000011-0000-4000-a000-000000000011",
+      "order": 4,
+      "required": false,
+      "displayLabel": "Summary"
+    },
+    {
+      "fieldId": "1a000006-0000-4000-a000-000000000006",
+      "order": 5,
+      "required": false,
+      "displayLabel": "Notes"
+    }
+  ],
+  "createdAt": "2026-05-27T00:00:00Z"
+}

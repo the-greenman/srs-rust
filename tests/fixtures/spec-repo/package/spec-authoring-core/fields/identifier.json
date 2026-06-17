@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "1a000016-0000-4000-a000-000000000016",
+  "namespace": "com.semanticops.spec",
+  "name": "identifier",
+  "version": 1,
+  "description": "A unique identifier (typically a UUID) for a definition being documented.",
+  "aiGuidance": {
+    "purpose": "A unique identifier (typically a UUID) for a definition being documented.",
+    "extraction": "Use RFC 4122 UUID v4 or v5. Identifiers must be stable — they do not change when a definition is copied or imported."
+  },
+  "valueType": "string",
+  "editorHint": "singleline",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

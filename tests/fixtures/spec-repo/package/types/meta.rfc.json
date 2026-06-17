@@ -1,0 +1,29 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "58113328-ab22-5114-a639-cb23409b0e05",
+  "namespace": "com.semanticops.srs",
+  "name": "meta.rfc",
+  "version": 1,
+  "description": "A Request for Comments proposing a change or addition to the SRS specification.",
+  "fields": [
+    {
+      "fieldId": "96f04d9d-9432-5628-8664-0d92e50f6fd0",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Title"
+    },
+    {
+      "fieldId": "9aede8b8-d6ea-5da2-b02f-82ab3e823ff9",
+      "order": 1,
+      "required": true,
+      "displayLabel": "Status"
+    },
+    {
+      "fieldId": "436786e4-d51e-5275-9654-bc4b5ee82b1a",
+      "order": 2,
+      "required": true,
+      "displayLabel": "Body"
+    }
+  ],
+  "createdAt": "2026-05-27T00:00:00Z"
+}

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Why the directionality invariant matters"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "\n`sourceInstanceId` is the asserting instance; `targetInstanceId` is the related instance. \"D-004 supersedes D-001\" must always be represented as `source: D-004, target: D-001`.\n\nWithout this invariant, graph traversal breaks across system boundaries. If System A stores `supersedes` with the newer Record as source and System B stores it with the older Record as source, a federated query for \"all Records that supersede D-001\" returns different results from each system. The invariant is the minimum agreement required for semantic interoperability on Relation graphs.\n\nThe invariant does not assign agency or authority to the `source` slot — those are properties of the `relationType`. A `contains` Relation makes the source the container and the target the contained item. An `evidences` Relation makes the source the evidence and the target the claim it supports. Directionality is a slot convention; semantics come from the type."
+    }
+  ],
+  "instanceId": "f1000012-0000-4000-a000-000000000012",
+  "sourceRefs": [
+    {
+      "note": "Imported from scds-rationale.md: \"Why the directionality invariant matters\"",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "construct:relation",
+    "topic:foundation"
+  ],
+  "typeId": "2a000012-0000-4000-a000-000000000012",
+  "typeName": "design-note",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

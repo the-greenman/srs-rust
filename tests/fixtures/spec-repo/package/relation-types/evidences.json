@@ -1,0 +1,13 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
+  "id": "d4e5f6a7-b8c9-4d0e-9f1a-2b3c4d5e6f7a",
+  "version": 1,
+  "key": "evidences",
+  "namespace": "com.semanticops.srs",
+  "label": "Evidences",
+  "description": "Source instance is evidence for, supports, or substantiates the claim or content of target instance.",
+  "category": "evidence",
+  "canonicalDirection": "source is the evidence; target is the claim or content being supported",
+  "irreflexive": true,
+  "createdAt": "2026-05-29T00:00:00Z"
+}

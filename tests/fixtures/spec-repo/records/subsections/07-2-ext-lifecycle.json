@@ -1,0 +1,32 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "ext:lifecycle"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "**Required for**: governance tools, decision logs, any implementation where records progress through defined states.\n\n`ext:lifecycle` is fully integrated with the vocabulary substrate (RFC-006). `Lifecycle` is an installable, referenceable container — a `VocabularyEntry` specialisation whose container holds states and transitions. `LifecycleState` satisfies the `VocabularyEntry` substrate contract with `key` (was `name`) as its key-role field.\n\n#### `LifecycleState` (VocabularyEntry specialisation)\n\n```typescript\n{\n  id: UUID                  // stable identity\n  version: integer\n  namespace: string\n  key: string               // was name; the string stored in Record.lifecycleState\n  label?: string\n  description?: string\n  aliases?: string[]\n  isInitial?: boolean       // valid starting state for new Records\n  isFinal?: boolean         // no outgoing transitions permitted (V9)\n  status?: \"active\" | \"deprecated\" | \"tombstone\" | \"retired\"   // absent = active\n  properties?: Record<string, unknown>\n  lineage?: Lineage\n  provenance?: Provenance\n  createdAt: ISO8601\n  updatedAt?: ISO8601\n}\n```\n\n#### `LifecycleTransition` (edge between state keys)\n\n```typescript\n{\n  id: UUID                  // stable identity for lossless future migration\n  name: string              // e.g. \"promote\", \"approve\", \"supersede\"\n  from: string              // a LifecycleState.key in the effective state set\n  to: string                // a LifecycleState.key in the effective state set\n  description?: string\n  properties?: Record<string, unknown>\n}\n```\n\n`LifecycleTransition` is an edge, not a `VocabularyEntry` (no `key`), but carries `id` so it is addressable. It follows the same forward-compatibility policy as substrate entries: unknown top-level fields rejected; arbitrary metadata in `properties`.\n\n#### `Lifecycle` container\n\nAn installable, referenceable state machine — a closed vocabulary of states plus transitions.\n\n```typescript\n{\n  id: UUID\n  namespace: string\n  name: string\n  version: integer          // min: 1\n\n  states: LifecycleState[]\n  transitions: LifecycleTransition[]\n  initialState: string      // the key of the single isInitial state\n\n  extendsLifecycleId?: UUID\n  extendsLifecycleVersion?: integer   // required when extendsLifecycleId is present\n\n  description?: string\n  createdAt: ISO8601\n  lineage?: Lineage\n  provenance?: Provenance\n}\n```\n\nThe distributable `Package` holds inline definitions: `lifecycles?: Lifecycle[]`. The repository `package/package.json` holds relative paths: `\"lifecycles\": [\"lifecycles/foo.json\", ...]`.\n\n#### Type lifecycle declaration (added by this extension)\n\n`Type` gains a lifecycle, declared in exactly one of two mutually exclusive forms (V7):\n\n```typescript\n// Inline (simple cases; cannot extend):\nlifecycle?: {\n  states: LifecycleState[]\n  transitions: LifecycleTransition[]\n  initialState: string\n}\n\n// Referenced (shared, installable):\nlifecycleRef?: Reference   // resolves to an installed Lifecycle (V8)\n```\n\nDeclaring both is a validation error (V7). An inline lifecycle's effective state set is exactly its own `states`/`transitions`; V5 and V9 apply identically.\n\n#### Record lifecycle state\n\n`Record.lifecycleState` must resolve to a state `key` in the Type's effective state set under V1.\n\n#### Validation invariants (V7–V9)\n\n**V7 — Lifecycle exclusivity.** A Type declares exactly one of `lifecycle` or `lifecycleRef`.\n\n**V8 — Lifecycle reference resolution.** A `lifecycleRef` must resolve to an installed `Lifecycle` in the effective package set.\n\n**V9 — Lifecycle integrity.** Over the effective state set (V5):\n- Exactly one state MUST have `isInitial: true`; `initialState` MUST reference that state's `key`.\n- The initial state MUST have effective `status: active`. A lifecycle whose initial state is deprecated, tombstone, or retired is invalid.\n- Every `transition.from`/`transition.to` must reference a state `key` in the effective state set.\n- A state with `isFinal: true` MUST NOT appear as the `from` of any transition.\n- Transition `id`s must be unique within the effective transition set.\n- `Record.lifecycleState` resolves under V1.\n\n---"
+    }
+  ],
+  "instanceId": "d5d3f88f-8cc6-5247-8d35-41b189804dc5",
+  "sourceRefs": [
+    {
+      "note": "Subsection 07-2 from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:extensibility",
+    "construct:lifecycle",
+    "topic:extensions"
+  ],
+  "typeId": "2a000003-0000-4000-a000-000000000003",
+  "typeName": "subsection",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

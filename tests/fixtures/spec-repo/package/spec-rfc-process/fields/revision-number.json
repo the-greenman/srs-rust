@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "5a000018-0000-4000-a000-000000000018",
+  "namespace": "com.semanticops.spec",
+  "name": "revision-number",
+  "version": 1,
+  "description": "The sequential revision number of an RFC revision entry.",
+  "aiGuidance": {
+    "purpose": "Identifies a specific revision in an RFC's history. Revision numbers are stable and assigned sequentially starting from 1.",
+    "extraction": "Use a positive integer. Revision 1 is the initial draft. Increment by 1 for each substantive edit. Numbers are never reassigned or reused."
+  },
+  "valueType": "number",
+  "editorHint": "singleline",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

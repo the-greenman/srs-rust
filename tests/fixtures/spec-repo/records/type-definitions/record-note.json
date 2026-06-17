@@ -1,0 +1,31 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "record-note"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "SRS supports three semantic maturity tiers. Implementations are not required to support all three; they may begin at Tier 2.\n\n| Tier | Type | Structure | Semantics |\n|---|---|---|---|\n| **0** | `Note` | Named sections + free text | None |\n| **1** | `Typed Record` | Named fields with types and values | Minimal |\n| **2** | `Record` | Fields bound to a `Type` definition | Full |\n\nGraduation path: Note → Typed Record → Record.\n\n#### `NoteSection`\n\nA named text section within a Note.\n\n```typescript\n{\n  name: string          // section key; unique within the Note; snake_case recommended\n  label?: string\n  content: string\n  contentHint?: \"text\" | \"markdown\" | \"plain\"  // hint only; default: \"text\"\n}\n```\n\n#### `Note`\n\nA lightweight instance with no Type binding.\n\n```typescript\n{\n  instanceId: UUID\n\n  title?: string\n  sections: NoteSection[]\n\n  graduatedAt?: ISO8601\n  // When set, signals full formalisation. Authoritative record of successors\n  // is in derived-from Relations from the successor Records.\n\n  sourceRefs?: SourceReference[]\n  // Instance-level source references. Because Notes have no Fields, this is\n  // the only place to record provenance for a Note as a whole.\n\n  createdAt?: ISO8601\n  updatedAt?: ISO8601\n  meta?: Record<string, unknown>\n}\n```"
+    }
+  ],
+  "instanceId": "48b8b950-3ace-5b3e-b6a9-561b21dcb560",
+  "sourceRefs": [
+    {
+      "note": "Type definition record-note from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "construct:record",
+    "topic:foundation"
+  ],
+  "typeId": "2a000005-0000-4000-a000-000000000005",
+  "typeName": "type-definition",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

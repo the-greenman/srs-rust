@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/source-document.json",
+  "documentId": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+  "contentPath": "chatgpt-origin.md",
+  "contentType": "text/markdown",
+  "encoding": "utf-8",
+  "title": "ChatGPT Origin Session",
+  "description": "Original AI session transcript documenting the initial conception and design of the SRS specification.",
+  "tags": ["source-material", "origin", "chatgpt"],
+  "createdAt": "2026-05-27T00:00:00Z",
+  "importedAt": "2026-05-27T15:00:00Z",
+  "meta": {
+    "originalPath": "source-documents/ai-sessions/chatgpt-origin.md",
+    "sessionType": "origin"
+  }
+}

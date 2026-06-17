@@ -1,0 +1,32 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Protocol chaining and provenance traces"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "\nLoose Protocols produce open material. Tight Protocols converge on a specific Record. The output of one Protocol is the input context for the next.\n\nExample chain for a governance decision:\n```\nBrain Dump Protocol → unstructured Notes\nDecomposition Protocol → component Notes (derived-from Brain Dump Notes)\nOptions Analysis Protocol → Options Analysis Record (derived-from Decomposition Notes)\nDecision Protocol → Decision Record (derived-from Options Analysis Record)\n```\n\nWhen a Decision Record is challenged, you can traverse back through the full chain: Decision ← Options Analysis ← Decomposition ← Brain Dump ← transcript chunks. The quality of the final Record is auditable because every stage of the process left addressable artefacts.\n\nWith `ext:addressability`, each stage's conversation chunks carry the `AttentionState` at the time they were produced. \"What was being discussed when the options were evaluated?\" is a queryable question."
+    }
+  ],
+  "instanceId": "f1000021-0000-4000-a000-000000000021",
+  "sourceRefs": [
+    {
+      "note": "Imported from scds-rationale.md: \"Protocol chaining and provenance traces\"",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "construct:protocol",
+    "construct:provenance",
+    "topic:extensions"
+  ],
+  "typeId": "2a000012-0000-4000-a000-000000000012",
+  "typeName": "design-note",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

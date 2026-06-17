@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "7a8b9c0d-1e2f-4a3b-8c5d-6e7f8a9b0c1d",
+  "namespace": "com.semanticops.srs",
+  "name": "migration_note",
+  "version": 1,
+  "description": "A note about migration status, source anchoring, or temporary scaffolding.",
+  "aiGuidance": {
+    "purpose": "Use for explaining coarse source anchoring, temporary records, or migration artifacts. Should be removed or refined as the record matures."
+  },
+  "valueType": "text",
+  "contentFormat": "markdown",
+  "editorHint": "textarea",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "ext:field-groups"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "**Required for**: Record types where multiple Fields are semantically paired and repeat together as a unit.\n\nUse when parallel `multiselect` arrays would lose pairing (e.g. a contact record with `name` + `email`). Preserves internal pairing across repeated items.\n\n#### `FieldGroup`\n\nA named, ordered group of Fields that repeat together as a unit within a Type.\n\n```typescript\n{\n  groupId: string        // stable key within the Type\n  label?: string\n  description?: string\n\n  order: integer         // min: 0; position relative to other Fields and Groups\n\n  required?: boolean     // default: false\n  repeatable?: boolean   // default: false\n  minItems?: integer\n  maxItems?: integer\n\n  fields: FieldAssignment[]\n}\n```\n\n#### `FieldGroupEntry`\n\nOne entry in a repeatable Field Group.\n\n```typescript\n{\n  entryId?: UUID         // stable key for this entry; allows referencing or updating\n  fieldValues: FieldValue[]\n}\n```\n\n#### `FieldGroupValue`\n\nThe current value of a Field Group within a Record.\n\n```typescript\n{\n  groupId: string           // references FieldGroup.groupId in the Type definition\n  entries: FieldGroupEntry[]\n}\n```\n\nA `FieldGroup` does not create a new semantic instance. Its entries are embedded structured context within the enclosing Record. Use separate Records connected by Relations when group entries need their own identity, lifecycle, provenance, or reuse across Records.\n\n`FieldGroup.repeatable`, `minItems`, and `maxItems` define group-level repeatability — whether the group as a whole can appear multiple times within a Record. This is structurally independent from `ext:repeatable-fields`, which adds scalar repeatability to individual Fields. An implementation may adopt `ext:field-groups` without `ext:repeatable-fields`; the repeatability mechanics in each extension are self-contained.\n\nWhen `ext:field-groups` is in use, `Type` gains `fieldGroups?: FieldGroup[]` and `Record` gains `groupValues?: FieldGroupValue[]`.\n\n**Repeatability pattern guide:**\n\n| Pattern | Use | Example |\n|---|---|---|\n| Repeatable scalar | `FieldAssignment.repeatable` (ext:repeatable-fields) | Multiple assigned person names |\n| Repeatable structured context | `FieldGroup` | Contacts with name + email pairs |\n| Repeated semantic objects | Separate Records + Relations | Tasks assigned to roles |\n\n---"
+    }
+  ],
+  "instanceId": "7196cf13-e961-5b8e-bcc5-2f91b61aaf9a",
+  "sourceRefs": [
+    {
+      "note": "Subsection 07-9 from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "concern:extensibility",
+    "construct:field",
+    "topic:extensions"
+  ],
+  "typeId": "2a000003-0000-4000-a000-000000000003",
+  "typeName": "subsection",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

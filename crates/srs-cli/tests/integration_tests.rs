@@ -154,15 +154,18 @@ fn ordinary_commands_do_not_construct_concrete_stores() {
 // Read-only tests against live srs repo
 
 fn srs_spec_repo_dir() -> std::path::PathBuf {
-    // Allow override via env var for local development (e.g. when running from a worktree).
-    // In CI: srs-rust and srs are checked out as siblings; CARGO_MANIFEST_DIR is
-    // srs-rust/crates/srs-cli, so three ".." levels up reaches the parent, then srs/srs.
     if let Ok(path) = std::env::var("SRS_SPEC_REPO") {
         return std::path::PathBuf::from(path);
     }
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    // Walk up the directory tree until we find the parent that contains both
-    // a Cargo.toml (workspace root) and a sibling srs directory.
+    // Vendored fixture (srs-rust/tests/fixtures/spec-repo)
+    let vendored = manifest_dir.join("../../tests/fixtures/spec-repo");
+    if let Ok(canonical) = vendored.canonicalize() {
+        if canonical.join(".srs").exists() {
+            return canonical;
+        }
+    }
+    // Legacy: sibling srs checkout
     let mut dir = manifest_dir.to_path_buf();
     loop {
         let candidate = dir.join("../srs/srs");
@@ -180,7 +183,6 @@ fn srs_spec_repo_dir() -> std::path::PathBuf {
         }
         dir = parent;
     }
-    // Fallback: standard CI layout (srs-rust/crates/srs-cli → ../../.. → parent → srs/srs)
     manifest_dir.join("../../../srs/srs")
 }
 

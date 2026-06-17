@@ -1,0 +1,160 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000025-0000-4000-a000-000000000025",
+      "value": "The underlying question: *Would a reasonable reader, encountering this Record a year later, recognise it as the same understanding they would have read before the change?*"
+    },
+    {
+      "fieldId": "1a000026-0000-4000-a000-000000000026",
+      "value": "Cross-check: if a `supersedes` Relation would feel misleading — as if the group reversed itself when it only clarified — it is probably an edit. If a silent edit would feel misleading — as if the record was silently revised after the fact — it is probably a new Record."
+    },
+    {
+      "entries": [
+        {
+          "value": "Scenario"
+        },
+        {
+          "value": "Guidance"
+        }
+      ],
+      "fieldId": "1a000032-0000-4000-a000-000000000032",
+      "value": [
+        "Scenario",
+        "Guidance"
+      ]
+    }
+  ],
+  "groupValues": [
+    {
+      "entries": [
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Correcting how something is expressed (typo, phrasing)"
+                },
+                {
+                  "value": "Edit in-place"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Correcting how something is expressed (typo, phrasing)",
+                "Edit in-place"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Adding context that reinforces the existing understanding"
+                },
+                {
+                  "value": "Edit in-place"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Adding context that reinforces the existing understanding",
+                "Edit in-place"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Clarifying a detail that was ambiguous but understanding is unchanged"
+                },
+                {
+                  "value": "Edit in-place"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Clarifying a detail that was ambiguous but understanding is unchanged",
+                "Edit in-place"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Adding information that changes what was actually committed to"
+                },
+                {
+                  "value": "New Record + `refines` or `supersedes`"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Adding information that changes what was actually committed to",
+                "New Record + `refines` or `supersedes`"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Reversing or materially replacing a prior commitment"
+                },
+                {
+                  "value": "New Record + `supersedes`"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Reversing or materially replacing a prior commitment",
+                "New Record + `supersedes`"
+              ]
+            }
+          ]
+        },
+        {
+          "fieldValues": [
+            {
+              "entries": [
+                {
+                  "value": "Producing a more detailed version from a rough original"
+                },
+                {
+                  "value": "New Record + `refines`"
+                }
+              ],
+              "fieldId": "1a000033-0000-4000-a000-000000000033",
+              "value": [
+                "Producing a more detailed version from a rough original",
+                "New Record + `refines`"
+              ]
+            }
+          ]
+        }
+      ],
+      "groupId": "rows"
+    }
+  ],
+  "instanceId": "b1000000-0000-4000-a000-000000000001",
+  "tags": [
+    "construct:record",
+    "construct:reference",
+    "topic:foundation"
+  ],
+  "typeId": "2a000013-0000-4000-a000-000000000013",
+  "typeName": "table",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 2
+}

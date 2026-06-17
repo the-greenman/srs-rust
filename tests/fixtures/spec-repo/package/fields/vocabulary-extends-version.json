@@ -1,0 +1,13 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "0815bf63-9e94-4ff8-be37-2dacfdbf675e",
+  "namespace": "com.semanticops.srs",
+  "name": "vocabulary_extends_version",
+  "version": 1,
+  "description": "Version of the upstream Vocabulary being extended. Must equal the resolved upstream version; a mismatch is a hard validation error (V5).",
+  "valueType": "number",
+  "createdAt": "2026-06-03T00:00:00Z",
+  "aiGuidance": {
+    "purpose": "Pins the extension to a specific upstream version to prevent silent state-dropping when the upstream is updated."
+  }
+}

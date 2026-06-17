@@ -1,0 +1,31 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Core conformance requirements"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "A core-conformant implementation must:\n- Accept and validate `Field`, `Type`, `Record` (Tier 2), `Relation`, and `Container` inputs against this specification\n- Enforce Invariants 1–3, 7–9, 16–21, 28, 38\n- Support the Foundation and Distribution groups in full\n- Implement the namespace format and reference format correctly\n- Not accept `relationType` strings that include `/` except in `namespace/name` format\n- **Closed-vocabulary resolution (V1):** Resolve every value participating in a closed vocabulary to exactly one installed entry in the effective entry set before accepting a write. Non-resolving values are validation errors. This rule applies to:\n  - `Relation.relationType` — resolved against the repo-global `RelationTypeDefinition` set (RFC-005 E1 is a named instance of V1)\n  - `select`/`multiselect` field values — resolved against the Field's effective closed `Vocabulary`\n  - `Record.lifecycleState` — resolved against the Type's effective lifecycle state set\n- Enforce the effective entry set construction (V5): retire entries excluded before uniqueness; `extends*Version` mismatches are hard errors.\n- Enforce inline and referenced lifecycle integrity (V9).\n- Enforce `select`/`multiselect` field binding exclusivity and closedness (V3).\n\nSupport for `Note` (Tier 0) and `Typed Record` (Tier 1) is optional at core conformance level."
+    }
+  ],
+  "instanceId": "ab421ac0-561d-5ec0-87b0-09e8bc930a4d",
+  "sourceRefs": [
+    {
+      "note": "Subsection 09-1 from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "topic:conformance"
+  ],
+  "typeId": "2a000003-0000-4000-a000-000000000003",
+  "typeName": "subsection",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-06-03T00:00:00Z"
+}

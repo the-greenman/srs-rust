@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "5a000015-0000-4000-a000-000000000015",
+  "namespace": "com.semanticops.spec",
+  "name": "implementation-commit",
+  "version": 1,
+  "description": "The commit, change identifier, or release reference that applied an accepted RFC.",
+  "aiGuidance": {
+    "purpose": "Links an RFC implementation record to the concrete repository change that applied it.",
+    "extraction": "Use a git commit SHA, PR number, release identifier, or other stable implementation reference."
+  },
+  "valueType": "string",
+  "editorHint": "singleline",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "5a000001-0000-4000-a000-000000000001",
+  "namespace": "com.semanticops.spec",
+  "name": "rfc-number",
+  "version": 1,
+  "description": "The sequential number of this RFC within the specification.",
+  "aiGuidance": {
+    "purpose": "The sequential number of this RFC within the specification.",
+    "extraction": "RFC numbers are assigned sequentially starting from 001. Format as three digits with leading zeros (e.g. '001', '004'). Numbers are stable and never reassigned."
+  },
+  "valueType": "string",
+  "editorHint": "singleline",
+  "createdAt": "2026-05-27T00:00:00Z"
+}

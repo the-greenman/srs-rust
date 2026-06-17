@@ -1,0 +1,47 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "e0ba1c94-822e-498f-b3ca-3dafc1bf020a",
+  "namespace": "com.semanticops.srs",
+  "name": "vocabulary",
+  "version": 1,
+  "description": "A named, versioned set of Term entries. mode:open = usage-authoritative (tags); mode:closed = vocabulary-authoritative (select field values). Installed in packages alongside fields and types.",
+  "fields": [
+    {
+      "fieldId": "a2b3c4d5-e6f7-4a8b-9c0d-1e2f3a4b5c6d",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Name"
+    },
+    {
+      "fieldId": "d5e6f7a8-b9c0-4d1e-8f3a-4b5c6d7e8f9a",
+      "order": 1,
+      "required": false,
+      "displayLabel": "Description"
+    },
+    {
+      "fieldId": "c013a1af-363f-4ad9-9c3d-47f99c7b3c6b",
+      "order": 2,
+      "required": true,
+      "displayLabel": "Mode"
+    },
+    {
+      "fieldId": "ed953703-cd0d-476c-b10a-a765b221a05f",
+      "order": 3,
+      "required": false,
+      "displayLabel": "Extends Vocabulary ID"
+    },
+    {
+      "fieldId": "0815bf63-9e94-4ff8-be37-2dacfdbf675e",
+      "order": 4,
+      "required": false,
+      "displayLabel": "Extends Vocabulary Version"
+    },
+    {
+      "fieldId": "5efb5f25-f2b4-4af0-950f-c1b64c9a32a6",
+      "order": 5,
+      "required": false,
+      "displayLabel": "Promotion Window Until"
+    }
+  ],
+  "createdAt": "2026-06-03T00:00:00Z"
+}

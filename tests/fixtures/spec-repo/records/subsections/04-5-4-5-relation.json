@@ -1,0 +1,31 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "fieldValues": [
+    {
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Relation"
+    },
+    {
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "A first-class typed link between instances. Relations allow implementations to construct semantic graphs for navigation, analysis, projection, and reasoning.\n\n```typescript\n{\n  relationId: UUID\n\n  relationType: string\n  // Free-form. See ext:recommended-relations for canonical types and conventions.\n\n  // source [relationType] target\n  sourceInstanceId: UUID    // the asserting instance\n  targetInstanceId: UUID    // the related instance\n\n  assertedBy?: \"human\" | \"ai\" | \"imported\"\n  confidence?: number       // 0.0–1.0; meaningful for ai-asserted\n  createdAt?: ISO8601\n  createdBy?: string\n\n  status?: \"proposed\" | \"active\" | \"rejected\" | \"superseded\"\n  validFrom?: ISO8601\n  validUntil?: ISO8601\n\n  notes?: string\n  sourceRefs?: SourceReference[]\n  meta?: Record<string, unknown>\n}\n```\n\n**Directionality convention:**\n`sourceInstanceId` is the asserting instance; `targetInstanceId` is the related instance. The Relation reads: \"source [relationType] target.\"\n\n| Relation | source | target |\n|---|---|---|\n| `supersedes` | the newer Record | the older Record |\n| `contains` | the stage | the task inside it |\n| `depends-on` | the dependent task | the task it needs |\n| `refines` | the detailed version | the rough version |\n| `derived-from` | the successor | the source Note or Record |\n| `evidences` | the source material | the claim it supports |\n\nThis convention must be consistent across implementations. See Invariant 16.\n\nRelations span tiers. A Note may be the target of `derived-from` Relations from the Records it graduated into.\n\n**Canonical relation types** (use these exact strings for cross-system interoperability):\n\n`contains`, `depends-on`, `supersedes`, `refines`, `derived-from`, `evidences`, `precedes`\n\nCustom types not covered by these should use `namespace/name` format (e.g. `com.acme.hr/transferred-to`) to prevent collision. Extended relation type metadata is defined in `ext:recommended-relations`.\n\n**Relations do not change lifecycle state.** A `supersedes` Relation does not mutate the prior Record's `lifecycleState`. Lifecycle state changes are explicit acts by an implementation's transition mechanism.\n\n---"
+    }
+  ],
+  "instanceId": "e9bb323b-dc48-5e6f-bb2a-3bd729ac70a6",
+  "sourceRefs": [
+    {
+      "note": "Subsection 04-5 from srs-spec.md - coarse source anchoring during migration",
+      "relationType": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ],
+  "tags": [
+    "construct:relation",
+    "topic:foundation"
+  ],
+  "typeId": "2a000003-0000-4000-a000-000000000003",
+  "typeName": "subsection",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1
+}

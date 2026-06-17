@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/source-document.json",
+  "documentId": "c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f",
+  "contentPath": "chatgpt-spec-review.md",
+  "contentType": "text/markdown",
+  "encoding": "utf-8",
+  "title": "ChatGPT Specification Review",
+  "description": "AI session transcript with specification review and refinement discussion.",
+  "tags": ["source-material", "review", "chatgpt"],
+  "createdAt": "2026-05-27T00:00:00Z",
+  "importedAt": "2026-05-27T15:00:00Z",
+  "meta": {
+    "originalPath": "source-documents/ai-sessions/chatgpt-spec-review.md",
+    "sessionType": "review"
+  }
+}

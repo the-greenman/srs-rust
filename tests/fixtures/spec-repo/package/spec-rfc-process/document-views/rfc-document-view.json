@@ -1,0 +1,22 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json",
+  "id": "7a000001-0000-4000-a000-000000000001",
+  "namespace": "com.semanticops.spec",
+  "name": "rfc-document-view",
+  "version": 1,
+  "description": "Renders each RFC as a standalone document ordered by RFC number.",
+  "format": "markdown",
+  "sections": [
+    {
+      "sectionId": "rfcs",
+      "title": "RFCs",
+      "order": 0,
+      "source": {
+        "type": "type-query",
+        "semanticObjectType": "com.semanticops.spec/rfc"
+      },
+      "emptyBehavior": "hide"
+    }
+  ],
+  "createdAt": "2026-05-27T00:00:00Z"
+}
