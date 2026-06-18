@@ -17,6 +17,7 @@ use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::types::theme::Theme;
 use srs_core::types::view::{DocumentView, View};
 use srs_core::types::vocabulary::Vocabulary;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -101,7 +102,14 @@ pub fn export_repository_snapshot(
 
     let mut instances = Vec::new();
     for entry in &manifest.instance_index {
-        let value = source.load_instance_json(entry.path())?;
+        let value =
+            source
+                .load_instance_json(entry.path())
+                .map_err(|e| RepositoryError::InstanceLoad {
+                    instance_id: entry.instance_id.clone(),
+                    path: std::path::PathBuf::from(entry.path()),
+                    source: Box::new(e) as Box<dyn std::error::Error + Send + Sync>,
+                })?;
         instances.push(SnapshotInstance {
             instance_id: entry.instance_id.clone(),
             tier: entry.tier,
@@ -128,12 +136,14 @@ pub fn export_repository_snapshot(
         .unwrap_or_default();
 
     let mut package_boundaries: Vec<Option<String>> = vec![None];
-    let refs: Vec<RawPackageRef> = manifest
-        .extra
-        .get("packageRefs")
-        .cloned()
-        .and_then(|v| serde_json::from_value(v).ok())
-        .unwrap_or_default();
+    let refs: Vec<RawPackageRef> = match manifest.extra.get("packageRefs") {
+        None => Vec::new(),
+        Some(v) => {
+            serde_json::from_value(v.clone()).map_err(|e| RepositoryError::InvalidSnapshotData {
+                message: format!("malformed packageRefs in manifest: {e}"),
+            })?
+        }
+    };
     package_boundaries.extend(
         refs.into_iter()
             .filter(|r| r.mode == "local")
@@ -237,9 +247,19 @@ pub fn import_repository_snapshot(
         );
     }
 
+    let mut used_paths: HashMap<String, String> = HashMap::with_capacity(snapshot.instances.len());
     manifest.instance_index = Vec::new();
     for instance in &snapshot.instances {
         let rel_path = canonical_instance_path(instance);
+        if let Some(first_id) = used_paths.get(&rel_path) {
+            return Err(RepositoryError::InvalidSnapshotData {
+                message: format!(
+                    "canonical path collision at '{}': instance '{}' and '{}' both map to the same path",
+                    rel_path, first_id, instance.instance_id
+                ),
+            });
+        }
+        used_paths.insert(rel_path.clone(), instance.instance_id.clone());
         ensure_instance_parent(target, &rel_path)?;
         target.save_instance_json(&rel_path, &instance.value)?;
         manifest.instance_index.push(InstanceIndexEntry {
@@ -731,7 +751,7 @@ mod tests {
             vocabulary_ref: None,
             default_value: None,
             created_at: "".to_string(),
-            extra: std::collections::HashMap::new(),
+            extra: HashMap::new(),
         });
 
         let target = MemoryStore::uninitialized();
@@ -866,7 +886,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
-            extra: std::collections::HashMap::new(),
+            extra: HashMap::new(),
         });
         snapshot.relations.push(Relation {
             relation_id: "33333333-3333-4333-8333-333333333333".to_string(),
@@ -1096,5 +1116,128 @@ mod tests {
             temp.path().join("records/tier-1/55555555.json").exists(),
             "expected records/tier-1/55555555.json (id-only — tier-1 has no typeName)"
         );
+    }
+
+    #[test]
+    fn export_fails_with_instance_load_error_when_record_missing() {
+        // A manifest entry pointing to a path with no data should surface
+        // InstanceLoad with the instance_id and path in the error, not a
+        // generic IO error with no identifying context.
+        let source = MemoryStore::uninitialized();
+        source.initialize_repository(&make_input()).unwrap();
+
+        // Inject a manifest entry whose path has no corresponding data entry.
+        let mut manifest = source.load_manifest().unwrap();
+        manifest
+            .instance_index
+            .push(crate::index::InstanceIndexEntry {
+                instance_id: "deadbeef-dead-4ead-8ead-deadbeefcafe".to_string(),
+                tier: 0,
+                path: "records/notes/ghost.json".to_string(),
+                title: None,
+                tags: None,
+            });
+        source.save_manifest(&manifest).unwrap();
+
+        let result = export_repository_snapshot(&source);
+
+        match result {
+            Err(RepositoryError::InstanceLoad {
+                ref instance_id,
+                ref path,
+                ..
+            }) => {
+                assert_eq!(instance_id, "deadbeef-dead-4ead-8ead-deadbeefcafe");
+                assert_eq!(path.to_str().unwrap(), "records/notes/ghost.json");
+            }
+            other => panic!("expected InstanceLoad error, got: {other:?}"),
+        }
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("deadbeef-dead-4ead-8ead-deadbeefcafe"),
+            "error message must contain instance_id: {err_msg}"
+        );
+        assert!(
+            err_msg.contains("records/notes/ghost.json"),
+            "error message must contain source path: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn import_fails_on_canonical_path_collision() {
+        // Two tier-0 instances with the same slug AND the same first 8 UUID
+        // characters both map to "records/notes/same-title-aaaaaaaa.json".
+        // The import must return InvalidSnapshotData naming both instance IDs
+        // and the colliding path, rather than silently overwriting the first.
+        let source = MemoryStore::uninitialized();
+        source.initialize_repository(&make_input()).unwrap();
+        let mut snapshot = export_repository_snapshot(&source).unwrap();
+
+        snapshot.instances.push(SnapshotInstance {
+            instance_id: "aaaaaaaa-0000-4000-8000-000000000001".to_string(),
+            tier: 0,
+            title: Some(serde_json::json!("same title")),
+            tags: None,
+            value: serde_json::json!({
+                "instanceId": "aaaaaaaa-0000-4000-8000-000000000001"
+            }),
+        });
+        snapshot.instances.push(SnapshotInstance {
+            instance_id: "aaaaaaaa-0000-4000-8000-000000000002".to_string(),
+            tier: 0,
+            title: Some(serde_json::json!("same title")),
+            tags: None,
+            value: serde_json::json!({
+                "instanceId": "aaaaaaaa-0000-4000-8000-000000000002"
+            }),
+        });
+
+        let target = MemoryStore::uninitialized();
+        let result = import_repository_snapshot(&target, &snapshot);
+
+        match result {
+            Err(RepositoryError::InvalidSnapshotData { ref message }) => {
+                assert!(
+                    message.contains("records/notes/same-title-aaaaaaaa.json"),
+                    "error must name the collision path: {message}"
+                );
+                assert!(
+                    message.contains("aaaaaaaa-0000-4000-8000-000000000001"),
+                    "error must name first instance: {message}"
+                );
+                assert!(
+                    message.contains("aaaaaaaa-0000-4000-8000-000000000002"),
+                    "error must name second instance: {message}"
+                );
+            }
+            other => panic!("expected InvalidSnapshotData error, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn export_fails_on_malformed_package_refs() {
+        // When manifest.packageRefs is present but is not a valid
+        // Vec<{mode, path}> array, export must return InvalidSnapshotData
+        // rather than silently treating sub-packages as absent.
+        let source = MemoryStore::uninitialized();
+        source.initialize_repository(&make_input()).unwrap();
+
+        let mut manifest = source.load_manifest().unwrap();
+        manifest
+            .extra
+            .insert("packageRefs".to_string(), serde_json::json!("not-an-array"));
+        source.save_manifest(&manifest).unwrap();
+
+        let result = export_repository_snapshot(&source);
+
+        match result {
+            Err(RepositoryError::InvalidSnapshotData { ref message }) => {
+                assert!(
+                    message.contains("malformed packageRefs"),
+                    "error must mention packageRefs: {message}"
+                );
+            }
+            other => panic!("expected InvalidSnapshotData error, got: {other:?}"),
+        }
     }
 }

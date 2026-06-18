@@ -84,6 +84,14 @@ pub enum RepositoryError {
         source: serde_json::Error,
     },
 
+    #[error("failed to load instance '{instance_id}' from path {path:?}: {source}")]
+    InstanceLoad {
+        instance_id: String,
+        path: PathBuf,
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
     #[error("relation type definition validation failed at {path:?}: {source}")]
     RelationTypeDefinitionValidation {
         path: PathBuf,
@@ -342,6 +350,18 @@ impl PartialEq for RepositoryError {
                 RepositoryError::Io { path: a, source: _ },
                 RepositoryError::Io { path: b, source: _ },
             ) => a == b,
+            (
+                RepositoryError::InstanceLoad {
+                    instance_id: a,
+                    path: pa,
+                    ..
+                },
+                RepositoryError::InstanceLoad {
+                    instance_id: b,
+                    path: pb,
+                    ..
+                },
+            ) => a == b && pa == pb,
             (
                 RepositoryError::Serialize { path: a, source: _ },
                 RepositoryError::Serialize { path: b, source: _ },
