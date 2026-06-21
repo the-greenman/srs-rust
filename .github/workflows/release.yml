@@ -1,0 +1,67 @@
+name: Release
+
+# Publish a GitHub Release with a prebuilt `srs` CLI binary on every merge to
+# master (i.e. every merged PR). Each run produces a uniquely tagged release
+# since the workspace version is pinned.
+on:
+  push:
+    branches: [master]
+
+# The default GITHUB_TOKEN needs write access to create releases and tags.
+permissions:
+  contents: write
+
+# Avoid two merges racing to create releases at the same time.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and Release (linux x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release -p srs
+
+      - name: Package binary
+        id: package
+        run: |
+          set -euo pipefail
+          version=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "srs") | .version')
+          sha_short=$(git rev-parse --short HEAD)
+          tag="v${version}-build.${{ github.run_number }}"
+          archive="srs-${tag}-x86_64-unknown-linux-gnu.tar.gz"
+          tar -czf "$archive" -C target/release srs
+          {
+            echo "version=$version"
+            echo "sha_short=$sha_short"
+            echo "tag=$tag"
+            echo "archive=$archive"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.package.outputs.tag }}" \
+            "${{ steps.package.outputs.archive }}" \
+            --target "${{ github.sha }}" \
+            --title "srs v${{ steps.package.outputs.version }} (build ${{ github.run_number }}, ${{ steps.package.outputs.sha_short }})" \
+            --notes "Automated release of the \`srs\` CLI built from \`${{ github.sha }}\`.
+
+          **Platform:** \`x86_64-unknown-linux-gnu\`
+
+          Download \`${{ steps.package.outputs.archive }}\`, then:
+          \`\`\`bash
+          tar -xzf ${{ steps.package.outputs.archive }}
+          ./srs --help
+          \`\`\`" \
+            --latest
