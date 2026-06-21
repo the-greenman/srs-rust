@@ -38,8 +38,11 @@ jobs:
             | jq -r '.packages[] | select(.name == "srs") | .version')
           sha_short=$(git rev-parse --short HEAD)
           tag="v${version}-build.${{ github.run_number }}"
-          archive="srs-${tag}-x86_64-unknown-linux-gnu.tar.gz"
+          # Stable, build-independent asset names so the
+          # /releases/latest/download/<name> URL never changes between builds.
+          archive="srs-x86_64-unknown-linux-gnu.tar.gz"
           tar -czf "$archive" -C target/release srs
+          sha256sum "$archive" > "$archive.sha256"
           {
             echo "version=$version"
             echo "sha_short=$sha_short"
@@ -53,15 +56,18 @@ jobs:
         run: |
           gh release create "${{ steps.package.outputs.tag }}" \
             "${{ steps.package.outputs.archive }}" \
+            "${{ steps.package.outputs.archive }}.sha256" \
             --target "${{ github.sha }}" \
             --title "srs v${{ steps.package.outputs.version }} (build ${{ github.run_number }}, ${{ steps.package.outputs.sha_short }})" \
             --notes "Automated release of the \`srs\` CLI built from \`${{ github.sha }}\`.
 
           **Platform:** \`x86_64-unknown-linux-gnu\`
 
-          Download \`${{ steps.package.outputs.archive }}\`, then:
+          Stable download URL (always resolves to the newest build):
           \`\`\`bash
-          tar -xzf ${{ steps.package.outputs.archive }}
+          curl -fsSL https://github.com/${{ github.repository }}/releases/latest/download/${{ steps.package.outputs.archive }} | tar -xz
           ./srs --help
-          \`\`\`" \
+          \`\`\`
+
+          A matching \`${{ steps.package.outputs.archive }}.sha256\` is attached for verification." \
             --latest
