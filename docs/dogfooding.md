@@ -302,6 +302,57 @@ This is the muSrs guide pattern: `guide-body-view` has a default `themeRef` targ
 
 ---
 
+### S10 — Edit a `.srsj` bundle and get a reviewable diff
+
+**Intention.** *"I keep my repository as a single `.srsj` bundle in git. When I change one record through the CLI, I want the commit to show just that change — so I can review it and trust it — not a whole-file reshuffle."*
+
+**Capabilities exercised.** Deterministic `.srsj` serialisation (entries written in sorted key order); idempotent writes (a no-op write reproduces the file byte-for-byte); minimal-diff single-record edits; in-place CLI mutation of a `.srsj` via `--repo <bundle>.srsj`. This is the behaviour ADR-017 guarantees.
+
+**CLI surface.** `repo copy` (file → `.srsj`), `note create`/`note get`/`note update` operating on a `.srsj` repo, `repo validate`.
+
+**Steps.**
+
+1. Create a source file repo and add several notes (so the bundle holds multiple `data` entries):
+   ```
+   srs repo create --repo /tmp/s10-src --namespace com.example.s10
+   for n in alpha bravo charlie delta echo; do
+     echo "{\"title\":\"Note $n\",\"sections\":[{\"name\":\"body\",\"content\":\"content for $n\"}]}" \
+       | srs note create --repo /tmp/s10-src
+   done
+   ```
+2. Bundle it and confirm the `data` keys are in sorted order:
+   ```
+   srs repo copy --from /tmp/s10-src --to /tmp/s10.srsj
+   jq -r '.data | keys[]' /tmp/s10.srsj   # package/package.json first, then notes A→Z
+   ```
+3. Snapshot for diffing: `cp /tmp/s10.srsj /tmp/s10-before.srsj`.
+4. **Idempotent no-op:** round-trip one note through the CLI with no semantic change (the full payload, including `instanceId`, must be passed back):
+   ```
+   ALPHA=$(jq -r '.data["records/notes/note-alpha-"*".json"].instanceId' /tmp/s10.srsj)  # or read it from `note list`
+   srs note get $ALPHA --repo /tmp/s10.srsj | jq -c '.payload.note' \
+     | srs note update $ALPHA --repo /tmp/s10.srsj            # ok: true — a real write
+   diff /tmp/s10-before.srsj /tmp/s10.srsj                    # ZERO lines
+   ```
+5. **Single edit:** change one note's title and confirm the diff is confined to that record:
+   ```
+   cp /tmp/s10.srsj /tmp/s10-before2.srsj
+   echo "{\"instanceId\":\"$CHARLIE\",\"title\":\"Note charlie EDITED\",\"sections\":[{\"name\":\"body\",\"content\":\"content for charlie\"}]}" \
+     | srs note update $CHARLIE --repo /tmp/s10.srsj
+   diff -U1 /tmp/s10-before2.srsj /tmp/s10.srsj               # only charlie's title (+ its manifest index hint)
+   ```
+6. Validate the mutated bundle: `srs repo validate --repo /tmp/s10.srsj`.
+
+**Negative case.** `echo '{"instanceId":"00000000-0000-0000-0000-000000000000","title":"ghost","sections":[]}' | srs note update 00000000-0000-0000-0000-000000000000 --repo /tmp/s10.srsj` — confirm `ok: false` with a "note not found" diagnostic, and that `/tmp/s10.srsj` is byte-for-byte unchanged afterwards.
+
+**Done when.**
+- `jq -r '.data | keys[]'` lists the bundle's entries in sorted order.
+- The no-op write returns `ok: true` yet `diff` reports **zero** changed lines — a real serialisation that reproduces the file byte-for-byte. Repeating it stays stable.
+- The single-title edit produces a diff limited to that one record's entry (plus its denormalised `instanceIndex` title hint in the manifest) — no other entry moves or reorders.
+- `repo validate` on the mutated bundle returns `ok: true` with 0 errors.
+- The unknown-id update returns `ok: false` and leaves the bundle unchanged.
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -309,8 +360,9 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | Command group | Exercised by |
 |---|---|
 | `repo` (map, validate, init) | S1–S6 (orientation + validation in every scenario) |
-| `repo copy` | S9 |
-| `note` (create/get/list/update/delete) | S1 |
+| `repo copy` | S9, S10 |
+| `.srsj` write determinism (idempotent, minimal-diff) | S10 |
+| `note` (create/get/list/update/delete) | S1, S10 |
 | `field` (create/list/get/update/delete) | S2 |
 | `type` (create/get/list/schema/update/delete) | S2 |
 | `record` (create/get/list/update/delete) | S1, S2, S4 |
