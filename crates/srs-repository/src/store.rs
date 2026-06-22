@@ -1750,6 +1750,7 @@ pub(crate) fn definition_kind_key(kind: DefinitionKind) -> &'static str {
         DefinitionKind::DocumentView => "documentViews",
         DefinitionKind::RelationType => "relationTypes",
         DefinitionKind::Blueprint => "blueprints",
+        DefinitionKind::Protocol => "protocols",
         DefinitionKind::Vocabulary => "vocabularies",
         DefinitionKind::Lifecycle => "lifecycles",
         DefinitionKind::Theme => "themes",
@@ -2105,6 +2106,11 @@ pub mod memory {
             let array_key = definition_kind_key(kind);
             let mut data = self.data.borrow_mut();
             if let Some(pkg_json) = data.get_mut(&data_key) {
+                // Mirror FileStore::add_definition_to_boundary: create the array if absent so
+                // definition kinds not pre-seeded in package_to_json (e.g. protocols) still sync.
+                if add && pkg_json[array_key].is_null() {
+                    pkg_json[array_key] = serde_json::json!([]);
+                }
                 if let Some(arr) = pkg_json[array_key].as_array_mut() {
                     if add {
                         if !arr.iter().any(|e| e.as_str() == Some(path)) {

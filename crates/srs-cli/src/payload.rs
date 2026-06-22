@@ -96,12 +96,13 @@ pub struct TypeListEntry {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ProtocolListEntry {
-    pub instance_id: String,
     pub protocol_id: String,
     pub namespace: String,
     pub name: String,
     pub version: i32,
     pub stage_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_package: Option<String>,
 }
 
 /// A single entry in a protocol stages list.
@@ -662,7 +663,7 @@ pub struct ProtocolStagesPayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ProtocolValidatePayload {
-    pub instance_id: String,
+    pub protocol_id: String,
     pub valid: bool,
     pub diagnostics: Vec<String>,
 }
@@ -670,7 +671,7 @@ pub struct ProtocolValidatePayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ProtocolDeletePayload {
-    pub instance_id: String,
+    pub protocol_id: String,
 }
 
 // ── Blueprint payloads ────────────────────────────────────────────────────────

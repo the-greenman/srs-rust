@@ -11,7 +11,12 @@ pub struct ProtocolStage {
     pub depends_on: Vec<String>,
 }
 
-/// Protocol definition for validation (not storage)
+/// Protocol definition.
+///
+/// Stored as a Package definition (`Package.protocols[]`, file under
+/// `package/protocols/`), exactly parallel to [`crate::types::blueprint::Blueprint`].
+/// Per the spec (subsection 05-1-5-1, Invariant 037) Protocols are definitions, not
+/// instance Records.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Protocol {

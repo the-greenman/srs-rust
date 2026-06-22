@@ -1137,13 +1137,16 @@ pub enum ProtocolCommand {
     },
     /// Import a protocol definition (reads JSON from stdin)
     Import {
+        /// Target sub-package path, e.g. "package/ext". Defaults to primary package.
+        #[arg(long)]
+        package: Option<String>,
         /// Deprecated: JSON output is now the default (no-op)
         #[arg(long, hide = true)]
         json: bool,
     },
-    /// Update mutable fields of a protocol definition (reads JSON from stdin)
+    /// Update a protocol definition (full replace; reads JSON from stdin)
     Update {
-        /// Protocol instance ID
+        /// Protocol ID (protocolId)
         id: String,
     },
     /// Delete a protocol definition

@@ -1,50 +1,41 @@
 //! # Protocol Service
 //!
-//! Public API for protocol definition operations. This module is the sole entry point
-//! for all protocol logic. CLI handlers and future API handlers must call these
-//! functions; they must not call internal helpers directly.
+//! Public API for Protocol definition CRUD operations. This module is the sole entry point
+//! for all protocol logic. CLI handlers and future API handlers must call these functions;
+//! they must not call internal helpers or store I/O methods directly.
 //!
 //! ## Service boundary contract (ADR-010)
 //!
-//! - Every public function takes a typed input struct and returns a typed result struct.
-//! - All validation, field-ID mapping, and multi-step operations happen here.
+//! - Every public function takes `store: &dyn RepositoryStore` and returns a typed result.
+//! - All validation, orchestration, and multi-step operations happen here.
 //! - Functions marked `pub(crate)` are internal helpers; do not promote them to `pub`.
 //!
-//! ## Storage model (ADR-006)
+//! ## Storage model
 //!
-//! Protocol definitions are generic Tier 2 Records bound to the spec type
-//! `com.semanticops.srs/meta.protocol@1` (UUID `48a03f5d-4f27-42f4-b791-999f6c22f8d2`).
-//! Field values are stored by UUID field ID, not by human-readable name.
-//! Records are indexed in `manifest.json` `instanceIndex` under `records/protocols/`.
+//! Protocols are **Package definitions**, exactly parallel to Blueprints (see
+//! [`crate::blueprint_service`]). Each Protocol is a JSON file under `package/protocols/`
+//! whose relative path is registered in the boundary's `package.json` `protocols[]` array.
+//! Protocols are identified by `protocolId`. They are **not** instance Records — this is what
+//! the spec mandates (subsection 05-1-5-1, Invariant 037) and what makes a Protocol satisfy
+//! both `protocol validate` and `repo validate` (the-greenman/srs-rust#169).
+//!
+//! ## Atomicity notes
+//!
+//! - **Create**: the protocol file is written first, then `package.json` is updated. If the
+//!   `package.json` update fails, the orphaned file is left on disk and an error is returned
+//!   including the orphaned path.
+//! - **Delete**: `package.json` is updated first (entry removed), then the file is deleted. If
+//!   file deletion fails after index removal, the entry is gone but the file remains as an orphan.
 
-use srs_core::types::protocol::{
-    Protocol, ProtocolDiagnosticSeverity, ProtocolStage, ProtocolStageSummary,
-};
-use srs_core::types::record::FieldValue;
-use srs_core::types::record::Record;
+use srs_core::types::protocol::{Protocol, ProtocolDiagnosticSeverity, ProtocolStageSummary};
 use srs_core::validation::protocol::validate_protocol;
 
+use crate::blueprint_service::validate_package_selector;
 use crate::error::RepositoryError;
-use crate::record_store::{create_record, get_record_by_id};
+use crate::package_types::{DefinitionKind, PackageSelector};
 use crate::store::RepositoryStore;
 
-// ---------------------------------------------------------------------------
-// Field ID constants — authoritative UUIDs from srs/srs/package/types/meta.protocol.json
-// ---------------------------------------------------------------------------
-
-const FIELD_PROTOCOL_ID: &str = "6c66d06c-3f95-4d17-8ecf-e1046a6f2ec1";
-const FIELD_PROTOCOL_NAMESPACE: &str = "8d0f55f9-80e3-4dd6-a05c-10c4b6b6cc87";
-const FIELD_PROTOCOL_NAME: &str = "09c5e389-cf6c-4f72-aad6-8cf26bce0b78";
-const FIELD_PROTOCOL_VERSION: &str = "f7d28d9d-f90c-4a01-a3eb-2ff4cad54ff6";
-const FIELD_PROTOCOL_DESCRIPTION: &str = "7d1d2f86-b5b6-4f95-82c9-dd8f820b1d04";
-const FIELD_PROTOCOL_TARGET_TYPE: &str = "4939a29b-7f70-481f-bf6b-bf693f8bd67f";
-const FIELD_PROTOCOL_STAGES: &str = "0f1232c6-0db5-4383-b91d-64d81195f1c4";
-const FIELD_PROTOCOL_TAGS: &str = "0eafae91-91a8-4115-a95f-fde3d22a87af";
-const FIELD_PROTOCOL_CREATED_AT: &str = "b953f716-383a-4218-bebf-96e93c4747a4";
-
-const PROTOCOL_TYPE_ID: &str = "48a03f5d-4f27-42f4-b791-999f6c22f8d2";
-const PROTOCOL_TYPE_VERSION: u32 = 1;
-const PROTOCOL_STORAGE_DIR: &str = "records/protocols";
+const PROTOCOLS_DIR: &str = "protocols";
 
 // ---------------------------------------------------------------------------
 // Public input/result types
@@ -54,187 +45,241 @@ pub struct ImportProtocolInput {
     pub raw: serde_json::Value,
 }
 
-pub struct ImportProtocolResult {
-    pub instance_id: String,
-    pub record: Record,
+pub struct CreateProtocolResult {
+    /// The stored definition JSON (preserved verbatim, including stage fields beyond the
+    /// `ProtocolStage` struct).
+    pub protocol: serde_json::Value,
 }
 
-/// Result for protocol get operation
+pub struct UpdateProtocolResult {
+    pub protocol: serde_json::Value,
+}
+
+pub struct DeleteProtocolResult {
+    pub protocol_id: String,
+}
+
+/// Result for protocol get / export operations.
+///
+/// Carries the raw stored definition JSON rather than a typed [`Protocol`], so that stage fields
+/// beyond the `ProtocolStage` struct (e.g. `contributesTo`, `completionCriteria`) survive a
+/// get/export round-trip.
 #[derive(Debug, Clone)]
 pub enum GetProtocolResult {
-    Found {
-        instance_id: String,
-        protocol: serde_json::Value,
-    },
+    Found(serde_json::Value),
     NotFound,
 }
 
-/// Result for protocol validation
+/// Result for protocol validation.
 #[derive(Debug, Clone)]
 pub struct ValidateProtocolResult {
-    pub instance_id: String,
+    pub protocol_id: String,
     pub valid: bool,
     pub diagnostics: Vec<String>,
 }
 
-pub struct UpdateProtocolInput {
-    pub raw: serde_json::Value,
-}
-
-pub struct UpdateProtocolResult {
-    pub instance_id: String,
-    pub record: Record,
-}
-
-pub struct DeleteProtocolResult {
-    pub instance_id: String,
-}
-
-/// Summary of a protocol for list operations
+/// Summary of a protocol for list operations.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProtocolSummary {
-    pub instance_id: String,
     pub protocol_id: String,
     pub protocol_namespace: String,
     pub protocol_name: String,
     pub protocol_version: i32,
     pub stage_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_package: Option<String>,
+}
+
+/// Result for finding a protocol by its target type ID.
+#[derive(Debug, Clone)]
+pub struct FindProtocolByTargetTypeResult {
+    pub protocol_id: String,
+    pub protocol_name: String,
+    /// Raw stage JSON values, preserving all fields beyond the srs-core `ProtocolStage` struct.
+    pub stages_raw: Vec<serde_json::Value>,
 }
 
 // ---------------------------------------------------------------------------
-// Public service functions
+// Private helpers
 // ---------------------------------------------------------------------------
 
-/// List protocol definitions
+fn slugify(name: &str) -> String {
+    name.to_lowercase()
+        .replace(|c: char| !c.is_alphanumeric() && c != '-' && c != ' ', "")
+        .replace(' ', "-")
+}
+
+fn load_protocol_from_value(value: &serde_json::Value) -> Option<Protocol> {
+    serde_json::from_value(value.clone()).ok()
+}
+
+/// Parse and structurally validate a protocol definition JSON into a typed [`Protocol`].
+fn protocol_from_value(value: &serde_json::Value) -> Result<Protocol, RepositoryError> {
+    serde_json::from_value(value.clone()).map_err(|e| {
+        RepositoryError::InvalidRepositoryInitialization {
+            message: format!("invalid protocol definition: {e}"),
+        }
+    })
+}
+
+/// Run semantic validation, returning the joined error messages when invalid.
+///
+/// Covers the field-shape rules the importer used to enforce (version >= 1, RFC 3339
+/// `createdAt`, non-empty stage id/name, non-negative order) plus the stage dependency-graph
+/// validation in [`validate_protocol`].
+fn check_protocol(protocol: &Protocol) -> Result<(), RepositoryError> {
+    let mut messages: Vec<String> = vec![];
+
+    if protocol.protocol_version < 1 {
+        messages.push(format!(
+            "protocolVersion must be >= 1, got {}",
+            protocol.protocol_version
+        ));
+    }
+    if chrono::DateTime::parse_from_rfc3339(&protocol.protocol_created_at).is_err() {
+        messages.push(format!(
+            "protocolCreatedAt must be a valid RFC 3339 datetime, got '{}'",
+            protocol.protocol_created_at
+        ));
+    }
+    for stage in &protocol.protocol_stages {
+        messages.extend(srs_core::validation::protocol::validate_protocol_stage(
+            stage,
+        ));
+    }
+
+    let validation = validate_protocol(protocol);
+    if !validation.valid {
+        messages.extend(
+            validation
+                .diagnostics
+                .into_iter()
+                .filter(|d| d.severity == ProtocolDiagnosticSeverity::Error)
+                .map(|d| d.message),
+        );
+    }
+
+    if messages.is_empty() {
+        Ok(())
+    } else {
+        Err(RepositoryError::InvalidRepositoryInitialization {
+            message: messages.join("; "),
+        })
+    }
+}
+
+/// Locate the full repo-root-relative path (and owning boundary) for a protocol by its
+/// `protocolId`, scanning each boundary's `package.json` `protocols[]` array.
+fn find_protocol_path(
+    store: &dyn RepositoryStore,
+    id: &str,
+) -> Result<Option<(String, PackageSelector)>, RepositoryError> {
+    for boundary in store.list_package_boundaries()? {
+        let prefix = boundary.selector.as_deref().unwrap_or("package");
+        let Ok(pkg_json) = store.load_instance_json(&format!("{prefix}/package.json")) else {
+            continue;
+        };
+        let Some(paths) = pkg_json["protocols"].as_array() else {
+            continue;
+        };
+        for entry in paths {
+            if let Some(rel) = entry.as_str() {
+                let full = format!("{prefix}/{rel}");
+                if let Ok(val) = store.load_instance_json(&full) {
+                    if val["protocolId"].as_str() == Some(id) {
+                        return Ok(Some((full, boundary.selector.clone())));
+                    }
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
+// ---------------------------------------------------------------------------
+// Read-only service functions
+// ---------------------------------------------------------------------------
+
+/// List protocol summaries across all package boundaries.
+///
+/// Scans each boundary's `package.json` `protocols[]` array directly. Emits WARN diagnostics
+/// for missing files and duplicate IDs is left to the caller; first boundary wins on duplicates.
 pub fn list_protocols(
     store: &dyn RepositoryStore,
 ) -> Result<Vec<ProtocolSummary>, RepositoryError> {
-    use crate::record_store::list_records_by_type;
-
-    let records = list_records_by_type(store, "com.semanticops.srs", "meta.protocol")?;
-
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut summaries = vec![];
-    for record in records {
-        let summary = record_to_protocol_summary(&record)?;
-        summaries.push(summary);
+
+    for boundary in store.list_package_boundaries()? {
+        let prefix = boundary.selector.as_deref().unwrap_or("package");
+        let Ok(pkg_json) = store.load_instance_json(&format!("{prefix}/package.json")) else {
+            continue;
+        };
+        let Some(paths) = pkg_json["protocols"].as_array() else {
+            continue;
+        };
+        for entry in paths.clone() {
+            let Some(rel) = entry.as_str() else { continue };
+            let full = format!("{prefix}/{rel}");
+            let Ok(val) = store.load_instance_json(&full) else {
+                continue;
+            };
+            let stage_count = val["protocolStages"]
+                .as_array()
+                .map(|a| a.len())
+                .unwrap_or(0);
+            let Some(proto) = load_protocol_from_value(&val) else {
+                continue;
+            };
+            if seen.insert(proto.protocol_id.clone()) {
+                summaries.push(ProtocolSummary {
+                    protocol_id: proto.protocol_id,
+                    protocol_namespace: proto.protocol_namespace,
+                    protocol_name: proto.protocol_name,
+                    protocol_version: proto.protocol_version,
+                    stage_count,
+                    source_package: boundary.selector.clone(),
+                });
+            }
+        }
     }
 
     Ok(summaries)
 }
 
-/// Get a protocol definition by ID
+/// Get a protocol's stored definition JSON by its `protocolId`.
 pub fn get_protocol_by_id(
     store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<GetProtocolResult, RepositoryError> {
-    match get_record_by_id(store, id)? {
-        Some(record) if is_protocol_type(&record) => {
-            let instance_id = record.instance_id.clone();
-            let protocol = record_to_protocol(&record)?;
-            let protocol_json =
-                serde_json::to_value(&protocol).map_err(|e| RepositoryError::Serialize {
-                    path: std::path::PathBuf::from("protocol"),
-                    source: e,
-                })?;
-            Ok(GetProtocolResult::Found {
-                instance_id,
-                protocol: protocol_json,
-            })
+    match find_protocol_path(store, id)? {
+        Some((path, _owner)) => {
+            let val = store.load_instance_json(&path)?;
+            Ok(GetProtocolResult::Found(val))
         }
-        Some(_) | None => Ok(GetProtocolResult::NotFound),
+        None => Ok(GetProtocolResult::NotFound),
     }
 }
 
-/// Import a protocol definition from a JSON payload
-pub fn import_protocol(
+/// Export a protocol's portable definition (identical to `get` — the stored definition is
+/// already the canonical, instance-free import format).
+pub fn export_protocol(
     store: &dyn RepositoryStore,
-    input: ImportProtocolInput,
-) -> Result<ImportProtocolResult, RepositoryError> {
-    let json_value = input.raw;
-    let pj = json_value.get("protocol").unwrap_or(&json_value);
-
-    // Validate and extract required fields
-    let protocol_id = require_string(pj, "protocolId", "protocol-id")?;
-    let protocol_namespace = require_string(pj, "protocolNamespace", "protocol-namespace")?;
-    let protocol_name = require_string(pj, "protocolName", "protocol-name")?;
-    let protocol_version = require_version(pj)?;
-    let protocol_target_type = require_string(pj, "protocolTargetType", "protocol-target-type")?;
-    let protocol_created_at = require_created_at(pj)?;
-    let stages_value = require_stages(pj)?;
-
-    let mut field_values = vec![
-        fv(FIELD_PROTOCOL_ID, serde_json::Value::String(protocol_id)),
-        fv(
-            FIELD_PROTOCOL_NAMESPACE,
-            serde_json::Value::String(protocol_namespace),
-        ),
-        fv(
-            FIELD_PROTOCOL_NAME,
-            serde_json::Value::String(protocol_name),
-        ),
-        fv(
-            FIELD_PROTOCOL_VERSION,
-            serde_json::Value::Number(protocol_version.into()),
-        ),
-        fv(
-            FIELD_PROTOCOL_TARGET_TYPE,
-            serde_json::Value::String(protocol_target_type),
-        ),
-        fv(FIELD_PROTOCOL_STAGES, stages_value),
-        fv(
-            FIELD_PROTOCOL_CREATED_AT,
-            serde_json::Value::String(protocol_created_at),
-        ),
-    ];
-
-    // Optional fields
-    if let Some(desc) = pj
-        .get("protocolDescription")
-        .or_else(|| pj.get("protocol-description"))
-    {
-        field_values.push(fv(FIELD_PROTOCOL_DESCRIPTION, desc.clone()));
-    }
-    if let Some(tags) = pj.get("protocolTags").or_else(|| pj.get("protocol-tags")) {
-        field_values.push(fv(FIELD_PROTOCOL_TAGS, tags.clone()));
-    }
-
-    let record = create_record(
-        store,
-        PROTOCOL_TYPE_ID,
-        PROTOCOL_TYPE_VERSION,
-        field_values,
-        None,
-        None,
-        PROTOCOL_STORAGE_DIR,
-    )
-    .map_err(|e| match e {
-        RepositoryError::TypeNotFound { .. } => RepositoryError::InvalidRepositoryInitialization {
-            message: format!(
-                "Repository package does not declare type \
-                     'com.semanticops.srs/meta.protocol@1' (UUID {}). \
-                     Add it to your package before importing protocols.",
-                PROTOCOL_TYPE_ID
-            ),
-        },
-        other => other,
-    })?;
-
-    let instance_id = record.instance_id.clone();
-    Ok(ImportProtocolResult {
-        instance_id,
-        record,
-    })
+    id: &str,
+) -> Result<GetProtocolResult, RepositoryError> {
+    get_protocol_by_id(store, id)
 }
 
-/// List stages for a protocol, sorted by order
+/// List a protocol's stages, sorted by `order`.
 pub fn list_protocol_stages(
     store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<Vec<ProtocolStageSummary>, RepositoryError> {
-    match get_protocol_struct_by_id(store, id)? {
-        Some((_instance_id, protocol)) => {
-            let mut stages: Vec<ProtocolStageSummary> = protocol
+    match get_protocol_by_id(store, id)? {
+        GetProtocolResult::Found(val) => {
+            let proto = protocol_from_value(&val)?;
+            let mut stages: Vec<ProtocolStageSummary> = proto
                 .protocol_stages
                 .into_iter()
                 .map(|s| ProtocolStageSummary {
@@ -247,20 +292,21 @@ pub fn list_protocol_stages(
             stages.sort_by_key(|s| s.order);
             Ok(stages)
         }
-        None => Err(RepositoryError::NotFound {
-            path: std::path::PathBuf::from(PROTOCOL_STORAGE_DIR),
+        GetProtocolResult::NotFound => Err(RepositoryError::NotFound {
+            path: std::path::PathBuf::from(PROTOCOLS_DIR),
         }),
     }
 }
 
-/// Validate a protocol definition's stage dependency graph
+/// Validate a protocol definition's stage dependency graph.
 pub fn validate_protocol_definition(
     store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<ValidateProtocolResult, RepositoryError> {
-    match get_protocol_struct_by_id(store, id)? {
-        Some((instance_id, protocol)) => {
-            let validation = validate_protocol(&protocol);
+    match get_protocol_by_id(store, id)? {
+        GetProtocolResult::Found(val) => {
+            let proto = protocol_from_value(&val)?;
+            let validation = validate_protocol(&proto);
             let diagnostics: Vec<String> = validation
                 .diagnostics
                 .into_iter()
@@ -273,491 +319,185 @@ pub fn validate_protocol_definition(
                 })
                 .collect();
             Ok(ValidateProtocolResult {
-                instance_id,
+                protocol_id: proto.protocol_id,
                 valid: validation.valid,
                 diagnostics,
             })
         }
-        None => Err(RepositoryError::NotFound {
-            path: std::path::PathBuf::from(PROTOCOL_STORAGE_DIR),
+        GetProtocolResult::NotFound => Err(RepositoryError::NotFound {
+            path: std::path::PathBuf::from(PROTOCOLS_DIR),
         }),
     }
 }
 
-/// Get the portable export representation of a protocol (no instanceId — suitable for import)
-pub fn export_protocol(
-    store: &dyn RepositoryStore,
-    id: &str,
-) -> Result<GetProtocolResult, RepositoryError> {
-    match get_record_by_id(store, id)? {
-        Some(record) if is_protocol_type(&record) => {
-            let instance_id = record.instance_id.clone();
-            let protocol = record_to_protocol(&record)?;
-            // Serialize without instanceId — this is the canonical import format
-            let protocol_json =
-                serde_json::to_value(&protocol).map_err(|e| RepositoryError::Serialize {
-                    path: std::path::PathBuf::from("protocol"),
-                    source: e,
-                })?;
-            Ok(GetProtocolResult::Found {
-                instance_id,
-                protocol: protocol_json,
-            })
-        }
-        Some(_) | None => Ok(GetProtocolResult::NotFound),
-    }
-}
-
-/// Update mutable fields of an existing protocol definition.
+/// Find the first protocol whose `protocolTargetType` matches `target_type_id`.
 ///
-/// Immutable fields (protocolId, protocolNamespace, protocolName, protocolVersion,
-/// protocolCreatedAt) are always preserved from the existing record regardless of
-/// what the input contains.
-pub fn update_protocol(
-    store: &dyn RepositoryStore,
-    id: &str,
-    input: UpdateProtocolInput,
-) -> Result<UpdateProtocolResult, RepositoryError> {
-    use crate::record_store::update_record;
-
-    let existing = get_record_by_id(store, id)?.ok_or_else(|| RepositoryError::NotFound {
-        path: std::path::PathBuf::from(PROTOCOL_STORAGE_DIR),
-    })?;
-    if !is_protocol_type(&existing) {
-        return Err(RepositoryError::NotFound {
-            path: std::path::PathBuf::from(PROTOCOL_STORAGE_DIR),
-        });
-    }
-
-    let pj = input.raw.get("protocol").unwrap_or(&input.raw);
-
-    // Build updated field_values: start from existing, overwrite only mutable fields
-    let mut field_values = existing.field_values.clone();
-
-    // Helper: replace or append a field value by UUID
-    let mut set_field = |uuid: &str, value: serde_json::Value| {
-        if let Some(fv) = field_values.iter_mut().find(|f| f.field_id == uuid) {
-            fv.value = value;
-        } else {
-            field_values.push(FieldValue {
-                field_id: uuid.to_string(),
-                value,
-                entries: None,
-                source: None,
-                edited_at: None,
-            });
-        }
-    };
-
-    // Mutable: description, target-type, stages, tags
-    if let Some(v) = pj
-        .get("protocolDescription")
-        .or_else(|| pj.get("protocol-description"))
-    {
-        set_field(FIELD_PROTOCOL_DESCRIPTION, v.clone());
-    }
-    if let Some(v) = pj
-        .get("protocolTargetType")
-        .or_else(|| pj.get("protocol-target-type"))
-    {
-        set_field(FIELD_PROTOCOL_TARGET_TYPE, v.clone());
-    }
-    if let Some(stages_raw) = pj
-        .get("protocolStages")
-        .or_else(|| pj.get("protocol-stages"))
-    {
-        // Validate stages before accepting
-        let validated = require_stages_value(stages_raw)?;
-        set_field(FIELD_PROTOCOL_STAGES, validated);
-    }
-    if let Some(v) = pj.get("protocolTags").or_else(|| pj.get("protocol-tags")) {
-        set_field(FIELD_PROTOCOL_TAGS, v.clone());
-    }
-
-    let updated = update_record(store, id, field_values, None, None)?;
-    let instance_id = updated.instance_id.clone();
-    Ok(UpdateProtocolResult {
-        instance_id,
-        record: updated,
-    })
-}
-
-/// Delete a protocol definition by instance ID.
-pub fn delete_protocol(
-    store: &dyn RepositoryStore,
-    id: &str,
-) -> Result<DeleteProtocolResult, RepositoryError> {
-    use crate::record_store::delete_record;
-
-    let existing = get_record_by_id(store, id)?.ok_or_else(|| RepositoryError::NotFound {
-        path: std::path::PathBuf::from(PROTOCOL_STORAGE_DIR),
-    })?;
-    if !is_protocol_type(&existing) {
-        return Err(RepositoryError::NotFound {
-            path: std::path::PathBuf::from(PROTOCOL_STORAGE_DIR),
-        });
-    }
-
-    let instance_id = delete_record(store, id)?;
-    Ok(DeleteProtocolResult { instance_id })
-}
-
-/// Result for finding a protocol by its target type ID.
-#[derive(Debug, Clone)]
-pub struct FindProtocolByTargetTypeResult {
-    pub protocol_id: String,
-    pub protocol_name: String,
-    /// Raw stage JSON values, preserving all fields beyond the srs-core ProtocolStage struct.
-    pub stages_raw: Vec<serde_json::Value>,
-}
-
-/// Find the first protocol whose `targetType` matches `target_type_id`.
-///
-/// Returns `None` when no protocol targets that type. Non-fatal scan errors are silently
-/// skipped — the caller receives `None` rather than a hard error.
+/// Returns `None` when no protocol targets that type. Reads the raw definition JSON so that
+/// stage fields beyond the `ProtocolStage` struct (e.g. `contributesTo`, `completionCriteria`)
+/// are preserved for downstream consumers (blueprint brief).
 pub fn find_protocol_by_target_type(
     store: &dyn RepositoryStore,
     target_type_id: &str,
 ) -> Result<Option<FindProtocolByTargetTypeResult>, RepositoryError> {
-    use crate::record_store::list_records_by_type;
-
-    let records = list_records_by_type(store, "com.semanticops.srs", "meta.protocol")?;
-
-    for record in records {
-        let fv = &record.field_values;
-        let Some(target_val) = find_fv(fv, FIELD_PROTOCOL_TARGET_TYPE) else {
+    for boundary in store.list_package_boundaries()? {
+        let prefix = boundary.selector.as_deref().unwrap_or("package");
+        let Ok(pkg_json) = store.load_instance_json(&format!("{prefix}/package.json")) else {
             continue;
         };
-        let Some(target_str) = target_val.as_str() else {
+        let Some(paths) = pkg_json["protocols"].as_array() else {
             continue;
         };
-        if target_str != target_type_id {
-            continue;
+        for entry in paths {
+            let Some(rel) = entry.as_str() else { continue };
+            let Ok(val) = store.load_instance_json(&format!("{prefix}/{rel}")) else {
+                continue;
+            };
+            if val["protocolTargetType"].as_str() != Some(target_type_id) {
+                continue;
+            }
+            let (Some(protocol_id), Some(protocol_name)) =
+                (val["protocolId"].as_str(), val["protocolName"].as_str())
+            else {
+                continue;
+            };
+            let stages_raw = val["protocolStages"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            return Ok(Some(FindProtocolByTargetTypeResult {
+                protocol_id: protocol_id.to_string(),
+                protocol_name: protocol_name.to_string(),
+                stages_raw,
+            }));
         }
-        let protocol_id = match get_string_fv(fv, FIELD_PROTOCOL_ID, "protocol-id") {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-        let protocol_name = match get_string_fv(fv, FIELD_PROTOCOL_NAME, "protocol-name") {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-        let stages_raw: Vec<serde_json::Value> = find_fv(fv, FIELD_PROTOCOL_STAGES)
-            .and_then(|v| serde_json::from_value(v.clone()).ok())
-            .unwrap_or_default();
-        return Ok(Some(FindProtocolByTargetTypeResult {
-            protocol_id,
-            protocol_name,
-            stages_raw,
-        }));
     }
-
     Ok(None)
 }
 
 // ---------------------------------------------------------------------------
-// Internal helpers
+// Mutating service functions
 // ---------------------------------------------------------------------------
 
-fn get_protocol_struct_by_id(
+/// Create a new Protocol definition from its JSON value.
+///
+/// Validates the selector and the protocol, writes the definition file (verbatim) under
+/// `package/protocols/`, then registers it in the boundary's `package.json` `protocols[]`.
+pub fn create_protocol(
+    store: &dyn RepositoryStore,
+    value: serde_json::Value,
+    selector: PackageSelector,
+) -> Result<CreateProtocolResult, RepositoryError> {
+    validate_package_selector(&selector)?;
+    store.load_package_boundary(&selector)?;
+
+    let protocol = protocol_from_value(&value)?;
+    check_protocol(&protocol)?;
+
+    let boundary_path = selector.as_deref().unwrap_or("package");
+    store.ensure_instance_dir(&format!("{boundary_path}/{PROTOCOLS_DIR}"))?;
+
+    let id_prefix = &protocol.protocol_id[..protocol.protocol_id.len().min(8)];
+    let rel_filename = format!(
+        "{PROTOCOLS_DIR}/{}-{}.json",
+        slugify(&protocol.protocol_name),
+        id_prefix
+    );
+    let full_path = format!("{boundary_path}/{rel_filename}");
+
+    // Write file first (atomicity: file before index). Store the value verbatim to preserve
+    // stage fields beyond the `ProtocolStage` struct.
+    store.save_instance_json(&full_path, &value)?;
+
+    // Then register in the boundary's package.json.
+    if let Err(e) =
+        store.add_definition_to_boundary(&selector, DefinitionKind::Protocol, &rel_filename)
+    {
+        return Err(RepositoryError::InvalidRepositoryInitialization {
+            message: format!(
+                "protocol file written to '{full_path}' but package.json update failed: {e}; \
+                 repair by deleting the orphaned file or re-running create"
+            ),
+        });
+    }
+
+    Ok(CreateProtocolResult { protocol: value })
+}
+
+/// Import a Protocol definition from a JSON payload.
+///
+/// Accepts either a bare Protocol object or `{ "protocol": { ... } }`. The payload must use the
+/// canonical camelCase keys (`protocolId`, `protocolStages`, …) — the same shape `export` emits.
+pub fn import_protocol(
+    store: &dyn RepositoryStore,
+    input: ImportProtocolInput,
+    selector: PackageSelector,
+) -> Result<CreateProtocolResult, RepositoryError> {
+    let value = input.raw.get("protocol").cloned().unwrap_or(input.raw);
+    create_protocol(store, value, selector)
+}
+
+/// Update an existing Protocol definition (full replace) from its JSON value.
+///
+/// Preserves the original `protocolCreatedAt` from the stored value.
+pub fn update_protocol(
     store: &dyn RepositoryStore,
     id: &str,
-) -> Result<Option<(String, Box<Protocol>)>, RepositoryError> {
-    match get_record_by_id(store, id)? {
-        Some(r) if is_protocol_type(&r) => {
-            let instance_id = r.instance_id.clone();
-            let protocol = record_to_protocol(&r)?;
-            Ok(Some((instance_id, Box::new(protocol))))
-        }
-        Some(_) | None => Ok(None),
-    }
-}
-
-fn is_protocol_type(record: &Record) -> bool {
-    record.type_namespace == "com.semanticops.srs" && record.type_name == "meta.protocol"
-}
-
-fn record_to_protocol(record: &Record) -> Result<Protocol, RepositoryError> {
-    let fv = &record.field_values;
-
-    let stages_json =
-        find_fv(fv, FIELD_PROTOCOL_STAGES).ok_or_else(|| RepositoryError::ManifestParse {
-            path: std::path::PathBuf::from("protocol"),
-            source: json_error("Missing protocol-stages field"),
+    mut value: serde_json::Value,
+) -> Result<UpdateProtocolResult, RepositoryError> {
+    let (path, _owner) =
+        find_protocol_path(store, id)?.ok_or_else(|| RepositoryError::NotFound {
+            path: std::path::PathBuf::from(PROTOCOLS_DIR),
         })?;
 
-    let protocol_stages: Vec<ProtocolStage> =
-        serde_json::from_value(stages_json.clone()).map_err(|e| {
-            RepositoryError::ManifestParse {
-                path: std::path::PathBuf::from("protocol"),
-                source: e,
-            }
+    // Preserve the original createdAt.
+    let stored = store.load_instance_json(&path)?;
+    if let (Some(created), Some(obj)) =
+        (stored["protocolCreatedAt"].as_str(), value.as_object_mut())
+    {
+        obj.insert(
+            "protocolCreatedAt".to_string(),
+            serde_json::Value::String(created.to_string()),
+        );
+    }
+
+    let protocol = protocol_from_value(&value)?;
+    check_protocol(&protocol)?;
+
+    store.save_instance_json(&path, &value)?;
+    Ok(UpdateProtocolResult { protocol: value })
+}
+
+/// Delete a Protocol by `protocolId`.
+///
+/// Removes the entry from `package.json` first, then deletes the file.
+pub fn delete_protocol(
+    store: &dyn RepositoryStore,
+    id: &str,
+) -> Result<DeleteProtocolResult, RepositoryError> {
+    let (full_path, owner) =
+        find_protocol_path(store, id)?.ok_or_else(|| RepositoryError::NotFound {
+            path: std::path::PathBuf::from(PROTOCOLS_DIR),
         })?;
 
-    Ok(Protocol {
-        protocol_id: get_string_fv(fv, FIELD_PROTOCOL_ID, "protocol-id")?,
-        protocol_namespace: get_string_fv(fv, FIELD_PROTOCOL_NAMESPACE, "protocol-namespace")?,
-        protocol_name: get_string_fv(fv, FIELD_PROTOCOL_NAME, "protocol-name")?,
-        protocol_version: get_i32_fv(fv, FIELD_PROTOCOL_VERSION, "protocol-version")?,
-        protocol_description: find_fv(fv, FIELD_PROTOCOL_DESCRIPTION)
-            .and_then(|v| v.as_str().map(|s| s.to_string())),
-        protocol_target_type: get_string_fv(
-            fv,
-            FIELD_PROTOCOL_TARGET_TYPE,
-            "protocol-target-type",
-        )?,
-        protocol_stages,
-        protocol_tags: find_fv(fv, FIELD_PROTOCOL_TAGS).and_then(|v| {
-            v.as_array().map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                    .collect()
-            })
-        }),
-        protocol_created_at: get_string_fv(fv, FIELD_PROTOCOL_CREATED_AT, "protocol-created-at")?,
-    })
-}
+    let boundary_prefix = owner.as_deref().unwrap_or("package");
+    let rel_path = full_path
+        .strip_prefix(&format!("{boundary_prefix}/"))
+        .unwrap_or(&full_path)
+        .to_string();
 
-fn record_to_protocol_summary(record: &Record) -> Result<ProtocolSummary, RepositoryError> {
-    let fv = &record.field_values;
+    // Remove from package.json first (atomicity: index before file).
+    store.remove_definition_from_boundary(&owner, DefinitionKind::Protocol, &rel_path)?;
 
-    let stage_count = find_fv(fv, FIELD_PROTOCOL_STAGES)
-        .and_then(|v| v.as_array().map(|arr| arr.len()))
-        .unwrap_or(0);
-
-    Ok(ProtocolSummary {
-        instance_id: record.instance_id.clone(),
-        protocol_id: get_string_fv(fv, FIELD_PROTOCOL_ID, "protocol-id")?,
-        protocol_namespace: get_string_fv(fv, FIELD_PROTOCOL_NAMESPACE, "protocol-namespace")?,
-        protocol_name: get_string_fv(fv, FIELD_PROTOCOL_NAME, "protocol-name")?,
-        protocol_version: get_i32_fv(fv, FIELD_PROTOCOL_VERSION, "protocol-version")?,
-        stage_count,
-    })
-}
-
-// ---------------------------------------------------------------------------
-// Field extraction helpers
-// ---------------------------------------------------------------------------
-
-fn find_fv<'a>(fv: &'a [FieldValue], uuid: &str) -> Option<&'a serde_json::Value> {
-    fv.iter().find(|f| f.field_id == uuid).map(|f| &f.value)
-}
-
-fn get_string_fv(fv: &[FieldValue], uuid: &str, label: &str) -> Result<String, RepositoryError> {
-    find_fv(fv, uuid)
-        .and_then(|v| v.as_str().map(|s| s.to_string()))
-        .ok_or_else(|| RepositoryError::ManifestParse {
-            path: std::path::PathBuf::from(label),
-            source: json_error(&format!("Missing or invalid field: {}", label)),
-        })
-}
-
-fn get_i32_fv(fv: &[FieldValue], uuid: &str, label: &str) -> Result<i32, RepositoryError> {
-    find_fv(fv, uuid)
-        .and_then(|v| {
-            if let Some(n) = v.as_i64() {
-                Some(n as i32)
-            } else if let Some(s) = v.as_str() {
-                s.parse::<i32>().ok()
-            } else {
-                None
-            }
-        })
-        .ok_or_else(|| RepositoryError::ManifestParse {
-            path: std::path::PathBuf::from(label),
-            source: json_error(&format!("Missing or invalid field: {}", label)),
-        })
-}
-
-fn fv(field_id: &str, value: serde_json::Value) -> FieldValue {
-    FieldValue {
-        field_id: field_id.to_string(),
-        value,
-        entries: None,
-        source: None,
-        edited_at: None,
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Input validation helpers (used by import_protocol)
-// ---------------------------------------------------------------------------
-
-fn require_string(
-    pj: &serde_json::Value,
-    camel: &str,
-    kebab: &str,
-) -> Result<String, RepositoryError> {
-    pj.get(camel)
-        .or_else(|| pj.get(kebab))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-        .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
+    if let Err(e) = store.delete_instance_file(&full_path) {
+        return Err(RepositoryError::InvalidRepositoryInitialization {
             message: format!(
-                "Missing or invalid required field '{}' in protocol input",
-                camel
+                "[WARN] removed '{full_path}' from package index but file deletion failed: {e}; \
+                 orphaned file may remain at '{full_path}'"
             ),
-        })
-}
-
-fn require_version(pj: &serde_json::Value) -> Result<i64, RepositoryError> {
-    let v = pj
-        .get("protocolVersion")
-        .or_else(|| pj.get("protocol-version"))
-        .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
-            message: "Missing required field 'protocolVersion' in protocol input".to_string(),
-        })?;
-
-    let n = if let Some(n) = v.as_i64() {
-        n
-    } else if let Some(s) = v.as_str() {
-        s.parse::<i64>()
-            .map_err(|_| RepositoryError::InvalidRepositoryInitialization {
-                message: "Field 'protocolVersion' must be a positive integer".to_string(),
-            })?
-    } else {
-        return Err(RepositoryError::InvalidRepositoryInitialization {
-            message: "Field 'protocolVersion' must be a positive integer".to_string(),
-        });
-    };
-
-    if n < 1 {
-        return Err(RepositoryError::InvalidRepositoryInitialization {
-            message: format!("Field 'protocolVersion' must be >= 1, got {}", n),
         });
     }
-    Ok(n)
-}
 
-fn require_created_at(pj: &serde_json::Value) -> Result<String, RepositoryError> {
-    let s = pj
-        .get("protocolCreatedAt")
-        .or_else(|| pj.get("protocol-created-at"))
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
-            message: "Missing required field 'protocolCreatedAt' in protocol input".to_string(),
-        })?;
-
-    chrono::DateTime::parse_from_rfc3339(s).map_err(|_| {
-        RepositoryError::InvalidRepositoryInitialization {
-            message: format!(
-                "Field 'protocolCreatedAt' must be a valid RFC 3339 datetime, got '{}'",
-                s
-            ),
-        }
-    })?;
-
-    Ok(s.to_string())
-}
-
-fn require_stages(pj: &serde_json::Value) -> Result<serde_json::Value, RepositoryError> {
-    let stages = pj
-        .get("protocolStages")
-        .or_else(|| pj.get("protocol-stages"))
-        .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
-            message: "Missing required field 'protocolStages' in protocol input".to_string(),
-        })?;
-    require_stages_value(stages)
-}
-
-fn require_stages_value(stages: &serde_json::Value) -> Result<serde_json::Value, RepositoryError> {
-    let arr =
-        stages
-            .as_array()
-            .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
-                message: "Field 'protocolStages' must be an array".to_string(),
-            })?;
-
-    // Collect all stage IDs for dependsOn validation
-    let mut stage_ids = std::collections::HashSet::new();
-    for (i, stage) in arr.iter().enumerate() {
-        let obj =
-            stage
-                .as_object()
-                .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
-                    message: format!("protocolStages[{}] must be an object", i),
-                })?;
-
-        let stage_id = obj
-            .get("stageId")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.trim().is_empty())
-            .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
-                message: format!("protocolStages[{}].stageId must be a non-empty string", i),
-            })?;
-        stage_ids.insert(stage_id.to_string());
-
-        // Validate name
-        let _ = obj
-            .get("name")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.trim().is_empty())
-            .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
-                message: format!(
-                    "protocolStages[{}] ('{}') .name must be a non-empty string",
-                    i, stage_id
-                ),
-            })?;
-
-        // Validate order
-        let order = obj.get("order").and_then(|v| v.as_i64()).ok_or_else(|| {
-            RepositoryError::InvalidRepositoryInitialization {
-                message: format!(
-                    "protocolStages[{}] ('{}') .order must be a non-negative integer",
-                    i, stage_id
-                ),
-            }
-        })?;
-        if order < 0 {
-            return Err(RepositoryError::InvalidRepositoryInitialization {
-                message: format!(
-                    "protocolStages[{}] ('{}') .order must be >= 0, got {}",
-                    i, stage_id, order
-                ),
-            });
-        }
-    }
-
-    // Second pass: validate dependsOn references
-    for (i, stage) in arr.iter().enumerate() {
-        let obj = stage.as_object().unwrap();
-        let stage_id = obj.get("stageId").and_then(|v| v.as_str()).unwrap();
-        if let Some(deps) = obj.get("dependsOn") {
-            let dep_arr = deps.as_array().ok_or_else(|| {
-                RepositoryError::InvalidRepositoryInitialization {
-                    message: format!(
-                        "protocolStages[{}] ('{}') .dependsOn must be an array",
-                        i, stage_id
-                    ),
-                }
-            })?;
-            for dep in dep_arr {
-                let dep_id = dep.as_str().ok_or_else(|| {
-                    RepositoryError::InvalidRepositoryInitialization {
-                        message: format!(
-                            "protocolStages[{}] ('{}') .dependsOn entries must be strings",
-                            i, stage_id
-                        ),
-                    }
-                })?;
-                if !stage_ids.contains(dep_id) {
-                    return Err(RepositoryError::InvalidRepositoryInitialization {
-                        message: format!(
-                            "protocolStages[{}] ('{}') .dependsOn references unknown stageId '{}'",
-                            i, stage_id, dep_id
-                        ),
-                    });
-                }
-            }
-        }
-    }
-
-    Ok(stages.clone())
-}
-
-fn json_error(msg: &str) -> serde_json::Error {
-    serde_json::Error::io(std::io::Error::new(
-        std::io::ErrorKind::InvalidData,
-        msg.to_string(),
-    ))
+    Ok(DeleteProtocolResult {
+        protocol_id: id.to_string(),
+    })
 }
