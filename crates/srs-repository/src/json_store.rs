@@ -17,20 +17,23 @@ use srs_core::validation::relation_type_definition::validate_relation_type_defin
 use srs_core::validation::theme::validate_theme;
 use srs_core::validation::view::{validate_document_view, validate_view};
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct JsonStoreFile {
     srsj: String,
     manifest: serde_json::Value,
-    data: HashMap<String, serde_json::Value>,
+    // BTreeMap (not HashMap) so the `.srsj` envelope serialises entries in
+    // deterministic, sorted key order — minimal-diff, idempotent writes (ADR-017).
+    data: BTreeMap<String, serde_json::Value>,
 }
 
 struct JsonStoreState {
     initialized: bool,
     manifest: Manifest,
-    data: HashMap<String, serde_json::Value>,
+    // BTreeMap for deterministic `.srsj` serialisation — see JsonStoreFile.data (ADR-017).
+    data: BTreeMap<String, serde_json::Value>,
 }
 
 pub struct JsonStore {
@@ -201,7 +204,7 @@ impl JsonStore {
             state: RefCell::new(JsonStoreState {
                 initialized: false,
                 manifest,
-                data: HashMap::new(),
+                data: BTreeMap::new(),
             }),
         };
         store.flush()?;
@@ -601,6 +604,11 @@ impl RepositoryStore for JsonStore {
                 path: self.file_path.clone(),
             });
         }
+        // `extra` is a HashMap (insertion order non-deterministic), but that is safe for
+        // `.srsj` determinism: `to_srsj_string` serialises the manifest via
+        // `serde_json::to_value`, which normalises these flattened keys into sorted order
+        // through serde_json's BTreeMap-backed Map. Only the top-level `data` map is
+        // serialised directly, which is why it (and not this) had to become a BTreeMap (ADR-017).
         let mut extra = HashMap::new();
         extra.insert(
             "srsVersion".to_string(),
@@ -2176,6 +2184,78 @@ mod tests {
             parsed["srsj"].as_str(),
             Some("1"),
             "srsj key must equal \"1\""
+        );
+    }
+
+    #[test]
+    fn json_store_srsj_write_is_deterministic_and_idempotent() {
+        // (1) Source `.srsj` with `data` keys in DELIBERATELY non-sorted order. A raw
+        // string literal (not `serde_json::json!`, which would pre-sort via its
+        // BTreeMap-backed Map) is required so the disorder actually reaches `from_srsj`.
+        // After the BTreeMap change, `to_srsj_string` must emit them in sorted order,
+        // identically every time, and idempotently across a read→write round-trip
+        // (ADR-017, issue #171).
+        let srsj_content = r#"{
+            "srsj": "1",
+            "manifest": {
+                "repositoryId": "det-repo",
+                "srsVersion": "2.0-draft",
+                "namespace": "com.test.det",
+                "instanceIndex": [],
+                "packageRef": {"mode": "local", "path": "package"}
+            },
+            "data": {
+                "records/zebra.json": {"instanceId": "z"},
+                "records/alpha.json": {"instanceId": "a"},
+                "package/package.json": {
+                    "id": "pkg-det", "namespace": "com.test.det", "name": "primary",
+                    "version": "1.0.0", "fields": [], "types": [], "relationTypes": [],
+                    "views": [], "documentViews": []
+                },
+                "records/mike.json": {"instanceId": "m"}
+            }
+        }"#;
+
+        let store = JsonStore::from_srsj(srsj_content).unwrap();
+
+        // (2) Two writes of the same store are byte-identical.
+        let s1 = store.to_srsj_string().unwrap();
+        let s2 = store.to_srsj_string().unwrap();
+        assert_eq!(
+            s1, s2,
+            "two writes of the same store must be byte-identical"
+        );
+
+        // (3) write(read(x)) == write(read(write(read(x)))) — idempotent across round-trip.
+        let reloaded = JsonStore::from_srsj(&s1).unwrap();
+        assert_eq!(
+            reloaded.to_srsj_string().unwrap(),
+            s1,
+            "re-serialising a reloaded store must reproduce the same bytes"
+        );
+
+        // (4) Top-level `data` keys are emitted in sorted order — non-vacuous because the
+        // source literal above lists them as zebra, alpha, package, mike.
+        let parsed: serde_json::Value = serde_json::from_str(&s1).unwrap();
+        let keys: Vec<String> = parsed["data"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect();
+        let mut sorted = keys.clone();
+        sorted.sort();
+        assert_eq!(keys, sorted, "data keys must be serialised in sorted order");
+        // Guard against a future reader "tidying" the source into sorted order.
+        assert_eq!(
+            keys,
+            vec![
+                "package/package.json",
+                "records/alpha.json",
+                "records/mike.json",
+                "records/zebra.json"
+            ],
+            "expected the four keys in sorted order"
         );
     }
 
