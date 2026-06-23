@@ -86,6 +86,11 @@
       "items": { "type": "string" },
       "description": "Relative paths from this package directory to Blueprint definition files (ext:blueprint). Omit or use empty array if the package defines no Blueprints."
     },
+    "protocols": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Relative paths from this package directory to Protocol definition files (ext:protocol). Omit or use empty array if the package defines no Protocols."
+    },
     "dependencyRefs": {
       "type": "array",
       "items": { "$ref": "#/$defs/DependencyRef" },

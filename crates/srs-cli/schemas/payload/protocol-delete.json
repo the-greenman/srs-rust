@@ -3,10 +3,10 @@
   "title": "ProtocolDeletePayload",
   "type": "object",
   "required": [
-    "instanceId"
+    "protocolId"
   ],
   "properties": {
-    "instanceId": {
+    "protocolId": {
       "type": "string"
     }
   }

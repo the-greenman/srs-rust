@@ -18,7 +18,6 @@
       "description": "A single entry in a protocol list. Maps `ProtocolSummary` fields with the renaming that the prior handler applied (e.g. `protocol_namespace` → `namespace`, `protocol_version` → `version`).",
       "type": "object",
       "required": [
-        "instanceId",
         "name",
         "namespace",
         "protocolId",
@@ -26,9 +25,6 @@
         "version"
       ],
       "properties": {
-        "instanceId": {
-          "type": "string"
-        },
         "name": {
           "type": "string"
         },
@@ -37,6 +33,12 @@
         },
         "protocolId": {
           "type": "string"
+        },
+        "sourcePackage": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "stageCount": {
           "type": "integer",
