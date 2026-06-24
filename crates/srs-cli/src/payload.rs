@@ -757,6 +757,17 @@ pub struct BriefRelationSpec {
     pub required: Option<bool>,
 }
 
+/// Payload mirror of `srs_core::types::protocol::FieldRef`.
+/// Separate struct because payload types must derive `JsonSchema`; srs-core must not
+/// depend on schemars (ADR-010).
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldRef {
+    pub field_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type_id: Option<String>,
+}
+
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct BriefStage {
@@ -767,7 +778,7 @@ pub struct BriefStage {
     pub depends_on: Vec<String>,
     pub question: Option<String>,
     pub completion_criteria: Option<String>,
-    pub contributes_to: Option<Vec<String>>,
+    pub contributes_to: Option<Vec<FieldRef>>,
     #[schemars(with = "Option<serde_json::Value>")]
     pub ai_guidance: Option<serde_json::Value>,
     #[schemars(with = "Option<serde_json::Value>")]
