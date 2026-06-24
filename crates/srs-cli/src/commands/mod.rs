@@ -1135,7 +1135,13 @@ pub enum ProtocolCommand {
         #[arg(long, hide = true)]
         json: bool,
     },
-    /// Import a protocol definition (reads JSON from stdin)
+    /// Create a new protocol definition (reads JSON from stdin)
+    Create {
+        /// Target sub-package path, e.g. "package/ext". Defaults to primary package.
+        #[arg(long)]
+        package: Option<String>,
+    },
+    /// Import a protocol definition (reads JSON from stdin; alias for `create`)
     Import {
         /// Target sub-package path, e.g. "package/ext". Defaults to primary package.
         #[arg(long)]

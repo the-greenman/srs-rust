@@ -20,6 +20,7 @@ pub fn dispatch(ctx: CliContext, cmd: ProtocolCommand) -> Result<String> {
         ProtocolCommand::Stages { id, json: _ } => cmd_protocol_stages(ctx, id),
         ProtocolCommand::Validate { id, json: _ } => cmd_protocol_validate(ctx, id),
         ProtocolCommand::Export { id, json: _ } => cmd_protocol_export(ctx, id),
+        ProtocolCommand::Create { package } => cmd_protocol_create(ctx, package),
         ProtocolCommand::Import { package, json: _ } => cmd_protocol_import(ctx, package),
         ProtocolCommand::Update { id } => cmd_protocol_update(ctx, id),
         ProtocolCommand::Delete { id } => cmd_protocol_delete(ctx, id),
@@ -126,6 +127,29 @@ fn cmd_protocol_export(ctx: CliContext, id: String) -> Result<String> {
             vec![format!("Protocol '{}' not found", id)],
         )),
     }
+}
+
+fn cmd_protocol_create(ctx: CliContext, package: Option<String>) -> Result<String> {
+    let mut stdin = String::new();
+    io::stdin().read_to_string(&mut stdin)?;
+
+    let raw: serde_json::Value = serde_json::from_str(&stdin)
+        .map_err(|e| anyhow::anyhow!("Failed to parse protocol JSON: {}", e))?;
+
+    let result = with_store(&ctx, |store| {
+        Ok(import_protocol(
+            store,
+            ImportProtocolInput { raw: raw.clone() },
+            package.clone(),
+        )?)
+    })?;
+
+    output::serialize(
+        "protocol create",
+        ProtocolPayload {
+            protocol: result.protocol,
+        },
+    )
 }
 
 fn cmd_protocol_import(ctx: CliContext, package: Option<String>) -> Result<String> {
