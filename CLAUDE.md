@@ -103,6 +103,8 @@ Verify everything is in sync before committing:
 bash scripts/check-schema-sync.sh          # checks srs-rust and srs-vscode in one pass
 ```
 
+**Never regenerate SHA256SUMS manually.** The sync script uses `sha256sum *.json | sort` (sorted by hash digest). The drift check validates with the exact same command — using `sort -k2` or any other variant will cause "SHA256SUMS mismatch" in CI. Always go through `sync-schemas-from-spec.sh`.
+
 Commit in each repo separately:
 ```bash
 # srs-rust

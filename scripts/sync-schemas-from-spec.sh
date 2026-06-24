@@ -52,6 +52,10 @@ mkdir -p "${DST}"
 cp "${SRC}"/*.json "${DST}/"
 
 cd "${DST}"
+# IMPORTANT: plain `sort` (sorts by hash), NOT `sort -k2` (sorts by filename).
+# check-schema-drift.sh validates SHA256SUMS with the same `sha256sum *.json | sort`
+# and will fail if the sort order differs. Never regenerate SHA256SUMS manually —
+# always use this script.
 sha256sum *.json | sort > SHA256SUMS
 
 echo "Synced $(ls "${DST}"/*.json | wc -l) schemas + SHA256SUMS from ${SRC}"
