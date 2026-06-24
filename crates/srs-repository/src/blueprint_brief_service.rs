@@ -236,7 +236,13 @@ pub fn render_brief_markdown(result: &BlueprintBriefResult) -> String {
             }
             if let Some(ct) = &stage.contributes_to {
                 if !ct.is_empty() {
-                    let labels: Vec<&str> = ct.iter().map(|r| r.field_id.as_str()).collect();
+                    let labels: Vec<String> = ct
+                        .iter()
+                        .map(|r| match &r.type_id {
+                            Some(tid) => format!("{}/{}", tid, r.field_id),
+                            None => r.field_id.clone(),
+                        })
+                        .collect();
                     out.push_str(&format!("**Contributes to:** {}\n\n", labels.join(", ")));
                 }
             }
@@ -699,10 +705,16 @@ mod tests {
                     depends_on: vec![],
                     question: None,
                     completion_criteria: None,
-                    contributes_to: Some(vec![FieldRef {
-                        field_id: "my-field".to_string(),
-                        type_id: None,
-                    }]),
+                    contributes_to: Some(vec![
+                        FieldRef {
+                            field_id: "my-field".to_string(),
+                            type_id: None,
+                        },
+                        FieldRef {
+                            field_id: "other-field".to_string(),
+                            type_id: Some("type-abc".to_string()),
+                        },
+                    ]),
                     ai_guidance: None,
                     output_type: None,
                 }],
@@ -711,8 +723,8 @@ mod tests {
         };
         let md = render_brief_markdown(&result);
         assert!(
-            md.contains("**Contributes to:** my-field"),
-            "expected '**Contributes to:** my-field' in markdown, got:\n{md}"
+            md.contains("**Contributes to:** my-field, type-abc/other-field"),
+            "expected correctly formatted contributes_to in markdown, got:\n{md}"
         );
     }
 
