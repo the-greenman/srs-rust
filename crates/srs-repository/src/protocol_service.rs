@@ -287,6 +287,7 @@ pub fn list_protocol_stages(
                 .map(|s| ProtocolStageSummary {
                     stage_id: s.stage_id,
                     name: s.name,
+                    purpose: s.purpose,
                     order: s.order,
                     depends_on: s.depends_on,
                 })

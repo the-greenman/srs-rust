@@ -85,6 +85,7 @@ fn cmd_protocol_stages(ctx: CliContext, id: String) -> Result<String> {
         .map(|s| ProtocolStageEntry {
             stage_id: s.stage_id,
             name: s.name,
+            purpose: s.purpose,
             order: s.order,
             depends_on: s.depends_on,
         })

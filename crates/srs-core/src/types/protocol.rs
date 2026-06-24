@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 pub struct ProtocolStage {
     pub stage_id: String,
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<String>,
     pub order: i32,
     #[serde(default)]
     pub depends_on: Vec<String>,
@@ -101,6 +103,8 @@ impl ProtocolValidationResult {
 pub struct ProtocolStageSummary {
     pub stage_id: String,
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<String>,
     pub order: i32,
     pub depends_on: Vec<String>,
 }

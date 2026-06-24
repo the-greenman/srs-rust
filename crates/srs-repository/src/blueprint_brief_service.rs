@@ -60,6 +60,7 @@ pub struct BriefRelationSpecResult {
 pub struct BriefStageResult {
     pub stage_id: String,
     pub name: String,
+    pub purpose: Option<String>,
     pub order: i32,
     pub depends_on: Vec<String>,
     pub question: Option<String>,
@@ -353,6 +354,7 @@ impl From<ProtocolStage> for BriefStageResult {
         Self {
             stage_id: stage.stage_id,
             name: stage.name,
+            purpose: stage.purpose,
             order: stage.order,
             depends_on: stage.depends_on,
             question: stage.question,
@@ -889,5 +891,37 @@ mod tests {
             proto.stages[0].question.as_deref(),
             Some("What is the topic?")
         );
+    }
+
+    #[test]
+    fn brief_stage_from_protocol_stage_maps_purpose() {
+        use srs_core::types::protocol::ProtocolStage;
+        let v = serde_json::json!({
+            "stageId": "s1",
+            "name": "Understand",
+            "purpose": "builds shared understanding of the problem space",
+            "order": 0,
+            "dependsOn": []
+        });
+        let stage: ProtocolStage = serde_json::from_value(v).unwrap();
+        let brief = BriefStageResult::from(stage);
+        assert_eq!(
+            brief.purpose,
+            Some("builds shared understanding of the problem space".to_string())
+        );
+    }
+
+    #[test]
+    fn brief_stage_from_protocol_stage_purpose_absent_when_missing() {
+        use srs_core::types::protocol::ProtocolStage;
+        let v = serde_json::json!({
+            "stageId": "s1",
+            "name": "Understand",
+            "order": 0,
+            "dependsOn": []
+        });
+        let stage: ProtocolStage = serde_json::from_value(v).unwrap();
+        let brief = BriefStageResult::from(stage);
+        assert_eq!(brief.purpose, None);
     }
 }

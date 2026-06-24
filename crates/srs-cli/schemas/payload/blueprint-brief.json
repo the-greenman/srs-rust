@@ -189,6 +189,12 @@
           "format": "int32"
         },
         "outputType": true,
+        "purpose": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "question": {
           "type": [
             "string",
