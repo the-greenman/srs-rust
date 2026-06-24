@@ -18,6 +18,7 @@ use crate::package_service::{
 use crate::protocol_service::find_protocol_by_target_type;
 use crate::store::RepositoryStore;
 use srs_core::types::blueprint::TypeRef;
+use srs_core::types::protocol::ProtocolStage;
 
 // ---------------------------------------------------------------------------
 // Input / output types
@@ -322,18 +323,16 @@ fn resolve_brief_type(
 fn find_protocol_for_roots(
     store: &dyn RepositoryStore,
     root_types: &[TypeRef],
-    diagnostics: &mut Vec<String>,
+    _diagnostics: &mut Vec<String>,
 ) -> Result<Option<BriefProtocolResult>, RepositoryError> {
     for type_ref in root_types {
         match find_protocol_by_target_type(store, &type_ref.type_id)? {
             Some(proto_raw) => {
-                let mut stages: Vec<BriefStageResult> = Vec::new();
-                for raw_val in &proto_raw.stages_raw {
-                    match deserialize_stage(raw_val) {
-                        Ok(stage) => stages.push(stage),
-                        Err(msg) => diagnostics.push(format!("protocol stage: {msg}")),
-                    }
-                }
+                let mut stages: Vec<BriefStageResult> = proto_raw
+                    .stages
+                    .into_iter()
+                    .map(stage_to_brief)
+                    .collect();
                 stages.sort_by_key(|s| s.order);
                 return Ok(Some(BriefProtocolResult {
                     protocol_id: proto_raw.protocol_id,
@@ -347,58 +346,17 @@ fn find_protocol_for_roots(
     Ok(None)
 }
 
-fn deserialize_stage(v: &serde_json::Value) -> Result<BriefStageResult, String> {
-    let stage_id = v
-        .get("stageId")
-        .and_then(|x| x.as_str())
-        .map(|s| s.to_string())
-        .ok_or_else(|| "missing stageId".to_string())?;
-    let name = v
-        .get("name")
-        .and_then(|x| x.as_str())
-        .map(|s| s.to_string())
-        .ok_or_else(|| format!("stage {stage_id}: missing name"))?;
-    let order = v
-        .get("order")
-        .and_then(|x| x.as_i64())
-        .map(|n| n as i32)
-        .ok_or_else(|| format!("stage {stage_id}: missing order"))?;
-    let depends_on = v
-        .get("dependsOn")
-        .and_then(|x| x.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|e| e.as_str().map(|s| s.to_string()))
-                .collect()
-        })
-        .unwrap_or_default();
-    let question = v
-        .get("question")
-        .and_then(|x| x.as_str())
-        .map(|s| s.to_string());
-    let completion_criteria = v
-        .get("completionCriteria")
-        .and_then(|x| x.as_str())
-        .map(|s| s.to_string());
-    let contributes_to = v
-        .get("contributesTo")
-        .and_then(|x| x.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|e| e.as_str().map(|s| s.to_string()))
-                .collect()
-        });
-    let ai_guidance = v.get("aiGuidance").cloned();
-    Ok(BriefStageResult {
-        stage_id,
-        name,
-        order,
-        depends_on,
-        question,
-        completion_criteria,
-        contributes_to,
-        ai_guidance,
-    })
+fn stage_to_brief(stage: ProtocolStage) -> BriefStageResult {
+    BriefStageResult {
+        stage_id: stage.stage_id,
+        name: stage.name,
+        order: stage.order,
+        depends_on: stage.depends_on,
+        question: stage.question,
+        completion_criteria: stage.completion_criteria,
+        contributes_to: stage.contributes_to,
+        ai_guidance: stage.ai_guidance,
+    }
 }
 
 fn format_guidance_prose(guidance: &serde_json::Value) -> String {
@@ -671,6 +629,7 @@ mod tests {
 
     #[test]
     fn test_deserialize_stage_required_fields() {
+        use srs_core::types::protocol::ProtocolStage;
         let v = serde_json::json!({
             "stageId": "s1",
             "name": "Gather context",
@@ -681,22 +640,27 @@ mod tests {
             "contributesTo": ["field-aaa"],
             "aiGuidance": "Focus on primary subjects."
         });
-        let stage = deserialize_stage(&v).unwrap();
-        assert_eq!(stage.stage_id, "s1");
-        assert_eq!(stage.order, 1);
-        assert_eq!(stage.question.as_deref(), Some("What is the main topic?"));
+        let stage: ProtocolStage = serde_json::from_value(v).unwrap();
+        let brief = stage_to_brief(stage);
+        assert_eq!(brief.stage_id, "s1");
+        assert_eq!(brief.order, 1);
+        assert_eq!(brief.question.as_deref(), Some("What is the main topic?"));
         assert_eq!(
-            stage.completion_criteria.as_deref(),
+            brief.completion_criteria.as_deref(),
             Some("Topic identified.")
         );
-        assert_eq!(stage.contributes_to, Some(vec!["field-aaa".to_string()]));
+        assert_eq!(brief.contributes_to, Some(vec!["field-aaa".to_string()]));
     }
 
     #[test]
     fn test_deserialize_stage_missing_required_errors() {
+        use srs_core::types::protocol::ProtocolStage;
         let v = serde_json::json!({ "name": "no-id-stage", "order": 1 });
-        let err = deserialize_stage(&v).unwrap_err();
-        assert!(err.contains("stageId"), "error should mention stageId");
+        let err = serde_json::from_value::<ProtocolStage>(v).unwrap_err();
+        assert!(
+            err.to_string().contains("stageId") || err.to_string().contains("stage_id"),
+            "error should mention stageId, got: {err}"
+        );
     }
 
     /// Build fields and RecordType for the meta.protocol system type (matching
