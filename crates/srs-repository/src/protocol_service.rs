@@ -27,7 +27,9 @@
 //! - **Delete**: `package.json` is updated first (entry removed), then the file is deleted. If
 //!   file deletion fails after index removal, the entry is gone but the file remains as an orphan.
 
-use srs_core::types::protocol::{Protocol, ProtocolDiagnosticSeverity, ProtocolStage, ProtocolStageSummary};
+use srs_core::types::protocol::{
+    Protocol, ProtocolDiagnosticSeverity, ProtocolStage, ProtocolStageSummary,
+};
 use srs_core::validation::protocol::validate_protocol;
 
 use crate::blueprint_service::validate_package_selector;

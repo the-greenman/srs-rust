@@ -232,6 +232,7 @@ fn map_brief_stage(s: BriefStageResult) -> BriefStage {
         completion_criteria: s.completion_criteria,
         contributes_to: s.contributes_to,
         ai_guidance: s.ai_guidance,
+        output_type: s.output_type,
     }
 }
 

@@ -767,6 +767,8 @@ pub struct BriefStage {
     pub contributes_to: Option<Vec<String>>,
     #[schemars(with = "Option<serde_json::Value>")]
     pub ai_guidance: Option<serde_json::Value>,
+    #[schemars(with = "Option<serde_json::Value>")]
+    pub output_type: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
