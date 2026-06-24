@@ -66,6 +66,7 @@ pub struct BriefStageResult {
     pub completion_criteria: Option<String>,
     pub contributes_to: Option<Vec<String>>,
     pub ai_guidance: Option<serde_json::Value>,
+    pub output_type: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -358,6 +359,7 @@ impl From<ProtocolStage> for BriefStageResult {
             completion_criteria: stage.completion_criteria,
             contributes_to: stage.contributes_to,
             ai_guidance: stage.ai_guidance,
+            output_type: stage.output_type,
         }
     }
 }

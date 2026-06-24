@@ -17,6 +17,8 @@ pub struct ProtocolStage {
     pub contributes_to: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_guidance: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_type: Option<serde_json::Value>,
 }
 
 /// Protocol definition.
