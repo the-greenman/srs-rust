@@ -762,7 +762,6 @@ pub struct BriefRelationSpec {
 pub struct BriefStage {
     pub stage_id: String,
     pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub purpose: Option<String>,
     pub order: i32,
     pub depends_on: Vec<String>,

@@ -227,6 +227,7 @@ pub fn render_brief_markdown(result: &BlueprintBriefResult) -> String {
         out.push_str(&format!("## Protocol: {}\n\n", proto.protocol_name));
         for stage in &proto.stages {
             out.push_str(&format!("### {}. {}\n\n", stage.order, stage.name));
+            // purpose is structural metadata (epistemic label); not rendered — question is the prose entry point
             if let Some(q) = &stage.question {
                 out.push_str(&format!("**Question:** {q}\n\n"));
             }
