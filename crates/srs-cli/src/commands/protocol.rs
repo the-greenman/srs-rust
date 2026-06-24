@@ -129,50 +129,23 @@ fn cmd_protocol_export(ctx: CliContext, id: String) -> Result<String> {
     }
 }
 
-fn cmd_protocol_create(ctx: CliContext, package: Option<String>) -> Result<String> {
+fn cmd_protocol_write(ctx: CliContext, package: Option<String>, label: &'static str) -> Result<String> {
     let mut stdin = String::new();
     io::stdin().read_to_string(&mut stdin)?;
-
     let raw: serde_json::Value = serde_json::from_str(&stdin)
         .map_err(|e| anyhow::anyhow!("Failed to parse protocol JSON: {}", e))?;
-
     let result = with_store(&ctx, |store| {
-        Ok(import_protocol(
-            store,
-            ImportProtocolInput { raw: raw.clone() },
-            package.clone(),
-        )?)
+        Ok(import_protocol(store, ImportProtocolInput { raw }, package)?)
     })?;
+    output::serialize(label, ProtocolPayload { protocol: result.protocol })
+}
 
-    output::serialize(
-        "protocol create",
-        ProtocolPayload {
-            protocol: result.protocol,
-        },
-    )
+fn cmd_protocol_create(ctx: CliContext, package: Option<String>) -> Result<String> {
+    cmd_protocol_write(ctx, package, "protocol create")
 }
 
 fn cmd_protocol_import(ctx: CliContext, package: Option<String>) -> Result<String> {
-    let mut stdin = String::new();
-    io::stdin().read_to_string(&mut stdin)?;
-
-    let raw: serde_json::Value = serde_json::from_str(&stdin)
-        .map_err(|e| anyhow::anyhow!("Failed to parse protocol JSON: {}", e))?;
-
-    let result = with_store(&ctx, |store| {
-        Ok(import_protocol(
-            store,
-            ImportProtocolInput { raw: raw.clone() },
-            package.clone(),
-        )?)
-    })?;
-
-    output::serialize(
-        "protocol import",
-        ProtocolPayload {
-            protocol: result.protocol,
-        },
-    )
+    cmd_protocol_write(ctx, package, "protocol import")
 }
 
 fn cmd_protocol_update(ctx: CliContext, id: String) -> Result<String> {

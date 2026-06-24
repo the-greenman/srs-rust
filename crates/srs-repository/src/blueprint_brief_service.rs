@@ -323,15 +323,16 @@ fn resolve_brief_type(
 fn find_protocol_for_roots(
     store: &dyn RepositoryStore,
     root_types: &[TypeRef],
-    _diagnostics: &mut Vec<String>,
+    diagnostics: &mut Vec<String>,
 ) -> Result<Option<BriefProtocolResult>, RepositoryError> {
     for type_ref in root_types {
         match find_protocol_by_target_type(store, &type_ref.type_id)? {
             Some(proto_raw) => {
+                diagnostics.extend(proto_raw.diagnostics);
                 let mut stages: Vec<BriefStageResult> = proto_raw
                     .stages
                     .into_iter()
-                    .map(stage_to_brief)
+                    .map(BriefStageResult::from)
                     .collect();
                 stages.sort_by_key(|s| s.order);
                 return Ok(Some(BriefProtocolResult {
@@ -346,16 +347,18 @@ fn find_protocol_for_roots(
     Ok(None)
 }
 
-fn stage_to_brief(stage: ProtocolStage) -> BriefStageResult {
-    BriefStageResult {
-        stage_id: stage.stage_id,
-        name: stage.name,
-        order: stage.order,
-        depends_on: stage.depends_on,
-        question: stage.question,
-        completion_criteria: stage.completion_criteria,
-        contributes_to: stage.contributes_to,
-        ai_guidance: stage.ai_guidance,
+impl From<ProtocolStage> for BriefStageResult {
+    fn from(stage: ProtocolStage) -> Self {
+        Self {
+            stage_id: stage.stage_id,
+            name: stage.name,
+            order: stage.order,
+            depends_on: stage.depends_on,
+            question: stage.question,
+            completion_criteria: stage.completion_criteria,
+            contributes_to: stage.contributes_to,
+            ai_guidance: stage.ai_guidance,
+        }
     }
 }
 
@@ -641,7 +644,7 @@ mod tests {
             "aiGuidance": "Focus on primary subjects."
         });
         let stage: ProtocolStage = serde_json::from_value(v).unwrap();
-        let brief = stage_to_brief(stage);
+        let brief = BriefStageResult::from(stage);
         assert_eq!(brief.stage_id, "s1");
         assert_eq!(brief.order, 1);
         assert_eq!(brief.question.as_deref(), Some("What is the main topic?"));
@@ -658,7 +661,7 @@ mod tests {
         let v = serde_json::json!({ "name": "no-id-stage", "order": 1 });
         let err = serde_json::from_value::<ProtocolStage>(v).unwrap_err();
         assert!(
-            err.to_string().contains("stageId") || err.to_string().contains("stage_id"),
+            err.to_string().contains("stageId"),
             "error should mention stageId, got: {err}"
         );
     }

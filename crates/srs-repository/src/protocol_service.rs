@@ -97,6 +97,7 @@ pub struct FindProtocolByTargetTypeResult {
     pub protocol_id: String,
     pub protocol_name: String,
     pub stages: Vec<ProtocolStage>,
+    pub diagnostics: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -357,11 +358,18 @@ pub fn find_protocol_by_target_type(
             else {
                 continue;
             };
+            let mut stage_diagnostics: Vec<String> = Vec::new();
             let stages: Vec<ProtocolStage> = val["protocolStages"]
                 .as_array()
                 .map(|arr| {
                     arr.iter()
-                        .filter_map(|v| serde_json::from_value(v.clone()).ok())
+                        .filter_map(|v| {
+                            serde_json::from_value::<ProtocolStage>(v.clone())
+                                .map_err(|e| {
+                                    stage_diagnostics.push(format!("invalid stage: {e}"));
+                                })
+                                .ok()
+                        })
                         .collect()
                 })
                 .unwrap_or_default();
@@ -369,6 +377,7 @@ pub fn find_protocol_by_target_type(
                 protocol_id: protocol_id.to_string(),
                 protocol_name: protocol_name.to_string(),
                 stages,
+                diagnostics: stage_diagnostics,
             }));
         }
     }
