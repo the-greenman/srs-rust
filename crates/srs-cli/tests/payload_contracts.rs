@@ -279,6 +279,11 @@ fn protocol_validate() {
 }
 
 #[test]
+fn protocol_create() {
+    check::<ProtocolPayload>("protocol-create");
+}
+
+#[test]
 fn protocol_update() {
     check::<ProtocolPayload>("protocol-update");
 }
