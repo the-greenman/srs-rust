@@ -37,6 +37,12 @@
           "type": "integer",
           "format": "int32"
         },
+        "purpose": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "stageId": {
           "type": "string"
         }
