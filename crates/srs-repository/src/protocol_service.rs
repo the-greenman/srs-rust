@@ -27,7 +27,7 @@
 //! - **Delete**: `package.json` is updated first (entry removed), then the file is deleted. If
 //!   file deletion fails after index removal, the entry is gone but the file remains as an orphan.
 
-use srs_core::types::protocol::{Protocol, ProtocolDiagnosticSeverity, ProtocolStageSummary};
+use srs_core::types::protocol::{Protocol, ProtocolDiagnosticSeverity, ProtocolStage, ProtocolStageSummary};
 use srs_core::validation::protocol::validate_protocol;
 
 use crate::blueprint_service::validate_package_selector;
@@ -96,8 +96,7 @@ pub struct ProtocolSummary {
 pub struct FindProtocolByTargetTypeResult {
     pub protocol_id: String,
     pub protocol_name: String,
-    /// Raw stage JSON values, preserving all fields beyond the srs-core `ProtocolStage` struct.
-    pub stages_raw: Vec<serde_json::Value>,
+    pub stages: Vec<ProtocolStage>,
 }
 
 // ---------------------------------------------------------------------------
@@ -332,9 +331,7 @@ pub fn validate_protocol_definition(
 
 /// Find the first protocol whose `protocolTargetType` matches `target_type_id`.
 ///
-/// Returns `None` when no protocol targets that type. Reads the raw definition JSON so that
-/// stage fields beyond the `ProtocolStage` struct (e.g. `contributesTo`, `completionCriteria`)
-/// are preserved for downstream consumers (blueprint brief).
+/// Returns `None` when no protocol targets that type.
 pub fn find_protocol_by_target_type(
     store: &dyn RepositoryStore,
     target_type_id: &str,
@@ -360,14 +357,18 @@ pub fn find_protocol_by_target_type(
             else {
                 continue;
             };
-            let stages_raw = val["protocolStages"]
+            let stages: Vec<ProtocolStage> = val["protocolStages"]
                 .as_array()
-                .cloned()
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| serde_json::from_value(v.clone()).ok())
+                        .collect()
+                })
                 .unwrap_or_default();
             return Ok(Some(FindProtocolByTargetTypeResult {
                 protocol_id: protocol_id.to_string(),
                 protocol_name: protocol_name.to_string(),
-                stages_raw,
+                stages,
             }));
         }
     }
