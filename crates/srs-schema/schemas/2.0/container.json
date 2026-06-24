@@ -5,6 +5,7 @@
   "description": "A lightweight grouping boundary over a collection of instances. Containers answer scoping questions — which instances belong together — that the Relation graph alone cannot answer.",
   "type": "object",
   "required": ["containerId", "title"],
+  "additionalProperties": false,
   "properties": {
     "$schema": {
       "type": "string",
