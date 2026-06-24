@@ -44,6 +44,7 @@ if [[ ! -f "${EXPECTED_SUMS}" ]]; then
     DRIFT=1
 else
     TMPFILE="$(mktemp)"
+    # Plain `sort` (by hash) — must match sync-schemas-from-spec.sh exactly.
     bash -c "cd '${DST}' && sha256sum *.json | sort > '${TMPFILE}'"
     if ! diff -q "${EXPECTED_SUMS}" "${TMPFILE}" > /dev/null; then
         echo "SHA256SUMS mismatch in artifact directory"

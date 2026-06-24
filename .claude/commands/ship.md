@@ -42,6 +42,8 @@ All Rust work happens in `srs-rust/`. Run `git` from the relevant sub-repo, neve
 - If `$ARGUMENTS` references an existing issue (`#N` or a URL), fetch it with `gh issue view N` and use it as the brief.
 - Otherwise create one: `gh issue create --title "<concise title>" --body "<one-paragraph problem statement>"`. Capture the issue number — every later stage refers to it.
 
+- Mark the issue as in progress
+
 ## Stage 1.5 — Spec gate
 
 Before writing any plan, determine whether this feature requires a **change to the SRS specification** (`srs/` repo).
@@ -135,12 +137,15 @@ cargo test --test payload_contracts        # if payload structs changed
 bash scripts/check-schema-sync.sh          # if entity schemas changed
 ```
 
-If `check-schema-sync.sh` fails, entity schemas in this repo have drifted from the canonical spec. Fix by running the alignment script from the `srs/` repo root:
+If `check-schema-sync.sh` fails, entity schemas have drifted from the canonical spec in `srs/docs/schema/2.0/`. Fix by running the sync scripts:
 ```bash
-cd ../srs
-node scripts/align-spec.mjs
+# From srs-rust/
+scripts/sync-schemas-from-spec.sh          # copies *.json + regenerates SHA256SUMS
+../srs-vscode/scripts/sync-schemas-from-spec.sh
+
+bash scripts/check-schema-sync.sh          # must exit 0 before continuing
 ```
-That re-syncs `srs-rust/crates/srs-schema/schemas/2.0/` and `srs-vscode/schemas/2.0/` from `srs/docs/schema/2.0/`, regenerates `SHA256SUMS`, and prints what to commit in each repo. Commit the schema updates in srs-rust (and srs-vscode) before the srs PR — see `srs/RELEASING.md` for the ordering that keeps drift CI green.
+Commit the schema updates in srs-rust and srs-vscode before the srs PR — mirror PRs must be merged first so `srs` drift CI sees up-to-date artifacts at HEAD.
 
 All checks must pass before proceeding.
 

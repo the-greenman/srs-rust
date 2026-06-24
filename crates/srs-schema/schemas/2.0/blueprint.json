@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/blueprint.json",
+  "title": "SRS Blueprint Definition (ext:blueprint)",
+  "description": "Declares a document type for Record extraction and container instantiation. A Blueprint names the root Record Types it produces, the Relation structure between extracted Records, and which Record Types must be present for the Blueprint to be considered complete. Blueprint.rootTypes uses ExactTypeRef (typeVersion required) — the same shape as DocumentView.rootTypeRefs — completing the fully UUID-anchored chain: Blueprint.rootTypes → DocumentView.rootTypeRefs → Container.rootInstanceIds (RFC-009).",
+  "type": "object",
+  "required": ["$schema", "id", "namespace", "name", "version", "description", "rootTypes", "createdAt"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://srs.semanticops.com/schema/2.0/blueprint.json"
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Stable UUID for this Blueprint. Never changes across versions."
+    },
+    "namespace": {
+      "type": "string",
+      "description": "Reverse-DNS namespace, e.g. com.mudemocracy."
+    },
+    "name": {
+      "type": "string",
+      "description": "Machine-readable name within the namespace, kebab-case."
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Monotonically increasing version integer within this Blueprint's UUID lineage."
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable description of what this Blueprint produces and when to use it."
+    },
+    "rootTypes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ExactTypeRef" },
+      "description": "The Record Type(s) this Blueprint produces as root Records when instantiated into a Container. Each entry is an ExactTypeRef (both typeId and typeVersion required per RFC-009 I-78). When non-empty, the first entry is the canonical root Type whose instanceId will appear in Container.rootInstanceIds[0]. An empty array is valid for extraction-context blueprints that do not prescribe a root type. Each entry MUST resolve to a Type in the Package at load time."
+    },
+    "structure": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/RelationSpec" },
+      "description": "Expected Relation structure between extracted Records. Declares cardinality and required constraints. Optional — omit if the blueprint imposes no Relation constraints."
+    },
+    "requiredTypes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ExactTypeRef" },
+      "description": "TypeIds that must be present for this Blueprint to be considered complete. Each entry must resolve to a type in the blueprint's full type universe (rootTypes ∪ structure[].sourceType ∪ structure[].targetType). Optional."
+    },
+    "aiGuidance": {
+      "type": "object",
+      "description": "Guidance for AI-assisted extraction and authoring. Structure is implementation-defined. Optional.",
+      "additionalProperties": true
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Discovery labels. When a Vocabulary in the package declares Terms for a tag key, tags SHOULD resolve against those Terms per RFC-006. Free-string tags are valid when no Vocabulary governs the key. Optional."
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of when this Blueprint was first authored."
+    },
+    "lineage": {
+      "type": "object",
+      "description": "Provenance and lineage metadata. Structure is implementation-defined. Optional.",
+      "additionalProperties": true
+    },
+    "provenance": {
+      "type": "object",
+      "description": "Source and extraction provenance metadata. Structure is implementation-defined. Optional.",
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "ExactTypeRef": {
+      "type": "object",
+      "required": ["typeId", "typeVersion"],
+      "additionalProperties": false,
+      "description": "RFC-009 I-78. A version-exact reference to a Type in the Package. Both typeId and typeVersion are required. Distinct from the pre-RFC-009 spec-level TypeRef (Protocol) where typeVersion was optional.",
+      "properties": {
+        "typeId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable UUID of the Type."
+        },
+        "typeVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Version of the Type this ref targets (required — version-exact anchor validated against the Package)."
+        }
+      }
+    },
+    "RelationSpec": {
+      "type": "object",
+      "required": ["relationType", "sourceType", "targetType"],
+      "additionalProperties": false,
+      "description": "Declares an expected Relation between two Record types within the Blueprint.",
+      "properties": {
+        "relationType": {
+          "type": "string",
+          "description": "The Relation type name (e.g. 'supersedes', 'depends-on'). SHOULD use a canonical relation type from the installed com.semanticops.srs package vocabulary (see RFC-005) or a custom namespace/name-format type declared in the repository's package."
+        },
+        "sourceType": {
+          "$ref": "#/$defs/ExactTypeRef",
+          "description": "The Record Type on the source end of this Relation."
+        },
+        "targetType": {
+          "$ref": "#/$defs/ExactTypeRef",
+          "description": "The Record Type on the target end of this Relation."
+        },
+        "cardinality": {
+          "type": "string",
+          "enum": ["one-to-one", "one-to-many", "many-to-one", "many-to-many"],
+          "description": "Expected multiplicity constraint. Optional — omit if cardinality is unconstrained."
+        },
+        "required": {
+          "type": "boolean",
+          "description": "When true, this Relation MUST be present for the Blueprint to be considered complete. Default: false."
+        }
+      }
+    }
+  }
+}

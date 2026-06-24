@@ -85,6 +85,42 @@ srs repo validate --repo ../srs/srs        # should be 0 errors
 cargo test --test payload_contracts        # golden schema tests
 ```
 
+## Schema Sync
+
+`crates/srs-schema/schemas/2.0/` is a **mirror** of `srs/docs/schema/2.0/` — never edit schema files there directly. The canonical source is always the `srs/` spec repo. `srs-vscode/schemas/2.0/` is a second mirror with the same constraint.
+
+When schemas change in `srs/docs/schema/2.0/` (e.g. after a spec RFC merges into `srs`):
+
+```bash
+# From srs-rust/
+scripts/sync-schemas-from-spec.sh          # copies *.json + regenerates SHA256SUMS
+# Then sync srs-vscode:
+../srs-vscode/scripts/sync-schemas-from-spec.sh
+```
+
+Verify everything is in sync before committing:
+```bash
+bash scripts/check-schema-sync.sh          # checks srs-rust and srs-vscode in one pass
+```
+
+**Never regenerate SHA256SUMS manually.** The sync script uses `sha256sum *.json | sort` (sorted by hash digest). The drift check validates with the exact same command — using `sort -k2` or any other variant will cause "SHA256SUMS mismatch" in CI. Always go through `sync-schemas-from-spec.sh`.
+
+Commit in each repo separately:
+```bash
+# srs-rust
+git add crates/srs-schema/schemas/2.0/
+git commit -m "chore(schema): sync schemas from spec (RFC-NNN)"
+
+# srs-vscode
+cd ../srs-vscode
+git add schemas/2.0/
+git commit -m "chore(schema): sync schemas from spec (RFC-NNN)"
+```
+
+**Multi-repo merge order:** the srs-rust and srs-vscode schema mirror PRs must be merged **before** the corresponding `srs` spec PR — the release-drift CI in `srs` checks that the artifact copies are up to date at HEAD. Open both mirror PRs at the same time as the spec PR.
+
+CI enforces correctness via the `schema-drift` job (`scripts/check-schema-drift.sh ../srs`). If it fails locally, running `sync-schemas-from-spec.sh` will fix it.
+
 ## Pre-commit Hook
 
 The hook runs `cargo test --test payload_contracts`. If it fails, regenerate schemas with `cargo run --bin generate-schemas` and stage the updated files before committing.
