@@ -1,5 +1,17 @@
 use serde::{Deserialize, Serialize};
 
+/// A reference to a Field within a Type, per ext:protocol FieldRef definition.
+///
+/// `{ fieldId: UUID, typeId?: UUID }` — `typeId` scopes the field to a specific Type
+/// when the same fieldId appears in multiple Types.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldRef {
+    pub field_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type_id: Option<String>,
+}
+
 /// Protocol stage definition for validation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -16,7 +28,7 @@ pub struct ProtocolStage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completion_criteria: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub contributes_to: Option<Vec<String>>,
+    pub contributes_to: Option<Vec<FieldRef>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_guidance: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -107,4 +119,32 @@ pub struct ProtocolStageSummary {
     pub purpose: Option<String>,
     pub order: i32,
     pub depends_on: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_field_ref_deserialization() {
+        let with_type_id: FieldRef =
+            serde_json::from_value(serde_json::json!({"fieldId": "abc", "typeId": "xyz"})).unwrap();
+        assert_eq!(
+            with_type_id,
+            FieldRef {
+                field_id: "abc".to_string(),
+                type_id: Some("xyz".to_string()),
+            }
+        );
+
+        let without_type_id: FieldRef =
+            serde_json::from_value(serde_json::json!({"fieldId": "abc"})).unwrap();
+        assert_eq!(
+            without_type_id,
+            FieldRef {
+                field_id: "abc".to_string(),
+                type_id: None,
+            }
+        );
+    }
 }
