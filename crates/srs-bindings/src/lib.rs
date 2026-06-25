@@ -187,6 +187,35 @@ impl SrsRepository {
         to_js(&result.record)
     }
 
+    /// Create a successor record that supersedes or refines an existing record.
+    /// `predecessor_id` is the instance ID of the record being superseded/refined.
+    /// `input_json` is a JSON object:
+    ///   `{ "relationType": "supersedes"|"refines", "fieldValues": [...], "lifecycleState"?: "...", "typeVersion"?: N }`.
+    /// Returns `{ "record": <Record>, "relation": <Relation> }` as a JS value.
+    /// The relation runs from the successor (source) to the predecessor (target).
+    ///
+    /// Note: `"records/tier-2"` matches the `create_record` binding convention; both share the
+    /// same pre-existing path-string debt (Storage Boundary Rules) tracked for a future refactor.
+    pub fn create_record_successor(
+        &self,
+        predecessor_id: &str,
+        input_json: &str,
+    ) -> Result<JsValue, JsValue> {
+        let input: record_store::CreateRecordSuccessorInput =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let result = record_store::create_record_successor(
+            &self.store,
+            predecessor_id,
+            input,
+            "records/tier-2",
+        )
+        .map_err(js_err)?;
+        to_js(&serde_json::json!({
+            "record": result.record,
+            "relation": result.relation,
+        }))
+    }
+
     /// Project a blueprint into a nested draft-07 JSON Schema describing the whole
     /// multi-record document it declares. `blueprint_id` is the blueprint's UUID.
     /// Returns `{ "schema": <json-schema>, "diagnostics": [<string>, ...] }` as a JS value;
