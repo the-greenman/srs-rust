@@ -1140,6 +1140,9 @@ pub enum ProtocolCommand {
         /// Target sub-package path, e.g. "package/ext". Defaults to primary package.
         #[arg(long)]
         package: Option<String>,
+        /// Deprecated: JSON output is now the default (no-op)
+        #[arg(long, hide = true)]
+        json: bool,
     },
     /// Import a protocol definition (reads JSON from stdin; alias for `create`)
     Import {
