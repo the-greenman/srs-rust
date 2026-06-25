@@ -701,6 +701,7 @@ mod tests {
                 stages: vec![BriefStageResult {
                     stage_id: "s1".to_string(),
                     name: "Gather".to_string(),
+                    purpose: None,
                     order: 1,
                     depends_on: vec![],
                     question: None,
