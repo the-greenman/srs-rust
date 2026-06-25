@@ -1,4 +1,6 @@
-use crate::container_service::{create_container, get_container, list_containers};
+use crate::container_service::{
+    create_container, get_container, list_containers, ContainerListFilter,
+};
 use crate::error::RepositoryError;
 use crate::index::InstanceIndexEntry;
 use crate::relation_service::load_relations;
@@ -120,7 +122,7 @@ pub fn export_repository_snapshot(
     }
 
     let mut containers = Vec::new();
-    for summary in list_containers(source, None, None, None)? {
+    for summary in list_containers(source, &ContainerListFilter::default())? {
         containers.push(get_container(source, &summary.container_id)?);
     }
 
@@ -913,7 +915,7 @@ mod tests {
 
         let copied = target.load_manifest().unwrap();
         assert_eq!(copied.instance_index.len(), 1);
-        let summaries = list_containers(&target, None, None, None).unwrap();
+        let summaries = list_containers(&target, &ContainerListFilter::default()).unwrap();
         assert_eq!(summaries.len(), 1);
         assert_eq!(load_relations(&target).unwrap().len(), 1);
     }

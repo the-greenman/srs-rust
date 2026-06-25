@@ -12,7 +12,7 @@
 //!   - `f7562aa3…` root `ad159754…`, 6 members
 
 use srs_repository::container_service::{
-    add_member, get_container, list_containers, remove_member,
+    add_member, get_container, list_containers, remove_member, ContainerListFilter,
 };
 use srs_repository::JsonStore;
 
@@ -25,7 +25,8 @@ fn gallery_store() -> JsonStore {
 #[test]
 fn list_containers_returns_all() {
     let store = gallery_store();
-    let summaries = list_containers(&store, None, None, None).expect("list must succeed");
+    let summaries =
+        list_containers(&store, &ContainerListFilter::default()).expect("list must succeed");
     assert_eq!(summaries.len(), 3, "gallery has three containers");
 }
 
@@ -36,9 +37,10 @@ fn list_containers_filters_by_root() {
     let store = gallery_store();
     let summaries = list_containers(
         &store,
-        None,
-        None,
-        Some("5bbf9209-1dc9-44b2-b0a3-f2192db5a879"),
+        &ContainerListFilter {
+            root_instance_id: Some("5bbf9209-1dc9-44b2-b0a3-f2192db5a879".to_string()),
+            ..Default::default()
+        },
     )
     .expect("list must succeed");
     assert_eq!(summaries.len(), 1, "exactly one container has this root");

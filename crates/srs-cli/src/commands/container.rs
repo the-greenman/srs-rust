@@ -12,7 +12,7 @@ use srs_core::types::container::Container;
 use srs_repository::container_service::{
     add_container_member, add_root, create_container, delete_container, get_container,
     list_container_members, list_containers, list_roots, remove_container_member, remove_root,
-    update_container, validate_container_invariants, ContainerPatch,
+    update_container, validate_container_invariants, ContainerListFilter, ContainerPatch,
 };
 use std::io;
 
@@ -39,14 +39,12 @@ fn cmd_list(
     member_instance_id: Option<String>,
     root_instance_id: Option<String>,
 ) -> Result<String> {
-    let containers = with_store(&ctx, |store| {
-        Ok(list_containers(
-            store,
-            container_type.as_deref(),
-            member_instance_id.as_deref(),
-            root_instance_id.as_deref(),
-        )?)
-    })?;
+    let filter = ContainerListFilter {
+        container_type,
+        member_instance_id,
+        root_instance_id,
+    };
+    let containers = with_store(&ctx, |store| Ok(list_containers(store, &filter)?))?;
     output::serialize("container list", ContainerListPayload { containers })
 }
 
