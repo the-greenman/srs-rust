@@ -12,7 +12,8 @@
 //!   - `f7562aa3…` root `ad159754…`, 6 members
 
 use srs_repository::container_service::{
-    add_member, get_container, list_containers, remove_member, ContainerListFilter,
+    add_member, containers_for_instance, get_container, list_containers, remove_member,
+    ContainerListFilter,
 };
 use srs_repository::JsonStore;
 
@@ -58,6 +59,30 @@ fn get_container_returns_membership() {
         get_container(&store, "138e2fac-6a8a-4a06-9511-5aefd99ceae9").expect("container must load");
     let members = container.member_instance_ids.unwrap_or_default();
     assert_eq!(members.len(), 7, "container carries its seven members");
+}
+
+/// `containers_for_instance` resolves the container(s) an instance is a member of — the
+/// reverse lookup the web client uses to jump from a selected record to its document container.
+#[test]
+fn containers_for_instance_lists_owning_containers() {
+    let store = gallery_store();
+    // `3be7b057…` is a member of exactly one gallery container (`138e2fac…`).
+    let summaries = containers_for_instance(&store, "3be7b057-9167-42a4-b0db-2a8b30666cef")
+        .expect("lookup must succeed");
+    assert_eq!(summaries.len(), 1, "member belongs to one container");
+    assert_eq!(
+        summaries[0].container_id,
+        "138e2fac-6a8a-4a06-9511-5aefd99ceae9"
+    );
+}
+
+/// An instance that is a member of no container returns an empty list (not an error).
+#[test]
+fn containers_for_instance_empty_for_uncontained() {
+    let store = gallery_store();
+    let summaries = containers_for_instance(&store, "00000000-0000-4000-8000-000000000000")
+        .expect("lookup must succeed");
+    assert!(summaries.is_empty(), "uncontained instance has no containers");
 }
 
 /// add_member / remove_member round-trip — the path the guides editor uses when

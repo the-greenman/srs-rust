@@ -2,11 +2,13 @@ use serde::Deserialize;
 use srs_core::types::record::{FieldGroupValue, FieldValue};
 use srs_core::types::relation::Relation;
 use srs_repository::blueprint_schema_service::{self, BlueprintSchemaInput};
+use srs_repository::blueprint_service;
 use srs_repository::container_service::{self, ContainerListFilter};
 use srs_repository::record_store::{self, RecordListFilter, TransitionLifecycleInput};
 use srs_repository::relation_service::{self, ListRelationsFilter};
 use srs_repository::render_service::{self, RenderDocumentViewOptions};
 use srs_repository::services::{self, ListNotesFilter};
+use srs_repository::type_schema_service::{self, TypeSchemaInput};
 use srs_repository::validation;
 use srs_repository::view_service::{self, DocumentViewListFilter};
 use srs_repository::JsonStore;
@@ -293,6 +295,64 @@ impl SrsRepository {
             container_service::remove_container_member(&self.store, container_id, instance_id)
                 .map_err(js_err)?;
         to_js(&members)
+    }
+
+    /// List the containers an instance belongs to — every container whose `memberInstanceIds`
+    /// includes `instance_id`. Returns a JS array of `ContainerSummary` objects (same shape as
+    /// `list_containers`). Equivalent to `list_containers('{"memberInstanceId": instance_id}')`,
+    /// exposed by name for the web client (issue #181).
+    pub fn containers_for_instance(&self, instance_id: &str) -> Result<JsValue, JsValue> {
+        let summaries =
+            container_service::containers_for_instance(&self.store, instance_id).map_err(js_err)?;
+        to_js(&summaries)
+    }
+
+    /// Project a Type into a draft-07 JSON Schema describing a single record's `fieldValues`,
+    /// keyed by field `name`. `type_id` is the Type's UUID; `type_version` selects a version —
+    /// pass `undefined` (omit the argument) to resolve the latest version.
+    /// Returns `{ "schema": <json-schema>, "diagnostics": [<string>, ...] }` as a JS value;
+    /// non-fatal projection problems (a dangling `fieldId`, a select field with no
+    /// `allowedValues`) surface in `diagnostics`. An unresolvable Type is an error.
+    pub fn type_schema(
+        &self,
+        type_id: &str,
+        type_version: Option<u32>,
+    ) -> Result<JsValue, JsValue> {
+        let result = type_schema_service::type_schema(
+            &self.store,
+            TypeSchemaInput {
+                type_id: type_id.to_string(),
+                type_version,
+            },
+        )
+        .map_err(js_err)?;
+        to_js(&serde_json::json!({
+            "schema": result.schema,
+            "diagnostics": result.diagnostics,
+        }))
+    }
+
+    /// List blueprint summaries across all package boundaries.
+    /// Returns `{ "summaries": [ { id, namespace, name, version, description, rootTypeCount,
+    /// sourcePackage? }, ... ], "diagnostics": [<string>, ...] }` as a JS value; WARN-level
+    /// provenance issues (missing files, duplicate IDs) surface in `diagnostics`.
+    pub fn list_blueprints(&self) -> Result<JsValue, JsValue> {
+        let result = blueprint_service::list_blueprints_summary(&self.store).map_err(js_err)?;
+        to_js(&serde_json::json!({
+            "summaries": result.summaries,
+            "diagnostics": result.diagnostics,
+        }))
+    }
+
+    /// List the document views (L2) bound to a container's root type. Resolves the container's
+    /// first root instance's `typeId`/`typeVersion`, then returns every `DocumentView` whose
+    /// `rootTypeRefs` includes that exact type binding (RFC-009). Returns an empty array — not an
+    /// error — when the container has no root instance, the root carries no type binding (Tier 0/1),
+    /// or no view matches. Returns a JS array of `DocumentView` objects.
+    pub fn document_views_for_container(&self, container_id: &str) -> Result<JsValue, JsValue> {
+        let views = view_service::document_views_for_container(&self.store, container_id)
+            .map_err(js_err)?;
+        to_js(&views)
     }
 }
 
