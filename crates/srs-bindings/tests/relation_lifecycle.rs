@@ -464,8 +464,8 @@ fn create_relation_depends_on() {
         target_repository_id: None,
     };
 
-    let created =
-        relation_service::create_relation_auto(&store, relation).expect("depends-on relation should be created");
+    let created = relation_service::create_relation_auto(&store, relation)
+        .expect("depends-on relation should be created");
     assert_eq!(created.relation.relation_type, "depends-on");
 
     let filter = ListRelationsFilter {
