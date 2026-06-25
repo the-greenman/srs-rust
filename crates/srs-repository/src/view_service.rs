@@ -22,6 +22,7 @@
 //! }
 //! ```
 
+use crate::container_service;
 use crate::error::RepositoryError;
 use crate::package_types::{DefinitionKind, PackageSelector};
 use crate::store::RepositoryStore;
@@ -337,6 +338,78 @@ pub fn list_document_views_summary(
             }
         })
         .collect())
+}
+
+/// Given a container ID, resolves its first root instance's `typeId`/`typeVersion`,
+/// then returns all DocumentViews whose `rootTypeRefs` contains an `ExactTypeRef`
+/// matching that exact type binding (both `typeId` and `typeVersion` must match).
+///
+/// Returns an empty vec — not an error — when:
+/// - the container has no `rootInstanceIds`
+/// - the root instance has no `typeId` (Tier 0 Note or Tier 1 TypedRecord)
+/// - no DocumentViews match the type binding
+///
+/// Returns `RepositoryError` when:
+/// - the container is not found
+/// - the root instance is not found in the manifest index
+pub fn document_views_for_container(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+) -> Result<Vec<DocumentView>, RepositoryError> {
+    let container = container_service::get_container(store, container_id)?;
+
+    // Get the first root instance ID; if none, no DocumentView can match.
+    let root_id = match container
+        .root_instance_ids
+        .as_ref()
+        .and_then(|ids| ids.first())
+    {
+        Some(id) => id.clone(),
+        None => return Ok(vec![]),
+    };
+
+    // Find the instance path in the manifest index.
+    let manifest = store.load_manifest()?;
+    let entry = manifest
+        .instance_index
+        .iter()
+        .find(|e| e.instance_id() == root_id)
+        .ok_or_else(|| RepositoryError::InstanceLoad {
+            instance_id: root_id.clone(),
+            path: std::path::PathBuf::from(&root_id),
+            source: Box::from(format!(
+                "root instance '{root_id}' in container '{container_id}' not found in manifest index"
+            )),
+        })?;
+
+    // Load the raw JSON to extract typeId / typeVersion without committing to a tier type.
+    let instance_json = store.load_instance_json(entry.path())?;
+    let type_id = match instance_json
+        .get("typeId")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+    {
+        Some(id) => id,
+        None => return Ok(vec![]), // Tier 0 or Tier 1 — no type binding
+    };
+    let type_version = match instance_json.get("typeVersion").and_then(|v| v.as_u64()) {
+        Some(v) => v as u32,
+        None => return Ok(vec![]), // typeId present but typeVersion missing — not a valid Tier 2
+    };
+
+    // Filter all DocumentViews to those that reference this exact type binding.
+    let all_views = list_document_views(store)?;
+    let matched = all_views
+        .into_iter()
+        .filter(|dv| {
+            dv.root_type_refs.as_ref().is_some_and(|refs| {
+                refs.iter()
+                    .any(|r| r.type_id == type_id && r.type_version == type_version)
+            })
+        })
+        .collect();
+
+    Ok(matched)
 }
 
 // ── View CRUD ─────────────────────────────────────────────────────────────────
@@ -1112,6 +1185,361 @@ mod tests {
             result.is_ok(),
             "delete_view should find view in sub-package: {:?}",
             result
+        );
+    }
+
+    // ── document_views_for_container tests ────────────────────────────────────
+
+    /// Build a MemoryStore containing:
+    /// - one DocumentView with `rootTypeRefs` pointing at the given `type_id`/`type_version`
+    /// - one Tier-2 instance JSON at `instance_path` with the given `type_id`/`type_version`
+    /// - one instance index entry pointing at that path
+    fn make_store_with_dv_and_instance(
+        type_id: &str,
+        type_version: u32,
+        instance_id: &str,
+        instance_path: &str,
+    ) -> MemoryStore {
+        use crate::index::InstanceIndexEntry;
+        use crate::manifest::Manifest;
+        use crate::package::Package;
+        use std::path::PathBuf;
+
+        let dv = DocumentView {
+            id: "dv-test-id".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test-dv".to_string(),
+            version: 1,
+            description: "test document view".to_string(),
+            container_type: None,
+            root_type_refs: Some(vec![ExactTypeRef {
+                type_id: type_id.to_string(),
+                type_version,
+            }]),
+            sections: vec![srs_core::types::view::DocumentSection {
+                section_id: "s1".to_string(),
+                title: None,
+                description: None,
+                order: 0,
+                source: srs_core::types::view::SectionSource::FixedInstances {
+                    instance_ids: vec![],
+                },
+                render_view_id: None,
+                title_field_id: None,
+                ordering: None,
+                required: None,
+                empty_behavior: None,
+            }],
+            navigation_links: None,
+            preamble: None,
+            format: None,
+            depth_offset: None,
+            theme_ref: None,
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let manifest = Manifest {
+            instance_index: vec![InstanceIndexEntry {
+                instance_id: instance_id.to_string(),
+                tier: 2,
+                path: instance_path.to_string(),
+                title: None,
+                tags: None,
+            }],
+            extra: HashMap::new(),
+            root: PathBuf::from("/memory"),
+        };
+
+        let package = Package {
+            id: "test-pkg".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![],
+            record_types: vec![],
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![dv],
+            themes: vec![],
+            blueprints: vec![],
+            root: PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+
+        let instance_json = serde_json::json!({
+            "instanceId": instance_id,
+            "tier": 2,
+            "typeId": type_id,
+            "typeVersion": type_version,
+            "fieldValues": {}
+        });
+
+        MemoryStore::new(manifest, package).with_data(instance_path, instance_json)
+    }
+
+    #[test]
+    fn document_views_for_container_root_present_returns_matching_view() {
+        use crate::container_service;
+        use srs_core::types::container::Container;
+
+        let type_id = "00000000-0000-4000-8000-00000000aaaa";
+        let type_version = 1u32;
+        let instance_id = "11111111-1111-4111-8111-111111111111";
+        let container_id = "550e8400-e29b-41d4-a716-446655440000";
+
+        let store = make_store_with_dv_and_instance(
+            type_id,
+            type_version,
+            instance_id,
+            "records/inst.json",
+        );
+
+        // Create a container with the instance as root
+        let container = Container {
+            container_id: container_id.to_string(),
+            title: "Test Container".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            root_instance_ids: Some(vec![instance_id.to_string()]),
+            member_instance_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: HashMap::new(),
+        };
+        container_service::create_container(&store, container).unwrap();
+
+        let result = document_views_for_container(&store, container_id).unwrap();
+        assert_eq!(
+            result.len(),
+            1,
+            "expected exactly one matching DocumentView"
+        );
+        assert_eq!(result[0].id, "dv-test-id");
+        assert_eq!(
+            result[0].root_type_refs.as_ref().unwrap()[0].type_id,
+            type_id
+        );
+    }
+
+    #[test]
+    fn document_views_for_container_no_root_returns_empty() {
+        use crate::container_service;
+        use srs_core::types::container::Container;
+
+        let type_id = "00000000-0000-4000-8000-00000000aaaa";
+        let container_id = "550e8400-e29b-41d4-a716-446655440000";
+        let instance_id = "11111111-1111-4111-8111-111111111111";
+
+        let store = make_store_with_dv_and_instance(type_id, 1, instance_id, "records/inst.json");
+
+        // Container with no rootInstanceIds
+        let container = Container {
+            container_id: container_id.to_string(),
+            title: "No-Root Container".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            root_instance_ids: None,
+            member_instance_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: HashMap::new(),
+        };
+        container_service::create_container(&store, container).unwrap();
+
+        let result = document_views_for_container(&store, container_id).unwrap();
+        assert!(
+            result.is_empty(),
+            "expected empty vec when container has no rootInstanceIds"
+        );
+    }
+
+    #[test]
+    fn document_views_for_container_untyped_root_returns_empty() {
+        use crate::container_service;
+        use crate::index::InstanceIndexEntry;
+        use crate::manifest::Manifest;
+        use crate::package::Package;
+        use srs_core::types::container::Container;
+        use std::path::PathBuf;
+
+        let type_id = "00000000-0000-4000-8000-00000000aaaa";
+        let instance_id = "11111111-1111-4111-8111-111111111111";
+        let container_id = "550e8400-e29b-41d4-a716-446655440000";
+
+        // DocumentView expects a typed instance, but instance is Tier 0 (Note — no typeId)
+        let dv = DocumentView {
+            id: "dv-test-id".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test-dv".to_string(),
+            version: 1,
+            description: "test document view".to_string(),
+            container_type: None,
+            root_type_refs: Some(vec![ExactTypeRef {
+                type_id: type_id.to_string(),
+                type_version: 1,
+            }]),
+            sections: vec![srs_core::types::view::DocumentSection {
+                section_id: "s1".to_string(),
+                title: None,
+                description: None,
+                order: 0,
+                source: srs_core::types::view::SectionSource::FixedInstances {
+                    instance_ids: vec![],
+                },
+                render_view_id: None,
+                title_field_id: None,
+                ordering: None,
+                required: None,
+                empty_behavior: None,
+            }],
+            navigation_links: None,
+            preamble: None,
+            format: None,
+            depth_offset: None,
+            theme_ref: None,
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let manifest = Manifest {
+            instance_index: vec![InstanceIndexEntry {
+                instance_id: instance_id.to_string(),
+                tier: 0,
+                path: "records/note.json".to_string(),
+                title: None,
+                tags: None,
+            }],
+            extra: HashMap::new(),
+            root: PathBuf::from("/memory"),
+        };
+
+        let package = Package {
+            id: "test-pkg".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![],
+            record_types: vec![],
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![dv],
+            themes: vec![],
+            blueprints: vec![],
+            root: PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+
+        // Tier-0 Note JSON: no typeId or typeVersion
+        let note_json = serde_json::json!({
+            "instanceId": instance_id,
+            "tier": 0,
+            "title": "A note"
+        });
+
+        let store = MemoryStore::new(manifest, package).with_data("records/note.json", note_json);
+
+        let container = Container {
+            container_id: container_id.to_string(),
+            title: "Note Container".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            root_instance_ids: Some(vec![instance_id.to_string()]),
+            member_instance_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: HashMap::new(),
+        };
+        container_service::create_container(&store, container).unwrap();
+
+        let result = document_views_for_container(&store, container_id).unwrap();
+        assert!(
+            result.is_empty(),
+            "expected empty vec when root instance has no typeId"
+        );
+    }
+
+    #[test]
+    fn document_views_for_container_not_found_returns_error() {
+        let store = MemoryStore::default();
+        let err = document_views_for_container(&store, "missing-container").unwrap_err();
+        assert!(
+            matches!(err, crate::error::RepositoryError::ContainerNotFound { .. }),
+            "expected ContainerNotFound, got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn document_views_for_container_type_version_mismatch_returns_empty() {
+        use crate::container_service;
+        use srs_core::types::container::Container;
+
+        let type_id = "00000000-0000-4000-8000-00000000aaaa";
+        let instance_id = "11111111-1111-4111-8111-111111111111";
+        let container_id = "550e8400-e29b-41d4-a716-446655440000";
+
+        // Instance has typeVersion=1, DocumentView requires typeVersion=2
+        let store = make_store_with_dv_and_instance(
+            type_id,
+            2, // DV expects v2
+            instance_id,
+            "records/inst.json",
+        );
+
+        // Overwrite the instance JSON so it has typeVersion=1 instead
+        let store = store.with_data(
+            "records/inst.json",
+            serde_json::json!({
+                "instanceId": instance_id,
+                "tier": 2,
+                "typeId": type_id,
+                "typeVersion": 1,  // mismatched
+                "fieldValues": {}
+            }),
+        );
+
+        let container = Container {
+            container_id: container_id.to_string(),
+            title: "Mismatched Container".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            root_instance_ids: Some(vec![instance_id.to_string()]),
+            member_instance_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: HashMap::new(),
+        };
+        container_service::create_container(&store, container).unwrap();
+
+        let result = document_views_for_container(&store, container_id).unwrap();
+        assert!(
+            result.is_empty(),
+            "expected empty vec when typeVersion does not match"
         );
     }
 }
