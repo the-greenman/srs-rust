@@ -2339,6 +2339,13 @@ pub mod memory {
         fn save_view(&self, relative_path: &str, view: &View) -> Result<(), RepositoryError> {
             let v = serde_json::to_value(view).unwrap();
             self.data.borrow_mut().insert(relative_path.to_string(), v);
+            // Keep self.package in sync so load_package() reflects writes.
+            let mut pkg = self.package.borrow_mut();
+            if let Some(existing) = pkg.views.iter_mut().find(|v| v.id == view.id) {
+                *existing = view.clone();
+            } else {
+                pkg.views.push(view.clone());
+            }
             Ok(())
         }
 
@@ -2354,7 +2361,12 @@ pub mod memory {
         }
 
         fn delete_view_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-            self.data.borrow_mut().remove(relative_path);
+            if let Some(val) = self.data.borrow_mut().remove(relative_path) {
+                if let Some(id) = val["id"].as_str() {
+                    let id = id.to_string();
+                    self.package.borrow_mut().views.retain(|v| v.id != id);
+                }
+            }
             Ok(())
         }
 
@@ -2369,6 +2381,13 @@ pub mod memory {
         ) -> Result<(), RepositoryError> {
             let v = serde_json::to_value(view).unwrap();
             self.data.borrow_mut().insert(relative_path.to_string(), v);
+            // Keep self.package in sync so load_package() reflects writes.
+            let mut pkg = self.package.borrow_mut();
+            if let Some(existing) = pkg.document_views.iter_mut().find(|dv| dv.id == view.id) {
+                *existing = view.clone();
+            } else {
+                pkg.document_views.push(view.clone());
+            }
             Ok(())
         }
 
@@ -2384,7 +2403,18 @@ pub mod memory {
         }
 
         fn delete_document_view_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-            self.data.borrow_mut().remove(relative_path);
+            // Remove from the data map. Also remove from self.package: since the path key
+            // encodes the document view id prefix, find the view in package whose data key
+            // matches and drop it.
+            if let Some(val) = self.data.borrow_mut().remove(relative_path) {
+                if let Some(id) = val["id"].as_str() {
+                    let id = id.to_string();
+                    self.package
+                        .borrow_mut()
+                        .document_views
+                        .retain(|dv| dv.id != id);
+                }
+            }
             Ok(())
         }
 

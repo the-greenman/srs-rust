@@ -515,6 +515,71 @@ pub fn delete_document_view(
     })
 }
 
+// ── RFC-009 container → DocumentView resolver ────────────────────────────────
+
+/// Resolve which [`DocumentViewSummary`] records apply to a given container by
+/// following the RFC-009 root-type anchor chain:
+///
+/// ```text
+/// container.rootInstanceIds[0]
+///   → load that record's JSON → read typeId
+///   → filter DocumentViews whose rootTypeRefs contains that typeId (any version)
+/// ```
+///
+/// All failure modes (missing container, absent rootInstanceIds, unloadable root
+/// record, absent typeId) return an empty Vec rather than an error, so callers
+/// do not need to handle recoverable gaps in the anchor chain.
+pub fn document_views_for_container(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+) -> Result<Vec<DocumentViewSummary>, RepositoryError> {
+    // Step 1: load container — return empty if not found
+    let container = match store.load_container(container_id) {
+        Ok(c) => c,
+        Err(_) => return Ok(vec![]),
+    };
+
+    // Step 2: get rootInstanceIds[0] — return empty if absent
+    let root_instance_id = match container
+        .root_instance_ids
+        .as_ref()
+        .and_then(|ids| ids.first())
+    {
+        Some(id) => id.clone(),
+        None => return Ok(vec![]),
+    };
+
+    // Step 3: look up the instance path in the manifest index, load its JSON,
+    // and extract typeId — return empty if not found/unloadable
+    let manifest = match store.load_manifest() {
+        Ok(m) => m,
+        Err(_) => return Ok(vec![]),
+    };
+    let instance_path = match manifest
+        .instance_index
+        .iter()
+        .find(|e| e.instance_id() == root_instance_id)
+    {
+        Some(entry) => entry.path().to_string(),
+        None => return Ok(vec![]),
+    };
+    let instance_json = match store.load_instance_json(&instance_path) {
+        Ok(j) => j,
+        Err(_) => return Ok(vec![]),
+    };
+    let type_id = match instance_json["typeId"].as_str() {
+        Some(id) => id.to_string(),
+        None => return Ok(vec![]),
+    };
+
+    // Step 4: filter DocumentViews by rootTypeRefs containing this typeId
+    let filter = DocumentViewListFilter {
+        root_type_id: Some(type_id),
+        ..Default::default()
+    };
+    list_document_views_summary(store, &filter)
+}
+
 // ── Unit tests ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -1113,5 +1178,282 @@ mod tests {
             "delete_view should find view in sub-package: {:?}",
             result
         );
+    }
+
+    // ── document_views_for_container tests ───────────────────────────────────
+
+    /// Helper: insert an instance JSON at the given path and register it in the
+    /// manifest index so `document_views_for_container` can resolve it.
+    fn register_instance(store: &MemoryStore, instance_id: &str, path: &str, type_id: &str) {
+        use crate::index::InstanceIndexEntry;
+        let instance_json = serde_json::json!({
+            "instanceId": instance_id,
+            "typeId": type_id,
+            "typeVersion": 1,
+            "typeNamespace": "com.test",
+            "typeName": "test-type",
+            "fieldValues": []
+        });
+        store.save_instance_json(path, &instance_json).unwrap();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.instance_index.push(InstanceIndexEntry {
+            instance_id: instance_id.to_string(),
+            tier: 2,
+            path: path.to_string(),
+            title: None,
+            tags: None,
+        });
+        store.save_manifest(&manifest).unwrap();
+    }
+
+    #[test]
+    fn document_views_for_container_returns_matching_view() {
+        let store = MemoryStore::default();
+
+        let type_id = "00000000-0000-4000-8000-00000000aaaa";
+        let instance_id = "11111111-1111-4111-8111-111111111111";
+        let container_id = "22222222-2222-4222-8222-222222222222";
+
+        // Register an instance with typeId = type_id
+        register_instance(
+            &store,
+            instance_id,
+            "records/test-instance.json",
+            type_id,
+        );
+
+        // Create a container with rootInstanceIds[0] = instance_id
+        use crate::container_service;
+        use srs_core::types::container::Container;
+        container_service::create_container(
+            &store,
+            Container {
+                container_id: container_id.to_string(),
+                title: "Test Container".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                root_instance_ids: Some(vec![instance_id.to_string()]),
+                member_instance_ids: None,
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: std::collections::HashMap::new(),
+            },
+        )
+        .unwrap();
+
+        // Create a DocumentView anchored to type_id
+        let mut anchored_dv = minimal_document_view("anchored-dv");
+        anchored_dv.root_type_refs = Some(vec![ExactTypeRef {
+            type_id: type_id.to_string(),
+            type_version: 1,
+        }]);
+        let anchored = create_document_view(&store, anchored_dv, None).unwrap();
+
+        // Create a DocumentView with no rootTypeRefs — should not match
+        create_document_view(&store, minimal_document_view("unanchored-dv"), None).unwrap();
+
+        let results = document_views_for_container(&store, container_id).unwrap();
+        assert_eq!(results.len(), 1, "expected exactly the anchored view");
+        assert_eq!(results[0].id, anchored.document_view.id);
+        assert_eq!(
+            results[0]
+                .root_type_refs
+                .as_ref()
+                .unwrap()
+                .iter()
+                .find(|r| r.type_id == type_id),
+            Some(&ExactTypeRef {
+                type_id: type_id.to_string(),
+                type_version: 1
+            })
+        );
+    }
+
+    #[test]
+    fn document_views_for_container_empty_when_no_root_instances() {
+        let store = MemoryStore::default();
+        let container_id = "22222222-2222-4222-8222-222222222222";
+
+        use crate::container_service;
+        use srs_core::types::container::Container;
+        container_service::create_container(
+            &store,
+            Container {
+                container_id: container_id.to_string(),
+                title: "No Root".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                root_instance_ids: None, // no rootInstanceIds
+                member_instance_ids: None,
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: std::collections::HashMap::new(),
+            },
+        )
+        .unwrap();
+
+        let results = document_views_for_container(&store, container_id).unwrap();
+        assert!(results.is_empty(), "expected empty when no rootInstanceIds");
+    }
+
+    #[test]
+    fn document_views_for_container_empty_when_root_unloadable() {
+        let store = MemoryStore::default();
+        let container_id = "22222222-2222-4222-8222-222222222222";
+        let missing_instance_id = "99999999-9999-4999-8999-999999999999";
+
+        use crate::container_service;
+        use srs_core::types::container::Container;
+        container_service::create_container(
+            &store,
+            Container {
+                container_id: container_id.to_string(),
+                title: "Dangling Root".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                root_instance_ids: Some(vec![missing_instance_id.to_string()]),
+                member_instance_ids: None,
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: std::collections::HashMap::new(),
+            },
+        )
+        .unwrap();
+
+        // missing_instance_id is NOT in the manifest index — so the lookup fails gracefully
+        let results = document_views_for_container(&store, container_id).unwrap();
+        assert!(
+            results.is_empty(),
+            "expected empty when rootInstanceId is not in manifest index"
+        );
+    }
+
+    #[test]
+    fn document_views_for_container_cross_store_roundtrip() {
+        // CLAUDE.md requires at least one cross-store roundtrip test.
+        // Set up MemoryStore, verify results, then serialize to JSON + reload via
+        // a temporary FileStore and assert the same DocumentView is resolved.
+        let mem_store = MemoryStore::default();
+
+        let type_id = "00000000-0000-4000-8000-00000000bbbb";
+        let instance_id = "33333333-3333-4333-8333-333333333333";
+        let container_id = "44444444-4444-4444-8444-444444444444";
+
+        register_instance(&mem_store, instance_id, "records/root.json", type_id);
+
+        use crate::container_service;
+        use srs_core::types::container::Container;
+        container_service::create_container(
+            &mem_store,
+            Container {
+                container_id: container_id.to_string(),
+                title: "Roundtrip Container".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                root_instance_ids: Some(vec![instance_id.to_string()]),
+                member_instance_ids: None,
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: std::collections::HashMap::new(),
+            },
+        )
+        .unwrap();
+
+        let mut dv = minimal_document_view("roundtrip-dv");
+        dv.root_type_refs = Some(vec![ExactTypeRef {
+            type_id: type_id.to_string(),
+            type_version: 1,
+        }]);
+        let created = create_document_view(&mem_store, dv, None).unwrap();
+
+        // Verify on MemoryStore
+        let mem_results = document_views_for_container(&mem_store, container_id).unwrap();
+        assert_eq!(mem_results.len(), 1);
+        assert_eq!(mem_results[0].id, created.document_view.id);
+
+        // Now persist to a temporary FileStore and verify the same result
+        let temp = tempfile::TempDir::new().unwrap();
+        setup_minimal_repo(temp.path());
+        let file_store = FileStore::new(temp.path());
+
+        // Ensure the records directory exists, then write the instance JSON
+        file_store.ensure_instance_dir("records").unwrap();
+        file_store
+            .save_instance_json(
+                "records/root.json",
+                &serde_json::json!({
+                    "instanceId": instance_id,
+                    "typeId": type_id,
+                    "typeVersion": 1,
+                    "typeNamespace": "com.test",
+                    "typeName": "test-type",
+                    "fieldValues": []
+                }),
+            )
+            .unwrap();
+
+        // Write the container
+        container_service::create_container(
+            &file_store,
+            Container {
+                container_id: container_id.to_string(),
+                title: "Roundtrip Container".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                root_instance_ids: Some(vec![instance_id.to_string()]),
+                member_instance_ids: None,
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: std::collections::HashMap::new(),
+            },
+        )
+        .unwrap();
+
+        // Register the instance in the manifest index
+        let mut manifest = file_store.load_manifest().unwrap();
+        manifest
+            .instance_index
+            .push(crate::index::InstanceIndexEntry {
+                instance_id: instance_id.to_string(),
+                tier: 2,
+                path: "records/root.json".to_string(),
+                title: None,
+                tags: None,
+            });
+        file_store.save_manifest(&manifest).unwrap();
+
+        // Write the DocumentView via the service
+        let mut dv2 = minimal_document_view("roundtrip-dv");
+        dv2.id = created.document_view.id.clone(); // preserve the ID for comparison
+        dv2.root_type_refs = Some(vec![ExactTypeRef {
+            type_id: type_id.to_string(),
+            type_version: 1,
+        }]);
+        create_document_view(&file_store, dv2, None).unwrap();
+
+        // Verify on FileStore — same document view resolved
+        let file_results = document_views_for_container(&file_store, container_id).unwrap();
+        assert_eq!(file_results.len(), 1, "FileStore must resolve same result");
+        assert_eq!(file_results[0].id, created.document_view.id);
     }
 }
