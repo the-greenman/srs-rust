@@ -346,24 +346,6 @@ fn project_section_json(
     let mut records =
         resolve_section_instances(store, section, relations, cli_container_id, diagnostics)?;
 
-    // RFC-008 typeFilter: same filter-then-project logic as render_section.
-    if let SectionSource::ContainerSubset {
-        type_filter: Some(filter),
-        ..
-    } = &section.source
-    {
-        if !filter.is_empty() {
-            records.retain(|r| {
-                if let Some(rt) = package.resolve_type(&r.type_id, r.type_version) {
-                    let key = format!("{}/{}", rt.namespace, rt.name);
-                    filter.iter().any(|f| f == &key)
-                } else {
-                    false
-                }
-            });
-        }
-    }
-
     if let Some(ordering) = &section.ordering {
         if let Some(field_id) = &ordering.field_id {
             records.sort_by(|a, b| {
@@ -381,6 +363,25 @@ fn project_section_json(
         // preserved — applying precedes-chain sorting would override the author's intent.
         // ContainerSubset, TypeQuery, and RelationQuery all benefit from precedes ordering.
         records = relation_graph::sort_by_precedes_chain(records, relations);
+    }
+
+    // RFC-008 typeFilter: applied after sort (same invariant as render_section).
+    // Sort sees the full container; filter projects onto the sorted survivor set.
+    if let SectionSource::ContainerSubset {
+        type_filter: Some(filter),
+        ..
+    } = &section.source
+    {
+        if !filter.is_empty() {
+            records.retain(|r| {
+                if let Some(rt) = package.resolve_type(&r.type_id, r.type_version) {
+                    let key = format!("{}/{}", rt.namespace, rt.name);
+                    filter.iter().any(|f| f == &key)
+                } else {
+                    false
+                }
+            });
+        }
     }
 
     let projected_records = records
@@ -1052,9 +1053,30 @@ fn render_section(
     let mut records =
         resolve_section_instances(store, section, relations, cli_container_id, diagnostics)?;
 
+    // Apply explicit field-based ordering first if declared.
+    if let Some(ordering) = &section.ordering {
+        if let Some(field_id) = &ordering.field_id {
+            records.sort_by(|a, b| {
+                let av = a.get_field_value_str(field_id).unwrap_or("");
+                let bv = b.get_field_value_str(field_id).unwrap_or("");
+                av.cmp(bv)
+            });
+            if matches!(ordering.direction, Some(SortDirection::Desc)) {
+                records.reverse();
+            }
+        }
+    } else if !matches!(&section.source, SectionSource::FixedInstances { .. }) {
+        // Sort by precedes chain for any source that doesn't have authored ordering.
+        // FixedInstances sections declare an explicit instance_ids order that must be
+        // preserved — applying precedes-chain sorting would override the author's intent.
+        // ContainerSubset, TypeQuery, and RelationQuery all benefit from precedes ordering.
+        records = relation_graph::sort_by_precedes_chain(records, relations);
+    }
+
     // RFC-008 typeFilter: restrict container-subset members to matching types.
-    // Applied before precedes-chain sort so the filter-then-project invariant holds:
-    // full container order is computed over all members, then non-matching types are dropped.
+    // Applied AFTER sort so sort_by_precedes_chain sees the full container (including
+    // cross-type edges). The filter is a projection step: full ordering established first,
+    // non-matching types dropped while preserving the relative order of survivors.
     if let SectionSource::ContainerSubset {
         type_filter: Some(filter),
         ..
@@ -1074,26 +1096,6 @@ fn render_section(
 
     if records.is_empty() && section.required != Some(true) {
         return Ok(String::new());
-    }
-
-    // Apply explicit field-based ordering first if declared.
-    if let Some(ordering) = &section.ordering {
-        if let Some(field_id) = &ordering.field_id {
-            records.sort_by(|a, b| {
-                let av = a.get_field_value_str(field_id).unwrap_or("");
-                let bv = b.get_field_value_str(field_id).unwrap_or("");
-                av.cmp(bv)
-            });
-            if matches!(ordering.direction, Some(SortDirection::Desc)) {
-                records.reverse();
-            }
-        }
-    } else if !matches!(&section.source, SectionSource::FixedInstances { .. }) {
-        // Sort by precedes chain for any source that doesn't have authored ordering.
-        // FixedInstances sections declare an explicit instance_ids order that must be
-        // preserved — applying precedes-chain sorting would override the author's intent.
-        // ContainerSubset, TypeQuery, and RelationQuery all benefit from precedes ordering.
-        records = relation_graph::sort_by_precedes_chain(records, relations);
     }
 
     let mut out = String::new();
