@@ -276,8 +276,9 @@ impl SrsRepository {
         container_id: &str,
         instance_id: &str,
     ) -> Result<JsValue, JsValue> {
-        let members = container_service::add_member(&self.store, container_id, instance_id)
-            .map_err(js_err)?;
+        let members =
+            container_service::add_container_member(&self.store, container_id, instance_id)
+                .map_err(js_err)?;
         to_js(&members)
     }
 
@@ -288,8 +289,9 @@ impl SrsRepository {
         container_id: &str,
         instance_id: &str,
     ) -> Result<JsValue, JsValue> {
-        let members = container_service::remove_member(&self.store, container_id, instance_id)
-            .map_err(js_err)?;
+        let members =
+            container_service::remove_container_member(&self.store, container_id, instance_id)
+                .map_err(js_err)?;
         to_js(&members)
     }
 }
