@@ -1,12 +1,16 @@
 use crate::commands::{with_store, CliContext, DocumentViewCommand};
 use crate::output;
-use crate::payload::{DocumentViewDeletePayload, DocumentViewListPayload, DocumentViewPayload};
+use crate::payload::{
+    DocumentViewDeletePayload, DocumentViewListPayload, DocumentViewPayload,
+    DocumentViewsForContainerPayload,
+};
 use anyhow::Result;
 use srs_core::types::view::DocumentView;
 use srs_repository::view_service::{
-    create_document_view, delete_document_view, get_document_view_by_id,
-    list_document_views_summary, update_document_view, CreateDocumentViewResult,
-    DeleteDocumentViewResult, DocumentViewListFilter, GetDocumentViewResult,
+    create_document_view, delete_document_view, document_views_for_container,
+    get_document_view_by_id, list_document_views_summary, update_document_view,
+    CreateDocumentViewResult, DeleteDocumentViewResult, DocumentViewListFilter,
+    DocumentViewSummary, GetDocumentViewResult,
 };
 use std::io::{self, Read};
 
@@ -21,6 +25,9 @@ pub fn dispatch(ctx: CliContext, cmd: DocumentViewCommand) -> Result<String> {
         DocumentViewCommand::Create { package } => cmd_document_view_create(ctx, package),
         DocumentViewCommand::Update { id } => cmd_document_view_update(ctx, id),
         DocumentViewCommand::Delete { id } => cmd_document_view_delete(ctx, id),
+        DocumentViewCommand::ListForContainer { container_id } => {
+            cmd_document_view_list_for_container(ctx, container_id)
+        }
     }
 }
 
@@ -97,5 +104,38 @@ fn cmd_document_view_delete(ctx: CliContext, id: String) -> Result<String> {
             output::serialize("document-view delete", DocumentViewDeletePayload { id })
         }
         Err(e) => Ok(output::err("document-view delete", vec![e.to_string()])),
+    }
+}
+
+fn cmd_document_view_list_for_container(ctx: CliContext, container_id: String) -> Result<String> {
+    match with_store(&ctx, |store| {
+        Ok(document_views_for_container(store, &container_id)?)
+    }) {
+        Ok(views) => {
+            let document_views: Vec<DocumentViewSummary> = views
+                .into_iter()
+                .map(|dv| DocumentViewSummary {
+                    id: dv.id,
+                    namespace: dv.namespace,
+                    name: dv.name,
+                    version: dv.version,
+                    description: dv.description,
+                    container_type: dv.container_type,
+                    root_type_refs: dv.root_type_refs,
+                    source_package: None,
+                })
+                .collect();
+            output::serialize(
+                "document-view list-for-container",
+                DocumentViewsForContainerPayload {
+                    container_id,
+                    document_views,
+                },
+            )
+        }
+        Err(e) => Ok(output::err(
+            "document-view list-for-container",
+            vec![e.to_string()],
+        )),
     }
 }

@@ -134,6 +134,10 @@ fn main() {
     write_schema!("document-view-create", DocumentViewPayload);
     write_schema!("document-view-update", DocumentViewPayload);
     write_schema!("document-view-delete", DocumentViewDeletePayload);
+    write_schema!(
+        "document-view-list-for-container",
+        DocumentViewsForContainerPayload
+    );
 
     // Theme payloads
     write_schema!("theme-list", ThemeListPayload);
