@@ -6,7 +6,8 @@
 // directly via `JsonStore` and the service functions that the WASM wrapper delegates to.
 // This exercises exactly the same code paths as the WASM methods.
 
-use srs_repository::record_store::{self, TransitionLifecycleInput};
+use srs_core::types::record::FieldValue;
+use srs_repository::record_store::{self, CreateRecordSuccessorInput, TransitionLifecycleInput};
 use srs_repository::relation_service::{self, ListRelationsFilter};
 use srs_repository::JsonStore;
 
@@ -34,6 +35,11 @@ fn lifecycle_srsj() -> String {
                     "instanceId": "rec-lc-001",
                     "tier": 2,
                     "path": "records/tier-2/rec-lc-001.json"
+                },
+                {
+                    "instanceId": "rec-lc-002",
+                    "tier": 2,
+                    "path": "records/tier-2/rec-lc-002.json"
                 }
             ],
             "packageRef": {"mode": "local", "path": "package"}
@@ -46,7 +52,11 @@ fn lifecycle_srsj() -> String {
                 "version": "1.0.0",
                 "fields": ["fields/title-lc.json"],
                 "types": ["types/proposal.json"],
-                "relationTypes": [],
+                "relationTypes": [
+                    "relationTypes/supersedes.json",
+                    "relationTypes/refines.json",
+                    "relationTypes/depends-on.json"
+                ],
                 "views": [],
                 "documentViews": []
             },
@@ -73,7 +83,7 @@ fn lifecycle_srsj() -> String {
                 "lifecycle": {
                     "initialState": "draft",
                     "states": [
-                        { "key": "draft" },
+                        { "key": "draft", "isInitial": true },
                         { "key": "active" },
                         { "key": "archived", "isFinal": true }
                     ],
@@ -82,6 +92,39 @@ fn lifecycle_srsj() -> String {
                         { "name": "archive", "from": "active", "to": "archived" }
                     ]
                 },
+                "createdAt": "2026-01-01T00:00:00Z"
+            },
+            "package/relationTypes/supersedes.json": {
+                "id": "rtd-lc-supersedes",
+                "namespace": "com.test.lc",
+                "name": "supersedes",
+                "version": 1,
+                "key": "supersedes",
+                "label": "Supersedes",
+                "description": "The source record supersedes the target.",
+                "category": "refinement",
+                "createdAt": "2026-01-01T00:00:00Z"
+            },
+            "package/relationTypes/refines.json": {
+                "id": "rtd-lc-refines",
+                "namespace": "com.test.lc",
+                "name": "refines",
+                "version": 1,
+                "key": "refines",
+                "label": "Refines",
+                "description": "The source record refines the target.",
+                "category": "refinement",
+                "createdAt": "2026-01-01T00:00:00Z"
+            },
+            "package/relationTypes/depends-on.json": {
+                "id": "rtd-lc-depends-on",
+                "namespace": "com.test.lc",
+                "name": "depends-on",
+                "version": 1,
+                "key": "depends-on",
+                "label": "Depends On",
+                "description": "The source record depends on the target.",
+                "category": "dependency",
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             "records/tier-2/rec-lc-001.json": {
@@ -95,6 +138,22 @@ fn lifecycle_srsj() -> String {
                     {
                         "fieldId": "field-title-lc",
                         "value": "My Proposal"
+                    }
+                ],
+                "createdAt": "2026-01-01T00:00:00Z",
+                "updatedAt": "2026-01-01T00:00:00Z"
+            },
+            "records/tier-2/rec-lc-002.json": {
+                "instanceId": "rec-lc-002",
+                "typeId": "type-proposal-001",
+                "typeName": "proposal",
+                "typeNamespace": "com.test.lc",
+                "typeVersion": 1,
+                "lifecycleState": "draft",
+                "fieldValues": [
+                    {
+                        "fieldId": "field-title-lc",
+                        "value": "Another Proposal"
                     }
                 ],
                 "createdAt": "2026-01-01T00:00:00Z",
@@ -289,5 +348,138 @@ fn set_lifecycle_state_full_chain_to_final() {
             .iter()
             .any(|w| w.contains("LIFECYCLE_FINAL_STATE")),
         "final-state transition must emit LIFECYCLE_FINAL_STATE warning"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 5. create_record_successor with "supersedes" — new record created, relation
+//    runs from successor (source) to predecessor (target).
+// ---------------------------------------------------------------------------
+#[test]
+fn create_record_successor_supersedes() {
+    let store = JsonStore::from_srsj(&lifecycle_srsj()).expect("lifecycle fixture must load");
+
+    let result = record_store::create_record_successor(
+        &store,
+        "rec-lc-001",
+        CreateRecordSuccessorInput {
+            relation_type: "supersedes".to_string(),
+            field_values: vec![FieldValue {
+                field_id: "field-title-lc".to_string(),
+                value: serde_json::json!("Successor Proposal"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            }],
+            lifecycle_state: None,
+            type_version: None,
+        },
+        "records/tier-2",
+    )
+    .expect("create_record_successor with supersedes should succeed");
+
+    assert_ne!(
+        result.record.instance_id, "rec-lc-001",
+        "successor must be a new record, not the predecessor"
+    );
+    assert_eq!(
+        result.relation.relation_type, "supersedes",
+        "relation type must be supersedes"
+    );
+    assert_eq!(
+        result.relation.source_instance_id, result.record.instance_id,
+        "relation source must be the successor"
+    );
+    assert_eq!(
+        result.relation.target_instance_id, "rec-lc-001",
+        "relation target must be the predecessor"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 6. create_record_successor with "refines" — validates the refines variant.
+// ---------------------------------------------------------------------------
+#[test]
+fn create_record_successor_refines() {
+    let store = JsonStore::from_srsj(&lifecycle_srsj()).expect("lifecycle fixture must load");
+
+    let result = record_store::create_record_successor(
+        &store,
+        "rec-lc-001",
+        CreateRecordSuccessorInput {
+            relation_type: "refines".to_string(),
+            field_values: vec![FieldValue {
+                field_id: "field-title-lc".to_string(),
+                value: serde_json::json!("Refined Proposal"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            }],
+            lifecycle_state: None,
+            type_version: None,
+        },
+        "records/tier-2",
+    )
+    .expect("create_record_successor with refines should succeed");
+
+    assert_eq!(
+        result.relation.relation_type, "refines",
+        "relation type must be refines"
+    );
+    assert_eq!(
+        result.relation.source_instance_id, result.record.instance_id,
+        "relation source must be the successor"
+    );
+    assert_eq!(
+        result.relation.target_instance_id, "rec-lc-001",
+        "relation target must be the predecessor"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 7. create_relation with "depends-on" type — confirms the depends-on relation
+//    type is properly registered in the fixture and reachable via list_relations.
+// ---------------------------------------------------------------------------
+#[test]
+fn create_relation_depends_on() {
+    use srs_core::types::relation::Relation;
+    let store = JsonStore::from_srsj(&lifecycle_srsj()).expect("lifecycle fixture must load");
+
+    let relation = Relation {
+        relation_id: "test-rel-depends-on-001".to_string(),
+        relation_type: "depends-on".to_string(),
+        source_instance_id: "rec-lc-001".to_string(),
+        target_instance_id: "rec-lc-002".to_string(),
+        asserted_by: None,
+        confidence: None,
+        created_at: Some("2026-06-25T00:00:00Z".to_string()),
+        created_by: None,
+        status: None,
+        valid_from: None,
+        valid_until: None,
+        notes: None,
+        source_refs: None,
+        meta: None,
+        source_repository_id: None,
+        target_repository_id: None,
+    };
+
+    let created =
+        relation_service::create_relation_auto(&store, relation).expect("depends-on relation should be created");
+    assert_eq!(created.relation.relation_type, "depends-on");
+
+    let filter = ListRelationsFilter {
+        source: Some("rec-lc-001".to_string()),
+        target: None,
+        relation_type: Some("depends-on".to_string()),
+        container_id: None,
+    };
+    let summaries =
+        relation_service::list_relations(&store, filter).expect("list_relations should succeed");
+    assert!(
+        summaries
+            .iter()
+            .any(|r| r.relation_id == "test-rel-depends-on-001"),
+        "depends-on relation must appear in filtered list"
     );
 }
