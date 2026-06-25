@@ -27,9 +27,7 @@
 //! - **Delete**: `package.json` is updated first (entry removed), then the file is deleted. If
 //!   file deletion fails after index removal, the entry is gone but the file remains as an orphan.
 
-use srs_core::types::protocol::{
-    Protocol, ProtocolDiagnosticSeverity, ProtocolStage, ProtocolStageSummary,
-};
+use srs_core::types::protocol::{Protocol, ProtocolDiagnosticSeverity, ProtocolStage};
 use srs_core::validation::protocol::validate_protocol;
 
 use crate::blueprint_service::validate_package_selector;
@@ -277,26 +275,11 @@ pub fn export_protocol(
 pub fn list_protocol_stages(
     store: &dyn RepositoryStore,
     id: &str,
-) -> Result<Vec<ProtocolStageSummary>, RepositoryError> {
+) -> Result<Vec<ProtocolStage>, RepositoryError> {
     match get_protocol_by_id(store, id)? {
         GetProtocolResult::Found(val) => {
             let proto = protocol_from_value(&val)?;
-            let mut stages: Vec<ProtocolStageSummary> = proto
-                .protocol_stages
-                .into_iter()
-                .map(|s| ProtocolStageSummary {
-                    stage_id: s.stage_id,
-                    name: s.name,
-                    purpose: s.purpose,
-                    order: s.order,
-                    depends_on: s.depends_on,
-                    question: s.question,
-                    completion_criteria: s.completion_criteria,
-                    contributes_to: s.contributes_to,
-                    ai_guidance: s.ai_guidance,
-                    output_type: s.output_type,
-                })
-                .collect();
+            let mut stages = proto.protocol_stages;
             stages.sort_by_key(|s| s.order);
             Ok(stages)
         }
