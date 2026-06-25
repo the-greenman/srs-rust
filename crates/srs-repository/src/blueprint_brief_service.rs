@@ -330,6 +330,26 @@ fn resolve_brief_type(
     }))
 }
 
+fn validate_contributes_to(
+    store: &dyn RepositoryStore,
+    contributes_to: &Option<Vec<FieldRef>>,
+    diagnostics: &mut Vec<String>,
+) -> Result<(), RepositoryError> {
+    if let Some(refs) = contributes_to {
+        for field_ref in refs {
+            if let GetFieldResult::NotFound = get_field_by_id(store, &field_ref.field_id)? {
+                diagnostics.push(format!(
+                    "contributesTo field {} not found in package",
+                    field_ref.field_id
+                ));
+            }
+            // FieldRef.type_id (optional) is not validated here — that is a separate
+            // cross-entity check deferred to a follow-up issue.
+        }
+    }
+    Ok(())
+}
+
 fn find_protocol_for_roots(
     store: &dyn RepositoryStore,
     root_types: &[TypeRef],
@@ -339,11 +359,12 @@ fn find_protocol_for_roots(
         match find_protocol_by_target_type(store, &type_ref.type_id)? {
             Some(proto_raw) => {
                 diagnostics.extend(proto_raw.diagnostics);
-                let mut stages: Vec<BriefStageResult> = proto_raw
-                    .stages
-                    .into_iter()
-                    .map(BriefStageResult::from)
-                    .collect();
+                let mut stages: Vec<BriefStageResult> = Vec::new();
+                for stage in proto_raw.stages {
+                    let brief_stage = BriefStageResult::from(stage);
+                    validate_contributes_to(store, &brief_stage.contributes_to, diagnostics)?;
+                    stages.push(brief_stage);
+                }
                 stages.sort_by_key(|s| s.order);
                 return Ok(Some(BriefProtocolResult {
                     protocol_id: proto_raw.protocol_id,
@@ -982,5 +1003,93 @@ mod tests {
         let stage: ProtocolStage = serde_json::from_value(v).unwrap();
         let brief = BriefStageResult::from(stage);
         assert_eq!(brief.purpose, None);
+    }
+
+    #[test]
+    fn brief_unresolved_field_ref_in_contributes_to_is_diagnostic() {
+        let (proto_fields, proto_type) = make_protocol_fields_and_type();
+        let store = make_package_store(
+            [
+                vec![make_field("field-aaa", "title", ValueType::String)],
+                proto_fields,
+            ]
+            .concat(),
+            vec![make_article_type(), proto_type],
+        );
+        let blueprint = Blueprint {
+            id: String::new(),
+            namespace: "test.ns".to_string(),
+            name: "validation-blueprint".to_string(),
+            version: 1,
+            description: String::new(),
+            root_types: vec![TypeRef {
+                type_id: "type-111".to_string(),
+                type_version: None,
+            }],
+            structure: vec![],
+            required_types: vec![],
+            ai_guidance: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            lineage: None,
+            provenance: None,
+        };
+        let created = create_blueprint(&store, blueprint, None).unwrap();
+
+        import_protocol(
+            &store,
+            ImportProtocolInput {
+                raw: serde_json::json!({
+                    "protocolId": "proto-002",
+                    "protocolNamespace": "test.ns",
+                    "protocolName": "Validation Protocol",
+                    "protocolVersion": 1,
+                    "protocolTargetType": "type-111",
+                    "protocolCreatedAt": "2026-01-01T00:00:00Z",
+                    "protocolStages": [{
+                        "stageId": "s1",
+                        "name": "Gather",
+                        "order": 1,
+                        "dependsOn": [],
+                        "contributesTo": [
+                            {"fieldId": "field-aaa"},
+                            {"fieldId": "nonexistent-field-id"}
+                        ]
+                    }]
+                }),
+            },
+            None,
+        )
+        .unwrap();
+
+        let result = blueprint_brief(
+            &store,
+            BlueprintBriefInput {
+                blueprint_id: created.blueprint.id,
+            },
+        )
+        .unwrap();
+
+        // The result must be Ok and the stage must still be present
+        let proto = result.protocol.expect("protocol should be found");
+        assert_eq!(proto.stages.len(), 1);
+        assert_eq!(proto.stages[0].stage_id, "s1");
+
+        // The unresolved fieldId must produce a diagnostic
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.contains("nonexistent-field-id")),
+            "expected diagnostic for nonexistent-field-id, got: {:?}",
+            result.diagnostics
+        );
+
+        // The valid fieldId must NOT produce a diagnostic
+        assert!(
+            !result.diagnostics.iter().any(|d| d.contains("field-aaa")),
+            "should not produce diagnostic for valid field-aaa, got: {:?}",
+            result.diagnostics
+        );
     }
 }
