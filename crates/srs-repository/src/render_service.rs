@@ -1170,6 +1170,7 @@ fn resolve_section_instances(
         SectionSource::ContainerSubset {
             container_id,
             container_type: _,
+            type_filter: _,
         } => {
             // CLI --container overrides the view-declared container_id, allowing one
             // ContainerSubset document-view to render any guide by switching at render time.
@@ -2926,8 +2927,10 @@ mod tests {
                 source: SectionSource::ContainerSubset {
                     container_id: "00000000-0000-4000-8000-000000000c01".to_string(),
                     container_type: None,
+                    type_filter: None,
                 },
                 render_view_id: Some("v-text-only".to_string()),
+                type_dispatch: None,
                 title_field_id: Some("f-heading".to_string()),
                 ordering: None,
                 required: None,
@@ -3492,6 +3495,7 @@ mod tests {
                     container_ids: None,
                 },
                 render_view_id: None,
+                type_dispatch: None,
                 title_field_id: None,
                 ordering: None,
                 required: None,
@@ -3798,6 +3802,7 @@ mod tests {
                     container_ids: None,
                 },
                 render_view_id: None,
+                type_dispatch: None,
                 title_field_id: None,
                 ordering: None,
                 required: None,
@@ -4003,8 +4008,10 @@ mod tests {
                 source: SectionSource::ContainerSubset {
                     container_id: "00000000-0000-4000-8000-000000000c01".to_string(),
                     container_type: None,
+                    type_filter: None,
                 },
                 render_view_id: None,
+                type_dispatch: None,
                 title_field_id: Some("f-heading".to_string()),
                 ordering: Some(SectionOrdering {
                     field_id: Some("f-heading".to_string()),
@@ -4350,6 +4357,7 @@ mod tests {
                 description: None,
                 title_field_id: None,
                 render_view_id: None,
+                type_dispatch: None,
                 source: SectionSource::TypeQuery {
                     semantic_object_type: "com.test/section".to_string(),
                     lifecycle_state: None,

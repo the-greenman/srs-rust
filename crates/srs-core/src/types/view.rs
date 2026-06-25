@@ -83,6 +83,11 @@ pub enum SectionSource {
         container_id: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         container_type: Option<String>,
+        /// RFC-008 (ext:views-l2). When present and non-empty, restricts the section to container
+        /// members whose resolved type (namespace/name, version-independent) matches one of these
+        /// keys. Ordering is computed over the full container then projected onto survivors.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        type_filter: Option<Vec<String>>,
     },
 }
 
@@ -128,6 +133,11 @@ pub struct DocumentSection {
     pub source: SectionSource,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub render_view_id: Option<String>,
+    /// RFC-008 (ext:views-l2). Map from resolved type key (namespace/name, version-independent)
+    /// to the ext:views-l1 View UUID for rendering records of that type within this section.
+    /// Consulted before renderViewId; unmatched types fall back to renderViewId then baseline.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type_dispatch: Option<std::collections::HashMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title_field_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -260,6 +270,7 @@ mod tests {
                     container_ids: Some(vec!["c1".to_string()]),
                 },
                 render_view_id: Some("view-1".to_string()),
+                type_dispatch: None,
                 title_field_id: Some("field-title".to_string()),
                 ordering: Some(SectionOrdering {
                     field_id: Some("field-order".to_string()),
@@ -350,5 +361,68 @@ mod tests {
                 direction: None
             }
         );
+    }
+
+    #[test]
+    fn container_subset_type_filter_round_trips() {
+        let source = SectionSource::ContainerSubset {
+            container_id: "cid-1".to_string(),
+            container_type: None,
+            type_filter: Some(vec!["ns/name".to_string(), "ns/other".to_string()]),
+        };
+        let json = serde_json::to_string(&source).unwrap();
+        assert!(
+            json.contains("\"typeFilter\""),
+            "typeFilter must serialize as camelCase: {json}"
+        );
+        assert!(
+            json.contains("\"ns/name\""),
+            "typeFilter values must be preserved: {json}"
+        );
+        let parsed: SectionSource = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, source);
+    }
+
+    #[test]
+    fn container_subset_no_type_filter_omitted_from_json() {
+        let source = SectionSource::ContainerSubset {
+            container_id: "cid-1".to_string(),
+            container_type: None,
+            type_filter: None,
+        };
+        let json = serde_json::to_string(&source).unwrap();
+        assert!(
+            !json.contains("typeFilter"),
+            "typeFilter: None must be omitted from JSON: {json}"
+        );
+    }
+
+    #[test]
+    fn document_section_type_dispatch_round_trips() {
+        let mut dispatch = std::collections::HashMap::new();
+        dispatch.insert("ns/name".to_string(), "view-uuid-1".to_string());
+        dispatch.insert("ns/other".to_string(), "view-uuid-2".to_string());
+        let section = DocumentSection {
+            section_id: "s".to_string(),
+            title: None,
+            description: None,
+            order: 0,
+            source: SectionSource::FixedInstances {
+                instance_ids: vec![],
+            },
+            render_view_id: None,
+            type_dispatch: Some(dispatch.clone()),
+            title_field_id: None,
+            ordering: None,
+            required: None,
+            empty_behavior: None,
+        };
+        let json = serde_json::to_string(&section).unwrap();
+        assert!(
+            json.contains("\"typeDispatch\""),
+            "typeDispatch must serialize as camelCase: {json}"
+        );
+        let parsed: DocumentSection = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.type_dispatch, Some(dispatch));
     }
 }
