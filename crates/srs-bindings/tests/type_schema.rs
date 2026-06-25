@@ -65,6 +65,11 @@ fn type_schema_resolves_pinned_version() {
     .expect("pinned v1 must resolve");
 
     assert_eq!(
+        pinned.schema["type"],
+        serde_json::json!("object"),
+        "pinned v1 independently projects a draft-07 object schema"
+    );
+    assert_eq!(
         latest.schema, pinned.schema,
         "latest and pinned v1 project the same schema"
     );

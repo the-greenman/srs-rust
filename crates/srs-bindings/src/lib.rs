@@ -348,7 +348,9 @@ impl SrsRepository {
     /// first root instance's `typeId`/`typeVersion`, then returns every `DocumentView` whose
     /// `rootTypeRefs` includes that exact type binding (RFC-009). Returns an empty array — not an
     /// error — when the container has no root instance, the root carries no type binding (Tier 0/1),
-    /// or no view matches. Returns a JS array of `DocumentView` objects.
+    /// or no view matches. Returns a JS array of **full** `DocumentView` objects (including
+    /// `sections`) — not the lighter summaries that `list_document_views` returns — because the
+    /// caller needs the section definitions to render the view.
     pub fn document_views_for_container(&self, container_id: &str) -> Result<JsValue, JsValue> {
         let views = view_service::document_views_for_container(&self.store, container_id)
             .map_err(js_err)?;
