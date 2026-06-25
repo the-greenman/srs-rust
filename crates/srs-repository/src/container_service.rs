@@ -59,23 +59,29 @@ pub struct ContainerValidationReport {
     pub errors: Vec<String>,
 }
 
+/// Filter parameters for [`list_containers`]. No serde — this is a service contract, not a wire shape.
+#[derive(Debug, Clone, Default)]
+pub struct ContainerListFilter {
+    pub container_type: Option<String>,
+    pub member_instance_id: Option<String>,
+    pub root_instance_id: Option<String>,
+}
+
 pub fn list_containers(
     store: &dyn RepositoryStore,
-    container_type: Option<&str>,
-    member_instance_id: Option<&str>,
-    root_instance_id: Option<&str>,
+    filter: &ContainerListFilter,
 ) -> Result<Vec<ContainerSummary>, RepositoryError> {
     let summaries_raw = store.list_container_summaries()?;
     let mut summaries = Vec::new();
 
     for (container_id, _title) in summaries_raw {
         let container = store.load_container(&container_id)?;
-        if let Some(filter) = container_type {
-            if container.container_type.as_deref() != Some(filter) {
+        if let Some(ref ct) = filter.container_type {
+            if container.container_type.as_deref() != Some(ct.as_str()) {
                 continue;
             }
         }
-        if let Some(member_filter) = member_instance_id {
+        if let Some(ref member_filter) = filter.member_instance_id {
             let in_members = container
                 .member_instance_ids
                 .as_ref()
@@ -88,7 +94,7 @@ pub fn list_containers(
                 continue;
             }
         }
-        if let Some(root_filter) = root_instance_id {
+        if let Some(ref root_filter) = filter.root_instance_id {
             let in_roots = container
                 .root_instance_ids
                 .as_ref()
@@ -111,7 +117,13 @@ pub fn containers_for_instance(
     store: &dyn RepositoryStore,
     instance_id: &str,
 ) -> Result<Vec<ContainerSummary>, RepositoryError> {
-    list_containers(store, None, Some(instance_id), None)
+    list_containers(
+        store,
+        &ContainerListFilter {
+            member_instance_id: Some(instance_id.to_string()),
+            ..Default::default()
+        },
+    )
 }
 
 pub fn create_container(
@@ -413,7 +425,7 @@ mod tests {
         let c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Sprint 1");
         let out = create_container(&store, c).unwrap();
         assert_eq!(out.title, "Sprint 1");
-        let listed = list_containers(&store, None, None, None).unwrap();
+        let listed = list_containers(&store, &ContainerListFilter::default()).unwrap();
         assert_eq!(listed.len(), 1);
     }
 
@@ -447,7 +459,7 @@ mod tests {
             minimal_container("550e8400-e29b-41d4-a716-446655440001", "B"),
         )
         .unwrap();
-        let listed = list_containers(&store, None, None, None).unwrap();
+        let listed = list_containers(&store, &ContainerListFilter::default()).unwrap();
         assert_eq!(listed.len(), 2);
     }
 
@@ -502,7 +514,7 @@ mod tests {
             meta: None,
         };
         update_container(&store, &created.container_id, patch).unwrap();
-        let listed = list_containers(&store, None, None, None).unwrap();
+        let listed = list_containers(&store, &ContainerListFilter::default()).unwrap();
         assert_eq!(listed[0].title, "New");
     }
 
@@ -535,7 +547,7 @@ mod tests {
         )
         .unwrap();
         delete_container(&store, &created.container_id).unwrap();
-        let listed = list_containers(&store, None, None, None).unwrap();
+        let listed = list_containers(&store, &ContainerListFilter::default()).unwrap();
         assert!(listed.is_empty());
     }
 
@@ -836,7 +848,14 @@ mod tests {
         let id = "11111111-1111-4111-8111-111111111111";
         add_root(&store, &a.container_id, id).unwrap();
         add_member(&store, &b.container_id, id).unwrap();
-        let out = list_containers(&store, None, None, Some(id)).unwrap();
+        let out = list_containers(
+            &store,
+            &ContainerListFilter {
+                root_instance_id: Some(id.to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].container_id, a.container_id);
     }
