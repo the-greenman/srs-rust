@@ -12,16 +12,18 @@ You are running the full delivery pipeline for this feature:
 
 Run autonomously between stages — do not pause for minor decisions you can resolve from context. Use TodoWrite to track the stages below and work through them in order.
 
-There are four **deliberate human checkpoints** where you must stop and wait:
+The pipeline runs to a **single terminal state inside this session**: PR open with CI green, everything (including dogfooding) verified pre-merge. It does **not** wait for a human to merge and then resume — never schedule a follow-up routine to "come back after merge". The issue auto-closes via `Closes #N` on merge.
+
+There are two **deliberate human checkpoints** where you stop and wait for input:
 
 | Checkpoint | Stage | When |
 |---|---|---|
 | RFC gate | 1.5 | Feature requires a spec change → file RFC, stop |
 | Design decisions | 2 | Long-term architectural choices → present trade-offs, wait for input |
-| PR review & merge | 9 | CI green → hand off to human, stop (do not close issue yet) |
-| Post-merge continuation | 10 | User resumes after merge → cleanup + dogfood |
 
-Outside these checkpoints, keep going. If a stage is genuinely blocked (auth failure, unresolvable conflict, ambiguous requirement that changes the deliverable), stop and report.
+The pipeline then ends at **Stage 9** (PR open + CI green) — a terminal handoff, not a resume point.
+
+Outside the two checkpoints, keep going. If a stage is genuinely blocked (auth failure, unresolvable rebase conflict, ambiguous requirement that changes the deliverable), stop and report.
 
 All Rust work happens in `srs-rust/`. Run `git` from the relevant sub-repo, never from the `semanticops/` parent (it is not a git repo).
 
@@ -136,9 +138,17 @@ Execute the plan phase by phase. For each phase:
 
 Do not start a phase until the previous milestone gate passes.
 
-## Stage 6 — Final acceptance
+## Stage 6 — Sync with main + final acceptance
 
-Run the full Final Acceptance list from the plan:
+First bring the branch up to date so acceptance, dogfooding, and CI all reflect current `main`:
+```bash
+# from inside the worktree
+git fetch origin
+git rebase origin/main
+```
+If the rebase conflicts and you cannot resolve it confidently from context, **stop and report** — this is a genuine blocker. Re-run the milestone gates after a non-trivial rebase.
+
+Then run the full Final Acceptance list from the plan:
 ```bash
 cargo test
 cargo clippy -- -D warnings
@@ -146,17 +156,16 @@ cargo test --test payload_contracts        # if payload structs changed
 bash scripts/check-schema-sync.sh          # if entity schemas changed
 ```
 
-If `check-schema-sync.sh` fails, entity schemas have drifted from the canonical spec in `srs/docs/schema/2.0/`. Fix by running the sync scripts:
+If `check-schema-sync.sh` reports that **this repo's** schema mirror has drifted from the canonical spec in `srs/docs/schema/2.0/`, refresh it from the released canonical schema — **this repo only**:
 ```bash
 # From srs-rust/
-scripts/sync-schemas-from-spec.sh          # copies *.json + regenerates SHA256SUMS
-../srs-vscode/scripts/sync-schemas-from-spec.sh
-
-bash scripts/check-schema-sync.sh          # must exit 0 before continuing
+scripts/sync-schemas-from-spec.sh          # pulls the canonical schema (local ../srs if present,
+                                           # else the srs `schemas-2.0.tar.gz` release artifact)
+                                           # and regenerates SHA256SUMS
 ```
-Commit the schema updates in srs-rust and srs-vscode before the srs PR — mirror PRs must be merged first so `srs` drift CI sees up-to-date artifacts at HEAD.
+Commit the refreshed mirror in `srs-rust` only. **Do not reach into `../srs-vscode` or any other sibling working tree** — in a cloud session it won't exist, and each mirror repo syncs itself from the `srs` release artifact through its own pipeline. Cross-repo mirror consistency is enforced by the release-drift CI, not by editing siblings in this session.
 
-All checks must pass before proceeding.
+All checks for this repo must pass before proceeding.
 
 ## Stage 7 — Code review loop
 
@@ -187,7 +196,7 @@ The pipeline is not done until the docs match the code. This stage runs after th
    | New ADR | confirm it is listed/cross-referenced where ADRs are indexed; flip its status from `proposed` to `accepted` if the change shipped under it |
    | New build/test/run command or workflow | the **Commands** section of the relevant `CLAUDE.md` |
    | New top-level capability in a crate with a `README.md` | that crate's `README.md`, plus `srs-rust/README.md` if one exists |
-   | New/changed CLI surface that needs end-to-end dogfooding | `srs-rust/docs/dogfooding.md` — but make this update in **Stage 11**, not here (it depends on having actually run the scenario) |
+   | New/changed CLI surface that needs end-to-end dogfooding | `srs-rust/docs/dogfooding.md` — but make this update in **Stage 7.6**, not here (it depends on having actually run the scenario) |
 
    `srs-usage.md` lives in the `srs/` repo. If you update it, commit that change on a branch in `srs/` (coordinate it with this PR the way schema changes are coordinated) — do not edit it inside the `srs-rust` worktree.
 
@@ -200,6 +209,29 @@ The pipeline is not done until the docs match the code. This stage runs after th
 4. **Verify doc commands still run.** Any command block you added or touched in a `CLAUDE.md` or `README.md` must actually work — run it. A doc command that errors is a regression.
 
 5. Commit the doc updates with a message referencing the issue: `docs: update docs for <slug> (#N)`. Stage them so they are part of this PR's diff.
+
+## Stage 7.6 — Dogfooding (pre-PR, on the branch)
+
+Reference: `docs/dogfooding.md`. Read its principles first — dogfooding proves the change advances a *meaningful intention*, not just that a command returns `ok: true`. This runs **before** the PR, on the rebased feature branch (Stage 6 already synced it with `main`), so the dogfood results and any guide updates land in this same PR.
+
+**Skip** if purely internal (refactor, test-only, doc-only, build tooling). State the reason; do not skip silently.
+
+1. **Build from the branch under review** (the current worktree HEAD — do **not** check out `main`):
+   ```bash
+   cargo build --bin srs            # from inside the worktree
+   ```
+
+2. **Find scenario(s)** using the Coverage matrix in `docs/dogfooding.md`. Note if it's a `gap` row or entirely new surface.
+
+3. **Prepare repo** per scenario — default: `srs repo create --repo /tmp/dogfood-<slug> --namespace com.example.dogfood`.
+
+4. **Run end-to-end:** happy path + named negative case. Confirm output matches the payload contract, negative case returns a correct error envelope, and "Done when" signals hold. Run `srs repo validate` (diagnostics are in the payload, not the exit code). Run extra edge cases from the plan's acceptance criteria.
+
+5. **Update `docs/dogfooding.md`** (part of this PR's diff): update scenario steps/"Done when" for changed surfaces; add a new scenario for new surfaces (must lead with a meaningful intention — if you can't state it, note it on the issue instead); update the Coverage matrix. Verify every touched command block still runs. Commit: `docs: update dogfood scenarios for <slug> (#N)`.
+
+6. **File issues:** `bug` for anything not working as designed (patch immediately if trivial); `enhancement` for workflow gaps that required workarounds. No cosmetic/hypothetical issues.
+
+7. **Summarise:** scenarios run, commands exercised, guide updates made, issues filed, bugs patched inline.
 
 ## Stage 8 — PR
 
@@ -221,7 +253,7 @@ Closes #N
 ```
 End the body with the Claude Code attribution line. Link the PR back on the issue if `--fill` didn't.
 
-**If this PR includes schema mirror changes** (files under `crates/srs-schema/schemas/`): this PR must be merged before the corresponding `srs` spec PR, so the release-drift CI in `srs` sees the updated schemas at HEAD. Open a matching PR in `srs-vscode` for its schema mirror at the same time. See `srs/RELEASING.md` for the full multi-repo ordering.
+**If this PR includes schema mirror changes** (files under `crates/srs-schema/schemas/`): this PR carries only **this** repo's mirror, refreshed from the `srs` release artifact. Do not coordinate sibling branches in this session — each mirror repo (`srs-vscode`, etc.) refreshes itself from the same `srs` release through its own pipeline, and the release-drift CI enforces eventual consistency. If you want to nudge the other mirrors, file a best-effort mirror-sync tracking issue in each rather than editing their trees.
 
 ## Stage 9 — Sweep open issues + CI watch
 
@@ -233,59 +265,16 @@ End the body with the Claude Code attribution line. Link the PR back on the issu
    - If a failure is a pre-existing flake unrelated to this change, note it in a PR comment and move on.
    - Do not close the PR or give up silently — always report status.
 
-**Stop here** once all CI checks pass (or a blocker is hit). Do NOT close the issue yet — wait for the human to merge the PR. Report the PR URL and instruct the user to resume this session (or run `/ship` again) once the PR is merged.
+**This is the terminal state.** Once all CI checks pass (or a blocker is hit), the pipeline is done — report the PR URL and hand off. Do **not** wait for the merge, do **not** schedule a routine to resume after merge, and do **not** close the issue manually: `Closes #N` in the PR body closes it automatically on merge.
 
-## Stage 10 — Post-merge: close issue + worktree cleanup
-
-**Prerequisite:** confirm the PR is merged before proceeding.
+**Best-effort cleanup (optional, non-blocking).** If you created a local worktree and are in a long-lived local session, you may tidy it now — but never wait for the merge to do so, and never treat cleanup as a gate. In a cloud session the harness reclaims the workspace, so skip it.
 ```bash
-gh pr view <PR-number> --json state --jq '.state'   # must return MERGED
+git worktree remove ../.worktrees/<issue-N>-<slug> 2>/dev/null || true
+git branch -d feat/<issue-N>-<slug> 2>/dev/null || true
 ```
-If it is not yet merged, stop and wait — do not clean up a worktree for an open or closed-without-merge PR.
-
-Once confirmed:
-
-1. **Close the primary issue** (the `Closes #N` in the PR body may have done this automatically, but confirm and close explicitly if still open):
-   ```bash
-   gh issue view N --json state --jq '.state'   # check first
-   gh issue close N --comment "Implemented in PR #<PR number>."
-   ```
-
-2. **Clean up worktree and branch:**
-   ```bash
-   cd srs-rust
-   git fetch origin --prune
-   git worktree remove ../.worktrees/<slug> --force
-   git branch -d feat/<slug> 2>/dev/null || true
-   ```
-
-Verify with `git worktree list` that the worktree is gone. Report the result.
-
-## Stage 11 — Dogfooding
-
-Reference: `docs/dogfooding.md`. Read its principles first — dogfooding proves the change advances a *meaningful intention*, not just that a command returns `ok: true`.
-
-**Skip** if purely internal (refactor, test-only, doc-only, build tooling). State the reason; do not skip silently.
-
-1. **Build** from merged main:
-   ```bash
-   cd srs-rust && git checkout main && git pull origin main && cargo build --bin srs
-   ```
-
-2. **Find scenario(s)** using the Coverage matrix in `docs/dogfooding.md`. Note if it's a `gap` row or entirely new surface.
-
-3. **Prepare repo** per scenario — default: `srs repo create --repo /tmp/dogfood-<slug> --namespace com.example.dogfood`.
-
-4. **Run end-to-end:** happy path + named negative case. Confirm output matches the payload contract, negative case returns a correct error envelope, and "Done when" signals hold. Run `srs repo validate` (diagnostics are in the payload, not the exit code). Run extra edge cases from the plan's acceptance criteria.
-
-5. **Update `docs/dogfooding.md`** (part of this PR's diff): update scenario steps/"Done when" for changed surfaces; add a new scenario for new surfaces (must lead with a meaningful intention — if you can't state it, note it on the issue instead); update the Coverage matrix. Verify every touched command block still runs. Commit: `docs: update dogfood scenarios for <slug> (#N)`.
-
-6. **File issues:** `bug` for anything not working as designed (patch immediately if trivial); `enhancement` for workflow gaps that required workarounds. No cosmetic/hypothetical issues.
-
-7. **Summarise:** scenarios run, commands exercised, guide updates made, issues filed, bugs patched inline.
 
 ---
 
 ## Output contract
 
-When done, report: issue #, plan path, ADRs created (if any), worktree path cleaned up (Stage 10), branch deleted, number of review rounds, **the docs updated in Stage 7.5 (or "none — internal change")**, the PR URL, and dogfooding summary (Stage 11 — scenario(s) run, commands exercised, dogfood-guide updates made, bugs filed, feature gaps filed, or "skipped — internal change"). If you stopped early, say exactly which stage and why.
+When done, report: issue #, plan path, ADRs created (if any), number of review rounds, **the docs updated in Stage 7.5 (or "none — internal change")**, the dogfooding summary (Stage 7.6 — scenario(s) run, commands exercised, dogfood-guide updates made, bugs filed, feature gaps filed, or "skipped — internal change"), and the PR URL with its final CI status. The pipeline ends at PR-open + CI green; the issue closes on merge via `Closes #N` — do not report a manual close or a post-merge step. If you stopped early, say exactly which stage and why.
