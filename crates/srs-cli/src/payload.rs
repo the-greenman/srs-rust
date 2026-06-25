@@ -868,6 +868,19 @@ pub struct DocumentViewDeletePayload {
     pub id: String,
 }
 
+/// Payload for `document-view list-for-container <container-id>`.
+///
+/// Returns the DocumentViews whose `rootTypeRefs` match the type bound to
+/// the container's first root instance. Empty when the root instance has no
+/// type binding or when no DocumentViews match.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentViewsForContainerPayload {
+    pub container_id: String,
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub document_views: Vec<DocumentViewSummary>,
+}
+
 // ── Theme payloads ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]

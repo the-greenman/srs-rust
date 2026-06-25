@@ -789,6 +789,12 @@ pub enum DocumentViewCommand {
         /// DocumentView ID
         id: String,
     },
+    /// List DocumentViews whose rootTypeRefs match the root instance type of a container
+    #[command(name = "list-for-container")]
+    ListForContainer {
+        /// Container ID
+        container_id: String,
+    },
 }
 
 #[derive(Subcommand)]

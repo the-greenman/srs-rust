@@ -274,7 +274,7 @@ mod tests {
                 label: Some("next".to_string()),
                 bidirectional: Some(false),
             }]),
-            preamble: Some("{{heading-1}} {{container-title}}".to_string()),
+            preamble: Some("{{heading-1-open}}{{container-title}}{{heading-1-close}}".to_string()),
             format: Some("markdown".to_string()),
             depth_offset: Some(1),
             theme_ref: Some(ThemeReference {

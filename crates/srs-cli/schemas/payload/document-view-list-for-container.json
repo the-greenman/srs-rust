@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DocumentViewsForContainerPayload",
+  "description": "Payload for `document-view list-for-container <container-id>`.\n\nReturns the DocumentViews whose `rootTypeRefs` match the type bound to the container's first root instance. Empty when the root instance has no type binding or when no DocumentViews match.",
+  "type": "object",
+  "required": [
+    "containerId",
+    "documentViews"
+  ],
+  "properties": {
+    "containerId": {
+      "type": "string"
+    },
+    "documentViews": {
+      "type": "array",
+      "items": true
+    }
+  }
+}

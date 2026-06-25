@@ -320,6 +320,8 @@ fn substitute_vars_json_blanked(
     let mut out = template.to_string();
     for level in 1..=6 {
         out = out.replace(&format!("{{{{heading-{level}}}}}"), "");
+        out = out.replace(&format!("{{{{heading-{level}-open}}}}"), "");
+        out = out.replace(&format!("{{{{heading-{level}-close}}}}"), "");
     }
     out = out.replace("{{container-title}}", container_title);
     let date = chrono::Utc::now().format("%Y-%m-%d").to_string();
@@ -528,6 +530,8 @@ fn substitute_vars_record_json(template: &str, record: &Record) -> String {
     let mut out = template.to_string();
     for level in 1..=6 {
         out = out.replace(&format!("{{{{heading-{level}}}}}"), "");
+        out = out.replace(&format!("{{{{heading-{level}-open}}}}"), "");
+        out = out.replace(&format!("{{{{heading-{level}-close}}}}"), "");
     }
     out = out.replace("{{instance-id}}", &record.instance_id);
     out = out.replace("{{type-name}}", &record.type_name);
@@ -766,6 +770,8 @@ fn apply_wrapper(
     let mut out = template.to_string();
     for level in 1..=6 {
         out = out.replace(&format!("{{{{heading-{level}}}}}"), "");
+        out = out.replace(&format!("{{{{heading-{level}-open}}}}"), "");
+        out = out.replace(&format!("{{{{heading-{level}-close}}}}"), "");
     }
     if let Some(theme) = theme {
         out = replace_asset_placeholders(&out, theme);
@@ -1928,6 +1934,17 @@ fn substitute_vars(
     };
     out = out.replace("{{heading-3}}", &h3);
 
+    for level in 1..=3 {
+        out = out.replace(
+            &format!("{{{{heading-{level}-open}}}}"),
+            &heading_open(depth(level, ctx.depth_offset), ctx.format),
+        );
+        out = out.replace(
+            &format!("{{{{heading-{level}-close}}}}"),
+            &heading_close(depth(level, ctx.depth_offset), ctx.format),
+        );
+    }
+
     if let Some(record) = record {
         out = out.replace("{{instance-id}}", &record.instance_id);
         out = out.replace("{{namespace}}", &record.type_namespace);
@@ -1953,6 +1970,22 @@ fn heading_prefix(level: u32, format: &str) -> String {
         "markdown" => format!("{} ", "#".repeat(level as usize)),
         "adoc" => format!("{} ", "=".repeat(level as usize)),
         _ => String::new(),
+    }
+}
+
+fn heading_open(level: u32, format: &str) -> String {
+    match format {
+        "html" => format!("<h{level}>"),
+        "markdown" => format!("{} ", "#".repeat(level as usize)),
+        "adoc" => format!("{} ", "=".repeat(level as usize)),
+        _ => format!("{} ", "#".repeat(level as usize)),
+    }
+}
+
+fn heading_close(level: u32, format: &str) -> String {
+    match format {
+        "html" => format!("</h{level}>\n"),
+        _ => "\n\n".to_string(),
     }
 }
 
@@ -2027,6 +2060,43 @@ mod tests {
     #[test]
     fn heading_prefix_text_returns_empty() {
         assert_eq!(heading_prefix(2, "text"), "");
+    }
+
+    #[test]
+    fn heading_open_html() {
+        assert_eq!(heading_open(1, "html"), "<h1>");
+        assert_eq!(heading_open(2, "html"), "<h2>");
+        assert_eq!(heading_open(3, "html"), "<h3>");
+    }
+
+    #[test]
+    fn heading_open_markdown() {
+        assert_eq!(heading_open(1, "markdown"), "# ");
+        assert_eq!(heading_open(2, "markdown"), "## ");
+    }
+
+    #[test]
+    fn heading_open_adoc() {
+        assert_eq!(heading_open(1, "adoc"), "= ");
+        assert_eq!(heading_open(2, "adoc"), "== ");
+    }
+
+    #[test]
+    fn heading_open_unknown_falls_back_to_markdown() {
+        assert_eq!(heading_open(1, "text"), "# ");
+    }
+
+    #[test]
+    fn heading_close_html() {
+        assert_eq!(heading_close(1, "html"), "</h1>\n");
+        assert_eq!(heading_close(3, "html"), "</h3>\n");
+    }
+
+    #[test]
+    fn heading_close_non_html() {
+        assert_eq!(heading_close(1, "markdown"), "\n\n");
+        assert_eq!(heading_close(2, "adoc"), "\n\n");
+        assert_eq!(heading_close(1, "text"), "\n\n");
     }
 
     #[test]
