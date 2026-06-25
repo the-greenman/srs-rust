@@ -1077,7 +1077,10 @@ mod tests {
 
         // The unresolved fieldId must produce a diagnostic
         assert!(
-            result.diagnostics.iter().any(|d| d.contains("nonexistent-field-id")),
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.contains("nonexistent-field-id")),
             "expected diagnostic for nonexistent-field-id, got: {:?}",
             result.diagnostics
         );
