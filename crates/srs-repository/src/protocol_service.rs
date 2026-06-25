@@ -290,6 +290,11 @@ pub fn list_protocol_stages(
                     purpose: s.purpose,
                     order: s.order,
                     depends_on: s.depends_on,
+                    question: s.question,
+                    completion_criteria: s.completion_criteria,
+                    contributes_to: s.contributes_to,
+                    ai_guidance: s.ai_guidance,
+                    output_type: s.output_type,
                 })
                 .collect();
             stages.sort_by_key(|s| s.order);

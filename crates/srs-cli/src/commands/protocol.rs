@@ -1,8 +1,8 @@
 use crate::commands::{with_store, CliContext, ProtocolCommand};
 use crate::output;
 use crate::payload::{
-    ProtocolDeletePayload, ProtocolListEntry, ProtocolListPayload, ProtocolPayload,
-    ProtocolStageEntry, ProtocolStagesPayload, ProtocolValidatePayload,
+    self as payload, ProtocolDeletePayload, ProtocolListEntry, ProtocolListPayload,
+    ProtocolPayload, ProtocolStageEntry, ProtocolStagesPayload, ProtocolValidatePayload,
 };
 use anyhow::Result;
 use srs_repository::error::RepositoryError;
@@ -20,7 +20,7 @@ pub fn dispatch(ctx: CliContext, cmd: ProtocolCommand) -> Result<String> {
         ProtocolCommand::Stages { id, json: _ } => cmd_protocol_stages(ctx, id),
         ProtocolCommand::Validate { id, json: _ } => cmd_protocol_validate(ctx, id),
         ProtocolCommand::Export { id, json: _ } => cmd_protocol_export(ctx, id),
-        ProtocolCommand::Create { package } => cmd_protocol_create(ctx, package),
+        ProtocolCommand::Create { package, json: _ } => cmd_protocol_create(ctx, package),
         ProtocolCommand::Import { package, json: _ } => cmd_protocol_import(ctx, package),
         ProtocolCommand::Update { id } => cmd_protocol_update(ctx, id),
         ProtocolCommand::Delete { id } => cmd_protocol_delete(ctx, id),
@@ -88,6 +88,18 @@ fn cmd_protocol_stages(ctx: CliContext, id: String) -> Result<String> {
             purpose: s.purpose,
             order: s.order,
             depends_on: s.depends_on,
+            question: s.question,
+            completion_criteria: s.completion_criteria,
+            contributes_to: s.contributes_to.map(|refs| {
+                refs.into_iter()
+                    .map(|r| payload::FieldRef {
+                        field_id: r.field_id,
+                        type_id: r.type_id,
+                    })
+                    .collect()
+            }),
+            ai_guidance: s.ai_guidance,
+            output_type: s.output_type,
         })
         .collect();
 

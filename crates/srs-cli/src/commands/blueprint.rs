@@ -1,9 +1,10 @@
 use crate::commands::{with_store, BlueprintCommand, CliContext};
 use crate::output;
 use crate::payload::{
-    BlueprintBriefPayload, BlueprintDeletePayload, BlueprintListEntry, BlueprintListPayload,
-    BlueprintPayload, BlueprintSchemaPayload, BlueprintStructurePayload, BlueprintValidatePayload,
-    BriefField, BriefProtocol, BriefRelationSpec, BriefStage, BriefType, RelationSpecEntry,
+    self as payload, BlueprintBriefPayload, BlueprintDeletePayload, BlueprintListEntry,
+    BlueprintListPayload, BlueprintPayload, BlueprintSchemaPayload, BlueprintStructurePayload,
+    BlueprintValidatePayload, BriefField, BriefProtocol, BriefRelationSpec, BriefStage, BriefType,
+    RelationSpecEntry,
 };
 use anyhow::Result;
 use srs_core::types::blueprint::Blueprint;
@@ -231,7 +232,14 @@ fn map_brief_stage(s: BriefStageResult) -> BriefStage {
         depends_on: s.depends_on,
         question: s.question,
         completion_criteria: s.completion_criteria,
-        contributes_to: s.contributes_to,
+        contributes_to: s.contributes_to.map(|refs| {
+            refs.into_iter()
+                .map(|r| payload::FieldRef {
+                    field_id: r.field_id,
+                    type_id: r.type_id,
+                })
+                .collect()
+        }),
         ai_guidance: s.ai_guidance,
         output_type: s.output_type,
     }

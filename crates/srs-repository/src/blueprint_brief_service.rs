@@ -18,7 +18,7 @@ use crate::package_service::{
 use crate::protocol_service::find_protocol_by_target_type;
 use crate::store::RepositoryStore;
 use srs_core::types::blueprint::TypeRef;
-use srs_core::types::protocol::ProtocolStage;
+use srs_core::types::protocol::{FieldRef, ProtocolStage};
 
 // ---------------------------------------------------------------------------
 // Input / output types
@@ -65,7 +65,7 @@ pub struct BriefStageResult {
     pub depends_on: Vec<String>,
     pub question: Option<String>,
     pub completion_criteria: Option<String>,
-    pub contributes_to: Option<Vec<String>>,
+    pub contributes_to: Option<Vec<FieldRef>>,
     pub ai_guidance: Option<serde_json::Value>,
     pub output_type: Option<serde_json::Value>,
 }
@@ -236,7 +236,14 @@ pub fn render_brief_markdown(result: &BlueprintBriefResult) -> String {
             }
             if let Some(ct) = &stage.contributes_to {
                 if !ct.is_empty() {
-                    out.push_str(&format!("**Contributes to:** {}\n\n", ct.join(", ")));
+                    let labels: Vec<String> = ct
+                        .iter()
+                        .map(|r| match &r.type_id {
+                            Some(tid) => format!("{}/{}", tid, r.field_id),
+                            None => r.field_id.clone(),
+                        })
+                        .collect();
+                    out.push_str(&format!("**Contributes to:** {}\n\n", labels.join(", ")));
                 }
             }
             if let Some(dep) = stage.ai_guidance.as_ref() {
@@ -645,7 +652,7 @@ mod tests {
             "dependsOn": [],
             "question": "What is the main topic?",
             "completionCriteria": "Topic identified.",
-            "contributesTo": ["field-aaa"],
+            "contributesTo": [{"fieldId": "field-aaa"}],
             "aiGuidance": "Focus on primary subjects."
         });
         let stage: ProtocolStage = serde_json::from_value(v).unwrap();
@@ -657,7 +664,13 @@ mod tests {
             brief.completion_criteria.as_deref(),
             Some("Topic identified.")
         );
-        assert_eq!(brief.contributes_to, Some(vec!["field-aaa".to_string()]));
+        assert_eq!(
+            brief.contributes_to,
+            Some(vec![FieldRef {
+                field_id: "field-aaa".to_string(),
+                type_id: None,
+            }])
+        );
     }
 
     #[test]
@@ -668,6 +681,51 @@ mod tests {
         assert!(
             err.to_string().contains("stageId"),
             "error should mention stageId, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_render_brief_markdown_contributes_to() {
+        let result = BlueprintBriefResult {
+            blueprint_id: "bp-1".to_string(),
+            namespace: "com.example".to_string(),
+            name: "My Blueprint".to_string(),
+            version: 1,
+            ai_guidance: None,
+            required_types: vec![],
+            types: vec![],
+            structure: vec![],
+            protocol: Some(BriefProtocolResult {
+                protocol_id: "proto-1".to_string(),
+                protocol_name: "Example Protocol".to_string(),
+                stages: vec![BriefStageResult {
+                    stage_id: "s1".to_string(),
+                    name: "Gather".to_string(),
+                    purpose: None,
+                    order: 1,
+                    depends_on: vec![],
+                    question: None,
+                    completion_criteria: None,
+                    contributes_to: Some(vec![
+                        FieldRef {
+                            field_id: "my-field".to_string(),
+                            type_id: None,
+                        },
+                        FieldRef {
+                            field_id: "other-field".to_string(),
+                            type_id: Some("type-abc".to_string()),
+                        },
+                    ]),
+                    ai_guidance: None,
+                    output_type: None,
+                }],
+            }),
+            diagnostics: vec![],
+        };
+        let md = render_brief_markdown(&result);
+        assert!(
+            md.contains("**Contributes to:** my-field, type-abc/other-field"),
+            "expected correctly formatted contributes_to in markdown, got:\n{md}"
         );
     }
 
