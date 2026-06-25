@@ -29,11 +29,20 @@ All Rust work happens in `srs-rust/`. Run `git` from the relevant sub-repo, neve
 
 ## Stage 0 — Preflight
 
-1. Confirm the signing key is loaded (commits will fail otherwise):
+1. Confirm a commit-signing method is available (commits will fail otherwise). The required check depends on the environment:
    ```bash
-   ssh-add -l | grep -q "SHA256:vHuO6si5w3RLL4IJZofWbyvEi42WA2fYX7bM" || echo "SIGNING KEY NOT LOADED"
+   if ssh-add -l 2>/dev/null | grep -q "SHA256:vHuO6si5w3RLL4IJZofWbyvEi42WA2fYX7bM"; then
+     echo "OK: local SSH signing key loaded in agent"
+   elif [ ! -f "$HOME/.ssh/id_ed25519_git_signing.pub" ]; then
+     echo "OK: cloud/remote environment — platform provides its own commit signing, ssh-agent not used"
+   else
+     echo "SIGNING KEY NOT LOADED — local key file present but not in agent"
+   fi
    ```
-   If missing, **stop** and tell the user — do not bypass signing.
+   - **Local** (the signing key file exists under `~/.ssh`): the key must be loaded in the ssh-agent. If you see `SIGNING KEY NOT LOADED`, **stop** and tell the user — do not bypass signing.
+   - **Cloud / remote agent** (no local signing key file, e.g. a scheduled CCR run): the ssh-agent is not used — the platform signs commits with its own method. Proceed; do not stop on the ssh-agent check.
+
+   In both environments use plain `git commit` — never `--no-gpg-sign`.
 2. Confirm `gh auth status` succeeds. If not, stop.
 3. Identify the repo this work belongs to (srs / srs-rust / srs-vscode) from the feature description. Most work is srs-rust.
 
