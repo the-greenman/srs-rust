@@ -1,0 +1,11 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "00000000-0000-4000-8000-000000003501",
+  "namespace": "fixture.rfc008",
+  "name": "title",
+  "version": 1,
+  "description": "Record title",
+  "aiGuidance": {"purpose": "capture record title"},
+  "valueType": "string",
+  "createdAt": "2026-01-01T00:00:00Z"
+}

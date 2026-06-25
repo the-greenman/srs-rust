@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/view.json",
+  "id": "00000000-0000-4000-8000-000000003506",
+  "namespace": "fixture.rfc008",
+  "name": "fallback-view",
+  "version": 1,
+  "description": "L1 fallback view compatible with any type; emits FALLBACK-VIEW: preamble marker.",
+  "fieldViews": [
+    {
+      "fieldId": "00000000-0000-4000-8000-000000003501",
+      "order": 0,
+      "visible": true,
+      "displayLabel": "Fallback Title"
+    }
+  ],
+  "exportConfig": {
+    "preamble": "FALLBACK-VIEW:{{instance-id}}\n"
+  },
+  "createdAt": "2026-01-01T00:00:00Z"
+}

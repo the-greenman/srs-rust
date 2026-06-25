@@ -1,0 +1,26 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
+  "relations": [
+    {
+      "relationId": "00000000-0000-4000-8000-000000003521",
+      "relationType": "precedes",
+      "sourceInstanceId": "00000000-0000-4000-8000-000000003512",
+      "targetInstanceId": "00000000-0000-4000-8000-000000003510",
+      "createdAt": "2026-01-01T00:00:00Z"
+    },
+    {
+      "relationId": "00000000-0000-4000-8000-000000003522",
+      "relationType": "precedes",
+      "sourceInstanceId": "00000000-0000-4000-8000-000000003510",
+      "targetInstanceId": "00000000-0000-4000-8000-000000003513",
+      "createdAt": "2026-01-01T00:00:00Z"
+    },
+    {
+      "relationId": "00000000-0000-4000-8000-000000003523",
+      "relationType": "precedes",
+      "sourceInstanceId": "00000000-0000-4000-8000-000000003513",
+      "targetInstanceId": "00000000-0000-4000-8000-000000003511",
+      "createdAt": "2026-01-01T00:00:00Z"
+    }
+  ]
+}

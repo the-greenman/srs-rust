@@ -1,0 +1,21 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/view.json",
+  "id": "00000000-0000-4000-8000-000000003505",
+  "namespace": "fixture.rfc008",
+  "name": "table-view",
+  "version": 1,
+  "description": "L1 view for section.table records; emits TABLE-VIEW: preamble marker.",
+  "compatibleTypes": ["fixture.rfc008/section.table"],
+  "fieldViews": [
+    {
+      "fieldId": "00000000-0000-4000-8000-000000003501",
+      "order": 0,
+      "visible": true,
+      "displayLabel": "Table Title"
+    }
+  ],
+  "exportConfig": {
+    "preamble": "TABLE-VIEW:{{instance-id}}\n"
+  },
+  "createdAt": "2026-01-01T00:00:00Z"
+}

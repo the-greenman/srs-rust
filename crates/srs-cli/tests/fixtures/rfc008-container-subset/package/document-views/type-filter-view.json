@@ -1,0 +1,24 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json",
+  "id": "00000000-0000-4000-8000-000000003507",
+  "namespace": "fixture.rfc008",
+  "name": "type-filter-view",
+  "version": 1,
+  "description": "DocumentView with typeFilter restricting container-subset to section.text records only.",
+  "format": "markdown",
+  "sections": [
+    {
+      "sectionId": "filtered-body",
+      "title": "Filtered Body",
+      "order": 0,
+      "source": {
+        "type": "container-subset",
+        "containerId": "00000000-0000-4000-8000-000000003500",
+        "typeFilter": ["fixture.rfc008/section.text"]
+      },
+      "titleFieldId": "00000000-0000-4000-8000-000000003501",
+      "emptyBehavior": "hide"
+    }
+  ],
+  "createdAt": "2026-01-01T00:00:00Z"
+}

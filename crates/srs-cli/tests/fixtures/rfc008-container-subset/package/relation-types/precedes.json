@@ -1,0 +1,12 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
+  "id": "f7a8b9c0-d1e2-4f3a-8b4c-5d6e7f8a9b0c",
+  "version": 1,
+  "key": "precedes",
+  "namespace": "fixture.rfc008",
+  "label": "Precedes",
+  "description": "Source instance comes before target instance in the ordering chain.",
+  "category": "sequence",
+  "irreflexive": true,
+  "createdAt": "2026-01-01T00:00:00Z"
+}
