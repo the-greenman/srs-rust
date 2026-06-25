@@ -32,6 +32,7 @@ These existing repos anchor the scenarios — use them as the representative tar
 | Gallery example | `../srs/docs/spec/examples/gallery-project-v2` | The LiMoMa governance repo: notes → typed records → records, relations, containers, document-views, and a shared `Lifecycle` bound via `Type.lifecycleRef` (records carry `lifecycleState`). |
 | Governance profile | `../srs/docs/spec/profiles/governance-profile.md` | The semantic vocabulary for decisions, exercises, articles, roles, ratifications, and the deliberation protocols. |
 | muDemocracy guide repo | `../../muDemocracy.org/muSrs` | Governance profile in live use: guide containers, decision/exercise records, document views. |
+| RFC-008 container-subset fixture | `crates/srs-cli/tests/fixtures/rfc008-container-subset` | A heterogeneous container (two `section.text` + two `section.table` records in a `table-1 → text-1 → table-2 → text-2` precedes chain) with three document views demonstrating `typeFilter`, `typeDispatch`, and cross-type precedes ordering. Anchors S11. |
 
 Paths are relative to `srs-rust/`. For a fresh throwaway repo use `srs repo create --repo /tmp/dogfood-<slug> --namespace com.example.dogfood`.
 
@@ -353,6 +354,30 @@ This is the muSrs guide pattern: `guide-body-view` has a default `themeRef` targ
 
 ---
 
+### S11 — Render a heterogeneous container in authored order (RFC-008 typeFilter + typeDispatch)
+
+**Intention.** *"My container holds mixed record types — prose sections and data tables — that together form one ordered document. I want to render them in a single section in their authored (precedes) order, choose a different layout per type, and sometimes show only one kind — without splitting them into separate type-grouped sections that lose the interleaved order."*
+
+This is the RFC-008 capability: a `container-subset` document-view section that (a) restricts to chosen types via `typeFilter` and (b) routes each type to its own L1 view via `typeDispatch`, while preserving the container's full `precedes` order. The anchor repo is the `rfc008-container-subset` fixture — two `section.text` and two `section.table` records in a `table-1 → text-1 → table-2 → text-2` precedes chain, with views `type-filter-view` (`…3507`), `type-dispatch-view` (`…3508`), and `cross-type-order-view` (`…3509`).
+
+**Capabilities exercised.** `container-subset` section source; `typeFilter` (version-independent `namespace/name` keys) applied as a **filter-then-project step *after* the precedes sort**, so cross-type edges still order the survivors; `typeDispatch` selecting a per-type L1 view (consulted before `renderViewId`, falling back to `renderViewId` then the record's own type); records-as-source-of-truth (changing the `precedes` relation changes the render); both fields use the package-resolved type identity, never the record's denormalised `typeNamespace`/`typeName` hints.
+
+**CLI surface.** `document-view create`, `document-view get`, `render document-view`, `relation create` / `relation list`, `repo validate`.
+
+**Steps.**
+1. Orient on the anchor repo and confirm it is valid: `srs repo validate --repo crates/srs-cli/tests/fixtures/rfc008-container-subset --pretty` → `ok: true`, `summary.checked: 4`, 0 errors.
+2. **typeFilter** — render `…3507`: `srs render document-view --repo <fixture> --view 00000000-0000-4000-8000-000000003507`. Confirm only `Text-One` and `Text-Two` appear (both `Table-*` records dropped) **and** the two survivors keep their relative order — `Text-One` before `Text-Two`. That ordering only holds because the filter runs *after* the chain sort over the full container; filtering first would strip the `table-*` links and collapse to `createdAt` order.
+3. **typeDispatch** — render `…3508`: confirm all four records appear in full precedes order (`Table-One → Text-One → Table-Two → Text-Two`) and each carries its per-type marker (`TABLE-VIEW:` / `TEXT-VIEW:` preamble), proving each type resolved to its own L1 view.
+4. **Cross-type order** — render `…3509` (no filter, no dispatch): all four in the same precedes order, each rendered by its own type.
+5. **Prove records are the source of truth:** copy the fixture to a scratch dir, then reorder the chain — e.g. reverse the head edge so `text-1 → table-1` (delete `table-1 → text-1`, add `text-1 → table-1`) makes `Text-One` the new head — and re-render `…3509`. Confirm the rendered order changes to match the new relation (keep the edits a valid DAG; a cycle just falls back to `createdAt`).
+6. **Authoring round-trip:** re-create a `typeFilter`/`typeDispatch` view from scratch via `document-view create` (stdin must include `createdAt`); read the persisted file under `package/document-views/` and confirm `source.typeFilter` and `section.typeDispatch` survived — these fields are CLI-authorable, not fixture-only.
+
+**Negative case.** Author a `container-subset` section whose `typeFilter` matches **no** container member (e.g. `["fixture.rfc008/section.nonexistent"]`) and render it — confirm the section is **empty-but-valid**: `ok: true`, `payload.rendered` present, no record titles, and an empty `payload.diagnostics` (not an error or crash). Separately, confirm that records with **no** `typeDispatch` entry and **no** `renderViewId` emit **no** `[view-dispatch]` diagnostic — an absent dispatch is a silent fall-through to the record's own type, not a warning.
+
+**Done when.** The `typeFilter` render contains exactly the in-filter types and preserves their cross-type precedes order; the `typeDispatch` render shows every record under its per-type view marker in full chain order; changing the `precedes` relation changes the rendered order (the markdown is derived, not stored); a no-match `typeFilter` yields an empty-but-valid section; `typeFilter`/`typeDispatch` survive a `document-view create` round-trip to disk.
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -373,8 +398,9 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `relation` (create/list/get/delete) | S1, S3, S5 |
 | `relation-type` | _gap — no scenario yet_ |
 | `container` (create/members/roots/validate/…) | S4 |
-| `document-view` (create/get/list/…) | S4, S5 |
-| `render document-view` | S4, S5, S8 |
+| `document-view` (create/get/list/…) | S4, S5, S11 |
+| `render document-view` | S4, S5, S8, S11 |
+| `container-subset` section + `typeFilter` / `typeDispatch` (RFC-008) | S11 |
 | `view` (L1) | _gap — no scenario yet_ |
 | `tree` | S5 |
 | `vocabulary` (create/get/list/term-create/derive-tag-set/promote) | S6 |
