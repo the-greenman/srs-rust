@@ -2,7 +2,7 @@ use serde::Deserialize;
 use srs_core::types::record::{FieldGroupValue, FieldValue};
 use srs_core::types::relation::Relation;
 use srs_repository::blueprint_schema_service::{self, BlueprintSchemaInput};
-use srs_repository::container_service;
+use srs_repository::container_service::{self, ContainerListFilter};
 use srs_repository::record_store::{self, RecordListFilter, TransitionLifecycleInput};
 use srs_repository::relation_service::{self, ListRelationsFilter};
 use srs_repository::render_service::{self, RenderDocumentViewOptions};
@@ -250,15 +250,14 @@ impl SrsRepository {
     /// `{ "containerType"?: string, "memberInstanceId"?: string, "rootInstanceId"?: string }`;
     /// pass `"{}"` for all containers. Returns a JS array of `ContainerSummary` objects.
     pub fn list_containers(&self, filter_json: &str) -> Result<JsValue, JsValue> {
-        let filter: ContainerListBindingFilter = serde_json::from_str(filter_json)
+        let parsed: ContainerListBindingFilter = serde_json::from_str(filter_json)
             .map_err(|e| js_err(format!("invalid filter: {e}")))?;
-        let summaries = container_service::list_containers(
-            &self.store,
-            filter.container_type.as_deref(),
-            filter.member_instance_id.as_deref(),
-            filter.root_instance_id.as_deref(),
-        )
-        .map_err(js_err)?;
+        let filter = ContainerListFilter {
+            container_type: parsed.container_type,
+            member_instance_id: parsed.member_instance_id,
+            root_instance_id: parsed.root_instance_id,
+        };
+        let summaries = container_service::list_containers(&self.store, &filter).map_err(js_err)?;
         to_js(&summaries)
     }
 

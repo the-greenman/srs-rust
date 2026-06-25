@@ -1,4 +1,4 @@
-use crate::container_service;
+use crate::container_service::{self, ContainerListFilter};
 use crate::error::RepositoryError;
 use crate::loader::load_note;
 use crate::manifest::Manifest;
@@ -616,7 +616,7 @@ fn find_singular_plural_duplicates(tag_counts: &[TagCount]) -> Vec<TagDuplicate>
 }
 
 fn summarize_containers(store: &dyn RepositoryStore) -> Result<ContainersSummary, RepositoryError> {
-    let summaries = container_service::list_containers(store, None, None, None)?;
+    let summaries = container_service::list_containers(store, &ContainerListFilter::default())?;
     let mut types: BTreeMap<String, usize> = BTreeMap::new();
     for summary in &summaries {
         if let Some(ct) = &summary.container_type {
