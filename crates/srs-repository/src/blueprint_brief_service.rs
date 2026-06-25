@@ -343,6 +343,8 @@ fn validate_contributes_to(
                     field_ref.field_id
                 ));
             }
+            // FieldRef.type_id (optional) is not validated here — that is a separate
+            // cross-entity check deferred to a follow-up issue.
         }
     }
     Ok(())
