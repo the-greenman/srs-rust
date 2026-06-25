@@ -94,7 +94,11 @@ fn document_views_for_container_returns_matching() {
     let store = JsonStore::from_srsj(&bound_view_srsj()).expect("bound-view srsj must load");
     let views = view_service::document_views_for_container(&store, CONTAINER_ID)
         .expect("lookup must succeed");
-    assert_eq!(views.len(), 1, "exactly one view binds this container's root type");
+    assert_eq!(
+        views.len(),
+        1,
+        "exactly one view binds this container's root type"
+    );
     assert_eq!(views[0].id, VIEW_ID);
 }
 
@@ -103,11 +107,9 @@ fn document_views_for_container_returns_matching() {
 #[test]
 fn document_views_for_container_empty_when_unbound() {
     let store = gallery_store();
-    let views = view_service::document_views_for_container(
-        &store,
-        "138e2fac-6a8a-4a06-9511-5aefd99ceae9",
-    )
-    .expect("lookup must succeed");
+    let views =
+        view_service::document_views_for_container(&store, "138e2fac-6a8a-4a06-9511-5aefd99ceae9")
+            .expect("lookup must succeed");
     assert!(
         views.is_empty(),
         "gallery views declare no rootTypeRefs, so nothing matches"

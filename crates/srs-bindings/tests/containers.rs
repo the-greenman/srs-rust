@@ -82,7 +82,10 @@ fn containers_for_instance_empty_for_uncontained() {
     let store = gallery_store();
     let summaries = containers_for_instance(&store, "00000000-0000-4000-8000-000000000000")
         .expect("lookup must succeed");
-    assert!(summaries.is_empty(), "uncontained instance has no containers");
+    assert!(
+        summaries.is_empty(),
+        "uncontained instance has no containers"
+    );
 }
 
 /// add_member / remove_member round-trip — the path the guides editor uses when

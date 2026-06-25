@@ -126,7 +126,10 @@ fn list_blueprints_empty_on_gallery() {
     let store = gallery_store();
     let result =
         blueprint_service::list_blueprints_summary(&store).expect("list_blueprints must succeed");
-    assert!(result.summaries.is_empty(), "gallery declares no blueprints");
+    assert!(
+        result.summaries.is_empty(),
+        "gallery declares no blueprints"
+    );
     assert!(
         result.diagnostics.is_empty(),
         "no provenance diagnostics expected: {:?}",
