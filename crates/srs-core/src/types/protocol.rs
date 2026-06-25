@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::types::blueprint::TypeRef;
+
 /// Protocol stage definition for validation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -18,7 +20,7 @@ pub struct ProtocolStage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_guidance: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub output_type: Option<serde_json::Value>,
+    pub output_type: Option<TypeRef>,
 }
 
 /// Protocol definition.

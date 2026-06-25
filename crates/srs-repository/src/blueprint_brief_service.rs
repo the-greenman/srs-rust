@@ -359,7 +359,9 @@ impl From<ProtocolStage> for BriefStageResult {
             completion_criteria: stage.completion_criteria,
             contributes_to: stage.contributes_to,
             ai_guidance: stage.ai_guidance,
-            output_type: stage.output_type,
+            output_type: stage
+                .output_type
+                .map(|t| serde_json::to_value(t).expect("TypeRef serializes infallibly")),
         }
     }
 }
