@@ -1,0 +1,21 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/view.json",
+  "id": "00000000-0000-4000-8000-000000003504",
+  "namespace": "fixture.rfc008",
+  "name": "text-view",
+  "version": 1,
+  "description": "L1 view for section.text records; emits TEXT-VIEW: preamble marker.",
+  "compatibleTypes": ["fixture.rfc008/section.text"],
+  "fieldViews": [
+    {
+      "fieldId": "00000000-0000-4000-8000-000000003501",
+      "order": 0,
+      "visible": true,
+      "displayLabel": "Text Title"
+    }
+  ],
+  "exportConfig": {
+    "preamble": "TEXT-VIEW:{{instance-id}}\n"
+  },
+  "createdAt": "2026-01-01T00:00:00Z"
+}

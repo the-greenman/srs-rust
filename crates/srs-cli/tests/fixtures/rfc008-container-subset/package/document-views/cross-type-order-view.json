@@ -1,0 +1,23 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json",
+  "id": "00000000-0000-4000-8000-000000003509",
+  "namespace": "fixture.rfc008",
+  "name": "cross-type-order-view",
+  "version": 1,
+  "description": "DocumentView with no filter or dispatch; proves cross-type precedes ordering in container-subset.",
+  "format": "markdown",
+  "sections": [
+    {
+      "sectionId": "ordered-body",
+      "title": "Ordered Body",
+      "order": 0,
+      "source": {
+        "type": "container-subset",
+        "containerId": "00000000-0000-4000-8000-000000003500"
+      },
+      "titleFieldId": "00000000-0000-4000-8000-000000003501",
+      "emptyBehavior": "hide"
+    }
+  ],
+  "createdAt": "2026-01-01T00:00:00Z"
+}

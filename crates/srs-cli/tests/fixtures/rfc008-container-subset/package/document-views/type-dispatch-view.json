@@ -1,0 +1,27 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json",
+  "id": "00000000-0000-4000-8000-000000003508",
+  "namespace": "fixture.rfc008",
+  "name": "type-dispatch-view",
+  "version": 1,
+  "description": "DocumentView with typeDispatch routing each type to its own L1 view.",
+  "format": "markdown",
+  "sections": [
+    {
+      "sectionId": "dispatched-body",
+      "title": "Dispatched Body",
+      "order": 0,
+      "source": {
+        "type": "container-subset",
+        "containerId": "00000000-0000-4000-8000-000000003500"
+      },
+      "typeDispatch": {
+        "fixture.rfc008/section.text": "00000000-0000-4000-8000-000000003504",
+        "fixture.rfc008/section.table": "00000000-0000-4000-8000-000000003505"
+      },
+      "titleFieldId": "00000000-0000-4000-8000-000000003501",
+      "emptyBehavior": "hide"
+    }
+  ],
+  "createdAt": "2026-01-01T00:00:00Z"
+}

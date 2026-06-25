@@ -1,0 +1,14 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "instanceId": "00000000-0000-4000-8000-000000003512",
+  "typeId": "00000000-0000-4000-8000-000000003503",
+  "typeVersion": 1,
+  "typeNamespace": "fixture.rfc008",
+  "typeName": "section.table",
+  "fieldValues": [
+    {
+      "fieldId": "00000000-0000-4000-8000-000000003501",
+      "value": "Table-One"
+    }
+  ]
+}
