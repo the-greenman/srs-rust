@@ -25,7 +25,8 @@ fn gallery_store() -> JsonStore {
 #[test]
 fn list_containers_returns_all() {
     let store = gallery_store();
-    let summaries = list_containers(&store, &ContainerListFilter::default()).expect("list must succeed");
+    let summaries =
+        list_containers(&store, &ContainerListFilter::default()).expect("list must succeed");
     assert_eq!(summaries.len(), 3, "gallery has three containers");
 }
 

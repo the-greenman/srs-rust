@@ -1,4 +1,6 @@
-use crate::container_service::{create_container, get_container, list_containers, ContainerListFilter};
+use crate::container_service::{
+    create_container, get_container, list_containers, ContainerListFilter,
+};
 use crate::error::RepositoryError;
 use crate::index::InstanceIndexEntry;
 use crate::relation_service::load_relations;
