@@ -50,6 +50,8 @@ Stage dependency invariants (no self-dependency, no cycles, `order` consistent w
 
 ## Prerequisites for Implementation
 
+> **Superseded — do not act on the steps below.** ADR-016 replaced this design; the `com.semanticops.srs/protocol@1` type was never created and must not be created. See [ADR-016](016-protocols-are-package-definitions.md).
+
 Before Phase 4 agents can implement protocol services:
 
 1. Create `srs/srs/package/types/protocol.json` defining the `com.semanticops.srs/protocol@1` type.
