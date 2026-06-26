@@ -1,7 +1,7 @@
 # ADR-010: Service Boundary Contract
 
-- **Status:** proposed
-- **Date:** 2026-05-30
+- **Status:** accepted
+- **Date:** 2026-05-30 (proposed), 2026-06-26 (accepted)
 - **Supersedes:** —
 - **Superseded by:** —
 
@@ -62,3 +62,18 @@ If a CLI handler contains anything beyond: arg parsing, one `serde_json::from_re
 - The CLI continues to own the `--repo` path resolution, store construction, and JSON envelope formatting — these are correctly CLI concerns.
 - `anyhow` remains acceptable in `srs-cli`. `thiserror` with explicit error types required in service functions.
 - The JSON CLI output contract does not change. The typed result structs serialize to the same JSON shapes as the current `json!({...})` literals.
+
+## Enforcement and the render-vs-project boundary
+
+This ADR is the load-bearing rule for the default capability path described in
+[`docs/architecture/capability-layering.md`](../architecture/capability-layering.md).
+Apply it together with one clarification that resolves a recurring ambiguity:
+
+- **Typed/structured projection** (shaping core types into a result struct that other
+  consumers would also want) is a shared data contract — it belongs **in the service**
+  (e.g. #188).
+- **Format-specific rendering** (markdown/html/text produced for one audience) is an
+  output opinion — it belongs **in the client** (`srs-cli` / future `srs-projection`),
+  not in the service (e.g. #131).
+
+A service returns data; a client decides how to render it.
