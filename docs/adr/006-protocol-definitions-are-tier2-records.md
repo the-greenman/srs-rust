@@ -1,9 +1,13 @@
 # ADR-006: Protocol Definitions Are Generic Tier 2 Records With Typed Validation
 
-- **Status:** accepted
+- **Status:** superseded
 - **Date:** 2026-05-29
 - **Supersedes:** —
-- **Superseded by:** —
+- **Superseded by:** ADR-016
+
+> **This ADR is superseded by ADR-016.** The design described here was not implemented.
+> The actual storage model stores protocols as package definitions (parallel to blueprints),
+> not as Tier 2 Records. See ADR-016 for the current authoritative description.
 
 ## Context
 
