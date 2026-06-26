@@ -18,12 +18,18 @@ See [agents.md](agents.md) for role definitions.
 
 | ADR | Decision | Status |
 |---|---|---|
+| [ADR-001](../docs/adr/001-library-first-architecture.md) | All business logic belongs in `srs-repository`; the CLI is a thin consumer | accepted |
 | [ADR-006](../docs/adr/006-protocol-definitions-are-tier2-records.md) | Protocols are package definitions with typed validation; original ADR specified Tier 2 Records but implementation correctly uses Package definitions parallel to blueprints | accepted |
 | [ADR-009](../docs/adr/009-package-boundary-model.md) | Services address packages through logical selectors; FileStore and JsonStore/MemoryStore own the path mapping | accepted |
 | [ADR-010](../docs/adr/010-service-boundary-contract.md) | Service functions take typed inputs, own all validation, return typed results; no re-reading inside a single logical operation | accepted |
 | [ADR-011](../docs/adr/011-cli-output-contract.md) | CLI output is produced by named structs in payload.rs | accepted |
+| [ADR-013](../docs/adr/013-wasm-binding-strategy.md) | Every service capability must be reachable through both CLI and WASM; WASM bindings for the refactored protocol functions are deferred to #224 | accepted |
 
 No new ADRs are required — this plan implements the Package model pattern established for blueprints in ADR-009 and applies the service contract from ADR-010.
+
+**Design note — `source_package` asymmetry with `Blueprint`:** `LoadedProtocol` carries `source_package: Option<String>` but `Blueprint` does not. This asymmetry is justified by different service requirements: `ProtocolSummary` (the existing CLI output for `protocol list`) includes `source_package`, so the loader must preserve it; blueprints have no equivalent summary type that requires provenance. Adding `LoadedBlueprint` when the blueprint read path is similarly refactored is tracked in #223. The asymmetry is intentional and documented here rather than deferred silently.
+
+**Design note — JsonStore protocol loading diverges from blueprints:** `JsonStore::load_package()` currently returns `blueprints: vec![]` — blueprints are not loaded through the JsonStore/WASM path. This plan makes protocols the *first* definition type loaded in `load_package_from_prefix()`. This is an intentional divergence: the Decision Logger v1 flow requires protocol lookup through the compiled model for both the CLI (FileStore) and the in-memory roundtrip test (JsonStore), and loading blueprints in JsonStore is a future enhancement (no current consumer). Blueprint loading in JsonStore is tracked as part of #223.
 
 ---
 
@@ -61,7 +67,7 @@ What is explicitly in scope:
 
 - Refactoring blueprint_service read functions (parallel work, not required for this issue)
 - Protocol write paths (create/update/delete) — stay unchanged
-- WASM bindings (`srs-bindings`) — no protocol binding surface changes in this plan
+- WASM bindings (`srs-bindings`) — tracked in #224 (thin wrappers over the same three service functions); deferred to keep this PR's diff reviewable
 - CLI handler changes in `srs-cli`
 - Any srs-core Protocol/ProtocolStage struct changes
 
@@ -84,7 +90,8 @@ What is explicitly in scope:
 - [ ] In `crates/srs-repository/src/store.rs` (private `PackageMetadata` struct at ~line 372):
   - Add `#[serde(default)] protocols: Vec<String>,` field after `blueprints`
 - [ ] In `crates/srs-repository/src/store.rs` (`load_package_from_dir()` at ~line 728):
-  - After the blueprints loop, add a protocols loading loop: for each `blueprint_path` in `metadata.protocols`, read the file, deserialize as `Protocol` (silently skip on parse error matching blueprint behaviour), store as `LoadedProtocol { protocol, raw: val, source_package: None }` (source_package set by caller)
+  - After the blueprints loop, add a protocols loading loop: for each `protocol_path` in `metadata.protocols`, read the file, deserialize as `Protocol` (silently skip on parse error matching blueprint behaviour), store as `LoadedProtocol { protocol, raw: val, source_package: None }` (source_package set by the caller — `FileStore::load_package()` — when merging sub-packages)
+  - Protocols are loaded inside this helper (not post-return as vocabularies/lifecycles are) because they participate in sub-package merging, the same reason blueprints are loaded here
   - Return type changes: extend the tuple from 6 to 7 elements — add `Vec<LoadedProtocol>` at the end
 - [ ] In `crates/srs-repository/src/store.rs` (`FileStore::load_package()` at ~line 852):
   - Update the destructuring of `load_package_from_dir` to capture `mut protocols`
@@ -107,11 +114,10 @@ What is explicitly in scope:
 - [ ] In `crates/srs-repository/src/store.rs` — update the test `memory::MemoryStore`'s `initialize_repository` (`Package { ... blueprints: vec![], ... }` at ~line 2203) to add `protocols: vec![]`
 - [ ] In `crates/srs-repository/src/store.rs` — update `package_to_json()` helper (~line 2027) to include `"protocols": []` in the returned JSON (alongside `"blueprints": []`)
 - [ ] In `crates/srs-repository/src/store.rs` — add `pub fn with_protocol(protocol_json: serde_json::Value) -> Self` helper to `memory::MemoryStore`:
-  - Parses `protocol_json` as `Protocol` (panics on invalid input — test helper only)
-  - Computes filename `protocols/<slug>-<id_prefix>.json` using protocol name/id
+  - Parses `protocol_json` as `Protocol` using `serde_json::from_value` — panics with a clear message if parse fails (test helper only)
+  - Extracts `protocol.protocol_id` and `protocol.protocol_name` from the parsed struct (panics if either is empty — these are required fields in any valid protocol fixture)
   - Pushes `LoadedProtocol { protocol, raw: protocol_json.clone(), source_package: None }` to `self.package.protocols`
-  - Adds filename to `package/package.json` `protocols[]` in `self.data` (or initializes the array if absent)
-  - Stores the protocol file at `package/<filename>` in `self.data`
+  - Does NOT write to `self.data` — `MemoryStore::load_package()` returns the pre-built `self.package` directly and never reads from `self.data` for package loading; the data write would be dead code. (Contrast with `JsonStore::load_package()` which re-derives the Package from `self.data` on every call — that path is exercised by the Phase 3 roundtrip test.)
 
 #### Acceptance Criteria
 
@@ -158,7 +164,7 @@ Specific tests to verify:
   - Refactor `list_protocols(store)`:
     - Replace the boundary-scan loop with `let package = store.load_package()?;`
     - Map `package.protocols` to `Vec<ProtocolSummary>`: for each `LoadedProtocol`, build `ProtocolSummary` from `lp.protocol` fields (`protocol_id`, `protocol_namespace`, `protocol_name`, `protocol_version`) and `lp.raw["protocolStages"].as_array().map(|a| a.len()).unwrap_or(0)` for `stage_count`; `source_package: lp.source_package.clone()`
-    - Deduplication by `protocol_id` (first-boundary-wins) is now handled by the loader; but retain a `HashSet` guard in case the loader doesn't deduplicate — skip if already seen
+    - Deduplication by `protocol_id` (first-boundary-wins) is handled by the loader — no compensating `HashSet` guard in the service layer (that would be a service compensating for a loader bug, violating ADR-010)
   - Refactor `get_protocol_by_id(store, id)`:
     - Replace `find_protocol_path` call with `store.load_package()?.protocols`
     - Find the first `LoadedProtocol` where `lp.protocol.protocol_id == id`
@@ -231,7 +237,7 @@ Use `crate::store::memory::MemoryStore::with_protocol(protocol_json)` (added in 
 
 #### Acceptance Criteria
 
-- [ ] Test `protocol_roundtrip_create_list_get_find` exists and passes against `MemoryStore` (not only `FileStore`)
+- [ ] Test `protocol_roundtrip_create_list_get_find` exists and passes against `JsonStore` (in-memory, no disk I/O)
 - [ ] `cargo test protocol_roundtrip` passes
 - [ ] No `FileStore` or disk I/O required in the roundtrip test
 
@@ -264,7 +270,7 @@ All of the following must be true before this plan is closed:
 - [ ] `bash scripts/check-schema-sync.sh` exits 0 (no entity schemas changed)
 - [ ] `Package.protocols: Vec<LoadedProtocol>` populated by both FileStore and JsonStore loaders
 - [ ] Read-side service functions (`list_protocols`, `get_protocol_by_id`, `find_protocol_by_target_type`) consume `store.load_package()?.protocols`
-- [ ] Cross-store roundtrip test passes against MemoryStore/JsonStore
+- [ ] Cross-store roundtrip test passes against JsonStore (in-memory, no disk I/O)
 - [ ] No behavioural regression: `protocol list`, `protocol get`, `protocol stages` output is identical before and after (confirmed in dogfooding)
 - [ ] All Package struct literals updated to include `protocols: vec![]`
 
