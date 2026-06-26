@@ -110,10 +110,6 @@ fn slugify(name: &str) -> String {
         .replace(' ', "-")
 }
 
-fn load_protocol_from_value(value: &serde_json::Value) -> Option<Protocol> {
-    serde_json::from_value(value.clone()).ok()
-}
-
 /// Parse and structurally validate a protocol definition JSON into a typed [`Protocol`].
 fn protocol_from_value(value: &serde_json::Value) -> Result<Protocol, RepositoryError> {
     serde_json::from_value(value.clone()).map_err(|e| {
@@ -201,50 +197,23 @@ fn find_protocol_path(
 // Read-only service functions
 // ---------------------------------------------------------------------------
 
-/// List protocol summaries across all package boundaries.
-///
-/// Scans each boundary's `package.json` `protocols[]` array directly. Emits WARN diagnostics
-/// for missing files and duplicate IDs is left to the caller; first boundary wins on duplicates.
+/// List protocol summaries from the compiled package model.
 pub fn list_protocols(
     store: &dyn RepositoryStore,
 ) -> Result<Vec<ProtocolSummary>, RepositoryError> {
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut summaries = vec![];
-
-    for boundary in store.list_package_boundaries()? {
-        let prefix = boundary.selector.as_deref().unwrap_or("package");
-        let Ok(pkg_json) = store.load_instance_json(&format!("{prefix}/package.json")) else {
-            continue;
-        };
-        let Some(paths) = pkg_json["protocols"].as_array() else {
-            continue;
-        };
-        for entry in paths.clone() {
-            let Some(rel) = entry.as_str() else { continue };
-            let full = format!("{prefix}/{rel}");
-            let Ok(val) = store.load_instance_json(&full) else {
-                continue;
-            };
-            let stage_count = val["protocolStages"]
-                .as_array()
-                .map(|a| a.len())
-                .unwrap_or(0);
-            let Some(proto) = load_protocol_from_value(&val) else {
-                continue;
-            };
-            if seen.insert(proto.protocol_id.clone()) {
-                summaries.push(ProtocolSummary {
-                    protocol_id: proto.protocol_id,
-                    protocol_namespace: proto.protocol_namespace,
-                    protocol_name: proto.protocol_name,
-                    protocol_version: proto.protocol_version,
-                    stage_count,
-                    source_package: boundary.selector.clone(),
-                });
-            }
-        }
-    }
-
+    let package = store.load_package()?;
+    let summaries = package
+        .protocols
+        .into_iter()
+        .map(|lp| ProtocolSummary {
+            protocol_id: lp.protocol.protocol_id.clone(),
+            protocol_namespace: lp.protocol.protocol_namespace.clone(),
+            protocol_name: lp.protocol.protocol_name.clone(),
+            protocol_version: lp.protocol.protocol_version,
+            stage_count: lp.protocol.protocol_stages.len(),
+            source_package: lp.source_package,
+        })
+        .collect();
     Ok(summaries)
 }
 
@@ -253,11 +222,13 @@ pub fn get_protocol_by_id(
     store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<GetProtocolResult, RepositoryError> {
-    match find_protocol_path(store, id)? {
-        Some((path, _owner)) => {
-            let val = store.load_instance_json(&path)?;
-            Ok(GetProtocolResult::Found(val))
-        }
+    let package = store.load_package()?;
+    match package
+        .protocols
+        .into_iter()
+        .find(|lp| lp.protocol.protocol_id == id)
+    {
+        Some(lp) => Ok(GetProtocolResult::Found(lp.raw)),
         None => Ok(GetProtocolResult::NotFound),
     }
 }
@@ -284,7 +255,7 @@ pub fn list_protocol_stages(
             Ok(stages)
         }
         GetProtocolResult::NotFound => Err(RepositoryError::NotFound {
-            path: std::path::PathBuf::from(PROTOCOLS_DIR),
+            path: std::path::PathBuf::from(format!("{PROTOCOLS_DIR}/{id}")),
         }),
     }
 }
@@ -316,7 +287,7 @@ pub fn validate_protocol_definition(
             })
         }
         GetProtocolResult::NotFound => Err(RepositoryError::NotFound {
-            path: std::path::PathBuf::from(PROTOCOLS_DIR),
+            path: std::path::PathBuf::from(format!("{PROTOCOLS_DIR}/{id}")),
         }),
     }
 }
@@ -328,49 +299,18 @@ pub fn find_protocol_by_target_type(
     store: &dyn RepositoryStore,
     target_type_id: &str,
 ) -> Result<Option<FindProtocolByTargetTypeResult>, RepositoryError> {
-    for boundary in store.list_package_boundaries()? {
-        let prefix = boundary.selector.as_deref().unwrap_or("package");
-        let Ok(pkg_json) = store.load_instance_json(&format!("{prefix}/package.json")) else {
+    let package = store.load_package()?;
+    for lp in package.protocols {
+        if lp.protocol.protocol_target_type != target_type_id {
             continue;
-        };
-        let Some(paths) = pkg_json["protocols"].as_array() else {
-            continue;
-        };
-        for entry in paths {
-            let Some(rel) = entry.as_str() else { continue };
-            let Ok(val) = store.load_instance_json(&format!("{prefix}/{rel}")) else {
-                continue;
-            };
-            if val["protocolTargetType"].as_str() != Some(target_type_id) {
-                continue;
-            }
-            let (Some(protocol_id), Some(protocol_name)) =
-                (val["protocolId"].as_str(), val["protocolName"].as_str())
-            else {
-                continue;
-            };
-            let mut stage_diagnostics: Vec<String> = Vec::new();
-            let stages: Vec<ProtocolStage> = val["protocolStages"]
-                .as_array()
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| {
-                            serde_json::from_value::<ProtocolStage>(v.clone())
-                                .map_err(|e| {
-                                    stage_diagnostics.push(format!("invalid stage: {e}"));
-                                })
-                                .ok()
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            return Ok(Some(FindProtocolByTargetTypeResult {
-                protocol_id: protocol_id.to_string(),
-                protocol_name: protocol_name.to_string(),
-                stages,
-                diagnostics: stage_diagnostics,
-            }));
         }
+        let stages = lp.protocol.protocol_stages.clone();
+        return Ok(Some(FindProtocolByTargetTypeResult {
+            protocol_id: lp.protocol.protocol_id,
+            protocol_name: lp.protocol.protocol_name,
+            stages,
+            diagnostics: vec![],
+        }));
     }
     Ok(None)
 }
@@ -501,4 +441,190 @@ pub fn delete_protocol(
     Ok(DeleteProtocolResult {
         protocol_id: id.to_string(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::package::LoadedProtocol;
+    use crate::store::memory::MemoryStore;
+    use srs_core::types::protocol::Protocol;
+
+    fn make_protocol(id: &str, target_type: &str, name: &str) -> LoadedProtocol {
+        let protocol = Protocol {
+            protocol_id: id.to_string(),
+            protocol_namespace: "com.test".to_string(),
+            protocol_name: name.to_string(),
+            protocol_version: 1,
+            protocol_description: None,
+            protocol_target_type: target_type.to_string(),
+            protocol_stages: vec![],
+            protocol_tags: None,
+            protocol_created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let raw = serde_json::to_value(&protocol).unwrap();
+        LoadedProtocol {
+            protocol,
+            raw,
+            source_package: None,
+        }
+    }
+
+    #[test]
+    fn list_protocols_empty() {
+        let store = MemoryStore::empty();
+        let result = list_protocols(&store).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn list_protocols_returns_all() {
+        let store = MemoryStore::empty()
+            .with_protocol(make_protocol("proto-001", "type-a", "Alpha"))
+            .with_protocol(make_protocol("proto-002", "type-b", "Beta"));
+        let result = list_protocols(&store).unwrap();
+        assert_eq!(result.len(), 2);
+        let ids: Vec<&str> = result.iter().map(|s| s.protocol_id.as_str()).collect();
+        assert!(ids.contains(&"proto-001"));
+        assert!(ids.contains(&"proto-002"));
+    }
+
+    #[test]
+    fn get_protocol_by_id_found() {
+        let store =
+            MemoryStore::empty().with_protocol(make_protocol("proto-001", "type-a", "Alpha"));
+        match get_protocol_by_id(&store, "proto-001").unwrap() {
+            GetProtocolResult::Found(val) => {
+                assert_eq!(val["protocolId"].as_str(), Some("proto-001"));
+            }
+            GetProtocolResult::NotFound => panic!("expected Found"),
+        }
+    }
+
+    #[test]
+    fn get_protocol_by_id_not_found() {
+        let store = MemoryStore::empty();
+        assert!(matches!(
+            get_protocol_by_id(&store, "missing-id").unwrap(),
+            GetProtocolResult::NotFound
+        ));
+    }
+
+    #[test]
+    fn find_protocol_by_target_type_found() {
+        let store = MemoryStore::empty()
+            .with_protocol(make_protocol("proto-001", "type-a", "Alpha"))
+            .with_protocol(make_protocol("proto-002", "type-b", "Beta"));
+        let result = find_protocol_by_target_type(&store, "type-b").unwrap();
+        let found = result.expect("should find protocol for type-b");
+        assert_eq!(found.protocol_id, "proto-002");
+        assert_eq!(found.protocol_name, "Beta");
+    }
+
+    #[test]
+    fn find_protocol_by_target_type_not_found() {
+        let store =
+            MemoryStore::empty().with_protocol(make_protocol("proto-001", "type-a", "Alpha"));
+        let result = find_protocol_by_target_type(&store, "type-x").unwrap();
+        assert!(result.is_none());
+    }
+}
+
+#[cfg(test)]
+mod roundtrip_tests {
+    use super::*;
+    use crate::json_store::JsonStore;
+    use crate::repository_lifecycle::{
+        create_repository, InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
+    };
+    use tempfile::TempDir;
+
+    fn init_store() -> (TempDir, JsonStore) {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("repo.srsj");
+        let store = JsonStore::create(&path).unwrap();
+        create_repository(
+            &store,
+            &InitializeRepositoryInput {
+                repository: RepositoryMetadata {
+                    repository_id: "repo-001".to_string(),
+                    namespace: "com.test".to_string(),
+                    srs_version: "2.0-draft".to_string(),
+                    title: None,
+                    description: None,
+                },
+                primary_package: PrimaryPackageMetadata {
+                    id: "pkg-001".to_string(),
+                    namespace: "com.test".to_string(),
+                    name: "primary".to_string(),
+                    version: "1.0.0".to_string(),
+                },
+            },
+        )
+        .unwrap();
+        (tmp, store)
+    }
+
+    fn proto_json(id: &str, target_type: &str, name: &str) -> serde_json::Value {
+        serde_json::json!({
+            "protocolId": id,
+            "protocolNamespace": "com.test",
+            "protocolName": name,
+            "protocolVersion": 1,
+            "protocolTargetType": target_type,
+            "protocolCreatedAt": "2026-01-01T00:00:00Z",
+            "protocolStages": [{
+                "stageId": "s1",
+                "name": "Gather",
+                "order": 1,
+                "dependsOn": [],
+                "question": "What is the topic?"
+            }]
+        })
+    }
+
+    #[test]
+    fn protocol_roundtrip_create_list_get_find() {
+        let (_tmp, store) = init_store();
+
+        // Write via create path
+        create_protocol(
+            &store,
+            proto_json("proto-rt-001", "type-aaa", "Roundtrip Protocol"),
+            None,
+        )
+        .unwrap();
+
+        // list_protocols reads compiled model
+        let list = list_protocols(&store).unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].protocol_id, "proto-rt-001");
+        assert_eq!(list[0].protocol_name, "Roundtrip Protocol");
+        assert_eq!(list[0].stage_count, 1);
+
+        // get_protocol_by_id reads compiled model
+        match get_protocol_by_id(&store, "proto-rt-001").unwrap() {
+            GetProtocolResult::Found(val) => {
+                assert_eq!(val["protocolId"].as_str(), Some("proto-rt-001"));
+            }
+            GetProtocolResult::NotFound => panic!("expected Found"),
+        }
+
+        // find_protocol_by_target_type reads compiled model
+        let found = find_protocol_by_target_type(&store, "type-aaa")
+            .unwrap()
+            .expect("should find protocol");
+        assert_eq!(found.protocol_id, "proto-rt-001");
+        assert_eq!(found.stages.len(), 1);
+        assert_eq!(found.stages[0].stage_id, "s1");
+
+        // Confirm a missing id and type return the right results
+        assert!(matches!(
+            get_protocol_by_id(&store, "missing").unwrap(),
+            GetProtocolResult::NotFound
+        ));
+        assert!(find_protocol_by_target_type(&store, "type-zzz")
+            .unwrap()
+            .is_none());
+    }
 }

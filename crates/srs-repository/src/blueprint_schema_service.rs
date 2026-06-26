@@ -405,6 +405,7 @@ mod tests {
             document_views: vec![],
             themes: vec![],
             blueprints: vec![],
+            protocols: vec![],
             root: PathBuf::from("/memory"),
             dependency_refs: vec![],
             vocabularies: vec![],

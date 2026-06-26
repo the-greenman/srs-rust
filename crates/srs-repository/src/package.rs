@@ -1,6 +1,7 @@
 use srs_core::types::blueprint::Blueprint;
 use srs_core::types::field::Field;
 use srs_core::types::lifecycle::{Lifecycle, LifecycleState, LifecycleTransition};
+use srs_core::types::protocol::Protocol;
 use srs_core::types::record_type::{FieldAssignment, FieldGroup, RecordType};
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::types::term::Term;
@@ -9,7 +10,7 @@ use srs_core::types::view::{DocumentView, View};
 use srs_core::types::vocabulary::Vocabulary;
 use std::path::PathBuf;
 
-/// A loaded package containing field definitions, record types, views, themes, and blueprints.
+/// A loaded package containing field definitions, record types, views, themes, blueprints, and protocols.
 ///
 /// The `root` field contains the repository root path (not the package/ subdirectory).
 #[derive(Debug, Clone)]
@@ -25,11 +26,25 @@ pub struct Package {
     pub document_views: Vec<DocumentView>,
     pub themes: Vec<Theme>,
     pub blueprints: Vec<Blueprint>,
+    pub protocols: Vec<LoadedProtocol>,
     pub root: PathBuf,
     /// ext:type-inheritance — external package dependencies declared in dependencyRefs.
     pub dependency_refs: Vec<DependencyRef>,
     pub vocabularies: Vec<Vocabulary>,
     pub lifecycles: Vec<Lifecycle>,
+}
+
+/// A protocol as loaded from a package, bundling typed struct + verbatim JSON.
+///
+/// `raw` preserves all fields from the on-disk JSON, including any value-centric
+/// stage fields (e.g. `output_type`) that are not fully captured by the typed
+/// `Protocol` struct. `source_package` is `None` for the root package and `Some`
+/// for protocols merged from a dependency package.
+#[derive(Debug, Clone)]
+pub struct LoadedProtocol {
+    pub protocol: Protocol,
+    pub raw: serde_json::Value,
+    pub source_package: Option<String>,
 }
 
 /// ext:type-inheritance — a declared external package dependency reference.
@@ -1202,6 +1217,7 @@ mod tests {
             document_views: vec![],
             themes: vec![],
             blueprints: vec![],
+            protocols: vec![],
             root: PathBuf::from("/test"),
             dependency_refs: vec![],
             vocabularies: vec![],
@@ -1705,6 +1721,7 @@ mod tests {
             document_views: vec![],
             themes: vec![],
             blueprints: vec![],
+            protocols: vec![],
             root: PathBuf::from("/memory"),
             dependency_refs: vec![],
             vocabularies: vec![],

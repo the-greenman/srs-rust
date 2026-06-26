@@ -413,6 +413,50 @@ This is the RFC-011 capability: `type-query` SectionSource extended with `lifecy
 
 ---
 
+### S13 — Exercise protocol read-side after create: list, get, stages
+
+**Intention.** *"I've declared an extraction protocol that tells AI agents how to pull structured decisions from governance discussions — stage by stage, field by field. Before I wire it to a blueprint brief, I want to confirm the protocol is machine-readable: the stage list comes back in the right order, the full protocol definition is retrievable by ID, and missing IDs return a clean error envelope."*
+
+**Capabilities exercised.** `protocol create` (write path), `protocol list` (compiled-model read), `protocol get` (compiled-model read by ID), `protocol stages` (stage projection from compiled model). This scenario specifically verifies that the refactored read-side service functions source data from the compiled `Package.protocols` (populated at load time) rather than re-reading package files on every call.
+
+**CLI surface.** `protocol create`, `protocol list`, `protocol get`, `protocol stages`, `repo validate`.
+
+**Anchor repo.** None — build from scratch with `srs repo create`.
+
+**Steps.**
+1. `srs repo create --repo /tmp/dogfood-protocols --namespace com.example.dogfood` → `ok: true`.
+2. Create the target type:
+   ```json
+   {"id":"com.example.dogfood/decision","namespace":"com.example.dogfood","name":"Decision","version":1,"description":"A governance decision record","createdAt":"2026-06-26T00:00:00Z","fields":[],"allowedRelationTypes":[]}
+   ```
+   piped to `srs type create --repo /tmp/dogfood-protocols` → `ok: true`.
+3. Create the protocol:
+   ```json
+   {
+     "protocolId": "com.example.dogfood/extraction-protocol",
+     "protocolNamespace": "com.example.dogfood",
+     "protocolName": "Decision Extraction Protocol",
+     "protocolVersion": 1,
+     "protocolTargetType": "com.example.dogfood/decision",
+     "protocolDescription": "A protocol for extracting structured decisions from governance discussions",
+     "protocolCreatedAt": "2026-06-26T00:00:00Z",
+     "protocolStages": [
+       {"stageId": "com.example.dogfood/extraction-protocol/identify", "name": "Identify", "description": "Identify the decision being made", "order": 1, "dependsOn": []}
+     ]
+   }
+   ```
+   piped to `srs protocol create --repo /tmp/dogfood-protocols` → `ok: true`, `payload.protocol.protocolId` = `"com.example.dogfood/extraction-protocol"`.
+4. `srs protocol list --repo /tmp/dogfood-protocols --pretty` → `payload.protocols` has 1 entry with `protocolId`, `name`, `namespace`, `version`, `stageCount: 1`.
+5. `srs protocol get --repo /tmp/dogfood-protocols com.example.dogfood/extraction-protocol --pretty` → `ok: true`, `payload.protocol.protocolStages` has the `identify` stage with `order: 1`.
+6. `srs protocol stages --repo /tmp/dogfood-protocols com.example.dogfood/extraction-protocol --pretty` → `payload.stages` has 1 entry with `stageId` and `name`.
+7. `srs repo validate --repo /tmp/dogfood-protocols --pretty` → `ok: true`, `summary.errors: 0`.
+
+**Negative case.** `srs protocol get --repo /tmp/dogfood-protocols com.example.dogfood/nonexistent --pretty` → `ok: false`, `diagnostics[0]` contains `"not found"`. `srs protocol list` on a freshly-created repo (no protocols declared) → `ok: true`, `payload.protocols: []`.
+
+**Done when.** `protocol list` returns the created protocol; `protocol get` returns the full definition including all stages; `protocol stages` returns the stage list; a missing-ID get returns `ok: false` with a diagnostic naming the missing ID; `repo validate` shows 0 errors; `protocol list` on an empty repo returns an empty array without error.
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -444,7 +488,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `lifecycle` (list/get) | S4, S6 |
 | `lifecycleRef` create/transition (referenceable lifecycle) | S6 (step 7 extended) |
 | `blueprint` (list/get/validate/structure/schema/brief) | S7 |
-| `protocol` | _gap — no scenario yet (governance protocols described in S4 prose)_ |
+| `protocol` (create/list/get/stages) | S13 |
 | `theme` | S8 |
 | `extension` | _gap — no scenario yet_ |
 | `migrate` | _gap — no scenario yet_ |
