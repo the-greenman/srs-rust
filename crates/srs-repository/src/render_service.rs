@@ -1187,7 +1187,9 @@ fn resolve_section_instances(
             let mut records = list_records_by_type(store, namespace, name)?;
 
             // ── Container scoping (RFC-011 [N+27]) ───────────────────────────────────
-            let scope = container_scope.as_ref().unwrap_or(&ContainerScope::Explicit);
+            let scope = container_scope
+                .as_ref()
+                .unwrap_or(&ContainerScope::Explicit);
             match scope {
                 ContainerScope::Repository => {
                     // Ignore all container filtering — return all records of the type.
@@ -1239,19 +1241,26 @@ fn resolve_section_instances(
             // lifecycleStates takes precedence over the back-compat singular lifecycle_state.
             let include_states = lifecycle_states.as_ref().filter(|v| !v.is_empty());
             let has_include = include_states.is_some();
-            let backcompat_state = if !has_include { lifecycle_state.as_deref() } else { None };
+            let backcompat_state = if !has_include {
+                lifecycle_state.as_deref()
+            } else {
+                None
+            };
 
             if has_include || backcompat_state.is_some() {
                 // Inclusion filter: only records whose lifecycle_state matches any listed value.
                 // Records with no lifecycle_state are excluded.
                 records.retain(|r| {
-                    r.lifecycle_state.as_deref().map(|s| {
-                        if let Some(inc) = include_states {
-                            inc.iter().any(|v| v == s)
-                        } else {
-                            backcompat_state == Some(s)
-                        }
-                    }).unwrap_or(false)
+                    r.lifecycle_state
+                        .as_deref()
+                        .map(|s| {
+                            if let Some(inc) = include_states {
+                                inc.iter().any(|v| v == s)
+                            } else {
+                                backcompat_state == Some(s)
+                            }
+                        })
+                        .unwrap_or(false)
                 });
             }
 
@@ -5572,7 +5581,10 @@ mod tests {
         );
         let store = make_rfc011_store(
             dv,
-            &[("r-active", Some("active")), ("r-superseded", Some("superseded"))],
+            &[
+                ("r-active", Some("active")),
+                ("r-superseded", Some("superseded")),
+            ],
         );
         let result = render_document_view(RenderDocumentViewOptions {
             store: &store,
@@ -5583,8 +5595,14 @@ mod tests {
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
-        assert!(ids.contains(&"r-active".to_string()), "active record should be present: {ids:?}");
-        assert!(!ids.contains(&"r-superseded".to_string()), "superseded record should be excluded: {ids:?}");
+        assert!(
+            ids.contains(&"r-active".to_string()),
+            "active record should be present: {ids:?}"
+        );
+        assert!(
+            !ids.contains(&"r-superseded".to_string()),
+            "superseded record should be excluded: {ids:?}"
+        );
         assert_eq!(ids.len(), 1);
     }
 
@@ -5615,7 +5633,11 @@ mod tests {
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
-        assert_eq!(ids, vec!["r-active"], "only active record should be included: {ids:?}");
+        assert_eq!(
+            ids,
+            vec!["r-active"],
+            "only active record should be included: {ids:?}"
+        );
     }
 
     #[test]
@@ -5642,8 +5664,14 @@ mod tests {
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
-        assert!(ids.contains(&"r-none".to_string()), "record with no lifecycleState must not be excluded: {ids:?}");
-        assert!(!ids.contains(&"r-superseded".to_string()), "superseded must be excluded: {ids:?}");
+        assert!(
+            ids.contains(&"r-none".to_string()),
+            "record with no lifecycleState must not be excluded: {ids:?}"
+        );
+        assert!(
+            !ids.contains(&"r-superseded".to_string()),
+            "superseded must be excluded: {ids:?}"
+        );
     }
 
     #[test]
@@ -5657,10 +5685,7 @@ mod tests {
             None,
             None,
         );
-        let store = make_rfc011_store(
-            dv,
-            &[("r-none", None), ("r-active", Some("active"))],
-        );
+        let store = make_rfc011_store(dv, &[("r-none", None), ("r-active", Some("active"))]);
         let result = render_document_view(RenderDocumentViewOptions {
             store: &store,
             view_id: "dv-no-state-excluded-by-include",
@@ -5670,8 +5695,14 @@ mod tests {
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
-        assert!(!ids.contains(&"r-none".to_string()), "record with no lifecycleState must be excluded by inclusion filter: {ids:?}");
-        assert!(ids.contains(&"r-active".to_string()), "active record must be included: {ids:?}");
+        assert!(
+            !ids.contains(&"r-none".to_string()),
+            "record with no lifecycleState must be excluded by inclusion filter: {ids:?}"
+        );
+        assert!(
+            ids.contains(&"r-active".to_string()),
+            "active record must be included: {ids:?}"
+        );
     }
 
     #[test]
@@ -5694,10 +5725,7 @@ mod tests {
             Some(vec![C1_ID.to_string()]),
             None,
         );
-        let store = make_rfc011_store(
-            dv,
-            &[(R_IN_C1, Some("active")), (R_IN_C2, Some("active"))],
-        );
+        let store = make_rfc011_store(dv, &[(R_IN_C1, Some("active")), (R_IN_C2, Some("active"))]);
 
         container_service::create_container(
             &store,
@@ -5750,9 +5778,19 @@ mod tests {
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
-        assert!(ids.contains(&R_IN_C1.to_string()), "r-in-c1 must be in repo-scope result: {ids:?}");
-        assert!(ids.contains(&R_IN_C2.to_string()), "r-in-c2 must be in repo-scope result: {ids:?}");
-        assert_eq!(ids.len(), 2, "both records must be present with repository scope: {ids:?}");
+        assert!(
+            ids.contains(&R_IN_C1.to_string()),
+            "r-in-c1 must be in repo-scope result: {ids:?}"
+        );
+        assert!(
+            ids.contains(&R_IN_C2.to_string()),
+            "r-in-c2 must be in repo-scope result: {ids:?}"
+        );
+        assert_eq!(
+            ids.len(),
+            2,
+            "both records must be present with repository scope: {ids:?}"
+        );
     }
 
     #[test]
@@ -5779,7 +5817,11 @@ mod tests {
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
-        assert_eq!(ids, vec!["r-active"], "only active record should be included via backcompat filter: {ids:?}");
+        assert_eq!(
+            ids,
+            vec!["r-active"],
+            "only active record should be included via backcompat filter: {ids:?}"
+        );
     }
 
     #[test]
@@ -5840,18 +5882,19 @@ mod tests {
                 extra: std::collections::HashMap::new(),
             };
             let path = format!("records/{id}.json");
-            std::fs::write(repo_root.join(&path), serde_json::to_string_pretty(&record).unwrap())
-                .unwrap();
+            std::fs::write(
+                repo_root.join(&path),
+                serde_json::to_string_pretty(&record).unwrap(),
+            )
+            .unwrap();
             index_entries.push(serde_json::json!({"instanceId": id, "tier": 2, "path": path}));
         }
 
         // Write manifest.json
         std::fs::write(
             repo_root.join("manifest.json"),
-            serde_json::to_string_pretty(
-                &serde_json::json!({"instanceIndex": index_entries}),
-            )
-            .unwrap(),
+            serde_json::to_string_pretty(&serde_json::json!({"instanceIndex": index_entries}))
+                .unwrap(),
         )
         .unwrap();
 
@@ -5952,10 +5995,7 @@ mod tests {
             None,
             None,
         );
-        let store = make_rfc011_store(
-            dv,
-            &[(R_IN_C1, Some("active")), (R_IN_C2, Some("active"))],
-        );
+        let store = make_rfc011_store(dv, &[(R_IN_C1, Some("active")), (R_IN_C2, Some("active"))]);
 
         container_service::create_container(
             &store,
@@ -6017,6 +6057,10 @@ mod tests {
             ids.contains(&R_IN_C2.to_string()),
             "r-in-c2 must be present even though cli_container_id={C1_ID}: {ids:?}"
         );
-        assert_eq!(ids.len(), 2, "both records must appear with repository scope: {ids:?}");
+        assert_eq!(
+            ids.len(),
+            2,
+            "both records must appear with repository scope: {ids:?}"
+        );
     }
 }

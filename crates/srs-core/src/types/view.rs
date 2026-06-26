@@ -369,10 +369,22 @@ mod tests {
             container_scope: Some(ContainerScope::Repository),
         };
         let json = serde_json::to_string(&source).unwrap();
-        assert!(json.contains("\"lifecycleStates\""), "lifecycleStates must serialise as camelCase: {json}");
-        assert!(json.contains("\"excludeLifecycleStates\""), "excludeLifecycleStates must serialise as camelCase: {json}");
-        assert!(json.contains("\"containerScope\""), "containerScope must serialise as camelCase: {json}");
-        assert!(json.contains("\"repository\""), "ContainerScope::Repository must serialise as 'repository': {json}");
+        assert!(
+            json.contains("\"lifecycleStates\""),
+            "lifecycleStates must serialise as camelCase: {json}"
+        );
+        assert!(
+            json.contains("\"excludeLifecycleStates\""),
+            "excludeLifecycleStates must serialise as camelCase: {json}"
+        );
+        assert!(
+            json.contains("\"containerScope\""),
+            "containerScope must serialise as camelCase: {json}"
+        );
+        assert!(
+            json.contains("\"repository\""),
+            "ContainerScope::Repository must serialise as 'repository': {json}"
+        );
         let parsed: SectionSource = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, source);
     }
@@ -389,18 +401,36 @@ mod tests {
             container_scope: None,
         };
         let json = serde_json::to_string(&source).unwrap();
-        assert!(!json.contains("lifecycleStates"), "absent lifecycleStates must not appear in JSON: {json}");
-        assert!(!json.contains("excludeLifecycleStates"), "absent excludeLifecycleStates must not appear in JSON: {json}");
-        assert!(!json.contains("containerScope"), "absent containerScope must not appear in JSON: {json}");
+        assert!(
+            !json.contains("lifecycleStates"),
+            "absent lifecycleStates must not appear in JSON: {json}"
+        );
+        assert!(
+            !json.contains("excludeLifecycleStates"),
+            "absent excludeLifecycleStates must not appear in JSON: {json}"
+        );
+        assert!(
+            !json.contains("containerScope"),
+            "absent containerScope must not appear in JSON: {json}"
+        );
         let parsed: SectionSource = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, source);
     }
 
     #[test]
     fn container_scope_serialises_lowercase() {
-        assert_eq!(serde_json::to_string(&ContainerScope::Explicit).unwrap(), "\"explicit\"");
-        assert_eq!(serde_json::to_string(&ContainerScope::Repository).unwrap(), "\"repository\"");
-        assert_eq!(serde_json::to_string(&ContainerScope::Subtree).unwrap(), "\"subtree\"");
+        assert_eq!(
+            serde_json::to_string(&ContainerScope::Explicit).unwrap(),
+            "\"explicit\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ContainerScope::Repository).unwrap(),
+            "\"repository\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ContainerScope::Subtree).unwrap(),
+            "\"subtree\""
+        );
     }
 
     #[test]
