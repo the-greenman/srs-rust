@@ -4,6 +4,8 @@ Rust implementation of the SRS system: `srs-core`, `srs-repository`, `srs-cli`, 
 
 The top-level `semanticops/CLAUDE.md` contains the full SRS data model, CLI reference, and agentic usage rules. Read that first. This file adds rules specific to working inside the Rust codebase.
 
+**Before implementing any new capability** (anything that queries, filters, traverses, validates, or projects), read **`docs/architecture/capability-layering.md`** — the default path for where functionality belongs. The short version: build it once as a `srs-repository` service returning a typed struct, expose it through both the CLI payload and a WASM binding, and keep clients free of semantics. Building semantics in a leaf client (as a prior srs-web search filter did) is the mistake that guide exists to prevent.
+
 ## Commands
 
 Run from `srs-rust/`:
