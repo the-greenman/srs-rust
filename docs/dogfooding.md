@@ -377,6 +377,40 @@ This is the RFC-008 capability: a `container-subset` document-view section that 
 
 **Done when.** The `typeFilter` render contains exactly the in-filter types and preserves their cross-type precedes order; the `typeDispatch` render shows every record under its per-type view marker in full chain order; changing the `precedes` relation changes the rendered order (the markdown is derived, not stored); a no-match `typeFilter` yields an empty-but-valid section; `typeFilter`/`typeDispatch` survive a `document-view create` round-trip to disk.
 
+### S12 — Filter a type-query section by lifecycle state (RFC-011 lifecycleStates + excludeLifecycleStates + containerScope)
+
+**Intention.** *"My document view should only show active decisions — not drafts, not superseded ones — and it should pull from the whole repository, not just one container I have to name upfront."*
+
+This is the RFC-011 capability: `type-query` SectionSource extended with `lifecycleStates` (inclusive OR filter), `excludeLifecycleStates` (exclusion after inclusion), and `containerScope` (`"repository"` / `"explicit"` / `"subtree"`).
+
+**Capabilities exercised.** `type-query` section source with `excludeLifecycleStates`; `lifecycleStates` inclusive filter; `containerScope: "repository"` ignoring container membership; `emptyBehavior: "hide"` for sections with no surviving records; no regression in existing `container-subset` or `fixed-instances` sections.
+
+**CLI surface.** `document-view create`, `render document-view`, `repo validate`.
+
+**Anchor repo.** `srs/docs/spec/examples/gallery-project-v2` — 7 `governance/decision` records (all `ratified`), 1 `governance/decision_log` record (`draft`).
+
+**Steps.**
+1. Validate the anchor repo: `srs repo validate --repo srs/docs/spec/examples/gallery-project-v2` → `ok: true`, `summary.errors: 0`.
+2. **Exclude filter** — create a DocumentView with:
+   ```json
+   {
+     "source": {
+       "type": "type-query",
+       "semanticObjectType": "governance/decision",
+       "containerScope": "repository",
+       "excludeLifecycleStates": ["draft"]
+     }
+   }
+   ```
+   Place in `package/document-views/`, add to `package.json "documentViews"`, then render. Confirm all 7 ratified decisions appear, diagnostics is `[]`.
+3. **Inclusive filter** — create a second view with `"lifecycleStates": ["draft"]`. Render — confirm 0 decisions appear and the section is hidden (`emptyBehavior: "hide"` default).
+4. **Exclusion of all** — create a view with `"excludeLifecycleStates": ["ratified"]`. Render — confirm 0 decisions appear (all excluded).
+5. `srs repo validate --repo <copied-repo>` after adding views — must still report `ok: true`, `summary.errors: 0`.
+
+**Negative case.** A `type-query` with `lifecycleStates: ["active"]` applied to the gallery (no decisions have state `active`) returns an empty section with `ok: true`, no error. A record without `lifecycleState` is **not** excluded by `excludeLifecycleStates` but **is** excluded when `lifecycleStates` is non-empty.
+
+**Done when.** The exclude-filter view renders exactly the non-excluded records; the include-filter view renders only records matching the listed states; a non-matching inclusive filter yields an empty-but-valid render; `repo validate` still reports 0 errors after adding RFC-011 views; `diagnostics` is empty for `containerScope: "repository"` (no noise).
+
 ---
 
 ## Coverage matrix
@@ -402,6 +436,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `document-view` (create/get/list/…) | S4, S5, S11 |
 | `render document-view` | S4, S5, S8, S11 |
 | `container-subset` section + `typeFilter` / `typeDispatch` (RFC-008) | S11 |
+| `type-query` lifecycle filter (`lifecycleStates`, `excludeLifecycleStates`, `containerScope`) (RFC-011) | S12 |
 | `view` (L1) | _gap — no scenario yet_ |
 | `tree` | S5 |
 | `vocabulary` (create/get/list/term-create/derive-tag-set/promote) | S6 |
