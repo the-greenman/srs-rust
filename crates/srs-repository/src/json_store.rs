@@ -61,6 +61,9 @@ struct PackageMetadata {
     #[serde(default)]
     themes: Vec<String>,
     #[serde(default)]
+    #[allow(dead_code)] // blueprints not yet loaded in JsonStore; see TODO(#223)
+    blueprints: Vec<String>,
+    #[serde(default)]
     protocols: Vec<String>,
     #[serde(default)]
     vocabularies: Vec<String>,
@@ -874,7 +877,7 @@ impl RepositoryStore for JsonStore {
             views,
             document_views,
             themes,
-            blueprints: vec![],
+            blueprints: vec![], // TODO(#223): blueprints not yet loaded in JsonStore
             protocols,
             root: self.repository_root(),
             dependency_refs: vec![],

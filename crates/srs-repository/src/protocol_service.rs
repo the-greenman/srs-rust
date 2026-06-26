@@ -255,7 +255,7 @@ pub fn list_protocol_stages(
             Ok(stages)
         }
         GetProtocolResult::NotFound => Err(RepositoryError::NotFound {
-            path: std::path::PathBuf::from(PROTOCOLS_DIR),
+            path: std::path::PathBuf::from(format!("{PROTOCOLS_DIR}/{id}")),
         }),
     }
 }
@@ -287,7 +287,7 @@ pub fn validate_protocol_definition(
             })
         }
         GetProtocolResult::NotFound => Err(RepositoryError::NotFound {
-            path: std::path::PathBuf::from(PROTOCOLS_DIR),
+            path: std::path::PathBuf::from(format!("{PROTOCOLS_DIR}/{id}")),
         }),
     }
 }
@@ -304,27 +304,12 @@ pub fn find_protocol_by_target_type(
         if lp.protocol.protocol_target_type != target_type_id {
             continue;
         }
-        let mut stage_diagnostics: Vec<String> = Vec::new();
-        let stages: Vec<ProtocolStage> = lp
-            .raw["protocolStages"]
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| {
-                        serde_json::from_value::<ProtocolStage>(v.clone())
-                            .map_err(|e| {
-                                stage_diagnostics.push(format!("invalid stage: {e}"));
-                            })
-                            .ok()
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+        let stages = lp.protocol.protocol_stages.clone();
         return Ok(Some(FindProtocolByTargetTypeResult {
             protocol_id: lp.protocol.protocol_id,
             protocol_name: lp.protocol.protocol_name,
             stages,
-            diagnostics: stage_diagnostics,
+            diagnostics: vec![],
         }));
     }
     Ok(None)

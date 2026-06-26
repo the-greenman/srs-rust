@@ -2332,22 +2332,23 @@ pub mod memory {
                         if let Some(rel) = path_val.as_str() {
                             let full = format!("package/{rel}");
                             if let Some(raw) = data.get(&full) {
-                                if let Ok(proto) =
-                                    serde_json::from_value::<srs_core::types::protocol::Protocol>(
-                                        raw.clone(),
-                                    )
+                                let proto = serde_json::from_value::<
+                                    srs_core::types::protocol::Protocol,
+                                >(raw.clone())
+                                .map_err(|source| RepositoryError::PackageLoad {
+                                    path: std::path::PathBuf::from(&full),
+                                    source,
+                                })?;
+                                if !pkg
+                                    .protocols
+                                    .iter()
+                                    .any(|p| p.protocol.protocol_id == proto.protocol_id)
                                 {
-                                    if !pkg
-                                        .protocols
-                                        .iter()
-                                        .any(|p| p.protocol.protocol_id == proto.protocol_id)
-                                    {
-                                        pkg.protocols.push(crate::package::LoadedProtocol {
-                                            protocol: proto,
-                                            raw: raw.clone(),
-                                            source_package: None,
-                                        });
-                                    }
+                                    pkg.protocols.push(crate::package::LoadedProtocol {
+                                        protocol: proto,
+                                        raw: raw.clone(),
+                                        source_package: None,
+                                    });
                                 }
                             }
                         }
