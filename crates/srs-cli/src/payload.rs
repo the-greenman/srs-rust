@@ -23,6 +23,7 @@ use srs_core::types::{
     container::Container,
     lifecycle::Lifecycle,
     note::Note,
+    protocol::{FieldRef as CoreFieldRef, ProtocolStage},
     record::Record,
     record_type::RecordType,
     relation::Relation,
@@ -778,6 +779,34 @@ pub struct FieldRef {
     pub field_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub type_id: Option<String>,
+}
+
+impl From<CoreFieldRef> for FieldRef {
+    fn from(r: CoreFieldRef) -> Self {
+        Self {
+            field_id: r.field_id,
+            type_id: r.type_id,
+        }
+    }
+}
+
+impl From<ProtocolStage> for ProtocolStageEntry {
+    fn from(s: ProtocolStage) -> Self {
+        Self {
+            stage_id: s.stage_id,
+            name: s.name,
+            purpose: s.purpose,
+            order: s.order,
+            depends_on: s.depends_on,
+            question: s.question,
+            completion_criteria: s.completion_criteria,
+            contributes_to: s
+                .contributes_to
+                .map(|refs| refs.into_iter().map(FieldRef::from).collect()),
+            ai_guidance: s.ai_guidance,
+            output_type: s.output_type,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
