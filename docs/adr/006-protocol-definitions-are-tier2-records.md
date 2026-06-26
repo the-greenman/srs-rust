@@ -1,9 +1,9 @@
 # ADR-006: Protocol Definitions Are Generic Tier 2 Records With Typed Validation
 
-- **Status:** accepted
+- **Status:** superseded
 - **Date:** 2026-05-29
 - **Supersedes:** —
-- **Superseded by:** —
+- **Superseded by:** [ADR-016](016-protocols-are-package-definitions.md)
 
 ## Context
 
