@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/protocol.json",
+  "title": "SRS Protocol Definition",
+  "description": "Defines a facilitation protocol: an ordered sequence of stages that guide capture of a structured Record from a source document or conversation. Each stage names the question it answers, the field(s) it contributes to, and any AI guidance for extraction. A Protocol is referenced by its UUID from a Package manifest and loaded by the engine at capture time.",
+  "type": "object",
+  "required": [
+    "protocolId",
+    "protocolNamespace",
+    "protocolName",
+    "protocolVersion",
+    "protocolTargetType",
+    "protocolStages",
+    "protocolCreatedAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://srs.semanticops.com/schema/2.0/protocol.json",
+      "description": "When present, must equal the canonical schema URI. Optional — stored protocol files authored before schema enforcement may omit this field."
+    },
+    "protocolId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Stable UUID for this Protocol. Never changes across versions."
+    },
+    "protocolNamespace": {
+      "type": "string",
+      "description": "Domain namespace the protocol belongs to (e.g. 'governance'). Used for organisation and discovery."
+    },
+    "protocolName": {
+      "type": "string",
+      "description": "Machine-readable name within the namespace, kebab-case or lowercase (e.g. 'decision')."
+    },
+    "protocolVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Monotonically increasing version integer within this Protocol's UUID lineage."
+    },
+    "protocolDescription": {
+      "type": "string",
+      "description": "Human-readable description of what this Protocol captures and when to use it. Optional."
+    },
+    "protocolTargetType": {
+      "type": "string",
+      "format": "uuid",
+      "description": "UUID of the Record Type this Protocol populates. All stage contributesTo references SHOULD resolve to Fields on this Type."
+    },
+    "protocolStages": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ProtocolStage" },
+      "description": "Ordered sequence of capture stages. Stages SHOULD be executed in ascending order order unless dependsOn constraints require a different sequencing."
+    },
+    "protocolTags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Discovery labels. Free-string tags are valid when no Vocabulary governs the key. Optional."
+    },
+    "protocolCreatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of when this Protocol was first authored."
+    }
+  },
+  "$defs": {
+    "ProtocolStage": {
+      "type": "object",
+      "required": ["stageId", "name", "order"],
+      "additionalProperties": true,
+      "description": "A single capture stage within the Protocol. additionalProperties is true to accommodate value-centric stored shapes and forward-compatible extension fields.",
+      "properties": {
+        "stageId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable UUID for this stage within the Protocol."
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable stage name shown to the facilitator or AI agent."
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1-based display order. Stages with the same order value may be presented in any sequence relative to each other."
+        },
+        "purpose": {
+          "type": "string",
+          "description": "One-sentence description of what this stage is for. Optional."
+        },
+        "question": {
+          "type": "string",
+          "description": "The question this stage asks of the facilitator or source document. Optional."
+        },
+        "completionCriteria": {
+          "type": "string",
+          "description": "A clear statement of what 'done' looks like for this stage. Optional."
+        },
+        "dependsOn": {
+          "type": "array",
+          "items": { "type": "string", "format": "uuid" },
+          "description": "Stage UUIDs that must be completed before this stage can begin. Optional — empty array or omission means no dependency."
+        },
+        "contributesTo": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "description": "UUID of the Field on protocolTargetType that this stage populates (compact stored form)."
+              },
+              {
+                "type": "object",
+                "required": ["fieldId"],
+                "additionalProperties": false,
+                "description": "Structured FieldRef form (expanded form with optional typeId context).",
+                "properties": {
+                  "fieldId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "typeId": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                }
+              }
+            ]
+          },
+          "description": "Field(s) on the target Type that this stage populates. Items may be bare Field UUIDs (compact form) or FieldRef objects (expanded form). Optional."
+        },
+        "aiGuidance": {
+          "description": "Guidance for AI-assisted extraction. May be a plain string (extraction instruction) or a structured object. Optional.",
+          "anyOf": [
+            { "type": "string" },
+            { "type": "object", "additionalProperties": true }
+          ]
+        },
+        "outputType": {
+          "description": "Expected output shape for this stage's captured value. May be a string type name or a structured schema fragment. Optional.",
+          "anyOf": [
+            { "type": "string" },
+            { "type": "object", "additionalProperties": true }
+          ]
+        }
+      }
+    }
+  }
+}
