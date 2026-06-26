@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/protocol.json",
+  "title": "SRS Protocol Definition (ext:protocol)",
+  "description": "A facilitation protocol: a named, ordered sequence of stages that guide the extraction or authoring of a Record. Protocols are Package definitions stored under package/protocols/ (parallel to blueprints), not instance Records. The value-centric stored shape is described here — stage properties beyond those listed are permitted to support forward compatibility.",
+  "type": "object",
+  "required": ["protocolId", "protocolNamespace", "protocolName", "protocolVersion", "protocolTargetType", "protocolStages", "protocolCreatedAt"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional self-referencing JSON Schema URI. Not present in stored protocol files authored before this schema was defined."
+    },
+    "protocolId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Stable UUID for this Protocol. Never changes across versions."
+    },
+    "protocolNamespace": {
+      "type": "string",
+      "description": "Reverse-DNS namespace of the Package that owns this Protocol, e.g. governance or com.mudemocracy."
+    },
+    "protocolName": {
+      "type": "string",
+      "description": "Machine-readable name within the namespace, e.g. decision."
+    },
+    "protocolVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Monotonically increasing version integer within this Protocol's UUID lineage."
+    },
+    "protocolDescription": {
+      "type": "string",
+      "description": "Human-readable description of what this Protocol guides and when to use it. Optional."
+    },
+    "protocolTargetType": {
+      "type": "string",
+      "format": "uuid",
+      "description": "UUID of the Record Type this Protocol produces. Stages contributesTo values reference fields on this Type."
+    },
+    "protocolStages": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/ProtocolStage" },
+      "description": "Ordered sequence of facilitation stages. Each stage guides extraction of one aspect of the target Record."
+    },
+    "protocolTags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Discovery labels. Optional."
+    },
+    "protocolCreatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of when this Protocol was first authored."
+    }
+  },
+  "$defs": {
+    "ProtocolStage": {
+      "type": "object",
+      "required": ["stageId", "name", "order"],
+      "additionalProperties": true,
+      "description": "One stage in the facilitation sequence. additionalProperties is true: the stored shape is value-centric and may carry fields beyond those listed here (e.g. richer contributesTo formats, custom per-stage metadata).",
+      "properties": {
+        "stageId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable UUID for this stage. Referenced by dependsOn in other stages."
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable stage name, e.g. Background, Friction, Verdict."
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1-based position of this stage in the sequence."
+        },
+        "purpose": {
+          "type": "string",
+          "description": "One-sentence statement of what this stage captures and why it matters. Optional."
+        },
+        "dependsOn": {
+          "type": "array",
+          "items": { "type": "string", "format": "uuid" },
+          "description": "stageIds that must be complete before this stage can be meaningful. Empty array or absent means no dependencies."
+        },
+        "question": {
+          "type": "string",
+          "description": "The facilitation question posed to the group or the extraction prompt for this stage. Optional."
+        },
+        "completionCriteria": {
+          "type": "string",
+          "description": "Criterion for judging whether this stage has been adequately captured. Optional."
+        },
+        "contributesTo": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Field identifiers this stage contributes to on the target Record Type. Stored as bare field UUID strings in the value-centric format. Optional."
+        },
+        "aiGuidance": {
+          "description": "Guidance for AI-assisted extraction: extraction probes, scope notes, or example phrases. May be a plain string or a structured object. Optional."
+        },
+        "outputType": {
+          "description": "Optional type hint for the structured output of this stage. Implementation-defined shape."
+        }
+      }
+    }
+  }
+}
