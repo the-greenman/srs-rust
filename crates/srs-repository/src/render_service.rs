@@ -1199,7 +1199,10 @@ fn resolve_section_instances(
                         "[N+27] containerScope 'subtree' is not yet fully supported (requires RFC-N); \
                          falling back to explicit scope".to_string(),
                     );
-                    let effective_ids: Option<Vec<String>> = container_ids.clone();
+                    // cli_container_id takes precedence, matching Explicit scope behaviour.
+                    let effective_ids: Option<Vec<String>> = cli_container_id
+                        .map(|id| vec![id.to_string()])
+                        .or_else(|| container_ids.clone());
                     if let Some(ids) = effective_ids {
                         let mut member_set = HashSet::new();
                         for id in &ids {
@@ -1246,7 +1249,7 @@ fn resolve_section_instances(
                         if let Some(inc) = include_states {
                             inc.iter().any(|v| v == s)
                         } else {
-                            Some(s) == backcompat_state
+                            backcompat_state == Some(s)
                         }
                     }).unwrap_or(false)
                 });
@@ -5895,5 +5898,125 @@ mod tests {
         assert!(mem_ids.contains(&"rr-active".to_string()));
         assert!(mem_ids.contains(&"rr-none".to_string()));
         assert!(!mem_ids.contains(&"rr-superseded".to_string()));
+    }
+
+    #[test]
+    fn render_type_query_lifecycle_states_precedence_over_lifecycle_state() {
+        // When both lifecycle_state and lifecycle_states are set, lifecycle_states wins.
+        // lifecycle_state: "draft" would include the draft record;
+        // lifecycle_states: ["active"] must override it and include only the active record.
+        let dv = rfc011_dv(
+            "dv-precedence",
+            Some(vec!["active".to_string()]),
+            None,
+            None,
+            None,
+            Some("draft".to_string()),
+        );
+        let store = make_rfc011_store(
+            dv,
+            &[("r-active", Some("active")), ("r-draft", Some("draft"))],
+        );
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-precedence",
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+        })
+        .unwrap();
+        let ids = rfc011_instance_ids_in_result(&result);
+        assert_eq!(
+            ids,
+            vec!["r-active"],
+            "lifecycle_states must take precedence over lifecycle_state: {ids:?}"
+        );
+    }
+
+    #[test]
+    fn render_type_query_repository_scope_ignores_cli_container() {
+        // containerScope: "repository" must ignore the cli container_id override,
+        // returning all records regardless of the scoping argument.
+        use crate::container_service;
+
+        const C1_ID: &str = "00000000-0000-4000-8000-000000000d01";
+        const C2_ID: &str = "00000000-0000-4000-8000-000000000d02";
+        const R_IN_C1: &str = "00000000-0000-4000-8000-000000000011";
+        const R_IN_C2: &str = "00000000-0000-4000-8000-000000000012";
+
+        let dv = rfc011_dv(
+            "dv-repo-cli-ignore",
+            None,
+            None,
+            Some(ContainerScope::Repository),
+            None,
+            None,
+        );
+        let store = make_rfc011_store(
+            dv,
+            &[(R_IN_C1, Some("active")), (R_IN_C2, Some("active"))],
+        );
+
+        container_service::create_container(
+            &store,
+            srs_core::types::container::Container {
+                container_id: C1_ID.to_string(),
+                title: "Container 1".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                root_instance_ids: None,
+                member_instance_ids: None,
+                tags: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                updated_at: None,
+                meta: None,
+                extra: HashMap::new(),
+            },
+        )
+        .unwrap();
+        container_service::add_member(&store, C1_ID, R_IN_C1).unwrap();
+
+        container_service::create_container(
+            &store,
+            srs_core::types::container::Container {
+                container_id: C2_ID.to_string(),
+                title: "Container 2".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                root_instance_ids: None,
+                member_instance_ids: None,
+                tags: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                updated_at: None,
+                meta: None,
+                extra: HashMap::new(),
+            },
+        )
+        .unwrap();
+        container_service::add_member(&store, C2_ID, R_IN_C2).unwrap();
+
+        // Pass C1_ID as cli container_id — in repository scope, this must be ignored.
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-repo-cli-ignore",
+            format: Some("json"),
+            theme_variant: None,
+            container_id: Some(C1_ID),
+        })
+        .unwrap();
+        let ids = rfc011_instance_ids_in_result(&result);
+        assert!(
+            ids.contains(&R_IN_C1.to_string()),
+            "r-in-c1 must be present: {ids:?}"
+        );
+        assert!(
+            ids.contains(&R_IN_C2.to_string()),
+            "r-in-c2 must be present even though cli_container_id={C1_ID}: {ids:?}"
+        );
+        assert_eq!(ids.len(), 2, "both records must appear with repository scope: {ids:?}");
     }
 }
