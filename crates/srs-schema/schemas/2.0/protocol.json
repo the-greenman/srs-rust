@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/protocol.json",
+  "title": "SRS Protocol Definition (ext:protocol)",
+  "description": "Declares a step-wise workflow for authoring or capturing a Record. A Protocol is a Package definition (not an instance Record): it lives under package/protocols/ and is registered in package.json → protocols[]. Each stage defines a capturing step with optional field references, guidance, and dependency ordering.",
+  "type": "object",
+  "required": ["protocolId", "protocolNamespace", "protocolName", "protocolVersion", "protocolTargetType", "protocolStages", "protocolCreatedAt"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://srs.semanticops.com/schema/2.0/protocol.json"
+    },
+    "protocolId": {
+      "type": "string",
+      "description": "Composite identifier in the form namespace/name@version (e.g. com.example/decision@1). Stable across updates within a lineage."
+    },
+    "protocolNamespace": {
+      "type": "string",
+      "description": "Reverse-DNS namespace, e.g. com.mudemocracy."
+    },
+    "protocolName": {
+      "type": "string",
+      "description": "Machine-readable name within the namespace, kebab-case."
+    },
+    "protocolVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Monotonically increasing version integer within this Protocol's ID lineage."
+    },
+    "protocolDescription": {
+      "type": "string",
+      "description": "Human-readable description of what this Protocol captures and when to use it. Optional."
+    },
+    "protocolTargetType": {
+      "type": "string",
+      "description": "The Record Type ID or composite name this Protocol targets. Used to dispatch the correct Protocol when a Record of this type is being authored."
+    },
+    "protocolStages": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ProtocolStage" },
+      "description": "Stages of the capturing workflow. Each stage contributes to one or more Fields on the target Record. Stages are sequenced by the 'order' property; 'dependsOn' constrains partial ordering."
+    },
+    "protocolTags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Discovery labels. Optional."
+    },
+    "protocolCreatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of when this Protocol was first authored."
+    }
+  },
+  "$defs": {
+    "ProtocolStage": {
+      "type": "object",
+      "required": ["stageId", "name", "order"],
+      "additionalProperties": true,
+      "description": "A single stage in the Protocol workflow. additionalProperties is true: stage fields beyond those listed here are preserved verbatim (value-centric storage), permitting richer stage shapes (e.g. future fields from srs-rust#130).",
+      "properties": {
+        "stageId": {
+          "type": "string",
+          "description": "Stable identifier for this stage within the Protocol."
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable stage name shown in the UI."
+        },
+        "purpose": {
+          "type": "string",
+          "description": "Short description of what this stage is trying to elicit. Optional."
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Sort position of this stage. A stage with dependsOn must have a strictly higher order than each dependency."
+        },
+        "dependsOn": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "stageIds that must be completed before this stage. Defaults to empty array when absent."
+        },
+        "question": {
+          "type": "string",
+          "description": "The capturing question presented to the user for this stage. Optional."
+        },
+        "completionCriteria": {
+          "type": "string",
+          "description": "Human-readable criteria for when this stage is considered complete. Optional."
+        },
+        "contributesTo": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/FieldRef" },
+          "description": "The Field(s) on the target Record that this stage populates. Optional."
+        },
+        "aiGuidance": {
+          "description": "Guidance for AI-assisted capturing. Structure is implementation-defined. Optional."
+        },
+        "outputType": {
+          "description": "Describes the expected output type of this stage. Structure is implementation-defined. Optional."
+        }
+      }
+    },
+    "FieldRef": {
+      "type": "object",
+      "required": ["fieldId"],
+      "additionalProperties": false,
+      "description": "A reference to a Field within a Type, optionally scoped to a specific Type when the same fieldId appears in multiple Types.",
+      "properties": {
+        "fieldId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable UUID of the Field."
+        },
+        "typeId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "UUID of the Type that owns this Field. Omit when unambiguous from context. Optional."
+        }
+      }
+    }
+  }
+}
