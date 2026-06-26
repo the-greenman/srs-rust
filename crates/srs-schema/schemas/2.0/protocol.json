@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/protocol.json",
+  "title": "SRS Protocol Definition (ext:protocol)",
+  "description": "Declares a staged authoring workflow for a target Record Type. A Protocol names the Record Type it applies to, lists the ordered stages an author works through, and carries per-stage guidance. Protocol definitions are stored as Package definitions (Package.protocols[], file under package/protocols/) parallel to Blueprint definitions — they are not instance Records. The schema is value-centric: stage fields beyond the required set (question, completionCriteria, contributesTo, aiGuidance, outputType) are permitted so that stored protocol files are not rejected by validation.",
+  "type": "object",
+  "required": ["$schema", "protocolId", "protocolNamespace", "protocolName", "protocolVersion", "protocolTargetType", "protocolStages", "protocolCreatedAt"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://srs.semanticops.com/schema/2.0/protocol.json"
+    },
+    "protocolId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Stable UUID for this Protocol. Never changes across versions."
+    },
+    "protocolNamespace": {
+      "type": "string",
+      "description": "Reverse-DNS namespace, e.g. com.mudemocracy."
+    },
+    "protocolName": {
+      "type": "string",
+      "description": "Machine-readable name within the namespace, kebab-case."
+    },
+    "protocolVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Monotonically increasing version integer within this Protocol's UUID lineage."
+    },
+    "protocolDescription": {
+      "type": "string",
+      "description": "Human-readable description of what this Protocol captures and when to use it. Optional."
+    },
+    "protocolTargetType": {
+      "type": "string",
+      "format": "uuid",
+      "description": "UUID of the Record Type this Protocol applies to. At load time the engine resolves this against the Types in the installed Package."
+    },
+    "protocolStages": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ProtocolStage" },
+      "description": "Ordered list of authoring stages. Each stage has a unique stageId and an order integer. Stages may declare dependencies on earlier stages via dependsOn. The array may be empty for a stub protocol."
+    },
+    "protocolTags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Discovery labels. When a Vocabulary in the package declares Terms for a tag key, tags SHOULD resolve against those Terms per RFC-006. Free-string tags are valid when no Vocabulary governs the key. Optional."
+    },
+    "protocolCreatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of when this Protocol was first authored."
+    }
+  },
+  "$defs": {
+    "ProtocolStage": {
+      "type": "object",
+      "required": ["stageId", "name", "order"],
+      "description": "A single stage in the Protocol. Required: stageId, name, order. All other fields are optional. Additional properties are permitted to allow for value-centric stored shapes that carry fields not yet reflected in the core struct.",
+      "additionalProperties": true,
+      "properties": {
+        "stageId": {
+          "type": "string",
+          "description": "Stable identifier for this stage, unique within the Protocol."
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable name for this stage."
+        },
+        "purpose": {
+          "type": "string",
+          "description": "Short description of the stage's purpose for display in the UI. Optional."
+        },
+        "order": {
+          "type": "integer",
+          "description": "Execution order. Stages are sorted ascending by this value. Lower values run first."
+        },
+        "dependsOn": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "stageIds that must be completed before this stage may begin. Optional — defaults to empty (no dependencies)."
+        },
+        "question": {
+          "type": "string",
+          "description": "The primary question this stage answers or the action it prompts. Shown to the author as the stage prompt. Optional."
+        },
+        "completionCriteria": {
+          "type": "string",
+          "description": "Description of what constitutes completion for this stage. Used by AI and human reviewers to assess whether the stage is done. Optional."
+        },
+        "contributesTo": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/FieldRef" },
+          "description": "The Record Fields that this stage's output populates. Used for guided-capture UI and AI-assisted authoring. Optional."
+        },
+        "aiGuidance": {
+          "type": "object",
+          "description": "Guidance for AI-assisted authoring of this stage. Structure is implementation-defined. Optional.",
+          "additionalProperties": true
+        },
+        "outputType": {
+          "type": "object",
+          "description": "Describes the expected output shape for this stage. Structure is implementation-defined. Optional.",
+          "additionalProperties": true
+        }
+      }
+    },
+    "FieldRef": {
+      "type": "object",
+      "required": ["fieldId"],
+      "additionalProperties": false,
+      "description": "A reference to a Field within a Type. fieldId is required; typeId scopes the reference to a specific Type when the same fieldId appears in multiple Types.",
+      "properties": {
+        "fieldId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable UUID of the Field."
+        },
+        "typeId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "UUID of the Type this field reference is scoped to. Optional — omit when the fieldId is unambiguous across the Package."
+        }
+      }
+    }
+  }
+}
