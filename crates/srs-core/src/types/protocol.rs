@@ -109,28 +109,6 @@ impl ProtocolValidationResult {
     }
 }
 
-/// Stage summary for protocol stages command
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProtocolStageSummary {
-    pub stage_id: String,
-    pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub purpose: Option<String>,
-    pub order: i32,
-    pub depends_on: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub question: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub completion_criteria: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub contributes_to: Option<Vec<FieldRef>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ai_guidance: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub output_type: Option<serde_json::Value>,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
