@@ -11,7 +11,8 @@ use srs_core::types::record::Record;
 use srs_core::types::relation::Relation;
 use srs_core::types::theme::{AssetMode, Theme};
 use srs_core::types::view::{
-    DocumentSection, DocumentView, RelationDirection, SectionSource, SortDirection, ThemeMode,
+    ContainerScope, DocumentSection, DocumentView, RelationDirection, SectionSource, SortDirection,
+    ThemeMode,
 };
 use std::collections::HashSet;
 
@@ -1171,7 +1172,10 @@ fn resolve_section_instances(
         SectionSource::TypeQuery {
             semantic_object_type,
             container_ids,
-            lifecycle_state: _,
+            lifecycle_state,
+            lifecycle_states,
+            exclude_lifecycle_states,
+            container_scope,
         } => {
             let Some((namespace, name)) = semantic_object_type.split_once('/') else {
                 diagnostics.push(format!(
@@ -1181,19 +1185,86 @@ fn resolve_section_instances(
                 return Ok(Vec::new());
             };
             let mut records = list_records_by_type(store, namespace, name)?;
-            // CLI --container takes precedence; fall back to container_ids declared in the view.
-            let effective_ids: Option<Vec<String>> = cli_container_id
-                .map(|id| vec![id.to_string()])
-                .or_else(|| container_ids.clone());
-            if let Some(ids) = effective_ids {
-                let mut member_set = HashSet::new();
-                for id in &ids {
-                    for m in list_members(store, id)? {
-                        member_set.insert(m);
+
+            // ── Container scoping (RFC-011 [N+27]) ───────────────────────────────────
+            let scope = container_scope.as_ref().unwrap_or(&ContainerScope::Explicit);
+            match scope {
+                ContainerScope::Repository => {
+                    // Ignore all container filtering — return all records of the type.
+                }
+                ContainerScope::Subtree => {
+                    // v1: subtree traversal requires RFC-N container hierarchy.
+                    // Fall back to explicit scope with a diagnostic.
+                    diagnostics.push(
+                        "[N+27] containerScope 'subtree' is not yet fully supported (requires RFC-N); \
+                         falling back to explicit scope".to_string(),
+                    );
+                    let effective_ids: Option<Vec<String>> = container_ids.clone();
+                    if let Some(ids) = effective_ids {
+                        let mut member_set = HashSet::new();
+                        for id in &ids {
+                            for m in list_members(store, id)? {
+                                member_set.insert(m);
+                            }
+                        }
+                        records.retain(|r| member_set.contains(&r.instance_id));
+                    } else {
+                        diagnostics.push(
+                            "[N+27] containerScope 'subtree' with no containerIds — returning empty result".to_string(),
+                        );
+                        records.clear();
                     }
                 }
-                records.retain(|r| member_set.contains(&r.instance_id));
+                ContainerScope::Explicit => {
+                    // CLI --container takes precedence; fall back to container_ids declared in the view.
+                    let effective_ids: Option<Vec<String>> = cli_container_id
+                        .map(|id| vec![id.to_string()])
+                        .or_else(|| container_ids.clone());
+                    if let Some(ids) = effective_ids {
+                        let mut member_set = HashSet::new();
+                        for id in &ids {
+                            for m in list_members(store, id)? {
+                                member_set.insert(m);
+                            }
+                        }
+                        records.retain(|r| member_set.contains(&r.instance_id));
+                    }
+                }
             }
+
+            // ── Lifecycle filtering (RFC-011 [N+25], [N+26]) ─────────────────────────
+            // lifecycleStates takes precedence over the back-compat singular lifecycle_state.
+            let include_states = lifecycle_states.as_ref().filter(|v| !v.is_empty());
+            let has_include = include_states.is_some();
+            let backcompat_state = if !has_include { lifecycle_state.as_deref() } else { None };
+
+            if has_include || backcompat_state.is_some() {
+                // Inclusion filter: only records whose lifecycle_state matches any listed value.
+                // Records with no lifecycle_state are excluded.
+                records.retain(|r| {
+                    r.lifecycle_state.as_deref().map(|s| {
+                        if let Some(inc) = include_states {
+                            inc.iter().any(|v| v == s)
+                        } else {
+                            Some(s) == backcompat_state
+                        }
+                    }).unwrap_or(false)
+                });
+            }
+
+            if let Some(exclude) = exclude_lifecycle_states {
+                if !exclude.is_empty() {
+                    // Exclusion filter applied after inclusion. Records with no lifecycle_state
+                    // are NOT excluded by this step.
+                    records.retain(|r| {
+                        r.lifecycle_state
+                            .as_deref()
+                            .map(|s| !exclude.iter().any(|ex| ex == s))
+                            .unwrap_or(true)
+                    });
+                }
+            }
+
             Ok(records)
         }
         SectionSource::RelationQuery {
@@ -3551,6 +3622,9 @@ mod tests {
                     semantic_object_type: "com.test/table-record".to_string(),
                     lifecycle_state: None,
                     container_ids: None,
+                    lifecycle_states: None,
+                    exclude_lifecycle_states: None,
+                    container_scope: None,
                 },
                 render_view_id: None,
                 type_dispatch: None,
@@ -3858,6 +3932,9 @@ mod tests {
                     semantic_object_type: "com.test/cap-record".to_string(),
                     lifecycle_state: None,
                     container_ids: None,
+                    lifecycle_states: None,
+                    exclude_lifecycle_states: None,
+                    container_scope: None,
                 },
                 render_view_id: None,
                 type_dispatch: None,
@@ -4420,6 +4497,9 @@ mod tests {
                     semantic_object_type: "com.test/section".to_string(),
                     lifecycle_state: None,
                     container_ids: None,
+                    lifecycle_states: None,
+                    exclude_lifecycle_states: None,
+                    container_scope: None,
                 },
                 ordering: None,
                 required: None,
@@ -5344,5 +5424,476 @@ mod tests {
             "wrong type key should not match any record; got:\n{}",
             result2.rendered
         );
+    }
+
+    // ── RFC-011 lifecycle filter and container scope tests ────────────────────
+
+    /// Build a minimal MemoryStore pre-populated with records at given lifecycle states.
+    /// Each record's type is "com.test/decision". Returns the store and the instance IDs.
+    fn make_rfc011_store(
+        dv: srs_core::types::view::DocumentView,
+        records: &[(&str, Option<&str>)], // (instance_id, lifecycle_state)
+    ) -> crate::store::memory::MemoryStore {
+        use crate::index::InstanceIndexEntry;
+        use crate::manifest::Manifest;
+        use crate::package::Package;
+        use crate::store::RepositoryStore;
+
+        let manifest = Manifest {
+            instance_index: vec![],
+            extra: std::collections::HashMap::new(),
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "rfc011-test-pkg".to_string(),
+            namespace: "com.test".to_string(),
+            name: "rfc011-test".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![],
+            record_types: vec![],
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![dv],
+            themes: vec![],
+            blueprints: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = crate::store::memory::MemoryStore::new(manifest, package);
+
+        for (id, state) in records {
+            let record = srs_core::types::record::Record {
+                instance_id: id.to_string(),
+                type_id: "t-decision".to_string(),
+                type_version: 1,
+                type_namespace: "com.test".to_string(),
+                type_name: "decision".to_string(),
+                field_values: vec![],
+                group_values: None,
+                lifecycle_state: state.map(|s| s.to_string()),
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                extra: std::collections::HashMap::new(),
+            };
+            let path = format!("records/{id}.json");
+            store
+                .save_instance_json(&path, &serde_json::to_value(&record).unwrap())
+                .unwrap();
+            let mut manifest = store.load_manifest().unwrap();
+            manifest.instance_index.push(InstanceIndexEntry {
+                instance_id: id.to_string(),
+                tier: 2,
+                path,
+                title: None,
+                tags: None,
+            });
+            store.save_manifest(&manifest).unwrap();
+        }
+
+        store
+    }
+
+    fn rfc011_dv(
+        dv_id: &str,
+        lifecycle_states: Option<Vec<String>>,
+        exclude_lifecycle_states: Option<Vec<String>>,
+        container_scope: Option<ContainerScope>,
+        container_ids: Option<Vec<String>>,
+        lifecycle_state: Option<String>,
+    ) -> srs_core::types::view::DocumentView {
+        srs_core::types::view::DocumentView {
+            id: dv_id.to_string(),
+            namespace: "com.test".to_string(),
+            name: dv_id.to_string(),
+            version: 1,
+            description: "RFC-011 test view".to_string(),
+            container_type: None,
+            root_type_refs: None,
+            sections: vec![srs_core::types::view::DocumentSection {
+                section_id: "s1".to_string(),
+                title: None,
+                description: None,
+                order: 0,
+                source: SectionSource::TypeQuery {
+                    semantic_object_type: "com.test/decision".to_string(),
+                    lifecycle_state,
+                    container_ids,
+                    lifecycle_states,
+                    exclude_lifecycle_states,
+                    container_scope,
+                },
+                render_view_id: None,
+                type_dispatch: None,
+                title_field_id: None,
+                ordering: None,
+                required: None,
+                empty_behavior: None,
+            }],
+            navigation_links: None,
+            preamble: Some("Test".to_string()),
+            format: Some("markdown".to_string()),
+            depth_offset: None,
+            theme_ref: None,
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: std::collections::HashMap::new(),
+        }
+    }
+
+    fn rfc011_instance_ids_in_result(result: &RenderResult) -> Vec<String> {
+        result
+            .projection
+            .as_ref()
+            .map(|p| {
+                p.sections
+                    .iter()
+                    .flat_map(|s| s.records.iter().map(|r| r.instance_id.clone()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn render_type_query_exclude_lifecycle_states() {
+        let dv = rfc011_dv(
+            "dv-exclude",
+            None,
+            Some(vec!["superseded".to_string()]),
+            None,
+            None,
+            None,
+        );
+        let store = make_rfc011_store(
+            dv,
+            &[("r-active", Some("active")), ("r-superseded", Some("superseded"))],
+        );
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-exclude",
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+        })
+        .unwrap();
+        let ids = rfc011_instance_ids_in_result(&result);
+        assert!(ids.contains(&"r-active".to_string()), "active record should be present: {ids:?}");
+        assert!(!ids.contains(&"r-superseded".to_string()), "superseded record should be excluded: {ids:?}");
+        assert_eq!(ids.len(), 1);
+    }
+
+    #[test]
+    fn render_type_query_lifecycle_states_inclusive() {
+        let dv = rfc011_dv(
+            "dv-include",
+            Some(vec!["active".to_string()]),
+            None,
+            None,
+            None,
+            None,
+        );
+        let store = make_rfc011_store(
+            dv,
+            &[
+                ("r-draft", Some("draft")),
+                ("r-active", Some("active")),
+                ("r-superseded", Some("superseded")),
+            ],
+        );
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-include",
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+        })
+        .unwrap();
+        let ids = rfc011_instance_ids_in_result(&result);
+        assert_eq!(ids, vec!["r-active"], "only active record should be included: {ids:?}");
+    }
+
+    #[test]
+    fn render_type_query_no_lifecycle_state_not_excluded() {
+        // A record with no lifecycleState must NOT be removed by excludeLifecycleStates.
+        let dv = rfc011_dv(
+            "dv-no-state-not-excluded",
+            None,
+            Some(vec!["superseded".to_string()]),
+            None,
+            None,
+            None,
+        );
+        let store = make_rfc011_store(
+            dv,
+            &[("r-none", None), ("r-superseded", Some("superseded"))],
+        );
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-no-state-not-excluded",
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+        })
+        .unwrap();
+        let ids = rfc011_instance_ids_in_result(&result);
+        assert!(ids.contains(&"r-none".to_string()), "record with no lifecycleState must not be excluded: {ids:?}");
+        assert!(!ids.contains(&"r-superseded".to_string()), "superseded must be excluded: {ids:?}");
+    }
+
+    #[test]
+    fn render_type_query_no_lifecycle_state_excluded_by_include() {
+        // A record with no lifecycleState IS excluded when lifecycleStates is non-empty.
+        let dv = rfc011_dv(
+            "dv-no-state-excluded-by-include",
+            Some(vec!["active".to_string()]),
+            None,
+            None,
+            None,
+            None,
+        );
+        let store = make_rfc011_store(
+            dv,
+            &[("r-none", None), ("r-active", Some("active"))],
+        );
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-no-state-excluded-by-include",
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+        })
+        .unwrap();
+        let ids = rfc011_instance_ids_in_result(&result);
+        assert!(!ids.contains(&"r-none".to_string()), "record with no lifecycleState must be excluded by inclusion filter: {ids:?}");
+        assert!(ids.contains(&"r-active".to_string()), "active record must be included: {ids:?}");
+    }
+
+    #[test]
+    fn render_type_query_repository_scope() {
+        // containerScope: "repository" must return records regardless of container.
+        // Two containers each with one record — both must be returned.
+        use crate::container_service;
+
+        const C1_ID: &str = "00000000-0000-4000-8000-000000000c01";
+        const C2_ID: &str = "00000000-0000-4000-8000-000000000c02";
+        const R_IN_C1: &str = "00000000-0000-4000-8000-000000000001";
+        const R_IN_C2: &str = "00000000-0000-4000-8000-000000000002";
+
+        let dv = rfc011_dv(
+            "dv-repo-scope",
+            None,
+            None,
+            Some(ContainerScope::Repository),
+            // container_ids narrowed to one container — must be ignored
+            Some(vec![C1_ID.to_string()]),
+            None,
+        );
+        let store = make_rfc011_store(
+            dv,
+            &[(R_IN_C1, Some("active")), (R_IN_C2, Some("active"))],
+        );
+
+        container_service::create_container(
+            &store,
+            srs_core::types::container::Container {
+                container_id: C1_ID.to_string(),
+                title: "Container 1".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                root_instance_ids: None,
+                member_instance_ids: None,
+                tags: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                updated_at: None,
+                meta: None,
+                extra: HashMap::new(),
+            },
+        )
+        .unwrap();
+        container_service::add_member(&store, C1_ID, R_IN_C1).unwrap();
+
+        container_service::create_container(
+            &store,
+            srs_core::types::container::Container {
+                container_id: C2_ID.to_string(),
+                title: "Container 2".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                root_instance_ids: None,
+                member_instance_ids: None,
+                tags: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                updated_at: None,
+                meta: None,
+                extra: HashMap::new(),
+            },
+        )
+        .unwrap();
+        container_service::add_member(&store, C2_ID, R_IN_C2).unwrap();
+
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-repo-scope",
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+        })
+        .unwrap();
+        let ids = rfc011_instance_ids_in_result(&result);
+        assert!(ids.contains(&R_IN_C1.to_string()), "r-in-c1 must be in repo-scope result: {ids:?}");
+        assert!(ids.contains(&R_IN_C2.to_string()), "r-in-c2 must be in repo-scope result: {ids:?}");
+        assert_eq!(ids.len(), 2, "both records must be present with repository scope: {ids:?}");
+    }
+
+    #[test]
+    fn render_type_query_backcompat_lifecycle_state() {
+        // Back-compat: singular lifecycle_state field acts as lifecycleStates: [state].
+        let dv = rfc011_dv(
+            "dv-backcompat",
+            None,
+            None,
+            None,
+            None,
+            Some("active".to_string()),
+        );
+        let store = make_rfc011_store(
+            dv,
+            &[("r-active", Some("active")), ("r-draft", Some("draft"))],
+        );
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-backcompat",
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+        })
+        .unwrap();
+        let ids = rfc011_instance_ids_in_result(&result);
+        assert_eq!(ids, vec!["r-active"], "only active record should be included via backcompat filter: {ids:?}");
+    }
+
+    #[test]
+    fn render_rfc011_cross_store_roundtrip() {
+        // Same TypeQuery with lifecycle filter returns the same instance IDs from MemoryStore
+        // and from a FileStore backed by a serialised copy of the same data.
+        use crate::store::FileStore;
+
+        let dv_id = "dv-roundtrip";
+        let dv = rfc011_dv(
+            dv_id,
+            None,
+            Some(vec!["superseded".to_string()]),
+            None,
+            None,
+            None,
+        );
+
+        let records: &[(&str, Option<&str>)] = &[
+            ("rr-active", Some("active")),
+            ("rr-superseded", Some("superseded")),
+            ("rr-none", None),
+        ];
+
+        // ── MemoryStore result ──────────────────────────────────────────
+        let mem_store = make_rfc011_store(dv.clone(), records);
+        let mem_result = render_document_view(RenderDocumentViewOptions {
+            store: &mem_store,
+            view_id: dv_id,
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+        })
+        .unwrap();
+        let mut mem_ids = rfc011_instance_ids_in_result(&mem_result);
+        mem_ids.sort();
+
+        // ── FileStore result ────────────────────────────────────────────
+        let tmp = tempfile::TempDir::new().unwrap();
+        let repo_root = tmp.path();
+
+        // Write records
+        std::fs::create_dir_all(repo_root.join("records")).unwrap();
+        let mut index_entries = Vec::new();
+        for (id, state) in records {
+            let record = srs_core::types::record::Record {
+                instance_id: id.to_string(),
+                type_id: "t-decision".to_string(),
+                type_version: 1,
+                type_namespace: "com.test".to_string(),
+                type_name: "decision".to_string(),
+                field_values: vec![],
+                group_values: None,
+                lifecycle_state: state.map(|s| s.to_string()),
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                extra: std::collections::HashMap::new(),
+            };
+            let path = format!("records/{id}.json");
+            std::fs::write(repo_root.join(&path), serde_json::to_string_pretty(&record).unwrap())
+                .unwrap();
+            index_entries.push(serde_json::json!({"instanceId": id, "tier": 2, "path": path}));
+        }
+
+        // Write manifest.json
+        std::fs::write(
+            repo_root.join("manifest.json"),
+            serde_json::to_string_pretty(
+                &serde_json::json!({"instanceIndex": index_entries}),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        // Write DocumentView as a separate file (FileStore loads via path references).
+        std::fs::create_dir_all(repo_root.join("package/document-views")).unwrap();
+        let dv_json = serde_json::to_value(&dv).unwrap();
+        std::fs::write(
+            repo_root.join("package/document-views/dv-roundtrip.json"),
+            serde_json::to_string_pretty(&dv_json).unwrap(),
+        )
+        .unwrap();
+
+        // Write package.json with path reference to the view file.
+        std::fs::write(
+            repo_root.join("package/package.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "id": "rfc011-file-pkg",
+                "namespace": "com.test",
+                "name": "rfc011-file",
+                "version": "1.0.0",
+                "documentViews": ["document-views/dv-roundtrip.json"],
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let file_store = FileStore::new(repo_root);
+        let file_result = render_document_view(RenderDocumentViewOptions {
+            store: &file_store,
+            view_id: dv_id,
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+        })
+        .unwrap();
+        let mut file_ids = rfc011_instance_ids_in_result(&file_result);
+        file_ids.sort();
+
+        assert_eq!(
+            mem_ids, file_ids,
+            "MemoryStore and FileStore must return the same instance IDs for the same lifecycle filter"
+        );
+        // Both should have active + none, not superseded
+        assert!(mem_ids.contains(&"rr-active".to_string()));
+        assert!(mem_ids.contains(&"rr-none".to_string()));
+        assert!(!mem_ids.contains(&"rr-superseded".to_string()));
     }
 }

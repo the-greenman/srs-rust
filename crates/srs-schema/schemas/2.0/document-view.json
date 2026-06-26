@@ -173,6 +173,21 @@
             "containerIds": {
               "type": "array",
               "items": { "type": "string", "format": "uuid" }
+            },
+            "lifecycleStates": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "RFC-011 [N+25]. When non-empty, restricts to Records whose lifecycleState matches any listed value (OR semantics). Records with no lifecycleState are excluded. When absent or empty, all lifecycle states are included."
+            },
+            "excludeLifecycleStates": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "RFC-011 [N+26]. When non-empty, excludes Records whose lifecycleState matches any value in the list. Applied after lifecycleStates. Records with no lifecycleState are NOT excluded by this filter."
+            },
+            "containerScope": {
+              "type": "string",
+              "enum": ["explicit", "repository", "subtree"],
+              "description": "RFC-011 [N+27]. Controls which containers are queried. 'explicit' (default): scope to containerIds[]. 'repository': all containers, ignores containerIds and any cli container override. 'subtree': traverse contains-relations from listed containers (v1: falls back to explicit with diagnostic when containerIds absent)."
             }
           }
         },

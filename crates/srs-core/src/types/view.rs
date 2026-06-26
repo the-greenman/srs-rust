@@ -59,6 +59,14 @@ pub struct View {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ContainerScope {
+    Explicit,
+    Repository,
+    Subtree,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum SectionSource {
     #[serde(rename_all = "camelCase")]
@@ -70,6 +78,12 @@ pub enum SectionSource {
         lifecycle_state: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         container_ids: Option<Vec<String>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        lifecycle_states: Option<Vec<String>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        exclude_lifecycle_states: Option<Vec<String>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        container_scope: Option<ContainerScope>,
     },
     #[serde(rename_all = "camelCase")]
     RelationQuery {
@@ -268,6 +282,9 @@ mod tests {
                     semantic_object_type: "com.semanticops.srs/meta.section".to_string(),
                     lifecycle_state: Some("active".to_string()),
                     container_ids: Some(vec!["c1".to_string()]),
+                    lifecycle_states: None,
+                    exclude_lifecycle_states: None,
+                    container_scope: None,
                 },
                 render_view_id: Some("view-1".to_string()),
                 type_dispatch: None,
@@ -332,9 +349,58 @@ mod tests {
             SectionSource::TypeQuery {
                 semantic_object_type: "com.example/decision".to_string(),
                 lifecycle_state: None,
-                container_ids: None
+                container_ids: None,
+                lifecycle_states: None,
+                exclude_lifecycle_states: None,
+                container_scope: None,
             }
         );
+    }
+
+    #[test]
+    fn section_source_type_query_new_fields_round_trip() {
+        // All three new fields present — should round-trip correctly.
+        let source = SectionSource::TypeQuery {
+            semantic_object_type: "com.example/decision".to_string(),
+            lifecycle_state: None,
+            container_ids: None,
+            lifecycle_states: Some(vec!["active".to_string(), "draft".to_string()]),
+            exclude_lifecycle_states: Some(vec!["superseded".to_string()]),
+            container_scope: Some(ContainerScope::Repository),
+        };
+        let json = serde_json::to_string(&source).unwrap();
+        assert!(json.contains("\"lifecycleStates\""), "lifecycleStates must serialise as camelCase: {json}");
+        assert!(json.contains("\"excludeLifecycleStates\""), "excludeLifecycleStates must serialise as camelCase: {json}");
+        assert!(json.contains("\"containerScope\""), "containerScope must serialise as camelCase: {json}");
+        assert!(json.contains("\"repository\""), "ContainerScope::Repository must serialise as 'repository': {json}");
+        let parsed: SectionSource = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, source);
+    }
+
+    #[test]
+    fn section_source_type_query_new_fields_absent_round_trip() {
+        // When new fields are absent, they must not appear in serialised JSON and must deserialise to None.
+        let source = SectionSource::TypeQuery {
+            semantic_object_type: "com.example/decision".to_string(),
+            lifecycle_state: None,
+            container_ids: None,
+            lifecycle_states: None,
+            exclude_lifecycle_states: None,
+            container_scope: None,
+        };
+        let json = serde_json::to_string(&source).unwrap();
+        assert!(!json.contains("lifecycleStates"), "absent lifecycleStates must not appear in JSON: {json}");
+        assert!(!json.contains("excludeLifecycleStates"), "absent excludeLifecycleStates must not appear in JSON: {json}");
+        assert!(!json.contains("containerScope"), "absent containerScope must not appear in JSON: {json}");
+        let parsed: SectionSource = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, source);
+    }
+
+    #[test]
+    fn container_scope_serialises_lowercase() {
+        assert_eq!(serde_json::to_string(&ContainerScope::Explicit).unwrap(), "\"explicit\"");
+        assert_eq!(serde_json::to_string(&ContainerScope::Repository).unwrap(), "\"repository\"");
+        assert_eq!(serde_json::to_string(&ContainerScope::Subtree).unwrap(), "\"subtree\"");
     }
 
     #[test]
