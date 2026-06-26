@@ -567,12 +567,10 @@ impl JsonStore {
         for rel_path in &metadata.protocols {
             let full = format!("{package_prefix}/{rel_path}");
             let raw: serde_json::Value = self.data_get(&full)?;
-            let protocol: srs_core::types::protocol::Protocol =
-                serde_json::from_value(raw.clone()).map_err(|source| {
-                    RepositoryError::PackageLoad {
-                        path: PathBuf::from(&full),
-                        source,
-                    }
+            let protocol: srs_core::types::protocol::Protocol = serde_json::from_value(raw.clone())
+                .map_err(|source| RepositoryError::PackageLoad {
+                    path: PathBuf::from(&full),
+                    source,
                 })?;
             protocols.push(crate::package::LoadedProtocol {
                 protocol,

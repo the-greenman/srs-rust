@@ -750,12 +750,11 @@ fn load_package_from_dir(
             path: full_path.clone(),
             source: e,
         })?;
-        let raw: serde_json::Value = serde_json::from_str(&content).map_err(|source| {
-            RepositoryError::PackageLoad {
+        let raw: serde_json::Value =
+            serde_json::from_str(&content).map_err(|source| RepositoryError::PackageLoad {
                 path: full_path.clone(),
                 source,
-            }
-        })?;
+            })?;
         let protocol: srs_core::types::protocol::Protocol = serde_json::from_value(raw.clone())
             .map_err(|source| RepositoryError::PackageLoad {
                 path: full_path.clone(),
@@ -1090,8 +1089,7 @@ impl RepositoryStore for FileStore {
                         }
                     } else {
                         lp.source_package = Some(rel_path.to_string());
-                        protocol_sources
-                            .insert(lp.protocol.protocol_id.clone(), sub_dir.clone());
+                        protocol_sources.insert(lp.protocol.protocol_id.clone(), sub_dir.clone());
                         protocols.push(lp);
                     }
                 }

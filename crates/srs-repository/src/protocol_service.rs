@@ -491,8 +491,8 @@ mod tests {
 
     #[test]
     fn get_protocol_by_id_found() {
-        let store = MemoryStore::empty()
-            .with_protocol(make_protocol("proto-001", "type-a", "Alpha"));
+        let store =
+            MemoryStore::empty().with_protocol(make_protocol("proto-001", "type-a", "Alpha"));
         match get_protocol_by_id(&store, "proto-001").unwrap() {
             GetProtocolResult::Found(val) => {
                 assert_eq!(val["protocolId"].as_str(), Some("proto-001"));
@@ -523,8 +523,8 @@ mod tests {
 
     #[test]
     fn find_protocol_by_target_type_not_found() {
-        let store = MemoryStore::empty()
-            .with_protocol(make_protocol("proto-001", "type-a", "Alpha"));
+        let store =
+            MemoryStore::empty().with_protocol(make_protocol("proto-001", "type-a", "Alpha"));
         let result = find_protocol_by_target_type(&store, "type-x").unwrap();
         assert!(result.is_none());
     }
