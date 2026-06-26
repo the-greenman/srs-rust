@@ -1,9 +1,9 @@
 # ADR-006: Protocol Definitions Are Generic Tier 2 Records With Typed Validation
 
-- **Status:** accepted
+- **Status:** superseded
 - **Date:** 2026-05-29
 - **Supersedes:** —
-- **Superseded by:** —
+- **Superseded by:** [ADR-016](016-protocols-are-package-definitions.md)
 
 ## Context
 
@@ -49,6 +49,8 @@ Stage dependency invariants (no self-dependency, no cycles, `order` consistent w
 - Protocol execution is a later design. This ADR makes no claims about where run/session state lives.
 
 ## Prerequisites for Implementation
+
+> **Superseded — do not act on the steps below.** ADR-016 replaced this design; the `com.semanticops.srs/protocol@1` type was never created and must not be created. See [ADR-016](016-protocols-are-package-definitions.md).
 
 Before Phase 4 agents can implement protocol services:
 
