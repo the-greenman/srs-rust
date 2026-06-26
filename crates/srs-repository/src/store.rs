@@ -389,6 +389,8 @@ struct PackageMetadata {
     #[serde(default)]
     blueprints: Vec<String>,
     #[serde(default)]
+    protocols: Vec<String>,
+    #[serde(default)]
     dependency_refs: Vec<crate::package::DependencyRef>,
     #[serde(default)]
     vocabularies: Vec<String>,
@@ -511,6 +513,7 @@ fn load_package_from_dir(
         Vec<DocumentView>,
         Vec<Theme>,
         Vec<srs_core::types::blueprint::Blueprint>,
+        Vec<crate::package::LoadedProtocol>,
     ),
     RepositoryError,
 > {
@@ -740,6 +743,31 @@ fn load_package_from_dir(
         blueprints.push(blueprint);
     }
 
+    let mut protocols: Vec<crate::package::LoadedProtocol> = Vec::new();
+    for protocol_path in &metadata.protocols {
+        let full_path = package_dir.join(protocol_path);
+        let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
+            path: full_path.clone(),
+            source: e,
+        })?;
+        let raw: serde_json::Value = serde_json::from_str(&content).map_err(|source| {
+            RepositoryError::PackageLoad {
+                path: full_path.clone(),
+                source,
+            }
+        })?;
+        let protocol: srs_core::types::protocol::Protocol = serde_json::from_value(raw.clone())
+            .map_err(|source| RepositoryError::PackageLoad {
+                path: full_path.clone(),
+                source,
+            })?;
+        protocols.push(crate::package::LoadedProtocol {
+            protocol,
+            raw,
+            source_package: None,
+        });
+    }
+
     Ok((
         fields,
         record_types,
@@ -747,6 +775,7 @@ fn load_package_from_dir(
         document_views,
         themes,
         blueprints,
+        protocols,
     ))
 }
 
@@ -872,6 +901,7 @@ impl RepositoryStore for FileStore {
             mut document_views,
             mut themes,
             mut blueprints,
+            mut protocols,
         ) = load_package_from_dir(&package_dir, &mut rt_by_type)?;
 
         // Merge sub-packages from manifest packageRefs
@@ -883,6 +913,7 @@ impl RepositoryStore for FileStore {
             let mut doc_view_sources: HashMap<String, PathBuf> = HashMap::new();
             let mut theme_sources: HashMap<String, PathBuf> = HashMap::new();
             let mut blueprint_sources: HashMap<String, PathBuf> = HashMap::new();
+            let mut protocol_sources: HashMap<String, PathBuf> = HashMap::new();
             for f in &fields {
                 field_sources.insert(f.id.clone(), package_dir.clone());
             }
@@ -901,6 +932,9 @@ impl RepositoryStore for FileStore {
             for bp in &blueprints {
                 blueprint_sources.insert(bp.id.clone(), package_dir.clone());
             }
+            for lp in &protocols {
+                protocol_sources.insert(lp.protocol.protocol_id.clone(), package_dir.clone());
+            }
 
             for pkg_ref in pkg_refs {
                 let mode = pkg_ref.get("mode").and_then(|m| m.as_str()).unwrap_or("");
@@ -917,8 +951,15 @@ impl RepositoryStore for FileStore {
                         path: rel_path.to_string(),
                     });
                 }
-                let (sub_fields, sub_types, sub_views, sub_doc_views, sub_themes, sub_blueprints) =
-                    load_package_from_dir(&sub_dir, &mut rt_by_type)?;
+                let (
+                    sub_fields,
+                    sub_types,
+                    sub_views,
+                    sub_doc_views,
+                    sub_themes,
+                    sub_blueprints,
+                    sub_protocols,
+                ) = load_package_from_dir(&sub_dir, &mut rt_by_type)?;
 
                 for field in sub_fields {
                     if let Some(first_path) = field_sources.get(&field.id) {
@@ -1032,6 +1073,28 @@ impl RepositoryStore for FileStore {
                         blueprints.push(bp);
                     }
                 }
+                for mut lp in sub_protocols {
+                    if let Some(first_path) = protocol_sources.get(&lp.protocol.protocol_id) {
+                        let existing = protocols
+                            .iter()
+                            .find(|p| p.protocol.protocol_id == lp.protocol.protocol_id)
+                            .unwrap();
+                        if existing.protocol.protocol_name != lp.protocol.protocol_name {
+                            return Err(RepositoryError::PackageRefConflict {
+                                path: rel_path.to_string(),
+                                kind: "protocol".to_string(),
+                                id: lp.protocol.protocol_id.clone(),
+                                first_path: first_path.clone(),
+                                second_path: sub_dir.clone(),
+                            });
+                        }
+                    } else {
+                        lp.source_package = Some(rel_path.to_string());
+                        protocol_sources
+                            .insert(lp.protocol.protocol_id.clone(), sub_dir.clone());
+                        protocols.push(lp);
+                    }
+                }
             }
         }
 
@@ -1080,6 +1143,7 @@ impl RepositoryStore for FileStore {
             document_views,
             themes,
             blueprints,
+            protocols,
             root: self.repo_root.clone(),
             dependency_refs: metadata.dependency_refs.clone(),
             vocabularies,
@@ -1935,6 +1999,7 @@ pub mod memory {
                 document_views: vec![],
                 themes: vec![],
                 blueprints: vec![],
+                protocols: vec![],
                 root: PathBuf::from("/memory"),
                 dependency_refs: vec![],
                 vocabularies: vec![],
@@ -2041,6 +2106,7 @@ pub mod memory {
                 "views": [],
                 "documentViews": [],
                 "blueprints": [],
+                "protocols": [],
                 "vocabularies": [],
                 "lifecycles": []
             })
@@ -2049,6 +2115,15 @@ pub mod memory {
         /// Pre-populate with a JSON value at the given relative path.
         pub fn with_data(self, path: &str, value: serde_json::Value) -> Self {
             self.data.borrow_mut().insert(path.to_string(), value);
+            self
+        }
+
+        /// Pre-populate the in-memory package with a protocol definition.
+        ///
+        /// `MemoryStore::load_package()` returns `self.package` directly, so only
+        /// the typed package field needs updating — no `self.data` write required.
+        pub fn with_protocol(self, protocol: crate::package::LoadedProtocol) -> Self {
+            self.package.borrow_mut().protocols.push(protocol);
             self
         }
 
@@ -2070,6 +2145,7 @@ pub mod memory {
                 document_views: vec![],
                 themes: vec![],
                 blueprints: vec![],
+                protocols: vec![],
                 root: PathBuf::from("/memory"),
                 dependency_refs: vec![],
                 vocabularies: vec![],
@@ -2201,6 +2277,7 @@ pub mod memory {
                 document_views: vec![],
                 themes: vec![],
                 blueprints: vec![],
+                protocols: vec![],
                 root: PathBuf::from("/memory"),
                 dependency_refs: vec![],
                 vocabularies: vec![],
@@ -2217,7 +2294,8 @@ pub mod memory {
                 "relationTypes": [],
                 "views": [],
                 "documentViews": [],
-                "blueprints": []
+                "blueprints": [],
+                "protocols": []
             });
             self.data
                 .borrow_mut()
@@ -2242,7 +2320,41 @@ pub mod memory {
         }
 
         fn load_package(&self) -> Result<Package, RepositoryError> {
-            Ok(self.package.borrow().clone())
+            let mut pkg = self.package.borrow().clone();
+            // Supplement the static package with any protocols written via the
+            // write path (save_instance_json + add_definition_to_boundary). This
+            // lets write-then-read tests (e.g. import_protocol followed by
+            // find_protocol_by_target_type) work correctly in MemoryStore.
+            let data = self.data.borrow();
+            if let Some(pkg_json) = data.get("package/package.json") {
+                if let Some(paths) = pkg_json["protocols"].as_array() {
+                    for path_val in paths {
+                        if let Some(rel) = path_val.as_str() {
+                            let full = format!("package/{rel}");
+                            if let Some(raw) = data.get(&full) {
+                                if let Ok(proto) =
+                                    serde_json::from_value::<srs_core::types::protocol::Protocol>(
+                                        raw.clone(),
+                                    )
+                                {
+                                    if !pkg
+                                        .protocols
+                                        .iter()
+                                        .any(|p| p.protocol.protocol_id == proto.protocol_id)
+                                    {
+                                        pkg.protocols.push(crate::package::LoadedProtocol {
+                                            protocol: proto,
+                                            raw: raw.clone(),
+                                            source_package: None,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(pkg)
         }
 
         fn load_package_json(&self) -> Result<serde_json::Value, RepositoryError> {
@@ -2956,6 +3068,7 @@ mod tests {
             document_views: vec![],
             themes: vec![],
             blueprints: vec![],
+            protocols: vec![],
             root: repo_root.to_path_buf(),
             dependency_refs: vec![],
             vocabularies: vec![],

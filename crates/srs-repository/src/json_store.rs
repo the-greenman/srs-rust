@@ -61,6 +61,8 @@ struct PackageMetadata {
     #[serde(default)]
     themes: Vec<String>,
     #[serde(default)]
+    protocols: Vec<String>,
+    #[serde(default)]
     vocabularies: Vec<String>,
     #[serde(default)]
     lifecycles: Vec<String>,
@@ -346,6 +348,7 @@ impl JsonStore {
             Vec<View>,
             Vec<DocumentView>,
             Vec<Theme>,
+            Vec<crate::package::LoadedProtocol>,
             Vec<Vocabulary>,
             Vec<Lifecycle>,
         ),
@@ -557,6 +560,24 @@ impl JsonStore {
             vocabularies.push(vocab);
         }
 
+        let mut protocols = Vec::new();
+        for rel_path in &metadata.protocols {
+            let full = format!("{package_prefix}/{rel_path}");
+            let raw: serde_json::Value = self.data_get(&full)?;
+            let protocol: srs_core::types::protocol::Protocol =
+                serde_json::from_value(raw.clone()).map_err(|source| {
+                    RepositoryError::PackageLoad {
+                        path: PathBuf::from(&full),
+                        source,
+                    }
+                })?;
+            protocols.push(crate::package::LoadedProtocol {
+                protocol,
+                raw,
+                source_package: None,
+            });
+        }
+
         let mut lifecycles = Vec::new();
         for rel_path in &metadata.lifecycles {
             let full = format!("{package_prefix}/{rel_path}");
@@ -577,6 +598,7 @@ impl JsonStore {
             views,
             document_views,
             themes,
+            protocols,
             vocabularies,
             lifecycles,
         ))
@@ -691,6 +713,7 @@ impl RepositoryStore for JsonStore {
             mut views,
             mut document_views,
             mut themes,
+            mut protocols,
             mut vocabularies,
             mut lifecycles,
         ) = self.load_package_from_prefix("package", &mut rt_by_type)?;
@@ -729,6 +752,7 @@ impl RepositoryStore for JsonStore {
                     sub_views,
                     sub_doc_views,
                     sub_themes,
+                    sub_protocols,
                     sub_vocabs,
                     sub_lcs,
                 ) = self.load_package_from_prefix(rel_path, &mut rt_by_type)?;
@@ -817,6 +841,15 @@ impl RepositoryStore for JsonStore {
                         themes.push(theme);
                     }
                 }
+                for mut lp in sub_protocols {
+                    if !protocols
+                        .iter()
+                        .any(|p| p.protocol.protocol_id == lp.protocol.protocol_id)
+                    {
+                        lp.source_package = Some(rel_path.to_string());
+                        protocols.push(lp);
+                    }
+                }
                 for vocab in sub_vocabs {
                     if !vocabularies.iter().any(|v| v.id == vocab.id) {
                         vocabularies.push(vocab);
@@ -842,6 +875,7 @@ impl RepositoryStore for JsonStore {
             document_views,
             themes,
             blueprints: vec![],
+            protocols,
             root: self.repository_root(),
             dependency_refs: vec![],
             vocabularies,
