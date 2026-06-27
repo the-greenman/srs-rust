@@ -8,7 +8,6 @@
 //! 3. `structure[]` RelationSpecs
 //! 4. First Protocol whose `targetType` matches a root Type (if any)
 //!
-//! Also provides `render_brief_markdown` for human/LLM-readable prose output.
 
 use crate::blueprint_service::{get_blueprint_by_id, GetBlueprintResult};
 use crate::error::RepositoryError;
@@ -157,105 +156,6 @@ pub fn blueprint_brief(
     })
 }
 
-/// Render a `BlueprintBriefResult` as human/LLM-readable markdown.
-pub fn render_brief_markdown(result: &BlueprintBriefResult) -> String {
-    let mut out = String::new();
-
-    out.push_str(&format!(
-        "# Blueprint: {}/{} v{}\n\n",
-        result.namespace, result.name, result.version
-    ));
-
-    if let Some(guidance) = &result.ai_guidance {
-        out.push_str(&format_guidance_prose(guidance));
-        out.push('\n');
-    }
-
-    if !result.required_types.is_empty() {
-        out.push_str("**Required types:**\n");
-        for rt in &result.required_types {
-            if let Some(id) = rt.get("typeId").and_then(|v| v.as_str()) {
-                out.push_str(&format!("- `{id}`\n"));
-            }
-        }
-        out.push('\n');
-    }
-
-    for t in &result.types {
-        out.push_str(&format!("## Type: {}/{}\n\n", t.namespace, t.name));
-        if let Some(guidance) = &t.ai_guidance {
-            out.push_str(&format_guidance_prose(guidance));
-            out.push('\n');
-        }
-        if !t.fields.is_empty() {
-            out.push_str(
-                "| Field | ValueType | Required | Purpose | Extraction | Negative | Examples |\n",
-            );
-            out.push_str("|---|---|---|---|---|---|---|\n");
-            for f in &t.fields {
-                let purpose = extract_str_field(&f.ai_guidance, "purpose");
-                let extraction = extract_str_field(&f.ai_guidance, "extraction");
-                let negative = extract_str_field(&f.ai_guidance, "negativeGuidance");
-                let examples = extract_str_field(&f.ai_guidance, "examples");
-                let required = if f.required { "yes" } else { "no" };
-                out.push_str(&format!(
-                    "| `{}` | {} | {} | {} | {} | {} | {} |\n",
-                    f.name, f.value_type, required, purpose, extraction, negative, examples
-                ));
-            }
-            out.push('\n');
-        }
-    }
-
-    if !result.structure.is_empty() {
-        out.push_str("## Structure\n\n");
-        for rs in &result.structure {
-            let card = rs
-                .cardinality
-                .as_deref()
-                .map(|c| format!(" ({c})"))
-                .unwrap_or_default();
-            out.push_str(&format!(
-                "- `{}` → `{}` via `{}`{}\n",
-                rs.source_type_id, rs.target_type_id, rs.relation_type, card
-            ));
-        }
-        out.push('\n');
-    }
-
-    if let Some(proto) = &result.protocol {
-        out.push_str(&format!("## Protocol: {}\n\n", proto.protocol_name));
-        for stage in &proto.stages {
-            out.push_str(&format!("### {}. {}\n\n", stage.order, stage.name));
-            // purpose is structural metadata (epistemic label); not rendered — question is the prose entry point
-            if let Some(q) = &stage.question {
-                out.push_str(&format!("**Question:** {q}\n\n"));
-            }
-            if let Some(cc) = &stage.completion_criteria {
-                out.push_str(&format!("**Done when:** {cc}\n\n"));
-            }
-            if let Some(ct) = &stage.contributes_to {
-                if !ct.is_empty() {
-                    let labels: Vec<String> = ct
-                        .iter()
-                        .map(|r| match &r.type_id {
-                            Some(tid) => format!("{}/{}", tid, r.field_id),
-                            None => r.field_id.clone(),
-                        })
-                        .collect();
-                    out.push_str(&format!("**Contributes to:** {}\n\n", labels.join(", ")));
-                }
-            }
-            if let Some(dep) = stage.ai_guidance.as_ref() {
-                out.push_str(&format_guidance_prose(dep));
-                out.push('\n');
-            }
-        }
-    }
-
-    out
-}
-
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -393,32 +293,6 @@ impl From<ProtocolStage> for BriefStageResult {
             output_type: stage.output_type,
         }
     }
-}
-
-fn format_guidance_prose(guidance: &serde_json::Value) -> String {
-    if let Some(s) = guidance.as_str() {
-        return format!("{s}\n");
-    }
-    let mut out = String::new();
-    if let Some(purpose) = guidance.get("purpose").and_then(|v| v.as_str()) {
-        out.push_str(&format!("{purpose}\n"));
-    }
-    if let Some(extraction) = guidance.get("extraction").and_then(|v| v.as_str()) {
-        out.push_str(&format!("\n**Extraction:** {extraction}\n"));
-    }
-    if let Some(neg) = guidance.get("negativeGuidance").and_then(|v| v.as_str()) {
-        out.push_str(&format!("\n**Avoid:** {neg}\n"));
-    }
-    out
-}
-
-fn extract_str_field(guidance: &Option<serde_json::Value>, key: &str) -> String {
-    guidance
-        .as_ref()
-        .and_then(|g| g.get(key))
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -644,27 +518,6 @@ mod tests {
     }
 
     #[test]
-    fn test_render_markdown_contains_blueprint_name() {
-        let (store, bp_id) = make_store_with_blueprint_and_type();
-        let result = blueprint_brief(
-            &store,
-            BlueprintBriefInput {
-                blueprint_id: bp_id,
-            },
-        )
-        .unwrap();
-        let md = render_brief_markdown(&result);
-        assert!(
-            md.contains("test-blueprint"),
-            "rendered markdown must contain blueprint name"
-        );
-        assert!(
-            md.contains("title") || md.contains("summary"),
-            "must contain at least one field name"
-        );
-    }
-
-    #[test]
     fn test_deserialize_stage_required_fields() {
         use srs_core::types::protocol::ProtocolStage;
         let v = serde_json::json!({
@@ -703,51 +556,6 @@ mod tests {
         assert!(
             err.to_string().contains("stageId"),
             "error should mention stageId, got: {err}"
-        );
-    }
-
-    #[test]
-    fn test_render_brief_markdown_contributes_to() {
-        let result = BlueprintBriefResult {
-            blueprint_id: "bp-1".to_string(),
-            namespace: "com.example".to_string(),
-            name: "My Blueprint".to_string(),
-            version: 1,
-            ai_guidance: None,
-            required_types: vec![],
-            types: vec![],
-            structure: vec![],
-            protocol: Some(BriefProtocolResult {
-                protocol_id: "proto-1".to_string(),
-                protocol_name: "Example Protocol".to_string(),
-                stages: vec![BriefStageResult {
-                    stage_id: "s1".to_string(),
-                    name: "Gather".to_string(),
-                    purpose: None,
-                    order: 1,
-                    depends_on: vec![],
-                    question: None,
-                    completion_criteria: None,
-                    contributes_to: Some(vec![
-                        FieldRef {
-                            field_id: "my-field".to_string(),
-                            type_id: None,
-                        },
-                        FieldRef {
-                            field_id: "other-field".to_string(),
-                            type_id: Some("type-abc".to_string()),
-                        },
-                    ]),
-                    ai_guidance: None,
-                    output_type: None,
-                }],
-            }),
-            diagnostics: vec![],
-        };
-        let md = render_brief_markdown(&result);
-        assert!(
-            md.contains("**Contributes to:** my-field, type-abc/other-field"),
-            "expected correctly formatted contributes_to in markdown, got:\n{md}"
         );
     }
 
