@@ -688,6 +688,15 @@ pub struct ProtocolDeletePayload {
     pub protocol_id: String,
 }
 
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProtocolFindByTargetTypePayload {
+    pub protocol_id: String,
+    pub protocol_name: String,
+    pub stages: Vec<ProtocolStageEntry>,
+    pub diagnostics: Vec<String>,
+}
+
 // ── Blueprint payloads ────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]

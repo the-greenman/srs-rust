@@ -92,7 +92,8 @@ pub struct ProtocolSummary {
 }
 
 /// Result for finding a protocol by its target type ID.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FindProtocolByTargetTypeResult {
     pub protocol_id: String,
     pub protocol_name: String,
@@ -449,6 +450,27 @@ mod tests {
     use crate::package::LoadedProtocol;
     use crate::store::memory::MemoryStore;
     use srs_core::types::protocol::Protocol;
+
+    #[test]
+    fn find_protocol_by_target_type_result_serializes_camel_case() {
+        let result = FindProtocolByTargetTypeResult {
+            protocol_id: "proto-001".to_string(),
+            protocol_name: "Alpha".to_string(),
+            stages: vec![],
+            diagnostics: vec![],
+        };
+        let json = serde_json::to_value(&result).unwrap();
+        assert!(json.get("protocolId").is_some(), "protocolId key expected");
+        assert!(
+            json.get("protocolName").is_some(),
+            "protocolName key expected"
+        );
+        assert!(json.get("stages").is_some(), "stages key expected");
+        assert!(
+            json.get("protocol_id").is_none(),
+            "snake_case key must not appear"
+        );
+    }
 
     fn make_protocol(id: &str, target_type: &str, name: &str) -> LoadedProtocol {
         let protocol = Protocol {

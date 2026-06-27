@@ -1,15 +1,16 @@
 use crate::commands::{with_store, CliContext, ProtocolCommand};
 use crate::output;
 use crate::payload::{
-    self as payload, ProtocolDeletePayload, ProtocolListEntry, ProtocolListPayload,
-    ProtocolPayload, ProtocolStageEntry, ProtocolStagesPayload, ProtocolValidatePayload,
+    self as payload, ProtocolDeletePayload, ProtocolFindByTargetTypePayload, ProtocolListEntry,
+    ProtocolListPayload, ProtocolPayload, ProtocolStageEntry, ProtocolStagesPayload,
+    ProtocolValidatePayload,
 };
 use anyhow::Result;
 use srs_repository::error::RepositoryError;
 use srs_repository::protocol_service::{
-    delete_protocol, export_protocol, get_protocol_by_id, import_protocol, list_protocol_stages,
-    list_protocols, update_protocol, validate_protocol_definition, GetProtocolResult,
-    ImportProtocolInput,
+    delete_protocol, export_protocol, find_protocol_by_target_type, get_protocol_by_id,
+    import_protocol, list_protocol_stages, list_protocols, update_protocol,
+    validate_protocol_definition, GetProtocolResult, ImportProtocolInput,
 };
 use std::io::{self, Read};
 
@@ -24,6 +25,9 @@ pub fn dispatch(ctx: CliContext, cmd: ProtocolCommand) -> Result<String> {
         ProtocolCommand::Import { package, json: _ } => cmd_protocol_import(ctx, package),
         ProtocolCommand::Update { id } => cmd_protocol_update(ctx, id),
         ProtocolCommand::Delete { id } => cmd_protocol_delete(ctx, id),
+        ProtocolCommand::FindByTargetType { type_id } => {
+            cmd_protocol_find_by_target_type(ctx, type_id)
+        }
     }
 }
 
@@ -217,5 +221,50 @@ fn cmd_protocol_delete(ctx: CliContext, id: String) -> Result<String> {
             }
             Err(e)
         }
+    }
+}
+
+fn cmd_protocol_find_by_target_type(ctx: CliContext, type_id: String) -> Result<String> {
+    match with_store(&ctx, |store| {
+        Ok(find_protocol_by_target_type(store, &type_id)?)
+    })? {
+        Some(result) => {
+            let stages = result
+                .stages
+                .into_iter()
+                .map(|s| ProtocolStageEntry {
+                    stage_id: s.stage_id,
+                    name: s.name,
+                    purpose: s.purpose,
+                    order: s.order,
+                    depends_on: s.depends_on,
+                    question: s.question,
+                    completion_criteria: s.completion_criteria,
+                    contributes_to: s.contributes_to.map(|refs| {
+                        refs.into_iter()
+                            .map(|r| payload::FieldRef {
+                                field_id: r.field_id,
+                                type_id: r.type_id,
+                            })
+                            .collect()
+                    }),
+                    ai_guidance: s.ai_guidance,
+                    output_type: s.output_type,
+                })
+                .collect();
+            output::serialize(
+                "protocol find-by-target-type",
+                ProtocolFindByTargetTypePayload {
+                    protocol_id: result.protocol_id,
+                    protocol_name: result.protocol_name,
+                    stages,
+                    diagnostics: result.diagnostics,
+                },
+            )
+        }
+        None => Ok(output::err(
+            "protocol find-by-target-type",
+            vec![format!("No protocol found with target type '{}'", type_id)],
+        )),
     }
 }
