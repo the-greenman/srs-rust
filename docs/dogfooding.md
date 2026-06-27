@@ -417,9 +417,9 @@ This is the RFC-011 capability: `type-query` SectionSource extended with `lifecy
 
 **Intention.** *"I've declared an extraction protocol that tells AI agents how to pull structured decisions from governance discussions — stage by stage, field by field. Before I wire it to a blueprint brief, I want to confirm the protocol is machine-readable: the stage list comes back in the right order, the full protocol definition is retrievable by ID, and missing IDs return a clean error envelope."*
 
-**Capabilities exercised.** `protocol create` (write path), `protocol list` (compiled-model read), `protocol get` (compiled-model read by ID), `protocol stages` (stage projection from compiled model). This scenario specifically verifies that the refactored read-side service functions source data from the compiled `Package.protocols` (populated at load time) rather than re-reading package files on every call.
+**Capabilities exercised.** `protocol create` (write path), `protocol list` (compiled-model read), `protocol get` (compiled-model read by ID), `protocol stages` (stage projection from compiled model), `protocol find-by-target-type` (lookup by target typeId). This scenario specifically verifies that the refactored read-side service functions source data from the compiled `Package.protocols` (populated at load time) rather than re-reading package files on every call.
 
-**CLI surface.** `protocol create`, `protocol list`, `protocol get`, `protocol stages`, `repo validate`.
+**CLI surface.** `protocol create`, `protocol list`, `protocol get`, `protocol stages`, `protocol find-by-target-type`, `repo validate`.
 
 **Anchor repo.** None — build from scratch with `srs repo create`.
 
@@ -450,10 +450,11 @@ This is the RFC-011 capability: `type-query` SectionSource extended with `lifecy
 5. `srs protocol get --repo /tmp/dogfood-protocols com.example.dogfood/extraction-protocol --pretty` → `ok: true`, `payload.protocol.protocolStages` has the `identify` stage with `order: 1`.
 6. `srs protocol stages --repo /tmp/dogfood-protocols com.example.dogfood/extraction-protocol --pretty` → `payload.stages` has 1 entry with `stageId` and `name`.
 7. `srs repo validate --repo /tmp/dogfood-protocols --pretty` → `ok: true`, `summary.errors: 0`.
+8. `srs protocol find-by-target-type --type-id "com.example.dogfood/decision" --repo /tmp/dogfood-protocols --pretty` → `ok: true`, `payload.protocolId` = `"com.example.dogfood/extraction-protocol"`, `payload.stages` has 1 entry.
 
-**Negative case.** `srs protocol get --repo /tmp/dogfood-protocols com.example.dogfood/nonexistent --pretty` → `ok: false`, `diagnostics[0]` contains `"not found"`. `srs protocol list` on a freshly-created repo (no protocols declared) → `ok: true`, `payload.protocols: []`.
+**Negative case.** `srs protocol get --repo /tmp/dogfood-protocols com.example.dogfood/nonexistent --pretty` → `ok: false`, `diagnostics[0]` contains `"not found"`. `srs protocol list` on a freshly-created repo (no protocols declared) → `ok: true`, `payload.protocols: []`. `srs protocol find-by-target-type --type-id "type-no-match" --repo /tmp/dogfood-protocols` → `ok: false`, `diagnostics[0]` contains `"No protocol found with target type"`.
 
-**Done when.** `protocol list` returns the created protocol; `protocol get` returns the full definition including all stages; `protocol stages` returns the stage list; a missing-ID get returns `ok: false` with a diagnostic naming the missing ID; `repo validate` shows 0 errors; `protocol list` on an empty repo returns an empty array without error.
+**Done when.** `protocol list` returns the created protocol; `protocol get` returns the full definition including all stages; `protocol stages` returns the stage list; `protocol find-by-target-type` returns `{ protocolId, protocolName, stages, diagnostics }` for a known typeId and a clean `ok: false` envelope for an unknown typeId; a missing-ID get returns `ok: false` with a diagnostic naming the missing ID; `repo validate` shows 0 errors; `protocol list` on an empty repo returns an empty array without error.
 
 ---
 
@@ -488,7 +489,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `lifecycle` (list/get) | S4, S6 |
 | `lifecycleRef` create/transition (referenceable lifecycle) | S6 (step 7 extended) |
 | `blueprint` (list/get/validate/structure/schema/brief) | S7 |
-| `protocol` (create/list/get/stages) | S13 |
+| `protocol` (create/list/get/stages/find-by-target-type) | S13 |
 | `theme` | S8 |
 | `extension` | _gap — no scenario yet_ |
 | `migrate` | _gap — no scenario yet_ |
