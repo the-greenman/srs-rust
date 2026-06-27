@@ -264,10 +264,7 @@ fn cmd_protocol_find_by_target_type(ctx: CliContext, type_id: String) -> Result<
         }
         None => Ok(output::err(
             "protocol find-by-target-type",
-            vec![format!(
-                "No protocol found with target type '{}'",
-                type_id
-            )],
+            vec![format!("No protocol found with target type '{}'", type_id)],
         )),
     }
 }

@@ -461,9 +461,15 @@ mod tests {
         };
         let json = serde_json::to_value(&result).unwrap();
         assert!(json.get("protocolId").is_some(), "protocolId key expected");
-        assert!(json.get("protocolName").is_some(), "protocolName key expected");
+        assert!(
+            json.get("protocolName").is_some(),
+            "protocolName key expected"
+        );
         assert!(json.get("stages").is_some(), "stages key expected");
-        assert!(json.get("protocol_id").is_none(), "snake_case key must not appear");
+        assert!(
+            json.get("protocol_id").is_none(),
+            "snake_case key must not appear"
+        );
     }
 
     fn make_protocol(id: &str, target_type: &str, name: &str) -> LoadedProtocol {

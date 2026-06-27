@@ -394,10 +394,7 @@ impl SrsRepository {
     /// Find the first protocol whose `protocolTargetType` matches `target_type_id`.
     /// Returns `{ protocolId, protocolName, stages, diagnostics }` as a JS value,
     /// or `null` if no protocol targets that type.
-    pub fn find_protocol_by_target_type(
-        &self,
-        target_type_id: &str,
-    ) -> Result<JsValue, JsValue> {
+    pub fn find_protocol_by_target_type(&self, target_type_id: &str) -> Result<JsValue, JsValue> {
         match protocol_service::find_protocol_by_target_type(&self.store, target_type_id)
             .map_err(js_err)?
         {
