@@ -23,6 +23,7 @@ use srs_core::types::{
     container::Container,
     lifecycle::Lifecycle,
     note::Note,
+    protocol::ProtocolStage,
     record::Record,
     record_type::RecordType,
     relation::Relation,
@@ -103,30 +104,6 @@ pub struct ProtocolListEntry {
     pub stage_count: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_package: Option<String>,
-}
-
-/// A single entry in a protocol stages list.
-#[derive(Debug, Serialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ProtocolStageEntry {
-    pub stage_id: String,
-    pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub purpose: Option<String>,
-    pub order: i32,
-    pub depends_on: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub question: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub completion_criteria: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub contributes_to: Option<Vec<FieldRef>>,
-    #[schemars(with = "Option<serde_json::Value>")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ai_guidance: Option<serde_json::Value>,
-    #[schemars(with = "Option<serde_json::Value>")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub output_type: Option<serde_json::Value>,
 }
 
 /// A single entry in a blueprint list.
@@ -671,7 +648,8 @@ pub struct ProtocolPayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ProtocolStagesPayload {
-    pub stages: Vec<ProtocolStageEntry>,
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub stages: Vec<ProtocolStage>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]

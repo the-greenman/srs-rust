@@ -1,8 +1,8 @@
 use crate::commands::{with_store, CliContext, ProtocolCommand};
 use crate::output;
 use crate::payload::{
-    self as payload, ProtocolDeletePayload, ProtocolListEntry, ProtocolListPayload,
-    ProtocolPayload, ProtocolStageEntry, ProtocolStagesPayload, ProtocolValidatePayload,
+    ProtocolDeletePayload, ProtocolListEntry, ProtocolListPayload, ProtocolPayload,
+    ProtocolStagesPayload, ProtocolValidatePayload,
 };
 use anyhow::Result;
 use srs_repository::error::RepositoryError;
@@ -79,30 +79,6 @@ fn cmd_protocol_stages(ctx: CliContext, id: String) -> Result<String> {
             return Err(e);
         }
     };
-
-    let stages = stages
-        .into_iter()
-        .map(|s| ProtocolStageEntry {
-            stage_id: s.stage_id,
-            name: s.name,
-            purpose: s.purpose,
-            order: s.order,
-            depends_on: s.depends_on,
-            question: s.question,
-            completion_criteria: s.completion_criteria,
-            contributes_to: s.contributes_to.map(|refs| {
-                refs.into_iter()
-                    .map(|r| payload::FieldRef {
-                        field_id: r.field_id,
-                        type_id: r.type_id,
-                    })
-                    .collect()
-            }),
-            ai_guidance: s.ai_guidance,
-            output_type: s.output_type,
-        })
-        .collect();
-
     output::serialize("protocol stages", ProtocolStagesPayload { stages })
 }
 
