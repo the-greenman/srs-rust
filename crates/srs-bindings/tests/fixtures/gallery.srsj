@@ -88,6 +88,16 @@
         "instanceId": "a9ca11cf-fd34-4901-b5f6-51e20737cb56",
         "path": "records/tier-2/a9ca11cf-fd34-4901-b5f6-51e20737cb56.json",
         "tier": 2
+      },
+      {
+        "instanceId": "ee000001-0000-4000-8000-000000000001",
+        "path": "records/tier-2/ee000001-0000-4000-8000-000000000001.json",
+        "tier": 2
+      },
+      {
+        "instanceId": "ee000002-0000-4000-8000-000000000002",
+        "path": "records/tier-2/ee000002-0000-4000-8000-000000000002.json",
+        "tier": 2
       }
     ],
     "namespace": "com.limoma",
@@ -907,6 +917,10 @@
         {
           "containerId": "138e2fac-6a8a-4a06-9511-5aefd99ceae9",
           "title": "Decisions"
+        },
+        {
+          "containerId": "ece00010-0000-4000-8000-000000000010",
+          "title": "Exercises"
         }
       ]
     },
@@ -1402,7 +1416,12 @@
         "fields/roleholder-a6c19b95.json",
         "fields/authority-d25da548.json",
         "fields/boundary-3c39ee1f.json",
-        "fields/sourceofauthority-9a32dc01.json"
+        "fields/sourceofauthority-9a32dc01.json",
+        "fields/thinkingreached-f1e00001.json",
+        "fields/tensions-f2e00002.json",
+        "fields/unresolvedquestions-f3e00003.json",
+        "fields/blocking-f4e00004.json",
+        "fields/nextaction-f5e00005.json"
       ],
       "id": "90677fae-16a7-49ec-8aee-1872cbf8e381",
       "name": "governance-core",
@@ -1418,7 +1437,8 @@
       "types": [
         "types/decision-1fcad6a2.json",
         "types/article-a1142ac3.json",
-        "types/role-e53dce11.json"
+        "types/role-e53dce11.json",
+        "types/exercise-7f73b83e.json"
       ],
       "version": "1.0.0",
       "views": [
@@ -1492,6 +1512,203 @@
       "typeNamespace": "governance",
       "typeVersion": 1,
       "updatedAt": "2026-06-08T21:05:17.266092197+00:00"
+    },
+    "package/types/exercise-7f73b83e.json": {
+      "createdAt": "2026-06-27T00:00:00Z",
+      "description": "A structured group thinking exercise that surfaces tensions, unresolved questions, and next actions.",
+      "fields": [
+        {
+          "displayLabel": "Title",
+          "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+          "order": 0,
+          "repeatable": false,
+          "required": true
+        },
+        {
+          "displayLabel": "Thinking Reached",
+          "fieldId": "f1e00001-0000-4000-8000-000000000001",
+          "order": 1,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Tensions",
+          "fieldId": "f2e00002-0000-4000-8000-000000000002",
+          "order": 2,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Unresolved Questions",
+          "fieldId": "f3e00003-0000-4000-8000-000000000003",
+          "order": 3,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Blocking",
+          "fieldId": "f4e00004-0000-4000-8000-000000000004",
+          "order": 4,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Next Action",
+          "fieldId": "f5e00005-0000-4000-8000-000000000005",
+          "order": 5,
+          "repeatable": false,
+          "required": false
+        }
+      ],
+      "id": "7f73b83e-4a5b-4c6d-8e9f-1a2b3c4d5e6f",
+      "name": "exercise",
+      "namespace": "governance",
+      "version": 1
+    },
+    "package/fields/thinkingreached-f1e00001.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-06-27T00:00:00Z",
+      "description": "The settled thinking or insight the group has reached through the exercise.",
+      "id": "f1e00001-0000-4000-8000-000000000001",
+      "name": "thinking_reached",
+      "namespace": "governance",
+      "valueType": "text",
+      "version": 1
+    },
+    "package/fields/tensions-f2e00002.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-06-27T00:00:00Z",
+      "description": "Tensions or conflicts surfaced during the exercise.",
+      "id": "f2e00002-0000-4000-8000-000000000002",
+      "name": "tensions",
+      "namespace": "governance",
+      "valueType": "text",
+      "version": 1
+    },
+    "package/fields/unresolvedquestions-f3e00003.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-06-27T00:00:00Z",
+      "description": "Questions that remain open after the exercise.",
+      "id": "f3e00003-0000-4000-8000-000000000003",
+      "name": "unresolved_questions",
+      "namespace": "governance",
+      "valueType": "text",
+      "version": 1
+    },
+    "package/fields/blocking-f4e00004.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-06-27T00:00:00Z",
+      "description": "What is currently blocking the group from moving forward.",
+      "id": "f4e00004-0000-4000-8000-000000000004",
+      "name": "blocking",
+      "namespace": "governance",
+      "valueType": "text",
+      "version": 1
+    },
+    "package/fields/nextaction-f5e00005.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-06-27T00:00:00Z",
+      "description": "The agreed next action emerging from the exercise.",
+      "id": "f5e00005-0000-4000-8000-000000000005",
+      "name": "next_action",
+      "namespace": "governance",
+      "valueType": "text",
+      "version": 1
+    },
+    "containers/ece00010-0000-4000-8000-000000000010.json": {
+      "containerId": "ece00010-0000-4000-8000-000000000010",
+      "containerType": "document",
+      "createdAt": "2026-06-27T00:00:00Z",
+      "memberInstanceIds": [
+        "ee000001-0000-4000-8000-000000000001",
+        "ee000002-0000-4000-8000-000000000002"
+      ],
+      "rootInstanceIds": [
+        "ee000001-0000-4000-8000-000000000001"
+      ],
+      "title": "Exercises"
+    },
+    "records/tier-2/ee000001-0000-4000-8000-000000000001.json": {
+      "createdAt": "2026-06-27T00:00:00Z",
+      "fieldValues": [
+        {
+          "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+          "value": "Pilot phase retrospective"
+        },
+        {
+          "fieldId": "f1e00001-0000-4000-8000-000000000001",
+          "value": "The group has reached a shared understanding that the pilot has demonstrated the space works for small group exhibitions. The hanging system is effective and the rotation schedule is sustainable."
+        },
+        {
+          "fieldId": "f2e00002-0000-4000-8000-000000000002",
+          "value": "Some members feel the decision-making process is slow. Others feel it is appropriately thorough for a shared space. There is tension between speed and careful deliberation."
+        },
+        {
+          "fieldId": "f3e00003-0000-4000-8000-000000000003",
+          "value": "What is the right frequency for exhibition rotation? Should we formalise the curatorial process for Phase 2?"
+        },
+        {
+          "fieldId": "f4e00004-0000-4000-8000-000000000004",
+          "value": "Agreement on Phase 2 scope is needed before we can plan the next exhibition cycle."
+        },
+        {
+          "fieldId": "f5e00005-0000-4000-8000-000000000005",
+          "value": "Clerk to circulate a Phase 2 proposal for comment by the end of July. All members to respond within two weeks."
+        }
+      ],
+      "instanceId": "ee000001-0000-4000-8000-000000000001",
+      "lifecycleState": "ratified",
+      "typeId": "7f73b83e-4a5b-4c6d-8e9f-1a2b3c4d5e6f",
+      "typeName": "exercise",
+      "typeNamespace": "governance",
+      "typeVersion": 1,
+      "updatedAt": "2026-06-27T00:00:00Z"
+    },
+    "records/tier-2/ee000002-0000-4000-8000-000000000002.json": {
+      "createdAt": "2026-06-27T00:00:00Z",
+      "fieldValues": [
+        {
+          "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+          "value": "How do we make decisions when someone is absent?"
+        },
+        {
+          "fieldId": "f1e00001-0000-4000-8000-000000000001",
+          "value": "The group agrees that minor operational decisions can proceed with those present. Decisions that affect the constitutional articles or roles should wait for full attendance or use an asynchronous written consent process."
+        },
+        {
+          "fieldId": "f2e00002-0000-4000-8000-000000000002",
+          "value": "The group is divided on what counts as 'minor'. One member feels any decision on spending should require full attendance."
+        },
+        {
+          "fieldId": "f3e00003-0000-4000-8000-000000000003",
+          "value": "Where exactly is the threshold between operational and constitutional decisions? Should there be a spending threshold?"
+        },
+        {
+          "fieldId": "f4e00004-0000-4000-8000-000000000004",
+          "value": "None — the group can proceed on a provisional basis while the threshold question is worked out."
+        },
+        {
+          "fieldId": "f5e00005-0000-4000-8000-000000000005",
+          "value": "Building Authority to draft a proposed spending threshold for the next meeting."
+        }
+      ],
+      "instanceId": "ee000002-0000-4000-8000-000000000002",
+      "lifecycleState": "ratified",
+      "typeId": "7f73b83e-4a5b-4c6d-8e9f-1a2b3c4d5e6f",
+      "typeName": "exercise",
+      "typeNamespace": "governance",
+      "typeVersion": 1,
+      "updatedAt": "2026-06-27T00:00:00Z"
     }
   }
 }
