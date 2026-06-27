@@ -924,9 +924,9 @@ pub enum RecordCommand {
         /// Optional type version override (defaults to latest for namespace/name)
         #[arg(long)]
         version: Option<u32>,
-        /// Optional output directory relative to repo root
-        #[arg(long, default_value = "package/records")]
-        dir: String,
+        /// Output directory relative to repo root (defaults to records/tier-2)
+        #[arg(long)]
+        dir: Option<String>,
         /// Deprecated: JSON output is now the default (no-op)
         #[arg(long, hide = true)]
         json: bool,
@@ -960,9 +960,6 @@ pub enum RecordCommand {
         /// Record instance ID of the predecessor
         #[arg(long)]
         id: String,
-        /// Optional output directory relative to repo root
-        #[arg(long, default_value = "package/records")]
-        dir: String,
     },
     /// Revision management commands (ext:addressability)
     #[command(subcommand)]

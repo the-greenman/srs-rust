@@ -101,7 +101,6 @@ fn create_record_returns_record_with_expected_type_id() {
         }],
         None,
         None,
-        "records",
     )
     .expect("create_record should succeed");
 
@@ -139,7 +138,6 @@ fn update_record_changes_field_value() {
         }],
         None,
         None,
-        "records",
     )
     .expect("create");
 
@@ -191,7 +189,6 @@ fn delete_record_makes_get_return_none() {
         }],
         None,
         None,
-        "records",
     )
     .expect("create");
 
@@ -227,7 +224,6 @@ fn create_record_missing_required_field_errors() {
         vec![], // no field values
         None,
         None,
-        "records",
     );
     assert!(
         result.is_err(),

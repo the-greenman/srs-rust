@@ -151,7 +151,7 @@ above. Tracked in the architecture-alignment audit issue.
 |---|---|---|
 | #205 | bindings returning ad-hoc `json!({})` | binding returns a typed struct (ADR-011 shape) |
 | #204 | `ProtocolStage.outputType` typed as `serde_json::Value` | typed contract in `srs-core` (ADR-010) |
-| #208 | `"records/tier-2"` hardcoded in bindings | paths belong in `FileStore` |
+| #208 | `"records/tier-2"` hardcoded in bindings | paths belong in `FileStore` | ✅ resolved |
 | #188 | typed stage projection done in the CLI handler | typed projection → service |
 | #131 | `render_brief_markdown` in the service | format rendering → client |
 | #183, #174, #175, #176, #130, #206 | protocol/blueprint definition modelling | definitions as package data, typed validation |

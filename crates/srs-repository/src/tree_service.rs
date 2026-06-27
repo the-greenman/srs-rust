@@ -335,7 +335,7 @@ mod tests {
             source: None,
             edited_at: None,
         }];
-        create_record(store, type_id, 1, fv, None, None, "records")
+        create_record(store, type_id, 1, fv, None, None)
             .unwrap()
             .instance_id
     }

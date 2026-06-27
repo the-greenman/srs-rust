@@ -3173,8 +3173,7 @@ mod tests {
                 edited_at: None,
             },
         ];
-        let text_record =
-            create_record(&store, "t-text", 1, fv_text, None, None, "records").unwrap();
+        let text_record = create_record(&store, "t-text", 1, fv_text, None, None).unwrap();
         let text_id = text_record.instance_id.clone();
 
         // Create a table record (follows the text)
@@ -3194,8 +3193,7 @@ mod tests {
                 edited_at: None,
             },
         ];
-        let table_record =
-            create_record(&store, "t-table", 1, fv_table, None, None, "records").unwrap();
+        let table_record = create_record(&store, "t-table", 1, fv_table, None, None).unwrap();
         let table_id = table_record.instance_id.clone();
 
         // Add both to container
@@ -3719,7 +3717,7 @@ mod tests {
             source: None,
             edited_at: None,
         }];
-        create_record(&store, "t-table-rec", 1, fv, Some(gv), None, "records").unwrap();
+        create_record(&store, "t-table-rec", 1, fv, Some(gv), None).unwrap();
         store
     }
 
@@ -4033,7 +4031,7 @@ mod tests {
             source: None,
             edited_at: None,
         }];
-        create_record(&store, "t-cap", 1, fv, Some(gv), None, "records").unwrap();
+        create_record(&store, "t-cap", 1, fv, Some(gv), None).unwrap();
 
         let result = render_document_view(RenderDocumentViewOptions {
             store: &store,
@@ -5026,7 +5024,6 @@ mod tests {
             ],
             None,
             None,
-            "records",
         )
         .unwrap();
         let text_id = text_record.instance_id.clone();
@@ -5053,7 +5050,6 @@ mod tests {
             ],
             None,
             None,
-            "records",
         )
         .unwrap();
         let table_id = table_record.instance_id.clone();
@@ -5345,7 +5341,6 @@ mod tests {
             ],
             None,
             None,
-            "records",
         )
         .unwrap();
         let text2_id = text2_record.instance_id.clone();
