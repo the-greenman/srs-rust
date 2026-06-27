@@ -3,6 +3,7 @@ use srs_core::types::record::{FieldGroupValue, FieldValue};
 use srs_core::types::relation::Relation;
 use srs_repository::blueprint_schema_service::{self, BlueprintSchemaInput};
 use srs_repository::blueprint_service;
+use srs_repository::protocol_service::{self, GetProtocolResult};
 use srs_repository::container_service::{self, ContainerListFilter};
 use srs_repository::record_store::{self, RecordListFilter, TransitionLifecycleInput};
 use srs_repository::relation_service::{self, ListRelationsFilter};
@@ -371,6 +372,38 @@ impl SrsRepository {
             "summaries": result.summaries,
             "diagnostics": result.diagnostics,
         }))
+    }
+
+    /// List protocol summaries from the compiled package model.
+    /// Returns a JS array of `{ protocolId, protocolNamespace, protocolName, protocolVersion,
+    /// stageCount, sourcePackage? }` objects.
+    pub fn list_protocols(&self) -> Result<JsValue, JsValue> {
+        let summaries = protocol_service::list_protocols(&self.store).map_err(js_err)?;
+        to_js(&summaries)
+    }
+
+    /// Get a protocol's stored definition JSON by its `protocolId`.
+    /// Returns the full protocol definition as a JS value, or `null` if not found.
+    pub fn get_protocol_by_id(&self, id: &str) -> Result<JsValue, JsValue> {
+        match protocol_service::get_protocol_by_id(&self.store, id).map_err(js_err)? {
+            GetProtocolResult::Found(val) => to_js(&val),
+            GetProtocolResult::NotFound => Ok(JsValue::NULL),
+        }
+    }
+
+    /// Find the first protocol whose `protocolTargetType` matches `target_type_id`.
+    /// Returns `{ protocolId, protocolName, stages, diagnostics }` as a JS value,
+    /// or `null` if no protocol targets that type.
+    pub fn find_protocol_by_target_type(
+        &self,
+        target_type_id: &str,
+    ) -> Result<JsValue, JsValue> {
+        match protocol_service::find_protocol_by_target_type(&self.store, target_type_id)
+            .map_err(js_err)?
+        {
+            Some(result) => to_js(&result),
+            None => Ok(JsValue::NULL),
+        }
     }
 
     /// List the document views (L2) bound to a container's root type. Resolves the container's
