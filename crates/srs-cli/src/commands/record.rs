@@ -145,7 +145,7 @@ fn cmd_record_create(
     ctx: CliContext,
     type_filter: String,
     version: Option<u32>,
-    dir: String,
+    dir: Option<String>,
 ) -> Result<String> {
     let mut stdin = String::new();
     io::stdin().read_to_string(&mut stdin)?;
@@ -167,7 +167,7 @@ fn cmd_record_create(
             version,
             input,
             container_id,
-            Some(&dir),
+            dir.as_deref(),
         )?)
     }) {
         Ok(result) => output::serialize(

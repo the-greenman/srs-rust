@@ -27,6 +27,8 @@ use crate::record_store::{
 };
 use crate::store::RepositoryStore;
 
+pub(crate) const EXTENSION_RECORD_DIR: &str = "package/records";
+
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtensionSummary {
@@ -112,7 +114,7 @@ pub fn create_extension(
         field_values,
         None,
         None,
-        "package/records",
+        EXTENSION_RECORD_DIR,
     )?;
     Ok(ExtensionResult { record })
 }
@@ -182,7 +184,7 @@ fn list_records_by_type_fallback(
     type_namespace: &str,
     type_name: &str,
 ) -> Result<Vec<Record>, RepositoryError> {
-    let paths = match store.list_instance_files("package/records") {
+    let paths = match store.list_instance_files(EXTENSION_RECORD_DIR) {
         Ok(p) => p,
         Err(RepositoryError::Io { .. } | RepositoryError::NotFound { .. }) => return Ok(vec![]),
         Err(e) => return Err(e),
@@ -211,7 +213,7 @@ fn get_record_by_id_fallback(
     store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<Option<Record>, RepositoryError> {
-    let path = format!("package/records/{id}.json");
+    let path = format!("{EXTENSION_RECORD_DIR}/{id}.json");
     match store.load_instance_json(&path) {
         Ok(value) => {
             let content = serde_json::to_string(&value).unwrap_or_default();

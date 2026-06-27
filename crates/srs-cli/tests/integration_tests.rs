@@ -2652,7 +2652,7 @@ fn record_create_writes_file_and_manifest_entry() {
     assert!(
         temp.path()
             .join(format!(
-                "package/records/test-item-{}.json",
+                "records/tier-2/test-item-{}.json",
                 &record_id[..8]
             ))
             .exists(),
