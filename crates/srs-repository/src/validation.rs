@@ -1974,8 +1974,7 @@ mod tests {
         let store = crate::store::FileStore::new(temp.path());
         // Create a tier-2 record of the guide type via the service (keeps index valid).
         let record =
-            crate::record_store::create_record(&store, type_id, 1, vec![], None, None)
-                .unwrap();
+            crate::record_store::create_record(&store, type_id, 1, vec![], None, None).unwrap();
         // Container rooted in that record, but with a stale containerType hint.
         let container = srs_core::types::container::Container {
             container_id: "00000000-0000-4000-8000-0000000000c1".to_string(),
@@ -2163,15 +2162,9 @@ mod tests {
         );
 
         let file_store = crate::store::FileStore::new(temp.path());
-        let record = crate::record_store::create_record(
-            &file_store,
-            type_id,
-            1,
-            vec![],
-            None,
-            None,
-        )
-        .unwrap();
+        let record =
+            crate::record_store::create_record(&file_store, type_id, 1, vec![], None, None)
+                .unwrap();
         let container = srs_core::types::container::Container {
             container_id: "00000000-0000-4000-8000-0000000000c4".to_string(),
             title: "Guide container".to_string(),

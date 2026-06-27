@@ -1364,15 +1364,8 @@ mod tests {
             },
         ];
 
-        let record = create_record(
-            &store,
-            "type-test-001",
-            1,
-            field_values,
-            None,
-            None,
-        )
-        .expect("should create record");
+        let record = create_record(&store, "type-test-001", 1, field_values, None, None)
+            .expect("should create record");
 
         assert!(!record.instance_id.is_empty());
         assert_eq!(record.type_id, "type-test-001");
@@ -1440,14 +1433,7 @@ mod tests {
             edited_at: None,
         }];
 
-        let result = create_record(
-            &store,
-            "type-test-001",
-            1,
-            field_values,
-            None,
-            None,
-        );
+        let result = create_record(&store, "type-test-001", 1, field_values, None, None);
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
@@ -1466,15 +1452,8 @@ mod tests {
             edited_at: None,
         }];
 
-        let record = create_record(
-            &store,
-            "type-test-001",
-            1,
-            field_values,
-            None,
-            None,
-        )
-        .expect("should create with only required field");
+        let record = create_record(&store, "type-test-001", 1, field_values, None, None)
+            .expect("should create with only required field");
         assert_eq!(record.field_values.len(), 1);
     }
 
@@ -1694,15 +1673,7 @@ mod tests {
             },
         ];
 
-        let record = create_record(
-            &store,
-            "type-test-001",
-            1,
-            initial_values,
-            None,
-            None,
-        )
-        .unwrap();
+        let record = create_record(&store, "type-test-001", 1, initial_values, None, None).unwrap();
         let instance_id = record.instance_id.clone();
 
         let updated_values = vec![
@@ -1726,7 +1697,11 @@ mod tests {
         assert_eq!(updated.field_values[0].value, json!("Updated Name"));
 
         // Verify stored value
-        let key = format!("{}/test-type-{}.json", DEFAULT_RECORD_DIR, &instance_id[..8]);
+        let key = format!(
+            "{}/test-type-{}.json",
+            DEFAULT_RECORD_DIR,
+            &instance_id[..8]
+        );
         let stored_val = store.load_instance_json(&key).unwrap();
         let stored: Record = serde_json::from_value(stored_val).unwrap();
         assert_eq!(stored.field_values[0].value, json!("Updated Name"));
@@ -1857,17 +1832,13 @@ mod tests {
             },
         ];
 
-        let record = create_record(
-            &store,
-            "type-test-001",
-            1,
-            field_values,
-            None,
-            None,
-        )
-        .unwrap();
+        let record = create_record(&store, "type-test-001", 1, field_values, None, None).unwrap();
         let instance_id = record.instance_id.clone();
-        let key = format!("{}/test-type-{}.json", DEFAULT_RECORD_DIR, &instance_id[..8]);
+        let key = format!(
+            "{}/test-type-{}.json",
+            DEFAULT_RECORD_DIR,
+            &instance_id[..8]
+        );
 
         assert!(store.load_instance_json(&key).is_ok());
 
@@ -2304,15 +2275,8 @@ mod tests {
             ],
         }]);
 
-        let record = create_record(
-            &store,
-            "type-test-001",
-            1,
-            field_values,
-            group_values,
-            None,
-        )
-        .expect("should create record with group_values");
+        let record = create_record(&store, "type-test-001", 1, field_values, group_values, None)
+            .expect("should create record with group_values");
 
         let loaded = get_record_by_id(&store, &record.instance_id)
             .unwrap()
@@ -2339,15 +2303,7 @@ mod tests {
             source: None,
             edited_at: None,
         }];
-        let record = create_record(
-            &store,
-            "type-test-001",
-            1,
-            fv,
-            None,
-            None,
-        )
-        .expect("create");
+        let record = create_record(&store, "type-test-001", 1, fv, None, None).expect("create");
         let id = record.instance_id.clone();
 
         let new_fv = vec![FieldValue {
@@ -2394,15 +2350,7 @@ mod tests {
                 field_values: vec![],
             }],
         }]);
-        let record = create_record(
-            &store,
-            "type-test-001",
-            1,
-            fv,
-            gv,
-            None,
-        )
-        .expect("create");
+        let record = create_record(&store, "type-test-001", 1, fv, gv, None).expect("create");
         let id = record.instance_id.clone();
 
         // None outer = not supplied, preserve existing
@@ -2431,16 +2379,9 @@ mod tests {
             source: None,
             edited_at: None,
         }];
-        create_record(
-            store,
-            "type-test-001",
-            1,
-            fv,
-            None,
-            None,
-        )
-        .expect("create")
-        .instance_id
+        create_record(store, "type-test-001", 1, fv, None, None)
+            .expect("create")
+            .instance_id
     }
 
     #[test]

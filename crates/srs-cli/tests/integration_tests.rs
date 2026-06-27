@@ -2651,10 +2651,7 @@ fn record_create_writes_file_and_manifest_entry() {
         .expect("instanceId should be present");
     assert!(
         temp.path()
-            .join(format!(
-                "records/tier-2/test-item-{}.json",
-                &record_id[..8]
-            ))
+            .join(format!("records/tier-2/test-item-{}.json", &record_id[..8]))
             .exists(),
         "record file should be created"
     );

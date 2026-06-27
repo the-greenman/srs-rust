@@ -200,9 +200,8 @@ impl SrsRepository {
     ) -> Result<JsValue, JsValue> {
         let input: record_store::CreateRecordSuccessorInput =
             serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
-        let result =
-            record_store::create_record_successor(&self.store, predecessor_id, input)
-                .map_err(js_err)?;
+        let result = record_store::create_record_successor(&self.store, predecessor_id, input)
+            .map_err(js_err)?;
         to_js(&serde_json::json!({
             "record": result.record,
             "relation": result.relation,
