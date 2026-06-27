@@ -103,7 +103,6 @@ impl SrsRepository {
             input.field_values,
             input.group_values,
             input.tags,
-            "records/tier-2",
         )
         .map_err(js_err)?;
         to_js(&record)
@@ -194,9 +193,6 @@ impl SrsRepository {
     ///   `{ "relationType": "supersedes"|"refines", "fieldValues": [...], "lifecycleState"?: "...", "typeVersion"?: N }`.
     /// Returns `{ "record": <Record>, "relation": <Relation> }` as a JS value.
     /// The relation runs from the successor (source) to the predecessor (target).
-    ///
-    /// Note: `"records/tier-2"` matches the `create_record` binding convention; both share the
-    /// same pre-existing path-string debt (Storage Boundary Rules) tracked for a future refactor.
     pub fn create_record_successor(
         &self,
         predecessor_id: &str,
@@ -204,13 +200,9 @@ impl SrsRepository {
     ) -> Result<JsValue, JsValue> {
         let input: record_store::CreateRecordSuccessorInput =
             serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
-        let result = record_store::create_record_successor(
-            &self.store,
-            predecessor_id,
-            input,
-            "records/tier-2",
-        )
-        .map_err(js_err)?;
+        let result =
+            record_store::create_record_successor(&self.store, predecessor_id, input)
+                .map_err(js_err)?;
         to_js(&serde_json::json!({
             "record": result.record,
             "relation": result.relation,

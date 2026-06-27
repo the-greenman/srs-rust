@@ -34,7 +34,7 @@ pub fn dispatch(ctx: CliContext, cmd: RecordCommand) -> Result<String> {
         RecordCommand::Validate => cmd_record_validate(ctx),
         RecordCommand::Delete { id, json: _ } => cmd_record_delete(ctx, id),
         RecordCommand::Transition { id } => cmd_record_transition(ctx, id),
-        RecordCommand::Successor { id, dir } => cmd_record_successor(ctx, id, dir),
+        RecordCommand::Successor { id } => cmd_record_successor(ctx, id),
         RecordCommand::Revision(rev_cmd) => dispatch_revision(ctx, rev_cmd),
         RecordCommand::Tag(tag_cmd) => dispatch_tag(ctx, tag_cmd),
     }
@@ -167,7 +167,7 @@ fn cmd_record_create(
             version,
             input,
             container_id,
-            &dir,
+            Some(&dir),
         )?)
     }) {
         Ok(result) => output::serialize(
@@ -286,7 +286,7 @@ fn cmd_record_transition(ctx: CliContext, id: String) -> Result<String> {
     }
 }
 
-fn cmd_record_successor(ctx: CliContext, id: String, dir: String) -> Result<String> {
+fn cmd_record_successor(ctx: CliContext, id: String) -> Result<String> {
     let mut stdin = String::new();
     io::stdin().read_to_string(&mut stdin)?;
     let input: CreateRecordSuccessorInput = match serde_json::from_str(&stdin) {
@@ -300,7 +300,7 @@ fn cmd_record_successor(ctx: CliContext, id: String, dir: String) -> Result<Stri
     };
 
     match with_store(&ctx, |store| {
-        Ok(create_record_successor(store, &id, input, &dir)?)
+        Ok(create_record_successor(store, &id, input)?)
     }) {
         Ok(result) => output::serialize(
             "record successor",

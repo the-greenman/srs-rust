@@ -960,9 +960,6 @@ pub enum RecordCommand {
         /// Record instance ID of the predecessor
         #[arg(long)]
         id: String,
-        /// Optional output directory relative to repo root
-        #[arg(long, default_value = "package/records")]
-        dir: String,
     },
     /// Revision management commands (ext:addressability)
     #[command(subcommand)]

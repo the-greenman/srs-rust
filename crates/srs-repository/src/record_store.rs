@@ -28,6 +28,9 @@ use crate::relation_service;
 use crate::revision_service;
 use crate::store::RepositoryStore;
 use crate::writer::{new_instance_id, slugify_instance_name, write_manifest};
+
+/// Default directory for newly created tier-2 records, relative to the repository root.
+pub(crate) const DEFAULT_RECORD_DIR: &str = "records/tier-2";
 use serde::{Deserialize, Serialize};
 use srs_core::types::record::{FieldValue, Record};
 use srs_core::types::relation::Relation;
@@ -94,8 +97,32 @@ pub fn get_record_by_id(
     }
 }
 
-/// Create a new Tier 2 record.
+/// Create a new Tier 2 record in the default directory (`DEFAULT_RECORD_DIR`).
 pub fn create_record(
+    store: &dyn RepositoryStore,
+    type_id: &str,
+    type_version: u32,
+    field_values: Vec<FieldValue>,
+    group_values: Option<Vec<srs_core::types::record::FieldGroupValue>>,
+    tags: Option<Vec<String>>,
+) -> Result<Record, RepositoryError> {
+    create_record_at_dir(
+        store,
+        type_id,
+        type_version,
+        field_values,
+        group_values,
+        tags,
+        DEFAULT_RECORD_DIR,
+    )
+}
+
+/// Create a new Tier 2 record in a caller-specified directory.
+///
+/// Use `create_record` for the common case. This function exists for callers (like
+/// `create_record_in_context`) that need a non-default directory, and for internal
+/// module tests that verify path behaviour.
+pub(crate) fn create_record_at_dir(
     store: &dyn RepositoryStore,
     type_id: &str,
     type_version: u32,
@@ -525,14 +552,20 @@ pub fn list_records_filtered(
 /// - Resolves the type (with optional version pin)
 /// - Creates the record
 /// - If `container_id` is Some, validates the container exists and adds the record
+///
+/// `dir_override` lets CLI callers honour a user-supplied `--dir` flag. Pass `None`
+/// to use `DEFAULT_RECORD_DIR`. Raw path strings must not appear in binding code or
+/// CLI handlers — bind the user flag value here and nowhere else.
 pub fn create_record_in_context(
     store: &dyn RepositoryStore,
     type_filter: &str,
     type_version: Option<u32>,
     input: CreateRecordInput,
     container_id: Option<String>,
-    relative_dir: &str,
+    dir_override: Option<&str>,
 ) -> Result<CreateRecordResult, RepositoryError> {
+    let dir = dir_override.unwrap_or(DEFAULT_RECORD_DIR);
+
     // Parse namespace/name
     let parts: Vec<&str> = type_filter.splitn(2, '/').collect();
     if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
@@ -575,14 +608,14 @@ pub fn create_record_in_context(
         }
     };
 
-    let record = create_record(
+    let record = create_record_at_dir(
         store,
         &record_type.id,
         record_type.version,
         input.field_values,
         input.group_values,
         input.tags,
-        relative_dir,
+        dir,
     )?;
 
     if let Some(ref cid) = container_id {
@@ -811,11 +844,11 @@ fn find_latest_revision_id(
 ///
 /// Creates a new Record with the same typeId+typeVersion (or a specified version),
 /// then automatically adds a Relation from the successor to the predecessor.
+/// The successor record is written to `DEFAULT_RECORD_DIR`.
 pub fn create_record_successor(
     store: &dyn RepositoryStore,
     predecessor_id: &str,
     input: CreateRecordSuccessorInput,
-    relative_dir: &str,
 ) -> Result<CreateRecordSuccessorResult, RepositoryError> {
     let predecessor =
         get_record_by_id(store, predecessor_id)?.ok_or_else(|| RepositoryError::NotFound {
@@ -836,14 +869,14 @@ pub fn create_record_successor(
     }
 
     // Create the successor record (lifecycle_state auto-set from Type.initialState).
-    let mut successor = create_record(
+    let mut successor = create_record_at_dir(
         store,
         &predecessor.type_id,
         type_version,
         input.field_values,
         None,
         None,
-        relative_dir,
+        DEFAULT_RECORD_DIR,
     )?;
 
     // If caller supplied an explicit lifecycle_state, patch it.
@@ -1338,16 +1371,16 @@ mod tests {
             field_values,
             None,
             None,
-            "records/test-items",
         )
         .expect("should create record");
 
         assert!(!record.instance_id.is_empty());
         assert_eq!(record.type_id, "type-test-001");
 
-        // Record stored under slug-id8 path
+        // Record stored under slug-id8 path in the default dir
         let key = format!(
-            "records/test-items/test-type-{}.json",
+            "{}/test-type-{}.json",
+            DEFAULT_RECORD_DIR,
             &record.instance_id[..8]
         );
         store
@@ -1362,6 +1395,38 @@ mod tests {
             .find(|e| e.instance_id() == record.instance_id);
         assert!(entry.is_some());
         assert_eq!(entry.unwrap().tier(), 2);
+    }
+
+    #[test]
+    fn create_record_uses_default_dir() {
+        let store = make_store_with_package();
+        let record = create_record(
+            &store,
+            "type-test-001",
+            1,
+            vec![FieldValue {
+                field_id: "field-name-001".to_string(),
+                value: json!("Default Dir Test"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            }],
+            None,
+            None,
+        )
+        .expect("should create record");
+
+        let manifest = store.load_manifest().unwrap();
+        let entry = manifest
+            .instance_index
+            .iter()
+            .find(|e| e.instance_id() == record.instance_id)
+            .expect("record must be indexed");
+        assert!(
+            entry.path().starts_with(DEFAULT_RECORD_DIR),
+            "expected path under {DEFAULT_RECORD_DIR}, got {}",
+            entry.path()
+        );
     }
 
     #[test]
@@ -1382,7 +1447,6 @@ mod tests {
             field_values,
             None,
             None,
-            "records/test-items",
         );
         assert!(result.is_err());
         assert!(matches!(
@@ -1409,7 +1473,6 @@ mod tests {
             field_values,
             None,
             None,
-            "records/test-items",
         )
         .expect("should create with only required field");
         assert_eq!(record.field_values.len(), 1);
@@ -1638,7 +1701,6 @@ mod tests {
             initial_values,
             None,
             None,
-            "records/test-items",
         )
         .unwrap();
         let instance_id = record.instance_id.clone();
@@ -1664,7 +1726,7 @@ mod tests {
         assert_eq!(updated.field_values[0].value, json!("Updated Name"));
 
         // Verify stored value
-        let key = format!("records/test-items/test-type-{}.json", &instance_id[..8]);
+        let key = format!("{}/test-type-{}.json", DEFAULT_RECORD_DIR, &instance_id[..8]);
         let stored_val = store.load_instance_json(&key).unwrap();
         let stored: Record = serde_json::from_value(stored_val).unwrap();
         assert_eq!(stored.field_values[0].value, json!("Updated Name"));
@@ -1699,7 +1761,6 @@ mod tests {
             }],
             None,
             None,
-            "records/test-items",
         )
         .unwrap();
 
@@ -1716,7 +1777,6 @@ mod tests {
             }],
             None,
             None,
-            "records/test-items",
         )
         .unwrap();
 
@@ -1771,7 +1831,6 @@ mod tests {
             }],
             None,
             None,
-            "records/test-items",
         )
         .unwrap();
 
@@ -1805,11 +1864,10 @@ mod tests {
             field_values,
             None,
             None,
-            "records/test-items",
         )
         .unwrap();
         let instance_id = record.instance_id.clone();
-        let key = format!("records/test-items/test-type-{}.json", &instance_id[..8]);
+        let key = format!("{}/test-type-{}.json", DEFAULT_RECORD_DIR, &instance_id[..8]);
 
         assert!(store.load_instance_json(&key).is_ok());
 
@@ -2019,7 +2077,6 @@ mod tests {
             }],
             None,
             None,
-            "records/lc-items",
         )
         .unwrap()
     }
@@ -2132,7 +2189,6 @@ mod tests {
                 lifecycle_state: None,
                 type_version: None,
             },
-            "records/lc-items",
         )
         .unwrap();
 
@@ -2183,7 +2239,6 @@ mod tests {
                 lifecycle_state: None,
                 type_version: None,
             },
-            "records/lc-items",
         )
         .unwrap();
 
@@ -2256,7 +2311,6 @@ mod tests {
             field_values,
             group_values,
             None,
-            "records/test-items",
         )
         .expect("should create record with group_values");
 
@@ -2292,7 +2346,6 @@ mod tests {
             fv,
             None,
             None,
-            "records/test-items",
         )
         .expect("create");
         let id = record.instance_id.clone();
@@ -2348,7 +2401,6 @@ mod tests {
             fv,
             gv,
             None,
-            "records/test-items",
         )
         .expect("create");
         let id = record.instance_id.clone();
@@ -2386,7 +2438,6 @@ mod tests {
             fv,
             None,
             None,
-            "records/test-items",
         )
         .expect("create")
         .instance_id
@@ -2556,7 +2607,6 @@ mod tests {
                 "construct:field".to_string(),
                 "layer:normative".to_string(),
             ]),
-            "records/test-items",
         )
         .expect("should create record with tags");
 
@@ -2616,7 +2666,6 @@ mod tests {
             fv,
             None,
             Some(vec![]), // explicitly empty — normalised to None
-            "records/test-items",
         )
         .expect("should create record");
 
@@ -2904,7 +2953,6 @@ mod tests {
             }],
             None,
             None,
-            "records/lcref-items",
         )
         .unwrap()
     }

@@ -23,7 +23,7 @@ use srs_core::types::record::{FieldValue, Record};
 
 use crate::error::RepositoryError;
 use crate::record_store::{
-    create_record, delete_record, get_record_by_id, list_records_by_type, update_record,
+    create_record_at_dir, delete_record, get_record_by_id, list_records_by_type, update_record,
 };
 use crate::store::RepositoryStore;
 
@@ -105,7 +105,7 @@ pub fn create_extension(
         .and_then(|v| v.as_u64())
         .unwrap_or(1) as u32;
 
-    let record = create_record(
+    let record = create_record_at_dir(
         store,
         type_id,
         type_version,
