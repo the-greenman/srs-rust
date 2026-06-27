@@ -7,9 +7,10 @@
 //! export compiles.
 //!
 //! Gallery `.srsj` containers used:
-//!   - `b30db206…` root `5bbf9209…`, 3 members
-//!   - `138e2fac…` root `9054911c…`, 7 members
-//!   - `f7562aa3…` root `ad159754…`, 6 members
+//!   - `b30db206…` root `5bbf9209…`, 3 members (Roles)
+//!   - `138e2fac…` root `9054911c…`, 7 members (Decisions)
+//!   - `f7562aa3…` root `ad159754…`, 6 members (Articles)
+//!   - `297bb0b6…` root `b8a78733…`, 2 members (Exercises)
 
 use srs_repository::container_service::{
     add_member, containers_for_instance, get_container, list_containers, remove_member,
@@ -28,7 +29,7 @@ fn list_containers_returns_all() {
     let store = gallery_store();
     let summaries =
         list_containers(&store, &ContainerListFilter::default()).expect("list must succeed");
-    assert_eq!(summaries.len(), 3, "gallery has three containers");
+    assert_eq!(summaries.len(), 4, "gallery has four containers");
 }
 
 /// A root filter resolves the single container a guide/root belongs to — the path the

@@ -907,6 +907,10 @@
         {
           "containerId": "138e2fac-6a8a-4a06-9511-5aefd99ceae9",
           "title": "Decisions"
+        },
+        {
+          "containerId": "297bb0b6-5970-58fc-ae48-ebeb7f76d8a6",
+          "title": "Exercises"
         }
       ]
     },
@@ -1402,7 +1406,12 @@
         "fields/roleholder-a6c19b95.json",
         "fields/authority-d25da548.json",
         "fields/boundary-3c39ee1f.json",
-        "fields/sourceofauthority-9a32dc01.json"
+        "fields/sourceofauthority-9a32dc01.json",
+        "fields/thinkingreached-e32657f5.json",
+        "fields/tensions-240e1e6c.json",
+        "fields/unresolvedquestions-c38c475a.json",
+        "fields/blocking-491fefd9.json",
+        "fields/nextaction-5ac092fb.json"
       ],
       "id": "90677fae-16a7-49ec-8aee-1872cbf8e381",
       "name": "governance-core",
@@ -1418,7 +1427,8 @@
       "types": [
         "types/decision-1fcad6a2.json",
         "types/article-a1142ac3.json",
-        "types/role-e53dce11.json"
+        "types/role-e53dce11.json",
+        "types/exercise-7f73b83e.json"
       ],
       "version": "1.0.0",
       "views": [
@@ -1492,6 +1502,200 @@
       "typeNamespace": "governance",
       "typeVersion": 1,
       "updatedAt": "2026-06-08T21:05:17.266092197+00:00"
+    },
+    "package/fields/thinkingreached-e32657f5.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-06-26T00:00:00Z",
+      "description": "What thinking or understanding was reached during the exercise.",
+      "id": "e32657f5-2e58-52db-9c9f-177f717aeb71",
+      "name": "thinking_reached",
+      "namespace": "governance",
+      "valueType": "string",
+      "version": 1
+    },
+    "package/fields/tensions-240e1e6c.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-06-26T00:00:00Z",
+      "description": "Tensions or contradictions identified during the exercise.",
+      "id": "240e1e6c-63f9-5039-838f-91880d9b6d23",
+      "name": "tensions",
+      "namespace": "governance",
+      "valueType": "string",
+      "version": 1
+    },
+    "package/fields/unresolvedquestions-c38c475a.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-06-26T00:00:00Z",
+      "description": "Questions that remain unresolved after the exercise.",
+      "id": "c38c475a-99de-5b40-a389-d32aec7c7593",
+      "name": "unresolved_questions",
+      "namespace": "governance",
+      "valueType": "string",
+      "version": 1
+    },
+    "package/fields/blocking-491fefd9.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-06-26T00:00:00Z",
+      "description": "What is blocking progress or resolution.",
+      "id": "491fefd9-9b39-5d12-b54a-b1cc6ab07e76",
+      "name": "blocking",
+      "namespace": "governance",
+      "valueType": "string",
+      "version": 1
+    },
+    "package/fields/nextaction-5ac092fb.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-06-26T00:00:00Z",
+      "description": "The agreed next action following the exercise.",
+      "id": "5ac092fb-ff83-5ea6-bf12-67ac50e735d9",
+      "name": "next_action",
+      "namespace": "governance",
+      "valueType": "string",
+      "version": 1
+    },
+    "package/types/exercise-7f73b83e.json": {
+      "createdAt": "2026-06-26T00:00:00Z",
+      "description": "A structured deliberation or sense-making exercise.",
+      "fields": [
+        {
+          "displayLabel": "Title",
+          "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+          "order": 0,
+          "repeatable": false,
+          "required": true
+        },
+        {
+          "displayLabel": "Thinking Reached",
+          "fieldId": "e32657f5-2e58-52db-9c9f-177f717aeb71",
+          "order": 1,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Tensions",
+          "fieldId": "240e1e6c-63f9-5039-838f-91880d9b6d23",
+          "order": 2,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Unresolved Questions",
+          "fieldId": "c38c475a-99de-5b40-a389-d32aec7c7593",
+          "order": 3,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Blocking",
+          "fieldId": "491fefd9-9b39-5d12-b54a-b1cc6ab07e76",
+          "order": 4,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Next Action",
+          "fieldId": "5ac092fb-ff83-5ea6-bf12-67ac50e735d9",
+          "order": 5,
+          "repeatable": false,
+          "required": false
+        }
+      ],
+      "id": "7f73b83e-bbf2-5635-aa4d-ee98acf04128",
+      "lifecycleRef": "3c504040-7920-43aa-8fbd-eda21dc7c07b",
+      "name": "exercise",
+      "namespace": "governance",
+      "version": 1
+    },
+    "records/tier-2/b8a78733-d928-574e-b2d9-e9e46d00979d.json": {
+      "createdAt": "2026-06-01T10:00:00Z",
+      "fieldValues": [
+        {
+          "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+          "value": "Decision-making roles clarification"
+        },
+        {
+          "fieldId": "e32657f5-2e58-52db-9c9f-177f717aeb71",
+          "value": "We reached consensus that financial decisions above £500 require full group agreement, while operational spending below that threshold falls within the Coordinator role."
+        },
+        {
+          "fieldId": "240e1e6c-63f9-5039-838f-91880d9b6d23",
+          "value": "Tension between efficiency (faster Coordinator decisions) and transparency (group visibility on spending)."
+        },
+        {
+          "fieldId": "c38c475a-99de-5b40-a389-d32aec7c7593",
+          "value": "What counts as an 'operational' vs 'strategic' expense? Needs a worked example."
+        },
+        {
+          "fieldId": "491fefd9-9b39-5d12-b54a-b1cc6ab07e76",
+          "value": "None — ready to formalise as a decision."
+        },
+        {
+          "fieldId": "5ac092fb-ff83-5ea6-bf12-67ac50e735d9",
+          "value": "Coordinator to draft the spending authority decision for ratification at the next meeting."
+        }
+      ],
+      "instanceId": "b8a78733-d928-574e-b2d9-e9e46d00979d",
+      "lifecycleState": "ratified",
+      "typeId": "7f73b83e-bbf2-5635-aa4d-ee98acf04128",
+      "typeName": "exercise",
+      "typeNamespace": "governance",
+      "typeVersion": 1,
+      "updatedAt": "2026-06-01T10:00:00Z"
+    },
+    "records/tier-2/5c02d001-2d33-56d1-8133-a0adc7891907.json": {
+      "createdAt": "2026-06-15T14:00:00Z",
+      "fieldValues": [
+        {
+          "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+          "value": "Space usage priorities exercise"
+        },
+        {
+          "fieldId": "e32657f5-2e58-52db-9c9f-177f717aeb71",
+          "value": "The group mapped three competing uses of the main space: exhibition, workshop, and community events. Exhibition is primary but workshops generate more income per day."
+        },
+        {
+          "fieldId": "240e1e6c-63f9-5039-838f-91880d9b6d23",
+          "value": "Income needs vs. mission alignment: workshops are financially valuable but dilute the exhibition focus that drew members in."
+        },
+        {
+          "fieldId": "c38c475a-99de-5b40-a389-d32aec7c7593",
+          "value": "How many workshop days per month are acceptable without compromising exhibition programming?"
+        },
+        {
+          "fieldId": "5ac092fb-ff83-5ea6-bf12-67ac50e735d9",
+          "value": "Propose a pilot: up to 4 workshop days per month for 3 months, then review."
+        }
+      ],
+      "instanceId": "5c02d001-2d33-56d1-8133-a0adc7891907",
+      "lifecycleState": "ratified",
+      "typeId": "7f73b83e-bbf2-5635-aa4d-ee98acf04128",
+      "typeName": "exercise",
+      "typeNamespace": "governance",
+      "typeVersion": 1,
+      "updatedAt": "2026-06-15T14:00:00Z"
+    },
+    "containers/297bb0b6-5970-58fc-ae48-ebeb7f76d8a6.json": {
+      "containerId": "297bb0b6-5970-58fc-ae48-ebeb7f76d8a6",
+      "containerType": "document",
+      "createdAt": "2026-06-26T00:00:00Z",
+      "memberInstanceIds": [
+        "b8a78733-d928-574e-b2d9-e9e46d00979d",
+        "5c02d001-2d33-56d1-8133-a0adc7891907"
+      ],
+      "rootInstanceIds": [
+        "b8a78733-d928-574e-b2d9-e9e46d00979d"
+      ],
+      "title": "Exercises"
     }
   }
 }
