@@ -29,7 +29,7 @@ semanticops/
 
 ## Spec To Implementation Map (Current)
 
-As of 2026-06-02.
+As of 2026-06-27. See `docs/roadmap/extension-implementation.md` for the full extension roadmap and conformance review.
 
 | Area | Spec Status | Rust Implementation Status |
 |---|---|---|
@@ -49,8 +49,8 @@ As of 2026-06-02.
 | Repeatable field entries (`ext:repeatable-fields`) | In schema/spec | Implemented (typed model, validation constraints, rendering) |
 | Field groups (`ext:field-groups`) | In schema/spec | Implemented (typed model, required/group-count validation, rendering) |
 | Blueprints (`ext:blueprint`) | Defined | Implemented (CRUD, validate, structure listing) |
-| Lifecycle state machine (`ext:lifecycle`) | In progress | Stub — `lifecycleState` field parsed but not enforced; no state transition logic |
-| Type inheritance (`ext:type-inheritance`) | In planning | Not implemented — `fieldOrder` present in model but ignored at render time |
+| Lifecycle state machine (`ext:lifecycle`) | In progress | Implemented — transition validation (`transition_record_lifecycle`), initial-state injection at create, V7–V9 invariants enforced; verification pass tracked in roadmap Epic 1 |
+| Type inheritance (`ext:type-inheritance`) | In planning | Implemented — `extends_type_id`/`field_order` resolved via `effective_fields()`, cycle detection; note: no `ext-type-inheritance` spec record exists yet (roadmap D2) |
 | Themes (`ext:themes-l1`) | Incorporated (RFC-002) | Implemented — renderer resolves `themeRef`/`themeVariants` for matching output formats and supports CLI `--theme-variant` |
 | Addressability (`ext:addressability`) | Declared | Not implemented |
 | Recommended relations (`ext:recommended-relations`) | Retired (RFC-005, incorporated) | Retired — canonical vocabulary now provided as `RelationTypeDefinition` records in the `com.semanticops.srs` package |
