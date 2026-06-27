@@ -1169,6 +1169,12 @@ pub enum ProtocolCommand {
         /// Protocol instance ID
         id: String,
     },
+    /// Find the first protocol whose target type matches the given type ID
+    FindByTargetType {
+        /// Type ID to match against protocolTargetType
+        #[arg(long, name = "type-id")]
+        type_id: String,
+    },
 }
 
 #[derive(Subcommand)]

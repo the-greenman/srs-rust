@@ -109,6 +109,10 @@ fn main() {
     write_schema!("protocol-validate", ProtocolValidatePayload);
     write_schema!("protocol-update", ProtocolPayload);
     write_schema!("protocol-delete", ProtocolDeletePayload);
+    write_schema!(
+        "protocol-find-by-target-type",
+        ProtocolFindByTargetTypePayload
+    );
 
     // Blueprint payloads
     write_schema!("blueprint-list", BlueprintListPayload);
