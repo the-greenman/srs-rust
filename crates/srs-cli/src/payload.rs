@@ -36,7 +36,7 @@ use srs_repository::{
     container_service::ContainerSummary,
     container_view_service::ContainerView,
     extension_service::ExtensionSummary,
-    record_store::{ListRecordTagsResult, RecordTagSummary},
+    record_store::{ListRecordTagsResult, RecordSummary, RecordTagSummary},
     relation_service::RelationSummary,
     services::{ListNoteTagsResult, NoteSummary, TagSummary},
     theme_service::ThemeSummary,
@@ -291,8 +291,11 @@ pub struct NoteFoundationsPayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordListPayload {
+    /// Each entry is a `RecordSummary` — the full `Record` plus its core-resolved
+    /// `displayLabel` (same resolution `srs tree` uses). Embedded opaquely as JSON
+    /// since `RecordSummary` lives in `srs-repository` and is not `JsonSchema`.
     #[schemars(with = "Vec<serde_json::Value>")]
-    pub records: Vec<Record>,
+    pub records: Vec<RecordSummary>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]

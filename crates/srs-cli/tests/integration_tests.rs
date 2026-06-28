@@ -2555,7 +2555,13 @@ fn record_list_returns_records_by_type() {
         .as_array()
         .expect("records should be array");
     assert_eq!(records.len(), 1);
+    // RecordSummary shape: { instanceId, displayLabel, record: { ... } } (#293).
     assert_eq!(records[0]["instanceId"], record_id);
+    // No title/name/label field → displayLabel falls back to type_name (core resolution).
+    assert_eq!(records[0]["displayLabel"], "test-item");
+    // The full record is nested and still carries its own fields.
+    assert_eq!(records[0]["record"]["instanceId"], record_id);
+    assert_eq!(records[0]["record"]["typeName"], "test-item");
 }
 
 #[test]

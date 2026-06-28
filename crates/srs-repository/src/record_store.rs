@@ -24,6 +24,7 @@ use crate::error::RepositoryError;
 use crate::index::InstanceIndexEntry;
 use crate::manifest::Manifest;
 use crate::package_service::{get_type_by_name, GetTypeResult};
+use crate::record_label;
 use crate::relation_service;
 use crate::revision_service;
 use crate::store::RepositoryStore;
@@ -544,6 +545,52 @@ pub fn list_records_filtered(
     }
 
     Ok(records)
+}
+
+/// A listed record paired with its core-resolved display label.
+///
+/// The `display_label` comes from [`record_label::record_display_label`] (priority
+/// `title` → `name` → `label` → `type_name` fallback) — the *same* resolution
+/// `srs tree` and `resolve_container_view` (#254) use. Clients render this label
+/// directly and must not re-derive titles from `field_values` (capability-layering:
+/// "clients add presentation, never semantics").
+///
+/// Shape mirrors `container_view_service::ResolvedMember` (minus `tier`, since
+/// `record list` returns only Tier-2 Records): the full `Record` is nested so the
+/// client can still render cells/fields against it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordSummary {
+    pub instance_id: String,
+    /// Core-resolved label via `record_label::record_display_label`.
+    pub display_label: String,
+    pub record: Record,
+}
+
+/// List records (same filter semantics as [`list_records_filtered`]), each paired
+/// with its core-resolved `display_label`.
+///
+/// Delegates to [`list_records_filtered`] for the records, builds the
+/// `field_id → field_name` index once, and resolves each label via
+/// [`record_label::record_display_label`]. No filtering or label logic is duplicated.
+pub fn list_record_summaries(
+    store: &dyn RepositoryStore,
+    filter: RecordListFilter,
+) -> Result<Vec<RecordSummary>, RepositoryError> {
+    let records = list_records_filtered(store, filter)?;
+    let field_name_index = record_label::build_field_name_index(store)?;
+    Ok(records
+        .into_iter()
+        .map(|record| {
+            let instance_id = record.instance_id.clone();
+            let display_label = record_label::record_display_label(&record, &field_name_index);
+            RecordSummary {
+                instance_id,
+                display_label,
+                record,
+            }
+        })
+        .collect())
 }
 
 /// Create a record from a `namespace/name` type filter and optionally add to a container.
@@ -1282,6 +1329,236 @@ mod tests {
             lifecycles: vec![],
         };
         MemoryStore::new(manifest, package)
+    }
+
+    /// Store whose package has a field literally named `title` (id `field-title-0001`)
+    /// and a non-label field named `summary` (id `field-summary-0001`), both optional,
+    /// on type `labeled-type` (id `type-labeled-0001`). Lets `list_record_summaries`
+    /// tests exercise both the `title` priority and the `type_name` fallback of
+    /// `record_display_label`. Identifiers are >= 8 chars so the snapshot importer used
+    /// by `copy_repository` accepts the fixture.
+    fn make_store_with_title_field() -> MemoryStore {
+        use crate::package::Package;
+        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::record_type::{FieldAssignment, RecordType};
+
+        let plain_field = |id: &str, name: &str| Field {
+            id: id.to_string(),
+            namespace: "com.test".to_string(),
+            name: name.to_string(),
+            version: 1,
+            value_type: ValueType::String,
+            description: String::new(),
+            ai_guidance: json!(null),
+            allowed_values: None,
+            vocabulary_ref: None,
+            default_value: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let assignment = |field_id: &str, order: u32| FieldAssignment {
+            field_id: field_id.to_string(),
+            order,
+            required: false,
+            display_label: None,
+            repeatable: false,
+            min_items: None,
+            max_items: None,
+        };
+        let labeled_type = RecordType {
+            id: "type-labeled-0001".to_string(),
+            namespace: "com.test".to_string(),
+            name: "labeled-type".to_string(),
+            version: 1,
+            description: "Type with a title field".to_string(),
+            fields: vec![
+                assignment("field-title-0001", 0),
+                assignment("field-summary-0001", 1),
+            ],
+            field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let manifest = Manifest {
+            instance_index: vec![],
+            extra: HashMap::new(),
+            root: PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "package-labeled-0001".to_string(),
+            namespace: "com.test".to_string(),
+            name: "labeled-package".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![
+                plain_field("field-title-0001", "title"),
+                plain_field("field-summary-0001", "summary"),
+            ],
+            record_types: vec![labeled_type],
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        MemoryStore::new(manifest, package)
+    }
+
+    fn fv(field_id: &str, value: &str) -> FieldValue {
+        FieldValue {
+            field_id: field_id.to_string(),
+            value: json!(value),
+            entries: None,
+            source: None,
+            edited_at: None,
+        }
+    }
+
+    #[test]
+    fn list_record_summaries_attaches_title_label() {
+        let store = make_store_with_title_field();
+        let record = create_record(
+            &store,
+            "type-labeled-0001",
+            1,
+            vec![fv("field-title-0001", "My Title")],
+            None,
+            None,
+        )
+        .expect("create record");
+
+        let summaries =
+            list_record_summaries(&store, RecordListFilter::default()).expect("list summaries");
+        assert_eq!(summaries.len(), 1);
+        let s = &summaries[0];
+        assert_eq!(s.display_label, "My Title");
+        assert_eq!(s.instance_id, record.instance_id);
+        assert_eq!(s.record.instance_id, record.instance_id);
+    }
+
+    #[test]
+    fn list_record_summaries_falls_back_to_type_name() {
+        let store = make_store_with_title_field();
+        // Only the non-label `summary` field is set → no title/name/label match,
+        // so the label falls back to the record's type_name.
+        create_record(
+            &store,
+            "type-labeled-0001",
+            1,
+            vec![fv("field-summary-0001", "just a summary")],
+            None,
+            None,
+        )
+        .expect("create record");
+
+        let summaries =
+            list_record_summaries(&store, RecordListFilter::default()).expect("list summaries");
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].display_label, "labeled-type");
+    }
+
+    #[test]
+    fn list_record_summaries_respects_filter() {
+        let store = make_store_with_title_field();
+        create_record(
+            &store,
+            "type-labeled-0001",
+            1,
+            vec![fv("field-title-0001", "A")],
+            None,
+            None,
+        )
+        .unwrap();
+        create_record(
+            &store,
+            "type-labeled-0001",
+            1,
+            vec![fv("field-title-0001", "B")],
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Matching type filter returns both; the same instance_ids list_records_filtered yields.
+        let filter = RecordListFilter {
+            type_namespace: Some("com.test".to_string()),
+            type_name: Some("labeled-type".to_string()),
+            container_id: None,
+            tag: None,
+        };
+        let summaries = list_record_summaries(&store, filter.clone()).unwrap();
+        let raw = list_records_filtered(&store, filter).unwrap();
+        assert_eq!(summaries.len(), 2);
+        let summary_ids: Vec<_> = summaries.iter().map(|s| s.instance_id.clone()).collect();
+        let raw_ids: Vec<_> = raw.iter().map(|r| r.instance_id.clone()).collect();
+        assert_eq!(
+            summary_ids, raw_ids,
+            "delegates filter to list_records_filtered"
+        );
+
+        // Non-matching type filter returns nothing.
+        let none = list_record_summaries(
+            &store,
+            RecordListFilter {
+                type_namespace: Some("com.test".to_string()),
+                type_name: Some("nonexistent-type".to_string()),
+                container_id: None,
+                tag: None,
+            },
+        )
+        .unwrap();
+        assert!(none.is_empty());
+    }
+
+    #[test]
+    fn list_record_summaries_roundtrip_stores() {
+        // Cross-store roundtrip (memory -> file) per CLAUDE.md Storage Boundary Rules,
+        // mirroring container_view_service::resolve_container_view_roundtrip_stores.
+        let store = make_store_with_title_field();
+        create_record(
+            &store,
+            "type-labeled-0001",
+            1,
+            vec![fv("field-title-0001", "Roundtrip One")],
+            None,
+            None,
+        )
+        .unwrap();
+        create_record(
+            &store,
+            "type-labeled-0001",
+            1,
+            vec![fv("field-summary-0001", "no title here")],
+            None,
+            None,
+        )
+        .unwrap();
+
+        let from_memory =
+            list_record_summaries(&store, RecordListFilter::default()).expect("memory summaries");
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let file_store = crate::store::FileStore::new(temp.path());
+        crate::repository_portability::copy_repository(&store, &file_store).unwrap();
+        let from_file = list_record_summaries(&file_store, RecordListFilter::default())
+            .expect("file summaries");
+
+        assert_eq!(from_memory.len(), 2, "fixture sanity: two records");
+        assert_eq!(
+            serde_json::to_value(&from_memory).unwrap(),
+            serde_json::to_value(&from_file).unwrap(),
+            "RecordSummary list must be identical across stores (memory -> file)"
+        );
     }
 
     // These tests mirror the existing tests that use TempDir — they still call
