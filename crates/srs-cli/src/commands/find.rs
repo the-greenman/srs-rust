@@ -13,6 +13,7 @@ pub fn dispatch(ctx: CliContext, args: FindArgs) -> Result<String> {
         container_id: ctx.container_id.clone(),
         tag: args.tag,
         lifecycle_state: args.lifecycle_state,
+        exclude_lifecycle_states: args.exclude_lifecycle_state,
         tier: args.tier,
         content_match: args.text,
     };

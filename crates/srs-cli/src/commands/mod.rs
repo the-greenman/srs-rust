@@ -1367,6 +1367,9 @@ pub struct FindArgs {
     /// Exact match on Record.lifecycleState (requires ext:lifecycle)
     #[arg(long = "lifecycle-state")]
     pub lifecycle_state: Option<String>,
+    /// Exclude records whose lifecycleState matches this value (repeatable; applied after --lifecycle-state)
+    #[arg(long = "exclude-lifecycle-state", action = clap::ArgAction::Append)]
+    pub exclude_lifecycle_state: Vec<String>,
     /// Instance tier filter (0=Note, 1=TypedRecord, 2=Record). Phase 1 serves Tier 2.
     #[arg(long = "tier")]
     pub tier: Option<u8>,

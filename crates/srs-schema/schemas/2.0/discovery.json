@@ -36,6 +36,11 @@
           "type": "string",
           "description": "Exact match on Record.lifecycleState (case-sensitive). Requires ext:lifecycle. Instances without a lifecycleState field do not match."
         },
+        "excludeLifecycleStates": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Exclusion filter (parity with the RFC-011 type-query axis of the same name): an instance whose Record.lifecycleState matches ANY listed value is excluded. Applied after lifecycleState. Lets an authored view declare default-hidden states (e.g. superseded, closed) while a client offers a runtime show-all override by passing an empty list. Requires ext:lifecycle; instances with no lifecycleState are never excluded by this axis."
+        },
         "tier": {
           "enum": [0, 1, 2],
           "description": "Instance tier filter. 0 = Note, 1 = TypedRecord, 2 = Record."
