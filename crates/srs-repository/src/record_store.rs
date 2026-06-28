@@ -581,10 +581,14 @@ pub fn list_record_summaries(
     let field_name_index = record_label::build_field_name_index(store)?;
     Ok(records
         .into_iter()
-        .map(|record| RecordSummary {
-            instance_id: record.instance_id.clone(),
-            display_label: record_label::record_display_label(&record, &field_name_index),
-            record,
+        .map(|record| {
+            let instance_id = record.instance_id.clone();
+            let display_label = record_label::record_display_label(&record, &field_name_index);
+            RecordSummary {
+                instance_id,
+                display_label,
+                record,
+            }
         })
         .collect())
 }
