@@ -55,18 +55,19 @@ Each scenario uses a fixed template so the set stays comparable and updatable:
 
 **Capabilities exercised.** Tier 0 Note → Tier 2 Record promotion; `derived-from` linking the structured record back to its origin so the raw thinking is preserved, not discarded.
 
-**CLI surface.** `note create`, `note get`, `note list`, `record create`, `relation create`, `repo validate`.
+**CLI surface.** `note create`, `note get`, `note list`, `record create`, `record list` (per-record `displayLabel`), `tree`, `relation create`, `repo validate`.
 
 **Steps.**
 1. Orient: `srs repo map --repo <repo> --pretty`.
 2. Capture raw thinking as a Note (Tier 0): `srs note create` with a free-text `sections[]` body.
 3. Later, create a Tier 2 Record that structures the same idea against a real type (see S2 if the type doesn't exist yet).
 4. Assert `derived-from` from the Record to the Note so the lineage survives.
-5. `srs repo validate --repo <repo> --pretty`.
+5. List the records: `srs record list --repo <repo> --pretty`. Each item is `{ instanceId, displayLabel, record }` — confirm the new record's `displayLabel` is the core-resolved human label (its `title`/`name`/`label` field value, else the type name), **not** a raw UUID. Cross-check against `srs tree --repo <repo>`: the record's `displayLabel` must equal its `tree` node `label` (one core resolution, two surfaces — the client never re-derives a title).
+6. `srs repo validate --repo <repo> --pretty`.
 
-**Negative case.** Create a record referencing a `typeId` that isn't in the package — confirm `ok: false` with a diagnostic, and that no ghost file is left in `instanceIndex`.
+**Negative case.** Create a record referencing a `typeId` that isn't in the package — confirm `ok: false` with a diagnostic, and that no ghost file is left in `instanceIndex`. **Label fallback:** a record of a type with no `title`/`name`/`label` field still lists with a non-empty `displayLabel` equal to its `typeName` (the resolver falls back, never returns an empty label or a bare UUID).
 
-**Done when.** Both instances appear in `record list` / `note list`; a `derived-from` relation connects them in `relation list`; validate returns zero diagnostics. The Note is *not* deleted when the Record is created — promotion preserves the origin.
+**Done when.** Both instances appear in `record list` / `note list`; a `derived-from` relation connects them in `relation list`; validate returns zero diagnostics. The Note is *not* deleted when the Record is created — promotion preserves the origin. Every `record list` item carries a `displayLabel` equal to that record's `tree` label (verified across all records: title-bearing records show their title; field-less types fall back to `typeName`).
 
 ### S2 — Define a reusable shape (Fields + Type composition)
 
@@ -494,6 +495,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `field` (create/list/get/update/delete) | S2 |
 | `type` (create/get/list/schema/update/delete) | S2 |
 | `record` (create/get/list/update/delete) | S1, S2, S4 |
+| `record list` core `displayLabel` (tree-parity, type_name fallback) | S1 |
 | `record validate` (no-write preflight) | S2 |
 | `record transition` | S4, S6 |
 | `record successor` | S3, S4 |
