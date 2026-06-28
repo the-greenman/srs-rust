@@ -33,7 +33,7 @@ See [agents.md](agents.md) for role definitions.
 | [ADR-011](../docs/adr/011-cli-output-contract.md) | New `ContainerViewPayload` named struct in `payload.rs`; regenerated golden schema. | accepted (governs) |
 | [ADR-013](../docs/adr/013-wasm-binding-strategy.md) | WASM binding `resolve_container_view` calls the same service; returns the typed result, not ad-hoc `json!`. | accepted (governs) |
 | [capability-layering](../docs/architecture/capability-layering.md) | Typed projection lives in the service; clients add presentation only. | active guidance (governs) |
-| [ADR-018](../docs/adr/018-container-view-column-source-precedence.md) | Column-source precedence: container-targeting section wins, else first section by `order` with a `render_view_id`, else empty columns. | proposed (this plan) |
+| [ADR-018](../docs/adr/018-container-view-column-source-precedence.md) | Column-source precedence: container-targeting section wins, else first section by `order` with a `render_view_id`, else empty columns. | accepted (this plan) |
 
 **One new ADR (ADR-018).** The capability is otherwise a typed projection composing existing
 entities (DocumentView, View/FieldView, Container, Record) under the existing

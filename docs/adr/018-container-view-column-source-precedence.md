@@ -1,6 +1,6 @@
 # ADR-018: Column-source precedence for container-view projections
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-06-28
 - **Supersedes:** —
 - **Superseded by:** —

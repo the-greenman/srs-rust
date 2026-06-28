@@ -90,7 +90,11 @@ pub fn resolve_container_view(
     let container_id = input.container_id.clone();
     let mut diagnostics: Vec<String> = Vec::new();
 
-    // Load the container once (errors if not found).
+    // Validate the container exists and read its root binding directly. DocumentView
+    // matching and member ordering below go through `document_views_for_container` and
+    // `list_container_members`, which each re-load the container — an acceptable cost on
+    // this Layer-1 read path in exchange for reusing the tested membership/matching logic
+    // rather than duplicating it here.
     let container = container_service::get_container(store, &container_id)?;
 
     // Build instance_id -> tier lookup once, from the manifest index.
