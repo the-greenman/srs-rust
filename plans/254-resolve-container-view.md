@@ -211,13 +211,13 @@ Mark checkboxes, commit: `feat(cli): container resolve-view command + payload (#
 
 #### Tasks
 
-- [ ] Add `SrsRepository::resolve_container_view(&self, container_id: &str, view_id: Option<String>) -> Result<JsValue, JsValue>` to `crates/srs-bindings/src/lib.rs`, mirroring `document_views_for_container`: build `ResolveContainerViewInput`, call `container_view_service::resolve_container_view`, `to_js(&result)` (typed result, not `json!`).
-- [ ] Use `view_id: Option<String>` as a direct `#[wasm_bindgen]` parameter — the established convention for a single optional string override (`render_document_view` takes `container_id: Option<String>` directly at `bindings/src/lib.rs:237`). Do not use a JSON-string filter (that convention is for multi-field filters like `list_containers`).
+- [x] Add `SrsRepository::resolve_container_view(&self, container_id: &str, view_id: Option<String>) -> Result<JsValue, JsValue>` to `crates/srs-bindings/src/lib.rs`, mirroring `document_views_for_container`: build `ResolveContainerViewInput`, call `container_view_service::resolve_container_view`, `to_js(&result)` (typed result, not `json!`).
+- [x] Use `view_id: Option<String>` as a direct `#[wasm_bindgen]` parameter — the established convention for a single optional string override (`render_document_view` takes `container_id: Option<String>` directly at `bindings/src/lib.rs:237`). Do not use a JSON-string filter (that convention is for multi-field filters like `list_containers`).
 
 #### Acceptance Criteria
 
-- [ ] Binding compiles for the workspace target and returns parseable JSON for a known container.
-- [ ] Binding calls the service — no duplicated resolution/label/membership logic.
+- [x] Binding compiles for the workspace target and returns parseable JSON for a known container.
+- [x] Binding calls the service — no duplicated resolution/label/membership logic.
 
 #### Testing
 

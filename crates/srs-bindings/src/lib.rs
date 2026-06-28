@@ -4,6 +4,7 @@ use srs_core::types::relation::Relation;
 use srs_repository::blueprint_schema_service::{self, BlueprintSchemaInput};
 use srs_repository::blueprint_service;
 use srs_repository::container_service::{self, ContainerListFilter};
+use srs_repository::container_view_service::{self, ResolveContainerViewInput};
 use srs_repository::protocol_service::{self, GetProtocolResult};
 use srs_repository::record_store::{self, RecordListFilter, TransitionLifecycleInput};
 use srs_repository::relation_service::{self, ListRelationsFilter};
@@ -405,6 +406,27 @@ impl SrsRepository {
         let views = view_service::document_views_for_container(&self.store, container_id)
             .map_err(js_err)?;
         to_js(&views)
+    }
+
+    /// Resolve a structured container view for an editor member list (issue #254):
+    /// the container root record, the ordered Tier-2 member records (full `Record` +
+    /// core-resolved display label), the DocumentView-driven column spec, and
+    /// diagnostics. `view_id` optionally overrides the DocumentView; when omitted it is
+    /// matched from the container's root type binding. Returns a `ContainerView` object.
+    pub fn resolve_container_view(
+        &self,
+        container_id: &str,
+        view_id: Option<String>,
+    ) -> Result<JsValue, JsValue> {
+        let result = container_view_service::resolve_container_view(
+            &self.store,
+            ResolveContainerViewInput {
+                container_id: container_id.to_string(),
+                view_id,
+            },
+        )
+        .map_err(js_err)?;
+        to_js(&result)
     }
 }
 
