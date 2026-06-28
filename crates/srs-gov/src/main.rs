@@ -157,7 +157,7 @@ fn cmd_list(key: &str, repo: &str, explain: bool, json: bool) -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("unknown key '{key}'. Known: {}", known_keys()))?;
 
     // 1. Find the container id
-    let container_id = resolve_container_id(def.container_type, repo)?;
+    let container_id = resolve_container_id(def, repo)?;
 
     if explain {
         println!("# Underlying srs command (uses resolve-view from srs-rust#254):");
@@ -316,7 +316,7 @@ fn cmd_create(
             )
         })?;
 
-    let container_id = resolve_container_id(def.container_type, repo)?;
+    let container_id = resolve_container_id(def, repo)?;
 
     // Resolve namespace/name → UUID so type schema can look it up
     let (ns, name) = type_ref
@@ -432,17 +432,43 @@ fn known_keys() -> String {
         .join(", ")
 }
 
-/// Resolve a containerId for a given containerType by calling `srs container list`.
-fn resolve_container_id(container_type: &str, repo: &str) -> Result<String> {
+/// Resolve a containerId for a governance container.
+///
+/// Matches on `containerType` first; when multiple containers share the same type
+/// (both `articles` and `roles` are `"document"`), disambiguates by comparing the
+/// container's title against `def.label` (case-insensitive).
+fn resolve_container_id(def: &governance::ContainerTypeDef, repo: &str) -> Result<String> {
     let payload = run_srs(&["container", "list"], repo, false, false)?;
     let containers = payload["containers"]
         .as_array()
         .ok_or_else(|| anyhow::anyhow!("no containers found in repo"))?;
 
-    containers
+    let by_type: Vec<&serde_json::Value> = containers
         .iter()
-        .find(|c| c["containerType"].as_str() == Some(container_type))
+        .filter(|c| c["containerType"].as_str() == Some(def.container_type))
+        .collect();
+
+    let matched = if by_type.len() == 1 {
+        by_type.into_iter().next()
+    } else {
+        // Disambiguate by title (case-insensitive match against def.label)
+        by_type.into_iter().find(|c| {
+            c["title"]
+                .as_str()
+                .map(|t| t.eq_ignore_ascii_case(def.label))
+                .unwrap_or(false)
+        })
+    };
+
+    matched
         .and_then(|c| c["containerId"].as_str())
         .map(String::from)
-        .ok_or_else(|| anyhow::anyhow!("no container with type '{container_type}' found in {repo}"))
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "no container matching key '{}' (type '{}', label '{}') found in {repo}",
+                def.key,
+                def.container_type,
+                def.label
+            )
+        })
 }
