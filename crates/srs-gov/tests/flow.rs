@@ -163,3 +163,74 @@ fn explain_flag_prints_commands_without_running() {
         "render ran in explain mode\n{out}"
     );
 }
+
+#[test]
+fn repo_create_produces_valid_srsj() {
+    use std::fs;
+
+    let tmp = std::env::temp_dir().join(format!(
+        "srs-gov-test-{}.srsj",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .subsec_nanos()
+    ));
+    let path = tmp.to_string_lossy().into_owned();
+
+    let gov = srs_gov_bin();
+    let srs = srs_bin();
+    let mut cmd = std::process::Command::new(&gov);
+    cmd.env("SRS_BIN", &srs);
+    cmd.args([
+        "repo-create",
+        "--output",
+        &path,
+        "--title",
+        "Test Governance",
+    ]);
+    let out = cmd.output().expect("run srs-gov repo-create");
+    assert!(
+        out.status.success(),
+        "repo-create failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // Output file must exist
+    assert!(tmp.exists(), "output file not created");
+
+    // repositoryId must be a non-empty UUID distinct from the seed
+    let content: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&tmp).unwrap()).unwrap();
+    let repo_id = content["manifest"]["repositoryId"].as_str().unwrap_or("");
+    assert!(!repo_id.is_empty(), "repositoryId is empty");
+    assert_ne!(
+        repo_id, "395ebea2-d8f6-497b-b18c-04c9eacafc94",
+        "repositoryId not re-generated"
+    );
+
+    // title must be set
+    assert_eq!(
+        content["manifest"]["title"].as_str(),
+        Some("Test Governance")
+    );
+
+    // upstreamPackage provenance must be preserved
+    let ns = content["manifest"]["meta"]["upstreamPackage"]["namespace"]
+        .as_str()
+        .unwrap_or("");
+    assert_eq!(ns, "com.mudemocracy.governance");
+
+    // srs validate must pass
+    let validate = std::process::Command::new(&srs)
+        .args(["repo", "validate", "--repo", &path])
+        .output()
+        .expect("run srs repo validate");
+    let vout: serde_json::Value = serde_json::from_slice(&validate.stdout).unwrap();
+    assert_eq!(
+        vout["payload"]["summary"]["errors"].as_u64(),
+        Some(0),
+        "validate errors"
+    );
+
+    fs::remove_file(&tmp).ok();
+}

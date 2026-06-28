@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
 use std::collections::HashSet;
 
@@ -64,6 +64,16 @@ enum Commands {
         #[arg(long)]
         statement: Option<String>,
     },
+    /// Create a new governance repository from the canonical seed
+    #[command(name = "repo-create")]
+    RepoCreate {
+        /// Output path for the new .srsj file
+        #[arg(long, default_value = "governance.srsj")]
+        output: String,
+        /// Repository title
+        #[arg(long, default_value = "Governance Document")]
+        title: String,
+    },
 }
 
 fn main() {
@@ -92,6 +102,7 @@ fn run() -> Result<()> {
             &cli.repo,
             cli.explain,
         ),
+        Some(Commands::RepoCreate { output, title }) => cmd_repo_create(&output, &title),
     }
 }
 
@@ -472,3 +483,37 @@ fn resolve_container_id(def: &governance::ContainerTypeDef, repo: &str) -> Resul
             )
         })
 }
+
+// ---------------------------------------------------------------------------
+// repo-create — stamp a new governance .srsj from the embedded seed
+// ---------------------------------------------------------------------------
+
+/// Canonical seed for com.mudemocracy.governance @1.0.0.
+/// Updated when the package is republished (srs#38 / srs-gov asset sync).
+const GOVERNANCE_SEED: &str = include_str!("../assets/governance-seed.srsj");
+
+fn cmd_repo_create(output: &str, title: &str) -> Result<()> {
+    use std::io::Write;
+
+    let out_path = std::path::Path::new(output);
+    if out_path.exists() {
+        bail!("output path already exists: {output}");
+    }
+
+    // Parse seed, replace repositoryId and title.
+    let mut seed: serde_json::Value =
+        serde_json::from_str(GOVERNANCE_SEED).context("failed to parse embedded seed")?;
+
+    let new_id = uuid::Uuid::new_v4().to_string();
+    seed["manifest"]["repositoryId"] = serde_json::Value::String(new_id.clone());
+    seed["manifest"]["title"] = serde_json::Value::String(title.to_string());
+
+    let json = serde_json::to_string_pretty(&seed)?;
+    let mut file = std::fs::File::create(out_path)?;
+    file.write_all(json.as_bytes())?;
+
+    render::repo_created(output, title, &new_id);
+    Ok(())
+}
+
+use anyhow::Context;

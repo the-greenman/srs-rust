@@ -110,6 +110,20 @@ pub fn record_detail(record_id: &str, schema_props: &Value, field_values: &[Valu
     println!();
 }
 
+pub fn repo_created(output: &str, title: &str, repository_id: &str) {
+    header(&format!("Created  {title}"));
+    println!();
+    println!("  File:          {output}");
+    println!("  Repository ID: {repository_id}");
+    println!("  Package:       com.mudemocracy.governance @1.0.0");
+    println!("  Records:       0  (empty — ready for content)");
+    println!();
+    println!("  Open in srs-web, or explore with:");
+    println!("    srs-gov --repo {output}");
+    println!("    srs repo validate --repo {output}");
+    println!();
+}
+
 fn textwrap(s: &str, width: usize) -> Vec<&str> {
     let mut lines = Vec::new();
     let mut start = 0;
