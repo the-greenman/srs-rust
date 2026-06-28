@@ -250,6 +250,16 @@ fn json_flag_list_prints_raw_resolve_view_envelope() {
 }
 
 #[test]
+fn tui_smoke_renders_first_frame() {
+    let (ok, out) = run(&["tui", "--smoke"]);
+    assert!(ok, "tui smoke failed\n{out}");
+    assert!(
+        out.contains("srs-gov tui smoke ok"),
+        "expected smoke success message\n{out}"
+    );
+}
+
+#[test]
 fn repo_create_produces_valid_srsj() {
     use std::fs;
 
