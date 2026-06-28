@@ -45,6 +45,11 @@
       "items": { "type": "string" },
       "description": "Explicit membership list for all instances in scope. When present, allows membership queries without graph traversal."
     },
+    "identityInstanceId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "RFC-013. The instance id of the record that is this Container's identity / purpose statement. On the root container (manifest.container), names the repository's identity record (default: the Tier 0 root note). Reassignable; when present MUST equal a member id in rootInstanceIds or memberInstanceIds. See RFC-013 I-81."
+    },
     "tags": {
       "type": "array",
       "items": { "type": "string" },
