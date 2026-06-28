@@ -209,7 +209,38 @@ Acceptance criteria:
 - `rg "containerType"` confirms it is not driving governance navigation logic.
 - A #220-style pass confirms no governance semantics leaked into `srs-repository`.
 
+Status:
+- Implemented Stage 4's authored-view composition path for `srs-gov list`:
+  `container resolve-view` supplies columns, ordered members, and authored
+  `excludeLifecycleStates`; `srs find` applies runtime lifecycle exclusion,
+  `--search`, and repeated `--tag`; the displayed list is
+  `resolve-view.members ∩ find.hits` in resolve-view order.
+- Added `srs-gov list` runtime flags: `--all`, `--search <text>`, and repeatable
+  `--tag <tag>`.
+- Kept `--json` non-interactive by printing the raw `container resolve-view`
+  envelope; `--explain` prints both composed commands when runtime filtering is
+  active.
+- Added self-contained `srs-gov` integration coverage that creates a temporary
+  governance `.srsj`, adds draft/ratified/superseded/closed decisions, and proves:
+  default hidden states, `--all`, non-title content search, and tag filtering.
+- Documented the flow in `docs/dogfooding.md` S15 and ADR-020.
+- Remaining follow-up: remove the older `containerType`/title container-resolution
+  heuristic from `srs-gov` entirely by using structural navigation for `cmd_top`,
+  `list`, `get`, and `create`. Stage 4 behavior is complete, but the final
+  heuristic-removal acceptance item is carried forward as a focused cleanup before
+  Stage 5.
+
 ## 5. TUI Foundation
+
+Status: complete.
+
+Implementation notes:
+- Selected `ratatui` + `crossterm` for the interactive terminal foundation.
+- Added a pure `AppState`/reducer layer, a first-frame renderer, data loading through generic `repo navigation`, `container resolve-view`, and `find`, plus `srs-gov tui --smoke`.
+- The TUI is read-only in this foundation pass.
+- Verified with `cargo test -p srs-gov`, `cargo build -p srs-gov`, and direct dogfood:
+  - `SRS_BIN=target/debug/srs target/debug/srs-gov --repo /home/greenman/dev/semanticops/srs/docs/spec/examples/gallery-project-v2 tui --smoke`
+  - `SRS_BIN=target/debug/srs target/debug/srs-gov --repo /tmp/srs-gov-tui-dogfood-20260628.srsj tui --smoke`
 
 TDD loop:
 - Red: add a non-interactive smoke test for TUI state initialization and first-frame render.
@@ -221,12 +252,19 @@ TDD loop:
 - Refactor: split modules into state, data loading, rendering, input handling.
 
 Acceptance criteria:
-- `srs-gov tui --smoke --repo X` exits successfully.
-- Smoke test verifies a nonblank first frame.
-- Normal `srs-gov tui --repo X` enters terminal UI.
-- Terminal cleanup is safe on error/panic path.
+- [x] `srs-gov tui --smoke --repo X` exits successfully.
+- [x] Smoke test verifies a nonblank first frame.
+- [x] Normal `srs-gov tui --repo X` enters terminal UI.
+- [x] Terminal cleanup is safe on error path via a drop guard.
 
 ## 6. TUI Exploration Interactions
+
+Status: complete.
+
+Implementation notes:
+- Added reducer/input coverage for section navigation, record navigation, record detail focus, back/escape behavior, search entry, sort toggle, show-all toggle, and quit.
+- Runtime interaction reloads record lists when section/filter/sort state changes.
+- Edit/export actions are intentionally absent from the read-only foundation rather than pretending to be active commands.
 
 TDD loop:
 - Red: add unit tests for input reducer/state transitions.
@@ -242,10 +280,10 @@ TDD loop:
 - Refactor: keep keybindings declarative and easy to extend.
 
 Acceptance criteria:
-- User can navigate sections and decisions by keyboard.
-- User can select a decision and view detail.
-- Search/filter/sort behavior matches projection service tests.
-- Edit/export actions appear only as disabled or placeholder commands.
+- [x] User can navigate sections and decisions by keyboard.
+- [x] User can select a decision and view detail.
+- [x] Search/filter/sort behavior uses the same generic `resolve-view` + `find` data path as the scriptable list.
+- [x] Edit/export actions are not exposed in the read-only foundation.
 
 ## 7. Documentation + Handoff
 

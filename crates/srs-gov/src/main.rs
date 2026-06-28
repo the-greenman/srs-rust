@@ -5,6 +5,11 @@ use std::collections::HashSet;
 mod governance;
 mod render;
 mod srs;
+mod tui_app;
+mod tui_data;
+mod tui_input;
+mod tui_render;
+mod tui_state;
 
 use governance::{by_key, match_container, GOVERNANCE_CONTAINERS};
 use render::{container_list, record_detail, section, ContainerRow};
@@ -91,6 +96,13 @@ enum Commands {
         #[arg(long)]
         purpose: Option<String>,
     },
+    /// Open the read-only governance terminal UI
+    #[command(name = "tui")]
+    Tui {
+        /// Render the first frame through a test backend and exit
+        #[arg(long)]
+        smoke: bool,
+    },
 }
 
 fn main() {
@@ -137,6 +149,7 @@ fn run() -> Result<()> {
             title,
             purpose,
         }) => cmd_repo_create(&output, &title, purpose.as_deref()),
+        Some(Commands::Tui { smoke }) => tui_app::run_tui(&cli.repo, smoke),
     }
 }
 
