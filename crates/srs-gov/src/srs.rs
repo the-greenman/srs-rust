@@ -27,6 +27,21 @@ pub fn srs_bin() -> String {
 /// If `explain` is true, prints the command and returns `Value::Null` without
 /// running it (dry-run mode).
 pub fn run_srs(args: &[&str], repo: &str, explain: bool, print_raw: bool) -> Result<Value> {
+    run_srs_impl(args, repo, None, explain, print_raw)
+}
+
+/// Run a `srs` subcommand with JSON piped to stdin.
+pub fn run_srs_write(args: &[&str], repo: &str, stdin_json: &str) -> Result<Value> {
+    run_srs_impl(args, repo, Some(stdin_json), false, false)
+}
+
+fn run_srs_impl(
+    args: &[&str],
+    repo: &str,
+    stdin_json: Option<&str>,
+    explain: bool,
+    print_raw: bool,
+) -> Result<Value> {
     let bin = srs_bin();
     let mut full: Vec<&str> = vec!["--repo", repo, "--format", "json"];
     full.extend_from_slice(args);
@@ -40,10 +55,28 @@ pub fn run_srs(args: &[&str], repo: &str, explain: bool, print_raw: bool) -> Res
         return Ok(Value::Null);
     }
 
-    let output = Command::new(&bin)
+    let mut child = Command::new(&bin)
         .args(&full)
-        .output()
+        .stdin(if stdin_json.is_some() {
+            std::process::Stdio::piped()
+        } else {
+            std::process::Stdio::null()
+        })
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .with_context(|| format!("failed to run '{bin}' — set SRS_BIN if it is not on PATH"))?;
+
+    if let Some(json) = stdin_json {
+        use std::io::Write;
+        child
+            .stdin
+            .take()
+            .expect("stdin pipe")
+            .write_all(json.as_bytes())?;
+    }
+
+    let output = child.wait_with_output()?;
 
     if !output.status.success() && output.stdout.is_empty() {
         bail!(

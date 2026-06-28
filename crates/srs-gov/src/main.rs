@@ -70,9 +70,12 @@ enum Commands {
         /// Output path for the new .srsj file
         #[arg(long, default_value = "governance.srsj")]
         output: String,
-        /// Repository title
+        /// Organisation name (becomes the repository title and charter article title)
         #[arg(long, default_value = "Governance Document")]
         title: String,
+        /// Purpose statement written into the charter article
+        #[arg(long)]
+        purpose: Option<String>,
     },
 }
 
@@ -102,7 +105,11 @@ fn run() -> Result<()> {
             &cli.repo,
             cli.explain,
         ),
-        Some(Commands::RepoCreate { output, title }) => cmd_repo_create(&output, &title),
+        Some(Commands::RepoCreate {
+            output,
+            title,
+            purpose,
+        }) => cmd_repo_create(&output, &title, purpose.as_deref()),
     }
 }
 
@@ -492,7 +499,7 @@ fn resolve_container_id(def: &governance::ContainerTypeDef, repo: &str) -> Resul
 /// Updated when the package is republished (srs#38 / srs-gov asset sync).
 const GOVERNANCE_SEED: &str = include_str!("../assets/governance-seed.srsj");
 
-fn cmd_repo_create(output: &str, title: &str) -> Result<()> {
+fn cmd_repo_create(output: &str, title: &str, purpose: Option<&str>) -> Result<()> {
     use std::io::Write;
 
     let out_path = std::path::Path::new(output);
@@ -500,19 +507,72 @@ fn cmd_repo_create(output: &str, title: &str) -> Result<()> {
         bail!("output path already exists: {output}");
     }
 
-    // Parse seed, replace repositoryId and title.
+    // 1. Stamp seed: fresh repositoryId + title.
     let mut seed: serde_json::Value =
         serde_json::from_str(GOVERNANCE_SEED).context("failed to parse embedded seed")?;
-
     let new_id = uuid::Uuid::new_v4().to_string();
     seed["manifest"]["repositoryId"] = serde_json::Value::String(new_id.clone());
     seed["manifest"]["title"] = serde_json::Value::String(title.to_string());
-
     let json = serde_json::to_string_pretty(&seed)?;
-    let mut file = std::fs::File::create(out_path)?;
-    file.write_all(json.as_bytes())?;
+    std::fs::File::create(out_path)?.write_all(json.as_bytes())?;
 
-    render::repo_created(output, title, &new_id);
+    // 2. Articles container + charter article root.
+    let articles_id = srs_create_container(output, "document", "Articles")?;
+    let charter_text = purpose.unwrap_or("Add your organisation's purpose statement here.");
+    let charter_fv = serde_json::json!({
+        "fieldValues": [
+            { "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a", "value": title },
+            { "fieldId": "8aa3eba2-204b-5ebd-ba7a-be0f066027d6", "value": charter_text }
+        ]
+    });
+    let charter_id = srs_create_record(output, "governance/article", &charter_fv.to_string())?;
+    srs_roots_add(output, &articles_id, &charter_id)?;
+
+    // 3. Decision Log container + decision_log root record.
+    let dl_title = format!("{title} Decision Log");
+    let dl_id = srs_create_container(output, "decision_log", &dl_title)?;
+    let dl_fv = serde_json::json!({
+        "fieldValues": [
+            { "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a", "value": dl_title }
+        ]
+    });
+    let dl_root_id = srs_create_record(output, "governance/decision_log", &dl_fv.to_string())?;
+    srs_roots_add(output, &dl_id, &dl_root_id)?;
+
+    // 4. Roles container (no root record — first role the org assigns serves as root).
+    srs_create_container(output, "document", "Roles")?;
+
+    render::repo_created(output, title, &new_id, purpose.is_some());
+    Ok(())
+}
+
+fn srs_create_container(repo: &str, container_type: &str, title: &str) -> Result<String> {
+    let input = serde_json::json!({ "containerType": container_type, "title": title });
+    let payload = srs::run_srs_write(&["container", "create"], repo, &input.to_string())?;
+    payload["container"]["containerId"]
+        .as_str()
+        .map(String::from)
+        .ok_or_else(|| anyhow::anyhow!("container create returned no containerId"))
+}
+
+fn srs_create_record(repo: &str, type_ref: &str, field_values_json: &str) -> Result<String> {
+    let payload = srs::run_srs_write(
+        &["record", "create", "--type", type_ref],
+        repo,
+        field_values_json,
+    )?;
+    payload["record"]["instanceId"]
+        .as_str()
+        .map(String::from)
+        .ok_or_else(|| anyhow::anyhow!("record create returned no instanceId"))
+}
+
+fn srs_roots_add(repo: &str, container_id: &str, instance_id: &str) -> Result<()> {
+    srs::run_srs_write(
+        &["container", "roots", "add", container_id, instance_id],
+        repo,
+        "",
+    )?;
     Ok(())
 }
 
