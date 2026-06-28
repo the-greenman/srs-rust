@@ -1,6 +1,6 @@
 # ADR-020: `resolve-view` surfaces a container's authored list defaults
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-06-28
 - **Supersedes:** —
 - **Superseded by:** —
@@ -45,8 +45,9 @@ guide. `srs-gov list` (and the TUI/web) stay thin: resolve-view → forward defa
 **Negative / trade-offs:** `ContainerView` couples columns and lifecycle defaults to one governing
 section. A DocumentView intending distinct per-section query defaults cannot express more than one
 through this projection — the same single-section limitation ADR-018 already accepts; a richer
-multi-section result would supersede both ADRs. Adding the field is an additive CLI payload-contract
-change (golden schema regenerated, ADR-011).
+multi-section result would supersede both ADRs. The new field is **not** reflected in the golden
+payload schema (`ContainerView` is embedded as opaque via `#[schemars(with = "serde_json::Value")]`),
+so the ADR-011 golden-file tests are unaffected and `generate-schemas` produces no diff.
 
 **Neutral:** The field is a pure Layer-1 function of the persisted DocumentView/Container — it does
 not itself run a query or consult lifecycle state of members; applying the exclusion is the client's

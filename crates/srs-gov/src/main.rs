@@ -36,7 +36,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// List members of a governance container (view-on-container)
+    /// List members of a governance container (view-on-container).
+    ///
+    /// Runtime filters (--search/--tag/--all) shape the human-readable list. With --json
+    /// the unfiltered `container resolve-view` envelope is printed (filters are not applied);
+    /// use --explain to see the composed `srs find` command for the filtered data.
     #[command(name = "list")]
     List {
         /// Container key (e.g. decision_log, articles, roles)
@@ -727,7 +731,45 @@ use anyhow::Context;
 
 #[cfg(test)]
 mod tests {
-    use super::GOVERNANCE_SEED;
+    use super::{build_find_args, GOVERNANCE_SEED};
+
+    /// Guards the composed `srs find` invocation shape: the global `--container` scope must
+    /// precede the `find` subcommand, with exclusions, then `--text`, then repeated `--tag`.
+    #[test]
+    fn build_find_args_orders_global_container_before_subcommand() {
+        let args = build_find_args(
+            "container-123",
+            &["superseded", "closed"],
+            Some("budget"),
+            &["finance".to_string(), "q1".to_string()],
+        );
+        assert_eq!(
+            args,
+            vec![
+                "--container",
+                "container-123",
+                "find",
+                "--exclude-lifecycle-state",
+                "superseded",
+                "--exclude-lifecycle-state",
+                "closed",
+                "--text",
+                "budget",
+                "--tag",
+                "finance",
+                "--tag",
+                "q1",
+            ]
+        );
+    }
+
+    #[test]
+    fn build_find_args_minimal_is_just_scoped_find() {
+        assert_eq!(
+            build_find_args("c-1", &[], None, &[]),
+            vec!["--container", "c-1", "find"]
+        );
+    }
 
     /// The vendored seed's decision-log DocumentView must carry the canonical authored
     /// default-hidden states (the whole point of #298 — regenerate the derived copy).
