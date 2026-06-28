@@ -99,7 +99,13 @@
     },
     "meta": {
       "type": "object",
-      "description": "Implementation-local key-value pairs. Common keys: 'sourceOfTruth', 'renderedExports'. Cross-system keys should be namespaced."
+      "description": "Implementation-local key-value pairs. Common keys: 'sourceOfTruth', 'renderedExports', 'upstreamPackage'. Cross-system keys should be namespaced.",
+      "properties": {
+        "upstreamPackage": {
+          "$ref": "#/$defs/UpstreamPackage",
+          "description": "Provenance stamp for a repository initialised from a published upstream Package. Hook for the package-upgrade / drift story (ext:import-tracking, RFC-003)."
+        }
+      }
     },
     "createdAt": {
       "type": "string",
@@ -257,6 +263,36 @@
         "checksum": {
           "type": "string",
           "pattern": "^[a-z0-9]+:.+$"
+        }
+      }
+    },
+    "UpstreamPackage": {
+      "type": "object",
+      "description": "Provenance stamp recording the upstream Package a repository was initialised from. A lightweight, repository-level precursor to the full per-definition ext:import-tracking model (RFC-003): it lets a consumer detect when a newer version of its source Package is published so the document can be upgraded in place without losing data. Set once at repository creation; updated when the upstream Package is upgraded.",
+      "required": ["packageId", "namespace", "name", "version", "installedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "packageId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable UUID of the upstream Package this repository was created from. Never changes across upgrades within the same Package lineage."
+        },
+        "namespace": {
+          "type": "string",
+          "description": "Reverse-DNS namespace of the upstream Package, e.g. 'com.mudemocracy.governance'."
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the upstream Package, e.g. 'governance'."
+        },
+        "version": {
+          "type": "string",
+          "description": "Semver of the upstream Package recorded at install/upgrade time, e.g. '1.0.0'."
+        },
+        "installedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When this upstream Package version was installed into the repository."
         }
       }
     }
