@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ContainerViewPayload",
+  "description": "Payload for `container resolve-view` (issue #254).\n\nCarries the structured container view: the container root record, ordered Tier-2 member records (full Record + display label), the DocumentView-driven column spec, and non-fatal diagnostics.",
+  "type": "object",
+  "required": [
+    "containerView"
+  ],
+  "properties": {
+    "containerView": true
+  }
+}

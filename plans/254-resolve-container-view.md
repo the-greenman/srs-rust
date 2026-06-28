@@ -167,18 +167,18 @@ Mark checkboxes, commit: `feat(repository): resolve_container_view projection se
 
 #### Tasks
 
-- [ ] Add `ContainerViewPayload { #[schemars(with = "serde_json::Value")] container_view: ContainerView }` to `crates/srs-cli/src/payload.rs` (import `container_view_service::ContainerView`); `#[derive(Debug, Serialize, JsonSchema)]`, `#[serde(rename_all = "camelCase")]`.
-- [ ] Add `ContainerCommand::ResolveView { container_id: String, #[arg(long = "view-id")] view_id: Option<String> }` to `crates/srs-cli/src/commands/mod.rs` with a doc comment.
-- [ ] Add handler `cmd_container_resolve_view` in `crates/srs-cli/src/commands/container.rs` following the ≤15-line handler pattern: build `ResolveContainerViewInput`, one `with_store` service call, `output::serialize("container resolve-view", ContainerViewPayload { container_view })`; on `Err`, `output::err`.
-- [ ] Wire the new arm in the container command dispatch `match`.
-- [ ] Run `cargo run --bin generate-schemas`; stage `crates/srs-cli/schemas/payload/container_view_payload.json`.
+- [x] Add `ContainerViewPayload { #[schemars(with = "serde_json::Value")] container_view: ContainerView }` to `crates/srs-cli/src/payload.rs` (import `container_view_service::ContainerView`); `#[derive(Debug, Serialize, JsonSchema)]`, `#[serde(rename_all = "camelCase")]`.
+- [x] Add `ContainerCommand::ResolveView { container_id: String, #[arg(long = "view-id")] view_id: Option<String> }` to `crates/srs-cli/src/commands/mod.rs` with a doc comment.
+- [x] Add handler `cmd_container_resolve_view` in `crates/srs-cli/src/commands/container.rs` following the ≤15-line handler pattern: build `ResolveContainerViewInput`, one `with_store` service call, `output::serialize("container resolve-view", ContainerViewPayload { container_view })`; on `Err`, `output::err`.
+- [x] Wire the new arm in the container command dispatch `match`.
+- [x] Run `cargo run --bin generate-schemas`; stage `crates/srs-cli/schemas/payload/container_view_payload.json`.
 
 #### Acceptance Criteria
 
-- [ ] `cargo run --bin srs -- container resolve-view <id>` emits the `{ ok, command, version, payload: { containerView: { ... } } }` envelope.
-- [ ] `--view-id <uuid>` is honoured.
-- [ ] Handler body is parse → one service call → output; no business logic.
-- [ ] `cargo test --test payload_contracts` passes with the new golden file present.
+- [x] `cargo run --bin srs -- container resolve-view <id>` emits the `{ ok, command, version, payload: { containerView: { ... } } }` envelope.
+- [x] `--view-id <uuid>` is honoured.
+- [x] Handler body is parse → one service call → output; no business logic.
+- [x] `cargo test --test payload_contracts` passes with the new golden file present.
 
 #### Testing
 

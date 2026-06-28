@@ -71,6 +71,7 @@ fn main() {
     write_schema!("container-roots-add", ContainerRootsMutatePayload);
     write_schema!("container-roots-remove", ContainerRootsMutatePayload);
     write_schema!("container-validate", ContainerValidatePayload);
+    write_schema!("container-resolve-view", ContainerViewPayload);
 
     // Tag payloads
     write_schema!("tag-list", TagListPayload);

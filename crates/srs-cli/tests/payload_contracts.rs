@@ -193,6 +193,11 @@ fn container_validate() {
     check::<ContainerValidatePayload>("container-validate");
 }
 
+#[test]
+fn container_resolve_view() {
+    check::<ContainerViewPayload>("container-resolve-view");
+}
+
 // ── Tag ───────────────────────────────────────────────────────────────────────
 
 #[test]

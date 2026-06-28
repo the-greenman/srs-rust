@@ -34,6 +34,7 @@ use srs_core::types::{
 use srs_repository::{
     analysis::{FoundationNoteSet, RepoMap, TagAudit},
     container_service::ContainerSummary,
+    container_view_service::ContainerView,
     extension_service::ExtensionSummary,
     record_store::{ListRecordTagsResult, RecordTagSummary},
     relation_service::RelationSummary,
@@ -437,6 +438,18 @@ pub struct ContainerRootsMutatePayload {
 pub struct ContainerValidatePayload {
     pub ok: bool,
     pub errors: Vec<String>,
+}
+
+/// Payload for `container resolve-view` (issue #254).
+///
+/// Carries the structured container view: the container root record, ordered Tier-2
+/// member records (full Record + display label), the DocumentView-driven column spec,
+/// and non-fatal diagnostics.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerViewPayload {
+    #[schemars(with = "serde_json::Value")]
+    pub container_view: ContainerView,
 }
 
 /// Payload for `record validate` — no-write record input validation (preflight).
