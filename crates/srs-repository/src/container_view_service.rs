@@ -72,6 +72,13 @@ pub struct ContainerView {
     pub root: Option<ResolvedMember>,
     pub members: Vec<ResolvedMember>,
     pub columns: Vec<ColumnSpec>,
+    /// Authored default-hidden lifecycle states for this container's list, read from the
+    /// **same** governing `DocumentSection` that drives `columns` (ADR-018 precedence). Empty
+    /// unless that section is a `SectionSource::TypeQuery` declaring `excludeLifecycleStates`.
+    /// Clients forward these to `find` (`--exclude-lifecycle-state`) for the default-hidden
+    /// list, dropping them for a "show all" toggle — see ADR-020. Clients MUST NOT re-derive
+    /// them from the DocumentView source.
+    pub exclude_lifecycle_states: Vec<String>,
     /// Non-fatal notes (skipped non-Tier-2 members, unresolved view/field references).
     pub diagnostics: Vec<String>,
 }
@@ -79,10 +86,12 @@ pub struct ContainerView {
 /// Resolve a container into root + ordered members + DocumentView-driven column spec.
 ///
 /// Column source follows the precedence in
-/// [ADR-018](../../docs/adr/018-container-view-column-source-precedence.md): the section
-/// whose `source` is `ContainerSubset { container_id }` matching this container and has a
+/// [ADR-018](../../docs/adr/018-container-view-column-source-precedence.md), via
+/// [`select_governing_section`]: the section whose `source` targets this container
+/// (`ContainerSubset { container_id }` or `TypeQuery { container_ids }`) and has a
 /// `render_view_id` wins; otherwise the first section by `order` with a `render_view_id`;
-/// otherwise the column spec is empty.
+/// otherwise the column spec is empty. The same governing section also supplies the authored
+/// `exclude_lifecycle_states` ([ADR-020](../../docs/adr/020-resolve-view-authored-list-defaults.md)).
 pub fn resolve_container_view(
     store: &dyn RepositoryStore,
     input: ResolveContainerViewInput,
@@ -138,6 +147,13 @@ pub fn resolve_container_view(
         None => Vec::new(),
     };
 
+    // Authored default-hidden lifecycle states from the same governing section (ADR-020).
+    let exclude_lifecycle_states = document_view
+        .as_ref()
+        .and_then(|dv| select_governing_section(dv, &container_id))
+        .map(section_exclude_lifecycle_states)
+        .unwrap_or_default();
+
     // Resolve the root (first root_instance_id, if any).
     let root = match container
         .root_instance_ids
@@ -177,6 +193,7 @@ pub fn resolve_container_view(
         root,
         members,
         columns,
+        exclude_lifecycle_states,
         diagnostics,
     })
 }
@@ -282,30 +299,62 @@ fn resolve_columns(
 }
 
 /// Pick the View UUID that drives the columns (ADR-018 precedence).
-fn select_column_view_id(dv: &DocumentView, container_id: &str) -> Option<String> {
+/// True when `source` explicitly targets `container_id` — either a `ContainerSubset` of this
+/// container or a `TypeQuery` whose `container_ids` includes it. The canonical decision-log
+/// section is now a `TypeQuery`, so the ADR-018 "targets this container" test (step 1) covers
+/// both source shapes.
+fn source_targets_container(source: &SectionSource, container_id: &str) -> bool {
+    match source {
+        SectionSource::ContainerSubset {
+            container_id: cid, ..
+        } => cid == container_id,
+        SectionSource::TypeQuery {
+            container_ids: Some(ids),
+            ..
+        } => ids.iter().any(|c| c == container_id),
+        _ => false,
+    }
+}
+
+/// Select the single `DocumentSection` that governs this container's list, per ADR-018
+/// precedence: (1) a section that targets this container (any source shape) and has a
+/// `render_view_id`; (2) otherwise the first section by `order` with a `render_view_id`;
+/// (3) otherwise `None`. Both the column View (`render_view_id`) and the authored
+/// `excludeLifecycleStates` (ADR-020) derive from this one selection. Tie-break: if both a
+/// `ContainerSubset` and a `TypeQuery` target the container, the lower-`order` one wins (the
+/// sort below is stable; sections are visited in `order` ascending).
+fn select_governing_section<'a>(
+    dv: &'a DocumentView,
+    container_id: &str,
+) -> Option<&'a DocumentSection> {
     let mut sections: Vec<&DocumentSection> = dv.sections.iter().collect();
     sections.sort_by_key(|s| s.order);
 
     // 1. Section explicitly targeting this container, with a render_view_id.
-    for s in &sections {
-        if let SectionSource::ContainerSubset {
-            container_id: cid, ..
-        } = &s.source
-        {
-            if cid == container_id {
-                if let Some(vid) = &s.render_view_id {
-                    return Some(vid.clone());
-                }
-            }
-        }
+    if let Some(s) = sections
+        .iter()
+        .find(|s| s.render_view_id.is_some() && source_targets_container(&s.source, container_id))
+    {
+        return Some(s);
     }
     // 2. First section by order with a render_view_id.
-    for s in &sections {
-        if let Some(vid) = &s.render_view_id {
-            return Some(vid.clone());
-        }
+    sections.into_iter().find(|s| s.render_view_id.is_some())
+}
+
+/// Authored default-hidden lifecycle states declared on the governing section's source
+/// (ADR-020). Empty for any non-`TypeQuery` source or an absent list.
+fn section_exclude_lifecycle_states(section: &DocumentSection) -> Vec<String> {
+    match &section.source {
+        SectionSource::TypeQuery {
+            exclude_lifecycle_states: Some(states),
+            ..
+        } => states.clone(),
+        _ => Vec::new(),
     }
-    None
+}
+
+fn select_column_view_id(dv: &DocumentView, container_id: &str) -> Option<String> {
+    select_governing_section(dv, container_id).and_then(|s| s.render_view_id.clone())
 }
 
 #[cfg(test)]
@@ -861,6 +910,181 @@ mod tests {
             serde_json::to_value(&from_memory).unwrap(),
             serde_json::to_value(&from_file).unwrap(),
             "ContainerView must be identical across stores (memory -> file)"
+        );
+    }
+
+    /// A `type-query` source targeting this container (the canonical decision-log shape) is
+    /// recognised by `select_governing_section`, drives columns, and surfaces its authored
+    /// `excludeLifecycleStates` on the payload (ADR-020).
+    fn type_query_source(exclude: Option<Vec<&str>>) -> SectionSource {
+        SectionSource::TypeQuery {
+            semantic_object_type: "com.test/decision".to_string(),
+            lifecycle_state: None,
+            container_ids: Some(vec![CONTAINER_ID.to_string()]),
+            lifecycle_states: None,
+            exclude_lifecycle_states: exclude
+                .map(|v| v.into_iter().map(|s| s.to_string()).collect()),
+            container_scope: None,
+        }
+    }
+
+    #[test]
+    fn resolve_view_surfaces_type_query_exclude_lifecycle_states() {
+        let fvs = vec![field_view("f-title", 0, None, None)];
+        let sections = vec![section(
+            "s1",
+            0,
+            type_query_source(Some(vec!["superseded", "closed"])),
+            Some(VIEW_ID),
+        )];
+        let store = standard_store(fvs, sections);
+        container_service::create_container(&store, make_container(vec!["root-1"], vec!["mem-1"]))
+            .unwrap();
+
+        let result = resolve_container_view(&store, input(None)).unwrap();
+
+        assert_eq!(
+            result.exclude_lifecycle_states,
+            vec!["superseded".to_string(), "closed".to_string()]
+        );
+        // Columns still resolve from the same governing (type-query) section.
+        assert_eq!(result.columns.len(), 1);
+        assert_eq!(result.columns[0].field_id, "f-title");
+        assert_eq!(result.document_view_id.as_deref(), Some(DV_ID));
+    }
+
+    #[test]
+    fn resolve_view_exclude_lifecycle_states_empty_for_container_subset() {
+        let fvs = vec![field_view("f-title", 0, None, None)];
+        let sections = vec![section(
+            "s1",
+            0,
+            SectionSource::ContainerSubset {
+                container_id: CONTAINER_ID.to_string(),
+                container_type: None,
+                type_filter: None,
+            },
+            Some(VIEW_ID),
+        )];
+        let store = standard_store(fvs, sections);
+        container_service::create_container(&store, make_container(vec!["root-1"], vec!["mem-1"]))
+            .unwrap();
+
+        let result = resolve_container_view(&store, input(None)).unwrap();
+        assert!(result.exclude_lifecycle_states.is_empty());
+    }
+
+    #[test]
+    fn resolve_view_columns_unchanged_after_exclude_states_addition() {
+        // The governing-section refactor must not change column selection: a type-query
+        // section and a container-subset section over the same View resolve identical columns
+        // and document_view_id (only exclude_lifecycle_states differs).
+        let fvs = || {
+            vec![
+                field_view("f-title", 0, None, None),
+                field_view("f-status", 1, None, Some("Status")),
+            ]
+        };
+        let cs_store = standard_store(
+            fvs(),
+            vec![section(
+                "s1",
+                0,
+                SectionSource::ContainerSubset {
+                    container_id: CONTAINER_ID.to_string(),
+                    container_type: None,
+                    type_filter: None,
+                },
+                Some(VIEW_ID),
+            )],
+        );
+        container_service::create_container(
+            &cs_store,
+            make_container(vec!["root-1"], vec!["mem-1"]),
+        )
+        .unwrap();
+        let tq_store = standard_store(
+            fvs(),
+            vec![section(
+                "s1",
+                0,
+                type_query_source(Some(vec!["closed"])),
+                Some(VIEW_ID),
+            )],
+        );
+        container_service::create_container(
+            &tq_store,
+            make_container(vec!["root-1"], vec!["mem-1"]),
+        )
+        .unwrap();
+
+        let cs = resolve_container_view(&cs_store, input(None)).unwrap();
+        let tq = resolve_container_view(&tq_store, input(None)).unwrap();
+
+        assert_eq!(
+            serde_json::to_value(&cs.columns).unwrap(),
+            serde_json::to_value(&tq.columns).unwrap(),
+            "column resolution must be source-shape-agnostic"
+        );
+        assert_eq!(cs.document_view_id, tq.document_view_id);
+        assert!(cs.exclude_lifecycle_states.is_empty());
+        assert_eq!(tq.exclude_lifecycle_states, vec!["closed".to_string()]);
+    }
+
+    #[test]
+    fn resolve_view_roundtrip_type_query_exclude_states() {
+        // Cross-store roundtrip (memory -> file) over the path that actually populates
+        // exclude_lifecycle_states (a type-query governing section). Snapshot importer needs
+        // ids >= 8 chars, so this uses its own long-id fixture.
+        const F_TITLE: &str = "field-title-0001";
+        const VIEW: &str = "view-decision-0001";
+        const DV: &str = "dv-decision-0001";
+        const ROOT: &str = "record-root-0001";
+        const MEM: &str = "record-member-0001";
+
+        let fields = vec![field(F_TITLE, "title")];
+        let view = View {
+            id: VIEW.to_string(),
+            ..view_with_fields(vec![field_view(F_TITLE, 0, None, None)])
+        };
+        let dv = DocumentView {
+            id: DV.to_string(),
+            sections: vec![section(
+                "section-0001",
+                0,
+                type_query_source(Some(vec!["superseded", "closed"])),
+                Some(VIEW),
+            )],
+            ..document_view(DV, vec![])
+        };
+        let root = record(ROOT, F_TITLE, "Root Decision");
+        let member = record(MEM, F_TITLE, "Member Decision");
+        let store = build_store(
+            fields,
+            vec![view],
+            vec![dv],
+            vec![
+                (ROOT, 2, serde_json::to_value(&root).unwrap()),
+                (MEM, 2, serde_json::to_value(&member).unwrap()),
+            ],
+        );
+        container_service::create_container(&store, make_container(vec![ROOT], vec![MEM])).unwrap();
+
+        let from_memory = resolve_container_view(&store, input(None)).unwrap();
+        assert_eq!(
+            from_memory.exclude_lifecycle_states,
+            vec!["superseded".to_string(), "closed".to_string()]
+        );
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let file_store = crate::store::FileStore::new(temp.path());
+        crate::repository_portability::copy_repository(&store, &file_store).unwrap();
+        let from_file = resolve_container_view(&file_store, input(None)).unwrap();
+
+        assert_eq!(
+            serde_json::to_value(&from_memory).unwrap(),
+            serde_json::to_value(&from_file).unwrap(),
+            "ContainerView (incl. exclude_lifecycle_states) must survive memory -> file"
         );
     }
 }

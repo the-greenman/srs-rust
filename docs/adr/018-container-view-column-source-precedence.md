@@ -4,6 +4,9 @@
 - **Date:** 2026-06-28
 - **Supersedes:** —
 - **Superseded by:** —
+- **Extended by:** [ADR-020](020-resolve-view-authored-list-defaults.md) — step 1 ("targets this
+  container") is extended to also recognise a `TypeQuery` whose `container_ids` includes the
+  container, and the chosen section additionally supplies the authored `excludeLifecycleStates`.
 
 ## Context
 
