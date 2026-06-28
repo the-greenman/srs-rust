@@ -35,6 +35,11 @@ pub struct DiscoveryQuery {
     /// Exact match on `Record.lifecycleState` (case-sensitive).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lifecycle_state: Option<String>,
+    /// Exclude instances whose `lifecycleState` matches any listed value (RFC-011
+    /// parity; applied after `lifecycle_state`). An empty list excludes nothing —
+    /// the "show all" override for an authored default-hidden set.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exclude_lifecycle_states: Vec<String>,
     /// Instance tier (0=Note, 1=TypedRecord, 2=Record). Phase 1 serves Tier 2.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tier: Option<u8>,
@@ -139,6 +144,16 @@ pub fn find(
         if let Some(state) = &query.lifecycle_state {
             if record.lifecycle_state.as_deref() != Some(state.as_str()) {
                 continue;
+            }
+        }
+
+        // Exclusion axis: drop records whose lifecycleState is in the hidden set.
+        // Records without a lifecycleState are never excluded by this axis.
+        if !query.exclude_lifecycle_states.is_empty() {
+            if let Some(state) = record.lifecycle_state.as_deref() {
+                if query.exclude_lifecycle_states.iter().any(|s| s == state) {
+                    continue;
+                }
             }
         }
 
@@ -356,6 +371,23 @@ mod tests {
         )
         .unwrap();
         assert_eq!(ids(&result), vec![ID1]);
+    }
+
+    #[test]
+    fn exclude_lifecycle_states_hides_listed_states() {
+        let store = store_with(fixtures());
+        // Hide superseded + closed (the governance default-hidden set); empty list
+        // would be the "show all" override.
+        let result = find(
+            &store,
+            DiscoveryQuery {
+                exclude_lifecycle_states: vec!["superseded".to_string(), "closed".to_string()],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        // ID2 is superseded and must be hidden; ID1 (ratified) + ID3 (draft) remain.
+        assert_eq!(ids(&result), vec![ID1, ID3]);
     }
 
     #[test]
