@@ -110,13 +110,24 @@ pub fn record_detail(record_id: &str, schema_props: &Value, field_values: &[Valu
     println!();
 }
 
-pub fn repo_created(output: &str, title: &str, repository_id: &str) {
+pub fn repo_created(output: &str, title: &str, repository_id: &str, has_purpose: bool) {
     header(&format!("Created  {title}"));
     println!();
     println!("  File:          {output}");
     println!("  Repository ID: {repository_id}");
     println!("  Package:       com.mudemocracy.governance @1.0.0");
-    println!("  Records:       0  (empty — ready for content)");
+    println!();
+    println!("  Containers scaffolded:");
+    println!(
+        "    §  Articles      — charter article ({})",
+        if has_purpose {
+            "your purpose"
+        } else {
+            "placeholder"
+        }
+    );
+    println!("    ⊕  Decision Log  — empty, ready for decisions");
+    println!("    §  Roles         — empty, ready for role definitions");
     println!();
     println!("  Open in srs-web, or explore with:");
     println!("    srs-gov --repo {output}");
