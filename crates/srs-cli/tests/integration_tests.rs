@@ -6423,3 +6423,88 @@ fn record_validate_does_not_persist() {
         "record validate must not create any record"
     );
 }
+
+// ── container resolve-view (#254) ───────────────────────────────────────────────
+
+const RFC008_CONTAINER_ID: &str = "00000000-0000-4000-8000-000000003500";
+const RFC008_TYPE_FILTER_DV: &str = "00000000-0000-4000-8000-000000003507";
+const RFC008_TEXT_VIEW: &str = "00000000-0000-4000-8000-000000003504";
+const RFC008_TITLE_FIELD: &str = "00000000-0000-4000-8000-000000003501";
+
+fn rfc008_container_subset_repo() -> TempDir {
+    let temp = TempDir::new().unwrap();
+    let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("rfc008-container-subset");
+    copy_dir_recursive(&fixture_root, temp.path());
+    temp
+}
+
+#[test]
+fn container_resolve_view_with_view_id() {
+    // Patch the type-filter DocumentView's container-subset section to carry a
+    // renderViewId so the column spec resolves from the text-view's field_views.
+    let temp = rfc008_container_subset_repo();
+    let dv_path = temp
+        .path()
+        .join("package/document-views/type-filter-view.json");
+    let mut dv: Value = serde_json::from_str(&std::fs::read_to_string(&dv_path).unwrap()).unwrap();
+    dv["sections"][0]["renderViewId"] = Value::String(RFC008_TEXT_VIEW.to_string());
+    std::fs::write(&dv_path, serde_json::to_string_pretty(&dv).unwrap()).unwrap();
+
+    let repo_str = temp.path().to_str().unwrap().to_string();
+    let result = run_srs_in_dir(
+        temp.path(),
+        &[
+            "container",
+            "resolve-view",
+            RFC008_CONTAINER_ID,
+            "--view-id",
+            RFC008_TYPE_FILTER_DV,
+            "--repo",
+            &repo_str,
+        ],
+    );
+
+    assert_eq!(result["ok"], true, "expected ok: {result:?}");
+    assert_eq!(result["command"], "container resolve-view");
+    let cv = &result["payload"]["containerView"];
+    assert_eq!(cv["documentViewId"], RFC008_TYPE_FILTER_DV);
+    // One column from text-view, with the displayLabel override.
+    let columns = cv["columns"].as_array().unwrap();
+    assert_eq!(columns.len(), 1, "expected one column: {cv:?}");
+    assert_eq!(columns[0]["fieldId"], RFC008_TITLE_FIELD);
+    assert_eq!(columns[0]["fieldName"], "title");
+    assert_eq!(columns[0]["displayLabel"], "Text Title");
+    // All four container members are Tier-2 records.
+    assert_eq!(cv["members"].as_array().unwrap().len(), 4);
+}
+
+#[test]
+fn container_resolve_view_happy_path() {
+    // No --view-id and the container has no root binding, so no DocumentView matches:
+    // columns are empty but the ordered members are still returned.
+    let temp = rfc008_container_subset_repo();
+    let repo_str = temp.path().to_str().unwrap().to_string();
+    let result = run_srs_in_dir(
+        temp.path(),
+        &[
+            "container",
+            "resolve-view",
+            RFC008_CONTAINER_ID,
+            "--repo",
+            &repo_str,
+        ],
+    );
+
+    assert_eq!(result["ok"], true, "expected ok: {result:?}");
+    assert_eq!(result["command"], "container resolve-view");
+    let cv = &result["payload"]["containerView"];
+    assert_eq!(cv["containerId"], RFC008_CONTAINER_ID);
+    assert!(cv["columns"].as_array().unwrap().is_empty());
+    assert_eq!(cv["members"].as_array().unwrap().len(), 4);
+    // Each member carries a display label and a full record.
+    assert!(cv["members"][0]["displayLabel"].is_string());
+    assert!(cv["members"][0]["record"].is_object());
+}

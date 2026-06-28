@@ -341,6 +341,15 @@ pub enum ContainerCommand {
     Roots(ContainerRootsCommand),
     /// Validate container invariants
     Validate { container_id: String },
+    /// Resolve a structured container view: root + ordered members + DocumentView-driven
+    /// column spec + per-member display label (issue #254).
+    ResolveView {
+        container_id: String,
+        /// Optional DocumentView UUID override; defaults to the view matched from the
+        /// container's root type binding.
+        #[arg(long = "view-id")]
+        view_id: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]

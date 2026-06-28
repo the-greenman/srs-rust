@@ -5,7 +5,7 @@ use crate::output;
 use crate::payload::{
     ContainerDeletePayload, ContainerListPayload, ContainerMembersMutatePayload,
     ContainerMembersPayload, ContainerPayload, ContainerRootsMutatePayload, ContainerRootsPayload,
-    ContainerValidatePayload,
+    ContainerValidatePayload, ContainerViewPayload,
 };
 use anyhow::Result;
 use srs_core::types::container::Container;
@@ -14,6 +14,7 @@ use srs_repository::container_service::{
     list_container_members, list_containers, list_roots, remove_container_member, remove_root,
     update_container, validate_container_invariants, ContainerListFilter, ContainerPatch,
 };
+use srs_repository::container_view_service::{resolve_container_view, ResolveContainerViewInput};
 use std::io;
 
 pub fn dispatch(ctx: CliContext, cmd: ContainerCommand) -> Result<String> {
@@ -30,6 +31,28 @@ pub fn dispatch(ctx: CliContext, cmd: ContainerCommand) -> Result<String> {
         ContainerCommand::Members(sub) => dispatch_members(ctx, sub),
         ContainerCommand::Roots(sub) => dispatch_roots(ctx, sub),
         ContainerCommand::Validate { container_id } => cmd_validate(ctx, container_id),
+        ContainerCommand::ResolveView {
+            container_id,
+            view_id,
+        } => cmd_resolve_view(ctx, container_id, view_id),
+    }
+}
+
+fn cmd_resolve_view(
+    ctx: CliContext,
+    container_id: String,
+    view_id: Option<String>,
+) -> Result<String> {
+    let input = ResolveContainerViewInput {
+        container_id,
+        view_id,
+    };
+    match with_store(&ctx, |store| Ok(resolve_container_view(store, input)?)) {
+        Ok(container_view) => output::serialize(
+            "container resolve-view",
+            ContainerViewPayload { container_view },
+        ),
+        Err(e) => Ok(output::err("container resolve-view", vec![e.to_string()])),
     }
 }
 
