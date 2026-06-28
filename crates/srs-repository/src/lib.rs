@@ -3,6 +3,7 @@ pub mod blueprint_brief_service;
 pub mod blueprint_schema_service;
 pub mod blueprint_service;
 pub mod container_service;
+pub mod container_view_service;
 pub mod detect;
 pub mod diff;
 pub mod error;
