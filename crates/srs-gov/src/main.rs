@@ -517,7 +517,18 @@ fn resolve_container_id(def: &governance::ContainerTypeDef, repo: &str) -> Resul
 // ---------------------------------------------------------------------------
 
 /// Canonical seed for com.mudemocracy.governance @1.0.0.
-/// Updated when the package is republished (srs#38 / srs-gov asset sync).
+///
+/// Vendored byte-copy of the deterministic seed artifact (ADR-017) — never hand-edit it.
+/// Regenerate from the canonical package and re-vendor when the package is republished:
+///
+/// ```sh
+/// # in the srs spec repo, with a built srs binary:
+/// SRS_BIN=<srs-rust>/target/debug/srs node scripts/build-governance-seed.mjs
+/// cp <srs>/packages/com.mudemocracy.governance/1.0.0/seed/empty-governance-document.srsj \
+///    <srs-rust>/crates/srs-gov/assets/governance-seed.srsj
+/// ```
+///
+/// `build-governance-seed.mjs --check` proves the seed rebuilds byte-for-byte (srs#38).
 const GOVERNANCE_SEED: &str = include_str!("../assets/governance-seed.srsj");
 
 fn cmd_repo_create(output: &str, title: &str, purpose: Option<&str>) -> Result<()> {
@@ -598,3 +609,30 @@ fn srs_roots_add(repo: &str, container_id: &str, instance_id: &str) -> Result<()
 }
 
 use anyhow::Context;
+
+#[cfg(test)]
+mod tests {
+    use super::GOVERNANCE_SEED;
+
+    /// The vendored seed's decision-log DocumentView must carry the canonical authored
+    /// default-hidden states (the whole point of #298 — regenerate the derived copy).
+    #[test]
+    fn seed_decision_log_view_is_type_query_with_excludes() {
+        let seed: serde_json::Value =
+            serde_json::from_str(GOVERNANCE_SEED).expect("embedded seed parses");
+        let view = &seed["data"]["package/document-views/decision-log-b5c8d124.json"];
+        assert!(!view.is_null(), "decision-log view present in seed");
+        let source = &view["sections"][0]["source"];
+        assert_eq!(
+            source["type"], "type-query",
+            "decision-log section must be a type-query (was the stale container-subset)"
+        );
+        let excludes: Vec<&str> = source["excludeLifecycleStates"]
+            .as_array()
+            .expect("excludeLifecycleStates array")
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert_eq!(excludes, vec!["superseded", "closed"]);
+    }
+}
