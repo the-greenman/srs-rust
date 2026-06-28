@@ -41,6 +41,16 @@ enum Commands {
     List {
         /// Container key (e.g. decision_log, articles, roles)
         key: String,
+        /// Free-text search over member content (forwarded to `srs find --text`)
+        #[arg(long)]
+        search: Option<String>,
+        /// Narrow to members carrying this tag (repeatable; forwarded to `srs find --tag`)
+        #[arg(long)]
+        tag: Vec<String>,
+        /// Show all members, including the view's default-hidden lifecycle states
+        /// (drops the authored excludeLifecycleStates exclusion)
+        #[arg(long)]
+        all: bool,
     },
     /// Get a record from a governance container
     #[command(name = "get")]
@@ -90,7 +100,20 @@ fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         None => cmd_top(&cli.repo, cli.explain, cli.json),
-        Some(Commands::List { key }) => cmd_list(&key, &cli.repo, cli.explain, cli.json),
+        Some(Commands::List {
+            key,
+            search,
+            tag,
+            all,
+        }) => cmd_list(
+            &key,
+            &cli.repo,
+            cli.explain,
+            cli.json,
+            search.as_deref(),
+            &tag,
+            all,
+        ),
         Some(Commands::Get { key, id }) => cmd_get(&key, &id, &cli.repo, cli.explain, cli.json),
         Some(Commands::Create {
             key,
@@ -169,38 +192,94 @@ fn cmd_top(repo: &str, explain: bool, json: bool) -> Result<()> {
 // <key> list — render view on container
 // ---------------------------------------------------------------------------
 
-fn cmd_list(key: &str, repo: &str, explain: bool, json: bool) -> Result<()> {
+fn cmd_list(
+    key: &str,
+    repo: &str,
+    explain: bool,
+    json: bool,
+    search: Option<&str>,
+    tags: &[String],
+    all: bool,
+) -> Result<()> {
     let def = by_key(key)
         .ok_or_else(|| anyhow::anyhow!("unknown key '{key}'. Known: {}", known_keys()))?;
 
     // 1. Find the container id
     let container_id = resolve_container_id(def, repo)?;
 
-    if explain {
-        println!("# Underlying srs command (uses resolve-view from srs-rust#254):");
-        run_srs(
-            &["container", "resolve-view", &container_id],
-            repo,
-            true,
-            false,
-        )?;
-        return Ok(());
-    }
-
-    // Single call: root + ordered members + core-provided displayLabel + column spec
-    // resolve-view (srs-rust#254) replaces the prior 4-call chain:
-    //   document-view list-for-container → render → members list → container get
+    // Authored list = container resolve-view (columns + ordered members + authored
+    // default-hidden states, srs-rust#254 / ADR-020) composed with a runtime srs find
+    // query (lifecycle exclusion + content/tag, #217). The authored excludeLifecycleStates
+    // are applied unless --all; --search → find --text; --tag → find --tag. The interactive
+    // result is the resolve-view members intersected with the find hit set.
     let payload = run_srs(
         &["container", "resolve-view", &container_id],
         repo,
         false,
         json,
     )?;
-    if json {
+    let cv = &payload["containerView"];
+
+    // Authored default-hidden lifecycle states (empty unless the view is a type-query).
+    let authored_excludes: Vec<String> = cv["excludeLifecycleStates"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    let effective_excludes: Vec<&str> = if all {
+        Vec::new()
+    } else {
+        authored_excludes.iter().map(String::as_str).collect()
+    };
+
+    // A find query is only needed when a runtime filter is active (exclusion, search, or
+    // tag). With none active the authored member list is shown verbatim — preserving the
+    // pre-#298 output (and keeping a container-subset view, which has no exclusion, identical).
+    let need_find = !effective_excludes.is_empty() || search.is_some() || !tags.is_empty();
+    let find_args = build_find_args(&container_id, &effective_excludes, search, tags);
+
+    if explain {
+        println!("# Underlying srs commands (resolve-view srs-rust#254, find #217):");
+        run_srs(
+            &["container", "resolve-view", &container_id],
+            repo,
+            true,
+            false,
+        )?;
+        if need_find {
+            let refs: Vec<&str> = find_args.iter().map(String::as_str).collect();
+            run_srs(&refs, repo, true, false)?;
+        }
         return Ok(());
     }
 
-    let cv = &payload["containerView"];
+    if json {
+        // Structural view envelope already printed by run_srs above (json=true). Runtime
+        // filters apply to the human-readable output; for raw filtered data use `srs find`
+        // (shown by --explain).
+        return Ok(());
+    }
+
+    // Resolve the runtime hit set (instanceIds surviving the find query), if any.
+    let allowed: Option<HashSet<String>> = if need_find {
+        let refs: Vec<&str> = find_args.iter().map(String::as_str).collect();
+        let find_payload = run_srs(&refs, repo, false, false)?;
+        let hits = find_payload["result"]["hits"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|h| h["instanceId"].as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+        Some(hits)
+    } else {
+        None
+    };
+
     let root_label = cv["root"]["displayLabel"].as_str().unwrap_or("");
     let columns: Vec<(&str, &str)> = cv["columns"]
         .as_array()
@@ -229,13 +308,19 @@ fn cmd_list(key: &str, repo: &str, explain: bool, json: bool) -> Result<()> {
         println!("  {}", "─".repeat(70));
     }
 
-    // members (excluding root)
+    // members (excluding root), intersected with the find hit set when a runtime filter
+    // is active (display = resolve-view members ∩ find hits, in resolve-view order).
     let root_id_full = cv["root"]["instanceId"].as_str().unwrap_or("");
     let members = cv["members"].as_array();
     let non_root: Vec<&serde_json::Value> = members
         .map(|a| {
             a.iter()
                 .filter(|m| m["instanceId"].as_str() != Some(root_id_full))
+                .filter(|m| match (&allowed, m["instanceId"].as_str()) {
+                    (Some(set), Some(iid)) => set.contains(iid),
+                    (Some(_), None) => false,
+                    (None, _) => true,
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -422,6 +507,36 @@ fn cmd_create(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Build the `srs find` argument vector that composes with the authored view: the global
+/// `--container` scope, then the `find` subcommand with the effective lifecycle exclusions,
+/// optional `--text` search, and repeated `--tag` filters. Returned as owned `String`s so the
+/// caller can borrow `&str` slices for both `--explain` printing and execution.
+fn build_find_args(
+    container_id: &str,
+    excludes: &[&str],
+    search: Option<&str>,
+    tags: &[String],
+) -> Vec<String> {
+    let mut args: Vec<String> = vec![
+        "--container".into(),
+        container_id.to_string(),
+        "find".into(),
+    ];
+    for state in excludes {
+        args.push("--exclude-lifecycle-state".into());
+        args.push((*state).to_string());
+    }
+    if let Some(text) = search {
+        args.push("--text".into());
+        args.push(text.to_string());
+    }
+    for tag in tags {
+        args.push("--tag".into());
+        args.push(tag.clone());
+    }
+    args
+}
 
 /// Look up a type by namespace + name and return (UUID, version).
 fn resolve_type_id(namespace: &str, name: &str, repo: &str) -> anyhow::Result<(String, u64)> {
