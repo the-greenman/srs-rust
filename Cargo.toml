@@ -7,6 +7,7 @@ members = [
     "crates/srs-cli",
     "crates/srs-projection",
     "crates/srs-bindings",
+    "crates/srs-gov",
 ]
 
 [workspace.package]
