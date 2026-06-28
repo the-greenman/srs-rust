@@ -160,21 +160,9 @@ fn cmd_list(key: &str, repo: &str, explain: bool, json: bool) -> Result<()> {
     let container_id = resolve_container_id(def.container_type, repo)?;
 
     if explain {
-        println!("# Underlying srs commands:");
-        println!("# 1. resolve container id (container list)");
-        println!("#    container_id = {container_id}");
-        println!("# 2. find applicable document-view:");
+        println!("# Underlying srs command (uses resolve-view from srs-rust#254):");
         run_srs(
-            &["document-view", "list-for-container", &container_id],
-            repo,
-            true,
-            false,
-        )?;
-        println!("# 3. render (example — actual viewId resolved at runtime):");
-        println!("  srs --repo {repo} --format json render document-view --view <viewId> --container {container_id} --view-format text");
-        println!("# 4. member id index:");
-        run_srs(
-            &["container", "members", "list", &container_id],
+            &["container", "resolve-view", &container_id],
             repo,
             true,
             false,
@@ -182,80 +170,75 @@ fn cmd_list(key: &str, repo: &str, explain: bool, json: bool) -> Result<()> {
         return Ok(());
     }
 
-    // 2. Find applicable document-view
-    let views_payload = run_srs(
-        &["document-view", "list-for-container", &container_id],
+    // Single call: root + ordered members + core-provided displayLabel + column spec
+    // resolve-view (srs-rust#254) replaces the prior 4-call chain:
+    //   document-view list-for-container → render → members list → container get
+    let payload = run_srs(
+        &["container", "resolve-view", &container_id],
         repo,
         false,
-        false,
+        json,
     )?;
-    let views = views_payload["documentViews"].as_array();
-    let view_id = views
-        .and_then(|vs| vs.first())
-        .and_then(|v| v["id"].as_str())
-        .map(|s| s.to_string());
-
-    if let Some(ref vid) = view_id {
-        // 3. Render view
-        let render_payload = run_srs(
-            &[
-                "render",
-                "document-view",
-                "--view",
-                vid,
-                "--container",
-                &container_id,
-                "--view-format",
-                "text",
-            ],
-            repo,
-            false,
-            json,
-        )?;
-
-        if !json {
-            if let Some(rendered) = render_payload["rendered"].as_str() {
-                println!();
-                println!("{rendered}");
-            }
-        }
-    } else {
-        println!("(No document-view found for this container — falling back to member list)");
+    if json {
+        return Ok(());
     }
 
-    // 4. Member id index (always shown, even when we have a rendered view)
-    if !json {
-        let members_payload = run_srs(
-            &["container", "members", "list", &container_id],
-            repo,
-            false,
-            false,
-        )?;
-        // Exclude root instances
-        let container_payload = run_srs(&["container", "get", &container_id], repo, false, false)?;
-        let roots: HashSet<String> = container_payload["container"]["rootInstanceIds"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect()
-            })
-            .unwrap_or_default();
+    let cv = &payload["containerView"];
+    let root_label = cv["root"]["displayLabel"].as_str().unwrap_or("");
+    let columns: Vec<(&str, &str)> = cv["columns"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|c| {
+                    Some((
+                        c["displayLabel"].as_str()?,
+                        c["fieldId"].as_str().unwrap_or(""),
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
 
-        let members: Vec<&str> = members_payload["memberInstanceIds"]
-            .as_array()
-            .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
-            .unwrap_or_default();
+    // root
+    let root_id = cv["root"]["instanceId"].as_str().unwrap_or("");
+    println!();
+    println!("  {} — {root_label}", &root_id[..8.min(root_id.len())]);
+    println!();
 
-        let non_root: Vec<&&str> = members.iter().filter(|id| !roots.contains(**id)).collect();
+    // header from column spec
+    if !columns.is_empty() {
+        let col_labels: Vec<&str> = columns.iter().map(|(l, _)| *l).collect();
+        println!("  {}", col_labels.join("  ·  "));
+        println!("  {}", "─".repeat(70));
+    }
 
-        if !non_root.is_empty() {
-            section("Member IDs  (use with: srs-gov get)");
-            for id in &non_root {
-                println!("  {id}");
+    // members (excluding root)
+    let root_id_full = cv["root"]["instanceId"].as_str().unwrap_or("");
+    let members = cv["members"].as_array();
+    let non_root: Vec<&serde_json::Value> = members
+        .map(|a| {
+            a.iter()
+                .filter(|m| m["instanceId"].as_str() != Some(root_id_full))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    for m in &non_root {
+        let iid = m["instanceId"].as_str().unwrap_or("");
+        let label = m["displayLabel"].as_str().unwrap_or("(untitled)");
+        println!("  {:<8}  {label}", &iid[..8.min(iid.len())]);
+    }
+    println!();
+
+    // ID index for use with srs-gov get
+    if !non_root.is_empty() {
+        section("Member IDs  (use with: srs-gov get)");
+        for m in &non_root {
+            if let Some(iid) = m["instanceId"].as_str() {
+                println!("  {iid}");
             }
-            println!();
         }
+        println!();
     }
 
     Ok(())
