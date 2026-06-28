@@ -9,8 +9,8 @@ use crate::payload::{
 use anyhow::Result;
 use srs_repository::record_store::{
     add_record_tag, create_record_in_context, create_record_successor, delete_record_in_context,
-    get_record_by_id, get_record_revision, list_record_revisions, list_record_tags,
-    list_records_filtered, remove_record_tag, transition_record_lifecycle, update_record,
+    get_record_by_id, get_record_revision, list_record_revisions, list_record_summaries,
+    list_record_tags, remove_record_tag, transition_record_lifecycle, update_record,
     validate_record_input, AddRecordTagResult, CreateRecordInput, CreateRecordSuccessorInput,
     RecordListFilter, RemoveRecordTagResult, TransitionLifecycleInput, ValidateRecordInput,
 };
@@ -82,7 +82,7 @@ fn cmd_record_list(
     };
 
     let records = with_store(&ctx, |store| {
-        Ok(list_records_filtered(
+        Ok(list_record_summaries(
             store,
             RecordListFilter {
                 type_namespace,

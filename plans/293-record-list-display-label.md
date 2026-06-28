@@ -134,15 +134,15 @@ Mark checkboxes, commit: `feat(repository): list_record_summaries with core disp
 
 #### Tasks
 
-- [ ] In `crates/srs-cli/src/payload.rs`, change `RecordListPayload.records` from `Vec<Record>` to `Vec<RecordSummary>` (import `record_store::RecordSummary`); keep `#[schemars(with = "Vec<serde_json::Value>")]`.
-- [ ] In `crates/srs-cli/src/commands/record.rs`, change `cmd_record_list` to call `list_record_summaries` instead of `list_records_filtered` (the only change). Note: the existing handler is ~35 lines because of the `parse_type_filter` arg-translation block — that is CLI-layer arg parsing, not business logic, and is fine under ADR-010. Do not refactor it; just swap the service call.
-- [ ] Run `cargo run --bin generate-schemas`; stage any diff under `crates/srs-cli/schemas/payload/`.
+- [x] In `crates/srs-cli/src/payload.rs`, change `RecordListPayload.records` from `Vec<Record>` to `Vec<RecordSummary>` (import `record_store::RecordSummary`); keep `#[schemars(with = "Vec<serde_json::Value>")]`.
+- [x] In `crates/srs-cli/src/commands/record.rs`, change `cmd_record_list` to call `list_record_summaries` instead of `list_records_filtered` (the only change). Note: the existing handler is ~35 lines because of the `parse_type_filter` arg-translation block — that is CLI-layer arg parsing, not business logic, and is fine under ADR-010. Do not refactor it; just swap the service call.
+- [x] Run `cargo run --bin generate-schemas`; stage any diff under `crates/srs-cli/schemas/payload/`.
 
 #### Acceptance Criteria
 
-- [ ] `cargo run --bin srs -- record list` payload items each take the shape `{ instanceId, displayLabel, record: { ... } }`.
-- [ ] Handler contains no business logic: arg parsing → one service call → `output::serialize`. (The `parse_type_filter` block is CLI-layer arg translation and does not count against the handler-size guidance.)
-- [ ] `cargo test --test payload_contracts` passes.
+- [x] `cargo run --bin srs -- record list` payload items each take the shape `{ instanceId, displayLabel, record: { ... } }`.
+- [x] Handler contains no business logic: arg parsing → one service call → `output::serialize`. (The `parse_type_filter` block is CLI-layer arg translation and does not count against the handler-size guidance.)
+- [x] `cargo test --test payload_contracts` passes.
 
 #### Testing
 

@@ -7,6 +7,7 @@
   ],
   "properties": {
     "records": {
+      "description": "Each entry is a `RecordSummary` — the full `Record` plus its core-resolved `displayLabel` (same resolution `srs tree` uses). Embedded opaquely as JSON since `RecordSummary` lives in `srs-repository` and is not `JsonSchema`.",
       "type": "array",
       "items": true
     }
