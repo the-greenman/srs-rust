@@ -1096,8 +1096,13 @@ impl RepositoryStore for FileStore {
             }
         }
 
-        let relation_type_definitions: Vec<RelationTypeDefinition> =
+        // `rt_by_type` is a HashMap, whose iteration order is randomized per
+        // process. Sort by (key, id) so the resulting Vec — and anything derived
+        // from it, e.g. the regenerated package.json `relationTypes` index in
+        // `repo copy` — is deterministic across runs.
+        let mut relation_type_definitions: Vec<RelationTypeDefinition> =
             rt_by_type.into_values().map(|(def, _)| def).collect();
+        relation_type_definitions.sort_by(|a, b| a.key.cmp(&b.key).then(a.id.cmp(&b.id)));
 
         let mut vocabularies: Vec<Vocabulary> = Vec::new();
         for vocab_path in &metadata.vocabularies {

@@ -864,6 +864,12 @@ impl RepositoryStore for JsonStore {
             }
         }
 
+        // Sort by (key, id) so this Vec is deterministic regardless of HashMap
+        // iteration order — keeps regenerated package indexes stable across runs.
+        let mut relation_type_definitions: Vec<RelationTypeDefinition> =
+            rt_by_type.into_values().map(|(def, _)| def).collect();
+        relation_type_definitions.sort_by(|a, b| a.key.cmp(&b.key).then(a.id.cmp(&b.id)));
+
         Ok(Package {
             id: root_meta.id,
             namespace: root_meta.namespace,
@@ -871,7 +877,7 @@ impl RepositoryStore for JsonStore {
             version: root_meta.version,
             fields,
             record_types,
-            relation_type_definitions: rt_by_type.into_values().map(|(def, _)| def).collect(),
+            relation_type_definitions,
             views,
             document_views,
             themes,
