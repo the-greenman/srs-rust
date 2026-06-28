@@ -38,7 +38,7 @@ As of 2026-06-27. See `docs/roadmap/extension-implementation.md` for the full ex
 | Records (`record`) | Defined and stable | Implemented (CRUD with type validation) |
 | Relations (`relation`) | Defined and stable | Implemented (CRUD + validation paths) |
 | Relation Types (`relation-type`) | Incorporated (RFC-005) | Implemented (status lifecycle + resolver behavior; mandatory resolution per RFC-005) |
-| Containers (`container`) | Defined + invariants | Implemented (CRUD, members, roots, invariant validation, `--container` scoping for list/create/delete on note/tag/record) |
+| Containers (`container`) | Defined + invariants | Implemented (CRUD, members, roots, invariant validation, `resolve-view` structured container view, `--container` scoping for list/create/delete on note/tag/record) |
 | Fields (`field`) | Defined | Implemented (list, get, create — update/delete not exposed) |
 | Types (`type`) | Defined | Read-only via CLI (list, get); authoring is via package files |
 | Extensions (`extension`) | Defined | Implemented (CRUD) |
@@ -73,7 +73,7 @@ Top-level command groups currently available:
 - `relation` — CRUD
 - `extension` — CRUD
 - `protocol` — CRUD, validation, stages, import/export
-- `container` — CRUD, members, roots, validate
+- `container` — CRUD, members, roots, validate, `resolve-view` (root + ordered members + DocumentView column spec)
 - `package` — list, create, import, update, slice (alias for create); enable/disable deprecated
 - `blueprint` — CRUD, validate, structure (`ext:blueprint`)
 - `view` — CRUD
