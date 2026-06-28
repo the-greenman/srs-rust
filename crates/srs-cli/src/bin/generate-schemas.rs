@@ -157,6 +157,7 @@ fn main() {
     // Repo payloads
     write_schema!("repo-create", RepoCreatePayload);
     write_schema!("repo-map", RepoMapPayload);
+    write_schema!("repo-navigation", RepoNavigationPayload);
     write_schema!("repo-copy", RepoCopyPayload);
     write_schema!("repo-diff", RepoDiffPayload);
     write_schema!("repo-validate", RepoValidatePayload);
@@ -196,6 +197,9 @@ fn main() {
 
     // Tree payloads
     write_schema!("tree", TreePayload);
+
+    // Discovery payloads (ext:discovery)
+    write_schema!("find", FindPayload);
 
     println!("done.");
 }

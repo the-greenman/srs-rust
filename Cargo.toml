@@ -28,3 +28,4 @@ thiserror = "1"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 schemars = "0.8"
+unicode-normalization = "0.1"

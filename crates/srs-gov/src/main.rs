@@ -140,12 +140,11 @@ fn cmd_top(repo: &str, explain: bool, json: bool) -> Result<()> {
         let ct = c["containerType"].as_str();
         let title = c["title"].as_str().unwrap_or("");
         let container_id = c["containerId"].as_str().unwrap_or("").to_string();
-        let member_count = c["memberInstanceIds"]
-            .as_array()
-            .map(|a| a.len())
-            .unwrap_or(0);
 
         if let Some(def) = match_container(ct, title, &mut used_keys) {
+            // Degrade gracefully: a single unreadable container must not abort the
+            // whole top-level listing (matches the prior summary-derived count).
+            let member_count = container_member_count(repo, &container_id).unwrap_or(0);
             rows.push(ContainerRow {
                 icon: def.icon,
                 key: def.key.to_string(),
@@ -374,7 +373,7 @@ fn cmd_create(
     }
 
     // Build field values JSON
-    let mut fv_entries: Vec<String> = Vec::new();
+    let mut fv_entries: Vec<serde_json::Value> = Vec::new();
     for (_, name, fid, req) in &fields {
         let placeholder = match name.as_str() {
             "title" => title.unwrap_or("<TITLE>"),
@@ -382,10 +381,13 @@ fn cmd_create(
             _ if *req => "<REQUIRED>",
             _ => continue,
         };
-        fv_entries.push(format!(
-            r#"    {{ "fieldId": "{fid}", "value": "{placeholder}" }}"#
-        ));
+        fv_entries.push(serde_json::json!({
+            "fieldId": fid,
+            "value": placeholder,
+        }));
     }
+    let input = serde_json::json!({ "fieldValues": fv_entries });
+    let input_json = serde_json::to_string_pretty(&input)?;
 
     println!();
     println!(
@@ -400,11 +402,7 @@ fn cmd_create(
     println!(
         "srs record create --type {type_ref} --container {container_id} --repo {repo} <<'EOF'"
     );
-    println!("{{");
-    println!("  \"fieldValues\": [");
-    println!("{}", fv_entries.join(",\n"));
-    println!("  ]");
-    println!("}}");
+    println!("{input_json}");
     println!("EOF");
     println!();
 
@@ -450,6 +448,14 @@ fn known_keys() -> String {
         .join(", ")
 }
 
+fn container_member_count(repo: &str, container_id: &str) -> Result<usize> {
+    let payload = run_srs(&["container", "get", container_id], repo, false, false)?;
+    Ok(payload["container"]["memberInstanceIds"]
+        .as_array()
+        .map(|ids| ids.len())
+        .unwrap_or(0))
+}
+
 /// Resolve a containerId for a governance container.
 ///
 /// Matches on `containerType` first; when multiple containers share the same type
@@ -469,13 +475,28 @@ fn resolve_container_id(def: &governance::ContainerTypeDef, repo: &str) -> Resul
     let matched = if by_type.len() == 1 {
         by_type.into_iter().next()
     } else {
-        // Disambiguate by title (case-insensitive match against def.label)
-        by_type.into_iter().find(|c| {
-            c["title"]
-                .as_str()
-                .map(|t| t.eq_ignore_ascii_case(def.label))
-                .unwrap_or(false)
-        })
+        // Disambiguate by title (case-insensitive match against def.label). If more
+        // than one container of this type carries the same title, the choice is
+        // ambiguous — fail loudly rather than silently picking the first match.
+        let title_matches: Vec<&serde_json::Value> = by_type
+            .into_iter()
+            .filter(|c| {
+                c["title"]
+                    .as_str()
+                    .map(|t| t.eq_ignore_ascii_case(def.label))
+                    .unwrap_or(false)
+            })
+            .collect();
+        if title_matches.len() > 1 {
+            return Err(anyhow::anyhow!(
+                "ambiguous container for key '{}': {} containers of type '{}' have title '{}' in {repo}",
+                def.key,
+                title_matches.len(),
+                def.container_type,
+                def.label
+            ));
+        }
+        title_matches.into_iter().next()
     };
 
     matched

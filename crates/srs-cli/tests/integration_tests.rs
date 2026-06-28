@@ -22,6 +22,159 @@ fn create_temp_repo() -> TempDir {
     temp
 }
 
+fn write_json(path: &std::path::Path, value: serde_json::Value) {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).expect("create parent dir");
+    }
+    std::fs::write(path, serde_json::to_string_pretty(&value).unwrap()).expect("write json");
+}
+
+fn create_navigation_repo() -> TempDir {
+    let temp = TempDir::new().expect("Failed to create temp dir");
+    let root = temp.path();
+
+    let identity = "00000000-0000-4000-8000-00000000a100";
+    let articles = "00000000-0000-4000-8000-00000000a200";
+    let decisions = "00000000-0000-4000-8000-00000000a300";
+    let root_container = "00000000-0000-4000-8000-00000000a000";
+    let articles_container = "00000000-0000-4000-8000-00000000b000";
+    let decisions_container = "00000000-0000-4000-8000-00000000c000";
+    let title_field = "00000000-0000-4000-8000-00000000f100";
+
+    write_json(
+        &root.join("manifest.json"),
+        serde_json::json!({
+            "srsVersion": "2.0-draft",
+            "repositoryId": "00000000-0000-4000-8000-000000000001",
+            "namespace": "com.test",
+            "title": "Example Governance",
+            "container": {
+                "containerId": root_container,
+                "identityInstanceId": identity
+            },
+            "containerIndex": [
+                {"containerId": root_container, "title": "Example Governance", "path": "containers/root.json"},
+                {"containerId": articles_container, "title": "Articles", "path": "containers/articles.json"},
+                {"containerId": decisions_container, "title": "Decision Log", "path": "containers/decisions.json"}
+            ],
+            "instanceIndex": [
+                {"instanceId": identity, "tier": 2, "path": "records/identity.json"},
+                {"instanceId": articles, "tier": 2, "path": "records/articles.json"},
+                {"instanceId": decisions, "tier": 2, "path": "records/decisions.json"}
+            ]
+        }),
+    );
+
+    write_json(
+        &root.join("package/package.json"),
+        serde_json::json!({
+            "id": "pkg-nav",
+            "namespace": "com.test",
+            "name": "nav",
+            "version": "1.0.0",
+            "fields": ["fields/title.json"],
+            "types": [],
+            "relationTypes": [],
+            "views": [],
+            "documentViews": [],
+            "blueprints": [],
+            "protocols": [],
+            "vocabularies": [],
+            "lifecycles": []
+        }),
+    );
+    write_json(
+        &root.join("package/fields/title.json"),
+        serde_json::json!({
+            "id": title_field,
+            "namespace": "governance",
+            "name": "title",
+            "version": 1,
+            "description": "Title",
+            "aiGuidance": {},
+            "valueType": "string",
+            "createdAt": "2026-01-01T00:00:00Z"
+        }),
+    );
+
+    for (id, title, path, created_at) in [
+        (
+            identity,
+            "Example Governance",
+            "records/identity.json",
+            "2026-01-01T00:00:00Z",
+        ),
+        (
+            articles,
+            "Articles",
+            "records/articles.json",
+            "2026-01-02T00:00:00Z",
+        ),
+        (
+            decisions,
+            "Decision Log",
+            "records/decisions.json",
+            "2026-01-03T00:00:00Z",
+        ),
+    ] {
+        write_json(
+            &root.join(path),
+            serde_json::json!({
+                "instanceId": id,
+                "typeId": format!("type-{id}"),
+                "typeVersion": 1,
+                "typeNamespace": "governance",
+                "typeName": "section",
+                "fieldValues": [{"fieldId": title_field, "value": title}],
+                "createdAt": created_at
+            }),
+        );
+    }
+
+    write_json(
+        &root.join("containers/root.json"),
+        serde_json::json!({
+            "containerId": root_container,
+            "title": "Example Governance",
+            "rootInstanceIds": [identity],
+            "memberInstanceIds": [decisions, articles]
+        }),
+    );
+    write_json(
+        &root.join("containers/articles.json"),
+        serde_json::json!({
+            "containerId": articles_container,
+            "title": "Articles",
+            "containerType": "stale-hint-is-not-a-key",
+            "rootInstanceIds": [articles]
+        }),
+    );
+    write_json(
+        &root.join("containers/decisions.json"),
+        serde_json::json!({
+            "containerId": decisions_container,
+            "title": "Decision Log",
+            "containerType": "another-stale-hint",
+            "rootInstanceIds": [decisions]
+        }),
+    );
+    write_json(
+        &root.join("relations/relations-collection.json"),
+        serde_json::json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
+            "relations": [{
+                "relationId": "00000000-0000-4000-8000-00000000d000",
+                "relationType": "precedes",
+                "sourceInstanceId": articles,
+                "targetInstanceId": decisions,
+                "createdAt": "2026-01-01T00:00:00Z"
+            }]
+        }),
+    );
+
+    temp
+}
+
 fn run_srs_in_dir(dir: &std::path::Path, args: &[&str]) -> Value {
     let exe = env!("CARGO_BIN_EXE_srs");
     let output = Command::new(exe)
@@ -38,6 +191,32 @@ fn run_srs_in_dir(dir: &std::path::Path, args: &[&str]) -> Value {
 
     let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8 in output");
     serde_json::from_str(&stdout).expect("Failed to parse JSON output")
+}
+
+#[test]
+fn repo_navigation_returns_identity_and_ordered_sections() {
+    let repo = create_navigation_repo();
+    let repo_path = repo.path().to_string_lossy().into_owned();
+    let result = run_srs_in_dir(repo.path(), &["--repo", &repo_path, "repo", "navigation"]);
+
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["command"], "repo navigation");
+    assert_eq!(
+        result["payload"]["navigation"]["identity"]["displayLabel"],
+        "Example Governance"
+    );
+    let sections = result["payload"]["navigation"]["sections"]
+        .as_array()
+        .expect("sections array");
+    let labels: Vec<&str> = sections
+        .iter()
+        .map(|section| section["displayLabel"].as_str().unwrap())
+        .collect();
+    assert_eq!(labels, vec!["Articles", "Decision Log"]);
+    assert_eq!(
+        sections[0]["sectionContainerId"].as_str(),
+        Some("00000000-0000-4000-8000-00000000b000")
+    );
 }
 
 fn run_srs_stdin_in_dir(dir: &std::path::Path, args: &[&str], stdin: &str) -> Value {

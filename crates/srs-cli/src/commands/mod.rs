@@ -3,6 +3,7 @@ pub mod container;
 pub mod document_view;
 pub mod extension;
 pub mod field;
+pub mod find;
 pub mod lifecycle;
 pub mod migrate;
 pub mod note;
@@ -309,6 +310,8 @@ pub enum Commands {
     Term(TermCommand),
     /// Show the hierarchical record tree rooted at top-level or specified instances
     Tree(TreeArgs),
+    /// Discover instances by structured filters + content search (ext:discovery)
+    Find(FindArgs),
 }
 
 #[derive(Subcommand)]
@@ -540,6 +543,8 @@ pub enum RepoCommand {
         #[arg(long, hide = true)]
         json: bool,
     },
+    /// Resolve structural repository navigation from the root container
+    Navigation,
     /// Extension management commands
     #[command(subcommand)]
     Extensions(RepoExtensionsCommand),
@@ -1340,6 +1345,33 @@ pub struct TreeArgs {
     pub type_filter: Option<String>,
 }
 
+/// Flags for `srs find` — the `ext:discovery` query axes. Container scope comes from
+/// the global `--container`. Unspecified axes are wildcards.
+#[derive(Args)]
+pub struct FindArgs {
+    /// Free-text recall-floor search over the record's text projection
+    #[arg(long = "text")]
+    pub text: Option<String>,
+    /// Exact match on Record.typeId
+    #[arg(long = "type-id")]
+    pub type_id: Option<String>,
+    /// Exact match on Record.typeNamespace
+    #[arg(long = "type-namespace")]
+    pub type_namespace: Option<String>,
+    /// Exact match on Record.typeName
+    #[arg(long = "type-name")]
+    pub type_name: Option<String>,
+    /// Tag predicate (repeatable; AND-conjunction — instance must carry all)
+    #[arg(long = "tag", action = clap::ArgAction::Append)]
+    pub tag: Vec<String>,
+    /// Exact match on Record.lifecycleState (requires ext:lifecycle)
+    #[arg(long = "lifecycle-state")]
+    pub lifecycle_state: Option<String>,
+    /// Instance tier filter (0=Note, 1=TypedRecord, 2=Record). Phase 1 serves Tier 2.
+    #[arg(long = "tier")]
+    pub tier: Option<u8>,
+}
+
 pub fn dispatch(cli: Cli) -> Result<String> {
     // repo create targets explicit --repo or current dir; it must not require existing .srs.
     let location = match &cli.command {
@@ -1393,5 +1425,6 @@ pub fn dispatch(cli: Cli) -> Result<String> {
         Commands::Lifecycle(lc_cmd) => lifecycle::dispatch(ctx, lc_cmd),
         Commands::Term(term_cmd) => term::dispatch(ctx, term_cmd),
         Commands::Tree(args) => tree::dispatch(ctx, args),
+        Commands::Find(args) => find::dispatch(ctx, args),
     }
 }

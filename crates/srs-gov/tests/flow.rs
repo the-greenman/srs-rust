@@ -83,6 +83,26 @@ fn top_level_lists_governance_containers() {
 }
 
 #[test]
+fn top_level_reports_nonzero_decision_log_members() {
+    let (ok, out) = run(&[]);
+    assert!(ok, "srs-gov top-level failed");
+
+    let decision_log_line = out
+        .lines()
+        .find(|line| line.contains("decision_log"))
+        .unwrap_or_else(|| panic!("expected decision_log row\n{out}"));
+    let columns: Vec<&str> = decision_log_line.split_whitespace().collect();
+    let count = columns
+        .iter()
+        .rev()
+        .nth(1)
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or_else(|| panic!("expected numeric count in row: {decision_log_line}"));
+
+    assert!(count > 0, "expected decision_log count > 0\n{out}");
+}
+
+#[test]
 fn decision_log_list_renders_decisions() {
     let (ok, out) = run(&["list", "decision_log"]);
     assert!(ok, "decision_log list failed");
@@ -150,6 +170,36 @@ fn create_decision_dry_run_does_not_mutate() {
 }
 
 #[test]
+fn create_decision_dry_run_escapes_quoted_values() {
+    let (ok, out) = run(&[
+        "create",
+        "decision_log",
+        "decision",
+        "--title",
+        r#"Adopt the "new" policy"#,
+        "--statement",
+        "Use quoted title safely",
+    ]);
+    assert!(ok, "create dry-run failed\n{out}");
+
+    let start = out.find("{\n").expect("expected JSON heredoc body");
+    let end = out[start..].find("\nEOF").expect("expected heredoc EOF") + start;
+    let body = &out[start..end];
+    let parsed: serde_json::Value =
+        serde_json::from_str(body).unwrap_or_else(|err| panic!("invalid JSON body: {err}\n{body}"));
+    let values = parsed["fieldValues"]
+        .as_array()
+        .expect("fieldValues should be an array");
+
+    assert!(
+        values
+            .iter()
+            .any(|field| field["value"].as_str() == Some(r#"Adopt the "new" policy"#)),
+        "expected quoted title to round-trip\n{body}"
+    );
+}
+
+#[test]
 fn explain_flag_prints_commands_without_running() {
     let (ok, out) = run(&["--explain", "list", "decision_log"]);
     assert!(ok, "explain list failed\n{out}");
@@ -161,6 +211,38 @@ fn explain_flag_prints_commands_without_running() {
     assert!(
         !out.contains("Pilot duration"),
         "render ran in explain mode\n{out}"
+    );
+}
+
+#[test]
+fn json_flag_top_level_prints_raw_srs_envelope() {
+    let (ok, out) = run(&["--json"]);
+    assert!(ok, "json top-level failed\n{out}");
+
+    let envelope: serde_json::Value =
+        serde_json::from_str(&out).expect("top-level --json should print JSON");
+    assert_eq!(envelope["ok"].as_bool(), Some(true), "expected ok envelope");
+    assert!(
+        envelope["payload"]["containers"].is_array(),
+        "expected container list payload\n{out}"
+    );
+}
+
+#[test]
+fn json_flag_list_prints_raw_resolve_view_envelope() {
+    let (ok, out) = run(&["--json", "list", "decision_log"]);
+    assert!(ok, "json list failed\n{out}");
+
+    let envelope: serde_json::Value =
+        serde_json::from_str(&out).expect("list --json should print JSON");
+    assert_eq!(envelope["ok"].as_bool(), Some(true), "expected ok envelope");
+    assert!(
+        envelope["payload"]["containerView"].is_object(),
+        "expected resolve-view payload\n{out}"
+    );
+    assert!(
+        !out.contains("Member IDs"),
+        "--json should not include friendly rendered sections\n{out}"
     );
 }
 
