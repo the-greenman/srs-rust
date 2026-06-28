@@ -480,6 +480,34 @@ This is the issue-#254 capability: a single `resolve_container_view` projection 
 
 **Done when.** One call returns root + ordered members + per-member label + DocumentView-driven column spec; columns honour visibility, order, and the displayLabel override and resolve field names from the package; a non-Tier-2 member would be skipped with a diagnostic (not crash the call); an unknown `--view-id` degrades to empty columns + diagnostic while still returning members; a missing container is a clean `ok: false` with no payload; `repo validate` stays at 0 errors. The client computes no semantics — columns and labels come entirely from the payload.
 
+**Authored list defaults (ADR-020).** `payload.containerView.excludeLifecycleStates` carries the authored default-hidden lifecycle states, read from the same governing section that drives `columns`: `[]` when that section is a `container-subset` (the `…3500` fixture above), or the declared set when it is a `type-query` (see S15). A client renders a default-hidden list by forwarding these to `find --exclude-lifecycle-state` — it never re-derives them from the DocumentView source.
+
+---
+
+### S15 — Interactive governance list: default-hidden states + show-all + search/tag (`srs-gov list`)
+
+**Intention.** *"I'm running a governance decision log. By default the list should hide decisions that are `superseded` or `closed` — but that 'what's hidden' rule is **authored in the view**, not coded in my client — with a one-flag show-all toggle, plus search and tag narrowing. My client should only compose two services, never re-express the filter."*
+
+This is issue #298 (parent plan §4): `srs-gov list` composes `container resolve-view` (authored columns + ordered members + authored `excludeLifecycleStates`, ADR-020) with `srs find` (the runtime discovery query, ADR-019). The default-hidden states come from the package's `type-query` DocumentView; `srs-gov` forwards them to `find` and intersects the hit set with the resolved members. No lifecycle/filter semantics live in the client.
+
+**Capabilities exercised.** `srs-gov repo-create` (stamps the regenerated `type-query` governance seed); `container resolve-view` `excludeLifecycleStates` surface; `srs find` `--exclude-lifecycle-state` / `--text` / `--tag` / `--container`; the resolve-view ∩ find intersection; the `--all` show-all toggle; `--explain` printing both composed commands; `record transition` (drive lifecycle states) and `record tag add`.
+
+**CLI surface.** `srs-gov repo-create`, `srs-gov list` (`--all`, `--search`, `--tag`, `--explain`, `--json`), `srs record create/transition/tag add`, `srs container resolve-view`, `srs find`, `repo validate`.
+
+**Steps.**
+1. `srs-gov repo-create --output /tmp/dogfood-srs-gov-list.srsj --title "Acme Co-op"` → a fresh governance `.srsj`. Confirm the stamped seed's decision-log DocumentView is a `type-query` (regenerated asset): `srs container resolve-view <decisionLogId> --repo <repo>` → `payload.containerView.excludeLifecycleStates: ["superseded","closed"]`.
+2. Add four decisions in the decision-log container via `srs record create --type governance/decision --container <decisionLogId>` and drive their states with `srs record transition` (`{"to":"proposed"}` → `{"to":"ratified"}` → `{"to":"superseded"|"closed"}`): one left `draft`, one `ratified` (tag it `tooling`, statement contains a unique word like `budget` only in a non-title field), one `superseded`, one `closed`.
+3. **Default** — `srs-gov list decision_log --repo <repo>` shows only the `draft` and `ratified` decisions; the `superseded` and `closed` ones are hidden.
+4. **Show-all** — `srs-gov list decision_log --all` shows all four.
+5. **Search** — `srs-gov list decision_log --all --search budget` returns only the decision whose `decision_statement` (a non-title field) contains `budget` — content recall, not a title match.
+6. **Tag** — `srs-gov list decision_log --tag tooling` returns only the tagged decision.
+7. **Explain** — `srs-gov --repo <repo> --explain list decision_log --search budget` prints the two underlying commands: `container resolve-view <id>` and `--container <id> find --exclude-lifecycle-state superseded --exclude-lifecycle-state closed --text budget`.
+8. `srs repo validate --repo <repo>` → `ok: true`, 0 errors.
+
+**Negative case.** `srs-gov list bogus_key` → a clean `error: unknown key 'bogus_key'. Known: articles, decision_log, roles` (non-zero exit), with no partial output. `--explain` placed *after* the subcommand (`list decision_log --explain`) is rejected by clap (it is a top-level flag) — the correct form is `srs-gov --explain list …`.
+
+**Done when.** The default list hides exactly the authored states and `--all` reveals them; `--search` narrows by content over a non-title field and `--tag` by facet; `--explain` shows the composed `resolve-view` + `find` commands carrying the authored excludes; `repo validate` stays at 0 errors. Crucially, the hidden-state set lives in the package `type-query` view (and is surfaced by `resolve-view`), never hardcoded in `srs-gov` — confirm with `rg "superseded|closed" crates/srs-gov/src` returning only `#[cfg(test)]` fixtures (and help text), never production filter logic.
+
 ---
 
 ## Coverage matrix
@@ -504,6 +532,9 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `relation-type` | _gap — no scenario yet_ |
 | `container` (create/members/roots/validate/…) | S4 |
 | `container resolve-view` (structured container view, `--view-id`) | S14 |
+| `container resolve-view` authored `excludeLifecycleStates` (ADR-020) | S15 |
+| `find` (ext:discovery query — type/tag/lifecycle/exclude/text) | S15 |
+| `srs-gov` (governance client: `repo-create`, `list` + `--all`/`--search`/`--tag`) | S15 |
 | `document-view` (create/get/list/…) | S4, S5, S11 |
 | `render document-view` | S4, S5, S8, S11 |
 | `container-subset` section + `typeFilter` / `typeDispatch` (RFC-008) | S11 |
