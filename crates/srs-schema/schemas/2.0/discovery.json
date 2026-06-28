@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/discovery.json",
+  "title": "SRS Discovery Contract (ext:discovery)",
+  "description": "Defines DiscoveryQuery, TextSegment, and ConformanceScenario shapes for the ext:discovery extension (RFC-012).",
+  "$defs": {
+    "DiscoveryQuery": {
+      "type": "object",
+      "description": "A conjunction of zero or more structured filter predicates. An instance matches if and only if it satisfies all predicates whose values are specified (unspecified predicates are wildcards).",
+      "additionalProperties": false,
+      "properties": {
+        "typeId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Exact match on Record.typeId. Only Tier 2 Records carry typeId; Tier 0/1 instances do not match this predicate."
+        },
+        "typeNamespace": {
+          "type": "string",
+          "description": "Exact match on Record.typeNamespace. Independent predicate; can be combined with typeId."
+        },
+        "typeName": {
+          "type": "string",
+          "description": "Exact match on Record.typeName. Independent predicate; can be combined with typeId."
+        },
+        "containerId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Instance is a member of this container per RFC-009 I-66: (1) instanceId in Container.rootInstanceIds[], OR (2) instanceId in Container.memberInstanceIds[], OR (3) reachable via transitive contains Relation traversal from any rootInstanceIds[] entry."
+        },
+        "tag": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "AND-conjunction: the instance's tags array must contain ALL of the specified values. RFC-006 vocabulary resolution is applied before comparison when a Vocabulary is declared."
+        },
+        "lifecycleState": {
+          "type": "string",
+          "description": "Exact match on Record.lifecycleState (case-sensitive). Requires ext:lifecycle. Instances without a lifecycleState field do not match."
+        },
+        "tier": {
+          "enum": [0, 1, 2],
+          "description": "Instance tier filter. 0 = Note, 1 = TypedRecord, 2 = Record."
+        },
+        "contentMatch": {
+          "type": "string",
+          "description": "Free-text recall-floor predicate. The implementation MUST include every instance whose Text Projection contains at least one segment whose normalized text contains the normalized form of this string as a substring (NFC + Unicode simple lowercasing)."
+        }
+      }
+    },
+    "TextSegment": {
+      "type": "object",
+      "description": "A single searchable unit in the Text Projection of an instance. Normalization (NFC + Unicode simple lowercasing) is applied at match time, not at segment construction time.",
+      "required": ["fieldId", "fieldName", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "fieldId": {
+          "type": "string",
+          "description": "UUID of the field definition for package-resolved fields; sentinel string for special segments: 'note-title', 'note-section', 'typed-record-title', 'typed-record-field', 'tag', 'label'."
+        },
+        "fieldName": {
+          "type": "string",
+          "description": "Field name (snake_case) for package-resolved fields; sentinel string for special segments matching fieldId sentinels; or TypedField.name / NoteSection.name for named special segments."
+        },
+        "text": {
+          "type": "string",
+          "description": "The raw stored text value. Normalization is applied at match time."
+        }
+      }
+    },
+    "ConformanceScenario": {
+      "type": "object",
+      "description": "A single named test scenario for the discovery conformance fixture.",
+      "required": ["name", "description", "query", "expectedInstanceIds", "exactMatch"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Unique scenario identifier (snake_case, no spaces)."
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable intent of the scenario."
+        },
+        "query": {
+          "$ref": "#/$defs/DiscoveryQuery",
+          "description": "The DiscoveryQuery to execute against the fixture repo."
+        },
+        "expectedInstanceIds": {
+          "type": "array",
+          "items": { "type": "string", "format": "uuid" },
+          "description": "Minimum required result set. For exactMatch:true scenarios, this is also the maximum."
+        },
+        "exactMatch": {
+          "type": "boolean",
+          "description": "If true, the result set MUST equal expectedInstanceIds exactly (structured-filter scenario). If false, the result set MUST be a superset of expectedInstanceIds (content-match scenario)."
+        }
+      }
+    }
+  }
+}
