@@ -728,6 +728,30 @@ mod tests {
     }
 
     #[test]
+    fn load_package_relation_types_are_deterministically_sorted() {
+        // Regression: relation_type_definitions were collected from a HashMap,
+        // so their order was randomized per process. That order leaks into the
+        // regenerated package.json `relationTypes` index in `repo copy`, making
+        // .srsj bundles non-deterministic. They must come out sorted by (key, id).
+        let srs_repo = srs_spec_repo();
+        let package = FileStore::new(&srs_repo)
+            .load_package()
+            .expect("should load live srs package");
+
+        let keys: Vec<(&str, &str)> = package
+            .relation_type_definitions
+            .iter()
+            .map(|rt| (rt.key.as_str(), rt.id.as_str()))
+            .collect();
+        let mut sorted = keys.clone();
+        sorted.sort();
+        assert_eq!(
+            keys, sorted,
+            "relation_type_definitions must be sorted by (key, id) for deterministic output"
+        );
+    }
+
+    #[test]
     fn load_package_loads_document_views() {
         let srs_repo = srs_spec_repo();
         let package = FileStore::new(&srs_repo)
