@@ -1,0 +1,915 @@
+{
+  "data": {
+    "package/blueprints/decision-log-e2e09a77.json": {
+      "aiGuidance": {
+        "extraction": "Extract every decision made or crystallised during the conversation. Each decision gets its own Record. Link a decision to the one it replaces with supersedes, and to decisions it relies on with depends-on.",
+        "purpose": "A decision log assembled from the decisions extracted out of a meeting transcript. Each decision becomes its own Record; supersession and dependency relations connect them over time."
+      },
+      "createdAt": "2026-06-21T00:00:00Z",
+      "description": "A decision log assembled from the decisions extracted out of a meeting transcript. Each decision becomes its own Record; supersession and dependency relations connect them over time.",
+      "id": "e2e09a77-334c-4552-9636-487d4324c100",
+      "name": "decision-log",
+      "namespace": "governance",
+      "requiredTypes": [
+        {
+          "typeId": "1fcad6a2-9f78-5e41-94ba-d82e88b822f3",
+          "typeVersion": 1
+        }
+      ],
+      "rootTypes": [
+        {
+          "typeId": "5a061505-dd0e-4c8d-9e20-fa28a3c42b68",
+          "typeVersion": 1
+        }
+      ],
+      "structure": [
+        {
+          "cardinality": "many-to-many",
+          "relationType": "depends-on",
+          "required": false,
+          "sourceType": {
+            "typeId": "1fcad6a2-9f78-5e41-94ba-d82e88b822f3",
+            "typeVersion": 1
+          },
+          "targetType": {
+            "typeId": "1fcad6a2-9f78-5e41-94ba-d82e88b822f3",
+            "typeVersion": 1
+          }
+        },
+        {
+          "cardinality": "one-to-one",
+          "relationType": "supersedes",
+          "required": false,
+          "sourceType": {
+            "typeId": "1fcad6a2-9f78-5e41-94ba-d82e88b822f3",
+            "typeVersion": 1
+          },
+          "targetType": {
+            "typeId": "1fcad6a2-9f78-5e41-94ba-d82e88b822f3",
+            "typeVersion": 1
+          }
+        }
+      ],
+      "tags": [
+        "governance",
+        "decision-log"
+      ],
+      "version": 1
+    },
+    "package/document-views/articles-and-roles-78b11038.json": {
+      "createdAt": "2026-05-31T00:00:00Z",
+      "description": "Renders the Articles of Association together with the current role holders.",
+      "format": "markdown",
+      "id": "78b11038-e5d8-4269-9982-fe5c459802b2",
+      "name": "articles-and-roles",
+      "namespace": "governance",
+      "sections": [
+        {
+          "emptyBehavior": "hide",
+          "order": 0,
+          "ordering": {
+            "direction": "asc",
+            "fieldId": "60be1468-01bc-5d12-9eea-628f02801893"
+          },
+          "sectionId": "articles",
+          "source": {
+            "containerId": "f7562aa3-98c7-44be-b4c5-5474df6441f2",
+            "type": "container-subset"
+          },
+          "title": "Articles of Association",
+          "titleFieldId": "d7e82557-9045-5e92-a494-d99112bbec4a"
+        },
+        {
+          "emptyBehavior": "hide",
+          "order": 1,
+          "sectionId": "roles",
+          "source": {
+            "containerId": "b30db206-e9a7-4588-a9aa-53451aacd243",
+            "type": "container-subset"
+          },
+          "title": "Roles",
+          "titleFieldId": "d7e82557-9045-5e92-a494-d99112bbec4a"
+        }
+      ],
+      "version": 1
+    },
+    "package/document-views/decision-deliberation-5a3ce87e.json": {
+      "createdAt": "2026-05-31T00:00:00Z",
+      "description": "Full deliberation view — shows all fields including question, context, friction, alternatives, requirements, statement, rationale, next steps, owner, revisit, and status.",
+      "format": "markdown",
+      "id": "5a3ce87e-8340-4d91-a140-ab56b57f704f",
+      "name": "decision-deliberation",
+      "namespace": "governance",
+      "sections": [
+        {
+          "emptyBehavior": "hide",
+          "order": 0,
+          "sectionId": "decisions",
+          "source": {
+            "containerId": "138e2fac-6a8a-4a06-9511-5aefd99ceae9",
+            "type": "container-subset"
+          },
+          "title": "Decisions",
+          "titleFieldId": "d7e82557-9045-5e92-a494-d99112bbec4a"
+        }
+      ],
+      "version": 1
+    },
+    "package/document-views/decision-log-b5c8d124.json": {
+      "createdAt": "2026-05-31T00:00:00Z",
+      "description": "Decision log view — compact summary showing only decision statement, alternatives considered, rationale, and revisit trigger.",
+      "format": "markdown",
+      "id": "b5c8d124-2084-4a6b-a231-425e800e1e55",
+      "name": "decision-log",
+      "namespace": "governance",
+      "rootTypeRefs": [
+        {
+          "typeId": "5a061505-dd0e-4c8d-9e20-fa28a3c42b68",
+          "typeVersion": 1
+        }
+      ],
+      "sections": [
+        {
+          "emptyBehavior": "hide",
+          "order": 0,
+          "renderViewId": "faebd240-83c4-4bc8-a383-8335f841a234",
+          "sectionId": "decisions",
+          "source": {
+            "containerId": "138e2fac-6a8a-4a06-9511-5aefd99ceae9",
+            "type": "container-subset"
+          },
+          "title": "Decision Log",
+          "titleFieldId": "d7e82557-9045-5e92-a494-d99112bbec4a"
+        }
+      ],
+      "version": 1
+    },
+    "package/fields/alternativesconsidered-636ce948.json": {
+      "aiGuidance": {
+        "examples": [
+          {
+            "description": "Meeting-frequency decision",
+            "output": "Monthly (predictable, low commitment); Fortnightly (more regular touchpoints); Quarterly (minimal disruption to schedules); No fixed schedule (continue ad hoc coordination)."
+          }
+        ],
+        "extraction": "Look for options mentioned, proposals floated, or alternatives explicitly compared. Include any option that received real consideration, even if dismissed quickly. Include doing nothing or no change if the group acknowledged it.",
+        "negativeGuidance": "Do not write none unless truly no alternatives were discussed — that is almost never accurate. Do not merge distinct alternatives into a single blended option.",
+        "purpose": "Records the genuine options the group weighed before settling on a direction — including doing nothing. Alternatives show the decision was a real choice, not a foregone conclusion."
+      },
+      "createdAt": "2026-05-25T00:00:00Z",
+      "description": "Genuine options the group considered, including doing nothing.",
+      "id": "636ce948-2110-57b4-a3ed-04354ec17843",
+      "name": "alternatives_considered",
+      "namespace": "governance",
+      "valueType": "text",
+      "version": 1
+    },
+    "package/fields/amendmentrule-1f01bc6b.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-05-26T00:00:00Z",
+      "description": "The process or conditions under which this article may be amended or repealed.",
+      "id": "1f01bc6b-39c8-58d7-b1a3-79142623fece",
+      "name": "amendment_rule",
+      "namespace": "governance",
+      "valueType": "text",
+      "version": 1
+    },
+    "package/fields/articlenumber-60be1468.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-05-26T00:00:00Z",
+      "description": "Stable local reference identifier for the article, e.g. A-001.",
+      "id": "60be1468-01bc-5d12-9eea-628f02801893",
+      "name": "article_number",
+      "namespace": "governance",
+      "valueType": "string",
+      "version": 1
+    },
+    "package/fields/articletext-8aa3eba2.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-05-26T00:00:00Z",
+      "description": "The operative text of the article.",
+      "id": "8aa3eba2-204b-5ebd-ba7a-be0f066027d6",
+      "name": "article_text",
+      "namespace": "governance",
+      "valueType": "text",
+      "version": 1
+    },
+    "package/fields/authority-d25da548.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-05-26T00:00:00Z",
+      "description": "What this role may decide or act on without requiring group agreement.",
+      "id": "d25da548-79d6-555b-8878-f40b685b3955",
+      "name": "authority",
+      "namespace": "governance",
+      "valueType": "text",
+      "version": 1
+    },
+    "package/fields/boundary-3c39ee1f.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-05-26T00:00:00Z",
+      "description": "The limits of this role — where the role's authority ends or must be shared.",
+      "id": "3c39ee1f-6fe0-5da7-a0b6-928aa3a63211",
+      "name": "boundary",
+      "namespace": "governance",
+      "valueType": "text",
+      "version": 1
+    },
+    "package/fields/context-9889052c.json": {
+      "aiGuidance": {
+        "examples": [
+          {
+            "description": "Meeting-frequency decision — LiMoMa founding session",
+            "output": "The group formed in March 2026 and agreed to trial a flat structure for six months. That trial period ends in December, and the group now needs to decide how to structure ongoing work."
+          }
+        ],
+        "extraction": "Look for background information stated before the decision point: prior agreements, historical context, changes in circumstances, or what happened to prompt this discussion. Extract the scene, not the problem.",
+        "negativeGuidance": "Do not include the friction or problem itself — that belongs in the Friction field. Context sets the stage; it does not name the pain.",
+        "purpose": "Captures the history, constraints, and trigger event that make this decision matter — the scene-setting before the problem itself is named."
+      },
+      "createdAt": "2026-05-25T00:00:00Z",
+      "description": "Background that makes the matter meaningful.",
+      "id": "9889052c-9313-5e2f-a2ac-15baa3c6983e",
+      "name": "context",
+      "namespace": "governance",
+      "valueType": "text",
+      "version": 1
+    },
+    "package/fields/decisionquestion-73cd845a.json": {
+      "aiGuidance": {
+        "examples": [
+          {
+            "description": "Meeting-frequency decision",
+            "output": "How often should we meet as a group?"
+          }
+        ],
+        "extraction": "Look for the moment someone names what is actually being decided: so the question is..., what we are deciding is..., or an implicit framing that narrows discussion to one choice point. If no explicit question was stated, infer the minimal question the decision statement answers.",
+        "purpose": "States the single concrete question this decision settles. A well-formed decision question is specific enough that the decision statement directly answers it."
+      },
+      "createdAt": "2026-05-26T00:00:00Z",
+      "description": "The single concrete question this decision answers.",
+      "id": "73cd845a-3623-5bc6-8ade-42a7cd64740c",
+      "name": "decision_question",
+      "namespace": "governance",
+      "valueType": "string",
+      "version": 1
+    },
+    "package/fields/decisionstatement-de1296e0.json": {
+      "aiGuidance": {
+        "examples": [
+          {
+            "description": "Meeting-frequency decision",
+            "output": "We will meet fortnightly, on Tuesdays at 18:00 UTC, starting from the first Tuesday in July."
+          }
+        ],
+        "extraction": "Look for the moment agreement is reached — signalled by so we are agreed, let us go with, or a direct statement of resolution. Extract the commitment itself, not the discussion around it. One sentence.",
+        "purpose": "States the settled commitment in one concise, active-voice sentence. This is the record of what was decided, not why."
+      },
+      "createdAt": "2026-05-25T00:00:00Z",
+      "description": "The settled commitment in one active-voice sentence.",
+      "id": "de1296e0-e083-58d9-97a0-cb2b91fec02e",
+      "name": "decision_statement",
+      "namespace": "governance",
+      "valueType": "text",
+      "version": 1
+    },
+    "package/fields/friction-1a1c0a5d.json": {
+      "aiGuidance": {
+        "examples": [
+          {
+            "description": "Meeting-frequency decision",
+            "output": "Without a regular meeting time, coordination is happening ad hoc and some members feel out of the loop. The absence of structure is creating unequal access to decisions."
+          }
+        ],
+        "extraction": "Look for expressions of frustration, tension, or a named gap in current practice. The friction answers why this needs to be decided today. Extract it as a concrete condition, not a wish.",
+        "negativeGuidance": "Do not describe what the group wants to do about the friction — that belongs in Alternatives or the Decision Statement. Friction is the forcing function, not the solution direction.",
+        "purpose": "Names the specific pain, conflict, or gap that is forcing a decision right now — the concrete thing that cannot be left unresolved."
+      },
+      "createdAt": "2026-05-26T00:00:00Z",
+      "description": "The specific pain, conflict, or gap that makes a decision necessary now.",
+      "id": "1a1c0a5d-a1df-5d03-95f2-32af73bb71da",
+      "name": "friction",
+      "namespace": "governance",
+      "valueType": "text",
+      "version": 1
+    },
+    "package/fields/keyrequirements-a952604c.json": {
+      "aiGuidance": {
+        "examples": [
+          {
+            "description": "Meeting-frequency decision",
+            "output": "Availability across time zones; not overwhelming volunteers; meeting minimum coordination needs for the pilot period. One member felt fortnightly was still too frequent for their schedule."
+          }
+        ],
+        "extraction": "Look for statements about what matters most, explicit trade-offs named, objections raised, and any disagreement about the decision or its criteria. Extract both the criteria used and any tension between them.",
+        "purpose": "Captures the judging criteria, trade-offs acknowledged, and any recorded disagreement that shaped how the alternatives were evaluated."
+      },
+      "createdAt": "2026-05-26T00:00:00Z",
+      "description": "The standards, values, constraints, and trade-offs used to evaluate options.",
+      "id": "a952604c-d150-5315-bfc1-7229ddc1d636",
+      "name": "key_requirements",
+      "namespace": "governance",
+      "valueType": "text",
+      "version": 1
+    },
+    "package/fields/nextsteps-4181f210.json": {
+      "aiGuidance": {
+        "examples": [
+          {
+            "description": "Meeting-frequency decision",
+            "output": "Yuki to send calendar invites for the fortnightly Tuesday slot by end of the week."
+          }
+        ],
+        "extraction": "Look for action assignments after the decision point: X will do Y by Z, the first step is..., or concrete commitments. Extract owner and timing if named.",
+        "purpose": "Lists concrete follow-up actions that emerge from the decision, with named owners and timing where stated. May be empty if no follow-up actions were recorded."
+      },
+      "createdAt": "2026-05-26T00:00:00Z",
+      "description": "Actions or tasks that emerge from the decision.",
+      "id": "4181f210-f4be-5587-950e-890eda2a5590",
+      "name": "next_steps",
+      "namespace": "governance",
+      "valueType": "text",
+      "version": 1
+    },
+    "package/fields/owner-4b34847c.json": {
+      "aiGuidance": {
+        "examples": [
+          {
+            "description": "Role-based ownership",
+            "output": "Coordination lead"
+          }
+        ],
+        "extraction": "Look for explicit ownership statements: X owns this, this sits with the coordination lead, or an implicit assignment when a role is described as responsible. May be a person name or a role title.",
+        "purpose": "Identifies the person or role who holds accountability for this decision — who can revisit it, who is responsible for its implementation."
+      },
+      "createdAt": "2026-05-25T00:00:00Z",
+      "description": "Person, role, group, or function responsible for stewardship of this record.",
+      "id": "4b34847c-26d1-56be-bc10-844aeb704df7",
+      "name": "owner",
+      "namespace": "governance",
+      "valueType": "string",
+      "version": 1
+    },
+    "package/fields/protectedstatus-0df40543.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-05-26T00:00:00Z",
+      "description": "Whether this article is protected from ordinary amendment by the group.",
+      "id": "0df40543-f72a-5471-a7f1-c85c1f1f93e4",
+      "name": "protected_status",
+      "namespace": "governance",
+      "valueType": "string",
+      "version": 1
+    },
+    "package/fields/rationale-3340532b.json": {
+      "aiGuidance": {
+        "examples": [
+          {
+            "description": "Meeting-frequency decision",
+            "output": "Fortnightly maintains momentum without becoming a burden. Monthly felt too infrequent for a new group still finding its rhythm; quarterly too sparse to build shared understanding."
+          }
+        ],
+        "extraction": "Look for statements about why the group chose what they chose: the reasoning given for the final decision, what made this option preferable to the others. Capture the outcome logic, not the deliberation process.",
+        "negativeGuidance": "Do not write a blow-by-blow account of the discussion. Do not include objections that were not ultimately deciding factors. The rationale is the deciding logic, not a summary of the meeting.",
+        "purpose": "Explains the deciding factor — why this option was chosen over the alternatives. One to three sentences capturing the core reasoning."
+      },
+      "createdAt": "2026-05-25T00:00:00Z",
+      "description": "Why this option over the alternatives.",
+      "id": "3340532b-d845-5e54-92b3-819ed05365c5",
+      "name": "rationale",
+      "namespace": "governance",
+      "valueType": "text",
+      "version": 1
+    },
+    "package/fields/revisitwhen-c04b7f84.json": {
+      "aiGuidance": {
+        "examples": [
+          {
+            "description": "Meeting-frequency decision",
+            "output": "If attendance drops below three members for two consecutive sessions, or at the end of the pilot period in December 2026."
+          }
+        ],
+        "extraction": "Look for statements about when to revisit, what would change the decision, or what review conditions were set. Prefer condition-based triggers, which may reference a date as an anchor.",
+        "negativeGuidance": "Avoid bare dates without a condition — revisit in December is weaker than revisit if attendance consistently drops or at the end of the pilot period. Dates can anchor a condition but should not replace one.",
+        "purpose": "Names the condition or event that should trigger a review of this decision — tied to the underlying reasoning so the review moment is meaningful."
+      },
+      "createdAt": "2026-05-25T00:00:00Z",
+      "description": "The condition or event that would prompt a review of this decision.",
+      "id": "c04b7f84-9a55-5353-8c9f-2b62f6a1e34e",
+      "name": "revisit_when",
+      "namespace": "governance",
+      "valueType": "text",
+      "version": 1
+    },
+    "package/fields/roleholder-a6c19b95.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-05-26T00:00:00Z",
+      "description": "The person, team, group, or function currently holding this role.",
+      "id": "a6c19b95-4f8f-5b07-93f8-3426c545277e",
+      "name": "role_holder",
+      "namespace": "governance",
+      "valueType": "string",
+      "version": 1
+    },
+    "package/fields/sourceofauthority-9a32dc01.json": {
+      "aiGuidance": {
+        "purpose": ""
+      },
+      "createdAt": "2026-05-26T00:00:00Z",
+      "description": "How this authority was conferred: inherited, delegated, elected, appointed, constitutional, etc.",
+      "id": "9a32dc01-f348-5e05-9f54-bb6d21239f04",
+      "name": "source_of_authority",
+      "namespace": "governance",
+      "valueType": "string",
+      "version": 1
+    },
+    "package/fields/title-d7e82557.json": {
+      "aiGuidance": {
+        "examples": [
+          {
+            "description": "Meeting-frequency decision",
+            "output": "Meeting frequency for pilot"
+          }
+        ],
+        "extraction": "Infer from the decision question or statement: compress to a short noun phrase identifying the topic. Do not start with We will — use the subject of the decision instead.",
+        "purpose": "A short, scannable label (3–8 words) that identifies this decision at a glance in a list or document view."
+      },
+      "createdAt": "2026-05-25T00:00:00Z",
+      "description": "Short label for this record.",
+      "id": "d7e82557-9045-5e92-a494-d99112bbec4a",
+      "name": "title",
+      "namespace": "governance",
+      "valueType": "string",
+      "version": 1
+    },
+    "package/lifecycles/governancelifecycle-3c504040.json": {
+      "createdAt": "2026-06-08T00:00:00Z",
+      "description": "Shared governance lifecycle for Articles, Roles, and Decisions. A record is drafted, proposed to the group, and ratified once agreed. Ratified records either close (obligation discharged) or are superseded by a successor. closed and superseded are final.",
+      "id": "3c504040-7920-43aa-8fbd-eda21dc7c07b",
+      "initialState": "draft",
+      "name": "governance_lifecycle",
+      "namespace": "governance",
+      "states": [
+        {
+          "description": "Being written; not yet put to the group.",
+          "id": "f439ed11-6ad7-466a-9544-c6f68946e7d1",
+          "isInitial": true,
+          "key": "draft",
+          "label": "Draft"
+        },
+        {
+          "description": "Put to the group for agreement.",
+          "id": "5c995a40-247d-4438-8799-768caefed24f",
+          "key": "proposed",
+          "label": "Proposed"
+        },
+        {
+          "description": "Agreed by the group and in force.",
+          "id": "cbb5354a-e9ea-419a-9496-c741c80ebdcb",
+          "key": "ratified",
+          "label": "Ratified"
+        },
+        {
+          "description": "Obligation discharged or matter concluded; no successor.",
+          "id": "30e0cae8-e363-4084-b244-d261e0fe4661",
+          "isFinal": true,
+          "key": "closed",
+          "label": "Closed"
+        },
+        {
+          "description": "Replaced by a successor record.",
+          "id": "ec97cea2-9d19-4940-b101-75282f37fa50",
+          "isFinal": true,
+          "key": "superseded",
+          "label": "Superseded"
+        }
+      ],
+      "transitions": [
+        {
+          "description": "Put a draft to the group.",
+          "from": "draft",
+          "id": "66910ac8-a34d-4178-9c87-e78a0d853726",
+          "name": "propose",
+          "to": "proposed"
+        },
+        {
+          "description": "Withdraw a proposal for further drafting.",
+          "from": "proposed",
+          "id": "3795dc5e-9b84-4c54-9760-2a059338c80f",
+          "name": "revise",
+          "to": "draft"
+        },
+        {
+          "description": "Group agrees; the record comes into force.",
+          "from": "proposed",
+          "id": "2a2898fb-a29d-4112-9408-b7b1af60e9e7",
+          "name": "ratify",
+          "to": "ratified"
+        },
+        {
+          "description": "Replace with a successor record.",
+          "from": "ratified",
+          "id": "349b93bb-c5b2-4888-a3e4-772deaf554ff",
+          "name": "supersede",
+          "to": "superseded"
+        },
+        {
+          "description": "Conclude the matter with no successor.",
+          "from": "ratified",
+          "id": "14ff9216-e7ae-4b3c-88a7-db44534b46ae",
+          "name": "close",
+          "to": "closed"
+        }
+      ],
+      "version": 1
+    },
+    "package/package.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+      "blueprints": [
+        "blueprints/decision-log-e2e09a77.json"
+      ],
+      "createdAt": "2026-01-01T00:00:00Z",
+      "description": "",
+      "documentViews": [
+        "document-views/articles-and-roles-78b11038.json",
+        "document-views/decision-deliberation-5a3ce87e.json",
+        "document-views/decision-log-b5c8d124.json"
+      ],
+      "fields": [
+        "fields/alternativesconsidered-636ce948.json",
+        "fields/amendmentrule-1f01bc6b.json",
+        "fields/articlenumber-60be1468.json",
+        "fields/articletext-8aa3eba2.json",
+        "fields/authority-d25da548.json",
+        "fields/boundary-3c39ee1f.json",
+        "fields/context-9889052c.json",
+        "fields/decisionquestion-73cd845a.json",
+        "fields/decisionstatement-de1296e0.json",
+        "fields/friction-1a1c0a5d.json",
+        "fields/keyrequirements-a952604c.json",
+        "fields/nextsteps-4181f210.json",
+        "fields/owner-4b34847c.json",
+        "fields/protectedstatus-0df40543.json",
+        "fields/rationale-3340532b.json",
+        "fields/revisitwhen-c04b7f84.json",
+        "fields/roleholder-a6c19b95.json",
+        "fields/sourceofauthority-9a32dc01.json",
+        "fields/title-d7e82557.json"
+      ],
+      "id": "1cd9622e-3d05-4214-a683-4cb81d0c44d9",
+      "lifecycles": [
+        "lifecycles/governancelifecycle-3c504040.json"
+      ],
+      "name": "governance",
+      "namespace": "com.mudemocracy.governance",
+      "relationTypes": [
+        "relation-types/delegates-31c82363.json",
+        "relation-types/derived-from-36b78f14.json",
+        "relation-types/evidences-35c7aba2.json",
+        "relation-types/precedes-b24aaf29.json"
+      ],
+      "status": "active",
+      "themes": [],
+      "title": "governance",
+      "types": [
+        "types/article-a1142ac3.json",
+        "types/decision-1fcad6a2.json",
+        "types/decisionlog-5a061505.json",
+        "types/role-e53dce11.json"
+      ],
+      "version": "1.0.0",
+      "views": [
+        "views/decision-log-faebd240.json"
+      ],
+      "vocabularies": []
+    },
+    "package/relation-types/delegates-31c82363.json": {
+      "category": "governance",
+      "createdAt": "2026-05-31T00:00:00Z",
+      "description": "Source delegates responsibility or authority to target.",
+      "id": "31c82363-2d6b-4ddd-9aa9-fb9ec7722e63",
+      "key": "delegates",
+      "label": "Delegates",
+      "namespace": "governance",
+      "version": 1
+    },
+    "package/relation-types/derived-from-36b78f14.json": {
+      "category": "derivation",
+      "createdAt": "2026-05-31T00:00:00Z",
+      "description": "Target was derived or adapted from source.",
+      "id": "36b78f14-c6dc-46c4-845d-ed107528a88c",
+      "key": "derived-from",
+      "label": "Derived From",
+      "namespace": "governance",
+      "version": 1
+    },
+    "package/relation-types/evidences-35c7aba2.json": {
+      "category": "evidence",
+      "createdAt": "2026-05-31T00:00:00Z",
+      "description": "Source provides evidence for or supports the target.",
+      "id": "35c7aba2-72f3-42ef-8e44-e3ddd9db969e",
+      "key": "evidences",
+      "label": "Evidences",
+      "namespace": "governance",
+      "version": 1
+    },
+    "package/relation-types/precedes-b24aaf29.json": {
+      "category": "sequence",
+      "createdAt": "2026-05-31T00:00:00Z",
+      "description": "Source comes before target in a sequence.",
+      "id": "b24aaf29-73b2-4ac2-8dfb-3c848ccbd9ed",
+      "irreflexive": true,
+      "key": "precedes",
+      "label": "Precedes",
+      "namespace": "governance",
+      "version": 1
+    },
+    "package/types/article-a1142ac3.json": {
+      "createdAt": "2026-05-26T00:00:00Z",
+      "description": "A durable governance rule, boundary, constitutional clause, or standing commitment.",
+      "fields": [
+        {
+          "displayLabel": "Article Number",
+          "fieldId": "60be1468-01bc-5d12-9eea-628f02801893",
+          "order": 0,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Title",
+          "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+          "order": 1,
+          "repeatable": false,
+          "required": true
+        },
+        {
+          "displayLabel": "Article Text",
+          "fieldId": "8aa3eba2-204b-5ebd-ba7a-be0f066027d6",
+          "order": 2,
+          "repeatable": false,
+          "required": true
+        },
+        {
+          "displayLabel": "Rationale",
+          "fieldId": "3340532b-d845-5e54-92b3-819ed05365c5",
+          "order": 3,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Amendment Rule",
+          "fieldId": "1f01bc6b-39c8-58d7-b1a3-79142623fece",
+          "order": 4,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Protected Status",
+          "fieldId": "0df40543-f72a-5471-a7f1-c85c1f1f93e4",
+          "order": 5,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Revisit When",
+          "fieldId": "c04b7f84-9a55-5353-8c9f-2b62f6a1e34e",
+          "order": 7,
+          "repeatable": false,
+          "required": false
+        }
+      ],
+      "id": "a1142ac3-5385-5c0e-8630-1dd3432cdf7f",
+      "lifecycleRef": "3c504040-7920-43aa-8fbd-eda21dc7c07b",
+      "name": "article",
+      "namespace": "governance",
+      "version": 1
+    },
+    "package/types/decision-1fcad6a2.json": {
+      "createdAt": "2026-05-25T00:00:00Z",
+      "description": "A settled commitment, choice, policy, or direction of action.",
+      "fields": [
+        {
+          "displayLabel": "Title",
+          "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+          "order": 0,
+          "repeatable": false,
+          "required": true
+        },
+        {
+          "displayLabel": "Decision Question",
+          "fieldId": "73cd845a-3623-5bc6-8ade-42a7cd64740c",
+          "order": 1,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Context",
+          "fieldId": "9889052c-9313-5e2f-a2ac-15baa3c6983e",
+          "order": 2,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Friction",
+          "fieldId": "1a1c0a5d-a1df-5d03-95f2-32af73bb71da",
+          "order": 3,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Alternatives Considered",
+          "fieldId": "636ce948-2110-57b4-a3ed-04354ec17843",
+          "order": 4,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Key Requirements",
+          "fieldId": "a952604c-d150-5315-bfc1-7229ddc1d636",
+          "order": 5,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Decision Statement",
+          "fieldId": "de1296e0-e083-58d9-97a0-cb2b91fec02e",
+          "order": 6,
+          "repeatable": false,
+          "required": true
+        },
+        {
+          "displayLabel": "Rationale",
+          "fieldId": "3340532b-d845-5e54-92b3-819ed05365c5",
+          "order": 7,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Revisit When",
+          "fieldId": "c04b7f84-9a55-5353-8c9f-2b62f6a1e34e",
+          "order": 8,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Next Steps",
+          "fieldId": "4181f210-f4be-5587-950e-890eda2a5590",
+          "order": 9,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Owner",
+          "fieldId": "4b34847c-26d1-56be-bc10-844aeb704df7",
+          "order": 10,
+          "repeatable": false,
+          "required": false
+        }
+      ],
+      "id": "1fcad6a2-9f78-5e41-94ba-d82e88b822f3",
+      "lifecycleRef": "3c504040-7920-43aa-8fbd-eda21dc7c07b",
+      "name": "decision",
+      "namespace": "governance",
+      "version": 1
+    },
+    "package/types/decisionlog-5a061505.json": {
+      "createdAt": "2026-06-25T00:00:00Z",
+      "description": "Header root record for a decision-log container. Carries the log title and acts as the typed anchor for RFC-009 rootTypeRefs dispatch.",
+      "fields": [
+        {
+          "displayLabel": "Title",
+          "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+          "order": 0,
+          "repeatable": false,
+          "required": true
+        }
+      ],
+      "id": "5a061505-dd0e-4c8d-9e20-fa28a3c42b68",
+      "lifecycleRef": "3c504040-7920-43aa-8fbd-eda21dc7c07b",
+      "name": "decision_log",
+      "namespace": "governance",
+      "version": 1
+    },
+    "package/types/role-e53dce11.json": {
+      "createdAt": "2026-05-26T00:00:00Z",
+      "description": "An authority boundary. Defines who may decide or act on what, without requiring group agreement.",
+      "fields": [
+        {
+          "displayLabel": "Title",
+          "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+          "order": 0,
+          "repeatable": false,
+          "required": true
+        },
+        {
+          "displayLabel": "Role Holder",
+          "fieldId": "a6c19b95-4f8f-5b07-93f8-3426c545277e",
+          "order": 1,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Authority",
+          "fieldId": "d25da548-79d6-555b-8878-f40b685b3955",
+          "order": 2,
+          "repeatable": false,
+          "required": true
+        },
+        {
+          "displayLabel": "Boundary",
+          "fieldId": "3c39ee1f-6fe0-5da7-a0b6-928aa3a63211",
+          "order": 3,
+          "repeatable": false,
+          "required": true
+        },
+        {
+          "displayLabel": "Source of Authority",
+          "fieldId": "9a32dc01-f348-5e05-9f54-bb6d21239f04",
+          "order": 4,
+          "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "Revisit When",
+          "fieldId": "c04b7f84-9a55-5353-8c9f-2b62f6a1e34e",
+          "order": 6,
+          "repeatable": false,
+          "required": false
+        }
+      ],
+      "id": "e53dce11-6b83-5714-a8fe-f730edb500fa",
+      "lifecycleRef": "3c504040-7920-43aa-8fbd-eda21dc7c07b",
+      "name": "role",
+      "namespace": "governance",
+      "version": 1
+    },
+    "package/views/decision-log-faebd240.json": {
+      "createdAt": "2026-06-01T00:00:00Z",
+      "description": "Compact decision log field view showing statement, alternatives, rationale, and revisit trigger.",
+      "fieldViews": [
+        {
+          "displayLabel": "Decision",
+          "fieldId": "de1296e0-e083-58d9-97a0-cb2b91fec02e",
+          "order": 0,
+          "required": true,
+          "visible": true
+        },
+        {
+          "displayLabel": "Alternatives",
+          "fieldId": "636ce948-2110-57b4-a3ed-04354ec17843",
+          "order": 1,
+          "required": false,
+          "visible": true
+        },
+        {
+          "displayLabel": "Rationale",
+          "fieldId": "3340532b-d845-5e54-92b3-819ed05365c5",
+          "order": 2,
+          "required": false,
+          "visible": true
+        },
+        {
+          "displayLabel": "Revisit",
+          "fieldId": "c04b7f84-9a55-5353-8c9f-2b62f6a1e34e",
+          "order": 3,
+          "required": false,
+          "visible": true
+        }
+      ],
+      "id": "faebd240-83c4-4bc8-a383-8335f841a234",
+      "name": "decision-log",
+      "namespace": "governance",
+      "version": 1
+    }
+  },
+  "manifest": {
+    "description": "An empty governance document: the canonical MuDemocracy governance package installed with zero records, ready for a clerk to capture their first decision.",
+    "instanceIndex": [],
+    "meta": {
+      "upstreamPackage": {
+        "installedAt": "2026-01-01T00:00:00Z",
+        "name": "governance",
+        "namespace": "com.mudemocracy.governance",
+        "packageId": "1cd9622e-3d05-4214-a683-4cb81d0c44d9",
+        "version": "1.0.0"
+      }
+    },
+    "namespace": "com.mudemocracy.governance",
+    "repositoryId": "395ebea2-d8f6-497b-b18c-04c9eacafc94",
+    "srsVersion": "2.0-draft",
+    "title": "Empty Governance Document"
+  },
+  "srsj": "1"
+}
