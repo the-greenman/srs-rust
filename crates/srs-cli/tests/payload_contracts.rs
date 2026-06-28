@@ -82,6 +82,11 @@ fn note_foundations() {
     check::<NoteFoundationsPayload>("note-foundations");
 }
 
+#[test]
+fn repo_navigation() {
+    check::<RepoNavigationPayload>("repo-navigation");
+}
+
 // ── Record ────────────────────────────────────────────────────────────────────
 
 #[test]
@@ -516,4 +521,11 @@ fn vocabulary_promote_blocked() {
 #[test]
 fn tree() {
     check::<TreePayload>("tree");
+}
+
+// ── Discovery (ext:discovery) ────────────────────────────────────────────────
+
+#[test]
+fn find() {
+    check::<FindPayload>("find");
 }

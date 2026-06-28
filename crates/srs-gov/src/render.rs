@@ -30,7 +30,7 @@ pub fn container_list(rows: &[ContainerRow]) {
             r.key,
             r.container_type,
             r.member_count,
-            &r.container_id[..8]
+            short_id(&r.container_id)
         );
     }
     println!();
@@ -84,7 +84,7 @@ pub fn record_detail(record_id: &str, schema_props: &Value, field_values: &[Valu
         .collect();
     fields.sort_by_key(|f| f.0);
 
-    header(&format!("Record  {}", &record_id[..8]));
+    header(&format!("Record  {}", short_id(record_id)));
     println!();
     for (_, label, fid, req) in &fields {
         if let Some(val) = fv_map.get(fid) {
@@ -139,7 +139,17 @@ fn textwrap(s: &str, width: usize) -> Vec<&str> {
     let mut lines = Vec::new();
     let mut start = 0;
     while start < s.len() {
-        let end = (start + width).min(s.len());
+        let mut end = (start + width).min(s.len());
+        while end > start && !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        if end == start {
+            end = s[start..]
+                .char_indices()
+                .nth(1)
+                .map(|(idx, _)| start + idx)
+                .unwrap_or(s.len());
+        }
         // try to break at a space
         let end = if end < s.len() {
             s[start..end]
@@ -153,4 +163,42 @@ fn textwrap(s: &str, width: usize) -> Vec<&str> {
         start = end;
     }
     lines
+}
+
+fn short_id(id: &str) -> &str {
+    &id[..8.min(id.len())]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn textwrap_does_not_split_multibyte_boundaries() {
+        let text = format!("{}—{}", "a".repeat(69), "decision");
+        let lines = textwrap(&text, 70);
+
+        assert!(!lines.is_empty());
+        assert_eq!(lines.concat(), text);
+    }
+
+    #[test]
+    fn record_detail_accepts_short_ids() {
+        let schema = serde_json::json!({
+            "required": ["title"],
+            "properties": {
+                "title": {
+                    "title": "Title",
+                    "x-srs-field-id": "field-title",
+                    "x-srs-order": 1
+                }
+            }
+        });
+        let field_values = vec![serde_json::json!({
+            "fieldId": "field-title",
+            "value": "Short ID smoke"
+        })];
+
+        record_detail("abc", &schema, &field_values);
+    }
 }

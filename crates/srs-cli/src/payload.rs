@@ -35,9 +35,11 @@ use srs_repository::{
     analysis::{FoundationNoteSet, RepoMap, TagAudit},
     container_service::ContainerSummary,
     container_view_service::ContainerView,
+    discovery_service::DiscoveryResult,
     extension_service::ExtensionSummary,
     record_store::{ListRecordTagsResult, RecordSummary, RecordTagSummary},
     relation_service::RelationSummary,
+    repository_navigation_service::RepositoryNavigation,
     services::{ListNoteTagsResult, NoteSummary, TagSummary},
     theme_service::ThemeSummary,
     validation::{RepositoryValidationReport, ValidationSummary},
@@ -453,6 +455,14 @@ pub struct ContainerValidatePayload {
 pub struct ContainerViewPayload {
     #[schemars(with = "serde_json::Value")]
     pub container_view: ContainerView,
+}
+
+/// Payload for `find` — `ext:discovery` results: ordered hits, total, diagnostics.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FindPayload {
+    #[schemars(with = "serde_json::Value")]
+    pub result: DiscoveryResult,
 }
 
 /// Payload for `record validate` — no-write record input validation (preflight).
@@ -1020,6 +1030,13 @@ pub struct RepoCreatePayload {
 pub struct RepoMapPayload {
     #[schemars(with = "serde_json::Value")]
     pub repo_map: RepoMap,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoNavigationPayload {
+    #[schemars(with = "serde_json::Value")]
+    pub navigation: RepositoryNavigation,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]

@@ -5,7 +5,7 @@ use crate::payload::{
     RepoDiffInstanceRemoved, RepoDiffInstances, RepoDiffManifest, RepoDiffPayload,
     RepoDiffRelationAdded, RepoDiffRelationModified, RepoDiffRelationRemoved, RepoDiffRelations,
     RepoDiffSummary, RepoExtensionsMutatePayload, RepoExtensionsPayload, RepoMapPayload,
-    RepoValidatePayload,
+    RepoNavigationPayload, RepoValidatePayload,
 };
 use anyhow::{Context, Result};
 use srs_repository::analysis::build_repo_map;
@@ -17,6 +17,7 @@ use srs_repository::repository_lifecycle::{
     create_repository_with_intent, InitializeRepositoryInput, PrimaryPackageMetadata,
     RepositoryMetadata,
 };
+use srs_repository::repository_navigation_service::repository_navigation;
 use srs_repository::repository_portability::copy_repository;
 use srs_repository::validation::validate_repository;
 use srs_repository::{FileStore, JsonStore};
@@ -46,6 +47,7 @@ pub fn dispatch(ctx: CliContext, cmd: RepoCommand) -> Result<String> {
             package_namespace,
         ),
         RepoCommand::Map { json: _ } => cmd_repo_map(ctx),
+        RepoCommand::Navigation => cmd_repo_navigation(ctx),
         RepoCommand::Copy {
             from,
             to,
@@ -166,6 +168,11 @@ fn cmd_repo_extensions_disable(ctx: CliContext, extension_id: String) -> Result<
 fn cmd_repo_map(ctx: CliContext) -> Result<String> {
     let repo_map = with_store(&ctx, |store| Ok(build_repo_map(store)?))?;
     output::serialize("repo map", RepoMapPayload { repo_map })
+}
+
+fn cmd_repo_navigation(ctx: CliContext) -> Result<String> {
+    let navigation = with_store(&ctx, |store| Ok(repository_navigation(store)?))?;
+    output::serialize("repo navigation", RepoNavigationPayload { navigation })
 }
 
 fn cmd_repo_copy(

@@ -53,14 +53,38 @@ pub fn by_key(key: &str) -> Option<&'static ContainerTypeDef> {
 /// need disambiguation by which key hasn't been matched yet).
 pub fn match_container(
     container_type: Option<&str>,
-    _title: &str,
+    title: &str,
     used_keys: &mut std::collections::HashSet<&'static str>,
 ) -> Option<&'static ContainerTypeDef> {
     let ct = container_type?;
-    GOVERNANCE_CONTAINERS
-        .iter()
-        .find(|d| d.container_type == ct && !used_keys.contains(d.key))
+    let exact_title_match = GOVERNANCE_CONTAINERS.iter().find(|d| {
+        d.container_type == ct && !used_keys.contains(d.key) && title.eq_ignore_ascii_case(d.label)
+    });
+
+    exact_title_match
+        .or_else(|| {
+            GOVERNANCE_CONTAINERS
+                .iter()
+                .find(|d| d.container_type == ct && !used_keys.contains(d.key))
+        })
         .inspect(|d| {
             used_keys.insert(d.key);
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn document_container_matching_disambiguates_by_title() {
+        let mut used = HashSet::new();
+
+        let roles = match_container(Some("document"), "Roles", &mut used).unwrap();
+        let articles = match_container(Some("document"), "Articles", &mut used).unwrap();
+
+        assert_eq!(roles.key, "roles");
+        assert_eq!(articles.key, "articles");
+    }
 }
