@@ -458,6 +458,29 @@ This is the RFC-011 capability: `type-query` SectionSource extended with `lifecy
 
 ---
 
+### S14 — Drive an editor member list from a DocumentView's field selection (`container resolve-view`)
+
+**Intention.** *"I'm building an interactive, selectable list of a container's members in the editor. In one call I need the columns to show — driven by the DocumentView's field selection, not by my client knowing the types — plus each member's display label and full record, and the container's root for the header. I should never compute 'what columns' or 'what label' in the client."*
+
+This is the issue-#254 capability: a single `resolve_container_view` projection (service → CLI payload → WASM binding, per `docs/architecture/capability-layering.md`) returning the container root record, the ordered Tier-2 member records (full `Record` + core-resolved `displayLabel` + `tier`), and the **column/field spec** resolved from a DocumentView section's `renderViewId → View.field_views`. Column-source precedence is [ADR-018](adr/018-container-view-column-source-precedence.md): the section targeting this container wins, else the first section by `order` with a `renderViewId`, else empty columns.
+
+**Capabilities exercised.** Container membership (roots-first, deduped); DocumentView → View `field_views` column projection (visible-false exclusion, `order` sort, `displayLabel` override → field `name` fallback); core `record_display_label` reuse for member/root labels; Tier-gating (non-Tier-2 members skipped with a diagnostic); `--view-id` override vs. root-type matching; non-fatal diagnostics vs. hard errors. The anchor repo is the `rfc008-container-subset` fixture (heterogeneous container `…3500`, text-view `…3504`).
+
+**CLI surface.** `container resolve-view` (`--view-id` flag), `document-view create`, `repo validate`.
+
+**Steps.**
+1. Orient and validate: copy the fixture to a scratch dir, then `srs repo validate --repo /tmp/dogfood-resolve-container-view` → `ok: true`, `summary.checked: 4`, 0 errors.
+2. **Default (root-type matched) view** — `srs container resolve-view 00000000-0000-4000-8000-000000003500 --repo <repo>`. The fixture's container has no root binding and its views declare no `rootTypeRefs`, so no DocumentView matches: confirm `payload.containerView.documentViewId` is absent, `columns` is empty, **and** all four members still come back with core-resolved labels (`Text-One`, `Text-Two`, `Table-One`, `Table-Two`) — the member list never depends on a view resolving.
+3. **Author a member-list view** — `document-view create` (stdin) a DocumentView whose `container-subset` section targets `…3500` and carries `renderViewId: …3504` (the text-view). `createdAt` is required in stdin. Capture the new `payload.documentView.id`.
+4. **Column projection** — `srs container resolve-view 00000000-0000-4000-8000-000000003500 --view-id <new-dv-id> --repo <repo>`. Confirm `columns` is exactly one entry resolved from the text-view: `fieldName: "title"`, `displayLabel: "Text Title"` (the `FieldView.displayLabel` override), `order: 0`; `documentViewId` is the authored view; all four members carry a `displayLabel` and a full `record` object.
+5. `srs repo validate --repo <repo>` → still `ok: true`, 0 errors (authoring the view did not corrupt the repo).
+
+**Negative case.** Two paths: (a) a nonexistent container — `srs container resolve-view 00000000-0000-0000-0000-deadbeef0000 --repo <repo>` → `ok: false`, top-level `diagnostics[0]` contains `"container not found"`, and `payload` is null (no partial/ghost result). (b) an unknown `--view-id` — `srs container resolve-view …3500 --view-id <missing> --repo <repo>` → `ok: true`, `documentViewId` absent, `columns` empty, `payload.containerView.diagnostics` contains `"documentView <missing> not found"`, and the four members are still returned (an unresolved view is a diagnostic, not a failure).
+
+**Done when.** One call returns root + ordered members + per-member label + DocumentView-driven column spec; columns honour visibility, order, and the displayLabel override and resolve field names from the package; a non-Tier-2 member would be skipped with a diagnostic (not crash the call); an unknown `--view-id` degrades to empty columns + diagnostic while still returning members; a missing container is a clean `ok: false` with no payload; `repo validate` stays at 0 errors. The client computes no semantics — columns and labels come entirely from the payload.
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -478,6 +501,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `relation` (create/list/get/delete) | S1, S3, S5 |
 | `relation-type` | _gap — no scenario yet_ |
 | `container` (create/members/roots/validate/…) | S4 |
+| `container resolve-view` (structured container view, `--view-id`) | S14 |
 | `document-view` (create/get/list/…) | S4, S5, S11 |
 | `render document-view` | S4, S5, S8, S11 |
 | `container-subset` section + `typeFilter` / `typeDispatch` (RFC-008) | S11 |
