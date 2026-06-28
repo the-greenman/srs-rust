@@ -126,3 +126,19 @@ CI enforces correctness via the `schema-drift` job (`scripts/check-schema-drift.
 ## Pre-commit Hook
 
 The hook runs `cargo test --test payload_contracts`. If it fails, regenerate schemas with `cargo run --bin generate-schemas` and stage the updated files before committing.
+
+## Project & priority management
+
+Issues across the ecosystem are tracked on **Project #5 "SRS"** and prioritised **top-down from
+user stories**. The authoritative process — the priority model (story MoSCoW → derived
+`priority: Pn`), sub-issue linkage, the Status/iteration conventions, and the `gh-project` tool —
+is in **[docs/project-management.md](docs/project-management.md)**.
+
+Quick rules:
+- **Never hand-set an implementation issue's priority.** It is derived from the user stories it
+  serves (as native GitHub sub-issues) by `gh-project rollup`. Humans set **MoSCoW** on stories.
+- **Bugs** are fixed ASAP — they floor at `priority: P1` even without a story.
+- **Unlinked non-bug** work is flagged ("could get lost"), never dropped — link it to a story.
+- The tool **self-discovers** the board IDs — never hardcode project/field IDs in a prompt.
+- Skills: `/triage`, `/stories`, `/roadmap`. Tool source: `scripts/gh-project.mjs`, released as a
+  GitHub asset (`gh release download --repo the-greenman/srs-rust --pattern gh-project.mjs`).

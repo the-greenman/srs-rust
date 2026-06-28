@@ -57,6 +57,7 @@ jobs:
           gh release create "${{ steps.package.outputs.tag }}" \
             "${{ steps.package.outputs.archive }}" \
             "${{ steps.package.outputs.archive }}.sha256" \
+            scripts/gh-project.mjs \
             --target "${{ github.sha }}" \
             --title "srs v${{ steps.package.outputs.version }} (build ${{ github.run_number }}, ${{ steps.package.outputs.sha_short }})" \
             --notes "Automated release of the \`srs\` CLI built from \`${{ github.sha }}\`.
@@ -69,5 +70,8 @@ jobs:
           ./srs --help
           \`\`\`
 
-          A matching \`${{ steps.package.outputs.archive }}.sha256\` is attached for verification." \
+          A matching \`${{ steps.package.outputs.archive }}.sha256\` is attached for verification.
+
+          The project/priority tool \`gh-project.mjs\` is also attached (stable URL
+          \`/releases/latest/download/gh-project.mjs\`); see \`docs/project-management.md\`." \
             --latest
