@@ -241,13 +241,13 @@ Mark checkboxes, commit: `feat(bindings): resolve_container_view WASM binding (#
 
 ## Final Acceptance
 
-- [ ] `cargo test` passes with no failures
-- [ ] `cargo clippy -- -D warnings` passes
-- [ ] CLI output format unchanged for existing commands (integration tests pass)
-- [ ] `cargo test --test payload_contracts` passes (new golden file committed)
-- [ ] `bash scripts/check-schema-sync.sh` exits 0 (no entity schemas changed — should be a no-op)
-- [ ] A single CLI/binding call returns root + ordered members + column spec + per-member label for a container (issue acceptance)
-- [ ] Cross-store roundtrip test (memory → json → file) passes
+- [x] `cargo test` passes with no failures
+- [x] `cargo clippy -- -D warnings` passes
+- [x] CLI output format unchanged for existing commands (integration tests pass)
+- [x] `cargo test --test payload_contracts` passes (new golden file committed)
+- [x] `bash scripts/check-schema-sync.sh` exits 0 (no entity schemas changed — should be a no-op)
+- [x] A single CLI/binding call returns root + ordered members + column spec + per-member label for a container (issue acceptance)
+- [x] Cross-store roundtrip test (memory → json → file) passes
 
 ## Coordination Rules
 
