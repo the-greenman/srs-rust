@@ -101,8 +101,12 @@ runtime query primitive. An authored list (e.g. the decision log) is
 `container resolve-view` (authored columns + ordered members + authored defaults)
 composed with `find` (runtime content/tag/lifecycle). Authored defaults — which
 lifecycle states are hidden by default, which fields are searchable, default sort —
-live in **DocumentView/View metadata** in the package, never in `srs-repository`.
-"Show all" drops the authored lifecycle exclusion. Governance vocabulary
+are **defined** in **DocumentView/View metadata** in the package, never authored in
+`srs-repository`. Their *extraction* into the resolved view payload (so clients do not
+re-parse DocumentView sources or re-derive section precedence) is delegated to the
+`container resolve-view` service — see [ADR-020](020-resolve-view-authored-list-defaults.md):
+`resolve-view` surfaces the authored `excludeLifecycleStates`, and the client forwards it to
+`find`. "Show all" drops the authored lifecycle exclusion. Governance vocabulary
 (`decision_statement`, `superseded`/`closed`) stays in package data and the thin
 srs-gov adapter.
 
