@@ -55,12 +55,15 @@ impl SrsRepository {
 
     /// List records. `filter_json` is a JSON string matching `RecordListFilter`
     /// (`{"typeNamespace":"...","typeName":"...","containerId":"..."}`); pass `"{}"` for all records.
-    /// Returns a JS array of `Record` objects.
+    /// Returns a JS array of `RecordSummary` objects — each `{ instanceId, displayLabel, record }`,
+    /// where `displayLabel` is the core-resolved label (same resolution `srs tree` uses) and
+    /// `record` is the full `Record`. Clients render `displayLabel` directly and must not
+    /// re-derive titles from `fieldValues`.
     pub fn list_records(&self, filter_json: &str) -> Result<JsValue, JsValue> {
         let filter: RecordListFilter = serde_json::from_str(filter_json)
             .map_err(|e| js_err(format!("invalid filter: {e}")))?;
-        let records = record_store::list_records_filtered(&self.store, filter).map_err(js_err)?;
-        to_js(&records)
+        let summaries = record_store::list_record_summaries(&self.store, filter).map_err(js_err)?;
+        to_js(&summaries)
     }
 
     /// Get a single record by instance ID. Returns the `Record` as a JS value, or `null` if not found.

@@ -175,13 +175,13 @@ Mark checkboxes, commit: `feat(cli): record list carries core display label (#29
 
 #### Tasks
 
-- [ ] In `crates/srs-bindings/src/lib.rs`, change `SrsRepository::list_records` to call `record_store::list_record_summaries` (same `RecordListFilter` parse) and `to_js(&summaries)`.
-- [ ] Update the binding's rustdoc to state it returns a JS array of records each carrying `displayLabel`.
+- [x] In `crates/srs-bindings/src/lib.rs`, change `SrsRepository::list_records` to call `record_store::list_record_summaries` (same `RecordListFilter` parse) and `to_js(&summaries)`.
+- [x] Update the binding's rustdoc to state it returns a JS array of records each carrying `displayLabel`.
 
 #### Acceptance Criteria
 
-- [ ] Binding compiles for the workspace target; output deserializes to JSON whose items carry `displayLabel`.
-- [ ] Binding calls the service — no duplicated label/derivation logic.
+- [x] Binding compiles for the workspace target; output deserializes to JSON whose items carry `displayLabel`.
+- [x] Binding calls the service — no duplicated label/derivation logic.
 
 #### Testing
 
