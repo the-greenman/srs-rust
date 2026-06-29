@@ -287,6 +287,12 @@ Acceptance criteria:
 
 ## 7. Documentation + Handoff
 
+Status: complete.
+
+Implementation notes:
+- Updated `docs/governance-flow.md` to describe the current read-only TUI foundation, the shallow detail pane, and the new keybindings.
+- Kept the handoff doc aligned with the current command surface instead of implying full record-field rendering or write actions.
+
 TDD/check loop:
 - Red: docs test or grep check for outdated `srs-gov` examples if practical.
 - Green:
@@ -297,10 +303,10 @@ TDD/check loop:
 - Refactor: keep docs short and command-focused.
 
 Acceptance criteria:
-- Plan file remains in `plans/`.
-- Governance flow docs mention structural navigation and `srs-gov tui`.
-- Test suite passes for affected crates.
-- Final status includes commands run and any blocked network/dependency steps.
+- [x] Plan file remains in `plans/`.
+- [x] Governance flow docs mention structural navigation and `srs-gov tui`.
+- [x] Test suite passes for affected crates.
+- [x] Final status includes commands run and any blocked network/dependency steps.
 
 ## Agent Rules
 
