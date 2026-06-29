@@ -107,7 +107,13 @@ fn render_records(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             ListItem::new(format!("{prefix}{id}  {}  [{state_text}]", record.label))
         })
         .collect();
-    let block = pane_block("Records", state.focus == Focus::Records);
+    let title = state
+        .active_document_view_id
+        .as_deref()
+        .map(short_id)
+        .map(|id| format!("Records view {id}"))
+        .unwrap_or_else(|| "Records".to_string());
+    let block = pane_block_owned(title, state.focus == Focus::Records);
     frame.render_widget(List::new(items).block(block), area);
 }
 
@@ -120,13 +126,35 @@ fn render_detail(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         } else {
             record.tags.join(", ")
         };
-        format!(
-            "{}\n\nid: {}\nstate: {}\ntags: {}\n\nEnter opens detail\nEsc returns",
+        let mut body = format!(
+            "{}\n\nid: {}\ntype: {} @{}\nstate: {}\ntags: {}\ncreated: {}\n",
             record.label,
             record.instance_id,
+            record.type_id,
+            record.type_version,
             record.lifecycle_state.as_deref().unwrap_or("-"),
-            tags
-        )
+            tags,
+            record.created_at.as_deref().unwrap_or("-"),
+        );
+        if record.detail_rows.is_empty() {
+            body.push_str("\nNo schema fields resolved");
+        } else {
+            body.push('\n');
+            for row in &record.detail_rows {
+                let marker = if row.required { "*" } else { " " };
+                let value = row.value.as_deref().unwrap_or("(empty)");
+                body.push_str(&format!("{marker} {}: {value}\n", row.label));
+            }
+        }
+        if !state.diagnostics.is_empty() {
+            body.push_str("\nDiagnostics\n");
+            for diagnostic in &state.diagnostics {
+                body.push_str("- ");
+                body.push_str(diagnostic);
+                body.push('\n');
+            }
+        }
+        body
     } else {
         "No record selected".to_string()
     };
@@ -156,6 +184,10 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
 }
 
 fn pane_block(title: &'static str, active: bool) -> Block<'static> {
+    pane_block_owned(title.to_string(), active)
+}
+
+fn pane_block_owned(title: String, active: bool) -> Block<'static> {
     let style = if active {
         Style::default().fg(Color::Cyan)
     } else {
@@ -165,6 +197,10 @@ fn pane_block(title: &'static str, active: bool) -> Block<'static> {
         .title(title)
         .borders(Borders::ALL)
         .border_style(style)
+}
+
+fn short_id(id: &str) -> &str {
+    &id[..8.min(id.len())]
 }
 
 #[cfg(test)]
@@ -190,6 +226,15 @@ mod tests {
             lifecycle_state: Some("ratified".to_string()),
             tags: vec!["tooling".to_string()],
             created_at: Some("2026-01-01T00:00:00Z".to_string()),
+            type_id: "type-decision".to_string(),
+            type_version: 1,
+            detail_rows: vec![crate::tui_state::DetailRow {
+                label: "Decision Statement".to_string(),
+                value: Some("Adopt the policy as written".to_string()),
+                required: true,
+                order: 1,
+            }],
+            record: serde_json::json!({}),
         }]);
 
         let backend = TestBackend::new(90, 24);
@@ -199,5 +244,6 @@ mod tests {
         let buffer = terminal.backend().buffer();
         assert!(buffer.content().iter().any(|cell| cell.symbol() != " "));
         assert!(format!("{buffer:?}").contains("Decision Log"));
+        assert!(format!("{buffer:?}").contains("Decision Statement"));
     }
 }

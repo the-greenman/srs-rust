@@ -14,12 +14,32 @@ pub struct SectionItem {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DetailRow {
+    pub label: String,
+    pub value: Option<String>,
+    pub required: bool,
+    pub order: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordItem {
     pub instance_id: String,
     pub label: String,
     pub lifecycle_state: Option<String>,
     pub tags: Vec<String>,
     pub created_at: Option<String>,
+    pub type_id: String,
+    pub type_version: u64,
+    pub detail_rows: Vec<DetailRow>,
+    pub record: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ColumnItem {
+    pub field_id: String,
+    pub field_name: String,
+    pub display_label: String,
+    pub order: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,6 +53,9 @@ pub struct AppState {
     pub repo_title: String,
     pub sections: Vec<SectionItem>,
     pub records: Vec<RecordItem>,
+    pub active_document_view_id: Option<String>,
+    pub columns: Vec<ColumnItem>,
+    pub diagnostics: Vec<String>,
     pub section_index: usize,
     pub record_index: usize,
     pub focus: Focus,
@@ -54,6 +77,9 @@ impl AppState {
             repo_title: repo_title.into(),
             sections,
             records: Vec::new(),
+            active_document_view_id: None,
+            columns: Vec::new(),
+            diagnostics: Vec::new(),
             section_index: 0,
             record_index: 0,
             focus: Focus::Sections,
@@ -68,6 +94,17 @@ impl AppState {
     pub fn set_records(&mut self, records: Vec<RecordItem>) {
         self.records = records;
         self.record_index = self.record_index.min(self.records.len().saturating_sub(1));
+    }
+
+    pub fn set_view_context(
+        &mut self,
+        document_view_id: Option<String>,
+        columns: Vec<ColumnItem>,
+        diagnostics: Vec<String>,
+    ) {
+        self.active_document_view_id = document_view_id;
+        self.columns = columns;
+        self.diagnostics = diagnostics;
     }
 
     pub fn selected_section(&self) -> Option<&SectionItem> {
@@ -241,6 +278,15 @@ mod tests {
                 lifecycle_state: Some("draft".to_string()),
                 tags: vec![],
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                type_id: "type-decision".to_string(),
+                type_version: 1,
+                detail_rows: vec![DetailRow {
+                    label: "Decision Statement".to_string(),
+                    value: Some("Use the field detail".to_string()),
+                    required: true,
+                    order: 1,
+                }],
+                record: serde_json::json!({}),
             },
             RecordItem {
                 instance_id: "r-2".to_string(),
@@ -248,6 +294,10 @@ mod tests {
                 lifecycle_state: Some("ratified".to_string()),
                 tags: vec!["tooling".to_string()],
                 created_at: Some("2026-01-02T00:00:00Z".to_string()),
+                type_id: "type-decision".to_string(),
+                type_version: 1,
+                detail_rows: vec![],
+                record: serde_json::json!({}),
             },
         ]);
         state

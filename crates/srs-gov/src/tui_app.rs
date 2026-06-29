@@ -37,6 +37,23 @@ fn smoke_first_frame(repo: &str) -> Result<()> {
     if !buffer.content().iter().any(|cell| cell.symbol() != " ") {
         bail!("tui smoke rendered a blank first frame");
     }
+    let rendered = format!("{buffer:?}");
+    if let Some(record) = state.selected_record() {
+        if let Some(row) = record
+            .detail_rows
+            .iter()
+            .find(|row| row.value.as_deref().is_some_and(|value| !value.is_empty()))
+        {
+            if !rendered.contains(&row.label)
+                && !row
+                    .value
+                    .as_deref()
+                    .is_some_and(|value| rendered.contains(value))
+            {
+                bail!("tui smoke rendered records but no schema detail content");
+            }
+        }
+    }
     println!(
         "srs-gov tui smoke ok: {} sections, {} records",
         state.sections.len(),
