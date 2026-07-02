@@ -1265,3 +1265,14 @@ pub struct TreeNodePayload {
     pub children: Vec<TreeNodePayload>,
     pub cycle_pruned: bool,
 }
+
+// ── Repo init-new payload ─────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoInitNewPayload {
+    pub repository_id: String,
+    pub namespace: String,
+    pub package_id: String,
+    pub package_version: String,
+}

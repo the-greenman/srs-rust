@@ -164,6 +164,7 @@ fn main() {
     write_schema!("repo-extensions-list", RepoExtensionsPayload);
     write_schema!("repo-extensions-enable", RepoExtensionsMutatePayload);
     write_schema!("repo-extensions-disable", RepoExtensionsMutatePayload);
+    write_schema!("repo-init-new", RepoInitNewPayload);
 
     // Package payloads
     write_schema!("package-list", PackageListPayload);

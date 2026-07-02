@@ -4,8 +4,8 @@ use crate::payload::{
     RepoCopyPayload, RepoCreatePayload, RepoDiffInstanceAdded, RepoDiffInstanceModified,
     RepoDiffInstanceRemoved, RepoDiffInstances, RepoDiffManifest, RepoDiffPayload,
     RepoDiffRelationAdded, RepoDiffRelationModified, RepoDiffRelationRemoved, RepoDiffRelations,
-    RepoDiffSummary, RepoExtensionsMutatePayload, RepoExtensionsPayload, RepoMapPayload,
-    RepoNavigationPayload, RepoValidatePayload,
+    RepoDiffSummary, RepoExtensionsMutatePayload, RepoExtensionsPayload, RepoInitNewPayload,
+    RepoMapPayload, RepoNavigationPayload, RepoValidatePayload,
 };
 use anyhow::{Context, Result};
 use srs_repository::analysis::build_repo_map;
@@ -14,8 +14,8 @@ use srs_repository::manifest_service::{
     add_declared_extension, list_declared_extensions, remove_declared_extension,
 };
 use srs_repository::repository_lifecycle::{
-    create_repository_with_intent, InitializeRepositoryInput, PrimaryPackageMetadata,
-    RepositoryMetadata,
+    create_repository_with_intent, init_new_repository, InitializeRepositoryInput,
+    InitNewRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
 };
 use srs_repository::repository_navigation_service::repository_navigation;
 use srs_repository::repository_portability::copy_repository;
@@ -62,6 +62,12 @@ pub fn dispatch(ctx: CliContext, cmd: RepoCommand) -> Result<String> {
         } => cmd_repo_diff(ctx, from, to, from_store, to_store),
         RepoCommand::Validate { json: _ } => cmd_repo_validate(ctx),
         RepoCommand::Extensions(ext_cmd) => cmd_repo_extensions_dispatch(ctx, ext_cmd),
+        RepoCommand::InitNew {
+            repository_id,
+            namespace,
+            title,
+            description,
+        } => cmd_repo_init_new(ctx, repository_id, namespace, title, description),
     }
 }
 
@@ -359,4 +365,24 @@ fn cmd_repo_validate(ctx: CliContext) -> Result<String> {
             .collect();
         Ok(output::err("repo validate", diagnostics))
     }
+}
+
+fn cmd_repo_init_new(
+    ctx: CliContext,
+    repository_id: Option<String>,
+    namespace: String,
+    title: String,
+    description: Option<String>,
+) -> Result<String> {
+    let input = InitNewRepositoryInput { repository_id, namespace, title, description };
+    let result = with_store(&ctx, |store| Ok(init_new_repository(store, input)?))?;
+    output::serialize(
+        "repo init-new",
+        RepoInitNewPayload {
+            repository_id: result.repository_id,
+            namespace: result.namespace,
+            package_id: result.package_id,
+            package_version: result.package_version,
+        },
+    )
 }
