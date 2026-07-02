@@ -66,7 +66,10 @@ Common commands:
 node /tmp/gh-project.mjs board --repo srs-rust --status Ready --open   # the work queue
 node /tmp/gh-project.mjs rollup                                        # dry-run: derived priorities
 node /tmp/gh-project.mjs rollup --fix                                  # apply labels + board mirror
+node /tmp/gh-project.mjs summary                                       # priority estimates + the calc stages
+node /tmp/gh-project.mjs explain srs-rust 263                          # stage-by-stage for one issue
 node /tmp/gh-project.mjs coverage                                      # bugs / unlinked / uncovered audit
+node /tmp/gh-project.mjs release-sync                                  # set Release from labels + parentage
 node /tmp/gh-project.mjs tree 30                                       # story → sub-issue tree
 node /tmp/gh-project.mjs set srs-rust 263 --status "In progress"       # board write
 node /tmp/gh-project.mjs reconcile --fix                               # repair drift
@@ -74,6 +77,23 @@ node /tmp/gh-project.mjs reconcile --fix                               # repair 
 
 The tool **self-discovers** the project field/option/iteration IDs — never hardcode them in a
 prompt or doc. `node /tmp/gh-project.mjs fields` dumps them if you need to inspect.
+
+## Understanding a priority estimate (the stages)
+
+Every implementation issue's `priority: Pn` is *derived*, and the derivation is fully explainable
+— `summary` shows all estimates with the stages; `explain <repo> <#>` walks one issue through them:
+
+1. **served stories** — walk the sub-issue graph up to the user stories the issue serves.
+2. **MoSCoW → P** — each served story's value maps: `Must→P0 · Should→P1 · Could→P2 · Won't→(none)`.
+3. **base** — the **highest** (most urgent) P across the served stories.
+4. **bug floor** — a `bug` is never weaker than **P1**, even with no story.
+5. **bump** — **+1 tier** (capped at P0) if the issue carries a label in
+   `{critical-path, blocks-gate, regression}`.
+6. **final** — the derived priority, written as the `priority: Pn` label + the board Priority mirror.
+
+`summary [--repo R] [--release X] [--brief]` prints the stage legend, TOTALS (P0/P1/P2 + bugs /
+unlinked / uncovered counts), a BY RELEASE breakdown, and a per-issue stage table. Use it to sense-
+check the model — e.g. "everything is P0" usually means every story is set **Must**.
 
 ## Agents vs humans
 

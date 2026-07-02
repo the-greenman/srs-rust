@@ -130,6 +130,7 @@ function board() {
         status:   fieldValueByName(name:"Status")   { ... on ProjectV2ItemFieldSingleSelectValue { name } }
         priority: fieldValueByName(name:"Priority")  { ... on ProjectV2ItemFieldSingleSelectValue { name } }
         moscow:   fieldValueByName(name:"MoSCoW")    { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+        release:  fieldValueByName(name:"Release")   { ... on ProjectV2ItemFieldSingleSelectValue { name } }
         iteration:fieldValueByName(name:"Iteration") { ... on ProjectV2ItemFieldIterationValue { title } }
         content{ ... on Issue {
           number state title repository { name }
@@ -161,6 +162,7 @@ function board() {
         status: n.status?.name ?? null,
         priority: n.priority?.name ?? null,
         moscow: n.moscow?.name ?? null,
+        release: n.release?.name ?? null,
         iteration: n.iteration?.title ?? null,
       });
     }
@@ -308,22 +310,44 @@ function ensureLabels(repo) {
 // ---------------------------------------------------------------------------
 // Rollup engine
 // ---------------------------------------------------------------------------
-function bump(p, labels) {
-  if (!p) return p;
-  if (!labels.some((l) => BUMP_LABELS.has(l))) return p;
-  const i = P_ORDER.indexOf(p);
-  return P_ORDER[Math.max(0, i - 1)];
-}
+const higher = (a, b) => (a && (!b || P_ORDER.indexOf(a) < P_ORDER.indexOf(b)) ? a : b);
 
-function highestMoscowP(storyNums, storiesByNum) {
-  let best = null; // lower index = higher
-  for (const sn of storyNums) {
-    const moscow = storiesByNum.get(sn)?.moscow;
-    const p = moscow ? MOSCOW_TO_P[moscow] : null;
-    if (!p) continue;
-    if (best === null || P_ORDER.indexOf(p) < P_ORDER.indexOf(best)) best = p;
+// Derive an issue's priority AND record every stage of the calculation, so the
+// reasoning is explainable (see `summary` / `explain`).
+function derivePriority(row, served, storiesByNum) {
+  const isBug = row.labels.includes("bug");
+  const servedArr = served ? [...served] : [];
+
+  // Stage 1–2: served stories and each one's MoSCoW → P.
+  const storyValues = servedArr.map((sn) => {
+    const moscow = storiesByNum.get(sn)?.moscow ?? null;
+    return { story: sn, moscow, p: moscow ? MOSCOW_TO_P[moscow] : null };
+  });
+
+  // Stage 3: base = highest (most urgent) P across served stories.
+  let base = null;
+  for (const sv of storyValues) base = higher(sv.p, base);
+
+  // Stage 4: bug floor — a bug is never weaker than P1.
+  let p = base;
+  let bugFloor = null;
+  if (isBug) {
+    const to = higher(base, BUG_FLOOR); // raise to P1 if base is weaker/absent
+    bugFloor = { applied: to !== base, from: base, to };
+    p = to;
   }
-  return best;
+
+  // Stage 5: bump one tier (cap P0) if a bump-signal label is present.
+  const bumpLabels = row.labels.filter((l) => BUMP_LABELS.has(l));
+  let bump = { labels: bumpLabels, applied: false, from: p, to: p };
+  if (p && bumpLabels.length) {
+    const to = P_ORDER[Math.max(0, P_ORDER.indexOf(p) - 1)];
+    bump = { labels: bumpLabels, applied: to !== p, from: p, to };
+    p = to;
+  }
+
+  const kind = servedArr.length ? "story-derived" : isBug ? "bug-floor" : "unlinked";
+  return { p, stages: { kind, isBug, served: servedArr, storyValues, base, bugFloor, bump, final: p } };
 }
 
 function computeRollup() {
@@ -337,27 +361,18 @@ function computeRollup() {
   }
   const descendants = storyDescendants([...storiesByNum.values()]);
 
-  const derived = []; // {row, p, basis}
+  const derived = []; // {row, p, stages, basis}
   const bugs = [];
   const unlinked = [];
   for (const row of b.values()) {
     if (row.state !== "OPEN") continue;
     if (row.repo === STORY_REPO) continue; // skip stories/epics themselves
-    if (row.labels.includes(STORY_LABEL) || row.labels.includes("epic")) continue;
-    const served = descendants.get(row.key);
-    const isBug = row.labels.includes("bug");
-    if (served && served.size) {
-      let p = highestMoscowP(served, storiesByNum);
-      if (isBug && p && P_ORDER.indexOf(BUG_FLOOR) < P_ORDER.indexOf(p)) p = BUG_FLOOR;
-      if (isBug && !p) p = BUG_FLOOR;
-      p = bump(p, row.labels);
-      derived.push({ row, p, basis: `stories ${[...served].map((n) => "#" + n).join(",")}` });
-    } else if (isBug) {
-      const p = bump(BUG_FLOOR, row.labels);
-      bugs.push({ row, p, basis: "bug floor (no story)" });
-    } else {
-      unlinked.push({ row });
-    }
+    if (row.labels.includes(STORY_LABEL) || row.labels.includes("epic") || row.labels.includes("plan")) continue;
+    const { p, stages } = derivePriority(row, descendants.get(row.key), storiesByNum);
+    if (stages.kind === "story-derived")
+      derived.push({ row, p, stages, basis: `stories ${stages.served.map((n) => "#" + n).join(",")}` });
+    else if (stages.kind === "bug-floor") bugs.push({ row, p, stages, basis: "bug floor (no story)" });
+    else unlinked.push({ row, stages });
   }
   const uncovered = [...storiesByNum.values()].filter(
     (s) => ![...descendants.values()].some((set) => set.has(s.num))
@@ -377,6 +392,78 @@ function applyPriority(entry, dryRun) {
   if (p) setSingleSelect(row.itemId, "Priority", p, dryRun);
   else if (boardP) clearField(row.itemId, "Priority", dryRun); // don't leave a stale board value
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Release (swimlane) field — derived from milestone:* labels + story parentage
+// ---------------------------------------------------------------------------
+const RELEASE_FROM_LABEL = {
+  "milestone:decision-logger-v1": "Decision Logger v1",
+  "milestone:safe-to-try": "Safe to try",
+  "milestone:future": "Future",
+};
+function releaseFromLabels(labels) {
+  for (const [lbl, rel] of Object.entries(RELEASE_FROM_LABEL)) if (labels.includes(lbl)) return rel;
+  return null;
+}
+function createReleaseField() {
+  graphql(
+    `mutation($p:ID!){ createProjectV2Field(input:{projectId:$p,dataType:SINGLE_SELECT,name:"Release",
+      singleSelectOptions:[
+        {name:"Decision Logger v1",color:GREEN,description:""},
+        {name:"Safe to try",color:BLUE,description:""},
+        {name:"Future",color:GRAY,description:""}
+      ]}){ projectV2Field{ ... on ProjectV2SingleSelectField { id name } } } }`,
+    { p: meta().id }
+  );
+  _meta = null; // refresh field cache so field("Release") resolves
+}
+function allStoriesFull() {
+  return (
+    ghJson([
+      "issue", "list", "--repo", `${OWNER}/${STORY_REPO}`, "--label", STORY_LABEL,
+      "--state", "all", "--limit", "300", "--json", "number,title,labels,state",
+    ]) || []
+  ).map((s) => ({ num: s.number, labels: (s.labels || []).map((l) => l.name) }));
+}
+function cmdReleaseSync(dryRun) {
+  if (!meta().fields["Release"]) {
+    if (dryRun) console.log("[dry-run] would create Release field (Decision Logger v1 / Safe to try / Future)");
+    else { createReleaseField(); console.log("Created Release field."); }
+  }
+  const b = board();
+  // key -> release, story first then inherited by descendants
+  const targets = new Map();
+  const assign = (key, rel) => { if (rel && !targets.has(key)) targets.set(key, rel); };
+  for (const s of allStoriesFull()) {
+    const rel = releaseFromLabels(s.labels);
+    if (!rel) continue;
+    assign(`${STORY_REPO}#${s.num}`, rel);
+    const visited = new Set();
+    const stack = subIssues(OWNER, STORY_REPO, s.num).map((c) => ({ c }));
+    while (stack.length) {
+      const { c } = stack.pop();
+      const { owner, repo } = ownerRepoOf(c);
+      if (!repo || owner !== OWNER) continue;
+      const key = `${repo}#${c.number}`;
+      if (visited.has(key)) continue;
+      visited.add(key);
+      assign(key, rel);
+      for (const k of subIssues(owner, repo, c.number)) stack.push({ c: k });
+    }
+  }
+  assign("muDemocracy.org#30", "Decision Logger v1");
+  assign("muDemocracy.org#36", "Safe to try");
+  let set = 0, off = 0;
+  for (const [key, rel] of targets) {
+    const row = b.get(key);
+    if (!row) { off++; continue; }
+    if (row.release === rel) continue;
+    console.log(`${dryRun ? "[dry-run] " : ""}Release ${key} = ${rel}`);
+    if (!dryRun) setSingleSelect(row.itemId, "Release", rel, false);
+    set++;
+  }
+  console.log(`${targets.size} targets · ${set} ${dryRun ? "would be " : ""}set · ${off} not on board`);
 }
 
 // ---------------------------------------------------------------------------
@@ -447,7 +534,7 @@ function cmdBoard(argv) {
   );
   console.log(fmt(rows.map((r) => ({
     key: r.key, status: r.status, priority: r.priority,
-    iteration: r.iteration, moscow: r.moscow, title: r.title,
+    release: r.release, iteration: r.iteration, moscow: r.moscow, title: r.title,
   }))));
 }
 
@@ -533,6 +620,133 @@ function cmdCoverage() {
   }));
 }
 
+// Compact "moscow→base" cell, e.g. "Must,Should→P0" or "—".
+function moscowCell(stages) {
+  if (!stages.storyValues.length) return "—";
+  const ms = stages.storyValues.map((sv) => sv.moscow ?? "?").join(",");
+  return `${ms}→${stages.base ?? "none"}`;
+}
+
+const STAGE_LEGEND = [
+  ["1 served stories", "walk the sub-issue graph up to the user stories an issue serves"],
+  ["2 MoSCoW → P", "Must→P0 · Should→P1 · Could→P2 · Won't→(none)"],
+  ["3 base", "highest (most urgent) P across the served stories"],
+  ["4 bug floor", "a `bug` is never weaker than P1 (even with no story)"],
+  ["5 bump", "+1 tier (cap P0) if a label is in {" + [...BUMP_LABELS].join(", ") + "}"],
+  ["6 final", "the derived priority (written as the `priority: Pn` label + board mirror)"],
+];
+
+function cmdSummary(argv) {
+  const brief = argv.includes("--brief");
+  let fRepo, fRelease;
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--repo") fRepo = argv[++i];
+    else if (argv[i] === "--release") fRelease = argv[++i];
+  }
+  const r = computeRollup();
+  const keep = (row) => (!fRepo || row.repo === fRepo) && (!fRelease || row.release === fRelease);
+  const estimates = [...r.derived, ...r.bugs].filter((e) => keep(e.row)).sort((a, b) => pRank(a.p) - pRank(b.p));
+
+  const L = [];
+  L.push("PRIORITY ESTIMATE — how it is calculated");
+  L.push("");
+  for (const [k, v] of STAGE_LEGEND) L.push(`  Stage ${k.padEnd(16)} ${v}`);
+  L.push("");
+
+  // Totals
+  const cnt = { P0: 0, P1: 0, P2: 0 };
+  for (const e of estimates) if (e.p) cnt[e.p]++;
+  L.push(
+    `TOTALS   P0×${cnt.P0}  P1×${cnt.P1}  P2×${cnt.P2}   ·   ` +
+      `bugs(no story)×${r.bugs.filter((e) => keep(e.row)).length}  ` +
+      `unlinked×${r.unlinked.filter((u) => keep(u.row)).length}  ` +
+      `uncovered-stories×${r.uncovered.length}`
+  );
+
+  // By release
+  if (!fRelease) {
+    const byRel = new Map();
+    for (const e of estimates) {
+      const rel = e.row.release ?? "(no release)";
+      const m = byRel.get(rel) ?? { P0: 0, P1: 0, P2: 0 };
+      if (e.p) m[e.p]++;
+      byRel.set(rel, m);
+    }
+    if (byRel.size) {
+      L.push("");
+      L.push("BY RELEASE");
+      for (const [rel, m] of byRel) L.push(`  ${rel.padEnd(22)} P0×${m.P0}  P1×${m.P1}  P2×${m.P2}`);
+    }
+  }
+
+  if (!brief) {
+    L.push("");
+    L.push("ESTIMATES (stage by stage)");
+    L.push(`  ${"issue".padEnd(16)} ${"served".padEnd(14)} ${"moscow→base".padEnd(16)} ${"floor".padEnd(6)} ${"bump".padEnd(14)} final`);
+    for (const e of estimates) {
+      const s = e.stages;
+      const served = s.served.length ? s.served.map((n) => "#" + n).join(",") : e.stages.isBug ? "—(bug)" : "—";
+      const floor = s.bugFloor?.applied ? `→${s.bugFloor.to}` : "—";
+      const bumpc = s.bump.applied ? `→${s.bump.to}(${s.bump.labels.join(",")})` : "—";
+      L.push(
+        `  ${e.row.key.padEnd(16)} ${served.slice(0, 14).padEnd(14)} ${moscowCell(s).padEnd(16)} ${floor.padEnd(6)} ${bumpc.slice(0, 14).padEnd(14)} ${e.p ?? "none"}`
+      );
+    }
+  }
+  console.log(L.join("\n"));
+}
+
+function cmdExplain(argv) {
+  const repo = argv[0];
+  const num = argv[1];
+  if (!repo || !num) die("usage: explain <repo> <issue#>");
+  const key = `${repo}#${num}`;
+  const r = computeRollup();
+  const entry =
+    r.derived.find((e) => e.row.key === key) ||
+    r.bugs.find((e) => e.row.key === key) ||
+    r.unlinked.find((u) => u.row.key === key);
+  if (!entry) die(`${key} is not an open, prioritisable issue on the board (is it a story/epic, closed, or absent?)`);
+  const { row, stages: s } = entry;
+  const p = entry.p ?? null;
+
+  const L = [];
+  L.push(`${row.key} — ${row.title}`);
+  L.push(`final priority: ${p ?? "(none)"}${row.release ? ` · release: ${row.release}` : ""}`);
+  L.push("");
+  L.push("Stage 1 · served stories (sub-issue graph)");
+  L.push(s.served.length ? s.served.map((n) => `    ${STORY_REPO}#${n}`).join("\n") : "    (none — this issue serves no user story)");
+  L.push("Stage 2 · story value (MoSCoW → P)");
+  L.push(
+    s.storyValues.length
+      ? s.storyValues.map((sv) => `    #${sv.story}  ${sv.moscow ?? "no MoSCoW set"} → ${sv.p ?? "(none)"}`).join("\n")
+      : "    n/a"
+  );
+  L.push("Stage 3 · base = highest served story");
+  L.push(`    ${s.base ?? "(none)"}`);
+  L.push("Stage 4 · bug floor (a bug is never weaker than P1)");
+  L.push(
+    !s.isBug
+      ? "    n/a — not a bug"
+      : s.bugFloor.applied
+        ? `    applied: ${s.bugFloor.from ?? "(none)"} → ${s.bugFloor.to}`
+        : `    not needed — base ${s.bugFloor.from} already ≥ P1`
+  );
+  L.push(`Stage 5 · bump (labels in {${[...BUMP_LABELS].join(", ")}})`);
+  L.push(
+    s.bump.labels.length
+      ? s.bump.applied
+        ? `    applied: ${s.bump.from} → ${s.bump.to}  (label: ${s.bump.labels.join(", ")})`
+        : `    signal present (${s.bump.labels.join(", ")}) but already at P0`
+      : "    none"
+  );
+  L.push("Stage 6 · final");
+  const label = row.labels.find((l) => l.startsWith("priority: ")) ?? "(no label)";
+  const sync = (p ? `priority: ${p}` : "(none)") === label && (p ?? null) === (row.priority ?? null);
+  L.push(`    ${p ?? "(none)"}   [board: ${row.priority ?? "—"} · label: ${label}]  ${sync ? "✓ in sync" : "⚠ stale — run rollup --fix"}`);
+  console.log(L.join("\n"));
+}
+
 function cmdSet(argv) {
   const dryRun = argv.includes("--dry-run");
   const repo = argv[0];
@@ -600,10 +814,14 @@ function help() {
   story set <num> --moscow <M> [--release <ms>]
   tree <story#>                   print story -> sub-issue tree
   rollup [--fix]                  derive impl priority from stories (dry-run by default)
+  summary [--repo R --release X --brief]   priority estimates with the calculation stages
+  explain <repo> <issue#>         stage-by-stage derivation for one issue
   coverage                        bugs-ASAP + unlinked + uncovered-stories audit (JSON)
+  release-sync [--dry-run]        set the Release field from milestone labels + story parentage
   set <repo> <issue#> [--status --priority --iteration] [--dry-run]
   reconcile [--fix]               report/repair board drift
 
+Priority stages: served stories → MoSCoW→P → base(max) → bug floor(P1) → bump(+1) → final.
 Env: GHP_OWNER, GHP_PROJECT, GHP_STORY_REPO. Requires an authenticated \`gh\`.`);
 }
 
@@ -623,6 +841,9 @@ try {
     case "tree": cmdTree(rest[0]); break;
     case "rollup": cmdRollup(rest); break;
     case "coverage": cmdCoverage(); break;
+    case "summary": cmdSummary(rest); break;
+    case "explain": cmdExplain(rest); break;
+    case "release-sync": cmdReleaseSync(dry); break;
     case "set": cmdSet(rest); break;
     case "reconcile": cmdReconcile(rest); break;
     case "help": case "--help": case "-h": case undefined: help(); break;

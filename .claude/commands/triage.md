@@ -58,12 +58,15 @@ Never set Status=Ready on an unlinked-non-bug issue — surface it instead (Stag
 
 ```bash
 node /tmp/gh-project.mjs reconcile --fix
+node /tmp/gh-project.mjs summary            # priority estimates + the calculation stages
 ```
 
 Report, grouped:
-1. **Per-iteration** table of in-scope issues (key, priority, status).
-2. **Bugs — fix ASAP** lane (bugs with no story, P1 floor / P0 if release-blocking).
-3. **Unlinked — could get lost** (non-bug, no story) — propose a story to link each to.
-4. **Uncovered stories** (no implementation children yet).
+1. **Priority estimate summary** — the `summary` output (TOTALS, BY RELEASE, stage table). If a
+   single issue's priority looks surprising, run `explain <repo> <#>` to show its six stages.
+2. **Per-iteration** table of in-scope issues (key, priority, status).
+3. **Bugs — fix ASAP** lane (bugs with no story, P1 floor / P0 if release-blocking).
+4. **Unlinked — could get lost** (non-bug, no story) — propose a story to link each to.
+5. **Uncovered stories** (no implementation children yet).
 
-Do not invent priority by hand — if the rollup can't derive it, it belongs in lane 2 or 3.
+Do not invent priority by hand — if the rollup can't derive it, it belongs in lane 3 or 4.
