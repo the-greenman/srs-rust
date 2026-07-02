@@ -1,7 +1,9 @@
 use crate::error::RepositoryError;
 use crate::services::create_note;
 use crate::store::RepositoryStore;
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use srs_core::types::note::{Note, NoteSection};
 use std::path::PathBuf;
 
@@ -111,6 +113,102 @@ pub fn get_repository_status(
     })
 }
 
+/// Input for re-stamping a seed repository's identity.
+///
+/// # ID generation
+/// `repository_id: None` triggers UUID v4 auto-mint inside the service, so
+/// WASM and other non-CLI callers benefit without needing UUID generation logic
+/// of their own. This intentionally differs from `create_repository`, which
+/// requires the caller to pre-mint an ID.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InitNewRepositoryInput {
+    pub repository_id: Option<String>,
+    pub namespace: String,
+    pub title: String,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InitNewRepositoryResult {
+    pub repository_id: String,
+    pub namespace: String,
+    pub package_id: String,
+    pub package_version: String,
+}
+
+/// Re-stamp a seed repository's identity and update `meta.upstreamPackage.installedAt`.
+///
+/// The store must already contain a manifest with `meta.upstreamPackage`
+/// (written by the governance-seed install; WS-1 guarantee). All other
+/// `upstreamPackage` fields are preserved unchanged.
+pub fn init_new_repository(
+    store: &dyn RepositoryStore,
+    input: InitNewRepositoryInput,
+) -> Result<InitNewRepositoryResult, RepositoryError> {
+    if input.namespace.trim().is_empty() {
+        return Err(RepositoryError::InvalidRepositoryInitialization {
+            message: "namespace must not be empty".to_string(),
+        });
+    }
+    if input.title.trim().is_empty() {
+        return Err(RepositoryError::InvalidRepositoryInitialization {
+            message: "title must not be empty".to_string(),
+        });
+    }
+
+    let repository_id = input
+        .repository_id
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+    let mut manifest = store.load_manifest()?;
+
+    manifest
+        .extra
+        .insert("repositoryId".to_string(), Value::String(repository_id.clone()));
+    manifest
+        .extra
+        .insert("namespace".to_string(), Value::String(input.namespace.clone()));
+    manifest
+        .extra
+        .insert("title".to_string(), Value::String(input.title));
+    if let Some(d) = input.description {
+        manifest
+            .extra
+            .insert("description".to_string(), Value::String(d));
+    }
+
+    let meta_val = manifest
+        .extra
+        .get_mut("meta")
+        .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
+            message: "meta.upstreamPackage is absent — store must be a seed with upstream provenance".to_string(),
+        })?;
+
+    let upstream = meta_val
+        .get_mut("upstreamPackage")
+        .and_then(|v| v.as_object_mut())
+        .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
+            message: "meta.upstreamPackage is absent or not an object".to_string(),
+        })?;
+
+    upstream.insert(
+        "installedAt".to_string(),
+        Value::String(Utc::now().to_rfc3339()),
+    );
+
+    store.save_manifest(&manifest)?;
+
+    let pkg = store.load_package()?;
+    Ok(InitNewRepositoryResult {
+        repository_id,
+        namespace: input.namespace,
+        package_id: pkg.id,
+        package_version: pkg.version,
+    })
+}
+
 fn validate_initialize_input(input: &InitializeRepositoryInput) -> Result<(), RepositoryError> {
     let checks = [
         (
@@ -216,5 +314,187 @@ mod tests {
             result,
             Err(RepositoryError::InvalidRepositoryInitialization { .. })
         ));
+    }
+
+    // ── init_new_repository tests ─────────────────────────────────────────────
+
+    /// Build an empty MemoryStore and stamp meta.upstreamPackage into its manifest.
+    fn seed_memory_store() -> MemoryStore {
+        let store = MemoryStore::empty();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.extra.insert("repositoryId".to_string(), serde_json::json!("seed-repo-id"));
+        manifest.extra.insert("namespace".to_string(), serde_json::json!("com.mudemocracy.governance"));
+        manifest.extra.insert("title".to_string(), serde_json::json!("Seed"));
+        manifest.extra.insert("meta".to_string(), serde_json::json!({
+            "upstreamPackage": {
+                "packageId": "pkg-upstream-001",
+                "namespace": "com.mudemocracy.governance",
+                "name": "Governance",
+                "version": "1.0.0",
+                "installedAt": ""
+            }
+        }));
+        store.save_manifest(&manifest).unwrap();
+        store
+    }
+
+    fn seed_srsj() -> String {
+        serde_json::json!({
+            "srsj": "1",
+            "manifest": {
+                "repositoryId": "seed-repo-id",
+                "srsVersion": "2.0-draft",
+                "namespace": "com.mudemocracy.governance",
+                "instanceIndex": [],
+                "packageRef": {"mode": "local", "path": "package"},
+                "meta": {
+                    "upstreamPackage": {
+                        "packageId": "pkg-upstream-001",
+                        "namespace": "com.mudemocracy.governance",
+                        "name": "Governance",
+                        "version": "1.0.0",
+                        "installedAt": ""
+                    }
+                }
+            },
+            "data": {
+                "package/package.json": {
+                    "id": "pkg-upstream-001",
+                    "namespace": "com.mudemocracy.governance",
+                    "name": "Governance",
+                    "version": "1.0.0",
+                    "fields": [], "types": [], "relationTypes": [],
+                    "views": [], "documentViews": []
+                }
+            }
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn init_new_repository_updates_identity_on_memory_store() {
+        let store = seed_memory_store();
+        let input = super::InitNewRepositoryInput {
+            repository_id: None,
+            namespace: "com.example.test".to_string(),
+            title: "Test Repo".to_string(),
+            description: Some("A test description".to_string()),
+        };
+
+        let result = super::init_new_repository(&store, input).unwrap();
+
+        assert_ne!(result.repository_id, "seed-repo-id", "should have a new ID");
+        assert_eq!(result.namespace, "com.example.test");
+
+        let manifest = store.load_manifest().unwrap();
+        let installed_at = manifest.extra["meta"]["upstreamPackage"]["installedAt"]
+            .as_str()
+            .unwrap();
+        assert!(!installed_at.is_empty(), "installedAt should be set");
+        assert!(installed_at.contains('T'), "installedAt should be ISO-8601");
+
+        // Other upstreamPackage fields unchanged
+        assert_eq!(
+            manifest.extra["meta"]["upstreamPackage"]["packageId"].as_str().unwrap(),
+            "pkg-upstream-001"
+        );
+        assert_eq!(
+            manifest.extra["meta"]["upstreamPackage"]["namespace"].as_str().unwrap(),
+            "com.mudemocracy.governance"
+        );
+
+        // Description persisted
+        assert_eq!(
+            manifest.extra["description"].as_str().unwrap(),
+            "A test description"
+        );
+    }
+
+    #[test]
+    fn init_new_repository_roundtrips_via_json_store() {
+        let store = crate::json_store::JsonStore::from_srsj(&seed_srsj()).unwrap();
+        let input = super::InitNewRepositoryInput {
+            repository_id: Some("new-fixed-uuid".to_string()),
+            namespace: "com.example.roundtrip".to_string(),
+            title: "Roundtrip Test".to_string(),
+            description: None,
+        };
+
+        let result = super::init_new_repository(&store, input).unwrap();
+        assert_eq!(result.repository_id, "new-fixed-uuid");
+        assert_eq!(result.package_id, "pkg-upstream-001");
+        assert_eq!(result.package_version, "1.0.0");
+
+        let serialized = store.to_srsj_string().unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(parsed["manifest"]["repositoryId"].as_str().unwrap(), "new-fixed-uuid");
+        assert_eq!(parsed["manifest"]["namespace"].as_str().unwrap(), "com.example.roundtrip");
+        assert_eq!(parsed["manifest"]["title"].as_str().unwrap(), "Roundtrip Test");
+
+        // Provenance preserved
+        assert_eq!(
+            parsed["manifest"]["meta"]["upstreamPackage"]["packageId"].as_str().unwrap(),
+            "pkg-upstream-001"
+        );
+        let installed_at = parsed["manifest"]["meta"]["upstreamPackage"]["installedAt"]
+            .as_str()
+            .unwrap();
+        assert!(!installed_at.is_empty(), "installedAt should be set after init");
+    }
+
+    #[test]
+    fn init_new_repository_rejects_missing_upstream_package() {
+        // MemoryStore::empty() has an empty manifest — no meta.upstreamPackage
+        let store = MemoryStore::empty();
+        let input = super::InitNewRepositoryInput {
+            repository_id: None,
+            namespace: "com.example".to_string(),
+            title: "Test".to_string(),
+            description: None,
+        };
+
+        let err = super::init_new_repository(&store, input).unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::InvalidRepositoryInitialization { .. }),
+            "expected InvalidRepositoryInitialization, got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn init_new_repository_rejects_empty_namespace() {
+        let store = seed_memory_store();
+        let input = super::InitNewRepositoryInput {
+            repository_id: None,
+            namespace: " ".to_string(),
+            title: "Test".to_string(),
+            description: None,
+        };
+
+        let err = super::init_new_repository(&store, input).unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::InvalidRepositoryInitialization { .. }),
+            "expected InvalidRepositoryInitialization, got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn init_new_repository_rejects_empty_title() {
+        let store = seed_memory_store();
+        let input = super::InitNewRepositoryInput {
+            repository_id: None,
+            namespace: "com.example".to_string(),
+            title: " ".to_string(),
+            description: None,
+        };
+
+        let err = super::init_new_repository(&store, input).unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::InvalidRepositoryInitialization { .. }),
+            "expected InvalidRepositoryInitialization, got {:?}",
+            err
+        );
     }
 }
