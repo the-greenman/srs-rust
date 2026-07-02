@@ -14,8 +14,8 @@ use srs_repository::manifest_service::{
     add_declared_extension, list_declared_extensions, remove_declared_extension,
 };
 use srs_repository::repository_lifecycle::{
-    create_repository_with_intent, init_new_repository, InitializeRepositoryInput,
-    InitNewRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
+    create_repository_with_intent, init_new_repository, InitNewRepositoryInput,
+    InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
 };
 use srs_repository::repository_navigation_service::repository_navigation;
 use srs_repository::repository_portability::copy_repository;
@@ -374,7 +374,12 @@ fn cmd_repo_init_new(
     title: String,
     description: Option<String>,
 ) -> Result<String> {
-    let input = InitNewRepositoryInput { repository_id, namespace, title, description };
+    let input = InitNewRepositoryInput {
+        repository_id,
+        namespace,
+        title,
+        description,
+    };
     let result = with_store(&ctx, |store| Ok(init_new_repository(store, input)?))?;
     output::serialize(
         "repo init-new",

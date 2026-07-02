@@ -164,12 +164,14 @@ pub fn init_new_repository(
 
     let mut manifest = store.load_manifest()?;
 
-    manifest
-        .extra
-        .insert("repositoryId".to_string(), Value::String(repository_id.clone()));
-    manifest
-        .extra
-        .insert("namespace".to_string(), Value::String(input.namespace.clone()));
+    manifest.extra.insert(
+        "repositoryId".to_string(),
+        Value::String(repository_id.clone()),
+    );
+    manifest.extra.insert(
+        "namespace".to_string(),
+        Value::String(input.namespace.clone()),
+    );
     manifest
         .extra
         .insert("title".to_string(), Value::String(input.title));
@@ -179,12 +181,13 @@ pub fn init_new_repository(
             .insert("description".to_string(), Value::String(d));
     }
 
-    let meta_val = manifest
-        .extra
-        .get_mut("meta")
-        .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
-            message: "manifest meta object is absent — store must be a seed with upstream provenance".to_string(),
-        })?;
+    let meta_val = manifest.extra.get_mut("meta").ok_or_else(|| {
+        RepositoryError::InvalidRepositoryInitialization {
+            message:
+                "manifest meta object is absent — store must be a seed with upstream provenance"
+                    .to_string(),
+        }
+    })?;
 
     let upstream = meta_val
         .get_mut("upstreamPackage")
@@ -322,18 +325,29 @@ mod tests {
     fn seed_memory_store() -> MemoryStore {
         let store = MemoryStore::empty();
         let mut manifest = store.load_manifest().unwrap();
-        manifest.extra.insert("repositoryId".to_string(), serde_json::json!("seed-repo-id"));
-        manifest.extra.insert("namespace".to_string(), serde_json::json!("com.mudemocracy.governance"));
-        manifest.extra.insert("title".to_string(), serde_json::json!("Seed"));
-        manifest.extra.insert("meta".to_string(), serde_json::json!({
-            "upstreamPackage": {
-                "packageId": "pkg-upstream-001",
-                "namespace": "com.mudemocracy.governance",
-                "name": "Governance",
-                "version": "1.0.0",
-                "installedAt": ""
-            }
-        }));
+        manifest.extra.insert(
+            "repositoryId".to_string(),
+            serde_json::json!("seed-repo-id"),
+        );
+        manifest.extra.insert(
+            "namespace".to_string(),
+            serde_json::json!("com.mudemocracy.governance"),
+        );
+        manifest
+            .extra
+            .insert("title".to_string(), serde_json::json!("Seed"));
+        manifest.extra.insert(
+            "meta".to_string(),
+            serde_json::json!({
+                "upstreamPackage": {
+                    "packageId": "pkg-upstream-001",
+                    "namespace": "com.mudemocracy.governance",
+                    "name": "Governance",
+                    "version": "1.0.0",
+                    "installedAt": ""
+                }
+            }),
+        );
         store.save_manifest(&manifest).unwrap();
         store
     }
@@ -395,11 +409,15 @@ mod tests {
 
         // Other upstreamPackage fields unchanged
         assert_eq!(
-            manifest.extra["meta"]["upstreamPackage"]["packageId"].as_str().unwrap(),
+            manifest.extra["meta"]["upstreamPackage"]["packageId"]
+                .as_str()
+                .unwrap(),
             "pkg-upstream-001"
         );
         assert_eq!(
-            manifest.extra["meta"]["upstreamPackage"]["namespace"].as_str().unwrap(),
+            manifest.extra["meta"]["upstreamPackage"]["namespace"]
+                .as_str()
+                .unwrap(),
             "com.mudemocracy.governance"
         );
 
@@ -428,19 +446,33 @@ mod tests {
         let serialized = store.to_srsj_string().unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&serialized).unwrap();
 
-        assert_eq!(parsed["manifest"]["repositoryId"].as_str().unwrap(), "new-fixed-uuid");
-        assert_eq!(parsed["manifest"]["namespace"].as_str().unwrap(), "com.example.roundtrip");
-        assert_eq!(parsed["manifest"]["title"].as_str().unwrap(), "Roundtrip Test");
+        assert_eq!(
+            parsed["manifest"]["repositoryId"].as_str().unwrap(),
+            "new-fixed-uuid"
+        );
+        assert_eq!(
+            parsed["manifest"]["namespace"].as_str().unwrap(),
+            "com.example.roundtrip"
+        );
+        assert_eq!(
+            parsed["manifest"]["title"].as_str().unwrap(),
+            "Roundtrip Test"
+        );
 
         // Provenance preserved
         assert_eq!(
-            parsed["manifest"]["meta"]["upstreamPackage"]["packageId"].as_str().unwrap(),
+            parsed["manifest"]["meta"]["upstreamPackage"]["packageId"]
+                .as_str()
+                .unwrap(),
             "pkg-upstream-001"
         );
         let installed_at = parsed["manifest"]["meta"]["upstreamPackage"]["installedAt"]
             .as_str()
             .unwrap();
-        assert!(!installed_at.is_empty(), "installedAt should be set after init");
+        assert!(
+            !installed_at.is_empty(),
+            "installedAt should be set after init"
+        );
     }
 
     #[test]
@@ -502,7 +534,9 @@ mod tests {
     fn init_new_repository_rejects_meta_without_upstream_package() {
         let store = MemoryStore::empty();
         let mut manifest = store.load_manifest().unwrap();
-        manifest.extra.insert("meta".to_string(), serde_json::json!({}));
+        manifest
+            .extra
+            .insert("meta".to_string(), serde_json::json!({}));
         store.save_manifest(&manifest).unwrap();
 
         let input = super::InitNewRepositoryInput {
