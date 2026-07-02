@@ -140,5 +140,7 @@ Quick rules:
 - **Bugs** are fixed ASAP — they floor at `priority: P1` even without a story.
 - **Unlinked non-bug** work is flagged ("could get lost"), never dropped — link it to a story.
 - The tool **self-discovers** the board IDs — never hardcode project/field IDs in a prompt.
+- **Explainable estimates:** `gh-project summary` shows all priority estimates with the six
+  calculation stages; `gh-project explain <repo> <#>` walks one issue through them.
 - Skills: `/triage`, `/stories`, `/roadmap`. Tool source: `scripts/gh-project.mjs`, released as a
   GitHub asset (`gh release download --repo the-greenman/srs-rust --pattern gh-project.mjs`).
