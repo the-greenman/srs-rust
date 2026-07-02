@@ -125,6 +125,7 @@ pub fn repo_created(output: &str, title: &str, repository_id: &str, has_purpose:
             "placeholder"
         }
     );
+    println!("  Root container: identity note + Decision Log (RFC-013)");
     println!("  Containers scaffolded:");
     println!("    ⊕  Decision Log  — empty, ready for decisions");
     println!();

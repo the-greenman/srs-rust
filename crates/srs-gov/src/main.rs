@@ -691,7 +691,7 @@ fn cmd_repo_create(output: &str, title: &str, purpose: Option<&str>) -> Result<(
         "tags": ["intent"],
         "sections": [ { "name": "intent", "content": purpose_text } ]
     });
-    srs_create_note(output, &intent.to_string())?;
+    let intent_id = srs_create_note(output, &intent.to_string())?;
 
     // 3. Decision Log container + decision_log root record.
     let dl_title = format!("{title} Decision Log");
@@ -703,6 +703,20 @@ fn cmd_repo_create(output: &str, title: &str, purpose: Option<&str>) -> Result<(
     });
     let dl_root_id = srs_create_record(output, "governance/decision_log", &dl_fv.to_string())?;
     srs_roots_add(output, &dl_id, &dl_root_id)?;
+
+    // 4. Required root container (RFC-013): the repo's identity + top of structural navigation.
+    //    identity = the intent note; the (single) section root = the decision-log root record.
+    //    Written straight into the manifest (round-trips via the Manifest `extra` bag until
+    //    srs-core types it — srs-rust#263).
+    let mut repo_json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(out_path)?).context("re-read new repo")?;
+    repo_json["manifest"]["container"] = serde_json::json!({
+        "containerId": uuid::Uuid::new_v4().to_string(),
+        "title": title,
+        "identityInstanceId": intent_id,
+        "rootInstanceIds": [intent_id, dl_root_id]
+    });
+    std::fs::write(out_path, serde_json::to_string_pretty(&repo_json)?)?;
 
     render::repo_created(output, title, &new_id, purpose.is_some());
     Ok(())
