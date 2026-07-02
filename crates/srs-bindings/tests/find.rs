@@ -120,7 +120,10 @@ fn find_content_match_filters_hits() {
 #[test]
 fn find_rejects_malformed_query_json() {
     let result = serde_json::from_str::<DiscoveryQuery>("{invalid json}");
-    assert!(result.is_err(), "malformed JSON must be rejected by DiscoveryQuery deserializer");
+    assert!(
+        result.is_err(),
+        "malformed JSON must be rejected by DiscoveryQuery deserializer"
+    );
 }
 
 /// Structured `type_name` filter with no match returns an empty result set.

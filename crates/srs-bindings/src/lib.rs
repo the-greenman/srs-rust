@@ -73,8 +73,8 @@ impl SrsRepository {
     /// all optional — omit or pass `"{}"` for "return all").
     /// Returns a `DiscoveryResult` as a JS value.
     pub fn find(&self, query_json: &str) -> Result<JsValue, JsValue> {
-        let query: DiscoveryQuery = serde_json::from_str(query_json)
-            .map_err(|e| js_err(format!("invalid query: {e}")))?;
+        let query: DiscoveryQuery =
+            serde_json::from_str(query_json).map_err(|e| js_err(format!("invalid query: {e}")))?;
         let result = discovery_service::find(&self.store, query).map_err(js_err)?;
         to_js(&result)
     }
