@@ -74,15 +74,23 @@ fn run(args: &[&str]) -> (bool, String) {
 }
 
 #[test]
-fn top_level_lists_governance_containers() {
+fn top_level_lists_only_decision_log() {
+    // Release 1 is decision-log-only: srs-gov surfaces the Decision Log and ignores any
+    // article/role containers a repo may still carry (those types are dormant in the package).
     let (ok, out) = run(&[]);
     assert!(ok, "srs-gov top-level failed");
     assert!(
         out.contains("decision_log"),
         "expected decision_log section\n{out}"
     );
-    assert!(out.contains("articles"), "expected articles section\n{out}");
-    assert!(out.contains("roles"), "expected roles section\n{out}");
+    assert!(
+        !out.contains("articles"),
+        "articles section should not be surfaced in release 1\n{out}"
+    );
+    assert!(
+        !out.contains("roles"),
+        "roles section should not be surfaced in release 1\n{out}"
+    );
 }
 
 #[test]

@@ -680,17 +680,18 @@ fn cmd_repo_create(output: &str, title: &str, purpose: Option<&str>) -> Result<(
     let json = serde_json::to_string_pretty(&seed)?;
     std::fs::File::create(out_path)?.write_all(json.as_bytes())?;
 
-    // 2. Articles container + charter article root.
-    let articles_id = srs_create_container(output, "document", "Articles")?;
-    let charter_text = purpose.unwrap_or("Add your organisation's purpose statement here.");
-    let charter_fv = serde_json::json!({
-        "fieldValues": [
-            { "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a", "value": title },
-            { "fieldId": "8aa3eba2-204b-5ebd-ba7a-be0f066027d6", "value": charter_text }
-        ]
+    // 2. Repository identity: a Tier-0 "intent" note carrying the title + purpose (RFC-013).
+    //    Release 1 is a decision-log-only template — this replaces the former charter article;
+    //    the article/role types stay dormant in the com.mudemocracy.governance package.
+    let purpose_text = purpose.unwrap_or("Add your group's purpose statement here.");
+    // `srs note create` reads a bare Note from stdin (container comes from --container).
+    let intent = serde_json::json!({
+        "instanceId": uuid::Uuid::new_v4().to_string(),
+        "title": title,
+        "tags": ["intent"],
+        "sections": [ { "name": "intent", "content": purpose_text } ]
     });
-    let charter_id = srs_create_record(output, "governance/article", &charter_fv.to_string())?;
-    srs_roots_add(output, &articles_id, &charter_id)?;
+    srs_create_note(output, &intent.to_string())?;
 
     // 3. Decision Log container + decision_log root record.
     let dl_title = format!("{title} Decision Log");
@@ -703,11 +704,16 @@ fn cmd_repo_create(output: &str, title: &str, purpose: Option<&str>) -> Result<(
     let dl_root_id = srs_create_record(output, "governance/decision_log", &dl_fv.to_string())?;
     srs_roots_add(output, &dl_id, &dl_root_id)?;
 
-    // 4. Roles container (no root record — first role the org assigns serves as root).
-    srs_create_container(output, "document", "Roles")?;
-
     render::repo_created(output, title, &new_id, purpose.is_some());
     Ok(())
+}
+
+fn srs_create_note(repo: &str, note_json: &str) -> Result<String> {
+    let payload = srs::run_srs_write(&["note", "create"], repo, note_json)?;
+    payload["note"]["instanceId"]
+        .as_str()
+        .map(String::from)
+        .ok_or_else(|| anyhow::anyhow!("note create returned no instanceId"))
 }
 
 fn srs_create_container(repo: &str, container_type: &str, title: &str) -> Result<String> {
