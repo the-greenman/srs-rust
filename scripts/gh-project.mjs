@@ -400,6 +400,7 @@ function applyPriority(entry, dryRun) {
 const RELEASE_FROM_LABEL = {
   "milestone:decision-logger-v1": "Decision Logger v1",
   "milestone:safe-to-try": "Safe to try",
+  "milestone:future": "Future",
 };
 function releaseFromLabels(labels) {
   for (const [lbl, rel] of Object.entries(RELEASE_FROM_LABEL)) if (labels.includes(lbl)) return rel;
