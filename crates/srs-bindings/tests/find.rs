@@ -114,6 +114,15 @@ fn find_content_match_filters_hits() {
     assert_eq!(result.hits[0].instance_id, REC_AUTHORITY);
 }
 
+/// Malformed JSON is rejected before reaching the service.
+/// Exercises the `serde_json::from_str::<DiscoveryQuery>` call the binding wraps at its first
+/// line — the error path that `to_js()` prevents from being tested via `SrsRepository::find()`.
+#[test]
+fn find_rejects_malformed_query_json() {
+    let result = serde_json::from_str::<DiscoveryQuery>("{invalid json}");
+    assert!(result.is_err(), "malformed JSON must be rejected by DiscoveryQuery deserializer");
+}
+
 /// Structured `type_name` filter with no match returns an empty result set.
 #[test]
 fn find_type_name_filter_is_exact() {
