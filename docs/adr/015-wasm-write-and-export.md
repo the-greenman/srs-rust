@@ -1,6 +1,6 @@
 # ADR-015: WASM write bindings and pure `to_srsj_string` export
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-06-07
 - **Supersedes:** —
 
