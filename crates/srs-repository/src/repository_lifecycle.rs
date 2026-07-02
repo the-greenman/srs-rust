@@ -183,7 +183,7 @@ pub fn init_new_repository(
         .extra
         .get_mut("meta")
         .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
-            message: "meta.upstreamPackage is absent — store must be a seed with upstream provenance".to_string(),
+            message: "manifest meta object is absent — store must be a seed with upstream provenance".to_string(),
         })?;
 
     let upstream = meta_val
@@ -487,6 +487,53 @@ mod tests {
             repository_id: None,
             namespace: "com.example".to_string(),
             title: " ".to_string(),
+            description: None,
+        };
+
+        let err = super::init_new_repository(&store, input).unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::InvalidRepositoryInitialization { .. }),
+            "expected InvalidRepositoryInitialization, got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn init_new_repository_rejects_meta_without_upstream_package() {
+        let store = MemoryStore::empty();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.extra.insert("meta".to_string(), serde_json::json!({}));
+        store.save_manifest(&manifest).unwrap();
+
+        let input = super::InitNewRepositoryInput {
+            repository_id: None,
+            namespace: "com.example".to_string(),
+            title: "Test".to_string(),
+            description: None,
+        };
+
+        let err = super::init_new_repository(&store, input).unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::InvalidRepositoryInitialization { .. }),
+            "expected InvalidRepositoryInitialization, got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn init_new_repository_rejects_upstream_package_non_object() {
+        let store = MemoryStore::empty();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.extra.insert(
+            "meta".to_string(),
+            serde_json::json!({"upstreamPackage": "not-an-object"}),
+        );
+        store.save_manifest(&manifest).unwrap();
+
+        let input = super::InitNewRepositoryInput {
+            repository_id: None,
+            namespace: "com.example".to_string(),
+            title: "Test".to_string(),
             description: None,
         };
 
