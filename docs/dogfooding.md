@@ -509,6 +509,66 @@ This is issue #298 (parent plan §4): `srs-gov list` composes `container resolve
 
 **Done when.** The default list hides exactly the authored states and `--all` reveals them; `--search` narrows by content over a non-title field and `--tag` by facet; `--explain` shows the composed `resolve-view` + `find` commands carrying the authored excludes; `tui --smoke` renders a nonblank first frame for both existing and freshly scaffolded governance repos; `repo validate` stays at 0 errors. Crucially, the hidden-state set lives in the package `type-query` view (and is surfaced by `resolve-view`), never hardcoded in `srs-gov` — confirm with `rg "superseded|closed" crates/srs-gov/src` returning only `#[cfg(test)]` fixtures (and help text), never production filter logic.
 
+### S16 — Initialise a new organisation repository from a governance seed
+
+**Intention.** *"I've downloaded the governance seed package for my organisation. Before I start adding records I want to stamp it with our identity — our namespace, a title, and today's install date — so every future export carries the right provenance."*
+
+**Capabilities exercised.** `repo init-new` re-stamps an `.srsj` seed's identity while preserving upstream package provenance; `meta.upstreamPackage.installedAt` is updated on stamp; `repositoryId` is auto-generated when omitted; `repo validate` confirms the store is structurally sound after stamping; `repo map` confirms the new identity is visible.
+
+**CLI surface.** `repo init-new`, `repo validate`, `repo map`.
+
+**Steps.**
+
+1. Obtain a seed `.srsj` with `meta.upstreamPackage` provenance. The quickest source is the governance seed embedded in `crates/srs-repository/src/repository_lifecycle.rs` tests (the `seed_srsj()` helper). For a real test, use any `.srsj` produced by a governance-package install step that writes `meta.upstreamPackage`. Write it to `/tmp/dogfood-s16.srsj`:
+   ```bash
+   # Minimal seed in one step (requires jq):
+   echo '{"srsj":"1","manifest":{"repositoryId":"seed-repo-id","srsVersion":"2.0-draft","namespace":"com.mudemocracy.governance","instanceIndex":[],"packageRef":{"mode":"local","path":"package"},"meta":{"upstreamPackage":{"packageId":"pkg-001","namespace":"com.mudemocracy.governance","name":"Governance","version":"1.0.0","installedAt":""}}},"data":{"package/package.json":{"id":"pkg-001","namespace":"com.mudemocracy.governance","name":"Governance","version":"1.0.0","fields":[],"types":[],"relationTypes":[],"views":[],"documentViews":[]}}}' > /tmp/dogfood-s16.srsj
+   ```
+
+2. Orient before stamping:
+   ```bash
+   srs repo map --repo /tmp/dogfood-s16.srsj --pretty
+   ```
+   Confirm `repositoryId: "seed-repo-id"` and `namespace: "com.mudemocracy.governance"` — this is the seed identity, not the organisation's.
+
+3. Re-stamp with the organisation's identity:
+   ```bash
+   srs repo init-new --repo /tmp/dogfood-s16.srsj \
+     --namespace com.example.myorg \
+     --title "Example Org Governance" \
+     --description "Governance repository for Example Org"
+   ```
+   Confirm the payload carries:
+   - `repositoryId` — a new UUID (not `"seed-repo-id"`)
+   - `namespace: "com.example.myorg"`
+   - `packageId: "pkg-001"` and `packageVersion: "1.0.0"` (upstream provenance preserved)
+
+4. Confirm the identity is visible in the store:
+   ```bash
+   srs repo map --repo /tmp/dogfood-s16.srsj --pretty
+   ```
+   The map's `namespace` field must be `com.example.myorg`.
+
+5. Validate the stamped repository:
+   ```bash
+   srs repo validate --repo /tmp/dogfood-s16.srsj --pretty
+   ```
+
+**Negative case.** Run `repo init-new` against an `.srsj` that has no `meta.upstreamPackage` key (e.g. a repo created with `repo create`, which does not write upstream provenance):
+```bash
+srs repo create --repo /tmp/dogfood-s16-plain.srsj --namespace com.example --package-name test --package-version 1.0.0 --srs-version 2.0-draft
+srs repo init-new --repo /tmp/dogfood-s16-plain.srsj --namespace com.example.new --title "New"
+```
+Must return `ok: false` with a message referencing the absent `meta` or `upstreamPackage`.
+
+**Done when.**
+- `payload.repositoryId` is a UUID that differs from `"seed-repo-id"`.
+- `payload.namespace` is `"com.example.myorg"`.
+- `payload.packageId` and `payload.packageVersion` match the upstream provenance from the seed.
+- `srs repo map` shows the new namespace, title, and description.
+- `srs repo validate` on a real governance seed returns `ok: true` with 0 errors. (The minimal one-liner fixture above will fail package schema validation because it omits required `$schema`/`title`/`status`/`createdAt` fields from `package.json` — this is a fixture limitation, not a stamping bug. A real governance seed ships with a complete package manifest.)
+- The negative case returns `ok: false` with a message containing "manifest meta object is absent".
+
 ---
 
 ## Coverage matrix
@@ -518,6 +578,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | Command group | Exercised by |
 |---|---|
 | `repo` (map, validate, init) | S1–S6 (orientation + validation in every scenario) |
+| `repo init-new` (re-stamp seed identity) | S16 |
 | `repo copy` | S9, S10 |
 | `.srsj` write determinism (idempotent, minimal-diff) | S10 |
 | `note` (create/get/list/update/delete) | S1, S10 |

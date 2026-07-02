@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RepoInitNewPayload",
+  "type": "object",
+  "required": [
+    "namespace",
+    "packageId",
+    "packageVersion",
+    "repositoryId"
+  ],
+  "properties": {
+    "namespace": {
+      "type": "string"
+    },
+    "packageId": {
+      "type": "string"
+    },
+    "packageVersion": {
+      "type": "string"
+    },
+    "repositoryId": {
+      "type": "string"
+    }
+  }
+}

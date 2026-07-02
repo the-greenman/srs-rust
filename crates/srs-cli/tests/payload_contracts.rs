@@ -428,6 +428,16 @@ fn repo_extensions_enable() {
     check::<RepoExtensionsMutatePayload>("repo-extensions-enable");
 }
 
+#[test]
+fn repo_extensions_disable() {
+    check::<RepoExtensionsMutatePayload>("repo-extensions-disable");
+}
+
+#[test]
+fn repo_init_new() {
+    check::<RepoInitNewPayload>("repo-init-new");
+}
+
 // ── Package ───────────────────────────────────────────────────────────────────
 
 #[test]

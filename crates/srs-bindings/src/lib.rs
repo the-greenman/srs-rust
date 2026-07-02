@@ -9,6 +9,7 @@ use srs_repository::protocol_service::{self, GetProtocolResult};
 use srs_repository::record_store::{self, RecordListFilter, TransitionLifecycleInput};
 use srs_repository::relation_service::{self, ListRelationsFilter};
 use srs_repository::render_service::{self, RenderDocumentViewOptions};
+use srs_repository::repository_lifecycle::{self, InitNewRepositoryInput};
 use srs_repository::services::{self, ListNotesFilter};
 use srs_repository::type_schema_service::{self, TypeSchemaInput};
 use srs_repository::validation;
@@ -429,6 +430,19 @@ impl SrsRepository {
             },
         )
         .map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Re-stamp a seed repository's identity. `input_json` is a JSON string matching
+    /// `InitNewRepositoryInput` (`{"namespace":"...","title":"...",...}`).
+    /// Updates `repositoryId`, `namespace`, `title`, `description`, and
+    /// `meta.upstreamPackage.installedAt` in the manifest. Returns an
+    /// `InitNewRepositoryResult` as a JS value.
+    pub fn init_new_repository(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: InitNewRepositoryInput =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let result =
+            repository_lifecycle::init_new_repository(&self.store, input).map_err(js_err)?;
         to_js(&result)
     }
 }

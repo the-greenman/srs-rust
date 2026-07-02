@@ -548,6 +548,23 @@ pub enum RepoCommand {
     /// Extension management commands
     #[command(subcommand)]
     Extensions(RepoExtensionsCommand),
+    /// Re-stamp a seed .srsj with a new repository identity.
+    /// Modifies the file at --repo in place. Requires the seed to carry meta.upstreamPackage.
+    #[command(name = "init-new")]
+    InitNew {
+        /// Repository ID (UUID); auto-generated if omitted
+        #[arg(long = "repository-id")]
+        repository_id: Option<String>,
+        /// Repository namespace (reverse-DNS, e.g. com.myorg.governance)
+        #[arg(long)]
+        namespace: String,
+        /// Repository title (display name)
+        #[arg(long)]
+        title: String,
+        /// Repository description
+        #[arg(long)]
+        description: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
