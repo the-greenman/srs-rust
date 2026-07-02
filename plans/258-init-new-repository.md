@@ -115,15 +115,24 @@ schema (landed by WS-1). `check-schema-sync.sh` requires no action.
   1. Validate: namespace.trim().is_empty() → Err(InvalidRepositoryInitialization { "namespace must not be empty" })
                title.trim().is_empty()     → Err(InvalidRepositoryInitialization { "title must not be empty" })
   2. repository_id = input.repository_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
+     Note: UUID auto-mint lives here (not in the caller) so WASM and other non-CLI callers benefit.
   3. manifest = store.load_manifest()?
   4. manifest.extra.insert("repositoryId", Value::String(repository_id.clone()))
      manifest.extra.insert("namespace",    Value::String(input.namespace.clone()))
      manifest.extra.insert("title",        Value::String(input.title.clone()))
      if let Some(d) = input.description { manifest.extra.insert("description", Value::String(d)) }
-  5. Update meta.upstreamPackage.installedAt:
-       meta_val = manifest.extra.get_mut("meta") or return Err(InvalidRepositoryInitialization { "meta.upstreamPackage is absent — store must be a seed with upstream provenance" })
-       upstream = meta_val["upstreamPackage"] (must be object, same error if absent/not object)
-       upstream["installedAt"] = Value::String(chrono::Utc::now().to_rfc3339())
+  5. Update meta.upstreamPackage.installedAt using safe object mutation (NOT serde_json IndexMut —
+     that panics on non-Object values):
+       let meta_val = manifest.extra.get_mut("meta")
+           .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
+               reason: "meta.upstreamPackage is absent — store must be a seed with upstream provenance".into()
+           })?;
+       let upstream = meta_val.get_mut("upstreamPackage")
+           .and_then(|v| v.as_object_mut())
+           .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
+               reason: "meta.upstreamPackage is absent or not an object".into()
+           })?;
+       upstream.insert("installedAt".to_string(), Value::String(chrono::Utc::now().to_rfc3339()));
   6. store.save_manifest(&manifest)?
   7. pkg = store.load_package()?
   8. return Ok(InitNewRepositoryResult { repository_id, namespace: input.namespace, package_id: pkg.id, package_version: pkg.version })
@@ -131,15 +140,17 @@ schema (landed by WS-1). `check-schema-sync.sh` requires no action.
 
   Use `use chrono::Utc;` (already in `Cargo.toml`).
 
-- [ ] Add four unit tests at the bottom of `repository_lifecycle.rs` (inside existing `#[cfg(test)]` block):
+- [ ] Add five unit tests at the bottom of `repository_lifecycle.rs` (inside existing `#[cfg(test)]` block):
 
-  - `init_new_repository_updates_identity_on_memory_store` — builds a `MemoryStore` with `meta.upstreamPackage` in `extra`, calls service, asserts `repository_id` ≠ seed value, `namespace` matches, `installedAt` is non-empty ISO-8601 string, other `upstreamPackage` fields preserved.
+  - `init_new_repository_updates_identity_on_memory_store` — builds a `MemoryStore` with `meta.upstreamPackage` in `extra`, calls service, asserts `repository_id` ≠ seed value, `namespace` matches, `installedAt` is non-empty ISO-8601 string, other `upstreamPackage` fields preserved. Also asserts `description` is persisted when supplied.
 
   - `init_new_repository_roundtrips_via_json_store` — builds a seed `.srsj` JSON string (in-memory, with `meta.upstreamPackage`), loads via `JsonStore::from_srsj`, calls service, re-exports via `to_srsj_string`, parses JSON and asserts manifest fields + provenance preservation.
 
   - `init_new_repository_rejects_missing_upstream_package` — store without `meta.upstreamPackage` → `Err(InvalidRepositoryInitialization { .. })`.
 
   - `init_new_repository_rejects_empty_namespace` — `namespace: " ".to_string()` → `Err(InvalidRepositoryInitialization { .. })`.
+
+  - `init_new_repository_rejects_empty_title` — `title: " ".to_string()` → `Err(InvalidRepositoryInitialization { .. })`.
 
 #### Acceptance Criteria
 
@@ -148,7 +159,7 @@ schema (landed by WS-1). `check-schema-sync.sh` requires no action.
 - [ ] `installedAt` is a non-empty ISO-8601 string after the call
 - [ ] Error on missing `meta.upstreamPackage`
 - [ ] Error on empty `namespace` or empty `title`
-- [ ] All four tests pass on both `MemoryStore` and `JsonStore`
+- [ ] All five unit tests pass
 
 #### Testing
 
@@ -162,6 +173,7 @@ Specific tests:
 - `init_new_repository_roundtrips_via_json_store`
 - `init_new_repository_rejects_missing_upstream_package`
 - `init_new_repository_rejects_empty_namespace`
+- `init_new_repository_rejects_empty_title`
 
 #### Milestone gate
 
@@ -225,7 +237,8 @@ Specific tests:
 
 - [ ] Add imports in `repo.rs`: `use srs_repository::repository_lifecycle::InitNewRepositoryInput;` and `use srs_repository::repository_lifecycle::init_new_repository;`.
 
-- [ ] Implement `cmd_repo_init_new` in `commands/repo.rs` (must stay ≤ 15 lines per ADR-010):
+- [ ] Implement `cmd_repo_init_new` in `commands/repo.rs` (must stay ≤ 15 lines per ADR-010).
+  Use `with_store` (not `JsonStore::open` directly — that would violate CLAUDE.md's "no direct filesystem access in handlers" rule and produce misleading errors on FileStore paths):
 
   ```rust
   fn cmd_repo_init_new(
@@ -235,10 +248,8 @@ Specific tests:
       title: String,
       description: Option<String>,
   ) -> Result<String> {
-      let store = JsonStore::open(&ctx.repo)
-          .with_context(|| format!("Failed to open .srsj at {}", ctx.repo.display()))?;
       let input = InitNewRepositoryInput { repository_id, namespace, title, description };
-      let result = init_new_repository(&store, input)?;
+      let result = with_store(&ctx, |store| Ok(init_new_repository(store, input)?))?;
       output::serialize(
           "repo init-new",
           RepoInitNewPayload {
@@ -273,6 +284,8 @@ cargo clippy -p srs-cli -- -D warnings
 Tests:
 - `payload_contracts` (golden schema test covering `RepoInitNewPayload`)
 
+Note: a dedicated CLI integration test `cmd_repo_init_new_modifies_seed_file_in_place` may be added if the srs-cli test suite has a pattern for file-mutation command tests. If no such pattern exists, the acceptance criteria are verified in dogfooding (Stage 7.6) instead.
+
 #### Milestone gate
 
 1. `cargo test --test payload_contracts` passes
@@ -294,12 +307,12 @@ re-stamp the seed identity entirely in-browser.
 - [ ] Add import at top of `crates/srs-bindings/src/lib.rs`:
 
   ```rust
-  use srs_repository::repository_lifecycle::{self, InitNewRepositoryInput, InitNewRepositoryResult};
+  use srs_repository::repository_lifecycle::{self, InitNewRepositoryInput};
   ```
 
-  (Remove `InitNewRepositoryResult` from import if `to_js` can serialize it directly without the explicit type annotation — it will, since `to_js` is generic.)
+  Do NOT import `InitNewRepositoryResult` — `to_js<T: Serialize>` is generic and needs no explicit type annotation; importing it would produce an unused-import warning.
 
-- [ ] Add `init_new_repository` method to `impl SrsRepository` in `crates/srs-bindings/src/lib.rs`:
+- [ ] Append `init_new_repository` inside the single existing `#[wasm_bindgen] impl SrsRepository` block in `crates/srs-bindings/src/lib.rs` — do NOT create a second `impl SrsRepository` block (it would compile silently but export nothing to WASM):
 
   ```rust
   /// Re-stamp the loaded seed repository with a new identity.
@@ -317,7 +330,9 @@ re-stamp the seed identity entirely in-browser.
   }
   ```
 
-- [ ] Ensure `InitNewRepositoryResult` derives `Serialize` in `repository_lifecycle.rs` (already derived via `#[derive(..., Serialize, ...)]` — verify).
+- [ ] Verify `InitNewRepositoryResult` derives `Serialize` in `repository_lifecycle.rs` (already derived via `#[derive(..., Serialize, ...)]` — no change expected, just confirm).
+
+- [ ] Flip ADR-015 status from `proposed` to `accepted` in `docs/adr/015-wasm-write-and-export.md` — update the Status line and add a note that srs-rust#258 ships the deferred "future issue" for new-repo WASM creation.
 
 #### Acceptance Criteria
 
