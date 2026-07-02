@@ -117,17 +117,17 @@ pub fn repo_created(output: &str, title: &str, repository_id: &str, has_purpose:
     println!("  Repository ID: {repository_id}");
     println!("  Package:       com.mudemocracy.governance @1.0.0");
     println!();
-    println!("  Containers scaffolded:");
     println!(
-        "    §  Articles      — charter article ({})",
+        "  Identity:      intent note ({})",
         if has_purpose {
             "your purpose"
         } else {
             "placeholder"
         }
     );
+    println!("  Root container: identity note + Decision Log (RFC-013)");
+    println!("  Containers scaffolded:");
     println!("    ⊕  Decision Log  — empty, ready for decisions");
-    println!("    §  Roles         — empty, ready for role definitions");
     println!();
     println!("  Open in srs-web, or explore with:");
     println!("    srs-gov --repo {output}");

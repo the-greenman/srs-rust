@@ -74,15 +74,23 @@ fn run(args: &[&str]) -> (bool, String) {
 }
 
 #[test]
-fn top_level_lists_governance_containers() {
+fn top_level_lists_only_decision_log() {
+    // Release 1 is decision-log-only: srs-gov surfaces the Decision Log and ignores any
+    // article/role containers a repo may still carry (those types are dormant in the package).
     let (ok, out) = run(&[]);
     assert!(ok, "srs-gov top-level failed");
     assert!(
         out.contains("decision_log"),
         "expected decision_log section\n{out}"
     );
-    assert!(out.contains("articles"), "expected articles section\n{out}");
-    assert!(out.contains("roles"), "expected roles section\n{out}");
+    assert!(
+        !out.contains("articles"),
+        "articles section should not be surfaced in release 1\n{out}"
+    );
+    assert!(
+        !out.contains("roles"),
+        "roles section should not be surfaced in release 1\n{out}"
+    );
 }
 
 #[test]
@@ -314,6 +322,34 @@ fn repo_create_produces_valid_srsj() {
         .as_str()
         .unwrap_or("");
     assert_eq!(ns, "com.mudemocracy.governance");
+
+    // RFC-013: a required root container is scaffolded, with the intent note as identity
+    // and both the identity note and the decision-log root as members.
+    let container = &content["manifest"]["container"];
+    assert!(container.is_object(), "manifest.container missing");
+    let identity = container["identityInstanceId"].as_str().unwrap_or("");
+    assert!(!identity.is_empty(), "container has no identityInstanceId");
+    let index: std::collections::HashSet<&str> = content["manifest"]["instanceIndex"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|e| e["instanceId"].as_str())
+        .collect();
+    assert!(
+        index.contains(identity),
+        "identity does not resolve in index"
+    );
+    let roots = container["rootInstanceIds"].as_array().unwrap();
+    assert!(
+        roots
+            .iter()
+            .all(|r| index.contains(r.as_str().unwrap_or(""))),
+        "a rootInstanceId does not resolve in index"
+    );
+    assert!(
+        roots.iter().any(|r| r.as_str() == Some(identity)),
+        "identity must be a member of the root container"
+    );
 
     // srs validate must pass
     let validate = std::process::Command::new(&srs)

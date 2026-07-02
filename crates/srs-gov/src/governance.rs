@@ -18,29 +18,17 @@ pub struct ContainerTypeDef {
     pub creatable: &'static [(&'static str, &'static str)],
 }
 
-pub static GOVERNANCE_CONTAINERS: &[ContainerTypeDef] = &[
-    ContainerTypeDef {
-        key: "articles",
-        container_type: "document",
-        label: "Articles",
-        icon: "§",
-        creatable: &[("article", "governance/article")],
-    },
-    ContainerTypeDef {
-        key: "decision_log",
-        container_type: "decision_log",
-        label: "Decision Log",
-        icon: "⊕",
-        creatable: &[("decision", "governance/decision")],
-    },
-    ContainerTypeDef {
-        key: "roles",
-        container_type: "document",
-        label: "Roles",
-        icon: "◈",
-        creatable: &[("role", "governance/role")],
-    },
-];
+// Release 1 is a decision-log-only template. The `article` and `role` types remain
+// defined (dormant) in the com.mudemocracy.governance package, but a freshly-created
+// governance document scaffolds only the Decision Log. Re-adding Articles/Roles is a
+// future package-upgrade concern (muDemocracy.org#37), not a release-1 container.
+pub static GOVERNANCE_CONTAINERS: &[ContainerTypeDef] = &[ContainerTypeDef {
+    key: "decision_log",
+    container_type: "decision_log",
+    label: "Decision Log",
+    icon: "⊕",
+    creatable: &[("decision", "governance/decision")],
+}];
 
 /// Look up a container type def by CLI key.
 pub fn by_key(key: &str) -> Option<&'static ContainerTypeDef> {
@@ -78,13 +66,16 @@ mod tests {
     use std::collections::HashSet;
 
     #[test]
-    fn document_container_matching_disambiguates_by_title() {
+    fn decision_log_container_matches_by_type() {
         let mut used = HashSet::new();
 
-        let roles = match_container(Some("document"), "Roles", &mut used).unwrap();
-        let articles = match_container(Some("document"), "Articles", &mut used).unwrap();
+        let dl = match_container(Some("decision_log"), "Decision Log", &mut used).unwrap();
+        assert_eq!(dl.key, "decision_log");
 
-        assert_eq!(roles.key, "roles");
-        assert_eq!(articles.key, "articles");
+        // The def is single-use: a second decision_log container has nothing left to match.
+        assert!(match_container(Some("decision_log"), "Other Log", &mut used).is_none());
+
+        // Article/role container types are no longer in the registry (dormant in the package).
+        assert!(match_container(Some("document"), "Articles", &mut HashSet::new()).is_none());
     }
 }
