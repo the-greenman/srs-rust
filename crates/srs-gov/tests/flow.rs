@@ -323,12 +323,15 @@ fn repo_create_produces_valid_srsj() {
         .unwrap_or("");
     assert_eq!(ns, "com.mudemocracy.governance");
 
-    // RFC-013: a required root container is scaffolded, with the intent note as identity
-    // and both the identity note and the decision-log root as members.
-    let container = &content["manifest"]["container"];
-    assert!(container.is_object(), "manifest.container missing");
-    let identity = container["identityInstanceId"].as_str().unwrap_or("");
+    // RFC-013: a required root container is scaffolded with identity + sections in the store.
+    let container_embed = &content["manifest"]["container"];
+    assert!(container_embed.is_object(), "manifest.container missing");
+    let identity = container_embed["identityInstanceId"].as_str().unwrap_or("");
     assert!(!identity.is_empty(), "container has no identityInstanceId");
+    let container_id = container_embed["containerId"].as_str().unwrap_or("");
+    assert!(!container_id.is_empty(), "container has no containerId");
+
+    // identity must resolve in the instance index
     let index: std::collections::HashSet<&str> = content["manifest"]["instanceIndex"]
         .as_array()
         .unwrap()
@@ -339,16 +342,27 @@ fn repo_create_produces_valid_srsj() {
         index.contains(identity),
         "identity does not resolve in index"
     );
-    let roots = container["rootInstanceIds"].as_array().unwrap();
+
+    // full container must be saved to the store with memberInstanceIds
+    let container_key = format!("containers/{container_id}.json");
+    let full_container = &content["data"][&container_key];
     assert!(
-        roots
-            .iter()
-            .all(|r| index.contains(r.as_str().unwrap_or(""))),
-        "a rootInstanceId does not resolve in index"
+        full_container.is_object(),
+        "root container not found in data[\"containers/{container_id}.json\"]"
     );
+    let member_ids: Vec<&str> = full_container["memberInstanceIds"]
+        .as_array()
+        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+        .unwrap_or_default();
     assert!(
-        roots.iter().any(|r| r.as_str() == Some(identity)),
-        "identity must be a member of the root container"
+        member_ids.contains(&identity),
+        "identity not in root container memberInstanceIds"
+    );
+    // Root container must also contain at least one section (the decision-log root).
+    assert!(
+        member_ids.len() >= 2,
+        "root container memberInstanceIds should contain identity + at least one section, got {:?}",
+        member_ids
     );
 
     // srs validate must pass
@@ -364,6 +378,82 @@ fn repo_create_produces_valid_srsj() {
     );
 
     fs::remove_file(&tmp).ok();
+}
+
+#[test]
+fn repo_create_navigation_works() {
+    let path = std::env::temp_dir()
+        .join(format!(
+            "srs-gov-nav-{}.srsj",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+        .to_string_lossy()
+        .into_owned();
+    // RAII cleanup on panic or success.
+    let _guard = TempGovRepo { path: path.clone() };
+
+    let gov = srs_gov_bin();
+    let srs = srs_bin();
+
+    let out = std::process::Command::new(&gov)
+        .env("SRS_BIN", &srs)
+        .args(["repo-create", "--output", &path, "--title", "Nav Test"])
+        .output()
+        .expect("run srs-gov repo-create");
+    assert!(
+        out.status.success(),
+        "repo-create failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // srs repo navigation must succeed on a freshly created governance repo.
+    let nav_out = std::process::Command::new(&srs)
+        .args(["repo", "navigation", "--repo", &path])
+        .output()
+        .expect("run srs repo navigation");
+    let nav: serde_json::Value = serde_json::from_slice(&nav_out.stdout)
+        .unwrap_or_else(|_| serde_json::json!({"ok": false, "stdout": String::from_utf8_lossy(&nav_out.stdout).to_string()}));
+    assert_eq!(
+        nav["ok"].as_bool(),
+        Some(true),
+        "navigation returned error (exit={}, stderr={}):\n{}",
+        nav_out.status,
+        String::from_utf8_lossy(&nav_out.stderr),
+        nav
+    );
+    let navigation = &nav["payload"]["navigation"];
+
+    // identity must be the governance article (non-empty instanceId)
+    let identity_id = navigation["identity"]["instanceId"].as_str().unwrap_or("");
+    assert!(
+        !identity_id.is_empty(),
+        "navigation identity instanceId is empty"
+    );
+
+    // exactly one section: the decision-log root
+    let sections = navigation["sections"]
+        .as_array()
+        .expect("sections is not array");
+    assert_eq!(
+        sections.len(),
+        1,
+        "expected 1 section, got {}: {:?}",
+        sections.len(),
+        sections
+    );
+
+    // no diagnostics
+    let diagnostics = navigation["diagnostics"]
+        .as_array()
+        .expect("diagnostics not array");
+    assert!(
+        diagnostics.is_empty(),
+        "navigation returned diagnostics: {:?}",
+        diagnostics
+    );
 }
 
 // ---------------------------------------------------------------------------
