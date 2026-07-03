@@ -131,15 +131,9 @@ impl SrsRepository {
     /// `typeVersion` (optional u32 — omit to keep the stored version).
     /// Returns the updated `Record` as a JS value.
     pub fn update_record(&self, instance_id: &str, input_json: &str) -> Result<JsValue, JsValue> {
-        let input: UpdateRecordBindingInput =
+        let input: record_store::UpdateRecordInput =
             serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
-        let svc_input = record_store::UpdateRecordInput {
-            field_values: input.field_values,
-            group_values: input.group_values.and_then(|x| x),
-            tags: input.tags,
-            type_version: input.type_version,
-        };
-        let record = record_store::update_record(&self.store, instance_id, svc_input)
+        let record = record_store::update_record(&self.store, instance_id, input)
             .map_err(js_err)?;
         to_js(&record)
     }
@@ -504,37 +498,3 @@ struct CreateRecordBindingInput {
     tags: Option<Vec<String>>,
 }
 
-/// Input shape for `update_record` — parsed from caller-supplied JSON.
-///
-/// `group_values` semantics mirror `record_store::update_record`:
-/// - absent/null  → `None`  → preserve existing group values
-/// - `[]`         → `Some(Some([]))` → clear group values
-/// - `[{...}]`    → `Some(Some([...]))` → replace group values
-///
-/// `type_version`: absent/null → preserve stored version; `N` → migrate to version N.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct UpdateRecordBindingInput {
-    field_values: Vec<FieldValue>,
-    /// Double-wrapped so absence and null both become `None` (preserve existing),
-    /// while an array (including empty) becomes `Some(Some(...))` (replace/clear).
-    #[serde(default, deserialize_with = "deserialize_optional_optional")]
-    group_values: Option<Option<Vec<FieldGroupValue>>>,
-    #[serde(default)]
-    tags: Option<Vec<String>>,
-    #[serde(default)]
-    type_version: Option<u32>,
-}
-
-/// Deserialise a field that may be absent, null, or a value into `Option<Option<T>>`:
-/// - absent  → `None`
-/// - `null`  → `None`  (same as absent; there is no JSON representation to distinguish)
-/// - value   → `Some(Some(v))`
-fn deserialize_optional_optional<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: serde::Deserialize<'de>,
-{
-    let opt: Option<T> = Option::deserialize(deserializer)?;
-    Ok(opt.map(Some))
-}

@@ -209,17 +209,8 @@ fn cmd_record_validate(ctx: CliContext) -> Result<String> {
 }
 
 fn cmd_record_update(ctx: CliContext, id: String) -> Result<String> {
-    let mut stdin = String::new();
-    io::stdin().read_to_string(&mut stdin)?;
-    let input: UpdateRecordInput = match serde_json::from_str(&stdin) {
-        Ok(v) => v,
-        Err(e) => {
-            return Ok(output::err(
-                "record update",
-                vec![format!("Failed to parse record JSON from stdin: {}", e)],
-            ))
-        }
-    };
+    let input: UpdateRecordInput = serde_json::from_reader(io::stdin())
+        .map_err(|e| anyhow::anyhow!("Failed to parse record JSON from stdin: {}", e))?;
     match with_store(&ctx, |store| Ok(update_record(store, &id, input)?)) {
         Ok(record) => output::serialize("record update", RecordPayload { record }),
         Err(e) => Ok(output::err("record update", vec![e.to_string()])),
