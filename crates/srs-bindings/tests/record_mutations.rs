@@ -147,15 +147,18 @@ fn update_record_changes_field_value() {
     let updated = record_store::update_record(
         &store,
         &instance_id,
-        vec![srs_core::types::record::FieldValue {
-            field_id: "field-title-001".to_string(),
-            value: serde_json::json!("Updated Title"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }],
-        None, // group_values: preserve existing
-        None, // tags: preserve existing
+        record_store::UpdateRecordInput {
+            field_values: vec![srs_core::types::record::FieldValue {
+                field_id: "field-title-001".to_string(),
+                value: serde_json::json!("Updated Title"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            }],
+            group_values: None,
+            tags: None,
+            type_version: None,
+        },
     )
     .expect("update_record should succeed");
 

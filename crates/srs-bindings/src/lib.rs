@@ -127,19 +127,20 @@ impl SrsRepository {
     }
 
     /// Update a record. `input_json` is a JSON object with fields:
-    /// `fieldValues` (array), `groupValues` (optional), `tags` (optional).
+    /// `fieldValues` (array), `groupValues` (optional), `tags` (optional),
+    /// `typeVersion` (optional u32 — omit to keep the stored version).
     /// Returns the updated `Record` as a JS value.
     pub fn update_record(&self, instance_id: &str, input_json: &str) -> Result<JsValue, JsValue> {
         let input: UpdateRecordBindingInput =
             serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
-        let record = record_store::update_record(
-            &self.store,
-            instance_id,
-            input.field_values,
-            input.group_values,
-            input.tags,
-        )
-        .map_err(js_err)?;
+        let svc_input = record_store::UpdateRecordInput {
+            field_values: input.field_values,
+            group_values: input.group_values.and_then(|x| x),
+            tags: input.tags,
+            type_version: input.type_version,
+        };
+        let record = record_store::update_record(&self.store, instance_id, svc_input)
+            .map_err(js_err)?;
         to_js(&record)
     }
 
@@ -509,6 +510,8 @@ struct CreateRecordBindingInput {
 /// - absent/null  → `None`  → preserve existing group values
 /// - `[]`         → `Some(Some([]))` → clear group values
 /// - `[{...}]`    → `Some(Some([...]))` → replace group values
+///
+/// `type_version`: absent/null → preserve stored version; `N` → migrate to version N.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct UpdateRecordBindingInput {
@@ -519,6 +522,8 @@ struct UpdateRecordBindingInput {
     group_values: Option<Option<Vec<FieldGroupValue>>>,
     #[serde(default)]
     tags: Option<Vec<String>>,
+    #[serde(default)]
+    type_version: Option<u32>,
 }
 
 /// Deserialise a field that may be absent, null, or a value into `Option<Option<T>>`:
