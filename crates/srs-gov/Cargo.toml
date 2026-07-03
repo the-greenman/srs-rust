@@ -14,10 +14,8 @@ path = "src/main.rs"
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
-uuid = { workspace = true }
 ratatui = { workspace = true }
 crossterm = { workspace = true }
-sha2 = "0.10"
 srs-repository = { workspace = true }
 
 [dev-dependencies]

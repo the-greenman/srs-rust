@@ -280,37 +280,22 @@ mod tests {
     use super::*;
     use crate::json_store::JsonStore;
 
-    /// Minimal governance seed fixture — a self-contained `.srsj` with the
-    /// governance package (fields + types needed for the scaffold tests).
-    fn governance_seed_srsj() -> String {
-        let seed = std::fs::read_to_string(concat!(
+    // Note: these tests use JsonStore exclusively rather than MemoryStore.
+    // `scaffold_governance_repo` and `create_governance_repository` require a pre-seeded
+    // store that already contains a governance package (record types, fields, views).
+    // MemoryStore starts empty and cannot be pre-seeded without re-implementing the seed
+    // loading logic — the canonical way to create a seeded store is JsonStore::from_srsj.
+    // The JsonStore roundtrip test (below) demonstrates store-agnosticism at the service
+    // boundary: changes made by the service survive serialisation and re-parse.
+
+    fn load_seed_store() -> JsonStore {
+        let raw = std::fs::read_to_string(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../srs-gov/assets/governance-seed.srsj"
         ))
         .expect("governance-seed.srsj must be present alongside srs-gov");
-        seed
-    }
-
-    /// Apply RFC-014 migration to raw srsj JSON.
-    fn migrate_rfc014(raw: &str) -> String {
-        let mut seed: serde_json::Value = serde_json::from_str(raw).unwrap();
-        if seed["manifest"]["meta"]["upstreamPackage"].is_object() {
-            let pkg_info = seed["manifest"]["meta"]["upstreamPackage"].clone();
-            let mut up = pkg_info.as_object().cloned().unwrap_or_default();
-            up.entry("contentHash".to_string()).or_insert_with(|| {
-                serde_json::Value::String("sha256:test".to_string())
-            });
-            seed["manifest"]["upstreamPackage"] = serde_json::Value::Object(up);
-            if let Some(meta_obj) = seed["manifest"]["meta"].as_object_mut() {
-                meta_obj.remove("upstreamPackage");
-            }
-        }
-        serde_json::to_string(&seed).unwrap()
-    }
-
-    fn load_seed_store() -> JsonStore {
-        let raw = governance_seed_srsj();
-        let migrated = migrate_rfc014(&raw);
+        let migrated =
+            crate::srsj_migration_service::migrate_rfc014(&raw).expect("RFC-014 migration");
         JsonStore::from_srsj(&migrated).expect("seed parses as JsonStore")
     }
 
@@ -425,6 +410,25 @@ mod tests {
             "minted id looks like a UUID: {}",
             result.repository_id
         );
+    }
+
+    #[test]
+    fn create_governance_repository_rejects_empty_title() {
+        let store = load_seed_store();
+        let err = create_governance_repository(
+            &store,
+            CreateGovernanceRepositoryInput {
+                namespace: "com.example.empty".to_string(),
+                title: "  ".to_string(),
+                purpose: None,
+                repository_id: None,
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            RepositoryError::InvalidRepositoryInitialization { .. }
+        ));
     }
 
     #[test]
