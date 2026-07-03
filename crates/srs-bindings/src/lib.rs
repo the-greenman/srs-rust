@@ -6,11 +6,11 @@ use srs_repository::blueprint_service;
 use srs_repository::container_service::{self, ContainerListFilter};
 use srs_repository::container_view_service::{self, ResolveContainerViewInput};
 use srs_repository::discovery_service::{self, DiscoveryQuery};
+use srs_repository::governance_scaffold_service::{self, CreateGovernanceRepositoryInput};
 use srs_repository::protocol_service::{self, GetProtocolResult};
 use srs_repository::record_store::{self, RecordListFilter, TransitionLifecycleInput};
 use srs_repository::relation_service::{self, ListRelationsFilter};
 use srs_repository::render_service::{self, RenderDocumentViewOptions};
-use srs_repository::governance_scaffold_service::{self, CreateGovernanceRepositoryInput};
 use srs_repository::repository_lifecycle::{self, InitNewRepositoryInput};
 use srs_repository::services::{self, ListNotesFilter};
 use srs_repository::tag_service;
@@ -462,9 +462,8 @@ impl SrsRepository {
     pub fn scaffold_new_repository(&self, input_json: &str) -> Result<JsValue, JsValue> {
         let input: CreateGovernanceRepositoryInput =
             serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
-        let result =
-            governance_scaffold_service::create_governance_repository(&self.store, input)
-                .map_err(js_err)?;
+        let result = governance_scaffold_service::create_governance_repository(&self.store, input)
+            .map_err(js_err)?;
         to_js(&result)
     }
 

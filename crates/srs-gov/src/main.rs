@@ -658,7 +658,9 @@ fn cmd_repo_create(output: &str, title: &str, purpose: Option<&str>) -> Result<(
     )
     .context("failed to scaffold governance repository")?;
 
-    let final_srsj = store.to_srsj_string().context("failed to serialise store")?;
+    let final_srsj = store
+        .to_srsj_string()
+        .context("failed to serialise store")?;
     std::fs::File::create(out_path)?.write_all(final_srsj.as_bytes())?;
 
     render::repo_created(output, title, &result.repository_id, purpose.is_some());

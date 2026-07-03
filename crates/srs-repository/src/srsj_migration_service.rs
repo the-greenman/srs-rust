@@ -121,8 +121,7 @@ mod tests {
         let once_v: serde_json::Value = serde_json::from_str(&once).unwrap();
         let twice_v: serde_json::Value = serde_json::from_str(&twice).unwrap();
         assert_eq!(
-            once_v["manifest"]["upstreamPackage"],
-            twice_v["manifest"]["upstreamPackage"],
+            once_v["manifest"]["upstreamPackage"], twice_v["manifest"]["upstreamPackage"],
             "second migration must not change upstreamPackage"
         );
     }
