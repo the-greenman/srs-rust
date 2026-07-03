@@ -2,6 +2,7 @@ use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
 use std::collections::HashSet;
 
+mod find_query;
 mod governance;
 mod render;
 mod srs;
@@ -256,7 +257,7 @@ fn cmd_list(
     // tag). With none active the authored member list is shown verbatim — preserving the
     // pre-#298 output (and keeping a container-subset view, which has no exclusion, identical).
     let need_find = !effective_excludes.is_empty() || search.is_some() || !tags.is_empty();
-    let find_args = build_find_args(&container_id, &effective_excludes, search, tags);
+    let find_args = find_query::build_find_args(&container_id, &effective_excludes, search, tags);
 
     if explain {
         println!("# Underlying srs commands (resolve-view srs-rust#254, find #217):");
@@ -284,15 +285,7 @@ fn cmd_list(
     let allowed: Option<HashSet<String>> = if need_find {
         let refs: Vec<&str> = find_args.iter().map(String::as_str).collect();
         let find_payload = run_srs(&refs, repo, false, false)?;
-        let hits = find_payload["result"]["hits"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(|h| h["instanceId"].as_str().map(String::from))
-                    .collect()
-            })
-            .unwrap_or_default();
-        Some(hits)
+        Some(find_query::parse_hit_ids(&find_payload).into_iter().collect())
     } else {
         None
     };
@@ -525,36 +518,6 @@ fn cmd_create(
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Build the `srs find` argument vector that composes with the authored view: the global
-/// `--container` scope, then the `find` subcommand with the effective lifecycle exclusions,
-/// optional `--text` search, and repeated `--tag` filters. Returned as owned `String`s so the
-/// caller can borrow `&str` slices for both `--explain` printing and execution.
-fn build_find_args(
-    container_id: &str,
-    excludes: &[&str],
-    search: Option<&str>,
-    tags: &[String],
-) -> Vec<String> {
-    let mut args: Vec<String> = vec![
-        "--container".into(),
-        container_id.to_string(),
-        "find".into(),
-    ];
-    for state in excludes {
-        args.push("--exclude-lifecycle-state".into());
-        args.push((*state).to_string());
-    }
-    if let Some(text) = search {
-        args.push("--text".into());
-        args.push(text.to_string());
-    }
-    for tag in tags {
-        args.push("--tag".into());
-        args.push(tag.clone());
-    }
-    args
-}
-
 /// Look up a type by namespace + name and return (UUID, version).
 fn resolve_type_id(namespace: &str, name: &str, repo: &str) -> anyhow::Result<(String, u64)> {
     let payload = run_srs(&["type", "list"], repo, false, false)?;
@@ -714,8 +677,8 @@ fn cmd_repo_create(output: &str, title: &str, purpose: Option<&str>) -> Result<(
     // Identity is also the structural root.
     srs_roots_add(output, &root_container_id, &intent_id)?;
     // Write the minimal manifest.container embed (containerId + identityInstanceId only).
-    // manifest.container is written directly — the Manifest has no CLI write path for this
-    // field until srs-core types it (srs-rust#263).
+    // manifest.container is written directly — srs-rust#263/#312 typed the field for reading,
+    // but no srs-repository service or CLI command exists yet to *write* it. Tracked in #318.
     let mut repo_json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(out_path)?).context("re-read new repo")?;
     repo_json["manifest"]["container"] = serde_json::json!({
@@ -774,45 +737,7 @@ use anyhow::Context;
 
 #[cfg(test)]
 mod tests {
-    use super::{build_find_args, GOVERNANCE_SEED};
-
-    /// Guards the composed `srs find` invocation shape: the global `--container` scope must
-    /// precede the `find` subcommand, with exclusions, then `--text`, then repeated `--tag`.
-    #[test]
-    fn build_find_args_orders_global_container_before_subcommand() {
-        let args = build_find_args(
-            "container-123",
-            &["superseded", "closed"],
-            Some("budget"),
-            &["finance".to_string(), "q1".to_string()],
-        );
-        assert_eq!(
-            args,
-            vec![
-                "--container",
-                "container-123",
-                "find",
-                "--exclude-lifecycle-state",
-                "superseded",
-                "--exclude-lifecycle-state",
-                "closed",
-                "--text",
-                "budget",
-                "--tag",
-                "finance",
-                "--tag",
-                "q1",
-            ]
-        );
-    }
-
-    #[test]
-    fn build_find_args_minimal_is_just_scoped_find() {
-        assert_eq!(
-            build_find_args("c-1", &[], None, &[]),
-            vec!["--container", "c-1", "find"]
-        );
-    }
+    use super::GOVERNANCE_SEED;
 
     /// The vendored seed's decision-log DocumentView must carry the canonical authored
     /// default-hidden states (the whole point of #298 — regenerate the derived copy).
