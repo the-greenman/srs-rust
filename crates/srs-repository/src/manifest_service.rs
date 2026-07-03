@@ -253,6 +253,8 @@ pub fn set_manifest_root_container(
 
     manifest.container = Some(srs_core::types::container::Container {
         container_id: input.container_id.clone(),
+        // title is intentionally empty — manifest.container is a navigation pointer;
+        // the display title is read from the container record by container_id.
         title: String::new(),
         identity_instance_id: Some(input.identity_instance_id.clone()),
         namespace: None,
@@ -514,25 +516,31 @@ mod tests {
         assert!(!manifest.extra.contains_key("declaredExtensions"));
     }
 
+    const VALID_CONTAINER_ID: &str = "550e8400-e29b-41d4-a716-446655440000";
+    const VALID_IDENTITY_ID: &str = "aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa";
+
     #[test]
     fn set_manifest_root_container_writes_and_reads_back() {
         let store = MemoryStore::default();
         let result = set_manifest_root_container(
             &store,
             SetManifestRootContainerInput {
-                container_id: "cid-123".to_string(),
-                identity_instance_id: "iid-456".to_string(),
+                container_id: VALID_CONTAINER_ID.to_string(),
+                identity_instance_id: VALID_IDENTITY_ID.to_string(),
             },
         )
         .unwrap();
 
-        assert_eq!(result.container_id, "cid-123");
-        assert_eq!(result.identity_instance_id, "iid-456");
+        assert_eq!(result.container_id, VALID_CONTAINER_ID);
+        assert_eq!(result.identity_instance_id, VALID_IDENTITY_ID);
 
         let manifest = store.load_manifest().unwrap();
         let container = manifest.container.as_ref().unwrap();
-        assert_eq!(container.container_id, "cid-123");
-        assert_eq!(container.identity_instance_id.as_deref(), Some("iid-456"));
+        assert_eq!(container.container_id, VALID_CONTAINER_ID);
+        assert_eq!(
+            container.identity_instance_id.as_deref(),
+            Some(VALID_IDENTITY_ID)
+        );
         assert_eq!(container.title, "");
     }
 
@@ -543,7 +551,7 @@ mod tests {
             &store,
             SetManifestRootContainerInput {
                 container_id: "".to_string(),
-                identity_instance_id: "iid-456".to_string(),
+                identity_instance_id: VALID_IDENTITY_ID.to_string(),
             },
         )
         .unwrap_err();
@@ -560,7 +568,7 @@ mod tests {
         let err = set_manifest_root_container(
             &store,
             SetManifestRootContainerInput {
-                container_id: "cid-123".to_string(),
+                container_id: VALID_CONTAINER_ID.to_string(),
                 identity_instance_id: "".to_string(),
             },
         )
@@ -570,5 +578,31 @@ mod tests {
             matches!(err, RepositoryError::InvalidInput { .. }),
             "expected InvalidInput, got {err:?}"
         );
+    }
+
+    #[test]
+    fn set_manifest_root_container_roundtrips_through_json() {
+        // Write via MemoryStore, serialise manifest to JSON, deserialise, assert fields survive.
+        let store = MemoryStore::default();
+        set_manifest_root_container(
+            &store,
+            SetManifestRootContainerInput {
+                container_id: VALID_CONTAINER_ID.to_string(),
+                identity_instance_id: VALID_IDENTITY_ID.to_string(),
+            },
+        )
+        .unwrap();
+
+        let manifest = store.load_manifest().unwrap();
+        let json = serde_json::to_string(&manifest).unwrap();
+        let reparsed: crate::manifest::Manifest = serde_json::from_str(&json).unwrap();
+
+        let container = reparsed.container.as_ref().unwrap();
+        assert_eq!(container.container_id, VALID_CONTAINER_ID);
+        assert_eq!(
+            container.identity_instance_id.as_deref(),
+            Some(VALID_IDENTITY_ID)
+        );
+        assert_eq!(container.title, "");
     }
 }

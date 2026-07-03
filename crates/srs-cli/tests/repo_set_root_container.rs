@@ -16,27 +16,30 @@ fn set_root_container_writes_manifest() {
     create_minimal_repo(tmp.path());
     let store = FileStore::new(tmp.path());
 
+    const CONTAINER_ID: &str = "550e8400-e29b-41d4-a716-446655440000";
+    const IDENTITY_ID: &str = "aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa";
+
     let result = set_manifest_root_container(
         &store,
         SetManifestRootContainerInput {
-            container_id: "cid-abc".to_string(),
-            identity_instance_id: "iid-xyz".to_string(),
+            container_id: CONTAINER_ID.to_string(),
+            identity_instance_id: IDENTITY_ID.to_string(),
         },
     )
     .unwrap();
 
-    assert_eq!(result.container_id, "cid-abc");
-    assert_eq!(result.identity_instance_id, "iid-xyz");
+    assert_eq!(result.container_id, CONTAINER_ID);
+    assert_eq!(result.identity_instance_id, IDENTITY_ID);
 
     let manifest_str = std::fs::read_to_string(tmp.path().join("manifest.json")).unwrap();
     let manifest_val: serde_json::Value = serde_json::from_str(&manifest_str).unwrap();
 
     assert_eq!(
         manifest_val["container"]["containerId"].as_str(),
-        Some("cid-abc")
+        Some(CONTAINER_ID)
     );
     assert_eq!(
         manifest_val["container"]["identityInstanceId"].as_str(),
-        Some("iid-xyz")
+        Some(IDENTITY_ID)
     );
 }
