@@ -1,5 +1,6 @@
 use crate::error::RepositoryError;
 use crate::manifest::Manifest;
+use chrono::Utc;
 use crate::package::Package;
 use crate::repository_lifecycle::{CreateRepositoryResult, InitializeRepositoryInput};
 use crate::store::RepositoryStore;
@@ -634,7 +635,18 @@ impl RepositoryStore for JsonStore {
         // `serde_json::to_value`, which normalises these flattened keys into sorted order
         // through serde_json's BTreeMap-backed Map. Only the top-level `data` map is
         // serialised directly, which is why it (and not this) had to become a BTreeMap (ADR-017).
+        let title = input
+            .repository
+            .title
+            .as_deref()
+            .unwrap_or(&input.repository.namespace)
+            .to_string();
+        let created_at = Utc::now().to_rfc3339();
         let mut extra = HashMap::new();
+        extra.insert(
+            "$schema".to_string(),
+            serde_json::Value::String(srs_schema::MANIFEST_SCHEMA_ID.to_string()),
+        );
         extra.insert(
             "srsVersion".to_string(),
             serde_json::Value::String(input.repository.srs_version.clone()),
@@ -647,22 +659,40 @@ impl RepositoryStore for JsonStore {
             "namespace".to_string(),
             serde_json::Value::String(input.repository.namespace.clone()),
         );
-        if let Some(title) = &input.repository.title {
-            extra.insert(
-                "title".to_string(),
-                serde_json::Value::String(title.clone()),
-            );
-        }
+        extra.insert(
+            "title".to_string(),
+            serde_json::Value::String(title.clone()),
+        );
         if let Some(desc) = &input.repository.description {
             extra.insert(
                 "description".to_string(),
                 serde_json::Value::String(desc.clone()),
             );
         }
+        extra.insert(
+            "createdAt".to_string(),
+            serde_json::Value::String(created_at),
+        );
+        let container = srs_core::types::container::Container {
+            container_id: input.repository.repository_id.clone(),
+            title: title.clone(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            identity_instance_id: None,
+            root_instance_ids: None,
+            member_instance_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: std::collections::HashMap::new(),
+        };
         let mut state = self.state.borrow_mut();
         state.manifest = Manifest {
             instance_index: vec![],
-            container: None,
+            container: Some(container),
             container_index: None,
             extra,
             root: self.repository_root(),

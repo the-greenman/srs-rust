@@ -1,11 +1,13 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
-  "formatVersion": "1.0",
   "srsVersion": "2.0",
-  "conformance": "SRS 2.0 Core ext:repository",
   "repositoryId": "00000000-0000-4000-8000-000000003500",
   "namespace": "fixture.rfc008",
   "title": "RFC-008 Container Subset Fixture",
+  "container": {
+    "containerId": "00000000-0000-4000-8000-000000003500",
+    "title": "RFC-008 Container Subset Fixture"
+  },
   "containerIndex": [
     {
       "containerId": "00000000-0000-4000-8000-000000003500",

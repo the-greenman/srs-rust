@@ -95,7 +95,7 @@
     },
     "package/document-views/decision-deliberation-5a3ce87e.json": {
       "createdAt": "2026-05-31T00:00:00Z",
-      "description": "Full deliberation view — shows all fields including question, context, friction, alternatives, requirements, statement, rationale, next steps, owner, revisit, and status.",
+      "description": "Full deliberation view \u2014 shows all fields including question, context, friction, alternatives, requirements, statement, rationale, next steps, owner, revisit, and status.",
       "format": "markdown",
       "id": "5a3ce87e-8340-4d91-a140-ab56b57f704f",
       "name": "decision-deliberation",
@@ -117,7 +117,7 @@
     },
     "package/document-views/decision-log-b5c8d124.json": {
       "createdAt": "2026-05-31T00:00:00Z",
-      "description": "Decision log view — compact summary showing only decision statement, alternatives considered, rationale, and revisit trigger.",
+      "description": "Decision log view \u2014 compact summary showing only decision statement, alternatives considered, rationale, and revisit trigger.",
       "format": "markdown",
       "id": "b5c8d124-2084-4a6b-a231-425e800e1e55",
       "name": "decision-log",
@@ -161,8 +161,8 @@
           }
         ],
         "extraction": "Look for options mentioned, proposals floated, or alternatives explicitly compared. Include any option that received real consideration, even if dismissed quickly. Include doing nothing or no change if the group acknowledged it.",
-        "negativeGuidance": "Do not write none unless truly no alternatives were discussed — that is almost never accurate. Do not merge distinct alternatives into a single blended option.",
-        "purpose": "Records the genuine options the group weighed before settling on a direction — including doing nothing. Alternatives show the decision was a real choice, not a foregone conclusion."
+        "negativeGuidance": "Do not write none unless truly no alternatives were discussed \u2014 that is almost never accurate. Do not merge distinct alternatives into a single blended option.",
+        "purpose": "Records the genuine options the group weighed before settling on a direction \u2014 including doing nothing. Alternatives show the decision was a real choice, not a foregone conclusion."
       },
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "Genuine options the group considered, including doing nothing.",
@@ -225,7 +225,7 @@
         "purpose": ""
       },
       "createdAt": "2026-05-26T00:00:00Z",
-      "description": "The limits of this role — where the role's authority ends or must be shared.",
+      "description": "The limits of this role \u2014 where the role's authority ends or must be shared.",
       "id": "3c39ee1f-6fe0-5da7-a0b6-928aa3a63211",
       "name": "boundary",
       "namespace": "governance",
@@ -236,13 +236,13 @@
       "aiGuidance": {
         "examples": [
           {
-            "description": "Meeting-frequency decision — LiMoMa founding session",
+            "description": "Meeting-frequency decision \u2014 LiMoMa founding session",
             "output": "The group formed in March 2026 and agreed to trial a flat structure for six months. That trial period ends in December, and the group now needs to decide how to structure ongoing work."
           }
         ],
         "extraction": "Look for background information stated before the decision point: prior agreements, historical context, changes in circumstances, or what happened to prompt this discussion. Extract the scene, not the problem.",
-        "negativeGuidance": "Do not include the friction or problem itself — that belongs in the Friction field. Context sets the stage; it does not name the pain.",
-        "purpose": "Captures the history, constraints, and trigger event that make this decision matter — the scene-setting before the problem itself is named."
+        "negativeGuidance": "Do not include the friction or problem itself \u2014 that belongs in the Friction field. Context sets the stage; it does not name the pain.",
+        "purpose": "Captures the history, constraints, and trigger event that make this decision matter \u2014 the scene-setting before the problem itself is named."
       },
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "Background that makes the matter meaningful.",
@@ -279,7 +279,7 @@
             "output": "We will meet fortnightly, on Tuesdays at 18:00 UTC, starting from the first Tuesday in July."
           }
         ],
-        "extraction": "Look for the moment agreement is reached — signalled by so we are agreed, let us go with, or a direct statement of resolution. Extract the commitment itself, not the discussion around it. One sentence.",
+        "extraction": "Look for the moment agreement is reached \u2014 signalled by so we are agreed, let us go with, or a direct statement of resolution. Extract the commitment itself, not the discussion around it. One sentence.",
         "purpose": "States the settled commitment in one concise, active-voice sentence. This is the record of what was decided, not why."
       },
       "createdAt": "2026-05-25T00:00:00Z",
@@ -299,8 +299,8 @@
           }
         ],
         "extraction": "Look for expressions of frustration, tension, or a named gap in current practice. The friction answers why this needs to be decided today. Extract it as a concrete condition, not a wish.",
-        "negativeGuidance": "Do not describe what the group wants to do about the friction — that belongs in Alternatives or the Decision Statement. Friction is the forcing function, not the solution direction.",
-        "purpose": "Names the specific pain, conflict, or gap that is forcing a decision right now — the concrete thing that cannot be left unresolved."
+        "negativeGuidance": "Do not describe what the group wants to do about the friction \u2014 that belongs in Alternatives or the Decision Statement. Friction is the forcing function, not the solution direction.",
+        "purpose": "Names the specific pain, conflict, or gap that is forcing a decision right now \u2014 the concrete thing that cannot be left unresolved."
       },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "The specific pain, conflict, or gap that makes a decision necessary now.",
@@ -357,7 +357,7 @@
           }
         ],
         "extraction": "Look for explicit ownership statements: X owns this, this sits with the coordination lead, or an implicit assignment when a role is described as responsible. May be a person name or a role title.",
-        "purpose": "Identifies the person or role who holds accountability for this decision — who can revisit it, who is responsible for its implementation."
+        "purpose": "Identifies the person or role who holds accountability for this decision \u2014 who can revisit it, who is responsible for its implementation."
       },
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "Person, role, group, or function responsible for stewardship of this record.",
@@ -389,7 +389,7 @@
         ],
         "extraction": "Look for statements about why the group chose what they chose: the reasoning given for the final decision, what made this option preferable to the others. Capture the outcome logic, not the deliberation process.",
         "negativeGuidance": "Do not write a blow-by-blow account of the discussion. Do not include objections that were not ultimately deciding factors. The rationale is the deciding logic, not a summary of the meeting.",
-        "purpose": "Explains the deciding factor — why this option was chosen over the alternatives. One to three sentences capturing the core reasoning."
+        "purpose": "Explains the deciding factor \u2014 why this option was chosen over the alternatives. One to three sentences capturing the core reasoning."
       },
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "Why this option over the alternatives.",
@@ -408,8 +408,8 @@
           }
         ],
         "extraction": "Look for statements about when to revisit, what would change the decision, or what review conditions were set. Prefer condition-based triggers, which may reference a date as an anchor.",
-        "negativeGuidance": "Avoid bare dates without a condition — revisit in December is weaker than revisit if attendance consistently drops or at the end of the pilot period. Dates can anchor a condition but should not replace one.",
-        "purpose": "Names the condition or event that should trigger a review of this decision — tied to the underlying reasoning so the review moment is meaningful."
+        "negativeGuidance": "Avoid bare dates without a condition \u2014 revisit in December is weaker than revisit if attendance consistently drops or at the end of the pilot period. Dates can anchor a condition but should not replace one.",
+        "purpose": "Names the condition or event that should trigger a review of this decision \u2014 tied to the underlying reasoning so the review moment is meaningful."
       },
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "The condition or event that would prompt a review of this decision.",
@@ -451,8 +451,8 @@
             "output": "Meeting frequency for pilot"
           }
         ],
-        "extraction": "Infer from the decision question or statement: compress to a short noun phrase identifying the topic. Do not start with We will — use the subject of the decision instead.",
-        "purpose": "A short, scannable label (3–8 words) that identifies this decision at a glance in a list or document view."
+        "extraction": "Infer from the decision question or statement: compress to a short noun phrase identifying the topic. Do not start with We will \u2014 use the subject of the decision instead.",
+        "purpose": "A short, scannable label (3\u20138 words) that identifies this decision at a glance in a list or document view."
       },
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "Short label for this record.",
@@ -917,7 +917,9 @@
     "namespace": "com.mudemocracy.governance",
     "repositoryId": "395ebea2-d8f6-497b-b18c-04c9eacafc94",
     "srsVersion": "2.0-draft",
-    "title": "Empty Governance Document"
+    "title": "Empty Governance Document",
+    "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+    "createdAt": "2024-01-01T00:00:00Z"
   },
   "srsj": "1"
 }
