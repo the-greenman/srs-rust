@@ -317,11 +317,19 @@ fn repo_create_produces_valid_srsj() {
         Some("Test Governance")
     );
 
-    // upstreamPackage provenance must be preserved
-    let ns = content["manifest"]["meta"]["upstreamPackage"]["namespace"]
+    // upstreamPackage provenance must be preserved (RFC-014: top-level field, not meta)
+    let ns = content["manifest"]["upstreamPackage"]["namespace"]
         .as_str()
         .unwrap_or("");
     assert_eq!(ns, "com.mudemocracy.governance");
+    // contentHash must be present and well-formed (RFC-014 R10)
+    let ch = content["manifest"]["upstreamPackage"]["contentHash"]
+        .as_str()
+        .unwrap_or("");
+    assert!(
+        ch.starts_with("sha256:") && ch.len() == 71,
+        "contentHash missing or malformed: {ch:?}"
+    );
 
     // RFC-013: a required root container is scaffolded with identity + sections in the store.
     let container_embed = &content["manifest"]["container"];
