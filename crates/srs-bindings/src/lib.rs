@@ -449,7 +449,7 @@ impl SrsRepository {
     /// List all vocabulary Terms (RFC-006) defined in the package.
     /// Returns a JS array of `Term` objects — the same terms returned by `srs term list`.
     /// srs-web uses this to populate the tag picker / tag cloud.
-    pub fn list_tags(&self) -> Result<JsValue, JsValue> {
+    pub fn list_terms(&self) -> Result<JsValue, JsValue> {
         let terms = tag_service::list_terms(&self.store).map_err(js_err)?;
         to_js(&terms)
     }
