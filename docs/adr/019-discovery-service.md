@@ -1,6 +1,6 @@
 # ADR-019: Discovery Service, `find` command, and deferred index trait
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-06-28
 - **Supersedes:** —
 - **Superseded by:** —

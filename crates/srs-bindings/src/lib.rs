@@ -5,6 +5,7 @@ use srs_repository::blueprint_schema_service::{self, BlueprintSchemaInput};
 use srs_repository::blueprint_service;
 use srs_repository::container_service::{self, ContainerListFilter};
 use srs_repository::container_view_service::{self, ResolveContainerViewInput};
+use srs_repository::discovery_service::{self, DiscoveryQuery};
 use srs_repository::protocol_service::{self, GetProtocolResult};
 use srs_repository::record_store::{self, RecordListFilter, TransitionLifecycleInput};
 use srs_repository::relation_service::{self, ListRelationsFilter};
@@ -65,6 +66,17 @@ impl SrsRepository {
             .map_err(|e| js_err(format!("invalid filter: {e}")))?;
         let summaries = record_store::list_record_summaries(&self.store, filter).map_err(js_err)?;
         to_js(&summaries)
+    }
+
+    /// Run a discovery query against the repository.
+    /// `query_json` is a JSON object matching `DiscoveryQuery` (camelCase fields;
+    /// all optional — omit or pass `"{}"` for "return all").
+    /// Returns a `DiscoveryResult` as a JS value.
+    pub fn find(&self, query_json: &str) -> Result<JsValue, JsValue> {
+        let query: DiscoveryQuery =
+            serde_json::from_str(query_json).map_err(|e| js_err(format!("invalid query: {e}")))?;
+        let result = discovery_service::find(&self.store, query).map_err(js_err)?;
+        to_js(&result)
     }
 
     /// Get a single record by instance ID. Returns the `Record` as a JS value, or `null` if not found.
