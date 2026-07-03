@@ -2605,14 +2605,13 @@
   ],
   "relationsPath": "relations/relations.json",
   "repositoryId": "4172fada-bc38-5479-ac18-4be3194a68ca",
-  "sourceDocumentIndex": [
-    "ai-sessions/chatgpt-origin.md.meta.json",
-    "ai-sessions/chatgpt-spec-review.md.meta.json",
-    "ai-sessions/claude-collaborative-document.md.meta.json",
-    "spec/srs-spec.md.meta.json"
-  ],
   "sourceDocumentsPath": "source-documents",
   "srsVersion": "2.0-draft",
   "title": "Semantic Record System Specification",
-  "updatedAt": "2026-06-03T00:00:00Z"
+  "updatedAt": "2026-06-03T00:00:00Z",
+  "container": {
+    "containerId": "4172fada-bc38-5479-ac18-4be3194a68ca",
+    "title": "Semantic Record System Specification"
+  },
+  "createdAt": "2024-01-01T00:00:00Z"
 }

@@ -1656,9 +1656,7 @@ fn make_valid_validate_repo() -> TempDir {
 
     let manifest = serde_json::json!({
         "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
-        "formatVersion": "1.0",
         "srsVersion": "2.0",
-        "conformance": "SRS 2.0 Core ext:repository",
         "repositoryId": "00000000-0000-4000-8000-000000000099",
         "title": "Test Repo",
         "container": {
@@ -1753,9 +1751,7 @@ fn repo_validate_invalid_note_returns_ok_false() {
 
     let manifest = serde_json::json!({
         "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
-        "formatVersion": "1.0",
         "srsVersion": "2.0",
-        "conformance": "SRS 2.0 Core ext:repository",
         "repositoryId": "00000000-0000-4000-8000-000000000099",
         "title": "Test Repo",
         "container": {
@@ -1805,9 +1801,7 @@ fn repo_validate_tier_schema_mismatch_returns_ok_false() {
 
     let manifest = serde_json::json!({
         "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
-        "formatVersion": "1.0",
         "srsVersion": "2.0",
-        "conformance": "SRS 2.0 Core ext:repository",
         "repositoryId": "00000000-0000-4000-8000-000000000099",
         "title": "Test Repo",
         "container": {
@@ -3444,7 +3438,19 @@ fn create_temp_repo_with_protocol_package() -> TempDir {
 
     std::fs::write(
         temp.path().join("manifest.json"),
-        serde_json::to_string_pretty(&serde_json::json!({ "instanceIndex": [] })).unwrap(),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+            "srsVersion": "2.0",
+            "repositoryId": "00000000-0000-4000-8000-000000009900",
+            "title": "Protocol Test Repo",
+            "container": {
+                "containerId": "00000000-0000-4000-8000-000000009900",
+                "title": "Protocol Test Repo"
+            },
+            "instanceIndex": [],
+            "createdAt": "2026-01-01T00:00:00Z"
+        }))
+        .unwrap(),
     )
     .unwrap();
 
@@ -4687,7 +4693,18 @@ fn create_temp_repo_with_package() -> TempDir {
     let srs_dir = temp.path().join(".srs");
     std::fs::create_dir_all(&srs_dir).unwrap();
 
-    let manifest = serde_json::json!({ "instanceIndex": [] });
+    let manifest = serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+        "srsVersion": "2.0",
+        "repositoryId": "00000000-0000-4000-8000-000000009902",
+        "title": "Package Test Repo",
+        "container": {
+            "containerId": "00000000-0000-4000-8000-000000009902",
+            "title": "Package Test Repo"
+        },
+        "instanceIndex": [],
+        "createdAt": "2026-01-01T00:00:00Z"
+    });
     std::fs::write(
         temp.path().join("manifest.json"),
         serde_json::to_string_pretty(&manifest).unwrap(),
@@ -5010,7 +5027,19 @@ fn create_temp_repo_with_views() -> TempDir {
     std::fs::create_dir_all(temp.path().join(".srs")).unwrap();
     std::fs::write(
         temp.path().join("manifest.json"),
-        serde_json::to_string_pretty(&serde_json::json!({ "instanceIndex": [] })).unwrap(),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+            "srsVersion": "2.0",
+            "repositoryId": "00000000-0000-4000-8000-000000009901",
+            "title": "Views Test Repo",
+            "container": {
+                "containerId": "00000000-0000-4000-8000-000000009901",
+                "title": "Views Test Repo"
+            },
+            "instanceIndex": [],
+            "createdAt": "2026-01-01T00:00:00Z"
+        }))
+        .unwrap(),
     )
     .unwrap();
     let package_dir = temp.path().join("package");

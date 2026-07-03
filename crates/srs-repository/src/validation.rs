@@ -75,9 +75,14 @@ pub fn validate_repository(
 
     // manifest.json is validated but not counted in `checked` — `checked` tracks only
     // instanceIndex entries so that summary.checked agrees with repo map's total_instances.
-    // TODO(phase-3): manifest.json schema requires formatVersion/srsVersion/conformance/container
-    // which do not yet exist in live manifests. Re-enable once the manifest format is migrated.
-    let _ = &manifest_value;
+    if let Some(report) = validate_value_against_schema(
+        &manifest_value,
+        "manifest.json",
+        srs_schema::MANIFEST_SCHEMA_ID,
+        reg,
+    ) {
+        diagnostics.extend(report);
+    }
 
     // --- Load manifest for instanceIndex ---
     let manifest = store.load_manifest()?;
@@ -684,6 +689,7 @@ fn validate_value_against_schema(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::memory::MemoryStore;
     use serde_json::json;
     use std::fs;
     use std::path::Path;
@@ -727,9 +733,7 @@ mod tests {
     fn minimal_manifest(instance_index: serde_json::Value) -> Value {
         json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
-            "formatVersion": "1.0",
             "srsVersion": "2.0",
-            "conformance": "SRS 2.0 Core ext:repository",
             "repositoryId": "00000000-0000-4000-8000-000000000099",
             "title": "Test Repo",
             "container": {
@@ -2213,6 +2217,70 @@ mod tests {
             count_i64(&file_report),
             "I-64 diagnostics must be store-agnostic (json: {:?})",
             json_report.diagnostics
+        );
+    }
+
+    fn manifest_store(manifest_json: serde_json::Value) -> MemoryStore {
+        let raw = serde_json::to_string(&manifest_json).unwrap();
+        MemoryStore::empty().with_data("manifest.json", serde_json::Value::String(raw))
+    }
+
+    #[test]
+    fn test_validate_manifest_missing_title() {
+        let mut manifest = minimal_manifest(json!([]));
+        manifest.as_object_mut().unwrap().remove("title");
+        let store = manifest_store(manifest);
+        let report = validate_repository(&store).unwrap();
+        let manifest_errors: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.relative_path == "manifest.json" && d.severity == DiagnosticSeverity::Error
+            })
+            .collect();
+        assert!(
+            !manifest_errors.is_empty(),
+            "expected ERROR diagnostic for manifest.json (missing title), got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn test_validate_manifest_extra_property() {
+        let mut manifest = minimal_manifest(json!([]));
+        manifest
+            .as_object_mut()
+            .unwrap()
+            .insert("name".to_string(), json!("should-not-be-here"));
+        let store = manifest_store(manifest);
+        let report = validate_repository(&store).unwrap();
+        let manifest_errors: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.relative_path == "manifest.json" && d.severity == DiagnosticSeverity::Error
+            })
+            .collect();
+        assert!(
+            !manifest_errors.is_empty(),
+            "expected ERROR diagnostic for manifest.json (undeclared property), got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn test_validate_manifest_valid() {
+        let store = manifest_store(minimal_manifest(json!([])));
+        let report = validate_repository(&store).unwrap();
+        let manifest_diags: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.relative_path == "manifest.json")
+            .collect();
+        assert!(
+            manifest_diags.is_empty(),
+            "expected zero manifest.json diagnostics for valid manifest, got: {:?}",
+            manifest_diags
         );
     }
 }

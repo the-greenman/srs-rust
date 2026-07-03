@@ -667,7 +667,7 @@ mod tests {
                 repository_id: "repo-copy".to_string(),
                 namespace: "com.semanticops.copy".to_string(),
                 srs_version: "2.0-draft".to_string(),
-                title: None,
+                title: Some("Copy Test".to_string()),
                 description: None,
             },
             primary_package: PrimaryPackageMetadata {

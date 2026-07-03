@@ -65,9 +65,9 @@ Each scenario uses a fixed template so the set stays comparable and updatable:
 5. List the records: `srs record list --repo <repo> --pretty`. Each item is `{ instanceId, displayLabel, record }` — confirm the new record's `displayLabel` is the core-resolved human label (its `title`/`name`/`label` field value, else the type name), **not** a raw UUID. Cross-check against `srs tree --repo <repo>`: the record's `displayLabel` must equal its `tree` node `label` (one core resolution, two surfaces — the client never re-derives a title).
 6. `srs repo validate --repo <repo> --pretty`.
 
-**Negative case.** Create a record referencing a `typeId` that isn't in the package — confirm `ok: false` with a diagnostic, and that no ghost file is left in `instanceIndex`. **Label fallback:** a record of a type with no `title`/`name`/`label` field still lists with a non-empty `displayLabel` equal to its `typeName` (the resolver falls back, never returns an empty label or a bare UUID).
+**Negative case.** Create a record referencing a `typeId` that isn't in the package — confirm `ok: false` with a diagnostic, and that no ghost file is left in `instanceIndex`. **Label fallback:** a record of a type with no `title`/`name`/`label` field still lists with a non-empty `displayLabel` equal to its `typeName` (the resolver falls back, never returns an empty label or a bare UUID). **Manifest schema validation:** tamper `manifest.json` to remove a required field (e.g. `title`) and re-run `srs repo validate` — confirm the output is `ok: false` with a diagnostic containing `"manifest.json" … "title" is a required property`. Similarly, adding an undeclared field (e.g. `"name": "foo"`) produces `ok: false` with "Additional properties are not allowed". A freshly created repo with an untampered manifest returns `ok: true` with no manifest diagnostics.
 
-**Done when.** Both instances appear in `record list` / `note list`; a `derived-from` relation connects them in `relation list`; validate returns zero diagnostics. The Note is *not* deleted when the Record is created — promotion preserves the origin. Every `record list` item carries a `displayLabel` equal to that record's `tree` label (verified across all records: title-bearing records show their title; field-less types fall back to `typeName`).
+**Done when.** Both instances appear in `record list` / `note list`; a `derived-from` relation connects them in `relation list`; validate returns zero diagnostics. The Note is *not* deleted when the Record is created — promotion preserves the origin. Every `record list` item carries a `displayLabel` equal to that record's `tree` label (verified across all records: title-bearing records show their title; field-less types fall back to `typeName`). Manifest tampering cases produce `ok: false` with a diagnostic naming `manifest.json` and the violated rule.
 
 ### S2 — Define a reusable shape (Fields + Type composition)
 
@@ -577,7 +577,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 
 | Command group | Exercised by |
 |---|---|
-| `repo` (map, validate, init) | S1–S6 (orientation + validation in every scenario) |
+| `repo` (map, validate, init) | S1–S6 (orientation + validation in every scenario); `repo validate` now includes manifest.json schema validation — see S1 negative case |
 | `repo init-new` (re-stamp seed identity) | S16 |
 | `repo copy` | S9, S10 |
 | `.srsj` write determinism (idempotent, minimal-diff) | S10 |
