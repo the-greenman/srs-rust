@@ -577,7 +577,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 
 | Command group | Exercised by |
 |---|---|
-| `repo` (map, validate, init) | S1–S6 (orientation + validation in every scenario) |
+| `repo` (map, validate, init) | S1–S6 (orientation + validation in every scenario); `repo validate` now includes manifest.json schema validation — see S1 negative case |
 | `repo init-new` (re-stamp seed identity) | S16 |
 | `repo copy` | S9, S10 |
 | `.srsj` write determinism (idempotent, minimal-diff) | S10 |
