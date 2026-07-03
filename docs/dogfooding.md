@@ -572,6 +572,56 @@ Must return `ok: false` with a message referencing the absent `meta` or `upstrea
 
 ---
 
+### S17 — Pin the repository's navigation root (`repo set-root-container`)
+
+**Intention.** *"I've created the governance container that serves as my organisation's navigation entry point. I want to record that pointer in the manifest — so any client running `repo navigation` always knows where to start, without me having to tell it every time."*
+
+**Capabilities exercised.** `set_manifest_root_container` service writing `manifest.container`; the RFC-013 contract that a valid repository always has `manifest.container` set; `repo navigation` reading back the pointer; `repo validate` asserting the invariant.
+
+**CLI surface.** `repo create`, `container create`, `repo set-root-container`, `repo navigation`, `repo validate`.
+
+**Steps.**
+
+1. Create a throwaway repository:
+   ```bash
+   srs repo create --repo /tmp/dogfood-s17 --namespace com.example.s17 \
+     --package-name s17-pkg --package-version 1.0.0 --srs-version 2.0-draft
+   ```
+2. Create the navigation root container (the "home" for records):
+   ```bash
+   echo '{"title":"Root","namespace":"com.example.s17"}' \
+     | srs container create --repo /tmp/dogfood-s17
+   ```
+   Capture `payload.container.containerId` as `$ROOT_ID`.
+3. Retrieve the identity instance (the repository identity record created by `repo create`):
+   ```bash
+   srs repo navigation --repo /tmp/dogfood-s17 --pretty
+   ```
+   Capture `payload.navigation.identity.instanceId` as `$IDENTITY_ID` (or use any non-empty UUID if navigation returns a diagnostic at this stage — the pointer can be set before the identity record exists).
+4. Pin the root container in the manifest:
+   ```bash
+   srs repo set-root-container --repo /tmp/dogfood-s17 \
+     --container-id "$ROOT_ID" \
+     --identity-instance-id "$IDENTITY_ID"
+   ```
+   Confirm the response: `ok: true`, `payload.containerId == $ROOT_ID`, `payload.identityInstanceId == $IDENTITY_ID`.
+5. Inspect the manifest to confirm the pointer was written:
+   ```bash
+   cat /tmp/dogfood-s17/manifest.json | python3 -m json.tool
+   ```
+   Confirm `.container.containerId == $ROOT_ID` and `.container.identityInstanceId == $IDENTITY_ID`.
+6. Validate:
+   ```bash
+   srs repo validate --repo /tmp/dogfood-s17 --pretty
+   ```
+   The repo must pass RFC-013 I-79 with 0 errors.
+
+**Negative case.** Pass `--container-id ""` (empty string) — confirm `ok: false` with a message containing `"container_id must not be empty"` and that `manifest.container` is unchanged. Similarly, pass `--identity-instance-id ""` — same pattern.
+
+**Done when.** `set-root-container` returns the two IDs in its payload; `manifest.json` on disk carries `.container.containerId` and `.container.identityInstanceId` matching what was passed; `repo validate` reports 0 errors; empty-flag inputs return `ok: false` with a clear diagnostic without corrupting the manifest.
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -580,6 +630,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 |---|---|
 | `repo` (map, validate, init) | S1–S6 (orientation + validation in every scenario); `repo validate` now includes manifest.json schema validation — see S1 negative case; RFC-013 I-79/I-80/I-81/I-82 root-container invariants — see S1 negative case (I-79) and S15 step 10 (full happy path) |
 | `repo init-new` (re-stamp seed identity) | S16 |
+| `repo set-root-container` (write manifest.container pointer) | S17 |
 | `repo copy` | S9, S10 |
 | `.srsj` write determinism (idempotent, minimal-diff) | S10 |
 | `note` (create/get/list/update/delete) | S1, S10 |
@@ -598,7 +649,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `container resolve-view` (structured container view, `--view-id`) | S14 |
 | `container resolve-view` authored `excludeLifecycleStates` (ADR-020) | S15 |
 | `find` (ext:discovery query — type/tag/lifecycle/exclude/text) | S15 |
-| `repo navigation` (RFC-013 root container + identity + sections) | S15 |
+| `repo navigation` (RFC-013 root container + identity + sections) | S15, S17 |
 | `srs-gov` (governance client: `repo-create`, `list` + `--all`/`--search`/`--tag`, `tui --smoke`) | S15 |
 | `document-view` (create/get/list/…) | S4, S5, S11 |
 | `render document-view` | S4, S5, S8, S11 |
