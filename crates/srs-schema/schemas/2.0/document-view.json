@@ -130,6 +130,11 @@
               "type": "string",
               "enum": ["asc", "desc"],
               "description": "Default: 'asc'."
+            },
+            "memberOrder": {
+              "type": "array",
+              "items": { "type": "string", "format": "uuid" },
+              "description": "RFC-015 [N+29]. View-owned explicit presentation sequence for container-subset sections. Lists instanceIds in presentation order. Container members not listed are appended in [N+12] order (precedes topological sort, createdAt tiebreak). MUST NOT be combined with fieldId on the same section. Ignored with a diagnostic on non-container-subset sections."
             }
           }
         },
