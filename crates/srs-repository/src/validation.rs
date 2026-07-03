@@ -88,6 +88,8 @@ pub fn validate_repository(
     let manifest = store.load_manifest()?;
 
     // --- RFC-013 root container invariants (I-79, I-80, I-81, I-82) ---
+    // When manifest.container is absent the schema validator above already fires a
+    // "missing required field" error; I-79 below is the invariant-level companion.
     match manifest.container.as_ref() {
         None => {
             diagnostics.push(ValidationDiagnostic {
@@ -102,38 +104,7 @@ pub fn validate_repository(
         Some(root) => {
             let full_container_opt: Option<srs_core::types::container::Container> =
                 match store.load_container(&root.container_id) {
-                    Ok(c) => {
-                        match crate::container_service::validate_container_invariants(
-                            store,
-                            &root.container_id,
-                        ) {
-                            Ok(report) => {
-                                for err in report.errors {
-                                    diagnostics.push(ValidationDiagnostic {
-                                        severity: DiagnosticSeverity::Error,
-                                        relative_path: "manifest.json".to_string(),
-                                        schema_id: None,
-                                        message: format!(
-                                            "RFC-013 I-80: root container '{}': {}",
-                                            root.container_id, err
-                                        ),
-                                    });
-                                }
-                            }
-                            Err(e) => {
-                                diagnostics.push(ValidationDiagnostic {
-                                    severity: DiagnosticSeverity::Error,
-                                    relative_path: "manifest.json".to_string(),
-                                    schema_id: None,
-                                    message: format!(
-                                        "RFC-013 I-79: failed to validate root container '{}': {}",
-                                        root.container_id, e
-                                    ),
-                                });
-                            }
-                        }
-                        Some(c)
-                    }
+                    Ok(c) => Some(c),
                     Err(RepositoryError::ContainerNotFound { .. }) => None,
                     Err(e) => {
                         diagnostics.push(ValidationDiagnostic {
@@ -141,7 +112,7 @@ pub fn validate_repository(
                             relative_path: "manifest.json".to_string(),
                             schema_id: None,
                             message: format!(
-                                "RFC-013 I-79: could not load root container '{}': {}",
+                                "root container '{}' could not be loaded: {}",
                                 root.container_id, e
                             ),
                         });
@@ -150,6 +121,85 @@ pub fn validate_repository(
                 };
 
             if let Some(ref full_container) = full_container_opt {
+                // Structural checks (UUID format, title non-empty)
+                if let Err(e) =
+                    srs_core::validation::container::validate_container(full_container)
+                {
+                    diagnostics.push(ValidationDiagnostic {
+                        severity: DiagnosticSeverity::Error,
+                        relative_path: "manifest.json".to_string(),
+                        schema_id: None,
+                        message: format!("root container '{}': {}", root.container_id, e),
+                    });
+                }
+
+                // Self-membership integrity (containerId must not be its own member/root)
+                if full_container
+                    .member_instance_ids
+                    .as_ref()
+                    .is_some_and(|ids| ids.iter().any(|id| id == &full_container.container_id))
+                {
+                    diagnostics.push(ValidationDiagnostic {
+                        severity: DiagnosticSeverity::Error,
+                        relative_path: "manifest.json".to_string(),
+                        schema_id: None,
+                        message: format!(
+                            "root container '{}': containerId must not appear in memberInstanceIds",
+                            root.container_id
+                        ),
+                    });
+                }
+                if full_container
+                    .root_instance_ids
+                    .as_ref()
+                    .is_some_and(|ids| ids.iter().any(|id| id == &full_container.container_id))
+                {
+                    diagnostics.push(ValidationDiagnostic {
+                        severity: DiagnosticSeverity::Error,
+                        relative_path: "manifest.json".to_string(),
+                        schema_id: None,
+                        message: format!(
+                            "root container '{}': containerId must not appear in rootInstanceIds",
+                            root.container_id
+                        ),
+                    });
+                }
+
+                // I-80: memberInstanceIds and rootInstanceIds must all be in instanceIndex.
+                // Uses the manifest already loaded above — no second load_manifest().
+                let known_ids: HashSet<&str> =
+                    manifest.instance_index.iter().map(|e| e.instance_id()).collect();
+                if let Some(ref ids) = full_container.member_instance_ids {
+                    for id in ids {
+                        if !known_ids.contains(id.as_str()) {
+                            diagnostics.push(ValidationDiagnostic {
+                                severity: DiagnosticSeverity::Error,
+                                relative_path: "manifest.json".to_string(),
+                                schema_id: None,
+                                message: format!(
+                                    "RFC-013 I-80: memberInstanceId '{}' not found in instanceIndex",
+                                    id
+                                ),
+                            });
+                        }
+                    }
+                }
+                if let Some(ref ids) = full_container.root_instance_ids {
+                    for id in ids {
+                        if !known_ids.contains(id.as_str()) {
+                            diagnostics.push(ValidationDiagnostic {
+                                severity: DiagnosticSeverity::Error,
+                                relative_path: "manifest.json".to_string(),
+                                schema_id: None,
+                                message: format!(
+                                    "RFC-013 I-80: rootInstanceId '{}' not found in instanceIndex",
+                                    id
+                                ),
+                            });
+                        }
+                    }
+                }
+
                 // I-81: identityInstanceId must be in rootInstanceIds or memberInstanceIds
                 if let Some(ref identity_id) = root.identity_instance_id {
                     let in_roots = full_container
@@ -2420,33 +2470,6 @@ mod tests {
 
     // ---- RFC-013 root container invariant tests ----
 
-    fn rfc013_manifest(
-        root_id: &str,
-        identity_id: Option<&str>,
-        container_index: serde_json::Value,
-    ) -> serde_json::Value {
-        let mut container = json!({
-            "containerId": root_id,
-            "title": "Root"
-        });
-        if let Some(id) = identity_id {
-            container
-                .as_object_mut()
-                .unwrap()
-                .insert("identityInstanceId".to_string(), json!(id));
-        }
-        json!({
-            "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
-            "srsVersion": "2.0",
-            "repositoryId": root_id,
-            "title": "Test RFC-013",
-            "container": container,
-            "containerIndex": container_index,
-            "instanceIndex": [],
-            "createdAt": "2026-01-01T00:00:00Z"
-        })
-    }
-
     fn rfc013_container(
         id: &str,
         members: &[&str],
@@ -2710,6 +2733,42 @@ mod tests {
         assert!(
             i81_errors.is_empty(),
             "expected no I-81 errors when identity in memberInstanceIds, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn rfc013_i81_identity_not_in_root_or_members_memory_store() {
+        // Same semantic as rfc013_i81_identity_not_in_root_or_members_errors but uses
+        // MemoryStore via manifest_store + with_data (no on-disk files required).
+        let root_id = "00000000-0000-4000-8000-000000000305";
+        let identity_id = "00000000-0000-4000-8000-000000000306";
+        let member_id = "00000000-0000-4000-8000-000000000307";
+
+        let manifest_val = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+            "srsVersion": "2.0",
+            "repositoryId": root_id,
+            "title": "I-81 MemoryStore test",
+            "container": {"containerId": root_id, "title": "Root", "identityInstanceId": identity_id},
+            "instanceIndex": [rfc013_instance_entry(member_id)],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        // Container has member_id in memberInstanceIds but NOT identity_id
+        let container_val =
+            serde_json::to_value(rfc013_container(root_id, &[member_id], &[member_id])).unwrap();
+        let store = manifest_store(manifest_val)
+            .with_data(&format!("containers/{root_id}.json"), container_val);
+
+        let report = validate_repository(&store).unwrap();
+        let errors: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("I-81"))
+            .collect();
+        assert!(
+            !errors.is_empty(),
+            "expected I-81 error when identity not in root or members (MemoryStore), got: {:?}",
             report.diagnostics
         );
     }
