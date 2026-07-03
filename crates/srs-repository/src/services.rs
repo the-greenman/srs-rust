@@ -567,6 +567,8 @@ mod tests {
                 title: note.title.clone().map(serde_json::Value::String),
                 tags: note.tags.clone(),
             }],
+            container: None,
+            container_index: None,
             extra: HashMap::new(),
             root: PathBuf::from("/memory"),
         };
@@ -625,6 +627,8 @@ mod tests {
                     tags: note_b.tags.clone(),
                 },
             ],
+            container: None,
+            container_index: None,
             extra: HashMap::new(),
             root: PathBuf::from("/memory"),
         };
@@ -708,6 +712,8 @@ mod tests {
                 title: note.title.clone().map(serde_json::Value::String),
                 tags: None,
             }],
+            container: None,
+            container_index: None,
             extra: HashMap::new(),
             root: PathBuf::from("/memory"),
         };
@@ -757,6 +763,8 @@ mod tests {
                     tags: Some(vec!["not-counted".to_string()]),
                 },
             ],
+            container: None,
+            container_index: None,
             extra: HashMap::new(),
             root: PathBuf::from("/memory"),
         };
@@ -870,6 +878,8 @@ mod tests {
                 title: None,
                 tags: None,
             }],
+            container: None,
+            container_index: None,
             extra: HashMap::new(),
             root: PathBuf::from("/memory"),
         };

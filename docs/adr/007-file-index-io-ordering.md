@@ -7,7 +7,7 @@
 
 ## Context
 
-Several SRS repository entities are stored as individual JSON files on disk and tracked by an index — currently `manifest.json → instanceIndex` for records, and `manifest.json → extra.containerIndex` for containers. Any CRUD operation that modifies both a file and its index entry must choose an ordering, and that ordering determines which failure mode is possible when the process is interrupted between the two writes.
+Several SRS repository entities are stored as individual JSON files on disk and tracked by an index — currently `manifest.json → instanceIndex` for records, and `manifest.json → containerIndex` for containers. Any CRUD operation that modifies both a file and its index entry must choose an ordering, and that ordering determines which failure mode is possible when the process is interrupted between the two writes.
 
 There are two options:
 
@@ -42,7 +42,7 @@ Use **file-first ordering for create** and **index-first ordering for delete**, 
 In both cases the index is the authoritative membership record. A file on disk that is not in the index is not a member of the repository. Orphaned files are recoverable by a future `srs repo repair` scan (compare `containers/` directory against `containerIndex`); dangling index entries require manual surgery and cause visible errors until fixed.
 
 This principle applies to all file-backed indexed entities in `srs-repository`:
-- Container files vs. `manifest.extra.containerIndex`
+- Container files vs. `manifest.containerIndex` (typed as `Manifest::container_index` in Rust)
 - Instance record files vs. `manifest.instanceIndex`
 - Any future file-backed index (source documents, views, etc.)
 

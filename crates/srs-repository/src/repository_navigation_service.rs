@@ -37,18 +37,11 @@ pub struct RepositoryNavigation {
     pub diagnostics: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ManifestContainerRef {
-    container_id: String,
-    identity_instance_id: Option<String>,
-}
-
 pub fn repository_navigation(
     store: &dyn RepositoryStore,
 ) -> Result<RepositoryNavigation, RepositoryError> {
     let manifest = store.load_manifest()?;
-    let Some(raw_container_ref) = manifest.extra.get("container").cloned() else {
+    let Some(container_ref) = &manifest.container else {
         return Ok(RepositoryNavigation {
             root_container_id: String::new(),
             identity: NavigationNode::default(),
@@ -59,17 +52,11 @@ pub fn repository_navigation(
             ],
         });
     };
-    let container_ref =
-        serde_json::from_value::<ManifestContainerRef>(raw_container_ref).map_err(|source| {
-            RepositoryError::ManifestParse {
-                path: PathBuf::from("manifest.container"),
-                source,
-            }
-        })?;
 
     let root_container = container_service::get_container(store, &container_ref.container_id)?;
     let identity_id = container_ref
         .identity_instance_id
+        .clone()
         .or_else(|| {
             root_container
                 .root_instance_ids
@@ -119,7 +106,7 @@ pub fn repository_navigation(
     }
 
     Ok(RepositoryNavigation {
-        root_container_id: container_ref.container_id,
+        root_container_id: container_ref.container_id.clone(),
         identity,
         sections,
         diagnostics,
@@ -270,17 +257,26 @@ mod tests {
     }
 
     fn nav_store() -> MemoryStore {
-        let mut extra = HashMap::new();
-        extra.insert(
-            "container".to_string(),
-            serde_json::json!({
-                "containerId": "00000000-0000-4000-8000-00000000a000",
-                "identityInstanceId": "00000000-0000-4000-8000-00000000a100"
-            }),
-        );
         let manifest = Manifest {
             instance_index: vec![],
-            extra,
+            container: Some(Container {
+                container_id: "00000000-0000-4000-8000-00000000a000".to_string(),
+                title: String::new(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: Some("00000000-0000-4000-8000-00000000a100".to_string()),
+                root_instance_ids: None,
+                member_instance_ids: None,
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: HashMap::new(),
+            }),
+            container_index: None,
+            extra: HashMap::new(),
             root: PathBuf::from("/memory"),
         };
         let store = MemoryStore::new(manifest, empty_package());
@@ -321,6 +317,7 @@ mod tests {
                 name: None,
                 description: None,
                 container_type: None,
+                identity_instance_id: None,
                 member_instance_ids: Some(vec![
                     "00000000-0000-4000-8000-00000000a100".to_string(),
                     "00000000-0000-4000-8000-00000000a300".to_string(),
@@ -345,6 +342,7 @@ mod tests {
                 name: None,
                 description: None,
                 container_type: Some("stale-hint-is-not-a-key".to_string()),
+                identity_instance_id: None,
                 member_instance_ids: None,
                 root_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000a200".to_string()]),
                 tags: None,
@@ -365,6 +363,7 @@ mod tests {
                 name: None,
                 description: None,
                 container_type: Some("another-stale-hint".to_string()),
+                identity_instance_id: None,
                 member_instance_ids: None,
                 root_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000a300".to_string()]),
                 tags: None,

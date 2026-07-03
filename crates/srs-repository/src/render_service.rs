@@ -906,35 +906,34 @@ fn resolve_container_title(
     manifest: &crate::manifest::Manifest,
     container_id: Option<&str>,
 ) -> String {
-    if let Some(container_index) = manifest.extra.get("containerIndex") {
-        if let Some(entries) = container_index.as_array() {
-            // When a specific container was requested, look it up by ID first.
-            if let Some(cid) = container_id {
-                for entry in entries {
-                    let id = entry.get("containerId").and_then(|v| v.as_str());
-                    if id == Some(cid) {
-                        if let Some(title) = entry.get("title").and_then(|v| v.as_str()) {
-                            if !title.is_empty() {
-                                return title.to_string();
-                            }
+    let entries = manifest.container_index.as_deref().unwrap_or(&[]);
+
+    if !entries.is_empty() {
+        // When a specific container was requested, look it up by ID first.
+        if let Some(cid) = container_id {
+            for entry in entries {
+                if entry.container_id == cid {
+                    if let Some(title) = &entry.title {
+                        if !title.is_empty() {
+                            return title.clone();
                         }
                     }
                 }
             }
+        }
 
-            // Fallback: first container matching the document view's containerType.
-            if let Some(container_type) = &dv.container_type {
-                for entry in entries {
-                    let ctype = entry
-                        .get("containerType")
-                        .and_then(|v| v.as_str())
-                        .or_else(|| entry.get("type").and_then(|v| v.as_str()));
-                    if ctype == Some(container_type.as_str()) {
-                        let title = entry.get("title").and_then(|v| v.as_str());
-                        if let Some(title) = title {
-                            if !title.is_empty() {
-                                return title.to_string();
-                            }
+        // Fallback: first container matching the document view's containerType.
+        if let Some(container_type) = &dv.container_type {
+            for entry in entries {
+                // legacy: older repos used "type" instead of "containerType" in containerIndex entries
+                let ctype = entry
+                    .container_type
+                    .as_deref()
+                    .or_else(|| entry.extra.get("type").and_then(|v| v.as_str()));
+                if ctype == Some(container_type.as_str()) {
+                    if let Some(title) = &entry.title {
+                        if !title.is_empty() {
+                            return title.clone();
                         }
                     }
                 }
@@ -3090,6 +3089,8 @@ mod tests {
 
         let manifest = crate::manifest::Manifest {
             instance_index: vec![],
+            container: None,
+            container_index: None,
             extra: HashMap::new(),
             root: std::path::PathBuf::from("/memory"),
         };
@@ -3145,6 +3146,7 @@ mod tests {
                 name: None,
                 description: None,
                 container_type: Some("guide".to_string()),
+                identity_instance_id: None,
                 root_instance_ids: None,
                 member_instance_ids: None,
                 tags: None,
@@ -3664,6 +3666,8 @@ mod tests {
 
         let manifest = crate::manifest::Manifest {
             instance_index: vec![],
+            container: None,
+            container_index: None,
             extra: HashMap::new(),
             root: std::path::PathBuf::from("/memory"),
         };
@@ -3972,6 +3976,8 @@ mod tests {
         };
         let manifest = crate::manifest::Manifest {
             instance_index: vec![],
+            container: None,
+            container_index: None,
             extra: HashMap::new(),
             root: std::path::PathBuf::from("/memory"),
         };
@@ -4181,6 +4187,8 @@ mod tests {
 
         let manifest = crate::manifest::Manifest {
             instance_index: vec![],
+            container: None,
+            container_index: None,
             extra: HashMap::new(),
             root: std::path::PathBuf::from("/memory"),
         };
@@ -4213,6 +4221,7 @@ mod tests {
                 name: None,
                 description: None,
                 container_type: None,
+                identity_instance_id: None,
                 root_instance_ids: None,
                 member_instance_ids: None,
                 tags: None,
@@ -4540,6 +4549,8 @@ mod tests {
 
         let manifest = crate::manifest::Manifest {
             instance_index: vec![],
+            container: None,
+            container_index: None,
             extra: HashMap::new(),
             root: std::path::PathBuf::from("/memory"),
         };
@@ -4937,6 +4948,8 @@ mod tests {
 
         let manifest = crate::manifest::Manifest {
             instance_index: vec![],
+            container: None,
+            container_index: None,
             extra: HashMap::new(),
             root: std::path::PathBuf::from("/memory"),
         };
@@ -4991,6 +5004,7 @@ mod tests {
                 name: None,
                 description: None,
                 container_type: None,
+                identity_instance_id: None,
                 root_instance_ids: None,
                 member_instance_ids: None,
                 tags: None,
@@ -5454,6 +5468,8 @@ mod tests {
 
         let manifest = Manifest {
             instance_index: vec![],
+            container: None,
+            container_index: None,
             extra: std::collections::HashMap::new(),
             root: std::path::PathBuf::from("/memory"),
         };
@@ -5738,6 +5754,7 @@ mod tests {
                 name: None,
                 description: None,
                 container_type: None,
+                identity_instance_id: None,
                 root_instance_ids: None,
                 member_instance_ids: None,
                 tags: None,
@@ -5759,6 +5776,7 @@ mod tests {
                 name: None,
                 description: None,
                 container_type: None,
+                identity_instance_id: None,
                 root_instance_ids: None,
                 member_instance_ids: None,
                 tags: None,
@@ -6008,6 +6026,7 @@ mod tests {
                 name: None,
                 description: None,
                 container_type: None,
+                identity_instance_id: None,
                 root_instance_ids: None,
                 member_instance_ids: None,
                 tags: None,
@@ -6029,6 +6048,7 @@ mod tests {
                 name: None,
                 description: None,
                 container_type: None,
+                identity_instance_id: None,
                 root_instance_ids: None,
                 member_instance_ids: None,
                 tags: None,

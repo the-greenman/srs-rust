@@ -443,6 +443,8 @@ mod tests {
     fn make_package_store(fields: Vec<Field>, record_types: Vec<RecordType>) -> MemoryStore {
         let manifest = Manifest {
             instance_index: vec![],
+            container: None,
+            container_index: None,
             extra: HashMap::new(),
             root: PathBuf::from("/memory"),
         };
