@@ -1184,6 +1184,13 @@ pub struct RepoExtensionsMutatePayload {
     pub extensions: Vec<String>,
 }
 
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoSetRootContainerPayload {
+    pub container_id: String,
+    pub identity_instance_id: String,
+}
+
 // ── Revision payloads ─────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]

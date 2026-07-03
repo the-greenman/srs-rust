@@ -5,13 +5,14 @@ use crate::payload::{
     RepoDiffInstanceRemoved, RepoDiffInstances, RepoDiffManifest, RepoDiffPayload,
     RepoDiffRelationAdded, RepoDiffRelationModified, RepoDiffRelationRemoved, RepoDiffRelations,
     RepoDiffSummary, RepoExtensionsMutatePayload, RepoExtensionsPayload, RepoInitNewPayload,
-    RepoMapPayload, RepoNavigationPayload, RepoValidatePayload,
+    RepoMapPayload, RepoNavigationPayload, RepoSetRootContainerPayload, RepoValidatePayload,
 };
 use anyhow::{Context, Result};
 use srs_repository::analysis::build_repo_map;
 use srs_repository::diff::diff_repositories;
 use srs_repository::manifest_service::{
     add_declared_extension, list_declared_extensions, remove_declared_extension,
+    set_manifest_root_container, SetManifestRootContainerInput,
 };
 use srs_repository::repository_lifecycle::{
     create_repository_with_intent, init_new_repository, InitNewRepositoryInput,
@@ -48,6 +49,10 @@ pub fn dispatch(ctx: CliContext, cmd: RepoCommand) -> Result<String> {
         ),
         RepoCommand::Map { json: _ } => cmd_repo_map(ctx),
         RepoCommand::Navigation => cmd_repo_navigation(ctx),
+        RepoCommand::SetRootContainer {
+            container_id,
+            identity_instance_id,
+        } => cmd_repo_set_root_container(ctx, container_id, identity_instance_id),
         RepoCommand::Copy {
             from,
             to,
@@ -179,6 +184,25 @@ fn cmd_repo_map(ctx: CliContext) -> Result<String> {
 fn cmd_repo_navigation(ctx: CliContext) -> Result<String> {
     let navigation = with_store(&ctx, |store| Ok(repository_navigation(store)?))?;
     output::serialize("repo navigation", RepoNavigationPayload { navigation })
+}
+
+fn cmd_repo_set_root_container(
+    ctx: CliContext,
+    container_id: String,
+    identity_instance_id: String,
+) -> Result<String> {
+    let input = SetManifestRootContainerInput {
+        container_id,
+        identity_instance_id,
+    };
+    let result = with_store(&ctx, |store| Ok(set_manifest_root_container(store, input)?))?;
+    output::serialize(
+        "repo set-root-container",
+        RepoSetRootContainerPayload {
+            container_id: result.container_id,
+            identity_instance_id: result.identity_instance_id,
+        },
+    )
 }
 
 fn cmd_repo_copy(

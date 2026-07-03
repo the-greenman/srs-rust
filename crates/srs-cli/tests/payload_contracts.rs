@@ -438,6 +438,11 @@ fn repo_init_new() {
     check::<RepoInitNewPayload>("repo-init-new");
 }
 
+#[test]
+fn repo_set_root_container() {
+    check::<RepoSetRootContainerPayload>("repo-set-root-container");
+}
+
 // ── Package ───────────────────────────────────────────────────────────────────
 
 #[test]
