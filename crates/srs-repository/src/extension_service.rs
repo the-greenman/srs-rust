@@ -24,6 +24,7 @@ use srs_core::types::record::{FieldValue, Record};
 use crate::error::RepositoryError;
 use crate::record_store::{
     create_record_at_dir, delete_record, get_record_by_id, list_records_by_type, update_record,
+    UpdateRecordInput,
 };
 use crate::store::RepositoryStore;
 
@@ -141,7 +142,16 @@ pub fn update_extension(
         })
         .collect();
 
-    let record = update_record(store, id, field_values, None, None)?;
+    let record = update_record(
+        store,
+        id,
+        UpdateRecordInput {
+            field_values,
+            group_values: None,
+            tags: None,
+            type_version: None,
+        },
+    )?;
     Ok(ExtensionResult { record })
 }
 
