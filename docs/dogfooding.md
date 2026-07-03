@@ -586,6 +586,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `field` (create/list/get/update/delete) | S2 |
 | `type` (create/get/list/schema/update/delete) | S2 |
 | `record` (create/get/list/update/delete) | S1, S2, S4 |
+| `record update` with `typeVersion` migration (srs-rust#42) | S2 negative case — pass `typeVersion: 2` when package has advanced past stored version; confirm `ok: true` and returned record carries `typeVersion: 2`; pass `typeVersion: 99` and confirm `ok: false` with `"type version 99 not found"` diagnostic; `repo validate` must be 0 errors throughout |
 | `record list` core `displayLabel` (tree-parity, type_name fallback) | S1 |
 | `record validate` (no-write preflight) | S2 |
 | `record transition` | S4, S6 |
