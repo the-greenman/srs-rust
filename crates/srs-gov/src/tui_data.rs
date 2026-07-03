@@ -205,32 +205,17 @@ fn allowed_hits(
         return Ok(None);
     }
 
-    let mut args = vec![
-        "--container".to_string(),
-        container_id.to_string(),
-        "find".to_string(),
-    ];
-    for exclude in excludes {
-        args.push("--exclude-lifecycle-state".to_string());
-        args.push(exclude.clone());
-    }
-    if !search_query.is_empty() {
-        args.push("--text".to_string());
-        args.push(search_query.to_string());
-    }
+    let exclude_refs: Vec<&str> = excludes.iter().map(String::as_str).collect();
+    let search = (!search_query.is_empty()).then_some(search_query);
+    let args = crate::find_query::build_find_args(container_id, &exclude_refs, search, &[]);
 
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
     let payload = run_srs(&arg_refs, repo, false, false)?;
-    let hits = payload["result"]["hits"]
-        .as_array()
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(|hit| hit["instanceId"].as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
-    Ok(Some(hits))
+    Ok(Some(
+        crate::find_query::parse_hit_ids(&payload)
+            .into_iter()
+            .collect(),
+    ))
 }
 
 fn record_item(
@@ -260,7 +245,13 @@ fn record_item(
         created_at: record["createdAt"].as_str().map(String::from),
         type_id,
         type_version,
-        detail_rows: detail_rows(&schema, record),
+        detail_rows: detail_rows(
+            &schema,
+            record["fieldValues"]
+                .as_array()
+                .map(Vec::as_slice)
+                .unwrap_or(&[]),
+        ),
         record: record.clone(),
     })
 }
@@ -288,18 +279,18 @@ fn load_type_schema(
     Ok(schema)
 }
 
-pub(crate) fn detail_rows(schema: &Value, record: &Value) -> Vec<DetailRow> {
-    let values_by_field_id: HashMap<&str, &Value> = record["fieldValues"]
-        .as_array()
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(|field_value| {
-                    Some((field_value["fieldId"].as_str()?, field_value.get("value")?))
-                })
-                .collect()
+/// Shape a type schema + a record's field values into ordered, labeled display rows.
+///
+/// `schema` is the full type schema (`payload.schema`); `field_values` is the record's
+/// `fieldValues` array. Shared by the TUI detail pane and `render::record_detail` (CLI text
+/// output) so the field ordering/labeling logic exists in exactly one place.
+pub(crate) fn detail_rows(schema: &Value, field_values: &[Value]) -> Vec<DetailRow> {
+    let values_by_field_id: HashMap<&str, &Value> = field_values
+        .iter()
+        .filter_map(|field_value| {
+            Some((field_value["fieldId"].as_str()?, field_value.get("value")?))
         })
-        .unwrap_or_default();
+        .collect();
     let required_names: HashSet<&str> = schema["required"]
         .as_array()
         .map(|values| values.iter().filter_map(|value| value.as_str()).collect())
@@ -430,14 +421,12 @@ mod tests {
                 }
             }
         });
-        let record = serde_json::json!({
-            "fieldValues": [
-                { "fieldId": "field-title", "value": "Adopt policy" },
-                { "fieldId": "field-statement", "value": "Use schema detail" }
-            ]
-        });
+        let field_values = vec![
+            serde_json::json!({ "fieldId": "field-title", "value": "Adopt policy" }),
+            serde_json::json!({ "fieldId": "field-statement", "value": "Use schema detail" }),
+        ];
 
-        let rows = detail_rows(&schema, &record);
+        let rows = detail_rows(&schema, &field_values);
 
         assert_eq!(rows[0].label, "Decision Statement");
         assert_eq!(rows[0].value.as_deref(), Some("Use schema detail"));

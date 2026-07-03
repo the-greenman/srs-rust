@@ -47,64 +47,29 @@ pub struct ContainerRow {
 
 /// Print record fields in schema order using core-provided labels.
 ///
-/// `schema_props` comes from `payload.schema.properties` (type schema).
-/// `field_values` comes from `payload.record.fieldValues`.
+/// `schema_props` comes from `payload.schema` (full type schema, not just `.properties`).
+/// `field_values` comes from `payload.record.fieldValues`. Row shaping (field ordering,
+/// labeling, required-marking) is delegated to `tui_data::detail_rows` — the single
+/// implementation shared with the TUI detail pane; this function owns only CLI text
+/// formatting (skip-if-missing, wrap-if-long).
 pub fn record_detail(record_id: &str, schema_props: &Value, field_values: &[Value]) {
-    // Build fieldId → value map
-    let mut fv_map: std::collections::HashMap<&str, &Value> = std::collections::HashMap::new();
-    for fv in field_values {
-        if let (Some(fid), Some(val)) = (fv["fieldId"].as_str(), fv.get("value")) {
-            fv_map.insert(fid, val);
-        }
-    }
-
-    // schema_props is the full schema object; properties and required are sub-keys
-    let schema_required = Value::Array(vec![]);
-    let schema_required_arr = schema_props.get("required").unwrap_or(&schema_required);
-    let props = match schema_props.get("properties").and_then(|p| p.as_object()) {
-        Some(m) => m,
-        None => return,
-    };
-    let required_set: std::collections::HashSet<&str> = schema_required_arr
-        .as_array()
-        .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
-        .unwrap_or_default();
-
-    let mut fields: Vec<(i64, &str, &str, bool)> = props
-        .iter()
-        .filter_map(|(name, prop)| {
-            let order = prop
-                .get("x-srs-order")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(99);
-            let label = prop.get("title").and_then(|v| v.as_str()).unwrap_or(name);
-            let fid = prop.get("x-srs-field-id").and_then(|v| v.as_str())?;
-            Some((order, label, fid, required_set.contains(name.as_str())))
-        })
-        .collect();
-    fields.sort_by_key(|f| f.0);
+    let rows = crate::tui_data::detail_rows(schema_props, field_values);
 
     header(&format!("Record  {}", short_id(record_id)));
     println!();
-    for (_, label, fid, req) in &fields {
-        if let Some(val) = fv_map.get(fid) {
-            let marker = if *req { "*" } else { " " };
-            let owned;
-            let text = if let Some(s) = val.as_str() {
-                s
-            } else {
-                owned = val.to_string();
-                &owned
-            };
-            // Wrap long values
-            if text.len() > 72 {
-                println!("  {marker} {label}:");
-                for line in textwrap(text, 70) {
-                    println!("      {line}");
-                }
-            } else {
-                println!("  {marker} {:<26} {text}", format!("{label}:"));
+    for row in &rows {
+        let Some(text) = row.value.as_deref() else {
+            continue;
+        };
+        let marker = if row.required { "*" } else { " " };
+        // Wrap long values
+        if text.len() > 72 {
+            println!("  {marker} {}:", row.label);
+            for line in textwrap(text, 70) {
+                println!("      {line}");
             }
+        } else {
+            println!("  {marker} {:<26} {text}", format!("{}:", row.label));
         }
     }
     println!();
