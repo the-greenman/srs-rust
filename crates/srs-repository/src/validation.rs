@@ -87,6 +87,130 @@ pub fn validate_repository(
     // --- Load manifest for instanceIndex ---
     let manifest = store.load_manifest()?;
 
+    // --- RFC-013 root container invariants (I-79, I-80, I-81, I-82) ---
+    match manifest.container.as_ref() {
+        None => {
+            diagnostics.push(ValidationDiagnostic {
+                severity: DiagnosticSeverity::Error,
+                relative_path: "manifest.json".to_string(),
+                schema_id: None,
+                message:
+                    "RFC-013 I-79: manifest.container is absent; every SRS repository must declare a root container"
+                        .to_string(),
+            });
+        }
+        Some(root) => {
+            let full_container_opt: Option<srs_core::types::container::Container> =
+                match store.load_container(&root.container_id) {
+                    Ok(c) => {
+                        match crate::container_service::validate_container_invariants(
+                            store,
+                            &root.container_id,
+                        ) {
+                            Ok(report) => {
+                                for err in report.errors {
+                                    diagnostics.push(ValidationDiagnostic {
+                                        severity: DiagnosticSeverity::Error,
+                                        relative_path: "manifest.json".to_string(),
+                                        schema_id: None,
+                                        message: format!(
+                                            "RFC-013 I-80: root container '{}': {}",
+                                            root.container_id, err
+                                        ),
+                                    });
+                                }
+                            }
+                            Err(e) => {
+                                diagnostics.push(ValidationDiagnostic {
+                                    severity: DiagnosticSeverity::Error,
+                                    relative_path: "manifest.json".to_string(),
+                                    schema_id: None,
+                                    message: format!(
+                                        "RFC-013 I-79: failed to validate root container '{}': {}",
+                                        root.container_id, e
+                                    ),
+                                });
+                            }
+                        }
+                        Some(c)
+                    }
+                    Err(RepositoryError::ContainerNotFound { .. }) => None,
+                    Err(e) => {
+                        diagnostics.push(ValidationDiagnostic {
+                            severity: DiagnosticSeverity::Error,
+                            relative_path: "manifest.json".to_string(),
+                            schema_id: None,
+                            message: format!(
+                                "RFC-013 I-79: could not load root container '{}': {}",
+                                root.container_id, e
+                            ),
+                        });
+                        None
+                    }
+                };
+
+            if let Some(ref full_container) = full_container_opt {
+                // I-81: identityInstanceId must be in rootInstanceIds or memberInstanceIds
+                if let Some(ref identity_id) = root.identity_instance_id {
+                    let in_roots = full_container
+                        .root_instance_ids
+                        .as_ref()
+                        .is_some_and(|ids| ids.contains(identity_id));
+                    let in_members = full_container
+                        .member_instance_ids
+                        .as_ref()
+                        .is_some_and(|ids| ids.contains(identity_id));
+                    if !in_roots && !in_members {
+                        diagnostics.push(ValidationDiagnostic {
+                            severity: DiagnosticSeverity::Error,
+                            relative_path: "manifest.json".to_string(),
+                            schema_id: None,
+                            message: format!(
+                                "RFC-013 I-81: identityInstanceId '{}' is not in rootInstanceIds or memberInstanceIds of the root container",
+                                identity_id
+                            ),
+                        });
+                    }
+                }
+
+                // I-82: every non-identity member should root a container (warning; suppressed
+                // when containerIndex is absent or empty)
+                if let Some(ref ci) = manifest.container_index {
+                    if !ci.is_empty() {
+                        if let Some(ref members) = full_container.member_instance_ids {
+                            let mut section_container_roots: HashSet<String> = HashSet::new();
+                            for entry in ci {
+                                if let Ok(c) = store.load_container(&entry.container_id) {
+                                    if let Some(ref roots) = c.root_instance_ids {
+                                        section_container_roots.extend(roots.iter().cloned());
+                                    }
+                                }
+                            }
+                            let identity_id =
+                                root.identity_instance_id.as_deref().unwrap_or("");
+                            for member_id in members {
+                                if member_id.as_str() == identity_id {
+                                    continue;
+                                }
+                                if !section_container_roots.contains(member_id.as_str()) {
+                                    diagnostics.push(ValidationDiagnostic {
+                                        severity: DiagnosticSeverity::Warning,
+                                        relative_path: "manifest.json".to_string(),
+                                        schema_id: None,
+                                        message: format!(
+                                            "RFC-013 I-82: root container member '{}' is not the root of any container in containerIndex",
+                                            member_id
+                                        ),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // --- Validate each instanceIndex entry ---
     for entry in &manifest.instance_index {
         let rel_path = entry.path().to_string();
@@ -2222,7 +2346,17 @@ mod tests {
 
     fn manifest_store(manifest_json: serde_json::Value) -> MemoryStore {
         let raw = serde_json::to_string(&manifest_json).unwrap();
-        MemoryStore::empty().with_data("manifest.json", serde_json::Value::String(raw))
+        let store =
+            MemoryStore::empty().with_data("manifest.json", serde_json::Value::String(raw));
+        if let Ok(typed) =
+            serde_json::from_value::<crate::manifest::Manifest>(manifest_json.clone())
+        {
+            let mut m = store.load_manifest().unwrap();
+            m.container = typed.container;
+            m.container_index = typed.container_index;
+            store.save_manifest(&m).unwrap();
+        }
+        store
     }
 
     #[test]
@@ -2281,6 +2415,576 @@ mod tests {
             manifest_diags.is_empty(),
             "expected zero manifest.json diagnostics for valid manifest, got: {:?}",
             manifest_diags
+        );
+    }
+
+    // ---- RFC-013 root container invariant tests ----
+
+    fn rfc013_manifest(
+        root_id: &str,
+        identity_id: Option<&str>,
+        container_index: serde_json::Value,
+    ) -> serde_json::Value {
+        let mut container = json!({
+            "containerId": root_id,
+            "title": "Root"
+        });
+        if let Some(id) = identity_id {
+            container
+                .as_object_mut()
+                .unwrap()
+                .insert("identityInstanceId".to_string(), json!(id));
+        }
+        json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+            "srsVersion": "2.0",
+            "repositoryId": root_id,
+            "title": "Test RFC-013",
+            "container": container,
+            "containerIndex": container_index,
+            "instanceIndex": [],
+            "createdAt": "2026-01-01T00:00:00Z"
+        })
+    }
+
+    fn rfc013_container(
+        id: &str,
+        members: &[&str],
+        roots: &[&str],
+    ) -> srs_core::types::container::Container {
+        srs_core::types::container::Container {
+            container_id: id.to_string(),
+            title: "Root Container".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            identity_instance_id: None,
+            member_instance_ids: if members.is_empty() {
+                None
+            } else {
+                Some(members.iter().map(|s| s.to_string()).collect())
+            },
+            root_instance_ids: if roots.is_empty() {
+                None
+            } else {
+                Some(roots.iter().map(|s| s.to_string()).collect())
+            },
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: std::collections::HashMap::new(),
+        }
+    }
+
+    fn rfc013_instance_entry(id: &str) -> serde_json::Value {
+        json!({"instanceId": id, "tier": 2, "path": format!("records/{id}.json")})
+    }
+
+    #[test]
+    fn rfc013_i79_missing_container_errors() {
+        let mut manifest = minimal_manifest(json!([]));
+        manifest.as_object_mut().unwrap().remove("container");
+        let store = manifest_store(manifest);
+        let report = validate_repository(&store).unwrap();
+        let errors: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("I-79"))
+            .collect();
+        assert!(
+            !errors.is_empty(),
+            "expected I-79 error when manifest.container absent, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn rfc013_i80_member_not_in_instance_index_errors() {
+        let temp = TempDir::new().unwrap();
+        let root_id = "00000000-0000-4000-8000-000000000100";
+        let member_id = "00000000-0000-4000-8000-000000000101";
+
+        let manifest = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+            "srsVersion": "2.0",
+            "repositoryId": root_id,
+            "title": "Test I-80",
+            "container": {"containerId": root_id, "title": "Root"},
+            "containerIndex": [{"containerId": root_id, "title": "Root", "path": "containers/root.json"}],
+            "instanceIndex": [],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        write_json(temp.path(), "manifest.json", &manifest);
+        write_json(
+            temp.path(),
+            "containers/root.json",
+            &serde_json::to_value(rfc013_container(root_id, &[member_id], &[])).unwrap(),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let errors: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("I-80"))
+            .collect();
+        assert!(
+            !errors.is_empty(),
+            "expected I-80 error when memberInstanceId not in instanceIndex, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn rfc013_i80_root_not_in_instance_index_errors() {
+        let temp = TempDir::new().unwrap();
+        let root_id = "00000000-0000-4000-8000-000000000200";
+        let root_member_id = "00000000-0000-4000-8000-000000000201";
+
+        let manifest = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+            "srsVersion": "2.0",
+            "repositoryId": root_id,
+            "title": "Test I-80 root",
+            "container": {"containerId": root_id, "title": "Root"},
+            "containerIndex": [{"containerId": root_id, "title": "Root", "path": "containers/root.json"}],
+            "instanceIndex": [],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        write_json(temp.path(), "manifest.json", &manifest);
+        write_json(
+            temp.path(),
+            "containers/root.json",
+            &serde_json::to_value(rfc013_container(root_id, &[], &[root_member_id])).unwrap(),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let errors: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("I-80"))
+            .collect();
+        assert!(
+            !errors.is_empty(),
+            "expected I-80 error when rootInstanceId not in instanceIndex, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn rfc013_i81_identity_not_in_root_or_members_errors() {
+        let temp = TempDir::new().unwrap();
+        let root_id = "00000000-0000-4000-8000-000000000300";
+        let identity_id = "00000000-0000-4000-8000-000000000301";
+        let member_id = "00000000-0000-4000-8000-000000000302";
+
+        let manifest = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+            "srsVersion": "2.0",
+            "repositoryId": root_id,
+            "title": "Test I-81 fail",
+            "container": {"containerId": root_id, "title": "Root", "identityInstanceId": identity_id},
+            "containerIndex": [{"containerId": root_id, "title": "Root", "path": "containers/root.json"}],
+            "instanceIndex": [rfc013_instance_entry(member_id)],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        write_json(temp.path(), "manifest.json", &manifest);
+        write_json(
+            temp.path(),
+            "containers/root.json",
+            &serde_json::to_value(rfc013_container(root_id, &[member_id], &[member_id])).unwrap(),
+        );
+        write_json(temp.path(), &format!("records/{member_id}.json"), &json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+            "instanceId": member_id,
+            "typeId": "t1",
+            "typeVersion": 1,
+            "typeNamespace": "ns",
+            "typeName": "Section",
+            "fieldValues": []
+        }));
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let errors: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("I-81"))
+            .collect();
+        assert!(
+            !errors.is_empty(),
+            "expected I-81 error when identity not in root or members, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn rfc013_i81_identity_in_root_instance_ids_ok() {
+        let temp = TempDir::new().unwrap();
+        let root_id = "00000000-0000-4000-8000-000000000400";
+        let identity_id = "00000000-0000-4000-8000-000000000401";
+
+        let manifest = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+            "srsVersion": "2.0",
+            "repositoryId": root_id,
+            "title": "Test I-81 ok via root",
+            "container": {"containerId": root_id, "title": "Root", "identityInstanceId": identity_id},
+            "containerIndex": [{"containerId": root_id, "title": "Root", "path": "containers/root.json"}],
+            "instanceIndex": [rfc013_instance_entry(identity_id)],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        write_json(temp.path(), "manifest.json", &manifest);
+        write_json(
+            temp.path(),
+            "containers/root.json",
+            &serde_json::to_value(rfc013_container(root_id, &[identity_id], &[identity_id])).unwrap(),
+        );
+        write_json(temp.path(), &format!("records/{identity_id}.json"), &json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+            "instanceId": identity_id,
+            "typeId": "t1",
+            "typeVersion": 1,
+            "typeNamespace": "ns",
+            "typeName": "Identity",
+            "fieldValues": []
+        }));
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let i81_errors: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("I-81"))
+            .collect();
+        assert!(
+            i81_errors.is_empty(),
+            "expected no I-81 errors when identity in rootInstanceIds, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn rfc013_i81_identity_in_member_instance_ids_ok() {
+        let temp = TempDir::new().unwrap();
+        let root_id = "00000000-0000-4000-8000-000000000500";
+        let identity_id = "00000000-0000-4000-8000-000000000501";
+
+        let manifest = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+            "srsVersion": "2.0",
+            "repositoryId": root_id,
+            "title": "Test I-81 ok via member",
+            "container": {"containerId": root_id, "title": "Root", "identityInstanceId": identity_id},
+            "containerIndex": [{"containerId": root_id, "title": "Root", "path": "containers/root.json"}],
+            "instanceIndex": [rfc013_instance_entry(identity_id)],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        write_json(temp.path(), "manifest.json", &manifest);
+        // Identity only in memberInstanceIds, not rootInstanceIds
+        write_json(
+            temp.path(),
+            "containers/root.json",
+            &serde_json::to_value(rfc013_container(root_id, &[identity_id], &[])).unwrap(),
+        );
+        write_json(temp.path(), &format!("records/{identity_id}.json"), &json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+            "instanceId": identity_id,
+            "typeId": "t1",
+            "typeVersion": 1,
+            "typeNamespace": "ns",
+            "typeName": "Identity",
+            "fieldValues": []
+        }));
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let i81_errors: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("I-81"))
+            .collect();
+        assert!(
+            i81_errors.is_empty(),
+            "expected no I-81 errors when identity in memberInstanceIds, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn rfc013_i82_suppressed_when_container_index_absent() {
+        // containerIndex absent (or empty) → I-82 warnings suppressed even when a member
+        // has no corresponding section container.
+        let root_id = "00000000-0000-4000-8000-000000000600";
+        let member_id = "00000000-0000-4000-8000-000000000601";
+        let root_container = rfc013_container(root_id, &[member_id], &[member_id]);
+
+        // manifest_store sets up both the text "manifest.json" and the typed manifest.
+        // Passing empty containerIndex ([]) triggers the suppression path (ci.is_empty()).
+        let manifest_val = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+            "srsVersion": "2.0",
+            "repositoryId": root_id,
+            "title": "I-82 suppressed test",
+            "container": {"containerId": root_id, "title": "Root"},
+            "instanceIndex": [rfc013_instance_entry(member_id)],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        let store = manifest_store(manifest_val).with_data(
+            &format!("containers/{root_id}.json"),
+            serde_json::to_value(root_container).unwrap(),
+        );
+
+        let report = validate_repository(&store).unwrap();
+        let i82_warnings: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("I-82"))
+            .collect();
+        assert!(
+            i82_warnings.is_empty(),
+            "expected no I-82 warnings when containerIndex absent, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn rfc013_i82_member_not_rooting_section_container_warns() {
+        // containerIndex present and non-empty, but member doesn't root any section container → I-82 warning.
+        let root_id = "00000000-0000-4000-8000-000000000700";
+        let member_id = "00000000-0000-4000-8000-000000000701";
+        let section_container_id = "00000000-0000-4000-8000-000000000702";
+        let other_id = "00000000-0000-4000-8000-000000000703";
+
+        let root_container = rfc013_container(root_id, &[member_id], &[member_id]);
+        // Section container roots other_id, not member_id
+        let section_container = rfc013_container(section_container_id, &[other_id], &[other_id]);
+
+        let manifest_val = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+            "srsVersion": "2.0",
+            "repositoryId": root_id,
+            "title": "I-82 warn test",
+            "container": {"containerId": root_id, "title": "Root"},
+            "containerIndex": [
+                {"containerId": section_container_id, "title": "Section"}
+            ],
+            "instanceIndex": [rfc013_instance_entry(member_id)],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        // Use manifest_store + with_data to insert container files without polluting typed manifest
+        let store = manifest_store(manifest_val)
+            .with_data(
+                &format!("containers/{root_id}.json"),
+                serde_json::to_value(root_container).unwrap(),
+            )
+            .with_data(
+                &format!("containers/{section_container_id}.json"),
+                serde_json::to_value(section_container).unwrap(),
+            );
+
+        let report = validate_repository(&store).unwrap();
+        let i82_warnings: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("I-82"))
+            .collect();
+        assert!(
+            !i82_warnings.is_empty(),
+            "expected I-82 warning when member doesn't root any section container, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn rfc013_container_not_found_graceful_no_i80_i81_i82() {
+        // manifest.container present but no container file → graceful ContainerNotFound path
+        // I-79 passes; I-80/I-81/I-82 are all skipped
+        let root_id = "00000000-0000-4000-8000-000000000800";
+        let manifest = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+            "srsVersion": "2.0",
+            "repositoryId": root_id,
+            "title": "Graceful",
+            "container": {"containerId": root_id, "title": "Root", "identityInstanceId": "99999999-9999-4999-8999-999999999999"},
+            "instanceIndex": [],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        // No containerIndex → FileStore returns ContainerNotFound → graceful
+        let temp = TempDir::new().unwrap();
+        write_json(temp.path(), "manifest.json", &manifest);
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let rfc013_errors: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Error
+                    && (d.message.contains("I-79")
+                        || d.message.contains("I-80")
+                        || d.message.contains("I-81")
+                        || d.message.contains("I-82"))
+            })
+            .collect();
+        assert!(
+            rfc013_errors.is_empty(),
+            "expected no RFC-013 errors on graceful ContainerNotFound path, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn rfc013_all_invariants_satisfied_no_diagnostics() {
+        let temp = TempDir::new().unwrap();
+        let root_id = "00000000-0000-4000-8000-000000000900";
+        let identity_id = "00000000-0000-4000-8000-000000000901";
+        let section_id = "00000000-0000-4000-8000-000000000902";
+        let section_container_id = "00000000-0000-4000-8000-000000000903";
+
+        let manifest = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+            "srsVersion": "2.0",
+            "repositoryId": root_id,
+            "title": "Full Valid RFC-013 Repo",
+            "container": {
+                "containerId": root_id,
+                "title": "Root",
+                "identityInstanceId": identity_id
+            },
+            "containerIndex": [
+                {"containerId": root_id, "title": "Root", "path": "containers/root.json"},
+                {"containerId": section_container_id, "title": "Section", "path": "containers/section.json"}
+            ],
+            "instanceIndex": [
+                rfc013_instance_entry(identity_id),
+                rfc013_instance_entry(section_id)
+            ],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        write_json(temp.path(), "manifest.json", &manifest);
+
+        // Root container: identity in rootInstanceIds + memberInstanceIds, section_id also member
+        let root_container = json!({
+            "containerId": root_id,
+            "title": "Root",
+            "memberInstanceIds": [identity_id, section_id],
+            "rootInstanceIds": [identity_id]
+        });
+        write_json(temp.path(), "containers/root.json", &root_container);
+
+        // Section container: section_id is root
+        let section_container = json!({
+            "containerId": section_container_id,
+            "title": "Section",
+            "memberInstanceIds": [section_id],
+            "rootInstanceIds": [section_id]
+        });
+        write_json(temp.path(), "containers/section.json", &section_container);
+
+        // Write instance records
+        for id in &[identity_id, section_id] {
+            write_json(temp.path(), &format!("records/{id}.json"), &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                "instanceId": id,
+                "typeId": "t1",
+                "typeVersion": 1,
+                "typeNamespace": "ns",
+                "typeName": "Entity",
+                "fieldValues": []
+            }));
+        }
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let rfc013_diags: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.message.contains("I-79")
+                    || d.message.contains("I-80")
+                    || d.message.contains("I-81")
+                    || d.message.contains("I-82")
+            })
+            .collect();
+        assert!(
+            rfc013_diags.is_empty(),
+            "expected no RFC-013 diagnostics when all invariants satisfied, got: {:?}",
+            rfc013_diags
+        );
+    }
+
+    #[test]
+    fn rfc013_cross_store_file_and_json_agree() {
+        // FileStore and JsonStore (from_srsj) must produce the same RFC-013 diagnostic count.
+        // Member not in instanceIndex → I-80 error on both stores.
+        //
+        // Key alignment: FileStore uses the containerIndex `path` field; JsonStore uses
+        // `"containers/{id}.json"` as the data key. We use "containers/{root_id}.json" for both.
+        let root_id = "00000000-0000-4000-8000-000000000a00";
+        let member_id = "00000000-0000-4000-8000-000000000a01";
+        let container_file = format!("containers/{root_id}.json");
+        let manifest_val = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+            "srsVersion": "2.0",
+            "repositoryId": root_id,
+            "title": "Cross-Store I-80",
+            "container": {"containerId": root_id, "title": "Root"},
+            "containerIndex": [{"containerId": root_id, "title": "Root", "path": container_file}],
+            "instanceIndex": [],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        let container_val =
+            serde_json::to_value(rfc013_container(root_id, &[member_id], &[])).unwrap();
+
+        // FileStore: write files to disk
+        let temp = TempDir::new().unwrap();
+        write_json(temp.path(), "manifest.json", &manifest_val);
+        write_json(temp.path(), &format!("containers/{root_id}.json"), &container_val);
+        let file_store = crate::store::FileStore::new(temp.path());
+
+        // JsonStore via from_srsj: snapshot doesn't preserve manifest.container so we use from_srsj.
+        // Data key "containers/{root_id}.json" matches what JsonStore::load_container looks for.
+        let mut data = serde_json::Map::new();
+        data.insert(
+            format!("containers/{root_id}.json"),
+            container_val.clone(),
+        );
+        let srsj = json!({
+            "srsj": "1",
+            "manifest": manifest_val,
+            "data": data
+        });
+        let json_store =
+            crate::json_store::JsonStore::from_srsj(&srsj.to_string()).unwrap();
+
+        let file_report = validate_repository(&file_store).unwrap();
+        let json_report = validate_repository(&json_store).unwrap();
+
+        let file_i80: Vec<_> = file_report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("I-80"))
+            .collect();
+        let json_i80: Vec<_> = json_report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("I-80"))
+            .collect();
+
+        assert!(
+            !file_i80.is_empty(),
+            "FileStore: expected I-80 diagnostic, got: {:?}",
+            file_report.diagnostics
+        );
+        assert_eq!(
+            file_i80.len(),
+            json_i80.len(),
+            "FileStore and JsonStore must produce same I-80 count (file: {:?}, json: {:?})",
+            file_report.diagnostics,
+            json_report.diagnostics
         );
     }
 }
