@@ -1,0 +1,34 @@
+name: Board sync
+
+# Runs after every merge to master. Moves closed issues to Done on Project #5
+# and re-derives priority labels (Pn) from user-story MoSCoW values.
+#
+# Requires a PAT with `project` scope stored as the BOARD_TOKEN secret.
+# The default GITHUB_TOKEN does not carry project scope for user-level
+# Projects v2. If BOARD_TOKEN is absent this job emits a notice and exits 0.
+#
+# To extend board sync to the other ecosystem repos (srs, srs-web,
+# muDemocracy.org), copy this file into each repo's .github/workflows/.
+# Each copy should share the same BOARD_TOKEN secret.
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  board-sync:
+    name: Reconcile & rollup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reconcile and rollup
+        run: |
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::notice::BOARD_TOKEN not set — skipping board sync. Add a PAT with 'project' scope as the BOARD_TOKEN secret to enable."
+            exit 0
+          fi
+          node scripts/gh-project.mjs reconcile --fix
+          node scripts/gh-project.mjs rollup --fix
+        env:
+          GH_TOKEN: ${{ secrets.BOARD_TOKEN }}

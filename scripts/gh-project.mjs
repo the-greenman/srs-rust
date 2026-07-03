@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // gh-project — story-driven priority management for the SRS GitHub Project (#5).
 //
-// Single file, zero dependencies. Wraps the `gh` CLI (which must be installed and
-// authenticated). Works inside an isolated single-repo checkout: every operation hits
+// Single file, zero npm dependencies. Normally wraps the `gh` CLI; falls back to
+// direct GitHub API calls via `curl` when `gh` is absent (set GITHUB_TOKEN or
+// GH_TOKEN). Works inside an isolated single-repo checkout: every operation hits
 // the GitHub API, so nothing here depends on a sibling repo being present on disk.
 //
 // Priority model: user stories (label `user-story`, in muDemocracy.org) carry a MoSCoW
@@ -14,6 +15,7 @@
 // Usage: node gh-project.mjs <command> [options]   (see `help`)
 
 import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
 
 // ---------------------------------------------------------------------------
 // Configuration (overridable via env)
@@ -31,14 +33,232 @@ const BUG_FLOOR = "P1"; // bugs are fixed ASAP even with no story
 const BUMP_LABELS = new Set(["critical-path", "blocks-gate", "regression"]);
 
 // ---------------------------------------------------------------------------
+// gh CLI detection — falls back to native HTTP (curl) when gh is absent
+// ---------------------------------------------------------------------------
+const GH_AVAILABLE = (() => {
+  try { execFileSync("gh", ["--version"], { stdio: "pipe" }); return true; }
+  catch { return false; }
+})();
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
+if (!GH_AVAILABLE) {
+  if (!GITHUB_TOKEN) {
+    console.error("gh-project: neither `gh` CLI nor GITHUB_TOKEN/GH_TOKEN is available.");
+    process.exit(1);
+  }
+  // Node 22+ native fetch must be told to honour the egress proxy; curl already does.
+  process.env.NODE_USE_ENV_PROXY = "1";
+  if (!process.env.NODE_EXTRA_CA_CERTS && existsSync("/root/.ccr/ca-bundle.crt"))
+    process.env.NODE_EXTRA_CA_CERTS = "/root/.ccr/ca-bundle.crt";
+}
+
+// ---------------------------------------------------------------------------
 // Small shell / GraphQL helpers
 // ---------------------------------------------------------------------------
-function gh(args, { input } = {}) {
+function gh(args, opts = {}) {
+  return GH_AVAILABLE ? ghCli(args, opts) : ghHttp(args, opts);
+}
+
+function ghCli(args, { input } = {}) {
   return execFileSync("gh", args, {
     encoding: "utf8",
     input,
     maxBuffer: 64 * 1024 * 1024,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Native-HTTP fallback (curl-based) — used when gh CLI is absent.
+// Handles exactly the gh argument patterns this script uses.
+// ---------------------------------------------------------------------------
+let _hdrSeq = 0;
+
+function curlGet(url, { paginate = false } = {}) {
+  const authHeaders = [
+    "-H", `Authorization: Bearer ${GITHUB_TOKEN}`,
+    "-H", "Accept: application/vnd.github+json",
+    "-H", "X-GitHub-Api-Version: 2022-11-28",
+  ];
+  const results = [];
+  let nextUrl = url;
+  do {
+    const hf = `/tmp/.gh-hdr-${process.pid}-${++_hdrSeq}`;
+    let body = "";
+    try {
+      body = execFileSync("curl", ["-s", "-D", hf, ...authHeaders, nextUrl], {
+        encoding: "utf8", maxBuffer: 64 * 1024 * 1024,
+      });
+    } finally {
+      nextUrl = null;
+      if (paginate) {
+        try {
+          const hdrs = readFileSync(hf, "utf8");
+          const m = hdrs.match(/link:\s*[^<]*<([^>]+)>;\s*rel="next"/i);
+          if (m) nextUrl = m[1];
+        } catch { /* no header file */ }
+      }
+      try { unlinkSync(hf); } catch { /* ok */ }
+    }
+    if (paginate) {
+      const parsed = JSON.parse(body || "[]");
+      if (Array.isArray(parsed)) results.push(...parsed);
+    } else {
+      return body;
+    }
+  } while (nextUrl);
+  return JSON.stringify(results);
+}
+
+function curlMutate(method, url, body) {
+  const args = [
+    "-s", "-X", method,
+    "-H", `Authorization: Bearer ${GITHUB_TOKEN}`,
+    "-H", "Accept: application/vnd.github+json",
+    "-H", "X-GitHub-Api-Version: 2022-11-28",
+  ];
+  if (body !== undefined) {
+    args.push("-H", "Content-Type: application/json", "-d", JSON.stringify(body));
+  }
+  args.push(url);
+  return execFileSync("curl", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+}
+
+function curlMutateStatus(method, url, body) {
+  const args = [
+    "-s", "-w", "\n%{http_code}", "-X", method,
+    "-H", `Authorization: Bearer ${GITHUB_TOKEN}`,
+    "-H", "Accept: application/vnd.github+json",
+    "-H", "X-GitHub-Api-Version: 2022-11-28",
+    "-H", "Content-Type: application/json",
+    "-d", JSON.stringify(body),
+    url,
+  ];
+  const raw = execFileSync("curl", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  const nl = raw.lastIndexOf("\n");
+  return { body: raw.slice(0, nl), status: parseInt(raw.slice(nl + 1), 10) };
+}
+
+function ghHttp(args, _opts = {}) {
+  if (args[0] === "api")   return ghHttpApi(args.slice(1));
+  if (args[0] === "issue") return ghHttpIssue(args.slice(1));
+  if (args[0] === "label") return ghHttpLabel(args.slice(1));
+  throw new Error(`gh-project: unsupported in no-gh mode: gh ${args[0]}`);
+}
+
+function ghHttpApi(args) {
+  // GraphQL: ["graphql", "-f"/"F", "query=Q", ...vars]
+  if (args[0] === "graphql") {
+    let query = "";
+    const variables = {};
+    for (let i = 1; i < args.length; i++) {
+      const flag = args[i];      // "-f" (string) or "-F" (typed)
+      const kv   = args[++i];   // "key=value"
+      const eq   = kv.indexOf("=");
+      const key  = kv.slice(0, eq);
+      const val  = kv.slice(eq + 1);
+      if (key === "query") { query = val; continue; }
+      if (flag === "-F") {
+        if (val === "null")        variables[key] = null;
+        else if (val === "true")   variables[key] = true;
+        else if (val === "false")  variables[key] = false;
+        else if (val !== "" && !isNaN(val)) variables[key] = Number(val);
+        else                       variables[key] = val;
+      } else {
+        variables[key] = val;
+      }
+    }
+    const reqBody = JSON.stringify({
+      query,
+      ...(Object.keys(variables).length ? { variables } : {}),
+    });
+    return execFileSync("curl", [
+      "-s", "-X", "POST",
+      "-H", `Authorization: Bearer ${GITHUB_TOKEN}`,
+      "-H", "Content-Type: application/json",
+      "-H", "Accept: application/vnd.github+json",
+      "-H", "X-GitHub-Api-Version: 2022-11-28",
+      "-d", reqBody,
+      "https://api.github.com/graphql",
+    ], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  }
+
+  // Paginated REST: ["--paginate", "path"]
+  if (args[0] === "--paginate") {
+    return curlGet(`https://api.github.com/${args[1]}?per_page=100`, { paginate: true });
+  }
+
+  // Plain REST (with optional --jq): ["path", ...flags]
+  const path   = args[0];
+  const jqIdx  = args.indexOf("--jq");
+  const body   = curlGet(`https://api.github.com/${path}`);
+  if (jqIdx !== -1 && args[jqIdx + 1] === "{id:.node_id}") {
+    return JSON.stringify({ id: JSON.parse(body).node_id });
+  }
+  return body;
+}
+
+function ghHttpIssue(args) {
+  // issue list --repo O/R [--label L] [--state S] [--limit N] [--json fields]
+  if (args[0] === "list") {
+    let repo, label, state = "open";
+    for (let i = 1; i < args.length; i++) {
+      if      (args[i] === "--repo")  repo  = args[++i];
+      else if (args[i] === "--label") label = args[++i];
+      else if (args[i] === "--state") state = args[++i];
+      else if (args[i] === "--limit" || args[i] === "--json") ++i; // consume, not needed
+    }
+    const params = new URLSearchParams({ state, per_page: "100" });
+    if (label) params.set("labels", label);
+    const raw = curlGet(`https://api.github.com/repos/${repo}/issues?${params}`, { paginate: true });
+    return JSON.stringify(JSON.parse(raw).map((i) => ({
+      number: i.number,
+      title:  i.title,
+      state:  i.state,
+      labels: (i.labels || []).map((l) => ({ name: l.name })),
+    })));
+  }
+
+  // issue edit N --repo O/R [--add-label L] [--remove-label L] [--milestone M]
+  if (args[0] === "edit") {
+    const num = args[1];
+    let repo, addLabels = [], removeLabels = [], milestone;
+    for (let i = 2; i < args.length; i++) {
+      if      (args[i] === "--repo")         repo = args[++i];
+      else if (args[i] === "--add-label")    addLabels.push(args[++i]);
+      else if (args[i] === "--remove-label") removeLabels.push(args[++i]);
+      else if (args[i] === "--milestone")    milestone = args[++i];
+    }
+    const base = `https://api.github.com/repos/${repo}/issues/${num}`;
+    if (milestone !== undefined) {
+      const ms    = JSON.parse(curlGet(`https://api.github.com/repos/${repo}/milestones?per_page=100`));
+      const found = ms.find((x) => x.title === milestone);
+      curlMutate("PATCH", base, { milestone: found?.number ?? null });
+    }
+    if (addLabels.length) curlMutate("POST", `${base}/labels`, { labels: addLabels });
+    for (const label of removeLabels) {
+      try { curlMutate("DELETE", `${base}/labels/${encodeURIComponent(label)}`); } catch { /* ok */ }
+    }
+    return "";
+  }
+
+  throw new Error(`gh-project: unsupported in no-gh mode: gh issue ${args[0]}`);
+}
+
+function ghHttpLabel(args) {
+  // label create NAME --repo O/R --color C [--force]
+  if (args[0] === "create") {
+    const name = args[1];
+    let repo, color, force = false;
+    for (let i = 2; i < args.length; i++) {
+      if      (args[i] === "--repo")  repo  = args[++i];
+      else if (args[i] === "--color") color = args[++i];
+      else if (args[i] === "--force") force = true;
+    }
+    const url = `https://api.github.com/repos/${repo}/labels`;
+    const r   = curlMutateStatus("POST", url, { name, color });
+    if (r.status === 422 && force) curlMutate("PATCH", `${url}/${encodeURIComponent(name)}`, { name, color });
+    return r.body;
+  }
+  throw new Error(`gh-project: unsupported in no-gh mode: gh label ${args[0]}`);
 }
 
 function ghJson(args, opts) {
@@ -822,7 +1042,8 @@ function help() {
   reconcile [--fix]               report/repair board drift
 
 Priority stages: served stories → MoSCoW→P → base(max) → bug floor(P1) → bump(+1) → final.
-Env: GHP_OWNER, GHP_PROJECT, GHP_STORY_REPO. Requires an authenticated \`gh\`.`);
+Env: GHP_OWNER, GHP_PROJECT, GHP_STORY_REPO.
+Auth: requires an authenticated \`gh\` CLI, or GITHUB_TOKEN/GH_TOKEN env var (curl fallback).`);
 }
 
 // ---------------------------------------------------------------------------
