@@ -122,8 +122,7 @@ pub fn validate_repository(
 
             if let Some(ref full_container) = full_container_opt {
                 // Structural checks (UUID format, title non-empty)
-                if let Err(e) =
-                    srs_core::validation::container::validate_container(full_container)
+                if let Err(e) = srs_core::validation::container::validate_container(full_container)
                 {
                     diagnostics.push(ValidationDiagnostic {
                         severity: DiagnosticSeverity::Error,
@@ -167,8 +166,11 @@ pub fn validate_repository(
 
                 // I-80: memberInstanceIds and rootInstanceIds must all be in instanceIndex.
                 // Uses the manifest already loaded above — no second load_manifest().
-                let known_ids: HashSet<&str> =
-                    manifest.instance_index.iter().map(|e| e.instance_id()).collect();
+                let known_ids: HashSet<&str> = manifest
+                    .instance_index
+                    .iter()
+                    .map(|e| e.instance_id())
+                    .collect();
                 if let Some(ref ids) = full_container.member_instance_ids {
                     for id in ids {
                         if !known_ids.contains(id.as_str()) {
@@ -236,8 +238,7 @@ pub fn validate_repository(
                                     }
                                 }
                             }
-                            let identity_id =
-                                root.identity_instance_id.as_deref().unwrap_or("");
+                            let identity_id = root.identity_instance_id.as_deref().unwrap_or("");
                             for member_id in members {
                                 if member_id.as_str() == identity_id {
                                     continue;
@@ -2396,8 +2397,7 @@ mod tests {
 
     fn manifest_store(manifest_json: serde_json::Value) -> MemoryStore {
         let raw = serde_json::to_string(&manifest_json).unwrap();
-        let store =
-            MemoryStore::empty().with_data("manifest.json", serde_json::Value::String(raw));
+        let store = MemoryStore::empty().with_data("manifest.json", serde_json::Value::String(raw));
         if let Ok(typed) =
             serde_json::from_value::<crate::manifest::Manifest>(manifest_json.clone())
         {
@@ -2620,15 +2620,19 @@ mod tests {
             "containers/root.json",
             &serde_json::to_value(rfc013_container(root_id, &[member_id], &[member_id])).unwrap(),
         );
-        write_json(temp.path(), &format!("records/{member_id}.json"), &json!({
-            "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-            "instanceId": member_id,
-            "typeId": "t1",
-            "typeVersion": 1,
-            "typeNamespace": "ns",
-            "typeName": "Section",
-            "fieldValues": []
-        }));
+        write_json(
+            temp.path(),
+            &format!("records/{member_id}.json"),
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                "instanceId": member_id,
+                "typeId": "t1",
+                "typeVersion": 1,
+                "typeNamespace": "ns",
+                "typeName": "Section",
+                "fieldValues": []
+            }),
+        );
 
         let store = crate::store::FileStore::new(temp.path());
         let report = validate_repository(&store).unwrap();
@@ -2664,17 +2668,22 @@ mod tests {
         write_json(
             temp.path(),
             "containers/root.json",
-            &serde_json::to_value(rfc013_container(root_id, &[identity_id], &[identity_id])).unwrap(),
+            &serde_json::to_value(rfc013_container(root_id, &[identity_id], &[identity_id]))
+                .unwrap(),
         );
-        write_json(temp.path(), &format!("records/{identity_id}.json"), &json!({
-            "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-            "instanceId": identity_id,
-            "typeId": "t1",
-            "typeVersion": 1,
-            "typeNamespace": "ns",
-            "typeName": "Identity",
-            "fieldValues": []
-        }));
+        write_json(
+            temp.path(),
+            &format!("records/{identity_id}.json"),
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                "instanceId": identity_id,
+                "typeId": "t1",
+                "typeVersion": 1,
+                "typeNamespace": "ns",
+                "typeName": "Identity",
+                "fieldValues": []
+            }),
+        );
 
         let store = crate::store::FileStore::new(temp.path());
         let report = validate_repository(&store).unwrap();
@@ -2713,15 +2722,19 @@ mod tests {
             "containers/root.json",
             &serde_json::to_value(rfc013_container(root_id, &[identity_id], &[])).unwrap(),
         );
-        write_json(temp.path(), &format!("records/{identity_id}.json"), &json!({
-            "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-            "instanceId": identity_id,
-            "typeId": "t1",
-            "typeVersion": 1,
-            "typeNamespace": "ns",
-            "typeName": "Identity",
-            "fieldValues": []
-        }));
+        write_json(
+            temp.path(),
+            &format!("records/{identity_id}.json"),
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                "instanceId": identity_id,
+                "typeId": "t1",
+                "typeVersion": 1,
+                "typeNamespace": "ns",
+                "typeName": "Identity",
+                "fieldValues": []
+            }),
+        );
 
         let store = crate::store::FileStore::new(temp.path());
         let report = validate_repository(&store).unwrap();
@@ -2945,15 +2958,19 @@ mod tests {
 
         // Write instance records
         for id in &[identity_id, section_id] {
-            write_json(temp.path(), &format!("records/{id}.json"), &json!({
-                "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-                "instanceId": id,
-                "typeId": "t1",
-                "typeVersion": 1,
-                "typeNamespace": "ns",
-                "typeName": "Entity",
-                "fieldValues": []
-            }));
+            write_json(
+                temp.path(),
+                &format!("records/{id}.json"),
+                &json!({
+                    "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                    "instanceId": id,
+                    "typeId": "t1",
+                    "typeVersion": 1,
+                    "typeNamespace": "ns",
+                    "typeName": "Entity",
+                    "fieldValues": []
+                }),
+            );
         }
 
         let store = crate::store::FileStore::new(temp.path());
@@ -3001,23 +3018,23 @@ mod tests {
         // FileStore: write files to disk
         let temp = TempDir::new().unwrap();
         write_json(temp.path(), "manifest.json", &manifest_val);
-        write_json(temp.path(), &format!("containers/{root_id}.json"), &container_val);
+        write_json(
+            temp.path(),
+            &format!("containers/{root_id}.json"),
+            &container_val,
+        );
         let file_store = crate::store::FileStore::new(temp.path());
 
         // JsonStore via from_srsj: snapshot doesn't preserve manifest.container so we use from_srsj.
         // Data key "containers/{root_id}.json" matches what JsonStore::load_container looks for.
         let mut data = serde_json::Map::new();
-        data.insert(
-            format!("containers/{root_id}.json"),
-            container_val.clone(),
-        );
+        data.insert(format!("containers/{root_id}.json"), container_val.clone());
         let srsj = json!({
             "srsj": "1",
             "manifest": manifest_val,
             "data": data
         });
-        let json_store =
-            crate::json_store::JsonStore::from_srsj(&srsj.to_string()).unwrap();
+        let json_store = crate::json_store::JsonStore::from_srsj(&srsj.to_string()).unwrap();
 
         let file_report = validate_repository(&file_store).unwrap();
         let json_report = validate_repository(&json_store).unwrap();
