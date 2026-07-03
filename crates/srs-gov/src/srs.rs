@@ -30,11 +30,6 @@ pub fn run_srs(args: &[&str], repo: &str, explain: bool, print_raw: bool) -> Res
     run_srs_impl(args, repo, None, explain, print_raw)
 }
 
-/// Run a `srs` subcommand with JSON piped to stdin.
-pub fn run_srs_write(args: &[&str], repo: &str, stdin_json: &str) -> Result<Value> {
-    run_srs_impl(args, repo, Some(stdin_json), false, false)
-}
-
 fn run_srs_impl(
     args: &[&str],
     repo: &str,

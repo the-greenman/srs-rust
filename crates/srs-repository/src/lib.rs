@@ -9,6 +9,7 @@ pub mod diff;
 pub mod discovery_service;
 pub mod error;
 pub mod extension_service;
+pub mod governance_scaffold_service;
 pub mod index;
 pub mod json_store;
 pub mod lifecycle_service;

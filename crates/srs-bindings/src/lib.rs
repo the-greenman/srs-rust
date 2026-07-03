@@ -10,6 +10,7 @@ use srs_repository::protocol_service::{self, GetProtocolResult};
 use srs_repository::record_store::{self, RecordListFilter, TransitionLifecycleInput};
 use srs_repository::relation_service::{self, ListRelationsFilter};
 use srs_repository::render_service::{self, RenderDocumentViewOptions};
+use srs_repository::governance_scaffold_service::{self, CreateGovernanceRepositoryInput};
 use srs_repository::repository_lifecycle::{self, InitNewRepositoryInput};
 use srs_repository::services::{self, ListNotesFilter};
 use srs_repository::tag_service;
@@ -447,6 +448,24 @@ impl SrsRepository {
     pub fn list_terms(&self) -> Result<JsValue, JsValue> {
         let terms = tag_service::list_terms(&self.store).map_err(js_err)?;
         to_js(&terms)
+    }
+
+    /// Scaffold a governance repository from a seeded, RFC-014-migrated `.srsj` store.
+    ///
+    /// `input_json` is a JSON string matching `CreateGovernanceRepositoryInput`
+    /// (`{"namespace":"...","title":"...","purpose":"...","repositoryId":"..."}`).
+    ///
+    /// Stamps manifest identity (repositoryId, namespace, title) and creates the
+    /// governance/article identity record, Decision Log container + root record, and
+    /// root container — all in one call. After this returns, call `to_srsj()` to get
+    /// the final bundle for download.
+    pub fn scaffold_new_repository(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: CreateGovernanceRepositoryInput =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let result =
+            governance_scaffold_service::create_governance_repository(&self.store, input)
+                .map_err(js_err)?;
+        to_js(&result)
     }
 
     /// Re-stamp a seed repository's identity. `input_json` is a JSON string matching
