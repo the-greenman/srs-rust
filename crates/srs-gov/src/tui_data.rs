@@ -211,7 +211,11 @@ fn allowed_hits(
 
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
     let payload = run_srs(&arg_refs, repo, false, false)?;
-    Ok(Some(crate::find_query::parse_hit_ids(&payload).into_iter().collect()))
+    Ok(Some(
+        crate::find_query::parse_hit_ids(&payload)
+            .into_iter()
+            .collect(),
+    ))
 }
 
 fn record_item(
@@ -243,7 +247,10 @@ fn record_item(
         type_version,
         detail_rows: detail_rows(
             &schema,
-            record["fieldValues"].as_array().map(Vec::as_slice).unwrap_or(&[]),
+            record["fieldValues"]
+                .as_array()
+                .map(Vec::as_slice)
+                .unwrap_or(&[]),
         ),
         record: record.clone(),
     })

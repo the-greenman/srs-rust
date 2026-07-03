@@ -285,7 +285,11 @@ fn cmd_list(
     let allowed: Option<HashSet<String>> = if need_find {
         let refs: Vec<&str> = find_args.iter().map(String::as_str).collect();
         let find_payload = run_srs(&refs, repo, false, false)?;
-        Some(find_query::parse_hit_ids(&find_payload).into_iter().collect())
+        Some(
+            find_query::parse_hit_ids(&find_payload)
+                .into_iter()
+                .collect(),
+        )
     } else {
         None
     };
