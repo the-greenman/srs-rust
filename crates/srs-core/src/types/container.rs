@@ -6,6 +6,7 @@ use std::collections::HashMap;
 pub struct Container {
     #[serde(default)]
     pub container_id: String,
+    #[serde(default)]
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub namespace: Option<String>,
@@ -15,6 +16,8 @@ pub struct Container {
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub container_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identity_instance_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub root_instance_ids: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -27,6 +30,22 @@ pub struct Container {
     pub updated_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub meta: Option<serde_json::Value>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerIndexEntry {
+    pub container_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }
@@ -46,6 +65,7 @@ mod tests {
             name: Some("sprint-1".to_string()),
             description: Some("desc".to_string()),
             container_type: Some("project".to_string()),
+            identity_instance_id: Some("aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa".to_string()),
             root_instance_ids: Some(vec!["11111111-1111-4111-8111-111111111111".to_string()]),
             member_instance_ids: Some(vec!["22222222-2222-4222-8222-222222222222".to_string()]),
             tags: Some(vec!["alpha".to_string()]),
@@ -69,6 +89,7 @@ mod tests {
             name: None,
             description: None,
             container_type: None,
+            identity_instance_id: None,
             root_instance_ids: None,
             member_instance_ids: None,
             tags: None,
@@ -114,6 +135,39 @@ mod tests {
     }
 
     #[test]
+    fn container_index_entry_roundtrips() {
+        // Full entry — all fields survive round-trip
+        let mut extra = HashMap::new();
+        extra.insert("xFoo".to_string(), serde_json::json!(42));
+        let entry = ContainerIndexEntry {
+            container_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+            title: Some("My Container".to_string()),
+            path: Some("containers/my-container.json".to_string()),
+            container_type: Some("section".to_string()),
+            tags: Some(vec!["tag1".to_string()]),
+            extra,
+        };
+        let json = serde_json::to_string(&entry).unwrap();
+        let parsed: ContainerIndexEntry = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, entry);
+
+        // Minimal entry — only containerId required
+        let minimal = ContainerIndexEntry {
+            container_id: "11111111-1111-4111-8111-111111111111".to_string(),
+            title: None,
+            path: None,
+            container_type: None,
+            tags: None,
+            extra: HashMap::new(),
+        };
+        let value = serde_json::to_value(&minimal).unwrap();
+        assert!(value.get("title").is_none());
+        assert!(value.get("path").is_none());
+        let parsed: ContainerIndexEntry = serde_json::from_value(value).unwrap();
+        assert_eq!(parsed, minimal);
+    }
+
+    #[test]
     fn minimal_container_passes_schema_contract() {
         let container = Container {
             container_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
@@ -122,6 +176,7 @@ mod tests {
             name: None,
             description: None,
             container_type: None,
+            identity_instance_id: None,
             root_instance_ids: None,
             member_instance_ids: None,
             tags: None,
