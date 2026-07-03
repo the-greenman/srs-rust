@@ -1,4 +1,6 @@
-use srs_repository::manifest_service::{set_manifest_root_container, SetManifestRootContainerInput};
+use srs_repository::manifest_service::{
+    set_manifest_root_container, SetManifestRootContainerInput,
+};
 use srs_repository::FileStore;
 use tempfile::TempDir;
 
