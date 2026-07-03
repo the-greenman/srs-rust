@@ -925,6 +925,7 @@ fn resolve_container_title(
         // Fallback: first container matching the document view's containerType.
         if let Some(container_type) = &dv.container_type {
             for entry in entries {
+                // legacy: older repos used "type" instead of "containerType" in containerIndex entries
                 let ctype = entry
                     .container_type
                     .as_deref()

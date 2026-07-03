@@ -37,6 +37,8 @@ pub struct Container {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContainerIndexEntry {
+    // Intentionally not #[serde(default)]: a missing containerId is a malformed index entry
+    // and should fail deserialization, unlike Container.container_id which defaults to "".
     pub container_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,

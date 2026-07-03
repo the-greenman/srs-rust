@@ -3110,6 +3110,72 @@ mod tests {
     }
 
     #[test]
+    fn file_store_manifest_container_and_container_index_roundtrip() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        std::fs::create_dir_all(root.join("package")).unwrap();
+
+        let manifest_json = serde_json::json!({
+            "instanceIndex": [],
+            "container": {
+                "containerId": "aaaaaaaa-0000-4000-8000-000000000001",
+                "identityInstanceId": "bbbbbbbb-0000-4000-8000-000000000002"
+            },
+            "containerIndex": [
+                {
+                    "containerId": "aaaaaaaa-0000-4000-8000-000000000001",
+                    "title": "Root",
+                    "path": "containers/root.json"
+                }
+            ]
+        });
+        std::fs::write(
+            root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest_json).unwrap(),
+        )
+        .unwrap();
+
+        let store = FileStore::new(root);
+        let manifest = store.load_manifest().unwrap();
+
+        // Typed fields populated
+        let container = manifest
+            .container
+            .as_ref()
+            .expect("container should be Some");
+        assert_eq!(
+            container.container_id,
+            "aaaaaaaa-0000-4000-8000-000000000001"
+        );
+        assert_eq!(
+            container.identity_instance_id.as_deref(),
+            Some("bbbbbbbb-0000-4000-8000-000000000002")
+        );
+
+        let index = manifest
+            .container_index
+            .as_ref()
+            .expect("container_index should be Some");
+        assert_eq!(index.len(), 1);
+        assert_eq!(
+            index[0].container_id,
+            "aaaaaaaa-0000-4000-8000-000000000001"
+        );
+        assert_eq!(index[0].title.as_deref(), Some("Root"));
+        assert_eq!(index[0].path.as_deref(), Some("containers/root.json"));
+
+        // Not duplicated in extra
+        assert!(!manifest.extra.contains_key("container"));
+        assert!(!manifest.extra.contains_key("containerIndex"));
+
+        // Write back and reload — verify round-trip
+        store.save_manifest(&manifest).unwrap();
+        let reloaded = store.load_manifest().unwrap();
+        assert_eq!(reloaded.container, manifest.container);
+        assert_eq!(reloaded.container_index, manifest.container_index);
+    }
+
+    #[test]
     fn file_store_load_package_returns_package() {
         let temp = TempDir::new().unwrap();
         write_minimal_file_repo(&temp);
