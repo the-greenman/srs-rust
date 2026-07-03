@@ -133,8 +133,8 @@ impl SrsRepository {
     pub fn update_record(&self, instance_id: &str, input_json: &str) -> Result<JsValue, JsValue> {
         let input: record_store::UpdateRecordInput =
             serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
-        let record = record_store::update_record(&self.store, instance_id, input)
-            .map_err(js_err)?;
+        let record =
+            record_store::update_record(&self.store, instance_id, input).map_err(js_err)?;
         to_js(&record)
     }
 
@@ -497,4 +497,3 @@ struct CreateRecordBindingInput {
     #[serde(default)]
     tags: Option<Vec<String>>,
 }
-
