@@ -12,6 +12,7 @@ use srs_repository::relation_service::{self, ListRelationsFilter};
 use srs_repository::render_service::{self, RenderDocumentViewOptions};
 use srs_repository::repository_lifecycle::{self, InitNewRepositoryInput};
 use srs_repository::services::{self, ListNotesFilter};
+use srs_repository::tag_service;
 use srs_repository::type_schema_service::{self, TypeSchemaInput};
 use srs_repository::validation;
 use srs_repository::view_service::{self, DocumentViewListFilter};
@@ -443,6 +444,14 @@ impl SrsRepository {
         )
         .map_err(js_err)?;
         to_js(&result)
+    }
+
+    /// List all vocabulary Terms (RFC-006) defined in the package.
+    /// Returns a JS array of `Term` objects — the same terms returned by `srs term list`.
+    /// srs-web uses this to populate the tag picker / tag cloud.
+    pub fn list_tags(&self) -> Result<JsValue, JsValue> {
+        let terms = tag_service::list_terms(&self.store).map_err(js_err)?;
+        to_js(&terms)
     }
 
     /// Re-stamp a seed repository's identity. `input_json` is a JSON string matching
