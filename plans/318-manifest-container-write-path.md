@@ -28,6 +28,9 @@ No spec change is needed — `manifest.container` (RFC-013) already exists; this
 | [ADR-001](../docs/adr/001-library-first-architecture.md) | Service logic in `srs-repository`, not in leaf clients | accepted |
 | [ADR-010](../docs/adr/010-service-boundary-contract.md) | Service takes typed input struct, returns typed result struct | accepted |
 | [ADR-011](../docs/adr/011-cli-output-contract.md) | CLI output is a named struct in `payload.rs`; golden schema committed | accepted |
+| [ADR-013](../docs/adr/013-wasm-binding-strategy.md) | Every write service gets a WASM binding; deferred here — no web consumer yet | deferred |
+| [ADR-015](../docs/adr/015-wasm-write-surface.md) | Write surface in WASM mirrors CLI typed structs; deferred here — no web consumer yet | deferred |
+| [ADR-017](../docs/adr/017-deterministic-serialization.md) | Manifest byte layout changes must be explicitly noted; `title: ""` will appear in serialized output (see Phase 1 AC) | accepted |
 
 No new ADRs required — this plan is a clean application of ADR-001/010/011.
 
@@ -51,15 +54,17 @@ No changes to entity schemas under `srs/docs/schema/2.0/`. No sync needed.
 
 ## Scope
 
+- `crates/srs-repository/src/error.rs` — add `InvalidInput { message: String }` variant to `RepositoryError`
 - `crates/srs-repository/src/manifest_service.rs` — new service function + input/result types + MemoryStore test
 - `crates/srs-cli/src/payload.rs` — new `RepoSetRootContainerPayload`
 - `crates/srs-cli/src/commands/mod.rs` — new `SetRootContainer` variant on `RepoCommand`
 - `crates/srs-cli/src/commands/repo.rs` — new handler + dispatch arm
 - `crates/srs-cli/schemas/payload/RepoSetRootContainerPayload.json` — generated
+- `crates/srs-cli/tests/repo_set_root_container.rs` — integration test
 - `crates/srs-gov/src/main.rs` — remove raw JSON patch; add `srs_set_manifest_root_container` helper; update stale comment
 
 **Out of scope:**
-- WASM binding for this service (deferred; no web consumer yet)
+- WASM binding for this service (deferred; no web consumer yet — ADR-013/015)
 - Container existence validation in the service (the manifest embed is a pointer; existence is checked by navigation service at read time, same as today)
 - Migrating existing repos that have the embed without a `title` field (the navigation service works whether or not `title` is present)
 
@@ -74,6 +79,12 @@ No changes to entity schemas under `srs/docs/schema/2.0/`. No sync needed.
 **Agent:** Repository Service Worker
 
 #### Tasks
+
+- [ ] In `crates/srs-repository/src/error.rs`, add to `RepositoryError` enum:
+  ```rust
+  InvalidInput { message: String },
+  ```
+  and a matching arm in the hand-written `Display` / `PartialEq` impls.
 
 - [ ] In `crates/srs-repository/src/manifest_service.rs`, add:
 
@@ -104,7 +115,7 @@ No changes to entity schemas under `srs/docs/schema/2.0/`. No sync needed.
   }
   ```
 
-- [ ] Validate both fields are non-empty; return `RepositoryError::Validation` with a clear message if either is empty.
+- [ ] Validate both fields are non-empty; return `RepositoryError::InvalidInput { message: ... }` with a clear message if either is empty.
 - [ ] Build the manifest embed as:
   ```rust
   srs_core::types::container::Container {
@@ -124,14 +135,15 @@ No changes to entity schemas under `srs/docs/schema/2.0/`. No sync needed.
       extra: std::collections::HashMap::new(),
   }
   ```
-- [ ] Re-export `SetManifestRootContainerInput` and `SetManifestRootContainerResult` from `crates/srs-repository/src/lib.rs` or via the module (follow existing pattern for `PackageRef` etc.).
+- [ ] Import types directly in `repo.rs` via `use srs_repository::manifest_service::{SetManifestRootContainerInput, set_manifest_root_container}` — no re-export needed; follow existing import pattern in other CLI handlers.
 
 #### Acceptance Criteria
 
 - [ ] `set_manifest_root_container` with valid IDs writes `manifest.container` (load back and verify `container_id` + `identity_instance_id` match)
-- [ ] `set_manifest_root_container` with empty `container_id` returns `Err`
-- [ ] `set_manifest_root_container` with empty `identity_instance_id` returns `Err`
+- [ ] `set_manifest_root_container` with empty `container_id` returns `Err(InvalidInput { ... })`
+- [ ] `set_manifest_root_container` with empty `identity_instance_id` returns `Err(InvalidInput { ... })`
 - [ ] No path strings (`manifest.json`, `containers/`) appear in service code — all I/O through store
+- [ ] Serialized manifest contains `"title": ""` in the container embed (ADR-017: explicit format note — harmless, navigation service ignores it)
 
 #### Testing
 
@@ -187,50 +199,57 @@ Specific tests (all in `manifest_service.rs` `#[cfg(test)]` using `MemoryStore`)
 
 - [ ] In `crates/srs-cli/src/commands/repo.rs`:
   - Add dispatch arm in `dispatch()`: `RepoCommand::SetRootContainer { container_id, identity_instance_id } => cmd_repo_set_root_container(ctx, container_id, identity_instance_id)`
-  - Add handler:
+  - Add handler (use `?` propagation — canonical pattern, no `match` + `output::err`):
     ```rust
     fn cmd_repo_set_root_container(
         ctx: CliContext,
         container_id: String,
         identity_instance_id: String,
     ) -> Result<String> {
-        let input = SetManifestRootContainerInput { container_id: container_id.clone(), identity_instance_id: identity_instance_id.clone() };
-        match with_store(&ctx, |store| Ok(set_manifest_root_container(store, input)?)) {
-            Ok(result) => output::serialize(
-                "repo set-root-container",
-                RepoSetRootContainerPayload {
-                    container_id: result.container_id,
-                    identity_instance_id: result.identity_instance_id,
-                },
-            ),
-            Err(e) => Ok(output::err("repo set-root-container", vec![e.to_string()])),
-        }
+        let input = SetManifestRootContainerInput { container_id, identity_instance_id };
+        let result = with_store(&ctx, |store| Ok(set_manifest_root_container(store, input)?))?;
+        output::serialize(
+            "repo set-root-container",
+            RepoSetRootContainerPayload {
+                container_id: result.container_id,
+                identity_instance_id: result.identity_instance_id,
+            },
+        )
     }
     ```
-  - Add imports: `SetManifestRootContainerInput`, `set_manifest_root_container` from `srs_repository::manifest_service`; `RepoSetRootContainerPayload` from `crate::payload`.
+  - Add imports: `use srs_repository::manifest_service::{SetManifestRootContainerInput, set_manifest_root_container}` and `use crate::payload::RepoSetRootContainerPayload`.
 
 - [ ] Run `cargo run --bin generate-schemas` — commit the generated `crates/srs-cli/schemas/payload/RepoSetRootContainerPayload.json`.
+
+- [ ] Add integration test at `crates/srs-cli/tests/repo_set_root_container.rs`:
+  ```rust
+  // test: set_root_container_writes_manifest
+  // Create a temp FileStore repo, call set_manifest_root_container via store,
+  // reload manifest, assert container_id and identity_instance_id match.
+  ```
 
 #### Acceptance Criteria
 
 - [ ] `srs repo set-root-container --container-id A --identity-instance-id B` on a FileStore repo emits `{"ok": true, "command": "repo set-root-container", "payload": {"containerId": "A", "identityInstanceId": "B"}}`
 - [ ] Reloading the manifest after the command shows `container.containerId == "A"` and `container.identityInstanceId == "B"`
 - [ ] `cargo test --test payload_contracts` passes (golden schema committed)
+- [ ] `cargo test --test repo_set_root_container` passes
 
 #### Testing
 
 ```bash
 cargo test -p srs-cli
 cargo test --test payload_contracts
+cargo test --test repo_set_root_container
 ```
 
 Specific tests:
-- `cmd_repo_set_root_container_writes_manifest` — create FileStore repo, invoke service directly (or via binary), assert manifest.container is set (integration test in `crates/srs-cli/tests/` or via `cargo run --bin srs`)
+- `set_root_container_writes_manifest` in `crates/srs-cli/tests/repo_set_root_container.rs` — create FileStore repo, call service, reload manifest, assert container fields set
 
 #### Milestone gate
 
 1. `cargo build --bin srs` succeeds.
-2. Manual smoke test: create a temp FileStore repo, run `srs repo set-root-container --container-id test-id --identity-instance-id test-id2`, confirm manifest.json has the embed.
+2. `cargo test --test repo_set_root_container` passes.
 3. `cargo test --test payload_contracts` passes.
 4. `cargo clippy -p srs-cli -- -D warnings` passes.
 5. Mark checkboxes, commit: `feat(srs-cli): add repo set-root-container command (#318)`.
@@ -252,15 +271,14 @@ Specific tests:
       container_id: &str,
       identity_instance_id: &str,
   ) -> Result<()> {
-      srs::run_srs(
+      srs::run_srs_write(
           &[
               "repo", "set-root-container",
               "--container-id", container_id,
               "--identity-instance-id", identity_instance_id,
           ],
           repo,
-          false,
-          false,
+          "",
       )?;
       Ok(())
   }
@@ -275,12 +293,11 @@ Specific tests:
   ```
   WITH:
   ```rust
-  // Register root container embed via CLI (no raw JSON patching — tracked in #318, now fixed)
   srs_set_manifest_root_container(output, &root_container_id, &intent_id)?;
   ```
   (Note: `output` is the repo path string in `cmd_repo_create`; verify the correct parameter name at the call site.)
 
-- [ ] Remove the stale comment referencing `srs-rust#263` and update it to reference this issue or remove it entirely now that it is resolved.
+- [ ] Remove the stale comment referencing `srs-rust#263` — the issue is now resolved.
 
 - [ ] Remove any now-unused imports (e.g. `serde_json::json!` if only used for that block; `serde_json::from_str`/`std::fs::write` if only used for that block — check for other uses first).
 
@@ -289,7 +306,7 @@ Specific tests:
 - [ ] `cmd_repo_create` contains no `repo_json["manifest"]["container"] = ...` assignment.
 - [ ] `srs-gov repo-create` still creates a repo where `srs repo navigation` succeeds (reads `manifest.container` correctly).
 - [ ] `srs repo validate --repo <created-repo>` exits with 0 diagnostics.
-- [ ] Existing test `repo_create_navigation_works` (from PR #314) passes.
+- [ ] Existing test `repo_create_navigation_works` passes without modification.
 
 #### Testing
 
@@ -298,12 +315,7 @@ cargo test -p srs-gov
 ```
 
 Specific tests:
-- `repo_create_navigation_works` — already exists; must still pass without modification.
-
-If no test exists for the exact change, add a brief integration test that:
-1. Calls `cmd_repo_create` (or invokes `srs-gov repo-create` via subprocess)
-2. Reads back `manifest.json`
-3. Asserts `manifest.container.containerId` is non-empty
+- `repo_create_navigation_works` — already exists; must pass without modification.
 
 #### Milestone gate
 
@@ -318,6 +330,7 @@ If no test exists for the exact change, add a brief integration test that:
 - [ ] `cargo test` (workspace) passes with no failures
 - [ ] `cargo clippy -- -D warnings` passes
 - [ ] `cargo test --test payload_contracts` passes
+- [ ] `cargo test --test repo_set_root_container` passes
 - [ ] `bash scripts/check-schema-sync.sh` exits 0 (no entity schema changes expected)
 - [ ] `srs-gov::cmd_repo_create` contains no `repo_json["manifest"]["container"] = ...` raw JSON mutation
 - [ ] `srs repo set-root-container --container-id X --identity-instance-id Y` emits a valid JSON envelope
@@ -333,7 +346,7 @@ If no test exists for the exact change, add a brief integration test that:
 
 ## Assumptions
 
-- `srs-gov` calls `srs` as a subprocess (via `srs::run_srs`); this is already established for all other container operations.
-- The `out_path` variable in `cmd_repo_create` refers to the `.srsj` seed path, while `output` (or equivalent) is the repo path passed to `run_srs`. Verify the correct repo-path variable name before Phase 3.
-- No WASM binding is needed for this service in this plan (no web consumer exists).
-- The manifest embed format change (`title: ""` will appear in serialized output) is acceptable — it's a default value, not present in the current raw-JSON write, but harmless because navigation ignores the embed title.
+- `srs-gov` calls `srs` as a subprocess (via `srs::run_srs_write`); this is already established for all other write operations (`srs_roots_add`, `srs_containers_create`, etc.).
+- The `out_path` variable in `cmd_repo_create` refers to the `.srsj` seed path, while `output` (or equivalent) is the repo path passed to `run_srs_write`. Verify the correct repo-path variable name before Phase 3.
+- No WASM binding is needed for this service in this plan (no web consumer exists — ADR-013/015 deferred).
+- The manifest embed format change (`title: ""` will appear in serialized output) is acceptable — it's a default value, not present in the current raw-JSON write, but harmless because navigation ignores the embed title (ADR-017).
