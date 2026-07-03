@@ -2,7 +2,9 @@ use crate::error::RepositoryError;
 use crate::manifest::Manifest;
 use crate::package::Package;
 use crate::package_types::{DefinitionKind, PackageBoundary, PackageSelector};
-use crate::repository_lifecycle::{CreateRepositoryResult, InitializeRepositoryInput};
+use crate::repository_lifecycle::{
+    default_repository_container, CreateRepositoryResult, InitializeRepositoryInput,
+};
 use serde::de::Error as SerdeDeError;
 use srs_core::types::container::ContainerIndexEntry;
 use srs_core::types::field::{Field, ValueType};
@@ -804,13 +806,13 @@ impl RepositoryStore for FileStore {
         self.ensure_dir(&self.repo_root.join(".srs"))?;
         self.ensure_dir(&self.repo_root.join("package"))?;
 
-        let title = input
-            .repository
-            .title
-            .as_deref()
-            .unwrap_or(&input.repository.namespace)
-            .to_string();
+        let title = input.repository.title.as_deref().unwrap_or_default().to_string();
         let created_at = chrono::Utc::now().to_rfc3339();
+        let container_value = serde_json::to_value(default_repository_container(
+            &input.repository.repository_id,
+            &title,
+        ))
+        .unwrap_or_default();
         let mut manifest = serde_json::json!({
             "$schema": srs_schema::MANIFEST_SCHEMA_ID,
             "instanceIndex": [],
@@ -818,10 +820,7 @@ impl RepositoryStore for FileStore {
             "repositoryId": input.repository.repository_id,
             "namespace": input.repository.namespace,
             "title": title,
-            "container": {
-                "containerId": input.repository.repository_id,
-                "title": title
-            },
+            "container": container_value,
             "createdAt": created_at
         });
         if let Some(desc) = &input.repository.description {

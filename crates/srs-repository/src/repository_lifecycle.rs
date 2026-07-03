@@ -4,6 +4,7 @@ use crate::store::RepositoryStore;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use srs_core::types::container::Container;
 use srs_core::types::note::{Note, NoteSection};
 use std::path::PathBuf;
 
@@ -48,6 +49,27 @@ pub struct RepositoryStatus {
     pub exists: bool,
 }
 
+/// Build the initial container for a newly created repository.
+/// Business rule: containerId = repositoryId, title = the repository's effective title.
+pub(crate) fn default_repository_container(container_id: &str, title: &str) -> Container {
+    Container {
+        container_id: container_id.to_string(),
+        title: title.to_string(),
+        namespace: None,
+        name: None,
+        description: None,
+        container_type: None,
+        identity_instance_id: None,
+        root_instance_ids: None,
+        member_instance_ids: None,
+        tags: None,
+        created_at: None,
+        updated_at: None,
+        meta: None,
+        extra: std::collections::HashMap::new(),
+    }
+}
+
 pub fn create_repository(
     store: &dyn RepositoryStore,
     input: &InitializeRepositoryInput,
@@ -60,7 +82,12 @@ pub fn create_repository(
         });
     }
 
-    store.initialize_repository(input)
+    // Normalize title: if not provided, fall back to namespace (business rule, not adapter concern).
+    let mut resolved = input.clone();
+    if resolved.repository.title.is_none() {
+        resolved.repository.title = Some(input.repository.namespace.clone());
+    }
+    store.initialize_repository(&resolved)
 }
 
 /// Create a repository and optionally create a root intent note when name or

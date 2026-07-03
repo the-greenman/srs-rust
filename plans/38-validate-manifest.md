@@ -51,9 +51,14 @@ No JSON Schema files under `srs/docs/schema/2.0/` are modified. No action requir
 
 **Out of scope:**
 
-- Changes to any crate other than `srs-repository`.
 - Changes to `payload.rs`, CLI handlers, or WASM bindings.
 - Any schema file edits.
+
+**Fixture changes (in scope by necessity):** Enabling manifest validation exposed that existing non-compliant test fixtures and adapter initialization paths needed to be brought into compliance. The following were also updated:
+- `crates/srs-cli/tests/fixtures/{field-groups,repeatable-fields,rfc008-container-subset}/manifest.json` — removed undeclared fields (`formatVersion`, `conformance`), added required fields
+- `crates/srs-gov/assets/governance-seed.srsj` — added `$schema` and `createdAt` to the seed manifest
+- `tests/fixtures/spec-repo/manifest.json` — vendored fixture updated to add `container`, `createdAt`, remove `sourceDocumentIndex`
+- `crates/srs-repository/src/store.rs` and `json_store.rs` — `initialize_repository` now writes fully schema-compliant manifests (title fallback and container construction extracted to the service layer per ADR-010)
 
 ---
 
@@ -134,8 +139,7 @@ Specific tests to write or verify:
 
 ## Coordination Rules
 
-- Single worker: Repository Service Worker owns `crates/srs-repository/**` exclusively.
-- No other crates are touched.
+- Single worker: Repository Service Worker owns `crates/srs-repository/**` exclusively; fixture files in `crates/srs-cli/tests/fixtures/`, `crates/srs-gov/assets/`, and `tests/fixtures/spec-repo/` are also in scope to bring non-compliant content into compliance.
 - Verification Agent runs final acceptance after Phase 1 before PR.
 
 ## Assumptions
