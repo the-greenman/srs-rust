@@ -514,6 +514,8 @@ mod tests {
                     tags: None,
                 })
                 .collect(),
+            container: None,
+            container_index: None,
             extra: HashMap::new(),
             root: PathBuf::from("/memory"),
         };
@@ -550,6 +552,7 @@ mod tests {
             name: None,
             description: None,
             container_type: None,
+            identity_instance_id: None,
             root_instance_ids: if roots.is_empty() {
                 None
             } else {

@@ -284,6 +284,8 @@ mod tests {
     fn make_store(fields: Vec<Field>, types: Vec<RecordType>) -> MemoryStore {
         let manifest = crate::manifest::Manifest {
             instance_index: vec![],
+            container: None,
+            container_index: None,
             extra: HashMap::new(),
             root: std::path::PathBuf::from("/memory"),
         };

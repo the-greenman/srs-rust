@@ -198,6 +198,8 @@ impl JsonStore {
         }
         let manifest = Manifest {
             instance_index: vec![],
+            container: None,
+            container_index: None,
             extra: HashMap::new(),
             root: file_path
                 .parent()
@@ -660,6 +662,8 @@ impl RepositoryStore for JsonStore {
         let mut state = self.state.borrow_mut();
         state.manifest = Manifest {
             instance_index: vec![],
+            container: None,
+            container_index: None,
             extra,
             root: self.repository_root(),
         };
@@ -1987,6 +1991,7 @@ mod tests {
             name: None,
             description: None,
             container_type: None,
+            identity_instance_id: None,
             tags: None,
             root_instance_ids: None,
             member_instance_ids: None,
@@ -2023,6 +2028,7 @@ mod tests {
                     name: None,
                     description: None,
                     container_type: None,
+                    identity_instance_id: None,
                     tags: None,
                     root_instance_ids: None,
                     member_instance_ids: None,
@@ -2058,6 +2064,7 @@ mod tests {
                 name: None,
                 description: None,
                 container_type: None,
+                identity_instance_id: None,
                 tags: None,
                 root_instance_ids: None,
                 member_instance_ids: None,
@@ -2093,6 +2100,7 @@ mod tests {
             name: None,
             description: None,
             container_type: None,
+            identity_instance_id: None,
             tags: None,
             root_instance_ids: None,
             member_instance_ids: None,

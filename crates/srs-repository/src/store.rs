@@ -4,6 +4,7 @@ use crate::package::Package;
 use crate::package_types::{DefinitionKind, PackageBoundary, PackageSelector};
 use crate::repository_lifecycle::{CreateRepositoryResult, InitializeRepositoryInput};
 use serde::de::Error as SerdeDeError;
+use srs_core::types::container::ContainerIndexEntry;
 use srs_core::types::field::{Field, ValueType};
 use srs_core::types::lifecycle::Lifecycle;
 use srs_core::types::record_type::{
@@ -1829,19 +1830,13 @@ fn file_store_load_container_index(
     store: &FileStore,
 ) -> Result<Vec<(String, String, String)>, RepositoryError> {
     let manifest = store.load_manifest()?;
-    let entries: Vec<serde_json::Value> = manifest
-        .extra
-        .get("containerIndex")
-        .cloned()
-        .and_then(|v| serde_json::from_value(v).ok())
-        .unwrap_or_default();
-    Ok(entries
+    Ok(manifest
+        .container_index
+        .unwrap_or_default()
         .into_iter()
         .filter_map(|e| {
-            let id = e["containerId"].as_str()?.to_string();
-            let title = e["title"].as_str().unwrap_or("").to_string();
-            let path = e["path"].as_str()?.to_string();
-            Some((id, title, path))
+            let path = e.path?;
+            Some((e.container_id, e.title.unwrap_or_default(), path))
         })
         .collect())
 }
@@ -1869,22 +1864,17 @@ fn file_store_upsert_container_index(
     path: &str,
 ) -> Result<(), RepositoryError> {
     let mut manifest = store.load_manifest()?;
-    let mut entries: Vec<serde_json::Value> = manifest
-        .extra
-        .get("containerIndex")
-        .cloned()
-        .and_then(|v| serde_json::from_value(v).ok())
-        .unwrap_or_default();
-    entries.retain(|e| e["containerId"].as_str() != Some(container_id));
-    entries.push(serde_json::json!({
-        "containerId": container_id,
-        "title": title,
-        "path": path,
-    }));
-    manifest.extra.insert(
-        "containerIndex".to_string(),
-        serde_json::to_value(entries).unwrap(),
-    );
+    let mut entries = manifest.container_index.unwrap_or_default();
+    entries.retain(|e| e.container_id != container_id);
+    entries.push(ContainerIndexEntry {
+        container_id: container_id.to_string(),
+        title: Some(title.to_string()),
+        path: Some(path.to_string()),
+        container_type: None,
+        tags: None,
+        extra: HashMap::new(),
+    });
+    manifest.container_index = Some(entries);
     store.save_manifest(&manifest)
 }
 
@@ -1894,17 +1884,9 @@ fn file_store_remove_container_index(
     container_id: &str,
 ) -> Result<(), RepositoryError> {
     let mut manifest = store.load_manifest()?;
-    let mut entries: Vec<serde_json::Value> = manifest
-        .extra
-        .get("containerIndex")
-        .cloned()
-        .and_then(|v| serde_json::from_value(v).ok())
-        .unwrap_or_default();
-    entries.retain(|e| e["containerId"].as_str() != Some(container_id));
-    manifest.extra.insert(
-        "containerIndex".to_string(),
-        serde_json::to_value(entries).unwrap(),
-    );
+    let mut entries = manifest.container_index.unwrap_or_default();
+    entries.retain(|e| e.container_id != container_id);
+    manifest.container_index = if entries.is_empty() { None } else { Some(entries) };
     store.save_manifest(&manifest)
 }
 
@@ -1987,6 +1969,8 @@ pub mod memory {
         pub fn empty() -> Self {
             let manifest = Manifest {
                 instance_index: vec![],
+                container: None,
+                container_index: None,
                 extra: HashMap::new(),
                 root: PathBuf::from("/memory"),
             };
@@ -2133,6 +2117,8 @@ pub mod memory {
         pub fn uninitialized() -> Self {
             let manifest = Manifest {
                 instance_index: vec![],
+                container: None,
+                container_index: None,
                 extra: HashMap::new(),
                 root: PathBuf::from("/memory"),
             };
@@ -2264,6 +2250,8 @@ pub mod memory {
 
             *self.manifest.borrow_mut() = Manifest {
                 instance_index: vec![],
+                container: None,
+                container_index: None,
                 extra: manifest_extra,
                 root: PathBuf::from("/memory"),
             };
@@ -2722,17 +2710,17 @@ pub mod memory {
             self.data.borrow_mut().insert(key, val);
             // Update summary index in manifest
             let mut manifest = self.manifest.borrow_mut();
-            let mut entries: Vec<serde_json::Value> = manifest
-                .extra
-                .get("containerIndex")
-                .cloned()
-                .and_then(|v| serde_json::from_value(v).ok())
-                .unwrap_or_default();
-            entries.retain(|e| e["containerId"].as_str() != Some(id));
-            entries.push(serde_json::json!({ "containerId": id, "title": container.title }));
-            manifest
-                .extra
-                .insert("containerIndex".to_string(), serde_json::json!(entries));
+            let mut entries = manifest.container_index.take().unwrap_or_default();
+            entries.retain(|e| &e.container_id != id);
+            entries.push(srs_core::types::container::ContainerIndexEntry {
+                container_id: id.clone(),
+                title: Some(container.title.clone()),
+                path: None,
+                container_type: None,
+                tags: None,
+                extra: std::collections::HashMap::new(),
+            });
+            manifest.container_index = Some(entries);
             Ok(())
         }
 
@@ -2745,34 +2733,20 @@ pub mod memory {
             }
             // Remove from manifest index
             let mut manifest = self.manifest.borrow_mut();
-            let mut entries: Vec<serde_json::Value> = manifest
-                .extra
-                .get("containerIndex")
-                .cloned()
-                .and_then(|v| serde_json::from_value(v).ok())
-                .unwrap_or_default();
-            entries.retain(|e| e["containerId"].as_str() != Some(container_id));
-            manifest
-                .extra
-                .insert("containerIndex".to_string(), serde_json::json!(entries));
+            let mut entries = manifest.container_index.take().unwrap_or_default();
+            entries.retain(|e| e.container_id != container_id);
+            manifest.container_index = if entries.is_empty() { None } else { Some(entries) };
             Ok(())
         }
 
         fn list_container_summaries(&self) -> Result<Vec<(String, String)>, RepositoryError> {
             let manifest = self.manifest.borrow();
-            let entries: Vec<serde_json::Value> = manifest
-                .extra
-                .get("containerIndex")
-                .cloned()
-                .and_then(|v| serde_json::from_value(v).ok())
-                .unwrap_or_default();
-            Ok(entries
-                .into_iter()
-                .filter_map(|e| {
-                    let id = e["containerId"].as_str()?.to_string();
-                    let title = e["title"].as_str().unwrap_or("").to_string();
-                    Some((id, title))
-                })
+            Ok(manifest
+                .container_index
+                .as_deref()
+                .unwrap_or(&[])
+                .iter()
+                .map(|e| (e.container_id.clone(), e.title.clone().unwrap_or_default()))
                 .collect())
         }
 
@@ -3054,6 +3028,8 @@ mod tests {
     fn minimal_manifest(repo_root: &std::path::Path) -> Manifest {
         Manifest {
             instance_index: vec![],
+            container: None,
+            container_index: None,
             extra: HashMap::new(),
             root: repo_root.to_path_buf(),
         }
@@ -3218,6 +3194,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
+            identity_instance_id: None,
             extra: std::collections::HashMap::new(),
         }
     }

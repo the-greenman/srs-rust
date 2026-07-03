@@ -1,6 +1,7 @@
 use crate::error::RepositoryError;
 use crate::index::InstanceIndexEntry;
 use serde::{Deserialize, Serialize};
+use srs_core::types::container::{Container, ContainerIndexEntry};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -9,6 +10,10 @@ use std::path::{Path, PathBuf};
 pub struct Manifest {
     #[serde(rename = "instanceIndex")]
     pub instance_index: Vec<InstanceIndexEntry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container: Option<Container>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container_index: Option<Vec<ContainerIndexEntry>>,
     // all other manifest fields preserved for round-trip write
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
@@ -95,5 +100,70 @@ mod tests {
         );
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn manifest_with_container_roundtrips() {
+        let json = r#"{
+            "instanceIndex": [],
+            "container": {
+                "containerId": "550e8400-e29b-41d4-a716-446655440000",
+                "identityInstanceId": "aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa"
+            }
+        }"#;
+        let manifest: Manifest = serde_json::from_str(json).unwrap();
+        let container = manifest.container.as_ref().unwrap();
+        assert_eq!(
+            container.container_id,
+            "550e8400-e29b-41d4-a716-446655440000"
+        );
+        assert_eq!(
+            container.identity_instance_id.as_deref(),
+            Some("aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa")
+        );
+        // must not appear in extra
+        assert!(!manifest.extra.contains_key("container"));
+
+        // serialise and re-parse
+        let serialised = serde_json::to_string(&manifest).unwrap();
+        let reparsed: Manifest = serde_json::from_str(&serialised).unwrap();
+        assert_eq!(
+            reparsed.container.as_ref().unwrap().identity_instance_id,
+            container.identity_instance_id
+        );
+    }
+
+    #[test]
+    fn manifest_with_container_index_roundtrips() {
+        let json = r#"{
+            "instanceIndex": [],
+            "containerIndex": [
+                {"containerId": "c1", "title": "Alpha", "path": "containers/alpha.json"},
+                {"containerId": "c2", "path": "containers/beta.json"}
+            ]
+        }"#;
+        let manifest: Manifest = serde_json::from_str(json).unwrap();
+        let index = manifest.container_index.as_ref().unwrap();
+        assert_eq!(index.len(), 2);
+        assert_eq!(index[0].container_id, "c1");
+        assert_eq!(index[0].title.as_deref(), Some("Alpha"));
+        assert_eq!(index[0].path.as_deref(), Some("containers/alpha.json"));
+        assert_eq!(index[1].container_id, "c2");
+        assert_eq!(index[1].title, None);
+        // must not appear in extra
+        assert!(!manifest.extra.contains_key("containerIndex"));
+
+        // serialise and re-parse
+        let serialised = serde_json::to_string(&manifest).unwrap();
+        let reparsed: Manifest = serde_json::from_str(&serialised).unwrap();
+        assert_eq!(reparsed.container_index, manifest.container_index);
+    }
+
+    #[test]
+    fn manifest_absent_container_fields_are_none() {
+        let json = r#"{"instanceIndex": []}"#;
+        let manifest: Manifest = serde_json::from_str(json).unwrap();
+        assert!(manifest.container.is_none());
+        assert!(manifest.container_index.is_none());
     }
 }

@@ -882,6 +882,7 @@ mod tests {
             name: None,
             description: None,
             container_type: None,
+            identity_instance_id: None,
             member_instance_ids: Some(vec!["11111111-1111-4111-8111-111111111111".to_string()]),
             root_instance_ids: None,
             tags: None,

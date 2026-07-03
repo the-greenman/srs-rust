@@ -151,6 +151,8 @@ mod tests {
     fn empty_manifest() -> Manifest {
         Manifest {
             instance_index: vec![],
+            container: None,
+            container_index: None,
             extra: HashMap::new(),
             root: PathBuf::from("/memory"),
         }
@@ -198,6 +200,8 @@ mod tests {
                 title: Some(serde_json::Value::String("Old Title".to_string())),
                 tags: None,
             }],
+            container: None,
+            container_index: None,
             extra: HashMap::new(),
             root: PathBuf::from("/memory"),
         };

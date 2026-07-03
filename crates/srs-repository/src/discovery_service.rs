@@ -325,6 +325,8 @@ mod tests {
         let store = MemoryStore::new(
             Manifest {
                 instance_index: vec![],
+                container: None,
+                container_index: None,
                 extra: HashMap::new(),
                 root: PathBuf::from("/memory"),
             },
