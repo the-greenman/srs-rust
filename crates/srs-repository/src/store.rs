@@ -806,7 +806,12 @@ impl RepositoryStore for FileStore {
         self.ensure_dir(&self.repo_root.join(".srs"))?;
         self.ensure_dir(&self.repo_root.join("package"))?;
 
-        let title = input.repository.title.as_deref().unwrap_or_default().to_string();
+        let title = input
+            .repository
+            .title
+            .as_deref()
+            .unwrap_or_default()
+            .to_string();
         let created_at = chrono::Utc::now().to_rfc3339();
         let container_value = serde_json::to_value(default_repository_container(
             &input.repository.repository_id,

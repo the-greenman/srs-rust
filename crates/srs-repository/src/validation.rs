@@ -2235,8 +2235,7 @@ mod tests {
             .diagnostics
             .iter()
             .filter(|d| {
-                d.relative_path == "manifest.json"
-                    && d.severity == DiagnosticSeverity::Error
+                d.relative_path == "manifest.json" && d.severity == DiagnosticSeverity::Error
             })
             .collect();
         assert!(
@@ -2259,8 +2258,7 @@ mod tests {
             .diagnostics
             .iter()
             .filter(|d| {
-                d.relative_path == "manifest.json"
-                    && d.severity == DiagnosticSeverity::Error
+                d.relative_path == "manifest.json" && d.severity == DiagnosticSeverity::Error
             })
             .collect();
         assert!(
