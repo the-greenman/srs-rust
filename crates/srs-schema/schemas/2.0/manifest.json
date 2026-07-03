@@ -6,6 +6,10 @@
   "type": "object",
   "required": ["$schema", "srsVersion", "repositoryId", "title", "container", "instanceIndex", "createdAt"],
   "additionalProperties": false,
+  "not": {
+    "required": ["upstreamPackage", "upstreamPackages"],
+    "description": "R8 (RFC-014): a repository MUST NOT declare both upstreamPackage and upstreamPackages."
+  },
   "properties": {
     "$schema": {
       "type": "string",
@@ -53,6 +57,15 @@
       "items": { "$ref": "#/$defs/PackageRef" },
       "description": "References to one or more SRS Packages that supply field and type definitions. Use instead of packageRef when multiple packages are in scope."
     },
+    "upstreamPackage": {
+      "$ref": "#/$defs/UpstreamPackage",
+      "description": "RFC-014 (ext:import-tracking). Provenance stamp for a repository initialised from exactly one upstream Package. Records the package identity, version, and content hash at install time. Use upstreamPackages instead when two or more upstream packages are in scope. MUST NOT be present together with upstreamPackages (R8)."
+    },
+    "upstreamPackages": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/UpstreamPackage" },
+      "description": "RFC-014 (ext:import-tracking). Provenance stamps for a repository initialised from two or more upstream Packages. Each entry records the package identity, version, and content hash at install time. MUST NOT be present together with upstreamPackage (R8). Results are reported in declaration order (R9)."
+    },
     "instanceIndex": {
       "type": "array",
       "items": { "$ref": "#/$defs/InstanceIndexEntry" },
@@ -99,11 +112,12 @@
     },
     "meta": {
       "type": "object",
-      "description": "Implementation-local key-value pairs. Common keys: 'sourceOfTruth', 'renderedExports', 'upstreamPackage'. Cross-system keys should be namespaced.",
+      "description": "Implementation-local key-value pairs. Common keys: 'sourceOfTruth', 'renderedExports'. Cross-system keys should be namespaced.",
       "properties": {
         "upstreamPackage": {
           "$ref": "#/$defs/UpstreamPackage",
-          "description": "Provenance stamp for a repository initialised from a published upstream Package. Hook for the package-upgrade / drift story (ext:import-tracking, RFC-003)."
+          "deprecated": true,
+          "description": "DEPRECATED by RFC-014. Use the top-level 'upstreamPackage' field instead. Accepted as a read fallback during the transition window; implementations MUST write only the top-level field going forward."
         }
       }
     },
@@ -273,14 +287,14 @@
     },
     "UpstreamPackage": {
       "type": "object",
-      "description": "Provenance stamp recording the upstream Package a repository was initialised from. A lightweight, repository-level precursor to the full per-definition ext:import-tracking model (RFC-003): it lets a consumer detect when a newer version of its source Package is published so the document can be upgraded in place without losing data. Set once at repository creation; updated when the upstream Package is upgraded.",
-      "required": ["packageId", "namespace", "name", "version", "installedAt"],
+      "description": "RFC-014 (ext:import-tracking). Provenance stamp recording the upstream Package a repository was initialised from. Enables repository-level divergence detection (clean / local-ahead / diverged) without network access. Set at repository creation; updated when the upstream Package is upgraded.",
+      "required": ["packageId", "namespace", "name", "version", "installedAt", "contentHash"],
       "additionalProperties": false,
       "properties": {
         "packageId": {
           "type": "string",
           "format": "uuid",
-          "description": "Stable UUID of the upstream Package this repository was created from. Never changes across upgrades within the same Package lineage."
+          "description": "Stable UUID of the upstream Package this repository was created from. Never changes across upgrades within the same Package lineage. Used as the matching key for divergence detection (R5)."
         },
         "namespace": {
           "type": "string",
@@ -298,6 +312,11 @@
           "type": "string",
           "format": "date-time",
           "description": "When this upstream Package version was installed into the repository."
+        },
+        "contentHash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "RFC-014 R10. SHA-256 hash of the upstream package content at install time. Format: 'sha256:<lowercase-hex-digest>'. Computed as SHA-256 over: (1) raw bytes of package-manifest.json, then (2) raw bytes of each definition file listed in package-manifest.json (fields[], types[], views[], documentViews[], themes[], relationTypes[], vocabularies[], lifecycles[], blueprints[], protocols[]) in that property order and within each array in declaration order, with no separator bytes. Updated on every upgrade (R11)."
         }
       }
     }
