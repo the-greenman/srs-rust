@@ -266,9 +266,7 @@ mod tests {
                 name: None,
                 description: None,
                 container_type: None,
-                identity_instance_id: Some(
-                    "00000000-0000-4000-8000-00000000a100".to_string(),
-                ),
+                identity_instance_id: Some("00000000-0000-4000-8000-00000000a100".to_string()),
                 root_instance_ids: None,
                 member_instance_ids: None,
                 tags: None,

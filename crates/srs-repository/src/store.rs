@@ -1886,7 +1886,11 @@ fn file_store_remove_container_index(
     let mut manifest = store.load_manifest()?;
     let mut entries = manifest.container_index.unwrap_or_default();
     entries.retain(|e| e.container_id != container_id);
-    manifest.container_index = if entries.is_empty() { None } else { Some(entries) };
+    manifest.container_index = if entries.is_empty() {
+        None
+    } else {
+        Some(entries)
+    };
     store.save_manifest(&manifest)
 }
 
@@ -2735,7 +2739,11 @@ pub mod memory {
             let mut manifest = self.manifest.borrow_mut();
             let mut entries = manifest.container_index.take().unwrap_or_default();
             entries.retain(|e| e.container_id != container_id);
-            manifest.container_index = if entries.is_empty() { None } else { Some(entries) };
+            manifest.container_index = if entries.is_empty() {
+                None
+            } else {
+                Some(entries)
+            };
             Ok(())
         }
 
