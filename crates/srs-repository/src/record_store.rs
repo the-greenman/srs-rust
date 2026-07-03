@@ -237,45 +237,56 @@ fn write_record(
 }
 
 /// Update an existing Tier 2 record.
+///
+/// When `input.type_version` is `None` the stored version is used; when `Some(v)`
+/// the record is migrated to that version (including `type_name` and
+/// `type_namespace`, which are re-derived from the package at the effective
+/// version). This fixes the stale-typeVersion bug: validation always runs against
+/// the **effective** version, never the stored one unconditionally.
 pub fn update_record(
     store: &dyn RepositoryStore,
     instance_id: &str,
-    field_values: Vec<FieldValue>,
-    group_values: Option<Option<Vec<srs_core::types::record::FieldGroupValue>>>,
-    tags: Option<Vec<String>>,
+    input: UpdateRecordInput,
 ) -> Result<Record, RepositoryError> {
     let record =
         get_record_by_id(store, instance_id)?.ok_or_else(|| RepositoryError::NotFound {
             path: std::path::PathBuf::from("records"),
         })?;
 
+    let effective_type_version = input.type_version.unwrap_or(record.type_version);
+
     let package = store.load_package()?;
     let record_type = package
-        .resolve_type(&record.type_id, record.type_version)
-        .ok_or_else(|| RepositoryError::TypeNotFound {
+        .resolve_type(&record.type_id, effective_type_version)
+        .ok_or_else(|| RepositoryError::TypeVersionNotFound {
             type_id: record.type_id.clone(),
-            version: record.type_version,
+            version: effective_type_version,
         })?;
 
     // Three-way tag semantics:
     //   None        → preserve existing tags (caller did not supply the field)
     //   Some([])    → clear all tags
     //   Some([...]) → replace tags with the supplied list
-    let updated_tags = match tags {
+    let updated_tags = match input.tags {
         None => record.tags,
         Some(ref v) if v.is_empty() => None,
         Some(v) => Some(v),
     };
 
+    // group_values: None = preserve stored value; Some(v) = replace/clear.
+    let new_group_values = match input.group_values {
+        Some(gv) => Some(gv),
+        None => record.group_values,
+    };
+
     let updated_record = Record {
         instance_id: record.instance_id,
         type_id: record.type_id,
-        type_version: record.type_version,
-        type_namespace: record.type_namespace,
-        type_name: record.type_name,
-        field_values,
-        // None outer = not supplied by caller → preserve existing; Some(v) = replace.
-        group_values: group_values.unwrap_or(record.group_values),
+        type_version: effective_type_version,
+        type_namespace: record_type.namespace.clone(),
+        type_name: record_type.name.clone(),
+        field_values: input.field_values,
+        group_values: new_group_values,
         lifecycle_state: record.lifecycle_state,
         tags: updated_tags,
         created_at: record.created_at,
@@ -447,6 +458,28 @@ pub struct CreateRecordInput {
     pub group_values: Option<Vec<srs_core::types::record::FieldGroupValue>>,
     #[serde(default)]
     pub tags: Option<Vec<String>>,
+}
+
+/// Input for `update_record`.
+///
+/// `type_version` is optional: when `None`, the stored version is preserved; when
+/// `Some(v)`, the record is migrated to that version (the type must exist in the
+/// package at `v`).
+///
+/// Tag semantics match `CreateRecordInput`:
+/// - `None` → preserve existing tags.
+/// - `Some([])` → clear all tags.
+/// - `Some([...])` → replace tags.
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateRecordInput {
+    pub field_values: Vec<FieldValue>,
+    #[serde(default)]
+    pub group_values: Option<Vec<srs_core::types::record::FieldGroupValue>>,
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
+    #[serde(default)]
+    pub type_version: Option<u32>,
 }
 
 /// Self-contained input for `validate_record_input` (no-write preflight).
@@ -1974,7 +2007,17 @@ mod tests {
             },
         ];
 
-        let updated = update_record(&store, &instance_id, updated_values, None, None).unwrap();
+        let updated = update_record(
+            &store,
+            &instance_id,
+            UpdateRecordInput {
+                field_values: updated_values,
+                group_values: None,
+                tags: None,
+                type_version: None,
+            },
+        )
+        .unwrap();
         assert_eq!(updated.field_values[0].value, json!("Updated Name"));
 
         // Verify stored value
@@ -1995,7 +2038,17 @@ mod tests {
             source: None,
             edited_at: None,
         }];
-        assert!(update_record(&store, &instance_id, invalid_values, None, None).is_err());
+        assert!(update_record(
+            &store,
+            &instance_id,
+            UpdateRecordInput {
+                field_values: invalid_values,
+                group_values: None,
+                tags: None,
+                type_version: None,
+            }
+        )
+        .is_err());
     }
 
     #[test]
@@ -2603,7 +2656,17 @@ mod tests {
                 field_values: vec![],
             }],
         }]);
-        update_record(&store, &id, new_fv, Some(new_gv), None).expect("update");
+        update_record(
+            &store,
+            &id,
+            UpdateRecordInput {
+                field_values: new_fv,
+                group_values: new_gv,
+                tags: None,
+                type_version: None,
+            },
+        )
+        .expect("update");
 
         let loaded = get_record_by_id(&store, &id).unwrap().unwrap();
         assert_eq!(loaded.field_values[0].value, json!("Updated"));
@@ -2644,7 +2707,17 @@ mod tests {
             source: None,
             edited_at: None,
         }];
-        update_record(&store, &id, new_fv, None, None).expect("update");
+        update_record(
+            &store,
+            &id,
+            UpdateRecordInput {
+                field_values: new_fv,
+                group_values: None,
+                tags: None,
+                type_version: None,
+            },
+        )
+        .expect("update");
 
         let loaded = get_record_by_id(&store, &id).unwrap().unwrap();
         assert_eq!(loaded.field_values[0].value, json!("Field Only Update"));
@@ -2758,7 +2831,17 @@ mod tests {
             source: None,
             edited_at: None,
         }];
-        update_record(&store, &id, new_fv, None, None).expect("update");
+        update_record(
+            &store,
+            &id,
+            UpdateRecordInput {
+                field_values: new_fv,
+                group_values: None,
+                tags: None,
+                type_version: None,
+            },
+        )
+        .expect("update");
 
         let record = get_record_by_id(&store, &id).unwrap().unwrap();
         assert_eq!(record.tags, Some(vec!["concern:lifecycle".to_string()]));
@@ -2911,7 +2994,17 @@ mod tests {
             source: None,
             edited_at: None,
         }];
-        update_record(&store, &id, fv, None, None).expect("update");
+        update_record(
+            &store,
+            &id,
+            UpdateRecordInput {
+                field_values: fv,
+                group_values: None,
+                tags: None,
+                type_version: None,
+            },
+        )
+        .expect("update");
 
         let record = get_record_by_id(&store, &id).unwrap().unwrap();
         assert_eq!(record.tags, Some(vec!["concern:lifecycle".to_string()]));
@@ -2932,7 +3025,17 @@ mod tests {
             source: None,
             edited_at: None,
         }];
-        update_record(&store, &id, fv, None, Some(vec![])).expect("update");
+        update_record(
+            &store,
+            &id,
+            UpdateRecordInput {
+                field_values: fv,
+                group_values: None,
+                tags: Some(vec![]),
+                type_version: None,
+            },
+        )
+        .expect("update");
 
         let record = get_record_by_id(&store, &id).unwrap().unwrap();
         assert!(record.tags.is_none());
@@ -2965,9 +3068,12 @@ mod tests {
         update_record(
             &store,
             &id,
-            fv,
-            None,
-            Some(vec!["new-tag-1".to_string(), "new-tag-2".to_string()]),
+            UpdateRecordInput {
+                field_values: fv,
+                group_values: None,
+                tags: Some(vec!["new-tag-1".to_string(), "new-tag-2".to_string()]),
+                type_version: None,
+            },
         )
         .expect("update");
 
@@ -3204,6 +3310,323 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.record.lifecycle_state.as_deref(), Some("active"));
+    }
+
+    // -------------------------------------------------------------------------
+    // UpdateRecordInput / type-version migration tests
+    // -------------------------------------------------------------------------
+
+    /// Returns a store whose package contains type "type-test-001" at **both**
+    /// version 1 (namespace "com.test", name "test-type") and version 2
+    /// (namespace "com.test.v2", name "test-type-v2").  Both versions share the
+    /// same "field-name-001" required field, so the same field_values are valid
+    /// against either version.
+    fn make_store_with_two_type_versions() -> MemoryStore {
+        use crate::package::Package;
+        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::record_type::{FieldAssignment, RecordType};
+
+        let name_field = Field {
+            id: "field-name-001".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test-name".to_string(),
+            version: 1,
+            value_type: ValueType::String,
+            description: "Name field".to_string(),
+            ai_guidance: json!(null),
+            allowed_values: None,
+            vocabulary_ref: None,
+            default_value: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let field_assignment = FieldAssignment {
+            field_id: "field-name-001".to_string(),
+            order: 0,
+            required: true,
+            display_label: Some("Name".to_string()),
+            repeatable: false,
+            min_items: None,
+            max_items: None,
+        };
+        let type_v1 = RecordType {
+            id: "type-test-001".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test-type".to_string(),
+            version: 1,
+            description: "Test type v1".to_string(),
+            fields: vec![field_assignment.clone()],
+            field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let type_v2 = RecordType {
+            id: "type-test-001".to_string(),
+            namespace: "com.test.v2".to_string(),
+            name: "test-type-v2".to_string(),
+            version: 2,
+            description: "Test type v2".to_string(),
+            fields: vec![field_assignment],
+            field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let manifest = Manifest {
+            instance_index: vec![],
+            container: None,
+            container_index: None,
+            extra: HashMap::new(),
+            root: PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "test-package-001".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test-package".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![name_field],
+            record_types: vec![type_v1, type_v2],
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        MemoryStore::new(manifest, package)
+    }
+
+    #[test]
+    fn record_update_allows_type_version_migration() {
+        let store = make_store_with_two_type_versions();
+        let fv = vec![FieldValue {
+            field_id: "field-name-001".to_string(),
+            value: json!("Original Name"),
+            entries: None,
+            source: None,
+            edited_at: None,
+        }];
+        let record = create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
+        let id = record.instance_id.clone();
+
+        assert_eq!(record.type_version, 1);
+        assert_eq!(record.type_namespace, "com.test");
+        assert_eq!(record.type_name, "test-type");
+
+        let new_fv = vec![FieldValue {
+            field_id: "field-name-001".to_string(),
+            value: json!("Migrated Name"),
+            entries: None,
+            source: None,
+            edited_at: None,
+        }];
+        let updated = update_record(
+            &store,
+            &id,
+            UpdateRecordInput {
+                field_values: new_fv,
+                group_values: None,
+                tags: None,
+                type_version: Some(2),
+            },
+        )
+        .expect("migration to v2 should succeed");
+
+        assert_eq!(updated.type_version, 2, "type_version must be updated");
+        assert_eq!(
+            updated.type_namespace, "com.test.v2",
+            "type_namespace must reflect v2"
+        );
+        assert_eq!(
+            updated.type_name, "test-type-v2",
+            "type_name must reflect v2"
+        );
+        assert_eq!(updated.field_values[0].value, json!("Migrated Name"));
+    }
+
+    #[test]
+    fn record_update_preserves_version_when_not_specified() {
+        let store = make_store_with_package();
+        let fv = vec![
+            FieldValue {
+                field_id: "field-name-001".to_string(),
+                value: json!("Original"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            },
+            FieldValue {
+                field_id: "field-status-001".to_string(),
+                value: json!("active"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            },
+        ];
+        let record = create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
+        let id = record.instance_id.clone();
+
+        let new_fv = vec![
+            FieldValue {
+                field_id: "field-name-001".to_string(),
+                value: json!("Updated"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            },
+            FieldValue {
+                field_id: "field-status-001".to_string(),
+                value: json!("inactive"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            },
+        ];
+        let updated = update_record(
+            &store,
+            &id,
+            UpdateRecordInput {
+                field_values: new_fv,
+                group_values: None,
+                tags: None,
+                type_version: None,
+            },
+        )
+        .expect("update without type_version should preserve stored version");
+
+        assert_eq!(
+            updated.type_version, 1,
+            "type_version must be preserved when not specified"
+        );
+        assert_eq!(updated.type_namespace, "com.test");
+        assert_eq!(updated.type_name, "test-type");
+    }
+
+    #[test]
+    fn record_update_fails_on_invalid_incoming_version() {
+        let store = make_store_with_package();
+        let fv = vec![
+            FieldValue {
+                field_id: "field-name-001".to_string(),
+                value: json!("Name"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            },
+            FieldValue {
+                field_id: "field-status-001".to_string(),
+                value: json!("active"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            },
+        ];
+        let record = create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
+
+        let new_fv = vec![
+            FieldValue {
+                field_id: "field-name-001".to_string(),
+                value: json!("Updated"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            },
+            FieldValue {
+                field_id: "field-status-001".to_string(),
+                value: json!("active"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            },
+        ];
+        let result = update_record(
+            &store,
+            &record.instance_id,
+            UpdateRecordInput {
+                field_values: new_fv,
+                group_values: None,
+                tags: None,
+                type_version: Some(99),
+            },
+        );
+
+        assert!(
+            matches!(
+                result,
+                Err(RepositoryError::TypeVersionNotFound { version: 99, .. })
+            ),
+            "updating with a nonexistent type version must fail with TypeVersionNotFound"
+        );
+    }
+
+    #[test]
+    fn record_update_type_version_migration_roundtrip_stores() {
+        let store = make_store_with_two_type_versions();
+        let fv = vec![FieldValue {
+            field_id: "field-name-001".to_string(),
+            value: json!("Initial"),
+            entries: None,
+            source: None,
+            edited_at: None,
+        }];
+        let record = create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
+        let id = record.instance_id.clone();
+
+        let new_fv = vec![FieldValue {
+            field_id: "field-name-001".to_string(),
+            value: json!("Migrated"),
+            entries: None,
+            source: None,
+            edited_at: None,
+        }];
+        let updated = update_record(
+            &store,
+            &id,
+            UpdateRecordInput {
+                field_values: new_fv,
+                group_values: None,
+                tags: None,
+                type_version: Some(2),
+            },
+        )
+        .expect("migration to v2 should succeed");
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let file_store = crate::store::FileStore::new(temp.path());
+        crate::repository_portability::copy_repository(&store, &file_store)
+            .expect("copy to FileStore");
+
+        let reloaded = get_record_by_id(&file_store, &id)
+            .expect("get_record_by_id succeeded")
+            .expect("record found in FileStore");
+
+        assert_eq!(
+            reloaded.type_version, updated.type_version,
+            "type_version must survive JSON round-trip"
+        );
+        assert_eq!(
+            reloaded.type_name, updated.type_name,
+            "type_name must survive JSON round-trip"
+        );
+        assert_eq!(
+            reloaded.type_namespace, updated.type_namespace,
+            "type_namespace must survive JSON round-trip"
+        );
     }
 
     #[test]
