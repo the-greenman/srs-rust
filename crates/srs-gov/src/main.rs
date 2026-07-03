@@ -680,22 +680,21 @@ fn cmd_repo_create(output: &str, title: &str, purpose: Option<&str>) -> Result<(
     let json = serde_json::to_string_pretty(&seed)?;
     std::fs::File::create(out_path)?.write_all(json.as_bytes())?;
 
-    // 2. Repository identity: a Tier-0 "intent" note carrying the title + purpose (RFC-013).
-    //    Release 1 is a decision-log-only template — this replaces the former charter article;
-    //    the article/role types stay dormant in the com.mudemocracy.governance package.
+    // 2. Repository identity: a governance/article Record carrying the title + purpose (RFC-013).
+    //    navigation_service loads the identity via record_store::get_record_by_id, which requires
+    //    a tier-2 Record. A note (tier-0) cannot be deserialized as a Record.
     let purpose_text = purpose.unwrap_or("Add your group's purpose statement here.");
-    // `srs note create` reads a bare Note from stdin (container comes from --container).
-    let intent = serde_json::json!({
-        "instanceId": uuid::Uuid::new_v4().to_string(),
-        "title": title,
-        "tags": ["intent"],
-        "sections": [ { "name": "intent", "content": purpose_text } ]
+    let intent_fv = serde_json::json!({
+        "fieldValues": [
+            { "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a", "value": title },
+            { "fieldId": "8aa3eba2-204b-5ebd-ba7a-be0f066027d6", "value": purpose_text }
+        ]
     });
-    let intent_id = srs_create_note(output, &intent.to_string())?;
+    let intent_id = srs_create_record(output, "governance/article", &intent_fv.to_string())?;
 
     // 3. Decision Log container + decision_log root record.
     let dl_title = format!("{title} Decision Log");
-    let dl_id = srs_create_container(output, "decision_log", &dl_title)?;
+    let dl_id = srs_create_container(output, Some("decision_log"), &dl_title)?;
     let dl_fv = serde_json::json!({
         "fieldValues": [
             { "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a", "value": dl_title }
@@ -704,17 +703,24 @@ fn cmd_repo_create(output: &str, title: &str, purpose: Option<&str>) -> Result<(
     let dl_root_id = srs_create_record(output, "governance/decision_log", &dl_fv.to_string())?;
     srs_roots_add(output, &dl_id, &dl_root_id)?;
 
-    // 4. Required root container (RFC-013): the repo's identity + top of structural navigation.
-    //    identity = the intent note; the (single) section root = the decision-log root record.
-    //    Written straight into the manifest (round-trips via the Manifest `extra` bag until
-    //    srs-core types it — srs-rust#263).
+    // 4. Required root container (RFC-013): identity + top-level section navigation.
+    //    Create via the CLI so the container is saved to containers/ and containerIndex —
+    //    navigation_service calls get_container(store, containerId) which reads memberInstanceIds.
+    //    No containerType: the structural root is untyped; domain section containers carry the type.
+    let root_container_id = srs_create_container(output, None, title)?;
+    // Members: identity note + decision-log root (navigation reads memberInstanceIds for sections).
+    srs_members_add(output, &root_container_id, &intent_id)?;
+    srs_members_add(output, &root_container_id, &dl_root_id)?;
+    // Identity is also the structural root.
+    srs_roots_add(output, &root_container_id, &intent_id)?;
+    // Write the minimal manifest.container embed (containerId + identityInstanceId only).
+    // manifest.container is written directly — the Manifest has no CLI write path for this
+    // field until srs-core types it (srs-rust#263).
     let mut repo_json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(out_path)?).context("re-read new repo")?;
     repo_json["manifest"]["container"] = serde_json::json!({
-        "containerId": uuid::Uuid::new_v4().to_string(),
-        "title": title,
+        "containerId": root_container_id,
         "identityInstanceId": intent_id,
-        "rootInstanceIds": [intent_id, dl_root_id]
     });
     std::fs::write(out_path, serde_json::to_string_pretty(&repo_json)?)?;
 
@@ -722,16 +728,11 @@ fn cmd_repo_create(output: &str, title: &str, purpose: Option<&str>) -> Result<(
     Ok(())
 }
 
-fn srs_create_note(repo: &str, note_json: &str) -> Result<String> {
-    let payload = srs::run_srs_write(&["note", "create"], repo, note_json)?;
-    payload["note"]["instanceId"]
-        .as_str()
-        .map(String::from)
-        .ok_or_else(|| anyhow::anyhow!("note create returned no instanceId"))
-}
-
-fn srs_create_container(repo: &str, container_type: &str, title: &str) -> Result<String> {
-    let input = serde_json::json!({ "containerType": container_type, "title": title });
+fn srs_create_container(repo: &str, container_type: Option<&str>, title: &str) -> Result<String> {
+    let mut input = serde_json::json!({ "title": title });
+    if let Some(ct) = container_type {
+        input["containerType"] = serde_json::Value::String(ct.to_string());
+    }
     let payload = srs::run_srs_write(&["container", "create"], repo, &input.to_string())?;
     payload["container"]["containerId"]
         .as_str()
@@ -754,6 +755,15 @@ fn srs_create_record(repo: &str, type_ref: &str, field_values_json: &str) -> Res
 fn srs_roots_add(repo: &str, container_id: &str, instance_id: &str) -> Result<()> {
     srs::run_srs_write(
         &["container", "roots", "add", container_id, instance_id],
+        repo,
+        "",
+    )?;
+    Ok(())
+}
+
+fn srs_members_add(repo: &str, container_id: &str, instance_id: &str) -> Result<()> {
+    srs::run_srs_write(
+        &["container", "members", "add", container_id, instance_id],
         repo,
         "",
     )?;
