@@ -4,6 +4,7 @@ use crate::manifest_service::{set_manifest_root_container, SetManifestRootContai
 use crate::record_store::{create_record_in_context, CreateRecordInput};
 use crate::store::RepositoryStore;
 use crate::writer::write_manifest;
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use srs_core::types::container::Container;
 use srs_core::types::record::FieldValue;
@@ -256,6 +257,17 @@ pub fn create_governance_repository(
         "title".to_string(),
         serde_json::Value::String(input.title.clone()),
     );
+    // Stamp installedAt on the RFC-014 top-level upstreamPackage (if present).
+    // init_new_repository writes to meta.upstreamPackage (pre-RFC-014 location);
+    // governance seeds are always RFC-014-migrated, so we write to the top-level field.
+    if let Some(up_val) = manifest.extra.get_mut("upstreamPackage") {
+        if let Some(up_obj) = up_val.as_object_mut() {
+            up_obj.insert(
+                "installedAt".to_string(),
+                serde_json::Value::String(Utc::now().to_rfc3339()),
+            );
+        }
+    }
     write_manifest(store, &manifest)?;
 
     let scaffold = scaffold_governance_repo(
@@ -291,9 +303,9 @@ mod tests {
     fn load_seed_store() -> JsonStore {
         let raw = std::fs::read_to_string(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../srs-gov/assets/governance-seed.srsj"
+            "/tests/fixtures/governance-seed.srsj"
         ))
-        .expect("governance-seed.srsj must be present alongside srs-gov");
+        .expect("governance-seed.srsj must be present in crates/srs-repository/tests/fixtures/");
         let migrated =
             crate::srsj_migration_service::migrate_rfc014(&raw).expect("RFC-014 migration");
         JsonStore::from_srsj(&migrated).expect("seed parses as JsonStore")
@@ -390,6 +402,16 @@ mod tests {
             manifest.extra.get("title").and_then(|v| v.as_str()),
             Some("Example Gov")
         );
+        // installedAt must be set on the RFC-014 top-level upstreamPackage
+        let installed_at = manifest
+            .extra
+            .get("upstreamPackage")
+            .and_then(|v| v.get("installedAt"))
+            .and_then(|v| v.as_str());
+        assert!(
+            installed_at.is_some(),
+            "upstreamPackage.installedAt must be stamped"
+        );
     }
 
     #[test]
@@ -464,13 +486,21 @@ mod tests {
         )
         .expect("create succeeds");
 
-        // Serialise → re-parse → check manifest survives
+        // Serialise → re-parse → check all stamped fields survive
         let srsj = store.to_srsj_string().expect("to_srsj_string");
         let store2 = JsonStore::from_srsj(&srsj).expect("re-parse");
         let manifest = store2.load_manifest().unwrap();
         assert_eq!(
             manifest.extra.get("repositoryId").and_then(|v| v.as_str()),
             Some("roundtrip-id")
+        );
+        assert_eq!(
+            manifest.extra.get("namespace").and_then(|v| v.as_str()),
+            Some("com.example.roundtrip")
+        );
+        assert_eq!(
+            manifest.extra.get("title").and_then(|v| v.as_str()),
+            Some("Roundtrip Org")
         );
     }
 }

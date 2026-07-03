@@ -85,9 +85,9 @@ mod tests {
     fn governance_seed_str() -> String {
         std::fs::read_to_string(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../srs-gov/assets/governance-seed.srsj"
+            "/tests/fixtures/governance-seed.srsj"
         ))
-        .expect("governance-seed.srsj must be present")
+        .expect("governance-seed.srsj must be present in crates/srs-repository/tests/fixtures/")
     }
 
     #[test]
