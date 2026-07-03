@@ -615,6 +615,46 @@ fn resolve_container_id(def: &governance::ContainerTypeDef, repo: &str) -> Resul
 // repo-create — stamp a new governance .srsj from the embedded seed
 // ---------------------------------------------------------------------------
 
+/// Compute the RFC-014 contentHash for a package embedded in a .srsj bundle.
+///
+/// Hash = SHA-256 over compact-JSON bytes of: package-manifest.json, then each
+/// definition file listed in package-manifest.json (fields, types, views,
+/// documentViews, themes, relationTypes, vocabularies, lifecycles, blueprints,
+/// protocols) in that property order, within each array in declaration order,
+/// with no separator bytes.
+fn compute_package_content_hash(data: &serde_json::Value) -> String {
+    use sha2::Digest;
+    let mut hasher = sha2::Sha256::new();
+    let pkg = &data["package/package.json"];
+    hasher.update(serde_json::to_string(pkg).unwrap_or_default().as_bytes());
+    for array_key in &[
+        "fields",
+        "types",
+        "views",
+        "documentViews",
+        "themes",
+        "relationTypes",
+        "vocabularies",
+        "lifecycles",
+        "blueprints",
+        "protocols",
+    ] {
+        if let Some(files) = pkg[array_key].as_array() {
+            for file_ref in files {
+                if let Some(rel_path) = file_ref.as_str() {
+                    let data_key = format!("package/{rel_path}");
+                    hasher.update(
+                        serde_json::to_string(&data[&data_key])
+                            .unwrap_or_default()
+                            .as_bytes(),
+                    );
+                }
+            }
+        }
+    }
+    format!("sha256:{:x}", hasher.finalize())
+}
+
 /// Canonical seed for com.mudemocracy.governance @1.0.0.
 ///
 /// Vendored byte-copy of the deterministic seed artifact (ADR-017) — never hand-edit it.
@@ -644,6 +684,22 @@ fn cmd_repo_create(output: &str, title: &str, purpose: Option<&str>) -> Result<(
     let new_id = uuid::Uuid::new_v4().to_string();
     seed["manifest"]["repositoryId"] = serde_json::Value::String(new_id.clone());
     seed["manifest"]["title"] = serde_json::Value::String(title.to_string());
+
+    // RFC-014: migrate deprecated meta.upstreamPackage to top-level upstreamPackage + contentHash.
+    if seed["manifest"]["meta"]["upstreamPackage"].is_object() {
+        let content_hash = compute_package_content_hash(&seed["data"]);
+        let pkg_info = seed["manifest"]["meta"]["upstreamPackage"].clone();
+        let mut up = pkg_info.as_object().cloned().unwrap_or_default();
+        up.insert(
+            "contentHash".to_string(),
+            serde_json::Value::String(content_hash),
+        );
+        seed["manifest"]["upstreamPackage"] = serde_json::Value::Object(up);
+        if let Some(meta_obj) = seed["manifest"]["meta"].as_object_mut() {
+            meta_obj.remove("upstreamPackage");
+        }
+    }
+
     let json = serde_json::to_string_pretty(&seed)?;
     std::fs::File::create(out_path)?.write_all(json.as_bytes())?;
 

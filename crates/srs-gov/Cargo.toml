@@ -17,5 +17,6 @@ clap = { workspace = true }
 uuid = { workspace = true }
 ratatui = { workspace = true }
 crossterm = { workspace = true }
+sha2 = "0.10"
 
 [dev-dependencies]
