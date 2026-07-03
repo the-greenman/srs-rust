@@ -276,6 +276,9 @@ pub enum RepositoryError {
         vocabulary_id: String,
         unresolvable_keys: Vec<String>,
     },
+
+    #[error("invalid input: {message}")]
+    InvalidInput { message: String },
 }
 
 impl PartialEq for RepositoryError {
@@ -634,6 +637,10 @@ impl PartialEq for RepositoryError {
                     unresolvable_keys: kb,
                 },
             ) => va == vb && ka == kb,
+            (
+                RepositoryError::InvalidInput { message: a },
+                RepositoryError::InvalidInput { message: b },
+            ) => a == b,
             _ => false,
         }
     }

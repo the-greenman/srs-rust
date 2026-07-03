@@ -736,16 +736,7 @@ fn cmd_repo_create(output: &str, title: &str, purpose: Option<&str>) -> Result<(
     srs_members_add(output, &root_container_id, &dl_root_id)?;
     // Identity is also the structural root.
     srs_roots_add(output, &root_container_id, &intent_id)?;
-    // Write the minimal manifest.container embed (containerId + identityInstanceId only).
-    // manifest.container is written directly — srs-rust#263/#312 typed the field for reading,
-    // but no srs-repository service or CLI command exists yet to *write* it. Tracked in #318.
-    let mut repo_json: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(out_path)?).context("re-read new repo")?;
-    repo_json["manifest"]["container"] = serde_json::json!({
-        "containerId": root_container_id,
-        "identityInstanceId": intent_id,
-    });
-    std::fs::write(out_path, serde_json::to_string_pretty(&repo_json)?)?;
+    srs_set_manifest_root_container(output, &root_container_id, &intent_id)?;
 
     render::repo_created(output, title, &new_id, purpose.is_some());
     Ok(())
@@ -773,6 +764,26 @@ fn srs_create_record(repo: &str, type_ref: &str, field_values_json: &str) -> Res
         .as_str()
         .map(String::from)
         .ok_or_else(|| anyhow::anyhow!("record create returned no instanceId"))
+}
+
+fn srs_set_manifest_root_container(
+    repo: &str,
+    container_id: &str,
+    identity_instance_id: &str,
+) -> Result<()> {
+    srs::run_srs_write(
+        &[
+            "repo",
+            "set-root-container",
+            "--container-id",
+            container_id,
+            "--identity-instance-id",
+            identity_instance_id,
+        ],
+        repo,
+        "",
+    )?;
+    Ok(())
 }
 
 fn srs_roots_add(repo: &str, container_id: &str, instance_id: &str) -> Result<()> {

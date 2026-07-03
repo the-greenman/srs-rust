@@ -545,6 +545,15 @@ pub enum RepoCommand {
     },
     /// Resolve structural repository navigation from the root container
     Navigation,
+    /// Set the manifest root container embed (containerId + identityInstanceId).
+    /// Writes manifest.container so the navigation service can find the repository's structural root.
+    #[command(name = "set-root-container")]
+    SetRootContainer {
+        #[arg(long = "container-id")]
+        container_id: String,
+        #[arg(long = "identity-instance-id")]
+        identity_instance_id: String,
+    },
     /// Extension management commands
     #[command(subcommand)]
     Extensions(RepoExtensionsCommand),
