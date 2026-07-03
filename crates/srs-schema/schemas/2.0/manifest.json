@@ -121,6 +121,11 @@
         }
       }
     },
+    "renderedPresentations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/RenderedPresentation" },
+      "description": "RFC-015 [N+31]. Declared presentations for this repository. A conformant viewer selects the first entry with isDefault:true as the default; when none carry isDefault, the first entry is the default. When absent or empty, viewer falls back to implementation-defined selection."
+    },
     "createdAt": {
       "type": "string",
       "format": "date-time"
@@ -282,6 +287,31 @@
         "checksum": {
           "type": "string",
           "pattern": "^[a-z0-9]+:.+$"
+        }
+      }
+    },
+    "RenderedPresentation": {
+      "type": "object",
+      "required": ["viewId"],
+      "additionalProperties": false,
+      "description": "RFC-015 [N+31]. A declared presentation of this repository: a DocumentView that a conformant viewer should offer as a rendered entry point.",
+      "properties": {
+        "viewId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "UUID of the DocumentView (DocumentView.id) constituting this presentation. Must resolve to a DocumentView in the active package(s). Resolution conflict across packages is a validation error."
+        },
+        "isDefault": {
+          "type": "boolean",
+          "description": "When true, this is the presentation a viewer opens by default. First isDefault:true entry wins when multiple are present."
+        },
+        "format": {
+          "type": "string",
+          "description": "Output format hint for render tooling (e.g. 'markdown', 'html'). Informational only; does not affect viewer selection."
+        },
+        "outputPath": {
+          "type": "string",
+          "description": "Relative path hint for rendered export scripts. Informational only; does not affect viewer selection."
         }
       }
     },
