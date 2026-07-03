@@ -1,5 +1,10 @@
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
+use srs_repository::governance_scaffold_service::{
+    create_governance_repository, CreateGovernanceRepositoryInput,
+};
+use srs_repository::srsj_migration_service;
+use srs_repository::JsonStore;
 use std::collections::HashSet;
 
 mod find_query;
@@ -615,46 +620,6 @@ fn resolve_container_id(def: &governance::ContainerTypeDef, repo: &str) -> Resul
 // repo-create — stamp a new governance .srsj from the embedded seed
 // ---------------------------------------------------------------------------
 
-/// Compute the RFC-014 contentHash for a package embedded in a .srsj bundle.
-///
-/// Hash = SHA-256 over compact-JSON bytes of: package-manifest.json, then each
-/// definition file listed in package-manifest.json (fields, types, views,
-/// documentViews, themes, relationTypes, vocabularies, lifecycles, blueprints,
-/// protocols) in that property order, within each array in declaration order,
-/// with no separator bytes.
-fn compute_package_content_hash(data: &serde_json::Value) -> String {
-    use sha2::Digest;
-    let mut hasher = sha2::Sha256::new();
-    let pkg = &data["package/package.json"];
-    hasher.update(serde_json::to_string(pkg).unwrap_or_default().as_bytes());
-    for array_key in &[
-        "fields",
-        "types",
-        "views",
-        "documentViews",
-        "themes",
-        "relationTypes",
-        "vocabularies",
-        "lifecycles",
-        "blueprints",
-        "protocols",
-    ] {
-        if let Some(files) = pkg[array_key].as_array() {
-            for file_ref in files {
-                if let Some(rel_path) = file_ref.as_str() {
-                    let data_key = format!("package/{rel_path}");
-                    hasher.update(
-                        serde_json::to_string(&data[&data_key])
-                            .unwrap_or_default()
-                            .as_bytes(),
-                    );
-                }
-            }
-        }
-    }
-    format!("sha256:{:x}", hasher.finalize())
-}
-
 /// Canonical seed for com.mudemocracy.governance @1.0.0.
 ///
 /// Vendored byte-copy of the deterministic seed artifact (ADR-017) — never hand-edit it.
@@ -678,133 +643,29 @@ fn cmd_repo_create(output: &str, title: &str, purpose: Option<&str>) -> Result<(
         bail!("output path already exists: {output}");
     }
 
-    // 1. Stamp seed: fresh repositoryId + title.
-    let mut seed: serde_json::Value =
-        serde_json::from_str(GOVERNANCE_SEED).context("failed to parse embedded seed")?;
-    let new_id = uuid::Uuid::new_v4().to_string();
-    seed["manifest"]["repositoryId"] = serde_json::Value::String(new_id.clone());
-    seed["manifest"]["title"] = serde_json::Value::String(title.to_string());
+    let srsj_content = srsj_migration_service::migrate_rfc014(GOVERNANCE_SEED)
+        .context("RFC-014 migration failed")?;
+    let store = JsonStore::from_srsj(&srsj_content).context("failed to load seed into store")?;
 
-    // RFC-014: migrate deprecated meta.upstreamPackage to top-level upstreamPackage + contentHash.
-    if seed["manifest"]["meta"]["upstreamPackage"].is_object() {
-        let content_hash = compute_package_content_hash(&seed["data"]);
-        let pkg_info = seed["manifest"]["meta"]["upstreamPackage"].clone();
-        let mut up = pkg_info.as_object().cloned().unwrap_or_default();
-        up.insert(
-            "contentHash".to_string(),
-            serde_json::Value::String(content_hash),
-        );
-        seed["manifest"]["upstreamPackage"] = serde_json::Value::Object(up);
-        if let Some(meta_obj) = seed["manifest"]["meta"].as_object_mut() {
-            meta_obj.remove("upstreamPackage");
-        }
-    }
+    let result = create_governance_repository(
+        &store,
+        CreateGovernanceRepositoryInput {
+            namespace: format!("com.example.{}", title.to_lowercase().replace(' ', "-")),
+            title: title.to_string(),
+            purpose: purpose.map(str::to_string),
+            repository_id: None,
+        },
+    )
+    .context("failed to scaffold governance repository")?;
 
-    let json = serde_json::to_string_pretty(&seed)?;
-    std::fs::File::create(out_path)?.write_all(json.as_bytes())?;
+    let final_srsj = store
+        .to_srsj_string()
+        .context("failed to serialise store")?;
+    std::fs::File::create(out_path)?.write_all(final_srsj.as_bytes())?;
 
-    // 2. Repository identity: a governance/article Record carrying the title + purpose (RFC-013).
-    //    navigation_service loads the identity via record_store::get_record_by_id, which requires
-    //    a tier-2 Record. A note (tier-0) cannot be deserialized as a Record.
-    let purpose_text = purpose.unwrap_or("Add your group's purpose statement here.");
-    let intent_fv = serde_json::json!({
-        "fieldValues": [
-            { "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a", "value": title },
-            { "fieldId": "8aa3eba2-204b-5ebd-ba7a-be0f066027d6", "value": purpose_text }
-        ]
-    });
-    let intent_id = srs_create_record(output, "governance/article", &intent_fv.to_string())?;
-
-    // 3. Decision Log container + decision_log root record.
-    let dl_title = format!("{title} Decision Log");
-    let dl_id = srs_create_container(output, Some("decision_log"), &dl_title)?;
-    let dl_fv = serde_json::json!({
-        "fieldValues": [
-            { "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a", "value": dl_title }
-        ]
-    });
-    let dl_root_id = srs_create_record(output, "governance/decision_log", &dl_fv.to_string())?;
-    srs_roots_add(output, &dl_id, &dl_root_id)?;
-
-    // 4. Required root container (RFC-013): identity + top-level section navigation.
-    //    Create via the CLI so the container is saved to containers/ and containerIndex —
-    //    navigation_service calls get_container(store, containerId) which reads memberInstanceIds.
-    //    No containerType: the structural root is untyped; domain section containers carry the type.
-    let root_container_id = srs_create_container(output, None, title)?;
-    // Members: identity note + decision-log root (navigation reads memberInstanceIds for sections).
-    srs_members_add(output, &root_container_id, &intent_id)?;
-    srs_members_add(output, &root_container_id, &dl_root_id)?;
-    // Identity is also the structural root.
-    srs_roots_add(output, &root_container_id, &intent_id)?;
-    srs_set_manifest_root_container(output, &root_container_id, &intent_id)?;
-
-    render::repo_created(output, title, &new_id, purpose.is_some());
+    render::repo_created(output, title, &result.repository_id, purpose.is_some());
     Ok(())
 }
-
-fn srs_create_container(repo: &str, container_type: Option<&str>, title: &str) -> Result<String> {
-    let mut input = serde_json::json!({ "title": title });
-    if let Some(ct) = container_type {
-        input["containerType"] = serde_json::Value::String(ct.to_string());
-    }
-    let payload = srs::run_srs_write(&["container", "create"], repo, &input.to_string())?;
-    payload["container"]["containerId"]
-        .as_str()
-        .map(String::from)
-        .ok_or_else(|| anyhow::anyhow!("container create returned no containerId"))
-}
-
-fn srs_create_record(repo: &str, type_ref: &str, field_values_json: &str) -> Result<String> {
-    let payload = srs::run_srs_write(
-        &["record", "create", "--type", type_ref],
-        repo,
-        field_values_json,
-    )?;
-    payload["record"]["instanceId"]
-        .as_str()
-        .map(String::from)
-        .ok_or_else(|| anyhow::anyhow!("record create returned no instanceId"))
-}
-
-fn srs_set_manifest_root_container(
-    repo: &str,
-    container_id: &str,
-    identity_instance_id: &str,
-) -> Result<()> {
-    srs::run_srs_write(
-        &[
-            "repo",
-            "set-root-container",
-            "--container-id",
-            container_id,
-            "--identity-instance-id",
-            identity_instance_id,
-        ],
-        repo,
-        "",
-    )?;
-    Ok(())
-}
-
-fn srs_roots_add(repo: &str, container_id: &str, instance_id: &str) -> Result<()> {
-    srs::run_srs_write(
-        &["container", "roots", "add", container_id, instance_id],
-        repo,
-        "",
-    )?;
-    Ok(())
-}
-
-fn srs_members_add(repo: &str, container_id: &str, instance_id: &str) -> Result<()> {
-    srs::run_srs_write(
-        &["container", "members", "add", container_id, instance_id],
-        repo,
-        "",
-    )?;
-    Ok(())
-}
-
-use anyhow::Context;
 
 #[cfg(test)]
 mod tests {
