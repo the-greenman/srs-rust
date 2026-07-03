@@ -19,8 +19,8 @@ No new architectural decisions. This plan implements deferred work already plann
 
 | ADR | Decision | Status |
 |---|---|---|
-| [ADR-008](../docs/adr/008-repository-lifecycle.md) | Repository lifecycle and validation contract | accepted |
-| [ADR-010](../docs/adr/010-service-boundary.md) | Service boundary — validation logic belongs in `srs-repository` | accepted |
+| [ADR-004](../docs/adr/004-schemas-embedded-at-compile-time.md) | Schema registry is embedded at compile time; validation calls `validate_by_id` via the embedded registry | accepted |
+| [ADR-010](../docs/adr/010-service-boundary-contract.md) | Service boundary — validation logic belongs in `srs-repository` | accepted |
 
 No new ADR is needed: removing a deferred TODO that reinstates already-designed behaviour is not a new architectural constraint.
 
@@ -67,8 +67,8 @@ No JSON Schema files under `srs/docs/schema/2.0/` are modified. No action requir
 
 #### Tasks
 
-- [ ] In `crates/srs-repository/src/validation.rs`, remove the TODO comment and `let _ = &manifest_value;` lines (approx. lines 78–80).
-- [ ] Replace with:
+- [x] In `crates/srs-repository/src/validation.rs`, remove the TODO comment and `let _ = &manifest_value;` lines (approx. lines 78–80).
+- [x] Replace with:
   ```rust
   if let Some(report) = validate_value_against_schema(
       &manifest_value,
@@ -79,9 +79,9 @@ No JSON Schema files under `srs/docs/schema/2.0/` are modified. No action requir
       diagnostics.extend(report);
   }
   ```
-- [ ] Add test `test_validate_manifest_missing_title`: build a manifest via `minimal_manifest()` but remove the `title` field; assert the result contains at least one `ERROR` diagnostic with `relative_path == "manifest.json"`.
-- [ ] Add test `test_validate_manifest_extra_property`: build a valid manifest and add an undeclared key (e.g. `"name": "foo"`); assert the result contains at least one `ERROR` diagnostic with `relative_path == "manifest.json"`.
-- [ ] Add test `test_validate_manifest_valid`: use `minimal_manifest()` as-is; assert the result contains zero diagnostics whose `relative_path == "manifest.json"`.
+- [x] Add test `test_validate_manifest_missing_title`: use MemoryStore (not FileStore/TempDir); insert a manifest built from `minimal_manifest()` minus the `title` field; call `validate_repository`; assert the result contains at least one `ERROR` diagnostic with `relative_path == "manifest.json"`.
+- [x] Add test `test_validate_manifest_extra_property`: use MemoryStore; insert a valid manifest with an extra undeclared key (e.g. `"name": "foo"`); call `validate_repository`; assert the result contains at least one `ERROR` diagnostic with `relative_path == "manifest.json"`.
+- [x] Add test `test_validate_manifest_valid`: use MemoryStore; insert `minimal_manifest()` unchanged; call `validate_repository`; assert zero diagnostics whose `relative_path == "manifest.json"`.
 
 #### Acceptance Criteria
 

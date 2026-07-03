@@ -804,15 +804,26 @@ impl RepositoryStore for FileStore {
         self.ensure_dir(&self.repo_root.join(".srs"))?;
         self.ensure_dir(&self.repo_root.join("package"))?;
 
+        let title = input
+            .repository
+            .title
+            .as_deref()
+            .unwrap_or(&input.repository.namespace)
+            .to_string();
+        let created_at = chrono::Utc::now().to_rfc3339();
         let mut manifest = serde_json::json!({
+            "$schema": srs_schema::MANIFEST_SCHEMA_ID,
             "instanceIndex": [],
             "srsVersion": input.repository.srs_version,
             "repositoryId": input.repository.repository_id,
-            "namespace": input.repository.namespace
+            "namespace": input.repository.namespace,
+            "title": title,
+            "container": {
+                "containerId": input.repository.repository_id,
+                "title": title
+            },
+            "createdAt": created_at
         });
-        if let Some(title) = &input.repository.title {
-            manifest["title"] = serde_json::Value::String(title.clone());
-        }
         if let Some(desc) = &input.repository.description {
             manifest["description"] = serde_json::Value::String(desc.clone());
         }
