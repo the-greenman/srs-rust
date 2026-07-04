@@ -132,7 +132,7 @@ The existing `json_store_flush_on_save_instance` test covers non-batch flush-on-
 
 #### Tasks
 
-- [ ] In `crates/srs-repository/src/repository_portability.rs`, refactor `import_repository_snapshot` to wrap its entire body in begin/commit/abort:
+- [x] In `crates/srs-repository/src/repository_portability.rs`, refactor `import_repository_snapshot` to wrap its entire body in begin/commit/abort:
   1. Call `target.begin_batch()` before `ensure_target_empty(target)?`.
   2. Move the existing body (from `ensure_target_empty` through `save_relations_json`) into a **module-private** helper `fn do_import(target: &dyn RepositoryStore, snapshot: &RepositorySnapshot) -> Result<(), RepositoryError>` (no `pub` or `pub(crate)` — not callable outside `repository_portability`).
   3. In the public `import_repository_snapshot`, call `do_import`, and on error call `target.abort_batch()` then return the error; on success call `target.commit_batch()`.
@@ -159,10 +159,10 @@ The existing `json_store_flush_on_save_instance` test covers non-batch flush-on-
 
 #### Acceptance Criteria
 
-- [ ] All existing `repository_portability` tests pass unchanged.
-- [ ] A partial import failure (injected error after 2 of 3 records) leaves the `.srsj` file unchanged on disk (see new test below).
-- [ ] A successful import into a `JsonStore` writes the file exactly once (commit_batch), not once-per-record.
-- [ ] `copy_repository` (which calls `import_repository_snapshot`) continues to work for all store combinations.
+- [x] All existing `repository_portability` tests pass unchanged.
+- [x] A partial import failure (injected error after 2 of 3 records) leaves the `.srsj` file unchanged on disk (see new test below).
+- [x] A successful import into a `JsonStore` writes the file exactly once (commit_batch), not once-per-record.
+- [x] `copy_repository` (which calls `import_repository_snapshot`) continues to work for all store combinations.
 
 #### Testing
 

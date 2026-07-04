@@ -200,6 +200,21 @@ pub fn import_repository_snapshot(
     target: &dyn RepositoryStore,
     snapshot: &RepositorySnapshot,
 ) -> Result<(), RepositoryError> {
+    target.begin_batch();
+    let result = do_import(target, snapshot);
+    match result {
+        Ok(()) => target.commit_batch(),
+        Err(e) => {
+            target.abort_batch();
+            Err(e)
+        }
+    }
+}
+
+fn do_import(
+    target: &dyn RepositoryStore,
+    snapshot: &RepositorySnapshot,
+) -> Result<(), RepositoryError> {
     ensure_target_empty(target)?;
 
     let primary = snapshot
@@ -1242,5 +1257,64 @@ mod tests {
             }
             other => panic!("expected InvalidSnapshotData error, got: {other:?}"),
         }
+    }
+
+    // --- Batch atomicity test (ADR-021) ---
+
+    #[test]
+    fn json_store_partial_import_leaves_file_unchanged() {
+        // Two valid instances are written to in-memory state before a path-collision
+        // error on the 3rd instance forces abort_batch(). The .srsj file on disk
+        // must be unchanged from its pre-import state.
+        let tmp = TempDir::new().unwrap();
+        let srsj_path = tmp.path().join("target.srsj");
+        let target = JsonStore::create(&srsj_path).unwrap();
+
+        let initial_contents = std::fs::read_to_string(&srsj_path).unwrap();
+
+        let mut snapshot = {
+            let source = MemoryStore::uninitialized();
+            source.initialize_repository(&make_input()).unwrap();
+            export_repository_snapshot(&source).unwrap()
+        };
+
+        // Instance 3 shares the first 8 chars of its instance_id with instance 1
+        // and the same tier/slug, producing a canonical path collision that triggers
+        // InvalidSnapshotData after instances 1 and 2 have been saved in-memory.
+        snapshot.instances = vec![
+            SnapshotInstance {
+                instance_id: "aaaaaaaa-0001-0001-0001-000000000001".to_string(),
+                tier: 0,
+                title: None,
+                tags: None,
+                value: serde_json::json!({"instanceId":"aaaaaaaa-0001-0001-0001-000000000001"}),
+            },
+            SnapshotInstance {
+                instance_id: "bbbbbbbb-0002-0002-0002-000000000002".to_string(),
+                tier: 0,
+                title: None,
+                tags: None,
+                value: serde_json::json!({"instanceId":"bbbbbbbb-0002-0002-0002-000000000002"}),
+            },
+            SnapshotInstance {
+                instance_id: "aaaaaaaa-0003-0003-0003-000000000003".to_string(),
+                tier: 0,
+                title: None,
+                tags: None,
+                value: serde_json::json!({"instanceId":"aaaaaaaa-0003-0003-0003-000000000003"}),
+            },
+        ];
+
+        let result = import_repository_snapshot(&target, &snapshot);
+        assert!(
+            matches!(result, Err(RepositoryError::InvalidSnapshotData { .. })),
+            "expected InvalidSnapshotData from path collision, got: {result:?}"
+        );
+
+        let final_contents = std::fs::read_to_string(&srsj_path).unwrap();
+        assert_eq!(
+            final_contents, initial_contents,
+            "abort_batch must leave the disk file in its pre-import state (no partial records)"
+        );
     }
 }
