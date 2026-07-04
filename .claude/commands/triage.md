@@ -34,12 +34,17 @@ node /tmp/gh-project.mjs coverage
 If any story lacks MoSCoW, **stop and report** which ones — a human must set MoSCoW in the board
 UI before priorities can be derived. (You may propose a MoSCoW per story for them to confirm.)
 
-## Stage 2 — Derive priorities
+## Stage 2 — Derive priorities and releases
 
 ```bash
 node /tmp/gh-project.mjs rollup            # dry-run: review the derivation
 node /tmp/gh-project.mjs rollup --fix      # apply priority labels + board Priority mirror
+node /tmp/gh-project.mjs release-sync --dry-run   # preview each descendant's epic-derived Release
+node /tmp/gh-project.mjs release-sync             # propagate each epic's Release to its descendants
 ```
+
+`coverage` also reports `orphan_stories_no_epic` — stories under no epic, whose Release can't be
+derived. Link each with `epic add-story <epic#> <story#>` (epics are releases; see `epics`).
 
 ## Stage 3 — Readiness + iteration
 

@@ -12,6 +12,11 @@
 // one tier if gate-blocking). Bugs floor at P1 even without a story; unlinked non-bug
 // issues are flagged, never lost.
 //
+// Release model: an epic (label `epic`, in muDemocracy.org) IS a release. The epic
+// declares its release once (its own Release field value) and ranks the roadmap via its
+// Priority; every descendant inherits the epic's Release down the sub-issue graph
+// (`release-sync`). Release lives only as the board field — there is no release label.
+//
 // Usage: node gh-project.mjs <command> [options]   (see `help`)
 
 import { execFileSync } from "node:child_process";
@@ -663,52 +668,44 @@ function applyPriority(entry, dryRun) {
 }
 
 // ---------------------------------------------------------------------------
-// Release (swimlane) field — derived from milestone:* labels + story parentage
+// Epics as releases — an epic (label `epic`, in muDemocracy.org) IS a release.
+// The epic declares its release once (its own Release field value) and ranks the
+// roadmap via its Priority; every descendant inherits the epic's Release down the
+// native sub-issue graph. There is no separate release entity and no release label —
+// Release lives only as the board field, derived here from the epic hierarchy.
+// (Membership = sub-issue parent; the Release field = the derived, groupable mirror.)
 // ---------------------------------------------------------------------------
-const RELEASE_FROM_LABEL = {
-  "milestone:decision-logger-v1": "Decision Logger v1",
-  "milestone:safe-to-try": "Safe to try",
-  "milestone:future": "Future",
-};
-function releaseFromLabels(labels) {
-  for (const [lbl, rel] of Object.entries(RELEASE_FROM_LABEL)) if (labels.includes(lbl)) return rel;
-  return null;
+const EPIC_LABEL = "epic";
+
+// Rank an epic for roadmap order and diamond tie-breaking: Priority first, then #.
+function epicRank(epic) {
+  return pRank(epic.priority) * 1e6 + epic.num;
 }
-function createReleaseField() {
-  graphql(
-    `mutation($p:ID!){ createProjectV2Field(input:{projectId:$p,dataType:SINGLE_SELECT,name:"Release",
-      singleSelectOptions:[
-        {name:"Decision Logger v1",color:GREEN,description:""},
-        {name:"Safe to try",color:BLUE,description:""},
-        {name:"Future",color:GRAY,description:""}
-      ]}){ projectV2Field{ ... on ProjectV2SingleSelectField { id name } } } }`,
-    { p: meta().id }
-  );
-  _meta = null; // refresh field cache so field("Release") resolves
-}
-function allStoriesFull() {
-  return (
-    ghJson([
-      "issue", "list", "--repo", `${OWNER}/${STORY_REPO}`, "--label", STORY_LABEL,
-      "--state", "all", "--limit", "300", "--json", "number,title,labels,state",
-    ]) || []
-  ).map((s) => ({ num: s.number, labels: (s.labels || []).map((l) => l.name) }));
-}
-function cmdReleaseSync(dryRun) {
-  if (!meta().fields["Release"]) {
-    if (dryRun) console.log("[dry-run] would create Release field (Decision Logger v1 / Safe to try / Future)");
-    else { createReleaseField(); console.log("Created Release field."); }
-  }
+
+// Open epics in the story repo, joined to their board row (Release identity + Priority).
+function openEpics() {
+  const rows = (ghJson([
+    "issue", "list", "--repo", `${OWNER}/${STORY_REPO}`,
+    "--label", EPIC_LABEL, "--state", "open", "--limit", "100",
+    "--json", "number,title",
+  ]) || []).map((e) => ({ num: e.number, title: e.title }));
   const b = board();
-  // key -> release, story first then inherited by descendants
-  const targets = new Map();
-  const assign = (key, rel) => { if (rel && !targets.has(key)) targets.set(key, rel); };
-  for (const s of allStoriesFull()) {
-    const rel = releaseFromLabels(s.labels);
-    if (!rel) continue;
-    assign(`${STORY_REPO}#${s.num}`, rel);
+  return rows.map((e) => {
+    const row = b.get(`${STORY_REPO}#${e.num}`);
+    return {
+      num: e.num, title: e.title, key: `${STORY_REPO}#${e.num}`,
+      release: row?.release ?? null, priority: row?.priority ?? null, onBoard: !!row,
+    };
+  });
+}
+
+// Map<"repo#num", epicNum> for every descendant of any epic. A node reachable from
+// more than one epic is claimed by the highest-Priority epic (ties: lowest #).
+function epicDescendants(epics) {
+  const map = new Map();
+  for (const epic of [...epics].sort((a, b) => epicRank(a) - epicRank(b))) {
     const visited = new Set();
-    const stack = subIssues(OWNER, STORY_REPO, s.num).map((c) => ({ c }));
+    const stack = subIssues(OWNER, STORY_REPO, epic.num).map((c) => ({ c }));
     while (stack.length) {
       const { c } = stack.pop();
       const { owner, repo } = ownerRepoOf(c);
@@ -716,22 +713,99 @@ function cmdReleaseSync(dryRun) {
       const key = `${repo}#${c.number}`;
       if (visited.has(key)) continue;
       visited.add(key);
-      assign(key, rel);
+      if (!map.has(key)) map.set(key, epic.num); // higher-priority epic wins the diamond
       for (const k of subIssues(owner, repo, c.number)) stack.push({ c: k });
     }
   }
-  assign("muDemocracy.org#30", "Decision Logger v1");
-  assign("muDemocracy.org#36", "Safe to try");
-  let set = 0, off = 0;
-  for (const [key, rel] of targets) {
+  return map;
+}
+
+// Everything the release model needs: epics, the descendant→epic map, the target
+// Release per descendant, and open stories that sit under no epic.
+function computeReleaseRollup() {
+  const epics = openEpics();
+  const desc = epicDescendants(epics);
+  const relByEpic = new Map(epics.map((e) => [e.num, e.release]));
+  const targets = new Map(); // key -> { release, epic }
+  for (const [key, epicNum] of desc) {
+    const release = relByEpic.get(epicNum);
+    if (release) targets.set(key, { release, epic: epicNum });
+  }
+  const orphanStories = openStories().filter((s) => !desc.has(`${STORY_REPO}#${s.num}`));
+  return { epics, desc, targets, orphanStories };
+}
+
+// Propagate each epic's Release down to its descendants (idempotent). Default writes;
+// pass --dry-run to preview. The epic's own Release (its identity) is set by hand via
+// `epic set` and is never overwritten here.
+function cmdReleaseSync(dryRun) {
+  if (!meta().fields["Release"])
+    die("Release field not found on the board — create it in the UI first (its options are the epics).");
+  const b = board();
+  const { epics, targets } = computeReleaseRollup();
+  for (const e of epics)
+    if (!e.release) console.error(`gh-project: warning: epic ${e.key} has no Release set — its descendants can't inherit one`);
+  let set = 0, ok = 0, off = 0;
+  for (const [key, { release }] of targets) {
     const row = b.get(key);
     if (!row) { off++; continue; }
-    if (row.release === rel) continue;
-    console.log(`${dryRun ? "[dry-run] " : ""}Release ${key} = ${rel}`);
-    if (!dryRun) setSingleSelect(row.itemId, "Release", rel, false);
+    if (row.release === release) { ok++; continue; }
+    console.log(`${dryRun ? "[dry-run] " : ""}Release ${key} = ${release}`);
+    if (!dryRun) setSingleSelect(row.itemId, "Release", release, false);
     set++;
   }
-  console.log(`${targets.size} targets · ${set} ${dryRun ? "would be " : ""}set · ${off} not on board`);
+  console.log(`${targets.size} descendants under ${epics.length} epics · ${set} ${dryRun ? "would be " : ""}set · ${ok} already correct · ${off} not on board`);
+  if (dryRun) console.log("(dry-run; run without --dry-run to write)");
+}
+
+// `epics` — roadmap read: epics ordered by Priority with release identity + coverage.
+function cmdEpics() {
+  const { epics, desc, orphanStories } = computeReleaseRollup();
+  const b = board();
+  const kidsByEpic = new Map(epics.map((e) => [e.num, []]));
+  for (const [key, epicNum] of desc) kidsByEpic.get(epicNum)?.push(key);
+  const out = [...epics].sort((a, c) => epicRank(a) - epicRank(c)).map((e) => {
+    const kids = kidsByEpic.get(e.num) || [];
+    const rows = kids.map((k) => b.get(k)).filter(Boolean);
+    const done = rows.filter((r) => r.state === "CLOSED" || r.status === "Done").length;
+    const flags = [];
+    if (!e.release) flags.push("missing-release");
+    if (!e.priority) flags.push("missing-priority");
+    if (!kids.length) flags.push("no-descendants");
+    return { epic: e.key, title: e.title, release: e.release, priority: e.priority, descendants: kids.length, done, flags };
+  });
+  console.log(fmt({
+    epics: out,
+    orphan_stories: orphanStories.map((s) => ({ key: `${STORY_REPO}#${s.num}`, title: s.title })),
+  }));
+}
+
+// `epic set <n> --priority P [--release R]` — the two manual inputs on an epic: its
+// roadmap rank (Priority) and its release identity (Release). No priority label written.
+function cmdEpicSet(argv, dryRun) {
+  const num = argv[0];
+  if (!num) die("usage: epic set <num> --priority <P> [--release <R>]");
+  let priority, release;
+  for (let i = 1; i < argv.length; i++) {
+    if (argv[i] === "--priority") priority = argv[++i];
+    else if (argv[i] === "--release") release = argv[++i];
+  }
+  if (!priority && !release) die("nothing to set — pass --priority and/or --release");
+  const itemId = ensureOnBoard(STORY_REPO, num, dryRun);
+  if (priority) { console.log(`${dryRun ? "[dry-run] " : ""}Priority ${STORY_REPO}#${num} = ${priority}`); if (!dryRun) setSingleSelect(itemId, "Priority", priority, false); }
+  if (release)  { console.log(`${dryRun ? "[dry-run] " : ""}Release ${STORY_REPO}#${num} = ${release}`);   if (!dryRun) setSingleSelect(itemId, "Release", release, false); }
+}
+
+// `epic add-story <epic#> <story#>` — backfill: link a story under an epic as a native
+// sub-issue (which epic is the owner's call; this just executes it).
+function cmdEpicAddStory(argv, dryRun) {
+  const [epicNum, storyNum] = argv;
+  if (!epicNum || !storyNum) die("usage: epic add-story <epic#> <story#>");
+  const story = ghJson(["api", `repos/${OWNER}/${STORY_REPO}/issues/${storyNum}`, "--jq", "{id:.id}"]);
+  const sid = story?.id;
+  if (!sid) die(`could not resolve issue id for ${STORY_REPO}#${storyNum}`);
+  console.log(`${dryRun ? "[dry-run] " : ""}link ${STORY_REPO}#${storyNum} under epic ${STORY_REPO}#${epicNum}`);
+  if (!dryRun) gh(["api", "-X", "POST", `repos/${OWNER}/${STORY_REPO}/issues/${epicNum}/sub_issues`, "-F", `sub_issue_id=${sid}`]);
 }
 
 // ---------------------------------------------------------------------------
@@ -900,10 +974,12 @@ function cmdRollup(argv) {
 
 function cmdCoverage() {
   const r = computeRollup();
+  const { orphanStories } = computeReleaseRollup();
   console.log(fmt({
     bugs_fix_asap: r.bugs.map((e) => ({ key: e.row.key, p: e.p, title: e.row.title })),
     unlinked_could_get_lost: r.unlinked.map((u) => ({ key: u.row.key, title: u.row.title })),
     uncovered_stories: r.uncovered.map((s) => ({ key: `${STORY_REPO}#${s.num}`, title: s.title })),
+    orphan_stories_no_epic: orphanStories.map((s) => ({ key: `${STORY_REPO}#${s.num}`, title: s.title })),
   }));
 }
 
@@ -1097,6 +1173,9 @@ function cmdReconcile(argv) {
   }
   // Unlinked non-bug
   for (const u of r.unlinked) issues.push(`unlinked-could-get-lost: ${u.row.key}`);
+  // Stories under no epic — release can't be derived until they are linked
+  for (const s of computeReleaseRollup().orphanStories)
+    issues.push(`orphan-story-no-epic: ${STORY_REPO}#${s.num}`);
   console.log(issues.length ? issues.join("\n") : "no drift");
   if (dryRun && issues.length) console.log("\n(dry-run; pass --fix to repair closed-not-done + rollup-stale + status-mirror)");
 }
@@ -1117,8 +1196,11 @@ function help() {
   rollup [--fix]                  derive impl priority from stories (dry-run by default)
   summary [--repo R --release X --brief]   priority estimates with the calculation stages
   explain <repo> <issue#>         stage-by-stage derivation for one issue
-  coverage                        bugs-ASAP + unlinked + uncovered-stories audit (JSON)
-  release-sync [--dry-run]        set the Release field from milestone labels + story parentage
+  coverage                        bugs-ASAP + unlinked + uncovered + orphan-stories audit (JSON)
+  epics                           roadmap: epics (= releases) by Priority, with coverage
+  epic set <num> --priority P [--release R]   an epic's roadmap rank + release identity
+  epic add-story <epic#> <story#>            link a story under an epic (sub-issue)
+  release-sync [--dry-run]        derive each descendant's Release from its epic (writes; --dry-run previews)
   set <repo> <issue#> [--status --priority --iteration] [--dry-run]
   reconcile [--fix]               report/repair board drift (priority + Status→label mirror)
 
@@ -1131,7 +1213,7 @@ Auth: requires an authenticated \`gh\` CLI, or GITHUB_TOKEN/GH_TOKEN env var (cu
 // Dispatch
 // ---------------------------------------------------------------------------
 // Pure helpers exported for unit tests. Importing the module must NOT run the CLI.
-export { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs, STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant };
+export { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs, STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant, epicRank };
 
 // Only dispatch when run directly (`node gh-project.mjs ...`), not when imported.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -1152,6 +1234,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       case "summary": cmdSummary(rest); break;
       case "explain": cmdExplain(rest); break;
       case "release-sync": cmdReleaseSync(dry); break;
+      case "epics": cmdEpics(); break;
+      case "epic":
+        if (rest[0] === "set") cmdEpicSet(rest.slice(1), dry);
+        else if (rest[0] === "add-story") cmdEpicAddStory(rest.slice(1), dry);
+        else die("usage: epic set <num> --priority P [--release R] | epic add-story <epic#> <story#>");
+        break;
       case "set": cmdSet(rest); break;
       case "reconcile": cmdReconcile(rest); break;
       case "help": case "--help": case "-h": case undefined: help(); break;

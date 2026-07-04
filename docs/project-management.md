@@ -13,15 +13,21 @@ User stories and implementation issues coexist on it.
 ## The priority model (top-down)
 
 ```
-USER STORY  (muDemocracy.org, label `user-story`)        ← the human layer, on board #5
+EPIC  (muDemocracy.org, label `epic`)                    ← an epic IS a release (1:1)
+   Release field: its own identity (Decision Logger v1 | …)   set once by a human in the UI
+   Priority:      P0 / P1 / P2                            ← the epic's roadmap rank (hand-set)
+        │  native GitHub sub-issues
+        ▼
+USER STORY  (muDemocracy.org, label `user-story`)        ← the human value layer, on board #5
    MoSCoW field:  Must / Should / Could / Won't           ← value input, set by a human in the UI
-   Milestone:     safe-to-try | decision-logger-v1 | …    ← release window
+   Release        ← DERIVED: inherited from the parent epic (never hand-set)
         │  native GitHub sub-issues (cross-repo)
         ▼
 IMPLEMENTATION ISSUE  (srs / srs-rust / srs-vscode / srs-web)
    priority: Pn   ← DERIVED label (computed, never hand-set) + board Priority mirror
+   Release        ← DERIVED: inherited from the ancestor epic
    Status         ← Ready iff unblocked; else Backlog
-   Iteration      ← gate/phase, bounded by the story's release window
+   Iteration      ← gate/phase, bounded by the release
 ```
 
 **Priority is derived, not hand-set.** A human expresses value once, as **MoSCoW on the story**.
@@ -38,6 +44,29 @@ The tool rolls that down to implementation issues:
 
 **Linkage = native GitHub sub-issues.** Make an implementation issue a sub-issue of the story
 (or epic) it serves. Epics may sit in between; the rollup traverses transitively to the leaves.
+
+## Epics are releases
+
+An **epic** (label `epic`, in muDemocracy.org) **is a release** — there is no separate release
+entity. Each epic carries two hand-set inputs and nothing else:
+
+- its **Release** field value — the epic's identity (`Decision Logger v1`, `Governance app`, …);
+- its **Priority** (P0/P1/P2) — the epic's rank on the roadmap.
+
+Everything below the epic **inherits its Release**: `release-sync` walks each epic's sub-issue graph
+and stamps the epic's Release onto every descendant story and implementation issue. So **Release is
+derived, never hand-set on a child** — the only manual release input is on the epic. A node reachable
+from two epics is claimed by the **higher-Priority** epic (ties: lower issue number). There is **no
+release label** — Release lives only as the board field (add a `release:<slug>` mirror later only if
+some REST-only consumer ever needs it).
+
+This makes the board's release views fall out of one groupable field:
+
+- **Roadmap** — filter `label:epic`, sort by Priority: epics as prioritised releases.
+- **Swimlanes / drill-down** — group any items by **Release** to see stories/issues per epic.
+
+Every **user-story should sit under an epic**. `coverage` reports `orphan_stories_no_epic` (a story
+with no epic ancestor — its release can't be derived); link it with `epic add-story <epic#> <story#>`.
 
 ## Status lifecycle
 
@@ -68,8 +97,12 @@ node /tmp/gh-project.mjs rollup                                        # dry-run
 node /tmp/gh-project.mjs rollup --fix                                  # apply labels + board mirror
 node /tmp/gh-project.mjs summary                                       # priority estimates + the calc stages
 node /tmp/gh-project.mjs explain srs-rust 263                          # stage-by-stage for one issue
-node /tmp/gh-project.mjs coverage                                      # bugs / unlinked / uncovered audit
-node /tmp/gh-project.mjs release-sync                                  # set Release from labels + parentage
+node /tmp/gh-project.mjs coverage                                      # bugs / unlinked / uncovered / orphan-stories
+node /tmp/gh-project.mjs epics                                         # roadmap: epics (=releases) by Priority + coverage
+node /tmp/gh-project.mjs epic set 30 --priority P0 --release "Decision Logger v1"  # an epic's rank + identity
+node /tmp/gh-project.mjs epic add-story 30 21                          # link a story under an epic (sub-issue)
+node /tmp/gh-project.mjs release-sync --dry-run                        # preview each descendant's derived Release
+node /tmp/gh-project.mjs release-sync                                  # propagate epic Release to descendants
 node /tmp/gh-project.mjs tree 30                                       # story → sub-issue tree
 node /tmp/gh-project.mjs set srs-rust 263 --status "In progress"       # board write
 node /tmp/gh-project.mjs reconcile --fix                               # repair drift
@@ -133,7 +166,9 @@ check the model — e.g. "everything is P0" usually means every story is set **M
 
 ## Agents vs humans
 
-- **Human (board UI):** sets story **MoSCoW + release**; links impl issues as sub-issues; adds iterations.
+- **Human (board UI):** sets each **epic's Release identity + Priority** and story **MoSCoW**; links
+  stories under epics and impl issues under stories (sub-issues); adds iterations. Child **Release is
+  derived** (`release-sync`), never hand-set.
 - **Interactive/local agents:** use the **GitHub MCP** for issues/labels/comments/sub-issues/search,
   and `gh-project` for board fields.
 - **Cloud routines:** use `gh` + `gh-project` only (no interactively-authenticated MCP — it may be
