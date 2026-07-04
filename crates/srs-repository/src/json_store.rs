@@ -2508,7 +2508,10 @@ mod tests {
 
         // On-disk file must match the pre-import baseline.
         let after = std::fs::read_to_string(&path).unwrap();
-        assert_eq!(after, baseline, "abort_batch must not write partial data to disk");
+        assert_eq!(
+            after, baseline,
+            "abort_batch must not write partial data to disk"
+        );
 
         // In-memory state must also be restored (record absent from same instance).
         assert!(
