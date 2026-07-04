@@ -37,6 +37,8 @@ struct JsonStoreState {
     manifest: Manifest,
     // BTreeMap for deterministic `.srsj` serialisation — see JsonStoreFile.data (ADR-017).
     data: BTreeMap<String, serde_json::Value>,
+    // When true, flush() is suppressed until commit_batch() is called (ADR-021).
+    batching: bool,
 }
 
 pub struct JsonStore {
@@ -215,6 +217,7 @@ impl JsonStore {
                 initialized: false,
                 manifest,
                 data: BTreeMap::new(),
+                batching: false,
             }),
         };
         store.flush()?;
@@ -251,6 +254,7 @@ impl JsonStore {
                 initialized: true,
                 manifest,
                 data: envelope.data,
+                batching: false,
             }),
         })
     }
@@ -297,6 +301,10 @@ impl JsonStore {
     }
 
     fn flush(&self) -> Result<(), RepositoryError> {
+        // Batch mode: defer disk writes until commit_batch() is called (ADR-021).
+        if self.state.borrow().batching {
+            return Ok(());
+        }
         // In-memory stores (loaded from a string via `from_srsj`) use the sentinel
         // path "<memory>" and must not attempt file I/O. This is the normal
         // operating mode for the WASM browser binding.
@@ -723,6 +731,47 @@ impl RepositoryStore for JsonStore {
     fn save_manifest(&self, manifest: &Manifest) -> Result<(), RepositoryError> {
         self.state.borrow_mut().manifest = manifest.clone();
         self.flush()
+    }
+
+    fn begin_batch(&self) {
+        self.state.borrow_mut().batching = true;
+    }
+
+    fn commit_batch(&self) -> Result<(), crate::error::RepositoryError> {
+        self.state.borrow_mut().batching = false;
+        self.flush()
+    }
+
+    fn abort_batch(&self) {
+        self.state.borrow_mut().batching = false;
+        // Restore in-memory state from disk so subsequent writes on this
+        // instance don't flush partial import data (ADR-021). For the WASM
+        // path (file_path == "<memory>"), there is no disk to reload from;
+        // callers must not reuse a memory-backed store after abort_batch.
+        //
+        // Silent-failure contract: if the disk read or deserialisation fails
+        // (e.g. the file was deleted between begin_batch and abort_batch), the
+        // in-memory state is NOT restored and still holds partial import data.
+        // `batching` is already cleared, so a subsequent flush() call on this
+        // instance would write that partial state to disk. Callers MUST treat
+        // an abort as terminal: propagate the import error and drop the store.
+        if self.file_path != std::path::Path::new("<memory>") {
+            if let Ok(raw) = std::fs::read_to_string(&self.file_path) {
+                if let Ok(envelope) = serde_json::from_str::<JsonStoreFile>(&raw) {
+                    if let Ok(mut manifest) =
+                        serde_json::from_value::<crate::manifest::Manifest>(envelope.manifest)
+                    {
+                        manifest.root = self.repository_root();
+                        let mut state = self.state.borrow_mut();
+                        state.manifest = manifest;
+                        state.data = envelope.data;
+                        // `initialized` has no on-disk representation; `true` matches
+                        // the JsonStore::open() convention for an existing, readable file.
+                        state.initialized = true;
+                    }
+                }
+            }
+        }
     }
 
     fn load_package(&self) -> Result<Package, RepositoryError> {
@@ -2408,5 +2457,107 @@ mod tests {
             pkg.lifecycles.len()
         );
         assert_eq!(pkg.lifecycles[0].name, "test-lifecycle");
+    }
+
+    // --- Batch write mode tests (ADR-021) ---
+
+    #[test]
+    fn json_store_batch_mode_suppresses_intermediate_flushes() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("repo.srsj");
+        let store = JsonStore::create(&path).unwrap();
+        create_repository(&store, &init_input()).unwrap();
+
+        let val = serde_json::json!({"instanceId":"a","sections":[{"name":"b","content":"c"}]});
+        store.begin_batch();
+        store
+            .save_instance_json("records/notes/a.json", &val)
+            .unwrap();
+
+        // File on disk must NOT yet contain the record while batch mode is active.
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            !raw.contains("records/notes/a.json"),
+            "file was written to disk during batch mode before commit_batch()"
+        );
+
+        // After commit_batch the file must contain the record.
+        store.commit_batch().unwrap();
+        let reopened = JsonStore::open(&path).unwrap();
+        assert_eq!(
+            reopened.load_instance_json("records/notes/a.json").unwrap(),
+            val
+        );
+    }
+
+    #[test]
+    fn json_store_abort_batch_leaves_file_unchanged() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("repo.srsj");
+        let store = JsonStore::create(&path).unwrap();
+        create_repository(&store, &init_input()).unwrap();
+
+        let baseline = std::fs::read_to_string(&path).unwrap();
+
+        store.begin_batch();
+        let val = serde_json::json!({"instanceId":"b","sections":[{"name":"x","content":"y"}]});
+        store
+            .save_instance_json("records/notes/b.json", &val)
+            .unwrap();
+        store.abort_batch();
+
+        // On-disk file must match the pre-import baseline.
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            after, baseline,
+            "abort_batch must not write partial data to disk"
+        );
+
+        // In-memory state must also be restored (record absent from same instance).
+        assert!(
+            matches!(
+                store.load_instance_json("records/notes/b.json"),
+                Err(RepositoryError::Io { .. })
+            ),
+            "abort_batch must restore in-memory state from disk"
+        );
+    }
+
+    #[test]
+    fn json_store_commit_batch_writes_all_accumulated_data() {
+        let tmp = TempDir::new().unwrap();
+        let srsj_path = tmp.path().join("repo.srsj");
+        let store = JsonStore::create(&srsj_path).unwrap();
+        create_repository(&store, &init_input()).unwrap();
+
+        let records = [
+            (
+                "records/notes/r1.json",
+                serde_json::json!({"instanceId":"r1"}),
+            ),
+            (
+                "records/notes/r2.json",
+                serde_json::json!({"instanceId":"r2"}),
+            ),
+            (
+                "records/notes/r3.json",
+                serde_json::json!({"instanceId":"r3"}),
+            ),
+        ];
+
+        store.begin_batch();
+        for (record_key, val) in &records {
+            store.save_instance_json(record_key, val).unwrap();
+        }
+        store.commit_batch().unwrap();
+
+        let reopened = JsonStore::open(&srsj_path).unwrap();
+        for (record_key, val) in &records {
+            assert_eq!(
+                reopened.load_instance_json(record_key).unwrap(),
+                *val,
+                "record {record_key} not found after commit_batch"
+            );
+        }
     }
 }
