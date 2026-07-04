@@ -12,12 +12,25 @@
 //!   - 1 L1 view (id "faebd240-83c4-4bc8-a383-8335f841a234", namespace "governance", name "decision-log")
 //!   - 1 package (id "90677fae-16a7-49ec-8aee-1872cbf8e381", namespace "com.limoma", name "governance-core")
 
+use serde::Deserialize;
 use srs_repository::package_service::{
     get_field_by_id, get_type_by_id_latest, list_fields_filtered, list_packages,
     list_types_filtered, FieldListFilter, GetFieldResult, GetTypeResult, TypeListFilter,
 };
 use srs_repository::view_service::{get_view_by_id, list_views_summary, GetViewResult};
 use srs_repository::JsonStore;
+
+/// Mirrors the private `FieldListBindingFilter` / `TypeListBindingFilter` in `lib.rs`.
+/// Duplicated here to test the JSON → binding filter struct → service filter mapping
+/// without requiring access to the private type or calling WASM methods.
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct TestListBindingFilter {
+    #[serde(default)]
+    namespace: Option<String>,
+    #[serde(default)]
+    package: Option<String>,
+}
 
 fn gallery_store() -> JsonStore {
     let srsj = include_str!("fixtures/gallery.srsj");
@@ -174,4 +187,68 @@ fn list_packages_returns_primary_package() {
     assert_eq!(packages[0].id, "90677fae-16a7-49ec-8aee-1872cbf8e381");
     assert_eq!(packages[0].namespace, "com.limoma");
     assert_eq!(packages[0].name, "governance-core");
+}
+
+// ── binding filter deserialization roundtrips ─────────────────────────────────
+//
+// These tests exercise the JSON → binding filter struct → FieldListFilter / TypeListFilter
+// mapping chain that the WASM methods perform before calling the service.  to_js() is
+// still excluded (panics off-wasm), but serde_json::from_str works in native tests.
+
+#[test]
+fn field_filter_json_namespace_and_package_map_to_service_filter() {
+    let store = gallery_store();
+    let raw: TestListBindingFilter =
+        serde_json::from_str(r#"{"namespace":"governance","package":"ext/path"}"#)
+            .expect("filter json must parse");
+    let filter = FieldListFilter {
+        namespace: raw.namespace,
+        package: raw.package.map(Some),
+    };
+    assert_eq!(filter.namespace, Some("governance".to_string()));
+    assert_eq!(filter.package, Some(Some("ext/path".to_string())));
+    // No gallery field lives under a sub-package path — result is empty but not an error.
+    let fields = list_fields_filtered(&store, filter).expect("list_fields must succeed");
+    assert!(
+        fields.is_empty(),
+        "no fields under a sub-package path in gallery"
+    );
+}
+
+#[test]
+fn field_filter_empty_json_produces_default_filter() {
+    let store = gallery_store();
+    let raw: TestListBindingFilter =
+        serde_json::from_str("{}").expect("empty filter json must parse");
+    let filter = FieldListFilter {
+        namespace: raw.namespace,
+        package: raw.package.map(Some),
+    };
+    assert_eq!(filter.namespace, None);
+    assert_eq!(filter.package, None);
+    let fields = list_fields_filtered(&store, filter).expect("list_fields must succeed");
+    assert_eq!(
+        fields.len(),
+        24,
+        "default filter returns all 24 gallery fields"
+    );
+}
+
+#[test]
+fn type_filter_json_namespace_maps_to_service_filter() {
+    let store = gallery_store();
+    let raw: TestListBindingFilter =
+        serde_json::from_str(r#"{"namespace":"governance"}"#).expect("filter json must parse");
+    let filter = TypeListFilter {
+        namespace: raw.namespace,
+        package: raw.package.map(Some),
+    };
+    assert_eq!(filter.namespace, Some("governance".to_string()));
+    assert_eq!(filter.package, None);
+    let types = list_types_filtered(&store, filter).expect("list_types must succeed");
+    assert_eq!(
+        types.len(),
+        4,
+        "namespace filter returns all 4 governance types"
+    );
 }

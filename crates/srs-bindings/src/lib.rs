@@ -7,6 +7,9 @@ use srs_repository::container_service::{self, ContainerListFilter};
 use srs_repository::container_view_service::{self, ResolveContainerViewInput};
 use srs_repository::discovery_service::{self, DiscoveryQuery};
 use srs_repository::governance_scaffold_service::{self, CreateGovernanceRepositoryInput};
+use srs_repository::package_service::{
+    self, FieldListFilter, GetFieldResult, GetTypeResult, TypeListFilter,
+};
 use srs_repository::protocol_service::{self, GetProtocolResult};
 use srs_repository::record_store::{self, RecordListFilter, TransitionLifecycleInput};
 use srs_repository::relation_service::{self, ListRelationsFilter};
@@ -16,9 +19,6 @@ use srs_repository::services::{self, ListNotesFilter};
 use srs_repository::tag_service;
 use srs_repository::type_schema_service::{self, TypeSchemaInput};
 use srs_repository::validation;
-use srs_repository::package_service::{
-    self as package_service, FieldListFilter, GetFieldResult, GetTypeResult, TypeListFilter,
-};
 use srs_repository::view_service::{self, DocumentViewListFilter, GetViewResult};
 use srs_repository::JsonStore;
 use wasm_bindgen::prelude::*;
@@ -480,8 +480,9 @@ impl SrsRepository {
     }
 
     /// List all package boundaries (primary + sub-packages) from the repository manifest.
-    /// Returns a JS array of `PackageBoundaryInfo` objects (`{id, namespace, name, version,
-    /// boundaryPath?, fieldCount, typeCount}`).
+    /// Returns a JS array of objects with shape `{id, namespace, name, version,
+    /// boundaryPath: string | null, fieldCount, typeCount}`.
+    /// `boundaryPath` is `null` for the primary package and the boundary path string for sub-packages.
     pub fn list_packages(&self) -> Result<JsValue, JsValue> {
         let packages = package_service::list_packages(&self.store).map_err(js_err)?;
         to_js(&packages)
