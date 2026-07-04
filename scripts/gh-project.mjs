@@ -16,6 +16,7 @@
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 
 // ---------------------------------------------------------------------------
 // Configuration (overridable via env)
@@ -31,6 +32,23 @@ const pRank = (p) => { const i = P_ORDER.indexOf(p); return i < 0 ? 99 : i; }; /
 const BUG_FLOOR = "P1"; // bugs are fixed ASAP even with no story
 // Explicit, auditable bump signals (label names). A match bumps one tier (cap P0).
 const BUMP_LABELS = new Set(["critical-path", "blocks-gate", "regression"]);
+
+// Canonical plain-label mirror set. The scheduled cloud routines read/write these
+// (they can't use Projects v2 GraphQL through the web-session proxy), so every repo a
+// routine touches must carry the full set — otherwise a `gh issue edit --add-label`
+// hard-fails and the routine dies. This tool is the single source of truth for the set
+// and creates any missing labels on demand (`ensure-labels`, and `rollup --fix` /
+// `reconcile --fix`) so it can't drift. (#335)
+const MIRROR_LABELS = [
+  { name: "ready", color: "0E8A16", description: "Promoted to Ready by the SRS progress-review routine" },
+  { name: "priority: P0", color: "B60205", description: "Derived priority (highest served story) — top" },
+  { name: "priority: P1", color: "D93F0B", description: "Derived priority (highest served story)" },
+  { name: "priority: P2", color: "FBCA04", description: "Derived priority (highest served story)" },
+  { name: "status: in progress", color: "1D76DB", description: "Claimed in progress by the SRS jobs routine" },
+];
+// Repos whose merges/routines depend on the mirror set existing. Overridable for tests/forks.
+const MIRROR_REPOS = (process.env.GHP_MIRROR_REPOS || `srs,srs-rust,srs-web,${STORY_REPO}`)
+  .split(",").map((s) => s.trim()).filter(Boolean);
 
 // ---------------------------------------------------------------------------
 // gh CLI detection — falls back to native HTTP (curl) when gh is absent
@@ -516,13 +534,18 @@ function setPriorityLabel(repo, num, p, dryRun) {
   }
 }
 
+// `gh label create` args for one mirror label in a repo. Idempotent via --force
+// (creates if missing, updates color/description if present). Pure — safe to unit-test.
+function labelCreateArgs(repo, { name, color, description }) {
+  return ["label", "create", name, "--repo", `${OWNER}/${repo}`,
+    "--color", color, "--description", description, "--force"];
+}
+
 const _labelled = new Set();
 function ensureLabels(repo) {
   if (_labelled.has(repo)) return;
-  for (const [p, color] of [["P0", "B60205"], ["P1", "D93F0B"], ["P2", "FBCA04"]]) {
-    try {
-      gh(["label", "create", `priority: ${p}`, "--repo", `${OWNER}/${repo}`, "--color", color, "--force"]);
-    } catch { /* exists */ }
+  for (const spec of MIRROR_LABELS) {
+    try { gh(labelCreateArgs(repo, spec)); } catch { /* exists / insufficient perms — non-fatal */ }
   }
   _labelled.add(repo);
 }
@@ -728,6 +751,24 @@ function cmdEnsureFields(dryRun) {
   }
 }
 
+function cmdEnsureLabels(argv) {
+  const dryRun = argv.includes("--dry-run");
+  let repos = MIRROR_REPOS;
+  const ri = argv.indexOf("--repo");
+  if (ri !== -1 && argv[ri + 1]) repos = [argv[ri + 1]];
+  let created = 0;
+  for (const repo of repos) {
+    for (const spec of MIRROR_LABELS) {
+      console.log(`${dryRun ? "[dry-run] " : ""}${repo}: ${spec.name}`);
+      if (dryRun) continue;
+      try { gh(labelCreateArgs(repo, spec)); created++; }
+      catch (e) { console.error(`  ! ${repo}/${spec.name}: ${e.stderr ? String(e.stderr).trim() : e.message}`); }
+    }
+    _labelled.add(repo);
+  }
+  console.log(`${dryRun ? "(dry-run; pass without --dry-run to write)" : `ensured ${created} label(s) across ${repos.length} repo(s)`}`);
+}
+
 function parseFilters(argv) {
   const f = {};
   for (let i = 0; i < argv.length; i++) {
@@ -811,6 +852,7 @@ function cmdStorySet(argv, dryRun) {
 
 function cmdRollup(argv) {
   const dryRun = !argv.includes("--fix");
+  if (!dryRun) for (const repo of MIRROR_REPOS) ensureLabels(repo); // self-heal mirror set (#335)
   const r = computeRollup();
   const lines = [];
   lines.push("## Story-derived");
@@ -994,6 +1036,7 @@ function cmdAdd(argv) {
 
 function cmdReconcile(argv) {
   const dryRun = !argv.includes("--fix");
+  if (!dryRun) for (const repo of MIRROR_REPOS) ensureLabels(repo); // self-heal mirror set (#335)
   const r = computeRollup();
   const issues = [];
   // Closed-but-not-Done
@@ -1028,6 +1071,9 @@ function help() {
 
   fields                          dump project field/option/iteration IDs
   ensure-fields [--dry-run]       create the MoSCoW field if missing
+  ensure-labels [--repo R] [--dry-run]
+                                  create the plain-label mirror set (ready, priority: P0/P1/P2,
+                                  status: in progress) in all ecosystem repos (or one --repo)
   board [--repo R --status S --iteration N --open]
   add <repo> <issue#> [--dry-run]
   stories sync [--dry-run]        add open user-story issues to the board
@@ -1049,27 +1095,34 @@ Auth: requires an authenticated \`gh\` CLI, or GITHUB_TOKEN/GH_TOKEN env var (cu
 // ---------------------------------------------------------------------------
 // Dispatch
 // ---------------------------------------------------------------------------
-const [cmd, ...rest] = process.argv.slice(2);
-const dry = rest.includes("--dry-run");
-try {
-  switch (cmd) {
-    case "fields": cmdFields(); break;
-    case "ensure-fields": cmdEnsureFields(dry); break;
-    case "board": cmdBoard(rest); break;
-    case "add": cmdAdd(rest); break;
-    case "stories": rest[0] === "sync" ? cmdStoriesSync(dry) : die("usage: stories sync"); break;
-    case "story": rest[0] === "set" ? cmdStorySet(rest.slice(1), dry) : die("usage: story set <num> ..."); break;
-    case "tree": cmdTree(rest[0]); break;
-    case "rollup": cmdRollup(rest); break;
-    case "coverage": cmdCoverage(); break;
-    case "summary": cmdSummary(rest); break;
-    case "explain": cmdExplain(rest); break;
-    case "release-sync": cmdReleaseSync(dry); break;
-    case "set": cmdSet(rest); break;
-    case "reconcile": cmdReconcile(rest); break;
-    case "help": case "--help": case "-h": case undefined: help(); break;
-    default: die(`unknown command "${cmd}" (try \`help\`)`);
+// Pure helpers exported for unit tests. Importing the module must NOT run the CLI.
+export { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs };
+
+// Only dispatch when run directly (`node gh-project.mjs ...`), not when imported.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const [cmd, ...rest] = process.argv.slice(2);
+  const dry = rest.includes("--dry-run");
+  try {
+    switch (cmd) {
+      case "fields": cmdFields(); break;
+      case "ensure-fields": cmdEnsureFields(dry); break;
+      case "ensure-labels": cmdEnsureLabels(rest); break;
+      case "board": cmdBoard(rest); break;
+      case "add": cmdAdd(rest); break;
+      case "stories": rest[0] === "sync" ? cmdStoriesSync(dry) : die("usage: stories sync"); break;
+      case "story": rest[0] === "set" ? cmdStorySet(rest.slice(1), dry) : die("usage: story set <num> ..."); break;
+      case "tree": cmdTree(rest[0]); break;
+      case "rollup": cmdRollup(rest); break;
+      case "coverage": cmdCoverage(); break;
+      case "summary": cmdSummary(rest); break;
+      case "explain": cmdExplain(rest); break;
+      case "release-sync": cmdReleaseSync(dry); break;
+      case "set": cmdSet(rest); break;
+      case "reconcile": cmdReconcile(rest); break;
+      case "help": case "--help": case "-h": case undefined: help(); break;
+      default: die(`unknown command "${cmd}" (try \`help\`)`);
+    }
+  } catch (e) {
+    die(e.stderr ? String(e.stderr) : e.message);
   }
-} catch (e) {
-  die(e.stderr ? String(e.stderr) : e.message);
 }
