@@ -47,6 +47,27 @@ pub trait RepositoryStore {
     fn load_manifest(&self) -> Result<Manifest, RepositoryError>;
     fn save_manifest(&self, manifest: &Manifest) -> Result<(), RepositoryError>;
 
+    // --- Batch write mode ---
+    //
+    // Optional opt-in for stores that benefit from deferred flushing during
+    // bulk operations (e.g. JsonStore during import_repository_snapshot).
+    // Default implementations are no-ops so FileStore and MemoryStore require
+    // no changes. See ADR-021.
+
+    /// Signal that a bulk write operation is starting. Stores that support
+    /// batch mode may defer disk writes until `commit_batch` is called.
+    fn begin_batch(&self) {}
+
+    /// Flush all deferred writes atomically. Called after a successful bulk
+    /// operation. The default no-op is correct for stores that flush eagerly.
+    fn commit_batch(&self) -> Result<(), RepositoryError> {
+        Ok(())
+    }
+
+    /// Abandon deferred writes without flushing. Called when a bulk operation
+    /// fails. The on-disk state reverts to what it was before `begin_batch`.
+    fn abort_batch(&self) {}
+
     // --- Package (read) ---
 
     fn load_package(&self) -> Result<Package, RepositoryError>;
