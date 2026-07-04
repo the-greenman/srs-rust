@@ -73,10 +73,32 @@ node /tmp/gh-project.mjs release-sync                                  # set Rel
 node /tmp/gh-project.mjs tree 30                                       # story → sub-issue tree
 node /tmp/gh-project.mjs set srs-rust 263 --status "In progress"       # board write
 node /tmp/gh-project.mjs reconcile --fix                               # repair drift
+node /tmp/gh-project.mjs ensure-labels [--repo R]                      # create the mirror label set
 ```
 
 The tool **self-discovers** the project field/option/iteration IDs — never hardcode them in a
 prompt or doc. `node /tmp/gh-project.mjs fields` dumps them if you need to inspect.
+
+## The plain-label mirror set
+
+The scheduled **cloud routines** can't reach Projects v2 GraphQL through the web-session proxy, so
+they read and write a **plain-label mirror** of the board state instead. That set must exist in
+**every** repo a routine touches, or a `gh issue edit --add-label` hard-fails and the routine dies.
+The canonical set:
+
+| Label | Meaning | Written by |
+|---|---|---|
+| `ready` | promoted to Ready | progress-review routine |
+| `priority: P0` / `P1` / `P2` | derived priority (§ the priority model) | `rollup --fix` |
+| `status: in progress` | claimed / in flight | "Do the SRS jobs" routine |
+
+`gh-project` is the single source of truth for this set (`MIRROR_LABELS` in the script) and creates
+any missing labels on demand — so it **can't drift**:
+
+- `ensure-labels [--repo R] [--dry-run]` creates the full set in every ecosystem repo (`MIRROR_REPOS`,
+  env-overridable via `GHP_MIRROR_REPOS`), or just one `--repo`. Idempotent (`gh label create --force`).
+- `rollup --fix` and `reconcile --fix` ensure the set across all `MIRROR_REPOS` before applying
+  changes, so any routine run self-heals missing labels. Dry-run makes no changes.
 
 ## Understanding a priority estimate (the stages)
 
