@@ -267,7 +267,7 @@ fn do_import(
     let mut used_paths: HashMap<String, String> = HashMap::with_capacity(snapshot.instances.len());
     manifest.instance_index = Vec::new();
     for instance in &snapshot.instances {
-        let rel_path = canonical_instance_path(instance);
+        let rel_path = canonical_instance_path(instance)?;
         if let Some(first_id) = used_paths.get(&rel_path) {
             return Err(RepositoryError::InvalidSnapshotData {
                 message: format!(
@@ -616,8 +616,8 @@ fn ensure_target_empty(target: &dyn RepositoryStore) -> Result<(), RepositoryErr
     Ok(())
 }
 
-fn canonical_instance_path(instance: &SnapshotInstance) -> String {
-    let id8 = &instance.instance_id[..8];
+fn canonical_instance_path(instance: &SnapshotInstance) -> Result<String, RepositoryError> {
+    let id8 = id_prefix(&instance.instance_id)?;
     let slug = match instance.tier {
         0 => instance
             .title
@@ -638,12 +638,12 @@ fn canonical_instance_path(instance: &SnapshotInstance) -> String {
     } else {
         format!("{slug}-{id8}.json")
     };
-    match instance.tier {
+    Ok(match instance.tier {
         0 => format!("records/notes/{filename}"),
         1 => format!("records/tier-1/{filename}"),
         2 => format!("records/tier-2/{filename}"),
         tier => format!("records/tier-{tier}/{filename}"),
-    }
+    })
 }
 
 fn slugify(name: &str) -> String {

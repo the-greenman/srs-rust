@@ -46,8 +46,16 @@ fn abort_batch(&self) {}
   in-memory as normal).
 - `commit_batch`: sets `batching = false`, then calls `flush()` to write the accumulated state to
   disk in a single write.
-- `abort_batch`: sets `batching = false` without flushing — the on-disk file remains in its
-  pre-batch state.
+- `abort_batch`: sets `batching = false`, then attempts to restore the in-memory `JsonStoreState`
+  from the on-disk `.srsj` file (reads the file, deserialises `JsonStoreFile`, reconstructs
+  `manifest` and `data`). If restoration succeeds, the in-memory state matches the on-disk file
+  (which was not modified during the batch). **Silent-failure contract**: if the file read or
+  deserialisation fails (e.g. the file was deleted between `begin_batch` and `abort_batch`), the
+  in-memory state is left holding partial import data. Since `batching` is already cleared, a
+  subsequent `flush()` call on the same instance would write that partial state to disk. Callers
+  must treat an abort as terminal: propagate the import error and drop the store instance. For the
+  WASM `<memory>` path, no restoration is possible; callers must not reuse a memory-backed store
+  after `abort_batch`.
 
 `import_repository_snapshot` (in `srs-repository`) calls `begin_batch()` before the import loop
 and either `commit_batch()` on success or `abort_batch()` on error.

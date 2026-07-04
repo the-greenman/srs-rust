@@ -748,6 +748,13 @@ impl RepositoryStore for JsonStore {
         // instance don't flush partial import data (ADR-021). For the WASM
         // path (file_path == "<memory>"), there is no disk to reload from;
         // callers must not reuse a memory-backed store after abort_batch.
+        //
+        // Silent-failure contract: if the disk read or deserialisation fails
+        // (e.g. the file was deleted between begin_batch and abort_batch), the
+        // in-memory state is NOT restored and still holds partial import data.
+        // `batching` is already cleared, so a subsequent flush() call on this
+        // instance would write that partial state to disk. Callers MUST treat
+        // an abort as terminal: propagate the import error and drop the store.
         if self.file_path != std::path::Path::new("<memory>") {
             if let Ok(raw) = std::fs::read_to_string(&self.file_path) {
                 if let Ok(envelope) = serde_json::from_str::<JsonStoreFile>(&raw) {
@@ -758,6 +765,8 @@ impl RepositoryStore for JsonStore {
                         let mut state = self.state.borrow_mut();
                         state.manifest = manifest;
                         state.data = envelope.data;
+                        // `initialized` has no on-disk representation; `true` matches
+                        // the JsonStore::open() convention for an existing, readable file.
                         state.initialized = true;
                     }
                 }
