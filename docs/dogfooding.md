@@ -656,7 +656,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `render document-view` | S4, S5, S8, S11 |
 | `container-subset` section + `typeFilter` / `typeDispatch` (RFC-008) | S11 |
 | `type-query` lifecycle filter (`lifecycleStates`, `excludeLifecycleStates`, `containerScope`) (RFC-011) | S12 |
-| `view` (L1) | _gap — no scenario yet_ |
+| `view` (L1 — `view list`, `view get`) | CLI surface: _gap — no CLI scenario yet_; WASM read bindings (`list_views`, `get_view`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330) |
 | `tree` | S5 |
 | `vocabulary` (create/get/list/term-create/derive-tag-set/promote) | S6 |
 | `term` (list/get) | S6 |
@@ -668,9 +668,11 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `extension` | _gap — no scenario yet_ |
 | `migrate` | _gap — no scenario yet_ |
 | `tag` (definition) | _gap — being deprecated; see open issues_ |
-| `package` | _covered implicitly by field/type creation in S2_ |
+| `package` | CLI: covered implicitly by field/type creation in S2; WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330) |
 
 Gaps are intentional and visible: they are the backlog of surfaces that need a meaningful scenario. Do not delete a gap row — fill it when a feature gives the surface a real workflow to demonstrate.
+
+**WASM bindings** are not directly CLI-drivable and are not covered by scenarios here. WASM binding coverage lives in `crates/srs-bindings/tests/` — integration tests that call `srs-repository` services via `JsonStore::from_srsj`. When a WASM binding PR adds or changes the binding surface, update the coverage matrix row for the underlying CLI command (or add a note like the `view` and `package` rows above).
 
 ## Maintaining this guide
 
