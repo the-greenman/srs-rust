@@ -16,7 +16,10 @@ use srs_repository::services::{self, ListNotesFilter};
 use srs_repository::tag_service;
 use srs_repository::type_schema_service::{self, TypeSchemaInput};
 use srs_repository::validation;
-use srs_repository::view_service::{self, DocumentViewListFilter};
+use srs_repository::package_service::{
+    self as package_service, FieldListFilter, GetFieldResult, GetTypeResult, TypeListFilter,
+};
+use srs_repository::view_service::{self, DocumentViewListFilter, GetViewResult};
 use srs_repository::JsonStore;
 use wasm_bindgen::prelude::*;
 
@@ -408,6 +411,82 @@ impl SrsRepository {
         }
     }
 
+    // ── Definition browse (fields, types, L1 views, packages) ────────────────────
+
+    /// List field definitions from the compiled package, optionally filtered by namespace or
+    /// package boundary path. `filter_json` is `{}` or `{"namespace":"...","package":"..."}`.
+    /// Returns a JS array of `FieldSummary` objects.
+    pub fn list_fields(&self, filter_json: &str) -> Result<JsValue, JsValue> {
+        let filter: FieldListBindingFilter = serde_json::from_str(filter_json)
+            .map_err(|e| js_err(format!("invalid filter: {e}")))?;
+        let fields = package_service::list_fields_filtered(
+            &self.store,
+            FieldListFilter {
+                namespace: filter.namespace,
+                package: filter.package.map(Some),
+            },
+        )
+        .map_err(js_err)?;
+        to_js(&fields)
+    }
+
+    /// Get a field definition by its id. Returns the full `Field` object, or `null` if not found.
+    pub fn get_field(&self, id: &str) -> Result<JsValue, JsValue> {
+        match package_service::get_field_by_id(&self.store, id).map_err(js_err)? {
+            GetFieldResult::Found(field) => to_js(&*field), // GetFieldResult wraps Box<Field>
+            GetFieldResult::NotFound => Ok(JsValue::NULL),
+        }
+    }
+
+    /// List type definitions from the compiled package, optionally filtered by namespace or
+    /// package boundary path. `filter_json` is `{}` or `{"namespace":"...","package":"..."}`.
+    /// Returns a JS array of `TypeSummary` objects.
+    pub fn list_types(&self, filter_json: &str) -> Result<JsValue, JsValue> {
+        let filter: TypeListBindingFilter = serde_json::from_str(filter_json)
+            .map_err(|e| js_err(format!("invalid filter: {e}")))?;
+        let types = package_service::list_types_filtered(
+            &self.store,
+            TypeListFilter {
+                namespace: filter.namespace,
+                package: filter.package.map(Some),
+            },
+        )
+        .map_err(js_err)?;
+        to_js(&types)
+    }
+
+    /// Get a type definition by its id (latest version). Returns the full `RecordType` object,
+    /// or `null` if not found.
+    pub fn get_type(&self, id: &str) -> Result<JsValue, JsValue> {
+        match package_service::get_type_by_id_latest(&self.store, id).map_err(js_err)? {
+            GetTypeResult::Found(record_type) => to_js(&record_type),
+            GetTypeResult::NotFound => Ok(JsValue::NULL),
+        }
+    }
+
+    /// List L1 view definitions from the compiled package. Returns a JS array of `ViewSummary`
+    /// objects (`{id, namespace, name, version, description, compatibleTypes?, sourcePackage?}`).
+    pub fn list_views(&self) -> Result<JsValue, JsValue> {
+        let views = view_service::list_views_summary(&self.store).map_err(js_err)?;
+        to_js(&views)
+    }
+
+    /// Get an L1 view definition by its id. Returns the full `View` object, or `null` if not found.
+    pub fn get_view(&self, id: &str) -> Result<JsValue, JsValue> {
+        match view_service::get_view_by_id(&self.store, id).map_err(js_err)? {
+            GetViewResult::Found(view) => to_js(&*view),
+            GetViewResult::NotFound => Ok(JsValue::NULL),
+        }
+    }
+
+    /// List all package boundaries (primary + sub-packages) from the repository manifest.
+    /// Returns a JS array of `PackageBoundaryInfo` objects (`{id, namespace, name, version,
+    /// boundaryPath?, fieldCount, typeCount}`).
+    pub fn list_packages(&self) -> Result<JsValue, JsValue> {
+        let packages = package_service::list_packages(&self.store).map_err(js_err)?;
+        to_js(&packages)
+    }
+
     /// List the document views (L2) bound to a container's root type. Resolves the container's
     /// first root instance's `typeId`/`typeVersion`, then returns every `DocumentView` whose
     /// `rootTypeRefs` includes that exact type binding (RFC-009). Returns an empty array — not an
@@ -503,6 +582,30 @@ struct ContainerListBindingFilter {
     member_instance_id: Option<String>,
     #[serde(default)]
     root_instance_id: Option<String>,
+}
+
+/// Input shape for `list_fields` — parsed from caller-supplied JSON.
+/// `package: null` means no package filter (returns all); a specific sub-package path
+/// narrows to that boundary. The primary-package-only filter (`Some(None)` in the service)
+/// is not expressible through this binding — omit `package` to get all fields.
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct FieldListBindingFilter {
+    #[serde(default)]
+    namespace: Option<String>,
+    #[serde(default)]
+    package: Option<String>,
+}
+
+/// Input shape for `list_types` — parsed from caller-supplied JSON.
+/// Same package-filter semantics as `FieldListBindingFilter`.
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct TypeListBindingFilter {
+    #[serde(default)]
+    namespace: Option<String>,
+    #[serde(default)]
+    package: Option<String>,
 }
 
 /// Input shape for `create_record` — parsed from caller-supplied JSON.
