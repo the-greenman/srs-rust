@@ -100,6 +100,20 @@ any missing labels on demand — so it **can't drift**:
 - `rollup --fix` and `reconcile --fix` ensure the set across all `MIRROR_REPOS` before applying
   changes, so any routine run self-heals missing labels. Dry-run makes no changes.
 
+**The values are mirrored from the board, two fields:**
+
+| Board field | Mirror label | Written by |
+|---|---|---|
+| Priority `P0/P1/P2` | `priority: Pn` | `rollup --fix` (derived from stories), `set --priority` |
+| Status `Ready` | `ready` | `reconcile --fix`, `set --status` |
+| Status `In progress` | `status: in progress` | `reconcile --fix`, `set --status` |
+
+The routines **cannot read Projects v2 Status/Priority through the proxy** — the label *is* the
+signal. `reconcile --fix` mirrors board Status → label for every item (`status-mirror-stale` drift):
+open items in `Ready`/`In progress` get the matching label; every other status (and every closed
+issue) has both status labels cleared. Without this pass a board-`Ready` issue carries no `ready`
+label and is invisible to the work-queue routine.
+
 ## Understanding a priority estimate (the stages)
 
 Every implementation issue's `priority: Pn` is *derived*, and the derivation is fully explainable

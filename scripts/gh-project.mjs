@@ -50,6 +50,12 @@ const MIRROR_LABELS = [
 const MIRROR_REPOS = (process.env.GHP_MIRROR_REPOS || `srs,srs-rust,srs-web,${STORY_REPO}`)
   .split(",").map((s) => s.trim()).filter(Boolean);
 
+// Board Status → plain-label mirror. The routines can't read Projects v2 Status through the
+// proxy, so the label IS their signal: `ready` is the work queue, `status: in progress` marks a
+// claim. Only these two statuses mirror to a label; all others (Backlog/In review/Done) clear both.
+const STATUS_LABEL_MAP = { Ready: "ready", "In progress": "status: in progress" };
+const STATUS_MIRROR_LABELS = Object.values(STATUS_LABEL_MAP);
+
 // ---------------------------------------------------------------------------
 // gh CLI detection — falls back to native HTTP (curl) when gh is absent
 // ---------------------------------------------------------------------------
@@ -532,6 +538,25 @@ function setPriorityLabel(repo, num, p, dryRun) {
   if (add.length || remove.length) {
     try { gh(args); } catch { /* label may not be present; non-fatal */ }
   }
+}
+
+// Mirror board Status → plain label. `want` is the desired status-mirror label (or null to
+// clear both). Ensures exactly one of STATUS_MIRROR_LABELS is present. Same shape as
+// setPriorityLabel: the board Status can't be read by the routines, so the label is the mirror.
+function setStatusLabel(repo, num, want, dryRun) {
+  const add = want ? [want] : [];
+  const remove = STATUS_MIRROR_LABELS.filter((l) => l !== want);
+  if (dryRun) return;
+  ensureLabels(repo);
+  const args = ["issue", "edit", String(num), "--repo", `${OWNER}/${repo}`];
+  for (const l of add) args.push("--add-label", l);
+  for (const l of remove) args.push("--remove-label", l);
+  try { gh(args); } catch { /* label may not be present; non-fatal */ }
+}
+
+// Desired status-mirror label for a board row: only OPEN issues in a mirrored status carry one.
+function statusMirrorWant(row) {
+  return row.state === "OPEN" ? (STATUS_LABEL_MAP[row.status] || null) : null;
 }
 
 // `gh label create` args for one mirror label in a repo. Idempotent via --force
@@ -1021,7 +1046,7 @@ function cmdSet(argv) {
     else if (argv[i] === "--iteration") iteration = argv[++i];
   }
   const itemId = ensureOnBoard(repo, num, dryRun);
-  if (status) { console.log(`${dryRun ? "[dry-run] " : ""}Status ${repo}#${num} = ${status}`); setSingleSelect(itemId, "Status", status, dryRun); }
+  if (status) { console.log(`${dryRun ? "[dry-run] " : ""}Status ${repo}#${num} = ${status}`); setSingleSelect(itemId, "Status", status, dryRun); setStatusLabel(repo, num, STATUS_LABEL_MAP[status] || null, dryRun); }
   if (priority) { console.log(`${dryRun ? "[dry-run] " : ""}Priority ${repo}#${num} = ${priority}`); setSingleSelect(itemId, "Priority", priority, dryRun); setPriorityLabel(repo, num, priority, dryRun); }
   if (iteration) { console.log(`${dryRun ? "[dry-run] " : ""}Iteration ${repo}#${num} = ${iteration}`); setIteration(itemId, iteration, dryRun); }
 }
@@ -1055,6 +1080,16 @@ function cmdReconcile(argv) {
       if (!dryRun) applyPriority(e, false);
     }
   }
+  // Status-label mirror stale (board Status ≠ ready/status: in progress label). This is the
+  // routines' only readiness signal — without it a board-Ready issue is invisible to them. (#335)
+  for (const row of board().values()) {
+    const want = statusMirrorWant(row);
+    const have = row.labels.find((l) => STATUS_MIRROR_LABELS.includes(l)) || null;
+    if ((want || null) !== (have || null)) {
+      issues.push(`status-mirror-stale: ${row.key} label=${have ?? "—"} want=${want ?? "—"}`);
+      if (!dryRun) setStatusLabel(row.repo, row.num, want, false);
+    }
+  }
   // Open bug with no priority
   for (const e of r.bugs) {
     if (!e.row.priority && !e.row.labels.some((l) => l.startsWith("priority: ")))
@@ -1063,7 +1098,7 @@ function cmdReconcile(argv) {
   // Unlinked non-bug
   for (const u of r.unlinked) issues.push(`unlinked-could-get-lost: ${u.row.key}`);
   console.log(issues.length ? issues.join("\n") : "no drift");
-  if (dryRun && issues.length) console.log("\n(dry-run; pass --fix to repair closed-not-done + rollup-stale)");
+  if (dryRun && issues.length) console.log("\n(dry-run; pass --fix to repair closed-not-done + rollup-stale + status-mirror)");
 }
 
 function help() {
@@ -1085,7 +1120,7 @@ function help() {
   coverage                        bugs-ASAP + unlinked + uncovered-stories audit (JSON)
   release-sync [--dry-run]        set the Release field from milestone labels + story parentage
   set <repo> <issue#> [--status --priority --iteration] [--dry-run]
-  reconcile [--fix]               report/repair board drift
+  reconcile [--fix]               report/repair board drift (priority + Status→label mirror)
 
 Priority stages: served stories → MoSCoW→P → base(max) → bug floor(P1) → bump(+1) → final.
 Env: GHP_OWNER, GHP_PROJECT, GHP_STORY_REPO.
@@ -1096,7 +1131,7 @@ Auth: requires an authenticated \`gh\` CLI, or GITHUB_TOKEN/GH_TOKEN env var (cu
 // Dispatch
 // ---------------------------------------------------------------------------
 // Pure helpers exported for unit tests. Importing the module must NOT run the CLI.
-export { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs };
+export { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs, STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant };
 
 // Only dispatch when run directly (`node gh-project.mjs ...`), not when imported.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

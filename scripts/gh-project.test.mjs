@@ -3,7 +3,10 @@
 // run the CLI or shell out to `gh`. Run: `node --test scripts/`
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs } from "./gh-project.mjs";
+import {
+  MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs,
+  STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant,
+} from "./gh-project.mjs";
 
 // The labels the scheduled cloud routines read/write. Missing any one hard-fails a
 // `gh issue edit --add-label` in a repo that lacks it — the whole point of #335.
@@ -34,4 +37,20 @@ test("labelCreateArgs is idempotent (--force) and repo-scoped", () => {
 test("MIRROR_REPOS covers the routine-touched ecosystem repos", () => {
   for (const r of ["srs", "srs-rust", "srs-web"]) assert.ok(MIRROR_REPOS.includes(r), `missing repo: ${r}`);
   assert.ok(MIRROR_REPOS.some((r) => r.toLowerCase() === "mudemocracy.org"), "missing story repo");
+});
+
+test("Status→label mirror maps the two routine-relevant statuses to defined labels", () => {
+  assert.equal(STATUS_LABEL_MAP["Ready"], "ready");
+  assert.equal(STATUS_LABEL_MAP["In progress"], "status: in progress");
+  const names = MIRROR_LABELS.map((l) => l.name);
+  for (const l of STATUS_MIRROR_LABELS) assert.ok(names.includes(l), `status-mirror label not in set: ${l}`);
+});
+
+test("statusMirrorWant: only OPEN issues in a mirrored status carry a label", () => {
+  assert.equal(statusMirrorWant({ state: "OPEN", status: "Ready" }), "ready");
+  assert.equal(statusMirrorWant({ state: "OPEN", status: "In progress" }), "status: in progress");
+  assert.equal(statusMirrorWant({ state: "OPEN", status: "Backlog" }), null);
+  assert.equal(statusMirrorWant({ state: "OPEN", status: "Done" }), null);
+  // A closed issue never carries a status-mirror label, even if its board Status lags.
+  assert.equal(statusMirrorWant({ state: "CLOSED", status: "Ready" }), null);
 });
