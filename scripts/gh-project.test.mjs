@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs,
-  STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant,
+  STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant, epicRank,
 } from "./gh-project.mjs";
 
 // The labels the scheduled cloud routines read/write. Missing any one hard-fails a
@@ -53,4 +53,18 @@ test("statusMirrorWant: only OPEN issues in a mirrored status carry a label", ()
   assert.equal(statusMirrorWant({ state: "OPEN", status: "Done" }), null);
   // A closed issue never carries a status-mirror label, even if its board Status lags.
   assert.equal(statusMirrorWant({ state: "CLOSED", status: "Ready" }), null);
+});
+
+// Epics (= releases) order the roadmap by Priority, then by issue number. The same
+// ranking breaks diamond ties so a shared descendant is claimed by the higher-priority
+// epic deterministically.
+test("epicRank orders by Priority first, then issue number", () => {
+  const p0b = { priority: "P0", num: 99 };
+  const p0a = { priority: "P0", num: 30 };
+  const p1  = { priority: "P1", num: 1 };
+  const none = { priority: null, num: 2 };
+  const sorted = [p1, none, p0b, p0a].sort((a, b) => epicRank(a) - epicRank(b));
+  assert.deepEqual(sorted.map((e) => e.num), [30, 99, 1, 2]);
+  assert.ok(epicRank(p0a) < epicRank(p0b), "same priority: lower # wins");
+  assert.ok(epicRank(p1) < epicRank(none), "set priority beats unset");
 });

@@ -1,7 +1,8 @@
 name: Board sync
 
-# Runs after every merge to master. Moves closed issues to Done on Project #5
-# and re-derives priority labels (Pn) from user-story MoSCoW values.
+# Runs after every merge to master. Moves closed issues to Done on Project #5,
+# re-derives priority labels (Pn) from user-story MoSCoW values, and propagates
+# each epic's Release down to its descendants (epics are releases).
 #
 # Requires a PAT with `project` scope stored as the BOARD_TOKEN secret.
 # The default GITHUB_TOKEN does not carry project scope for user-level
@@ -30,5 +31,6 @@ jobs:
           fi
           node scripts/gh-project.mjs reconcile --fix
           node scripts/gh-project.mjs rollup --fix
+          node scripts/gh-project.mjs release-sync
         env:
           GH_TOKEN: ${{ secrets.BOARD_TOKEN }}

@@ -28,16 +28,29 @@ node /tmp/gh-project.mjs stories sync
 node /tmp/gh-project.mjs coverage
 ```
 
-Report three things and what to do about each:
+Report four things and what to do about each:
 1. **Uncovered stories** — open stories with no implementation children. Either they're not
    started, or implementation issues exist but aren't linked as sub-issues. Propose linking or
    filing the first task.
 2. **Unlinked — could get lost** — non-bug implementation issues with no parent story. For each,
    propose the story it should be a sub-issue of (or flag it as unjustified work).
 3. **Bugs — fix ASAP** — bugs carry a P1 floor regardless of story; confirm they're `Ready`.
+4. **Orphan stories (no epic)** — `orphan_stories_no_epic`: stories under no epic, so their Release
+   can't be derived (epics are releases). Propose the epic each belongs to and link it:
+   `node /tmp/gh-project.mjs epic add-story <epic#> <story#>`.
 
 Also flag any **story missing a MoSCoW value** — priority can't be derived until a human sets it.
 You may propose a MoSCoW (Must/Should/Could/Won't) per story for the human to confirm in the UI.
+
+## Epics (= releases)
+
+```bash
+node /tmp/gh-project.mjs epics
+```
+
+Lists epics by Priority with their Release identity and coverage flags (`missing-release`,
+`missing-priority`, `no-descendants`). An epic **is** a release: a human sets its Release + Priority
+(`epic set <#> --priority P --release R`); descendants inherit Release via `release-sync`.
 
 ## Inspect one story's tree
 
