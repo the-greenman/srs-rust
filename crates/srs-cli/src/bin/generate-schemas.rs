@@ -36,6 +36,7 @@ fn main() {
     write_schema!("note-tag-list", NoteTagListPayload);
     write_schema!("note-tag-map", NoteTagMapPayload);
     write_schema!("note-foundations", NoteFoundationsPayload);
+    write_schema!("note-graduate", NoteGraduatePayload);
 
     // Record payloads
     write_schema!("record-list", RecordListPayload);

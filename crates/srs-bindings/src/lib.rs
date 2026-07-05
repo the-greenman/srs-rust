@@ -11,12 +11,16 @@ use srs_repository::package_service::{
     self, FieldListFilter, GetFieldResult, GetTypeResult, TypeListFilter,
 };
 use srs_repository::protocol_service::{self, GetProtocolResult};
-use srs_repository::record_store::{self, RecordListFilter, TransitionLifecycleInput};
+use srs_repository::record_store::{
+    self, CreateRecordInput, RecordListFilter, TransitionLifecycleInput,
+};
 use srs_repository::relation_service::{self, ListRelationsFilter};
 use srs_repository::render_service::{self, RenderDocumentViewOptions};
 use srs_repository::repository_lifecycle::{self, InitNewRepositoryInput};
 use srs_repository::repository_navigation_service;
-use srs_repository::services::{self, ListNotesFilter};
+use srs_repository::services::{
+    self, graduate_note as graduate_note_service, GraduateNoteInput, ListNotesFilter,
+};
 use srs_repository::tag_service;
 use srs_repository::type_schema_service::{self, TypeSchemaInput};
 use srs_repository::validation;
@@ -97,6 +101,37 @@ impl SrsRepository {
     pub fn list_notes(&self) -> Result<JsValue, JsValue> {
         let result =
             services::list_notes(&self.store, ListNotesFilter::default()).map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Graduate a Note to a typed Record in one atomic step.
+    ///
+    /// `input_json` is a `CreateRecordInput` JSON object
+    /// (`fieldValues`, `groupValues?`, `tags?`). Returns `{ note, record }` where
+    /// `note` has `graduatedAt` stamped. `container_id` is optional; when supplied,
+    /// the new Record is added to that container atomically.
+    #[wasm_bindgen]
+    pub fn graduate_note(
+        &self,
+        note_id: &str,
+        type_ref: &str,
+        type_version: Option<u32>,
+        container_id: Option<String>,
+        input_json: &str,
+    ) -> Result<JsValue, JsValue> {
+        let record_input: CreateRecordInput =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let result = graduate_note_service(
+            &self.store,
+            GraduateNoteInput {
+                note_id: note_id.to_string(),
+                type_ref: type_ref.to_string(),
+                type_version,
+                record_input,
+                container_id,
+            },
+        )
+        .map_err(js_err)?;
         to_js(&result)
     }
 
@@ -636,4 +671,106 @@ struct CreateRecordBindingInput {
     group_values: Option<Vec<FieldGroupValue>>,
     #[serde(default)]
     tags: Option<Vec<String>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use srs_repository::record_store::CreateRecordInput;
+    use srs_repository::services::{graduate_note as graduate_note_service, GraduateNoteInput};
+    use srs_repository::JsonStore;
+
+    /// Minimal `.srsj` with one note (tier-0) and one optional-field type `com.test/bind-type`.
+    fn srsj_with_note_and_type() -> String {
+        serde_json::json!({
+            "srsj": "1",
+            "manifest": {
+                "repositoryId": "test-repo-bindings-graduate",
+                "srsVersion": "2.0-draft",
+                "namespace": "com.test",
+                "instanceIndex": [{
+                    "instanceId": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+                    "tier": 0,
+                    "path": "records/notes/binding-test-note.json"
+                }],
+                "packageRef": {"mode": "local", "path": "package"}
+            },
+            "data": {
+                "package/package.json": {
+                    "id": "pkg-bindings-001",
+                    "namespace": "com.test",
+                    "name": "bind-package",
+                    "version": "1.0.0",
+                    "fields": ["fields/body.json"],
+                    "types": ["types/bind-type.json"],
+                    "relationTypes": [],
+                    "views": [],
+                    "documentViews": []
+                },
+                "package/fields/body.json": {
+                    "id": "field-bind-00001",
+                    "namespace": "com.test",
+                    "name": "body",
+                    "version": 1,
+                    "valueType": "string",
+                    "description": "Body",
+                    "aiGuidance": null,
+                    "createdAt": "2026-01-01T00:00:00Z"
+                },
+                "package/types/bind-type.json": {
+                    "id": "type-bind-00001",
+                    "namespace": "com.test",
+                    "name": "bind-type",
+                    "version": 1,
+                    "description": "Binding test type",
+                    "fields": [{
+                        "fieldId": "field-bind-00001",
+                        "order": 0,
+                        "required": false,
+                        "repeatable": false
+                    }],
+                    "createdAt": "2026-01-01T00:00:00Z"
+                },
+                "records/notes/binding-test-note.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+                    "instanceId": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+                    "sections": [{"name": "body", "content": "test content"}]
+                }
+            }
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn graduate_note_service_result_serialises() {
+        let store = JsonStore::from_srsj(&srsj_with_note_and_type()).expect("load srsj");
+        let result = graduate_note_service(
+            &store,
+            GraduateNoteInput {
+                note_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd".to_string(),
+                type_ref: "com.test/bind-type".to_string(),
+                type_version: None,
+                record_input: CreateRecordInput {
+                    field_values: vec![],
+                    group_values: None,
+                    tags: None,
+                },
+                container_id: None,
+            },
+        )
+        .expect("graduate_note should succeed");
+
+        let json = serde_json::to_value(&result).expect("result must serialize");
+        assert!(
+            json["note"]["graduatedAt"].is_string(),
+            "note.graduatedAt must be present as a string"
+        );
+        assert!(
+            json["record"].is_object(),
+            "record must be present as an object"
+        );
+        assert!(
+            json["record"]["instanceId"].is_string(),
+            "record.instanceId must be present"
+        );
+    }
 }

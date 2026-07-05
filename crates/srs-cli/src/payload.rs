@@ -288,6 +288,15 @@ pub struct NoteFoundationsPayload {
     pub foundation_notes: FoundationNoteSet,
 }
 
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteGraduatePayload {
+    #[schemars(with = "serde_json::Value")]
+    pub note: Note,
+    #[schemars(with = "serde_json::Value")]
+    pub record: Record,
+}
+
 // ── Record payloads ───────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]

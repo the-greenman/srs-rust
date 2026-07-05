@@ -623,6 +623,64 @@ Must return `ok: false` with a message referencing the absent `meta` or `upstrea
 
 ---
 
+### S18 — Graduate a Note to a typed Record (`note graduate`)
+
+**Intention.** *"I captured a rough idea as a Note. Now I've thought it through and want to promote it into a proper decision record — without losing the original thinking, and in one step rather than three."*
+
+**Capabilities exercised.** `graduate_note` service: atomic Record creation + `graduatedAt` stamp; re-graduation guard; Note identity preserved after promotion; `repo validate` confirms both entities are well-formed.
+
+**CLI surface.** `note graduate`, `note get`, `record get`, `repo validate`.
+
+**Steps.**
+
+1. Create a throwaway repo with a field and a type:
+   ```bash
+   REPO=$(mktemp -d /tmp/dogfood-s18-XXXX)
+   srs repo create --repo "$REPO" --namespace com.example.s18
+   srs field create --repo "$REPO" <<'EOF'
+   {"id":"","namespace":"com.example.s18","name":"summary","version":1,"valueType":"string","description":"Summary","aiGuidance":null,"createdAt":""}
+   EOF
+   FIELD_ID=$(srs field list --repo "$REPO" | jq -r '.payload.fields[0].id')
+   srs type create --repo "$REPO" <<EOF
+   {"id":"","namespace":"com.example.s18","name":"decision","version":1,"description":"A decision","fields":[{"fieldId":"$FIELD_ID","order":0,"required":false,"repeatable":false}],"createdAt":""}
+   EOF
+   ```
+2. Capture a rough idea as a Note:
+   ```bash
+   NOTE_OUT=$(srs note create --repo "$REPO" <<'EOF'
+   {"instanceId":"","sections":[{"name":"body","content":"We should standardise our deployment process."}]}
+   EOF
+   )
+   NOTE_ID=$(echo "$NOTE_OUT" | jq -r '.payload.note.instanceId')
+   ```
+3. Graduate the Note to a decision Record:
+   ```bash
+   GRAD=$(srs note graduate --repo "$REPO" "$NOTE_ID" --type com.example.s18/decision <<EOF
+   {"fieldValues":[{"fieldId":"$FIELD_ID","value":"Standardise deployments via CI/CD pipeline"}]}
+   EOF
+   )
+   echo "$GRAD" | jq '{ok, graduatedAt: .payload.note.graduatedAt, recordId: .payload.record.instanceId}'
+   RECORD_ID=$(echo "$GRAD" | jq -r '.payload.record.instanceId')
+   ```
+4. Confirm the note carries `graduatedAt` and the record exists:
+   ```bash
+   srs note get --repo "$REPO" "$NOTE_ID" | jq '.payload.note.graduatedAt'
+   srs record get --repo "$REPO" "$RECORD_ID" | jq '{ok, instanceId: .payload.record.instanceId}'
+   ```
+5. Validate the repository:
+   ```bash
+   srs repo validate --repo "$REPO" --pretty
+   ```
+
+**Negative cases.**
+- **Note not found:** `echo '{"fieldValues":[]}' | srs note graduate --repo "$REPO" "00000000-0000-0000-0000-000000000000" --type com.example.s18/decision` — expect `ok: false` with "note not found".
+- **Unknown type:** `echo '{"fieldValues":[]}' | srs note graduate --repo "$REPO" "$NOTE_ID" --type com.example.s18/nonexistent` — expect `ok: false` with "type not found" (and note is still not graduated, because the error fires before the write).
+- **Re-graduation:** after step 3, graduate the same note again — expect `ok: false` with "already graduated".
+
+**Done when.** `ok: true`; `payload.note.graduatedAt` is a non-null ISO-8601 string; `payload.record.instanceId` is a non-empty UUID; the original Note is still present in `note list`; `repo validate` returns 0 diagnostics. All three negative cases return `ok: false` with clear diagnostics; no partial writes occur on error.
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -635,6 +693,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `repo copy` | S9, S10 |
 | `.srsj` write determinism (idempotent, minimal-diff) | S10 |
 | `note` (create/get/list/update/delete) | S1, S10 |
+| `note graduate` (atomic Note→Record promotion) | S18 |
 | `field` (create/list/get/update/delete) | S2 |
 | `type` (create/get/list/schema/update/delete) | S2 |
 | `record` (create/get/list/update/delete) | S1, S2, S4 |
