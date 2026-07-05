@@ -17,7 +17,7 @@ mod tui_input;
 mod tui_render;
 mod tui_state;
 
-use governance::{by_key, match_container, GOVERNANCE_CONTAINERS};
+use governance::{by_key, by_root_type, GOVERNANCE_CONTAINERS};
 use render::{container_list, record_detail, section, ContainerRow};
 use srs::run_srs;
 
@@ -166,48 +166,51 @@ fn run() -> Result<()> {
 fn cmd_top(repo: &str, explain: bool, json: bool) -> Result<()> {
     if explain {
         println!("# Underlying srs command:");
-        run_srs(&["container", "list"], repo, true, false)?;
+        run_srs(&["repo", "navigation"], repo, true, false)?;
         return Ok(());
     }
 
-    let payload = run_srs(&["container", "list"], repo, false, json)?;
+    let payload = run_srs(&["repo", "navigation"], repo, false, json)?;
     if json {
         return Ok(());
     }
 
-    let containers = payload["containers"]
-        .as_array()
-        .ok_or_else(|| anyhow::anyhow!("unexpected container list payload"))?;
+    let nav = &payload["navigation"];
+    let identity_label = nav["identity"]["displayLabel"]
+        .as_str()
+        .unwrap_or("(untitled)");
+    let empty_sections = vec![];
+    let sections = nav["sections"].as_array().unwrap_or(&empty_sections);
 
-    let mut used_keys: HashSet<&'static str> = HashSet::new();
     let mut rows: Vec<ContainerRow> = Vec::new();
-
-    for c in containers {
-        let ct = c["containerType"].as_str();
-        let title = c["title"].as_str().unwrap_or("");
-        let container_id = c["containerId"].as_str().unwrap_or("").to_string();
-
-        if let Some(def) = match_container(ct, title, &mut used_keys) {
-            // Degrade gracefully: a single unreadable container must not abort the
-            // whole top-level listing (matches the prior summary-derived count).
-            let member_count = container_member_count(repo, &container_id).unwrap_or(0);
-            rows.push(ContainerRow {
-                icon: def.icon,
-                key: def.key.to_string(),
-                container_type: def.container_type.to_string(),
-                member_count,
-                container_id,
-            });
-        }
+    for section in sections {
+        let type_ns = section["typeNamespace"].as_str().unwrap_or("");
+        let type_name = section["typeName"].as_str().unwrap_or("");
+        let section_container_id = section["sectionContainerId"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        let def_opt = by_root_type(type_ns, type_name);
+        let key = def_opt.map(|d| d.key).unwrap_or(type_name);
+        let icon = def_opt.map(|d| d.icon).unwrap_or("·");
+        // Degrade gracefully: a single unreadable container must not abort the listing.
+        let member_count = container_member_count(repo, &section_container_id).unwrap_or(0);
+        rows.push(ContainerRow {
+            icon,
+            key: key.to_string(),
+            container_type: type_name.to_string(),
+            member_count,
+            container_id: section_container_id,
+        });
     }
 
     if rows.is_empty() {
-        println!("No governance containers found in {repo}");
-        println!("(Expected containerType values: document, decision_log)");
+        println!("No governance sections found in {repo}");
+        println!("(Has srs repo set-root-container been run?)");
         return Ok(());
     }
 
-    container_list(&rows);
+    container_list(&format!("Governance   —   {identity_label}"), &rows);
     Ok(())
 }
 
@@ -266,6 +269,7 @@ fn cmd_list(
 
     if explain {
         println!("# Underlying srs commands (resolve-view srs-rust#254, find #217):");
+        run_srs(&["repo", "navigation"], repo, true, false)?;
         run_srs(
             &["container", "resolve-view", &container_id],
             repo,
@@ -511,6 +515,8 @@ fn cmd_create(
     println!();
 
     if explain {
+        println!("# Container resolved via:");
+        run_srs(&["repo", "navigation"], repo, true, false)?;
         println!("# Schema lookup used:");
         run_srs(
             &["type", "schema", &type_uuid, "--type-version", &tv],
@@ -560,58 +566,30 @@ fn container_member_count(repo: &str, container_id: &str) -> Result<usize> {
         .unwrap_or(0))
 }
 
-/// Resolve a containerId for a governance container.
+/// Resolve the containerId for a governance section via `srs repo navigation`.
 ///
-/// Matches on `containerType` first; when multiple containers share the same type
-/// (both `articles` and `roles` are `"document"`), disambiguates by comparing the
-/// container's title against `def.label` (case-insensitive).
+/// Matches on `typeNamespace`/`typeName` from the navigation UUID chain (RFC-009),
+/// replacing the soft-deprecated `containerType` string filter.
 fn resolve_container_id(def: &governance::ContainerTypeDef, repo: &str) -> Result<String> {
-    let payload = run_srs(&["container", "list"], repo, false, false)?;
-    let containers = payload["containers"]
+    let payload = run_srs(&["repo", "navigation"], repo, false, false)?;
+    let empty_sections = vec![];
+    let sections = payload["navigation"]["sections"]
         .as_array()
-        .ok_or_else(|| anyhow::anyhow!("no containers found in repo"))?;
+        .unwrap_or(&empty_sections);
 
-    let by_type: Vec<&serde_json::Value> = containers
+    sections
         .iter()
-        .filter(|c| c["containerType"].as_str() == Some(def.container_type))
-        .collect();
-
-    let matched = if by_type.len() == 1 {
-        by_type.into_iter().next()
-    } else {
-        // Disambiguate by title (case-insensitive match against def.label). If more
-        // than one container of this type carries the same title, the choice is
-        // ambiguous — fail loudly rather than silently picking the first match.
-        let title_matches: Vec<&serde_json::Value> = by_type
-            .into_iter()
-            .filter(|c| {
-                c["title"]
-                    .as_str()
-                    .map(|t| t.eq_ignore_ascii_case(def.label))
-                    .unwrap_or(false)
-            })
-            .collect();
-        if title_matches.len() > 1 {
-            return Err(anyhow::anyhow!(
-                "ambiguous container for key '{}': {} containers of type '{}' have title '{}' in {repo}",
-                def.key,
-                title_matches.len(),
-                def.container_type,
-                def.label
-            ));
-        }
-        title_matches.into_iter().next()
-    };
-
-    matched
-        .and_then(|c| c["containerId"].as_str())
+        .find(|s| {
+            s["typeNamespace"].as_str() == Some(def.root_type_namespace)
+                && s["typeName"].as_str() == Some(def.root_type_name)
+        })
+        .and_then(|s| s["sectionContainerId"].as_str())
         .map(String::from)
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "no container matching key '{}' (type '{}', label '{}') found in {repo}",
-                def.key,
-                def.container_type,
-                def.label
+                "no section of type '{}/{}' found via repository navigation in {repo}",
+                def.root_type_namespace,
+                def.root_type_name,
             )
         })
 }
