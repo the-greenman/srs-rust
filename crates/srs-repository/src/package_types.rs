@@ -19,6 +19,10 @@ pub struct PackageBoundary {
     pub field_paths: Vec<String>,
     /// Paths of type files, relative to the boundary directory.
     pub type_paths: Vec<String>,
+    /// Paths of blueprint files, relative to the boundary directory.
+    pub blueprint_paths: Vec<String>,
+    /// Paths of protocol files, relative to the boundary directory.
+    pub protocol_paths: Vec<String>,
 }
 
 /// A field merged from all boundaries, carrying its source boundary.

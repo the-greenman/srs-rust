@@ -1834,6 +1834,22 @@ fn file_store_boundary_from_json(
                 .collect()
         })
         .unwrap_or_default();
+    let blueprint_paths = pkg_json["blueprints"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let protocol_paths = pkg_json["protocols"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
     PackageBoundary {
         selector,
         id: pkg_json["id"].as_str().unwrap_or("").to_string(),
@@ -1842,6 +1858,8 @@ fn file_store_boundary_from_json(
         version: pkg_json["version"].as_str().unwrap_or("").to_string(),
         field_paths,
         type_paths,
+        blueprint_paths,
+        protocol_paths,
     }
 }
 
@@ -1988,6 +2006,8 @@ pub mod memory {
                 version: package.version.clone(),
                 field_paths: vec![],
                 type_paths: vec![],
+                blueprint_paths: vec![],
+                protocol_paths: vec![],
             };
             let mut boundaries = HashMap::new();
             boundaries.insert(None, primary_boundary);
@@ -2907,6 +2927,8 @@ pub mod memory {
                     version: String::new(),
                     field_paths: vec![],
                     type_paths: vec![],
+                    blueprint_paths: vec![],
+                    protocol_paths: vec![],
                 }
             });
             drop(boundaries);
