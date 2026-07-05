@@ -3308,8 +3308,7 @@ mod tests {
             .diagnostics
             .iter()
             .filter(|d| {
-                d.relative_path.contains("blueprints")
-                    && d.severity == DiagnosticSeverity::Error
+                d.relative_path.contains("blueprints") && d.severity == DiagnosticSeverity::Error
             })
             .collect();
         assert!(
@@ -3339,8 +3338,7 @@ mod tests {
             .diagnostics
             .iter()
             .filter(|d| {
-                d.relative_path.contains("blueprints")
-                    && d.severity == DiagnosticSeverity::Error
+                d.relative_path.contains("blueprints") && d.severity == DiagnosticSeverity::Error
             })
             .collect();
         assert!(
@@ -3379,8 +3377,7 @@ mod tests {
             .diagnostics
             .iter()
             .filter(|d| {
-                d.relative_path.contains("protocols")
-                    && d.severity == DiagnosticSeverity::Error
+                d.relative_path.contains("protocols") && d.severity == DiagnosticSeverity::Error
             })
             .collect();
         assert!(
