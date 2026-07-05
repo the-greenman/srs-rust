@@ -195,8 +195,8 @@ fn cmd_note_graduate(
         Ok(graduate_note(
             store,
             GraduateNoteInput {
-                note_id: id.clone(),
-                type_ref: type_ref.clone(),
+                note_id: id,
+                type_ref,
                 type_version,
                 record_input,
                 container_id,

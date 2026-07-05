@@ -440,7 +440,7 @@ pub enum NoteCommand {
         /// Note instance ID to graduate
         id: String,
         /// Target type in namespace/name format (e.g. com.example/article)
-        #[arg(long = "type", visible_alias = "type-filter")]
+        #[arg(long = "type")]
         type_ref: String,
         /// Optional type version override (defaults to latest)
         #[arg(long)]

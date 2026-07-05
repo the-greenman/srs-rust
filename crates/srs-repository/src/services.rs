@@ -334,7 +334,7 @@ pub fn graduate_note(
         GetNoteResult::Found(n) => *n,
         GetNoteResult::NotFound => {
             return Err(RepositoryError::NoteNotFound {
-                path: std::path::PathBuf::from("records/notes"),
+                path: std::path::PathBuf::new(),
                 id: input.note_id.clone(),
             })
         }
@@ -348,7 +348,17 @@ pub fn graduate_note(
         }
     };
 
-    // Step 2: create the typed Record
+    // Step 2: guard against re-graduation (graduation is a one-way promotion)
+    if note.graduated_at.is_some() {
+        return Err(RepositoryError::InvalidInput {
+            message: format!(
+                "Note '{}' is already graduated; cannot graduate again",
+                input.note_id
+            ),
+        });
+    }
+
+    // Step 3: create the typed Record
     let create_result = create_record_in_context(
         store,
         &input.type_ref,
@@ -358,7 +368,7 @@ pub fn graduate_note(
         None,
     )?;
 
-    // Step 3: stamp graduated_at and write the note back
+    // Step 4: stamp graduated_at and write the note back
     note.graduated_at = Some(chrono::Utc::now().to_rfc3339());
     let update_result = update_note(store, note)?;
 
@@ -1430,5 +1440,32 @@ mod tests {
             }
             _ => panic!("Expected note to be found in file store after copy"),
         }
+    }
+
+    #[test]
+    fn graduate_note_already_graduated_returns_error() {
+        let mut note = make_note("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", "Already Graduated");
+        note.graduated_at = Some("2026-01-01T00:00:00Z".to_string());
+        let store = store_with_note_and_type(&note, "records/notes/already-graduated.json");
+        let err = graduate_note(
+            &store,
+            GraduateNoteInput {
+                note_id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee".to_string(),
+                type_ref: "com.test/simple-type".to_string(),
+                type_version: None,
+                record_input: CreateRecordInput {
+                    field_values: vec![],
+                    group_values: None,
+                    tags: None,
+                },
+                container_id: None,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::InvalidInput { .. }),
+            "expected InvalidInput for already-graduated note, got {:?}",
+            err
+        );
     }
 }
