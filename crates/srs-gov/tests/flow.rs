@@ -75,10 +75,10 @@ fn run(args: &[&str]) -> (bool, String) {
 
 #[test]
 fn top_level_lists_only_decision_log() {
-    // Release 1 is decision-log-only: srs-gov surfaces the Decision Log and ignores any
-    // article/role containers a repo may still carry (those types are dormant in the package).
-    let (ok, out) = run(&[]);
-    assert!(ok, "srs-gov top-level failed");
+    // Release 1 is decision-log-only: srs-gov surfaces only sections whose typeNamespace/typeName
+    // match a known ContainerTypeDef, and ignores any unknown sections.
+    let repo = setup_repo("top-only");
+    let out = gov_out(&repo.path, &[]);
     assert!(
         out.contains("decision_log"),
         "expected decision_log section\n{out}"
@@ -95,8 +95,9 @@ fn top_level_lists_only_decision_log() {
 
 #[test]
 fn top_level_reports_nonzero_decision_log_members() {
-    let (ok, out) = run(&[]);
-    assert!(ok, "srs-gov top-level failed");
+    // setup_repo creates 4 decisions, so member count > 0.
+    let repo = setup_repo("top-nonzero");
+    let out = gov_out(&repo.path, &[]);
 
     let decision_log_line = out
         .lines()
@@ -115,18 +116,14 @@ fn top_level_reports_nonzero_decision_log_members() {
 
 #[test]
 fn decision_log_list_renders_decisions() {
-    let (ok, out) = run(&["list", "decision_log"]);
-    assert!(ok, "decision_log list failed");
-    // The rendered view should contain known decision text from the gallery
+    // setup_repo inserts "Adopt monthly cadence" and "Records live in the system" decisions.
+    let repo = setup_repo("list-render");
+    let out = gov_out(&repo.path, &["list", "decision_log"]);
     assert!(
-        out.contains("Pilot duration") || out.contains("Eye level") || out.contains("Mounting"),
+        out.contains("Adopt monthly cadence") || out.contains("Records live in the system"),
         "expected known decision text\n{out}"
     );
-    // Should also include a member ID index
-    assert!(
-        out.contains("Member IDs"),
-        "expected Member IDs section\n{out}"
-    );
+    assert!(out.contains("Member IDs"), "expected Member IDs section\n{out}");
 }
 
 #[test]
@@ -148,41 +145,31 @@ fn decision_log_get_shows_field_labels() {
 
 #[test]
 fn create_decision_dry_run_emits_correct_command() {
-    let (ok, out) = run(&["create", "decision_log", "decision"]);
-    assert!(ok, "create dry-run failed\n{out}");
-    // Should print srs record create command
-    assert!(
-        out.contains("srs record create"),
-        "expected srs record create\n{out}"
-    );
+    // Use a self-contained governance repo — field IDs are package constants regardless of repo.
+    let repo = setup_repo("create-cmd");
+    let out = gov_out(&repo.path, &["create", "decision_log", "decision"]);
+    assert!(out.contains("srs record create"), "expected srs record create\n{out}");
     assert!(out.contains("governance/decision"), "expected type\n{out}");
-    assert!(out.contains("138e2fac"), "expected container id\n{out}");
-    // fieldIds for required fields
+    assert!(out.contains("--container"), "expected --container flag\n{out}");
+    // fieldIds are governance package constants, identical across all repos
     assert!(out.contains("d7e82557"), "expected title fieldId\n{out}"); // title
-    assert!(
-        out.contains("de1296e0"),
-        "expected statement fieldId\n{out}"
-    ); // decision_statement
+    assert!(out.contains("de1296e0"), "expected statement fieldId\n{out}"); // decision_statement
 }
 
 #[test]
 fn create_decision_dry_run_does_not_mutate() {
     use std::fs;
-    let repo = repo_root();
-    // Snapshot manifest before
-    let manifest_path = repo.join("manifest.json");
-    let before = fs::read(&manifest_path).expect("read manifest");
-
-    let (ok, _) = run(&["create", "decision_log", "decision"]);
-    assert!(ok, "create dry-run failed");
-
-    let after = fs::read(&manifest_path).expect("re-read manifest");
-    assert_eq!(before, after, "manifest changed — create is not dry-run!");
+    let repo = setup_repo("create-nomutate");
+    let before = fs::read(&repo.path).expect("read srsj");
+    gov_out(&repo.path, &["create", "decision_log", "decision"]);
+    let after = fs::read(&repo.path).expect("re-read srsj");
+    assert_eq!(before, after, "srsj changed — create is not dry-run!");
 }
 
 #[test]
 fn create_decision_dry_run_escapes_quoted_values() {
-    let (ok, out) = run(&[
+    let repo = setup_repo("create-escape");
+    let out = gov_out(&repo.path, &[
         "create",
         "decision_log",
         "decision",
@@ -191,7 +178,6 @@ fn create_decision_dry_run_escapes_quoted_values() {
         "--statement",
         "Use quoted title safely",
     ]);
-    assert!(ok, "create dry-run failed\n{out}");
 
     let start = out.find("{\n").expect("expected JSON heredoc body");
     let end = out[start..].find("\nEOF").expect("expected heredoc EOF") + start;
@@ -212,37 +198,34 @@ fn create_decision_dry_run_escapes_quoted_values() {
 
 #[test]
 fn explain_flag_prints_commands_without_running() {
-    let (ok, out) = run(&["--explain", "list", "decision_log"]);
-    assert!(ok, "explain list failed\n{out}");
+    let repo = setup_repo("explain");
+    let out = gov_out(&repo.path, &["--explain", "list", "decision_log"]);
+    assert!(out.contains("srs"), "expected srs command output in explain mode\n{out}");
+    // Should NOT contain rendered decision content (since we returned early in explain mode)
     assert!(
-        out.contains("srs"),
-        "expected srs command output in explain mode\n{out}"
-    );
-    // Should NOT contain rendered decision content (since we didn't run)
-    assert!(
-        !out.contains("Pilot duration"),
+        !out.contains("Adopt monthly cadence"),
         "render ran in explain mode\n{out}"
     );
 }
 
 #[test]
 fn json_flag_top_level_prints_raw_srs_envelope() {
-    let (ok, out) = run(&["--json"]);
-    assert!(ok, "json top-level failed\n{out}");
+    let repo = setup_repo("json-top");
+    let out = gov_out(&repo.path, &["--json"]);
 
     let envelope: serde_json::Value =
         serde_json::from_str(&out).expect("top-level --json should print JSON");
     assert_eq!(envelope["ok"].as_bool(), Some(true), "expected ok envelope");
     assert!(
-        envelope["payload"]["containers"].is_array(),
-        "expected container list payload\n{out}"
+        envelope["payload"]["navigation"].is_object(),
+        "expected navigation payload\n{out}"
     );
 }
 
 #[test]
 fn json_flag_list_prints_raw_resolve_view_envelope() {
-    let (ok, out) = run(&["--json", "list", "decision_log"]);
-    assert!(ok, "json list failed\n{out}");
+    let repo = setup_repo("json-list");
+    let out = gov_out(&repo.path, &["--json", "list", "decision_log"]);
 
     let envelope: serde_json::Value =
         serde_json::from_str(&out).expect("list --json should print JSON");
