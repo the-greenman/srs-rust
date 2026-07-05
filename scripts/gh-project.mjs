@@ -9,8 +9,11 @@
 // Priority model: user stories (label `user-story`, in muDemocracy.org) carry a MoSCoW
 // value on the board; implementation issues are their sub-issues (native GitHub
 // sub-issues) and inherit a derived `priority: Pn` label (highest served story, bumped
-// one tier if gate-blocking). Bugs floor at P1 even without a story; unlinked non-bug
-// issues are flagged, never lost.
+// one tier if gate-blocking). An issue with no story ancestry but reachable from an
+// epic inherits the epic's roadmap Priority one tier down (P0→P1, P1→P2, P2→P2) —
+// engineering/enabling work rides its release's rank but sits below the release's
+// story work unless a bump label raises it. Bugs floor at P1 even without a story;
+// an issue under neither a story nor an epic is flagged as orphaned, never lost.
 //
 // Release model: an epic (label `epic`, in muDemocracy.org) IS a release. The epic
 // declares its release once (its own Release field value) and ranks the roadmap via its
@@ -688,8 +691,9 @@ function setSizeLabel(repo, num, size, dryRun) {
 const higher = (a, b) => (a && (!b || P_ORDER.indexOf(a) < P_ORDER.indexOf(b)) ? a : b);
 
 // Derive an issue's priority AND record every stage of the calculation, so the
-// reasoning is explainable (see `summary` / `explain`).
-function derivePriority(row, served, storiesByNum) {
+// reasoning is explainable (see `summary` / `explain`). `epicInfo` is the claiming
+// epic (`{num, priority}`) from epicDescendants, or null if under no epic.
+function derivePriority(row, served, storiesByNum, epicInfo = null) {
   const isBug = row.labels.includes("bug");
   const servedArr = served ? [...served] : [];
 
@@ -703,16 +707,27 @@ function derivePriority(row, served, storiesByNum) {
   let base = null;
   for (const sv of storyValues) base = higher(sv.p, base);
 
-  // Stage 4: bug floor — a bug is never weaker than P1.
+  // Stage 4: epic fallback — no story value, but the issue is reachable from an
+  // epic: inherit the epic's roadmap Priority one tier down (P0→P1, P1→P2, P2→P2).
+  // Engineering/enabling work rides its release's rank but sits below the release's
+  // story work by default; a bump label (stage 6) raises a specific issue.
   let p = base;
-  let bugFloor = null;
-  if (isBug) {
-    const to = higher(base, BUG_FLOOR); // raise to P1 if base is weaker/absent
-    bugFloor = { applied: to !== base, from: base, to };
+  let epicFallback = { applied: false, epic: epicInfo?.num ?? null, epicPriority: epicInfo?.priority ?? null, to: null };
+  if (p === null && epicInfo?.priority) {
+    const to = P_ORDER[Math.min(P_ORDER.length - 1, P_ORDER.indexOf(epicInfo.priority) + 1)];
+    epicFallback = { applied: true, epic: epicInfo.num, epicPriority: epicInfo.priority, to };
     p = to;
   }
 
-  // Stage 5: bump one tier (cap P0) if a bump-signal label is present.
+  // Stage 5: bug floor — a bug is never weaker than P1.
+  let bugFloor = null;
+  if (isBug) {
+    const to = higher(p, BUG_FLOOR); // raise to P1 if current value is weaker/absent
+    bugFloor = { applied: to !== p, from: p, to };
+    p = to;
+  }
+
+  // Stage 6: bump one tier (cap P0) if a bump-signal label is present.
   const bumpLabels = row.labels.filter((l) => BUMP_LABELS.has(l));
   let bump = { labels: bumpLabels, applied: false, from: p, to: p };
   if (p && bumpLabels.length) {
@@ -721,8 +736,8 @@ function derivePriority(row, served, storiesByNum) {
     p = to;
   }
 
-  const kind = servedArr.length ? "story-derived" : isBug ? "bug-floor" : "unlinked";
-  return { p, stages: { kind, isBug, served: servedArr, storyValues, base, bugFloor, bump, final: p } };
+  const kind = servedArr.length ? "story-derived" : isBug ? "bug-floor" : epicFallback.applied ? "epic-derived" : "orphaned";
+  return { p, stages: { kind, isBug, served: servedArr, storyValues, base, epicFallback, bugFloor, bump, final: p } };
 }
 
 function computeRollup() {
@@ -736,17 +751,26 @@ function computeRollup() {
   }
   const descendants = storyDescendants([...storiesByNum.values()]);
 
+  // Epic ancestry for the fallback stage: key → claiming epic (with its Priority).
+  const epics = openEpics();
+  const epicByNum = new Map(epics.map((e) => [e.num, e]));
+  const epicDesc = epicDescendants(epics);
+
   const derived = []; // {row, p, stages, basis}
   const bugs = [];
-  const unlinked = [];
+  const unlinked = []; // orphaned: under neither a story nor an epic
   for (const row of b.values()) {
     if (row.state !== "OPEN") continue;
     if (row.repo === STORY_REPO) continue; // skip stories/epics themselves
     if (row.labels.includes(STORY_LABEL) || row.labels.includes("epic") || row.labels.includes("plan")) continue;
-    const { p, stages } = derivePriority(row, descendants.get(row.key), storiesByNum);
+    const claiming = epicDesc.get(row.key);
+    const epicInfo = claiming != null ? { num: claiming, priority: epicByNum.get(claiming)?.priority ?? null } : null;
+    const { p, stages } = derivePriority(row, descendants.get(row.key), storiesByNum, epicInfo);
     if (stages.kind === "story-derived")
       derived.push({ row, p, stages, basis: `stories ${stages.served.map((n) => "#" + n).join(",")}` });
     else if (stages.kind === "bug-floor") bugs.push({ row, p, stages, basis: "bug floor (no story)" });
+    else if (stages.kind === "epic-derived")
+      derived.push({ row, p, stages, basis: `epic #${stages.epicFallback.epic} ${stages.epicFallback.epicPriority}→${stages.epicFallback.to}` });
     else unlinked.push({ row, stages });
   }
   const uncovered = [...storiesByNum.values()].filter(
@@ -896,6 +920,26 @@ function cmdEpicSet(argv, dryRun) {
   const itemId = ensureOnBoard(STORY_REPO, num, dryRun);
   if (priority) { console.log(`${dryRun ? "[dry-run] " : ""}Priority ${STORY_REPO}#${num} = ${priority}`); if (!dryRun) setSingleSelect(itemId, "Priority", priority, false); }
   if (release)  { console.log(`${dryRun ? "[dry-run] " : ""}Release ${STORY_REPO}#${num} = ${release}`);   if (!dryRun) setSingleSelect(itemId, "Release", release, false); }
+}
+
+// `link <parent-repo>#<num> <child-repo>#<num>` — generic native sub-issue link,
+// cross-repo, plain REST (no Projects v2). This is how an agent parents a freshly
+// filed engineering issue under the story or epic it serves so the rollup can derive
+// its priority. Proxy-bound cloud routines can run this (or the equivalent raw
+// `gh api` POST) — the sub-issues endpoints are REST, not GraphQL.
+function parseIssueRef(s) {
+  const m = /^([\w.-]+)#(\d+)$/.exec(s || "");
+  return m ? { repo: m[1], num: m[2] } : null;
+}
+function cmdLink(argv, dryRun) {
+  const refs = argv.filter((a) => !a.startsWith("--"));
+  const parent = parseIssueRef(refs[0]);
+  const child = parseIssueRef(refs[1]);
+  if (!parent || !child) die("usage: link <parent-repo>#<num> <child-repo>#<num>   (e.g. link muDemocracy.org#48 srs-web#116)");
+  const c = ghJson(["api", `repos/${OWNER}/${child.repo}/issues/${child.num}`, "--jq", "{id:.id}"]);
+  if (!c?.id) die(`could not resolve issue id for ${child.repo}#${child.num}`);
+  console.log(`${dryRun ? "[dry-run] " : ""}link ${child.repo}#${child.num} under ${parent.repo}#${parent.num}`);
+  if (!dryRun) gh(["api", "-X", "POST", `repos/${OWNER}/${parent.repo}/issues/${parent.num}/sub_issues`, "-F", `sub_issue_id=${c.id}`]);
 }
 
 // `epic add-story <epic#> <story#>` — backfill: link a story under an epic as a native
@@ -1204,17 +1248,17 @@ function cmdRollup(argv) {
   if (!dryRun) for (const repo of MIRROR_REPOS) ensureLabels(repo); // self-heal mirror set (#335)
   const r = computeRollup();
   const lines = [];
-  lines.push("## Story-derived");
-  for (const e of [...r.derived].sort((a, b) => pRank(a.p) - pRank(b.p))) {
-    const changed = applyPriority(e, dryRun);
-    lines.push(`  ${e.row.key} -> ${e.p ?? "(none)"}  [${e.basis}]${changed ? (dryRun ? " (would change)" : " (changed)") : ""}`);
-  }
-  lines.push("## Bugs — fix ASAP (no story)");
-  for (const e of r.bugs) {
-    const changed = applyPriority(e, dryRun);
-    lines.push(`  ${e.row.key} -> ${e.p}  [${e.basis}]${changed ? (dryRun ? " (would change)" : " (changed)") : ""}`);
-  }
-  lines.push("## Unlinked — could get lost (non-bug, no story)");
+  const section = (title, entries) => {
+    lines.push(title);
+    for (const e of [...entries].sort((a, b) => pRank(a.p) - pRank(b.p))) {
+      const changed = applyPriority(e, dryRun);
+      lines.push(`  ${e.row.key} -> ${e.p ?? "(none)"}  [${e.basis}]${changed ? (dryRun ? " (would change)" : " (changed)") : ""}`);
+    }
+  };
+  section("## Story-derived", r.derived.filter((e) => e.stages.kind === "story-derived"));
+  section("## Epic-derived (no story — epic Priority one tier down)", r.derived.filter((e) => e.stages.kind === "epic-derived"));
+  section("## Bugs — fix ASAP (no story)", r.bugs);
+  lines.push("## Orphaned — could get lost (non-bug, under no story and no epic)");
   for (const u of r.unlinked) lines.push(`  ${u.row.key}  ${u.row.title}`);
   lines.push("## Uncovered stories (no implementation children)");
   for (const s of r.uncovered) lines.push(`  ${STORY_REPO}#${s.num}  ${s.title}`);
@@ -1227,16 +1271,19 @@ function cmdCoverage() {
   const { orphanStories } = computeReleaseRollup();
   console.log(fmt({
     bugs_fix_asap: r.bugs.map((e) => ({ key: e.row.key, p: e.p, title: e.row.title })),
-    unlinked_could_get_lost: r.unlinked.map((u) => ({ key: u.row.key, title: u.row.title })),
+    orphaned_could_get_lost: r.unlinked.map((u) => ({ key: u.row.key, title: u.row.title })),
     uncovered_stories: r.uncovered.map((s) => ({ key: `${STORY_REPO}#${s.num}`, title: s.title })),
     orphan_stories_no_epic: orphanStories.map((s) => ({ key: `${STORY_REPO}#${s.num}`, title: s.title })),
     unsized_issues: unsizedLeaves().map((row) => ({ key: row.key, title: row.title })),
   }));
 }
 
-// Compact "moscow→base" cell, e.g. "Must,Should→P0" or "—".
+// Compact "moscow→base" cell, e.g. "Must,Should→P0", "epic P0→P1", or "—".
 function moscowCell(stages) {
-  if (!stages.storyValues.length) return "—";
+  if (!stages.storyValues.length) {
+    if (stages.epicFallback?.applied) return `epic ${stages.epicFallback.epicPriority}→${stages.epicFallback.to}`;
+    return "—";
+  }
   const ms = stages.storyValues.map((sv) => sv.moscow ?? "?").join(",");
   return `${ms}→${stages.base ?? "none"}`;
 }
@@ -1245,9 +1292,10 @@ const STAGE_LEGEND = [
   ["1 served stories", "walk the sub-issue graph up to the user stories an issue serves"],
   ["2 MoSCoW → P", "Must→P0 · Should→P1 · Could→P2 · Won't→(none)"],
   ["3 base", "highest (most urgent) P across the served stories"],
-  ["4 bug floor", "a `bug` is never weaker than P1 (even with no story)"],
-  ["5 bump", "+1 tier (cap P0) if a label is in {" + [...BUMP_LABELS].join(", ") + "}"],
-  ["6 final", "the derived priority (written as the `priority: Pn` label + board mirror)"],
+  ["4 epic fallback", "no story: inherit the claiming epic's Priority one tier down (P0→P1, P1→P2, P2→P2)"],
+  ["5 bug floor", "a `bug` is never weaker than P1 (even with no story)"],
+  ["6 bump", "+1 tier (cap P0) if a label is in {" + [...BUMP_LABELS].join(", ") + "}"],
+  ["7 final", "the derived priority (written as the `priority: Pn` label + board mirror)"],
 ];
 
 function cmdSummary(argv) {
@@ -1273,7 +1321,7 @@ function cmdSummary(argv) {
   L.push(
     `TOTALS   P0×${cnt.P0}  P1×${cnt.P1}  P2×${cnt.P2}   ·   ` +
       `bugs(no story)×${r.bugs.filter((e) => keep(e.row)).length}  ` +
-      `unlinked×${r.unlinked.filter((u) => keep(u.row)).length}  ` +
+      `orphaned×${r.unlinked.filter((u) => keep(u.row)).length}  ` +
       `uncovered-stories×${r.uncovered.length}`
   );
 
@@ -1299,7 +1347,9 @@ function cmdSummary(argv) {
     L.push(`  ${"issue".padEnd(16)} ${"served".padEnd(14)} ${"moscow→base".padEnd(16)} ${"floor".padEnd(6)} ${"bump".padEnd(14)} final`);
     for (const e of estimates) {
       const s = e.stages;
-      const served = s.served.length ? s.served.map((n) => "#" + n).join(",") : e.stages.isBug ? "—(bug)" : "—";
+      const served = s.served.length
+        ? s.served.map((n) => "#" + n).join(",")
+        : s.epicFallback?.applied ? `epic#${s.epicFallback.epic}` : e.stages.isBug ? "—(bug)" : "—";
       const floor = s.bugFloor?.applied ? `→${s.bugFloor.to}` : "—";
       const bumpc = s.bump.applied ? `→${s.bump.to}(${s.bump.labels.join(",")})` : "—";
       L.push(
@@ -1338,7 +1388,17 @@ function cmdExplain(argv) {
   );
   L.push("Stage 3 · base = highest served story");
   L.push(`    ${s.base ?? "(none)"}`);
-  L.push("Stage 4 · bug floor (a bug is never weaker than P1)");
+  L.push("Stage 4 · epic fallback (no story: epic Priority one tier down)");
+  L.push(
+    s.served.length
+      ? "    n/a — story-derived"
+      : s.epicFallback?.applied
+        ? `    applied: epic ${STORY_REPO}#${s.epicFallback.epic} Priority ${s.epicFallback.epicPriority} → ${s.epicFallback.to}`
+        : s.epicFallback?.epic != null
+          ? `    under epic ${STORY_REPO}#${s.epicFallback.epic}, but it has no Priority set — nothing to inherit`
+          : "    n/a — not under any epic (orphaned)"
+  );
+  L.push("Stage 5 · bug floor (a bug is never weaker than P1)");
   L.push(
     !s.isBug
       ? "    n/a — not a bug"
@@ -1346,7 +1406,7 @@ function cmdExplain(argv) {
         ? `    applied: ${s.bugFloor.from ?? "(none)"} → ${s.bugFloor.to}`
         : `    not needed — base ${s.bugFloor.from} already ≥ P1`
   );
-  L.push(`Stage 5 · bump (labels in {${[...BUMP_LABELS].join(", ")}})`);
+  L.push(`Stage 6 · bump (labels in {${[...BUMP_LABELS].join(", ")}})`);
   L.push(
     s.bump.labels.length
       ? s.bump.applied
@@ -1354,7 +1414,7 @@ function cmdExplain(argv) {
         : `    signal present (${s.bump.labels.join(", ")}) but already at P0`
       : "    none"
   );
-  L.push("Stage 6 · final");
+  L.push("Stage 7 · final");
   const label = row.labels.find((l) => l.startsWith("priority: ")) ?? "(no label)";
   const sync = (p ? `priority: ${p}` : "(none)") === label && (p ?? null) === (row.priority ?? null);
   L.push(`    ${p ?? "(none)"}   [board: ${row.priority ?? "—"} · label: ${label}]  ${sync ? "✓ in sync" : "⚠ stale — run rollup --fix"}`);
@@ -1475,7 +1535,7 @@ function cmdReconcile(argv) {
       issues.push(`bug-unprioritised: ${e.row.key}`);
   }
   // Unlinked non-bug
-  for (const u of r.unlinked) issues.push(`unlinked-could-get-lost: ${u.row.key}`);
+  for (const u of r.unlinked) issues.push(`orphaned-could-get-lost: ${u.row.key}`);
   // Stories under no epic — release can't be derived until they are linked
   for (const s of computeReleaseRollup().orphanStories)
     issues.push(`orphan-story-no-epic: ${STORY_REPO}#${s.num}`);
@@ -1505,6 +1565,8 @@ function help() {
   epics                           roadmap: epics (= releases) by Priority, with coverage
   epic set <num> --priority P [--release R]   an epic's roadmap rank + release identity
   epic add-story <epic#> <story#>            link a story under an epic (sub-issue)
+  link <parent-repo>#<n> <child-repo>#<n>    generic sub-issue link (cross-repo, REST) — parent a
+                                             filed issue under the story/epic it serves
   release-sync [--dry-run]        derive each descendant's Release from its epic (writes; --dry-run previews)
   set <repo> <issue#> [--status --priority --iteration] [--dry-run]
   promote [--fix]                 promote every \`promote:ready\`-labelled issue to board Status=Ready
@@ -1516,7 +1578,7 @@ function help() {
                                   --assign writes band k → the "Band" number field (k = 1..N)
   reconcile [--fix]               report/repair board drift (priority + Status→label mirror)
 
-Priority stages: served stories → MoSCoW→P → base(max) → bug floor(P1) → bump(+1) → final.
+Priority stages: served stories → MoSCoW→P → base(max) → epic fallback(−1 tier) → bug floor(P1) → bump(+1) → final.
 Env: GHP_OWNER, GHP_PROJECT, GHP_STORY_REPO.
 Auth: requires an authenticated \`gh\` CLI, or GITHUB_TOKEN/GH_TOKEN env var (curl fallback).`);
 }
@@ -1525,7 +1587,7 @@ Auth: requires an authenticated \`gh\` CLI, or GITHUB_TOKEN/GH_TOKEN env var (cu
 // Dispatch
 // ---------------------------------------------------------------------------
 // Pure helpers exported for unit tests. Importing the module must NOT run the CLI.
-export { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs, STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant, planPromotions, PROMOTE_INTENT_LABEL, epicRank, bandTargets, SIZE_WEIGHT };
+export { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs, STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant, planPromotions, PROMOTE_INTENT_LABEL, epicRank, bandTargets, SIZE_WEIGHT, derivePriority, parseIssueRef };
 
 // Only dispatch when run directly (`node gh-project.mjs ...`), not when imported.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -1552,6 +1614,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         else if (rest[0] === "add-story") cmdEpicAddStory(rest.slice(1), dry);
         else die("usage: epic set <num> --priority P [--release R] | epic add-story <epic#> <story#>");
         break;
+      case "link": cmdLink(rest, dry); break;
       case "set": cmdSet(rest); break;
       case "promote": cmdPromote(rest); break;
       case "size": cmdSize(rest); break;

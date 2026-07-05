@@ -1,13 +1,13 @@
 // Unit tests for the plain-label mirror set (#335). Hermetic — imports the pure
 // helpers from gh-project.mjs; the module's main-guard means importing it does NOT
-// run the CLI or shell out to `gh`. Run: `node --test scripts/`
+// run the CLI or shell out to `gh`. Run: `node --test scripts/gh-project.test.mjs`
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs,
   STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant,
   planPromotions, PROMOTE_INTENT_LABEL, epicRank,
-  bandTargets, SIZE_WEIGHT,
+  bandTargets, SIZE_WEIGHT, derivePriority, parseIssueRef,
 } from "./gh-project.mjs";
 
 // The labels the scheduled cloud routines read/write. Missing any one hard-fails a
@@ -132,6 +132,63 @@ test("bandTargets fills equal-effort bands in order", () => {
   assert.ok(a[a.length - 1] <= 2, "never exceeds n-1 bands");
   // Fewer items than bands: each item in its own band, remainder empty.
   assert.deepEqual(bandTargets([1, 1], 5), [0, 1]);
+});
+
+// derivePriority is the pure rollup core: stories → base, epic fallback, bug floor, bump.
+const prow = (labels = []) => ({ repo: "srs-rust", num: 1, key: "srs-rust#1", labels });
+const stories = new Map([[21, { moscow: "Must" }], [22, { moscow: "Could" }]]);
+
+test("derivePriority: story value wins — epic fallback never fires when a story serves", () => {
+  const { p, stages } = derivePriority(prow(), new Set([21, 22]), stories, { num: 30, priority: "P2" });
+  assert.equal(p, "P0"); // highest served story (Must) — not degraded by the P2 epic
+  assert.equal(stages.kind, "story-derived");
+  assert.equal(stages.epicFallback.applied, false);
+});
+
+test("derivePriority: epic fallback inherits epic Priority one tier down, floored at P2", () => {
+  for (const [epicP, want] of [["P0", "P1"], ["P1", "P2"], ["P2", "P2"]]) {
+    const { p, stages } = derivePriority(prow(), null, stories, { num: 30, priority: epicP });
+    assert.equal(p, want, `epic ${epicP} → ${want}`);
+    assert.equal(stages.kind, "epic-derived");
+    assert.equal(stages.epicFallback.applied, true);
+  }
+});
+
+test("derivePriority: epic without a Priority gives nothing to inherit — orphaned", () => {
+  const { p, stages } = derivePriority(prow(), null, stories, { num: 30, priority: null });
+  assert.equal(p, null);
+  assert.equal(stages.kind, "orphaned");
+});
+
+test("derivePriority: no story, no epic — orphaned (flagged, never silently dropped)", () => {
+  const { p, stages } = derivePriority(prow(), null, stories, null);
+  assert.equal(p, null);
+  assert.equal(stages.kind, "orphaned");
+});
+
+test("derivePriority: bug floor still applies on top of the epic fallback", () => {
+  // bug under no epic → P1 floor
+  const noEpic = derivePriority(prow(["bug"]), null, stories, null);
+  assert.equal(noEpic.p, "P1");
+  assert.equal(noEpic.stages.kind, "bug-floor");
+  // bug under a P2 epic: fallback P2, floor raises to P1
+  const underEpic = derivePriority(prow(["bug"]), null, stories, { num: 30, priority: "P2" });
+  assert.equal(underEpic.p, "P1");
+  assert.equal(underEpic.stages.bugFloor.applied, true);
+});
+
+test("derivePriority: bump raises an epic-derived issue back up one tier", () => {
+  const { p, stages } = derivePriority(prow(["critical-path"]), null, stories, { num: 30, priority: "P0" });
+  assert.equal(stages.epicFallback.to, "P1");
+  assert.equal(p, "P0"); // bump undoes the discount for gate-blocking work
+});
+
+test("parseIssueRef parses repo#num (dots and dashes in repo names) and rejects junk", () => {
+  assert.deepEqual(parseIssueRef("muDemocracy.org#48"), { repo: "muDemocracy.org", num: "48" });
+  assert.deepEqual(parseIssueRef("srs-web#116"), { repo: "srs-web", num: "116" });
+  assert.equal(parseIssueRef("116"), null);
+  assert.equal(parseIssueRef("srs-web#"), null);
+  assert.equal(parseIssueRef(undefined), null);
 });
 
 test("SIZE_WEIGHT orders effort small < medium < large < xl", () => {

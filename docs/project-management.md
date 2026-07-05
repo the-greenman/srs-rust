@@ -35,15 +35,38 @@ The tool rolls that down to implementation issues:
 
 - An impl issue that **serves ≥1 story** → priority = **highest** served MoSCoW:
   `Must→P0 · Should→P1 · Could→P2 · Won't→none`.
+- An issue with **no story ancestry** but reachable from an **epic** → **epic fallback**: it
+  inherits the epic's roadmap Priority **one tier down** (`P0→P1 · P1→P2 · P2→P2`). This is how
+  **engineering work** (refactors, extension implementations, tooling, spec chores filed under an
+  engineering epic) gets a derived priority without inventing artificial user stories: it rides
+  its release's rank but sits below the release's story work by default. A bump label raises a
+  specific issue back up.
 - A **`bug`** with no story → **P1 floor** (bugs are fixed ASAP and are *never* lost). A
   release-blocking bug bumps to P0.
 - **Bump one tier** (cap P0) when an issue carries a bump signal label: `critical-path`,
   `blocks-gate`, or (bug) `regression`.
-- An **unlinked non-bug** issue (no parent story) gets **no** derived priority and is **flagged**
-  in the "could get lost" report — link it to a story or justify it. Nothing is silently dropped.
+- An **orphaned non-bug** issue (under **no story and no epic**) gets **no** derived priority and
+  is **flagged** in the "could get lost" report — link it or justify it. Nothing is silently dropped.
 
 **Linkage = native GitHub sub-issues.** Make an implementation issue a sub-issue of the story
 (or epic) it serves. Epics may sit in between; the rollup traverses transitively to the leaves.
+
+**File issues linked — at creation time.** Any agent (or human) filing an implementation issue
+must immediately parent it under the story or engineering epic it serves, in the same session that
+files it. The sub-issues API is **plain REST**, so even proxy-bound cloud routines can do this:
+
+```bash
+# with the tool (CI/local or any REST-capable session):
+gh-project link muDemocracy.org#48 srs-web#116        # link <parent-repo>#<n> <child-repo>#<n>
+
+# raw REST equivalent (works everywhere gh works):
+CHILD_ID=$(gh api repos/the-greenman/<child-repo>/issues/<child#> --jq .id)
+gh api -X POST repos/the-greenman/<parent-repo>/issues/<parent#>/sub_issues -F sub_issue_id=$CHILD_ID
+```
+
+Deferred-from work links under the same parent as the issue it was deferred from. If no story or
+epic clearly applies, say so explicitly in your summary so it surfaces in the next `coverage`
+audit — do not guess a parent.
 
 ## Epics are releases
 
@@ -210,10 +233,12 @@ Every implementation issue's `priority: Pn` is *derived*, and the derivation is 
 1. **served stories** — walk the sub-issue graph up to the user stories the issue serves.
 2. **MoSCoW → P** — each served story's value maps: `Must→P0 · Should→P1 · Could→P2 · Won't→(none)`.
 3. **base** — the **highest** (most urgent) P across the served stories.
-4. **bug floor** — a `bug` is never weaker than **P1**, even with no story.
-5. **bump** — **+1 tier** (capped at P0) if the issue carries a label in
+4. **epic fallback** — no story: inherit the claiming epic's Priority **one tier down**
+   (`P0→P1 · P1→P2 · P2→P2`); a diamond is claimed by the higher-Priority epic.
+5. **bug floor** — a `bug` is never weaker than **P1**, even with no story.
+6. **bump** — **+1 tier** (capped at P0) if the issue carries a label in
    `{critical-path, blocks-gate, regression}`.
-6. **final** — the derived priority, written as the `priority: Pn` label + the board Priority mirror.
+7. **final** — the derived priority, written as the `priority: Pn` label + the board Priority mirror.
 
 `summary [--repo R] [--release X] [--brief]` prints the stage legend, TOTALS (P0/P1/P2 + bugs /
 unlinked / uncovered counts), a BY RELEASE breakdown, and a per-issue stage table. Use it to sense-
