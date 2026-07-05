@@ -18,8 +18,8 @@ pub fn section(title: &str) {
 }
 
 /// Print the governance container list (top-level `srs-gov` with no subcommand).
-pub fn container_list(rows: &[ContainerRow]) {
-    header("Governance   —   top-level containers");
+pub fn container_list(title: &str, rows: &[ContainerRow]) {
+    header(title);
     println!();
     println!("  {:<18} {:<14} {:<5}  ID", "SECTION", "TYPE", "COUNT");
     println!("  {}", "─".repeat(70));
