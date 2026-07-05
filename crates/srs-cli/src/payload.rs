@@ -20,6 +20,7 @@
 use schemars::JsonSchema;
 use serde::Serialize;
 use srs_core::types::{
+    blueprint::TypeRef,
     container::Container,
     lifecycle::Lifecycle,
     note::Note,
@@ -129,7 +130,7 @@ pub struct ProtocolStageEntry {
     pub ai_guidance: Option<serde_json::Value>,
     #[schemars(with = "Option<serde_json::Value>")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub output_type: Option<serde_json::Value>,
+    pub output_type: Option<TypeRef>,
 }
 
 /// A single entry in a blueprint list.
@@ -838,7 +839,8 @@ pub struct BriefStage {
     #[schemars(with = "Option<serde_json::Value>")]
     pub ai_guidance: Option<serde_json::Value>,
     #[schemars(with = "Option<serde_json::Value>")]
-    pub output_type: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_type: Option<TypeRef>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
