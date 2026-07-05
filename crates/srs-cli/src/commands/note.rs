@@ -11,10 +11,10 @@ use srs_repository::analysis::{
 };
 use srs_repository::record_store::CreateRecordInput;
 use srs_repository::services::{
-    add_note_tag, create_note_in_context, delete_note_in_context, get_note_by_id,
-    graduate_note, list_note_tags, list_notes, remove_note_tag, update_note_validated,
-    AddTagResult, CreateNoteInput, DeleteNoteInput, DeleteNoteResult, GetNoteResult,
-    GraduateNoteInput, ListNotesFilter, RemoveTagResult,
+    add_note_tag, create_note_in_context, delete_note_in_context, get_note_by_id, graduate_note,
+    list_note_tags, list_notes, remove_note_tag, update_note_validated, AddTagResult,
+    CreateNoteInput, DeleteNoteInput, DeleteNoteResult, GetNoteResult, GraduateNoteInput,
+    ListNotesFilter, RemoveTagResult,
 };
 use std::io::{self, Read};
 
@@ -27,9 +27,11 @@ pub fn dispatch(ctx: CliContext, cmd: NoteCommand) -> Result<String> {
         NoteCommand::Delete { id, json: _ } => cmd_note_delete(ctx, id),
         NoteCommand::Tag(tag_cmd) => cmd_note_tag_dispatch(ctx, tag_cmd),
         NoteCommand::Foundations { json: _ } => cmd_note_foundations(ctx),
-        NoteCommand::Graduate { id, type_ref, type_version } => {
-            cmd_note_graduate(ctx, id, type_ref, type_version)
-        }
+        NoteCommand::Graduate {
+            id,
+            type_ref,
+            type_version,
+        } => cmd_note_graduate(ctx, id, type_ref, type_version),
     }
 }
 

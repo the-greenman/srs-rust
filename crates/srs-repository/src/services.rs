@@ -1313,7 +1313,10 @@ mod tests {
             result.note.instance_id, result.record.instance_id,
             "note and record must have distinct IDs"
         );
-        assert_eq!(result.note.instance_id, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+        assert_eq!(
+            result.note.instance_id,
+            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        );
     }
 
     #[test]

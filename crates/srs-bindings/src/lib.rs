@@ -11,12 +11,16 @@ use srs_repository::package_service::{
     self, FieldListFilter, GetFieldResult, GetTypeResult, TypeListFilter,
 };
 use srs_repository::protocol_service::{self, GetProtocolResult};
-use srs_repository::record_store::{self, CreateRecordInput, RecordListFilter, TransitionLifecycleInput};
+use srs_repository::record_store::{
+    self, CreateRecordInput, RecordListFilter, TransitionLifecycleInput,
+};
 use srs_repository::relation_service::{self, ListRelationsFilter};
 use srs_repository::render_service::{self, RenderDocumentViewOptions};
 use srs_repository::repository_lifecycle::{self, InitNewRepositoryInput};
 use srs_repository::repository_navigation_service;
-use srs_repository::services::{self, graduate_note as graduate_note_service, GraduateNoteInput, ListNotesFilter};
+use srs_repository::services::{
+    self, graduate_note as graduate_note_service, GraduateNoteInput, ListNotesFilter,
+};
 use srs_repository::tag_service;
 use srs_repository::type_schema_service::{self, TypeSchemaInput};
 use srs_repository::validation;
@@ -732,7 +736,8 @@ mod tests {
                     "sections": [{"name": "body", "content": "test content"}]
                 }
             }
-        }).to_string()
+        })
+        .to_string()
     }
 
     #[test]
