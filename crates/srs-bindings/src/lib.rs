@@ -255,10 +255,7 @@ impl SrsRepository {
             serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
         let result = record_store::create_record_successor(&self.store, predecessor_id, input)
             .map_err(js_err)?;
-        to_js(&serde_json::json!({
-            "record": result.record,
-            "relation": result.relation,
-        }))
+        to_js(&result)
     }
 
     /// Project a blueprint into a nested draft-07 JSON Schema describing the whole
@@ -273,10 +270,7 @@ impl SrsRepository {
             },
         )
         .map_err(js_err)?;
-        to_js(&serde_json::json!({
-            "schema": result.schema,
-            "diagnostics": result.diagnostics,
-        }))
+        to_js(&result)
     }
 
     /// Render a document view. `view_id` is the view's UUID; `format` is `"json"` or `"markdown"`;
@@ -297,11 +291,7 @@ impl SrsRepository {
             container_id: container_id.as_deref(),
         })
         .map_err(js_err)?;
-        to_js(&serde_json::json!({
-            "rendered": result.rendered,
-            "diagnostics": result.diagnostics,
-            "projection": result.projection,
-        }))
+        to_js(&result)
     }
 
     /// List document-view (L2) summaries. `filter_json` is a JSON string matching
@@ -400,10 +390,7 @@ impl SrsRepository {
             },
         )
         .map_err(js_err)?;
-        to_js(&serde_json::json!({
-            "schema": result.schema,
-            "diagnostics": result.diagnostics,
-        }))
+        to_js(&result)
     }
 
     /// List blueprint summaries across all package boundaries.
@@ -412,10 +399,7 @@ impl SrsRepository {
     /// provenance issues (missing files, duplicate IDs) surface in `diagnostics`.
     pub fn list_blueprints(&self) -> Result<JsValue, JsValue> {
         let result = blueprint_service::list_blueprints_summary(&self.store).map_err(js_err)?;
-        to_js(&serde_json::json!({
-            "summaries": result.summaries,
-            "diagnostics": result.diagnostics,
-        }))
+        to_js(&result)
     }
 
     /// List protocol summaries from the compiled package model.
@@ -771,6 +755,21 @@ mod tests {
         assert!(
             json["record"]["instanceId"].is_string(),
             "record.instanceId must be present"
+        );
+    }
+
+    #[test]
+    fn blueprint_schema_result_serialises() {
+        use srs_repository::blueprint_schema_service::BlueprintSchemaResult;
+        let result = BlueprintSchemaResult {
+            schema: serde_json::Value::Null,
+            diagnostics: vec![],
+        };
+        let json = serde_json::to_value(&result).expect("BlueprintSchemaResult must serialize");
+        assert!(json["schema"].is_null(), "schema field must be present");
+        assert!(
+            json["diagnostics"].is_array(),
+            "diagnostics field must be present as array"
         );
     }
 }
