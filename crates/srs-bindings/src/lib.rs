@@ -394,8 +394,7 @@ impl SrsRepository {
     }
 
     /// List blueprint summaries across all package boundaries.
-    /// Returns `{ "summaries": [ { id, namespace, name, version, description, rootTypeCount,
-    /// sourcePackage? }, ... ], "diagnostics": [<string>, ...] }` as a JS value; WARN-level
+    /// Returns a JS value matching `BlueprintListResult`; WARN-level
     /// provenance issues (missing files, duplicate IDs) surface in `diagnostics`.
     pub fn list_blueprints(&self) -> Result<JsValue, JsValue> {
         let result = blueprint_service::list_blueprints_summary(&self.store).map_err(js_err)?;

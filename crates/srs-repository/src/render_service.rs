@@ -38,6 +38,7 @@ impl<'a> RenderDocumentViewOptions<'a> {
     }
 }
 
+// Clone not derived: DocumentViewProjection does not implement Clone.
 #[derive(Debug, serde::Serialize)]
 pub struct RenderResult {
     pub rendered: String,
