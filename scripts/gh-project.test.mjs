@@ -5,13 +5,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs,
-  STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant, epicRank,
+  STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant,
+  planPromotions, PROMOTE_INTENT_LABEL, epicRank,
   bandTargets, SIZE_WEIGHT,
 } from "./gh-project.mjs";
 
 // The labels the scheduled cloud routines read/write. Missing any one hard-fails a
 // `gh issue edit --add-label` in a repo that lacks it — the whole point of #335.
-const REQUIRED = ["ready", "priority: P0", "priority: P1", "priority: P2", "status: in progress"];
+const REQUIRED = ["ready", "priority: P0", "priority: P1", "priority: P2", "status: in progress", "promote:ready"];
 
 test("mirror set covers every label the routines read/write", () => {
   const names = MIRROR_LABELS.map((l) => l.name);
@@ -54,6 +55,48 @@ test("statusMirrorWant: only OPEN issues in a mirrored status carry a label", ()
   assert.equal(statusMirrorWant({ state: "OPEN", status: "Done" }), null);
   // A closed issue never carries a status-mirror label, even if its board Status lags.
   assert.equal(statusMirrorWant({ state: "CLOSED", status: "Ready" }), null);
+});
+
+// Promotion pipeline: a REST-only judge marks unblocked issues `promote:ready`; the privileged
+// `promote` command converts that intent to board Status=Ready. planPromotions is the pure core.
+const row = (o) => ({ repo: "srs-rust", num: o.num ?? 1, key: `srs-rust#${o.num ?? 1}`, state: "OPEN", status: null, labels: [], ...o });
+
+test("promote intent label is in the mirror set (so ensureLabels creates it everywhere)", () => {
+  assert.equal(PROMOTE_INTENT_LABEL, "promote:ready");
+  assert.ok(MIRROR_LABELS.map((l) => l.name).includes(PROMOTE_INTENT_LABEL), "intent label must be creatable");
+  // It must NOT be a Status mirror label — the judge owns it, the mirror owns `ready`.
+  assert.ok(!STATUS_MIRROR_LABELS.includes(PROMOTE_INTENT_LABEL), "intent must stay distinct from `ready`");
+});
+
+test("planPromotions ignores rows without the intent label", () => {
+  const plan = planPromotions([row({ num: 1, labels: [] }), row({ num: 2, labels: ["ready"] })]);
+  assert.equal(plan.length, 0);
+});
+
+test("planPromotions promotes only OPEN Backlog/unset issues", () => {
+  const rows = [
+    row({ num: 10, status: "Backlog", labels: [PROMOTE_INTENT_LABEL] }),
+    row({ num: 11, status: null,      labels: [PROMOTE_INTENT_LABEL] }),
+  ];
+  const plan = planPromotions(rows);
+  assert.deepEqual(plan.map((p) => [p.num, p.action, p.promote]), [
+    [10, "promoted", true],
+    [11, "promoted", true],
+  ]);
+});
+
+test("planPromotions never demotes/re-opens: advanced, ready, and closed intents are just cleared", () => {
+  const rows = [
+    row({ num: 20, status: "In progress", labels: [PROMOTE_INTENT_LABEL] }),
+    row({ num: 21, status: "In review",   labels: [PROMOTE_INTENT_LABEL] }),
+    row({ num: 22, status: "Done",        labels: [PROMOTE_INTENT_LABEL] }),
+    row({ num: 23, status: "Ready",       labels: [PROMOTE_INTENT_LABEL] }),
+    row({ num: 24, status: "Backlog", state: "CLOSED", labels: [PROMOTE_INTENT_LABEL] }),
+  ];
+  const plan = planPromotions(rows);
+  assert.ok(plan.every((p) => p.promote === false), "none of these may be promoted");
+  assert.deepEqual(plan.map((p) => p.action),
+    ["skip-advanced", "skip-advanced", "skip-advanced", "already-ready", "cleared-closed"]);
 });
 
 // Epics (= releases) order the roadmap by Priority, then by issue number. The same
