@@ -688,7 +688,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 
 | Command group | Exercised by |
 |---|---|
-| `repo` (map, validate, init) | S1–S6 (orientation + validation in every scenario); `repo validate` now includes manifest.json schema validation — see S1 negative case; RFC-013 I-79/I-80/I-81/I-82 root-container invariants — see S1 negative case (I-79) and S15 step 10 (full happy path) |
+| `repo` (map, validate, init) | S1–S6 (orientation + validation in every scenario); `repo validate` now includes manifest.json schema validation — see S1 negative case; RFC-013 I-79/I-80/I-81/I-82 root-container invariants — see S1 negative case (I-79) and S15 step 10 (full happy path); blueprint semantic validation + protocol stage-dependency validation — see S13 (`repo validate` on a repo with a protocol) |
 | `repo init-new` (re-stamp seed identity) | S16 |
 | `repo set-root-container` (write manifest.container pointer) | S17 |
 | `repo copy` | S9, S10 |

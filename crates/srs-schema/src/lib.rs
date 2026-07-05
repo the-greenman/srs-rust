@@ -3,6 +3,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 use thiserror::Error;
 
+pub const BLUEPRINT_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/blueprint.json";
 pub const CONTAINER_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/container.json";
 pub const DOCUMENT_VIEW_SCHEMA_ID: &str =
     "https://srs.semanticops.com/schema/2.0/document-view.json";
@@ -35,6 +36,7 @@ pub const TYPED_RECORD_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0
 pub const VIEW_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/view.json";
 
 pub const ALL_SCHEMA_IDS: &[&str] = &[
+    BLUEPRINT_SCHEMA_ID,
     CONTAINER_SCHEMA_ID,
     DOCUMENT_VIEW_SCHEMA_ID,
     DOCUMENT_VIEW_OUTPUT_SCHEMA_ID,
@@ -65,6 +67,7 @@ macro_rules! include_schema {
 }
 
 static SCHEMA_SOURCES: &[(&str, &str)] = &[
+    (BLUEPRINT_SCHEMA_ID, include_schema!("blueprint.json")),
     (CONTAINER_SCHEMA_ID, include_schema!("container.json")),
     (
         DOCUMENT_VIEW_SCHEMA_ID,
@@ -219,7 +222,7 @@ mod tests {
     #[test]
     fn registry_builds_and_has_all_schema_ids() {
         let reg = SchemaRegistry::global();
-        assert_eq!(reg.schema_ids().len(), 21);
+        assert_eq!(reg.schema_ids().len(), 22);
         for id in ALL_SCHEMA_IDS {
             assert!(reg.schema_ids().contains(id), "missing: {id}");
         }
@@ -302,6 +305,22 @@ mod tests {
             reg.validate_by_id("https://example.com/unknown.json", &val),
             Err(SchemaError::UnknownSchemaId(_))
         ));
+    }
+
+    #[test]
+    fn valid_blueprint_passes() {
+        let reg = SchemaRegistry::global();
+        let bp = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/blueprint.json",
+            "id": "00000000-0000-4000-8000-000000000030",
+            "namespace": "test",
+            "name": "test-blueprint",
+            "version": 1,
+            "description": "A test blueprint",
+            "rootTypes": [{"typeId": "00000000-0000-4000-8000-000000000031", "typeVersion": 1}],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        reg.validate_by_id(BLUEPRINT_SCHEMA_ID, &bp).unwrap();
     }
 
     #[test]

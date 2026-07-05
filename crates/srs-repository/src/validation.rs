@@ -1,9 +1,13 @@
 use crate::error::RepositoryError;
 use crate::store::RepositoryStore;
 use serde_json::Value;
+use srs_core::types::blueprint::{Blueprint, BlueprintDiagnosticSeverity};
+use srs_core::types::protocol::{Protocol, ProtocolDiagnosticSeverity};
 use srs_core::types::record::Record;
 use srs_core::types::relation::RelationsCollection;
+use srs_core::validation::blueprint::validate_blueprint;
 use srs_core::validation::lifecycle::{validate_lifecycle, LifecycleDiagnosticSeverity};
+use srs_core::validation::protocol::validate_protocol;
 use srs_core::validation::record::validate_record;
 use srs_core::validation::relation::{validate_relation, RelationValidationContext};
 use srs_schema::{SchemaRegistry, NOTE_SCHEMA_ID, RECORD_SCHEMA_ID};
@@ -689,6 +693,96 @@ pub fn validate_repository(
                             container_id, ctype, rt.name
                         ),
                     });
+                }
+            }
+        }
+    }
+
+    // --- Validate blueprint and protocol definitions ---
+    // Silent-skip for repos without a package (mirrors the `if let Ok(pkg)` guard pattern).
+    if let Ok(boundaries) = store.list_package_boundaries() {
+        for boundary in &boundaries {
+            let prefix = boundary.selector.as_deref().unwrap_or("package");
+
+            // Blueprint: semantic validation only (blueprint files do not include $schema)
+            for bp_path in &boundary.blueprint_paths {
+                let full_path = format!("{prefix}/{bp_path}");
+                let bp_value = match store.load_instance_json(&full_path) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        diagnostics.push(ValidationDiagnostic {
+                            severity: DiagnosticSeverity::Error,
+                            relative_path: full_path.clone(),
+                            schema_id: None,
+                            message: format!("failed to load blueprint definition: {e}"),
+                        });
+                        continue;
+                    }
+                };
+                match serde_json::from_value::<Blueprint>(bp_value) {
+                    Ok(bp) => {
+                        for diag in validate_blueprint(&bp).diagnostics {
+                            let severity = match diag.severity {
+                                BlueprintDiagnosticSeverity::Error => DiagnosticSeverity::Error,
+                                BlueprintDiagnosticSeverity::Warning => DiagnosticSeverity::Warning,
+                            };
+                            diagnostics.push(ValidationDiagnostic {
+                                severity,
+                                relative_path: full_path.clone(),
+                                schema_id: None,
+                                message: diag.message,
+                            });
+                        }
+                    }
+                    Err(e) => {
+                        diagnostics.push(ValidationDiagnostic {
+                            severity: DiagnosticSeverity::Error,
+                            relative_path: full_path.clone(),
+                            schema_id: None,
+                            message: format!("failed to parse blueprint definition: {e}"),
+                        });
+                    }
+                }
+            }
+
+            // Protocol: semantic validation only
+            for proto_path in &boundary.protocol_paths {
+                let full_path = format!("{prefix}/{proto_path}");
+                let proto_value = match store.load_instance_json(&full_path) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        diagnostics.push(ValidationDiagnostic {
+                            severity: DiagnosticSeverity::Error,
+                            relative_path: full_path.clone(),
+                            schema_id: None,
+                            message: format!("failed to load protocol definition: {e}"),
+                        });
+                        continue;
+                    }
+                };
+                match serde_json::from_value::<Protocol>(proto_value) {
+                    Ok(proto) => {
+                        for diag in validate_protocol(&proto).diagnostics {
+                            let severity = match diag.severity {
+                                ProtocolDiagnosticSeverity::Error => DiagnosticSeverity::Error,
+                                ProtocolDiagnosticSeverity::Warning => DiagnosticSeverity::Warning,
+                            };
+                            diagnostics.push(ValidationDiagnostic {
+                                severity,
+                                relative_path: full_path.clone(),
+                                schema_id: None,
+                                message: diag.message,
+                            });
+                        }
+                    }
+                    Err(e) => {
+                        diagnostics.push(ValidationDiagnostic {
+                            severity: DiagnosticSeverity::Error,
+                            relative_path: full_path.clone(),
+                            schema_id: None,
+                            message: format!("failed to parse protocol definition: {e}"),
+                        });
+                    }
                 }
             }
         }
@@ -3061,6 +3155,277 @@ mod tests {
             "FileStore and JsonStore must produce same I-80 count (file: {:?}, json: {:?})",
             file_report.diagnostics,
             json_report.diagnostics
+        );
+    }
+
+    // ------------------------------------------------------------------ //
+    // Blueprint + Protocol definition validation
+    // ------------------------------------------------------------------ //
+
+    fn minimal_blueprint_json(id: &str, valid: bool) -> Value {
+        if valid {
+            json!({
+                "id": id,
+                "namespace": "com.test",
+                "name": "test-blueprint",
+                "version": 1,
+                "description": "A test blueprint",
+                "rootTypes": [{"typeId": "00000000-0000-4000-8000-000000000031", "typeVersion": 1}],
+                "createdAt": "2026-01-01T00:00:00Z"
+            })
+        } else {
+            // Empty rootTypes — fails semantic validation (root_types must not be empty)
+            json!({
+                "id": id,
+                "namespace": "com.test",
+                "name": "test-blueprint",
+                "version": 1,
+                "description": "A test blueprint",
+                "rootTypes": [],
+                "createdAt": "2026-01-01T00:00:00Z"
+            })
+        }
+    }
+
+    fn minimal_protocol_json(id: &str, with_cycle: bool) -> Value {
+        if with_cycle {
+            json!({
+                "protocolId": id,
+                "protocolNamespace": "com.test",
+                "protocolName": "test-protocol",
+                "protocolVersion": 1,
+                "protocolTargetType": "00000000-0000-4000-8000-000000000040",
+                "protocolCreatedAt": "2026-01-01T00:00:00Z",
+                "protocolStages": [
+                    {
+                        "stageId": "stage-a",
+                        "name": "Stage A",
+                        "order": 1,
+                        "dependsOn": ["stage-b"]
+                    },
+                    {
+                        "stageId": "stage-b",
+                        "name": "Stage B",
+                        "order": 2,
+                        "dependsOn": ["stage-a"]
+                    }
+                ]
+            })
+        } else {
+            json!({
+                "protocolId": id,
+                "protocolNamespace": "com.test",
+                "protocolName": "test-protocol",
+                "protocolVersion": 1,
+                "protocolTargetType": "00000000-0000-4000-8000-000000000040",
+                "protocolCreatedAt": "2026-01-01T00:00:00Z",
+                "protocolStages": [
+                    {
+                        "stageId": "stage-a",
+                        "name": "Stage A",
+                        "order": 1,
+                        "dependsOn": []
+                    }
+                ]
+            })
+        }
+    }
+
+    fn setup_repo_with_blueprint(temp: &TempDir, blueprint_path: &str, blueprint_json: &Value) {
+        write_json(temp.path(), "manifest.json", &minimal_manifest(json!([])));
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &json!({
+                "id": "00000000-0000-4000-8000-000000000010",
+                "namespace": "com.test",
+                "name": "test-package",
+                "version": "1.0.0",
+                "fields": [],
+                "types": [],
+                "blueprints": [blueprint_path],
+                "protocols": []
+            }),
+        );
+        write_json(
+            temp.path(),
+            &format!("package/{blueprint_path}"),
+            blueprint_json,
+        );
+    }
+
+    fn setup_repo_with_protocol(temp: &TempDir, protocol_path: &str, protocol_json: &Value) {
+        write_json(temp.path(), "manifest.json", &minimal_manifest(json!([])));
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &json!({
+                "id": "00000000-0000-4000-8000-000000000010",
+                "namespace": "com.test",
+                "name": "test-package",
+                "version": "1.0.0",
+                "fields": [],
+                "types": [],
+                "blueprints": [],
+                "protocols": [protocol_path]
+            }),
+        );
+        write_json(
+            temp.path(),
+            &format!("package/{protocol_path}"),
+            protocol_json,
+        );
+    }
+
+    #[test]
+    fn test_validate_blueprint_valid_passes() {
+        let temp = TempDir::new().unwrap();
+        let bp_json = minimal_blueprint_json("00000000-0000-4000-8000-000000000030", true);
+        setup_repo_with_blueprint(&temp, "blueprints/test-bp.json", &bp_json);
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let bp_diags: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.relative_path.contains("blueprints"))
+            .collect();
+        assert!(
+            bp_diags.is_empty(),
+            "expected no blueprint diagnostics for valid blueprint, got: {bp_diags:?}"
+        );
+    }
+
+    #[test]
+    fn test_validate_blueprint_semantic_empty_root_types_reports_diagnostic() {
+        let temp = TempDir::new().unwrap();
+        let bp_json = minimal_blueprint_json("00000000-0000-4000-8000-000000000030", false);
+        setup_repo_with_blueprint(&temp, "blueprints/test-bp.json", &bp_json);
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let bp_errors: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.relative_path.contains("blueprints") && d.severity == DiagnosticSeverity::Error
+            })
+            .collect();
+        assert!(
+            !bp_errors.is_empty(),
+            "expected at least one ERROR for blueprint with empty rootTypes, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn test_validate_blueprint_semantic_error_reports_diagnostic() {
+        let temp = TempDir::new().unwrap();
+        // typeVersion: 0 is a semantic error (must be >= 1)
+        let bp_json = json!({
+            "id": "00000000-0000-4000-8000-000000000030",
+            "namespace": "com.test",
+            "name": "test-blueprint",
+            "version": 1,
+            "description": "A test blueprint",
+            "rootTypes": [{"typeId": "00000000-0000-4000-8000-000000000031", "typeVersion": 0}],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        setup_repo_with_blueprint(&temp, "blueprints/test-bp.json", &bp_json);
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let bp_errors: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.relative_path.contains("blueprints") && d.severity == DiagnosticSeverity::Error
+            })
+            .collect();
+        assert!(
+            !bp_errors.is_empty(),
+            "expected ERROR for blueprint with typeVersion=0, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn test_validate_protocol_valid_passes() {
+        let temp = TempDir::new().unwrap();
+        let proto_json = minimal_protocol_json("proto-valid-id", false);
+        setup_repo_with_protocol(&temp, "protocols/test-proto.json", &proto_json);
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let proto_diags: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.relative_path.contains("protocols"))
+            .collect();
+        assert!(
+            proto_diags.is_empty(),
+            "expected no protocol diagnostics for valid protocol, got: {proto_diags:?}"
+        );
+    }
+
+    #[test]
+    fn test_validate_protocol_cycle_reports_diagnostic() {
+        let temp = TempDir::new().unwrap();
+        let proto_json = minimal_protocol_json("proto-cycle-id", true);
+        setup_repo_with_protocol(&temp, "protocols/test-proto.json", &proto_json);
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let proto_errors: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.relative_path.contains("protocols") && d.severity == DiagnosticSeverity::Error
+            })
+            .collect();
+        assert!(
+            !proto_errors.is_empty(),
+            "expected ERROR for cyclic protocol, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn test_validate_blueprint_valid_memory() {
+        // MemoryStore has blueprint_paths: vec![] by default.
+        // validate_repository must produce zero blueprint diagnostics on a store with no blueprints.
+        let store = manifest_store(minimal_manifest(json!([])));
+        let report = validate_repository(&store).unwrap();
+        let bp_diags: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.relative_path.contains("blueprint"))
+            .collect();
+        assert!(
+            bp_diags.is_empty(),
+            "expected no blueprint diagnostics on MemoryStore with no blueprints, got: {bp_diags:?}"
+        );
+    }
+
+    #[test]
+    fn test_validate_blueprint_memory_with_data() {
+        use crate::package_types::DefinitionKind;
+        // Cross-store: validate blueprint on MemoryStore with an actual blueprint in the data map.
+        // manifest_store seeds the raw manifest.json text required by validate_repository.
+        let store = manifest_store(minimal_manifest(json!([])));
+        let bp_json = minimal_blueprint_json("00000000-0000-4000-8000-000000000060", true);
+        store
+            .save_instance_json("package/blueprints/test-bp.json", &bp_json)
+            .unwrap();
+        store
+            .add_definition_to_boundary(&None, DefinitionKind::Blueprint, "blueprints/test-bp.json")
+            .unwrap();
+        let report = validate_repository(&store).unwrap();
+        let bp_diags: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.relative_path.contains("blueprints"))
+            .collect();
+        assert!(
+            bp_diags.is_empty(),
+            "expected no blueprint diagnostics on MemoryStore with valid blueprint, got: {bp_diags:?}"
         );
     }
 }

@@ -931,6 +931,8 @@ pub fn create_package(
         version: input.version.clone(),
         field_paths: vec![],
         type_paths: vec![],
+        blueprint_paths: vec![],
+        protocol_paths: vec![],
     };
     store.save_package_boundary_metadata(&boundary)?;
     store.register_package_boundary(&selector)?;
@@ -1017,6 +1019,22 @@ pub fn import_package_local(
             })
             .unwrap_or_default(),
         type_paths: pkg_json["types"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        blueprint_paths: pkg_json["blueprints"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        protocol_paths: pkg_json["protocols"]
             .as_array()
             .map(|a| {
                 a.iter()

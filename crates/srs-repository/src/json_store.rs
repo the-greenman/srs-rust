@@ -182,6 +182,22 @@ fn json_store_boundary_from_json(
                 .collect()
         })
         .unwrap_or_default();
+    let blueprint_paths = pkg_json["blueprints"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let protocol_paths = pkg_json["protocols"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
     crate::package_types::PackageBoundary {
         selector,
         id: pkg_json["id"].as_str().unwrap_or("").to_string(),
@@ -190,6 +206,8 @@ fn json_store_boundary_from_json(
         version: pkg_json["version"].as_str().unwrap_or("").to_string(),
         field_paths,
         type_paths,
+        blueprint_paths,
+        protocol_paths,
     }
 }
 
