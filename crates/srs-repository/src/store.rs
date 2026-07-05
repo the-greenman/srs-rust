@@ -2987,9 +2987,18 @@ pub mod memory {
                     {
                         boundary.type_paths.push(path.to_string());
                     }
-                    _ => {} // View/DocumentView/RelationType/Vocabulary/Lifecycle — PackageBoundary
-                            // only tracks field_paths and type_paths; other kinds are resolved via
-                            // package.json in the data map (kept in sync by memory_store_sync_pkg_json)
+                    crate::package_types::DefinitionKind::Blueprint
+                        if !boundary.blueprint_paths.iter().any(|p| p == path) =>
+                    {
+                        boundary.blueprint_paths.push(path.to_string());
+                    }
+                    crate::package_types::DefinitionKind::Protocol
+                        if !boundary.protocol_paths.iter().any(|p| p == path) =>
+                    {
+                        boundary.protocol_paths.push(path.to_string());
+                    }
+                    _ => {} // View/DocumentView/RelationType/Vocabulary/Lifecycle — resolved via
+                            // package.json in the data map (memory_store_sync_pkg_json)
                 }
             }
             // Sync the data["<prefix>/package.json"] so load_package_json stays consistent
@@ -3011,6 +3020,12 @@ pub mod memory {
                         }
                         crate::package_types::DefinitionKind::Type => {
                             boundary.type_paths.retain(|p| p != path);
+                        }
+                        crate::package_types::DefinitionKind::Blueprint => {
+                            boundary.blueprint_paths.retain(|p| p != path);
+                        }
+                        crate::package_types::DefinitionKind::Protocol => {
+                            boundary.protocol_paths.retain(|p| p != path);
                         }
                         _ => {}
                     }

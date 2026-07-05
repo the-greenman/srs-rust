@@ -702,10 +702,7 @@ pub fn validate_repository(
     // Silent-skip for repos without a package (mirrors the `if let Ok(pkg)` guard pattern).
     if let Ok(boundaries) = store.list_package_boundaries() {
         for boundary in &boundaries {
-            let prefix = match &boundary.selector {
-                None => "package".to_string(),
-                Some(p) => p.clone(),
-            };
+            let prefix = boundary.selector.as_deref().unwrap_or("package");
 
             // Blueprint: semantic validation only (blueprint files do not include $schema)
             for bp_path in &boundary.blueprint_paths {
@@ -3407,6 +3404,31 @@ mod tests {
         assert!(
             bp_diags.is_empty(),
             "expected no blueprint diagnostics on MemoryStore with no blueprints, got: {bp_diags:?}"
+        );
+    }
+
+    #[test]
+    fn test_validate_blueprint_memory_with_data() {
+        use crate::package_types::DefinitionKind;
+        // Cross-store: validate blueprint on MemoryStore with an actual blueprint in the data map.
+        // manifest_store seeds the raw manifest.json text required by validate_repository.
+        let store = manifest_store(minimal_manifest(json!([])));
+        let bp_json = minimal_blueprint_json("00000000-0000-4000-8000-000000000060", true);
+        store
+            .save_instance_json("package/blueprints/test-bp.json", &bp_json)
+            .unwrap();
+        store
+            .add_definition_to_boundary(&None, DefinitionKind::Blueprint, "blueprints/test-bp.json")
+            .unwrap();
+        let report = validate_repository(&store).unwrap();
+        let bp_diags: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.relative_path.contains("blueprints"))
+            .collect();
+        assert!(
+            bp_diags.is_empty(),
+            "expected no blueprint diagnostics on MemoryStore with valid blueprint, got: {bp_diags:?}"
         );
     }
 }
