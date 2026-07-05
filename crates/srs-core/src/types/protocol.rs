@@ -1,3 +1,4 @@
+use crate::types::blueprint::TypeRef;
 use serde::{Deserialize, Serialize};
 
 /// A reference to a Field within a Type, per ext:protocol FieldRef definition.
@@ -32,7 +33,7 @@ pub struct ProtocolStage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_guidance: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub output_type: Option<serde_json::Value>,
+    pub output_type: Option<TypeRef>,
 }
 
 /// Protocol definition.
@@ -112,6 +113,48 @@ impl ProtocolValidationResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_protocol_stage_output_type_roundtrip() {
+        let json = serde_json::json!({
+            "stageId": "s1",
+            "name": "Draft",
+            "order": 1,
+            "outputType": {"typeId": "abc-123", "typeVersion": 1}
+        });
+        let stage: ProtocolStage = serde_json::from_value(json).unwrap();
+        assert_eq!(
+            stage.output_type,
+            Some(TypeRef {
+                type_id: "abc-123".to_string(),
+                type_version: Some(1),
+            })
+        );
+        let reserialized = serde_json::to_value(&stage).unwrap();
+        assert_eq!(reserialized["outputType"]["typeId"], "abc-123");
+        assert_eq!(reserialized["outputType"]["typeVersion"], 1);
+    }
+
+    #[test]
+    fn test_protocol_stage_output_type_absent() {
+        let stage = ProtocolStage {
+            stage_id: "s1".to_string(),
+            name: "Draft".to_string(),
+            purpose: None,
+            order: 1,
+            depends_on: vec![],
+            question: None,
+            completion_criteria: None,
+            contributes_to: None,
+            ai_guidance: None,
+            output_type: None,
+        };
+        let json = serde_json::to_string(&stage).unwrap();
+        assert!(
+            !json.contains("outputType"),
+            "absent output_type must not appear in JSON: {json}"
+        );
+    }
 
     #[test]
     fn test_field_ref_deserialization() {

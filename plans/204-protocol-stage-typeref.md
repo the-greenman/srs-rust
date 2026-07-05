@@ -24,8 +24,9 @@ See [agents.md](agents.md) for role definitions.
 |---|---|---|
 | [ADR-010](../docs/adr/010-service-boundary-contract.md) | Service output types must be fully typed — `serde_json::Value` for a spec-defined shape violates this | accepted |
 | [ADR-011](../docs/adr/011-cli-output-contract.md) | Payload structs in payload.rs keep `#[schemars(with = "Option<serde_json::Value>")]` on the field so the golden schema does NOT change — no `generate-schemas` run needed | accepted |
+| [ADR-016](../docs/adr/016-protocols-are-package-definitions.md) | Partially superseded: the sentence "(the latter two as `serde_json::Value`)" in the Consequences section of ADR-016 was written when both `aiGuidance` and `outputType` were untyped. After this plan, only `aiGuidance` remains `serde_json::Value`. ADR-016 must be updated in the docs pass to reflect this. | accepted (update pending) |
 
-No new ADRs needed — this plan implements existing ADR-010/ADR-011.
+No new ADRs needed — this plan implements existing ADR-010/ADR-011 and partially supersedes ADR-016's consequences description.
 
 ---
 
@@ -60,7 +61,7 @@ No `srs/docs/schema/2.0/` files are touched. No action required.
 
 ### Phase 1: Core type + repository propagation
 
-**Goal:** `ProtocolStage.output_type` is `Option<TypeRef>` in srs-core; `BriefStageResult.output_type` matches in srs-repository; workspace compiles.
+**Goal:** `ProtocolStage.output_type` is `Option<TypeRef>` in srs-core; `BriefStageResult.output_type` matches in srs-repository; `cargo test -p srs-core` and `cargo test -p srs-repository` pass. Full workspace compile is intentionally deferred to Phase 2 (srs-cli handlers will have a type mismatch until payload.rs is updated).
 
 **Agent:** Core Model Worker + Repository Service Worker
 
@@ -69,7 +70,7 @@ No `srs/docs/schema/2.0/` files are touched. No action required.
 - [x] In `crates/srs-core/src/types/protocol.rs`:
   - Add `use crate::types::blueprint::TypeRef;` at the top.
   - Change `pub output_type: Option<serde_json::Value>` → `pub output_type: Option<TypeRef>`.
-- [x] In the same file, add a `test_protocol_stage_output_type_roundtrip` unit test (in the existing `#[cfg(test)]` block) that deserializes a `ProtocolStage` JSON with `"outputType": {"typeId": "abc-123", "typeVersion": 1}` and asserts the fields. Add a second test with `output_type: None` (field absent) to confirm `skip_serializing_if` works.
+- [x] In the same file, add a `test_protocol_stage_output_type_roundtrip` unit test (in the existing `#[cfg(test)]` block) that deserializes a `ProtocolStage` JSON with `"outputType": {"typeId": "abc-123", "typeVersion": 1}` and asserts `stage.output_type == Some(TypeRef { type_id: "abc-123".to_string(), type_version: Some(1) })`. Add a second test `test_protocol_stage_output_type_absent` that serializes a `ProtocolStage` with `output_type: None` and asserts the serialized JSON does not contain `"outputType"`.
 - [x] In `crates/srs-repository/src/blueprint_brief_service.rs`:
   - Change `pub output_type: Option<serde_json::Value>` → `pub output_type: Option<TypeRef>` in `BriefStageResult` (line ~70). `TypeRef` is already imported at line 20.
 
@@ -121,8 +122,8 @@ cargo clippy -p srs-repository -- -D warnings
 - [x] In `crates/srs-cli/src/payload.rs`:
   - Add `blueprint::TypeRef` to the existing `srs_core::types` import block (line 22–33). The field type `blueprint::TypeRef` is imported via `use srs_core::types::blueprint::TypeRef;` added to the block.
   - Change `pub output_type: Option<serde_json::Value>` → `pub output_type: Option<TypeRef>` in `ProtocolStageEntry` (line ~132). Keep the `#[schemars(with = "Option<serde_json::Value>")]` annotation above it unchanged.
-  - Change `pub output_type: Option<serde_json::Value>` → `pub output_type: Option<TypeRef>` in `BriefStage` (line ~841). Keep the `#[schemars(with = "Option<serde_json::Value>")]` annotation above it unchanged.
-- [x] In `crates/srs-repository/src/package.rs`, update the doc comment on `LoadedProtocol.raw` (line ~39–42) to remove the now-stale example claim that `output_type` is "not fully captured by the typed Protocol struct". After our fix, `output_type` IS fully captured. Keep `raw` and the general explanation; just remove/update the specific `output_type` callout.
+  - Change `pub output_type: Option<serde_json::Value>` → `pub output_type: Option<TypeRef>` in `BriefStage` (line ~841). Keep the `#[schemars(with = "Option<serde_json::Value>")]` annotation above it. Add `#[serde(skip_serializing_if = "Option::is_none")]` to `BriefStage.output_type` — it is missing (unlike `ProtocolStageEntry.output_type` which has it), causing `None` to serialize as `"outputType": null` rather than being absent.
+- [x] In `crates/srs-repository/src/package.rs`, update the doc comment on `LoadedProtocol.raw` (line ~39–42). Replace the current comment body with: `` `raw` preserves all fields from the on-disk JSON that are not already captured by the typed `Protocol` struct. `source_package` is `None` for the root package and `Some` for protocols merged from a dependency package. `` (removing the `output_type` example that no longer applies after this fix).
 
 #### Acceptance Criteria
 
@@ -166,7 +167,7 @@ cargo test --test payload_contracts
 - [ ] `cargo clippy -- -D warnings` passes
 - [ ] `cargo test --test payload_contracts` passes (golden schemas unchanged)
 - [ ] `bash scripts/check-schema-sync.sh` exits 0 (no entity schemas changed)
-- [ ] No `serde_json::Value` for `output_type` outside of `ai_guidance` (grep: `rg "output_type.*Value" crates/`)
+- [ ] No `serde_json::Value` for `output_type` anywhere (grep: `rg "output_type\s*:\s*Option<serde_json::Value>" crates/` returns 0 results)
 - [ ] Two new tests in `srs-core/src/types/protocol.rs` cover TypeRef roundtrip and absent case
 
 ## Coordination Rules
