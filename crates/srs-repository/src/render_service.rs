@@ -38,6 +38,7 @@ impl<'a> RenderDocumentViewOptions<'a> {
     }
 }
 
+#[derive(Debug, serde::Serialize)]
 pub struct RenderResult {
     pub rendered: String,
     pub diagnostics: Vec<String>,

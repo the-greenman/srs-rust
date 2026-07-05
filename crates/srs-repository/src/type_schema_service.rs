@@ -28,7 +28,7 @@ pub struct TypeSchemaInput {
 }
 
 /// Output contract for [`type_schema`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct TypeSchemaResult {
     /// The generated draft-07 JSON Schema object.
     pub schema: Value,

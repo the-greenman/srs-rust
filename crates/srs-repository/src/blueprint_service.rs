@@ -75,7 +75,7 @@ pub struct BlueprintSummary {
 
 // ── List result (carries provenance diagnostics) ─────────────────────────────
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct BlueprintListResult {
     pub summaries: Vec<BlueprintSummary>,
     /// WARN-level diagnostics from provenance scan (missing files, duplicate IDs).

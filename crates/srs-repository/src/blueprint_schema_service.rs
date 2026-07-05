@@ -29,7 +29,7 @@ pub struct BlueprintSchemaInput {
 }
 
 /// Output contract for [`blueprint_schema`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct BlueprintSchemaResult {
     /// The generated nested draft-07 JSON Schema object.
     pub schema: Value,
