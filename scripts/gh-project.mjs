@@ -44,12 +44,21 @@ const BUMP_LABELS = new Set(["critical-path", "blocks-gate", "regression"]);
 // hard-fails and the routine dies. This tool is the single source of truth for the set
 // and creates any missing labels on demand (`ensure-labels`, and `rollup --fix` /
 // `reconcile --fix`) so it can't drift. (#335)
+//
+// `promote:ready` is the promotion INTENT signal (not a mirror of any board field). A REST-only
+// judge — the progress-review cloud routine, a human, or a future rule — marks an unblocked issue
+// with it; it CANNOT set the board Status through the proxy. The `promote` command (run where
+// Projects v2 is reachable: CI/local) converts that intent into the source of truth (board
+// Status=Ready) and clears it. Kept distinct from `ready` so `reconcile`'s Status→label mirror
+// never fights the judge: the judge writes `promote:ready`, the mirror owns `ready`.
+const PROMOTE_INTENT_LABEL = "promote:ready";
 const MIRROR_LABELS = [
-  { name: "ready", color: "0E8A16", description: "Promoted to Ready by the SRS progress-review routine" },
+  { name: "ready", color: "0E8A16", description: "Board Status=Ready mirror — the routines' work queue (set by `promote`/`reconcile`, not by hand)" },
   { name: "priority: P0", color: "B60205", description: "Derived priority (highest served story) — top" },
   { name: "priority: P1", color: "D93F0B", description: "Derived priority (highest served story)" },
   { name: "priority: P2", color: "FBCA04", description: "Derived priority (highest served story)" },
   { name: "status: in progress", color: "1D76DB", description: "Claimed in progress by the SRS jobs routine" },
+  { name: PROMOTE_INTENT_LABEL, color: "5319E7", description: "Judged unblocked; awaiting CI promotion to board Status=Ready (write this, not `ready`)" },
 ];
 // Repos whose merges/routines depend on the mirror set existing. Overridable for tests/forks.
 const MIRROR_REPOS = (process.env.GHP_MIRROR_REPOS || `srs,srs-rust,srs-web,${STORY_REPO}`)
@@ -562,6 +571,31 @@ function setStatusLabel(repo, num, want, dryRun) {
 // Desired status-mirror label for a board row: only OPEN issues in a mirrored status carry one.
 function statusMirrorWant(row) {
   return row.state === "OPEN" ? (STATUS_LABEL_MAP[row.status] || null) : null;
+}
+
+// Pure promotion planner (unit-tested). Given board rows, decide what `promote` does with each
+// `promote:ready` intent. Only OPEN Backlog issues (or ones with no Status set yet) actually move
+// to Ready; anything already advanced (In progress / In review / Done) or closed just has the
+// stale intent cleared — the intent is a one-shot request, never a demotion or a re-open.
+// Returns [{ repo, num, key, action, promote, from }] — `promote` true means "set Status=Ready".
+function planPromotions(rows) {
+  const PROMOTABLE = new Set(["Backlog", null, undefined]);
+  const out = [];
+  for (const row of rows) {
+    if (!(row.labels || []).includes(PROMOTE_INTENT_LABEL)) continue;
+    const base = { repo: row.repo, num: row.num, key: row.key, from: row.status ?? null };
+    if (row.state !== "OPEN") out.push({ ...base, action: "cleared-closed", promote: false });
+    else if (row.status === "Ready") out.push({ ...base, action: "already-ready", promote: false });
+    else if (PROMOTABLE.has(row.status)) out.push({ ...base, action: "promoted", promote: true });
+    else out.push({ ...base, action: "skip-advanced", promote: false });
+  }
+  return out;
+}
+
+// Remove a single label from an issue (REST via gh). Non-fatal if absent.
+function removeLabel(repo, num, label) {
+  try { gh(["issue", "edit", String(num), "--repo", `${OWNER}/${repo}`, "--remove-label", label]); }
+  catch { /* label not present — non-fatal */ }
 }
 
 // `gh label create` args for one mirror label in a repo. Idempotent via --force
@@ -1343,6 +1377,30 @@ function cmdAdd(argv) {
   console.log(`${dryRun ? "[dry-run] " : ""}${repo}#${num} on board${id ? " (" + id + ")" : ""}`);
 }
 
+// promote [--fix] — convert `promote:ready` intents into board Status=Ready. This is the
+// privileged half of the promotion pipeline: the judge (a proxy-bound cloud routine, a human, or
+// a future rule) can only add the intent label over REST; this command, run where Projects v2 is
+// reachable (the board-sync GitHub Action, or locally), does the board write it cannot. Idempotent
+// and safe to re-run: already-Ready / advanced / closed issues just have the stale intent cleared.
+function cmdPromote(argv) {
+  const dryRun = !argv.includes("--fix");
+  if (!dryRun) for (const repo of MIRROR_REPOS) ensureLabels(repo); // self-heal so the intent label exists
+  const plan = planPromotions([...board().values()]);
+  for (const p of plan) {
+    console.log(`${dryRun ? "[dry-run] " : ""}${p.action}: ${p.key}${p.promote ? ` ${p.from ?? "—"}→Ready` : ` (Status=${p.from ?? "—"}, clear intent)`}`);
+    if (dryRun) continue;
+    if (p.promote) {
+      const itemId = ensureOnBoard(p.repo, p.num, false);
+      setSingleSelect(itemId, "Status", "Ready", false);
+      setStatusLabel(p.repo, p.num, "ready", false);       // mirror immediately; reconcile also keeps it in sync
+    }
+    removeLabel(p.repo, p.num, PROMOTE_INTENT_LABEL);        // intent consumed either way
+  }
+  const promoted = plan.filter((p) => p.promote).length;
+  console.log(`${plan.length} intent${plan.length === 1 ? "" : "s"} · ${promoted} ${dryRun ? "would be " : ""}promoted · ${plan.length - promoted} cleared`);
+  if (dryRun && plan.length) console.log("(dry-run; pass --fix to promote)");
+}
+
 function cmdReconcile(argv) {
   const dryRun = !argv.includes("--fix");
   if (!dryRun) for (const repo of MIRROR_REPOS) ensureLabels(repo); // self-heal mirror set (#335)
@@ -1412,6 +1470,9 @@ function help() {
   epic add-story <epic#> <story#>            link a story under an epic (sub-issue)
   release-sync [--dry-run]        derive each descendant's Release from its epic (writes; --dry-run previews)
   set <repo> <issue#> [--status --priority --iteration] [--dry-run]
+  promote [--fix]                 promote every \`promote:ready\`-labelled issue to board Status=Ready
+                                  (the privileged half of promotion; a REST-only judge adds the
+                                  intent label, this converts it — run in CI/local, not the routines)
   size <repo> <issue#> <small|medium|large|xl> [--dry-run]   effort estimate (label + board Size field)
   bands [--count N] [--tree] [--assign] [--dry-run]
                                   implementation order in N equal-effort bands (default 10);
@@ -1427,7 +1488,7 @@ Auth: requires an authenticated \`gh\` CLI, or GITHUB_TOKEN/GH_TOKEN env var (cu
 // Dispatch
 // ---------------------------------------------------------------------------
 // Pure helpers exported for unit tests. Importing the module must NOT run the CLI.
-export { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs, STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant, epicRank, bandTargets, SIZE_WEIGHT };
+export { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs, STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant, planPromotions, PROMOTE_INTENT_LABEL, epicRank, bandTargets, SIZE_WEIGHT };
 
 // Only dispatch when run directly (`node gh-project.mjs ...`), not when imported.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -1455,6 +1516,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         else die("usage: epic set <num> --priority P [--release R] | epic add-story <epic#> <story#>");
         break;
       case "set": cmdSet(rest); break;
+      case "promote": cmdPromote(rest); break;
       case "size": cmdSize(rest); break;
       case "bands": cmdBands(rest); break;
       case "reconcile": cmdReconcile(rest); break;

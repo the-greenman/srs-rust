@@ -140,7 +140,8 @@ The canonical set:
 
 | Label | Meaning | Written by |
 |---|---|---|
-| `ready` | promoted to Ready | progress-review routine |
+| `ready` | board Status=Ready mirror — the work queue | `promote --fix` / `reconcile --fix` (mirror; **not** by hand) |
+| `promote:ready` | promotion **intent** — judged unblocked, awaiting the privileged board write | the judge: progress-review routine / human / rule (REST) |
 | `priority: P0` / `P1` / `P2` | derived priority (§ the priority model) | `rollup --fix` |
 | `status: in progress` | claimed / in flight | "Do the SRS jobs" routine |
 
@@ -165,6 +166,34 @@ signal. `reconcile --fix` mirrors board Status → label for every item (`status
 open items in `Ready`/`In progress` get the matching label; every other status (and every closed
 issue) has both status labels cleared. Without this pass a board-`Ready` issue carries no `ready`
 label and is invisible to the work-queue routine.
+
+## Promotion pipeline (Backlog → Ready)
+
+Promotion is **split into judgment and a privileged write** so the two halves never fight. Only the
+board is the source of truth for readiness; the `ready` label is a *mirror* of it (above). But the
+cloud routines can't set board Status (Projects v2 is proxy-blocked for them) — so if a routine wrote
+the `ready` label directly, the next `reconcile` would wipe it (board Status still says Backlog). The
+`promote:ready` **intent** label resolves this:
+
+1. **Judge (REST-only).** The progress-review routine — or a human, or a future deterministic rule —
+   marks each issue it deems **unblocked** (dependencies resolved / gate passed) with `promote:ready`.
+   That's a plain-label write, allowed through the proxy. The judge **never** writes `ready` or sets
+   Status.
+2. **Promote (privileged).** `gh-project promote --fix`, run where Projects v2 is reachable (the
+   `board-sync` GitHub Action, or locally), converts every open Backlog issue carrying `promote:ready`
+   to board **Status=Ready**, mirrors the `ready` label, and clears the intent. It is idempotent and
+   never demotes: already-advanced (In progress / In review / Done), already-Ready, and closed issues
+   just have the stale intent cleared. `reconcile --fix` keeps the `ready` mirror in sync thereafter.
+
+The `board-sync` Action runs `promote --fix` on three triggers: **push** to master (post-merge),
+an **hourly schedule** (so the queue refills even during quiet periods, matching the hourly consumer),
+and **workflow_dispatch** — a cloud session can label issues then kick promotion immediately with
+`gh workflow run board-sync.yml` (REST, allowed) instead of waiting for the schedule.
+
+```bash
+gh-project promote            # dry-run: what the intents would do
+gh-project promote --fix      # set Status=Ready for promote:ready issues, clear the intent
+```
 
 ## Understanding a priority estimate (the stages)
 
