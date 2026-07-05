@@ -188,7 +188,14 @@ the `ready` label directly, the next `reconcile` would wipe it (board Status sti
 The `board-sync` Action runs `promote --fix` on three triggers: **push** to master (post-merge),
 an **hourly schedule** (so the queue refills even during quiet periods, matching the hourly consumer),
 and **workflow_dispatch** — a cloud session can label issues then kick promotion immediately with
-`gh workflow run board-sync.yml` (REST, allowed) instead of waiting for the schedule.
+`gh workflow run board-sync.yml --repo the-greenman/srs-rust` (REST, allowed) instead of waiting
+for the schedule.
+
+**There is exactly one board-sync workflow** — `srs-rust/.github/workflows/board-sync.yml`. It
+reconciles the entire cross-repo board on every run, so no other repo needs a copy (a copy without
+its own secret silently no-ops, which is worse than no copy). It authenticates with a PAT with
+`project` scope stored as the **`BOARD_SECRET`** repo secret in srs-rust (`BOARD_TOKEN` also
+accepted); if the secret is missing the job **fails loudly** rather than skipping.
 
 ```bash
 gh-project promote            # dry-run: what the intents would do
