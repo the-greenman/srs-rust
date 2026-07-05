@@ -419,9 +419,9 @@ This is the RFC-011 capability: `type-query` SectionSource extended with `lifecy
 
 **Intention.** *"I've declared an extraction protocol that tells AI agents how to pull structured decisions from governance discussions — stage by stage, field by field. Before I wire it to a blueprint brief, I want to confirm the protocol is machine-readable: the stage list comes back in the right order, the full protocol definition is retrievable by ID, and missing IDs return a clean error envelope."*
 
-**Capabilities exercised.** `protocol create` (write path), `protocol list` (compiled-model read), `protocol get` (compiled-model read by ID), `protocol stages` (stage projection from compiled model), `protocol find-by-target-type` (lookup by target typeId). This scenario specifically verifies that the refactored read-side service functions source data from the compiled `Package.protocols` (populated at load time) rather than re-reading package files on every call.
+**Capabilities exercised.** `protocol create` (write path), `protocol list` (compiled-model read), `protocol get` (compiled-model read by ID), `protocol stages` (stage projection from compiled model), `protocol find-by-target-type` (lookup by target typeId), `blueprint brief` (verifies `BriefStageResult.output_type` is typed as `TypeRef`). This scenario specifically verifies that the refactored read-side service functions source data from the compiled `Package.protocols` (populated at load time) rather than re-reading package files on every call, and that `outputType` serializes as a `TypeRef` object when set and is absent (not `null`) when unset.
 
-**CLI surface.** `protocol create`, `protocol list`, `protocol get`, `protocol stages`, `protocol find-by-target-type`, `repo validate`.
+**CLI surface.** `protocol create`, `protocol list`, `protocol get`, `protocol stages`, `protocol find-by-target-type`, `blueprint brief`, `repo validate`.
 
 **Anchor repo.** None — build from scratch with `srs repo create`.
 
@@ -451,12 +451,13 @@ This is the RFC-011 capability: `type-query` SectionSource extended with `lifecy
 4. `srs protocol list --repo /tmp/dogfood-protocols --pretty` → `payload.protocols` has 1 entry with `protocolId`, `name`, `namespace`, `version`, `stageCount: 1`.
 5. `srs protocol get --repo /tmp/dogfood-protocols com.example.dogfood/extraction-protocol --pretty` → `ok: true`, `payload.protocol.protocolStages` has the `identify` stage with `order: 1`.
 6. `srs protocol stages --repo /tmp/dogfood-protocols com.example.dogfood/extraction-protocol --pretty` → `payload.stages` has 1 entry with `stageId` and `name`.
+6a. **`outputType` typed check (srs-rust#204):** add a second stage with `"outputType": {"typeId": "<type-id>", "typeVersion": 1}` and re-run `protocol stages`. Confirm the stage entry's `outputType` is a `TypeRef` object `{"typeId": ..., "typeVersion": ...}`, not a raw JSON string. Also confirm the stage without `outputType` does **not** have an `"outputType": null` key — the key must be absent entirely.
 7. `srs repo validate --repo /tmp/dogfood-protocols --pretty` → `ok: true`, `summary.errors: 0`.
 8. `srs protocol find-by-target-type --type-id "com.example.dogfood/decision" --repo /tmp/dogfood-protocols --pretty` → `ok: true`, `payload.protocolId` = `"com.example.dogfood/extraction-protocol"`, `payload.stages` has 1 entry.
 
 **Negative case.** `srs protocol get --repo /tmp/dogfood-protocols com.example.dogfood/nonexistent --pretty` → `ok: false`, `diagnostics[0]` contains `"not found"`. `srs protocol list` on a freshly-created repo (no protocols declared) → `ok: true`, `payload.protocols: []`. `srs protocol find-by-target-type --type-id "type-no-match" --repo /tmp/dogfood-protocols` → `ok: false`, `diagnostics[0]` contains `"No protocol found with target type"`.
 
-**Done when.** `protocol list` returns the created protocol; `protocol get` returns the full definition including all stages; `protocol stages` returns the stage list; `protocol find-by-target-type` returns `{ protocolId, protocolName, stages, diagnostics }` for a known typeId and a clean `ok: false` envelope for an unknown typeId; a missing-ID get returns `ok: false` with a diagnostic naming the missing ID; `repo validate` shows 0 errors; `protocol list` on an empty repo returns an empty array without error.
+**Done when.** `protocol list` returns the created protocol; `protocol get` returns the full definition including all stages; `protocol stages` returns the stage list; `protocol find-by-target-type` returns `{ protocolId, protocolName, stages, diagnostics }` for a known typeId and a clean `ok: false` envelope for an unknown typeId; a missing-ID get returns `ok: false` with a diagnostic naming the missing ID; `repo validate` shows 0 errors; `protocol list` on an empty repo returns an empty array without error. **TypeRef check:** a stage with `outputType` set serializes it as `{"typeId": ..., "typeVersion": ...}` (not raw JSON); a stage without `outputType` has no `outputType` key in the payload (not `null`).
 
 ---
 
