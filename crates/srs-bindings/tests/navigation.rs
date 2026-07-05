@@ -119,9 +119,10 @@ fn nav_fixture_srsj() -> String {
                     "createdAt": "2026-01-01T00:00:00Z"
                 }]
             },
-            // list_container_summaries reads containerIndex from data["manifest.json"],
-            // not from the typed manifest struct. Include only the section containers here;
-            // the root container is embedded in manifest.container, not enumerated separately.
+            // JsonStore.list_containers reads containerIndex from the raw "manifest.json" key
+            // in the data map, not from the typed manifest.container field. The root container
+            // is loaded directly from manifest.container, so it does not appear here. Only
+            // section containers are enumerated in containerIndex.
             "manifest.json": {
                 "containerIndex": [
                     {"containerId": ARTICLES_CONTAINER_ID, "title": "Articles"},
@@ -175,6 +176,7 @@ fn repository_navigation_without_manifest_container_returns_diagnostic() {
     let nav = repository_navigation(&store).expect("navigation must return ok (not error)");
 
     assert_eq!(nav.root_container_id, "");
+    assert_eq!(nav.identity.instance_id, ""); // NavigationNode::default(), not null
     assert!(nav.sections.is_empty());
     assert_eq!(nav.diagnostics.len(), 1);
     assert!(nav.diagnostics[0].contains("manifest.container is absent"));
