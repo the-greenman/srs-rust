@@ -67,7 +67,7 @@ pub struct BriefStageResult {
     pub completion_criteria: Option<String>,
     pub contributes_to: Option<Vec<FieldRef>>,
     pub ai_guidance: Option<serde_json::Value>,
-    pub output_type: Option<serde_json::Value>,
+    pub output_type: Option<TypeRef>,
 }
 
 #[derive(Debug, Clone)]

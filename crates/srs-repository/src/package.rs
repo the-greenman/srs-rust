@@ -36,10 +36,10 @@ pub struct Package {
 
 /// A protocol as loaded from a package, bundling typed struct + verbatim JSON.
 ///
-/// `raw` preserves all fields from the on-disk JSON, including any value-centric
-/// stage fields (e.g. `output_type`) that are not fully captured by the typed
-/// `Protocol` struct. `source_package` is `None` for the root package and `Some`
-/// for protocols merged from a dependency package.
+/// `raw` preserves all fields from the on-disk JSON that are not already captured
+/// by the typed `Protocol` struct (e.g. `ai_guidance`, which retains `serde_json::Value`
+/// as its shape is unspecified by the spec). `source_package` is `None` for the root
+/// package and `Some` for protocols merged from a dependency package.
 #[derive(Debug, Clone)]
 pub struct LoadedProtocol {
     pub protocol: Protocol,
