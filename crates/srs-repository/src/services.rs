@@ -22,12 +22,14 @@
 use crate::container_service;
 use crate::error::RepositoryError;
 use crate::loader::load_note;
+use crate::record_store::{create_record_in_context, CreateRecordInput};
 use crate::store::RepositoryStore;
 use crate::writer::{
     new_instance_id, slugify_instance_name, upsert_index_entry, write_manifest, write_note,
 };
 use serde::{Deserialize, Serialize};
 use srs_core::types::note::Note;
+use srs_core::types::record::Record;
 use srs_core::validation::note::validate_note;
 use srs_schema::{SchemaRegistry, NOTE_SCHEMA_ID};
 
@@ -294,6 +296,76 @@ pub fn update_note_validated(
         });
     }
     update_note(store, note)
+}
+
+/// Input for `graduate_note`.
+#[derive(Debug)]
+pub struct GraduateNoteInput {
+    /// The instance ID of the Tier-0 Note to graduate.
+    pub note_id: String,
+    /// Type reference in "namespace/name" format (passed to `create_record_in_context`).
+    pub type_ref: String,
+    /// Optional version pin for the type. None → latest.
+    pub type_version: Option<u32>,
+    /// Field values, group values, and tags for the new Record.
+    pub record_input: CreateRecordInput,
+    /// If Some, the new Record is added to this container after creation.
+    pub container_id: Option<String>,
+}
+
+/// Result of `graduate_note`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraduateNoteResult {
+    /// The Note with `graduated_at` stamped (ISO-8601 UTC timestamp).
+    pub note: Note,
+    /// The newly created typed Record.
+    pub record: Record,
+}
+
+/// Promote a Tier-0 Note to a typed Tier-2 Record in one atomic step:
+/// creates the Record, stamps `graduated_at` on the Note, and returns both.
+pub fn graduate_note(
+    store: &dyn RepositoryStore,
+    input: GraduateNoteInput,
+) -> Result<GraduateNoteResult, RepositoryError> {
+    // Step 1: load and validate the note exists and is a Note (tier 0)
+    let mut note = match get_note_by_id(store, &input.note_id)? {
+        GetNoteResult::Found(n) => *n,
+        GetNoteResult::NotFound => {
+            return Err(RepositoryError::NoteNotFound {
+                path: std::path::PathBuf::from("records/notes"),
+                id: input.note_id.clone(),
+            })
+        }
+        GetNoteResult::NotANote { tier } => {
+            return Err(RepositoryError::InvalidInput {
+                message: format!(
+                    "Instance '{}' is not a Note (tier {}); cannot graduate",
+                    input.note_id, tier
+                ),
+            })
+        }
+    };
+
+    // Step 2: create the typed Record
+    let create_result = create_record_in_context(
+        store,
+        &input.type_ref,
+        input.type_version,
+        input.record_input,
+        input.container_id,
+        None,
+    )?;
+
+    // Step 3: stamp graduated_at and write the note back
+    note.graduated_at = Some(chrono::Utc::now().to_rfc3339());
+    let update_result = update_note(store, note)?;
+
+    Ok(GraduateNoteResult {
+        note: update_result.note,
+        record: create_result.record,
+    })
 }
 
 /// Service: Get a note by its instance ID
@@ -1104,6 +1176,259 @@ mod tests {
                     .contains(&"removable-tag".to_string()));
             }
             _ => panic!("Expected Removed"),
+        }
+    }
+
+    // --- graduate_note tests ---
+
+    /// MemoryStore with one Note AND a package containing one optional-field type
+    /// `com.test/simple-type` (version 1). Lets graduate_note tests call
+    /// create_record_in_context with empty field_values (no required fields).
+    fn store_with_note_and_type(note: &Note, note_path: &str) -> MemoryStore {
+        use crate::package::Package;
+        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::record_type::{FieldAssignment, RecordType};
+
+        let body_field = Field {
+            id: "field-body-00001".to_string(),
+            namespace: "com.test".to_string(),
+            name: "body".to_string(),
+            version: 1,
+            value_type: ValueType::String,
+            description: "Body field".to_string(),
+            ai_guidance: serde_json::json!(null),
+            allowed_values: None,
+            vocabulary_ref: None,
+            default_value: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let simple_type = RecordType {
+            id: "type-simple-00001".to_string(),
+            namespace: "com.test".to_string(),
+            name: "simple-type".to_string(),
+            version: 1,
+            description: "Simple test type".to_string(),
+            fields: vec![FieldAssignment {
+                field_id: "field-body-00001".to_string(),
+                order: 0,
+                required: false,
+                display_label: None,
+                repeatable: false,
+                min_items: None,
+                max_items: None,
+            }],
+            field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let note_val = {
+            let mut v = serde_json::to_value(note).unwrap();
+            v.as_object_mut().unwrap().insert(
+                "$schema".to_string(),
+                serde_json::json!("https://srs.semanticops.com/schema/2.0/note.json"),
+            );
+            v
+        };
+        let manifest = Manifest {
+            instance_index: vec![InstanceIndexEntry {
+                instance_id: note.instance_id.clone(),
+                tier: 0,
+                path: note_path.to_string(),
+                title: note.title.clone().map(serde_json::Value::String),
+                tags: note.tags.clone(),
+            }],
+            container: None,
+            container_index: None,
+            extra: HashMap::new(),
+            root: PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "test-package-00001".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test-package".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![body_field],
+            record_types: vec![simple_type],
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        MemoryStore::new(manifest, package).with_data(note_path, note_val)
+    }
+
+    #[test]
+    fn graduate_note_creates_record_and_stamps_graduated_at() {
+        let note = make_note("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "Graduate Me");
+        let store = store_with_note_and_type(&note, "records/notes/graduate-me.json");
+
+        let result = graduate_note(
+            &store,
+            GraduateNoteInput {
+                note_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa".to_string(),
+                type_ref: "com.test/simple-type".to_string(),
+                type_version: None,
+                record_input: CreateRecordInput {
+                    field_values: vec![],
+                    group_values: None,
+                    tags: None,
+                },
+                container_id: None,
+            },
+        )
+        .unwrap();
+
+        assert!(
+            result.note.graduated_at.is_some(),
+            "graduated_at must be stamped"
+        );
+        assert!(
+            !result.record.instance_id.is_empty(),
+            "record must have an instance ID"
+        );
+        assert_ne!(
+            result.note.instance_id, result.record.instance_id,
+            "note and record must have distinct IDs"
+        );
+        assert_eq!(result.note.instance_id, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    }
+
+    #[test]
+    fn graduate_note_not_found_returns_error() {
+        let store = MemoryStore::default();
+        let err = graduate_note(
+            &store,
+            GraduateNoteInput {
+                note_id: "nonexistent-id".to_string(),
+                type_ref: "com.test/simple-type".to_string(),
+                type_version: None,
+                record_input: CreateRecordInput {
+                    field_values: vec![],
+                    group_values: None,
+                    tags: None,
+                },
+                container_id: None,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::NoteNotFound { .. }),
+            "expected NoteNotFound, got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn graduate_note_not_a_note_returns_error() {
+        // Manufacture a store where a tier-2 Record is indexed, not a note.
+        let manifest = Manifest {
+            instance_index: vec![InstanceIndexEntry {
+                instance_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb".to_string(),
+                tier: 2,
+                path: "records/typed.json".to_string(),
+                title: None,
+                tags: None,
+            }],
+            container: None,
+            container_index: None,
+            extra: HashMap::new(),
+            root: PathBuf::from("/memory"),
+        };
+        let store = MemoryStore::new(
+            manifest,
+            crate::package::Package {
+                id: "test-pkg-00001".to_string(),
+                namespace: "com.test".to_string(),
+                name: "test-pkg".to_string(),
+                version: "1.0.0".to_string(),
+                fields: vec![],
+                record_types: vec![],
+                relation_type_definitions: vec![],
+                views: vec![],
+                document_views: vec![],
+                themes: vec![],
+                blueprints: vec![],
+                protocols: vec![],
+                root: PathBuf::from("/memory"),
+                dependency_refs: vec![],
+                vocabularies: vec![],
+                lifecycles: vec![],
+            },
+        );
+        let err = graduate_note(
+            &store,
+            GraduateNoteInput {
+                note_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb".to_string(),
+                type_ref: "com.test/simple-type".to_string(),
+                type_version: None,
+                record_input: CreateRecordInput {
+                    field_values: vec![],
+                    group_values: None,
+                    tags: None,
+                },
+                container_id: None,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::InvalidInput { .. }),
+            "expected InvalidInput for non-Note entity, got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn graduate_note_cross_store_roundtrip() {
+        let note = make_note("cccccccc-cccc-4ccc-8ccc-cccccccccccc", "Roundtrip Note");
+        let mem_store = store_with_note_and_type(&note, "records/notes/roundtrip-note.json");
+
+        // Graduate on MemoryStore
+        let result = graduate_note(
+            &mem_store,
+            GraduateNoteInput {
+                note_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc".to_string(),
+                type_ref: "com.test/simple-type".to_string(),
+                type_version: None,
+                record_input: CreateRecordInput {
+                    field_values: vec![],
+                    group_values: None,
+                    tags: None,
+                },
+                container_id: None,
+            },
+        )
+        .unwrap();
+
+        assert!(result.note.graduated_at.is_some());
+
+        // Copy to FileStore and re-read the note — graduated_at must survive
+        let temp = tempfile::TempDir::new().unwrap();
+        let file_store = crate::store::FileStore::new(temp.path());
+        crate::repository_portability::copy_repository(&mem_store, &file_store).unwrap();
+
+        let reloaded = get_note_by_id(&file_store, "cccccccc-cccc-4ccc-8ccc-cccccccccccc").unwrap();
+        match reloaded {
+            GetNoteResult::Found(n) => {
+                assert!(
+                    n.graduated_at.is_some(),
+                    "graduated_at must survive memory → file roundtrip"
+                );
+                assert_eq!(n.graduated_at, result.note.graduated_at);
+            }
+            _ => panic!("Expected note to be found in file store after copy"),
         }
     }
 }
