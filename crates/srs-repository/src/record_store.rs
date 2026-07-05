@@ -762,7 +762,7 @@ pub struct CreateRecordSuccessorInput {
 }
 
 /// Result for create_record_successor.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct CreateRecordSuccessorResult {
     pub record: Record,
     pub relation: Relation,
