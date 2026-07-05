@@ -176,7 +176,9 @@ fn cmd_top(repo: &str, explain: bool, json: bool) -> Result<()> {
     }
 
     let nav = &payload["navigation"];
-    let identity_label = nav["identity"]["displayLabel"].as_str().unwrap_or("(untitled)");
+    let identity_label = nav["identity"]["displayLabel"]
+        .as_str()
+        .unwrap_or("(untitled)");
     let empty_sections = vec![];
     let sections = nav["sections"].as_array().unwrap_or(&empty_sections);
 
@@ -184,7 +186,10 @@ fn cmd_top(repo: &str, explain: bool, json: bool) -> Result<()> {
     for section in sections {
         let type_ns = section["typeNamespace"].as_str().unwrap_or("");
         let type_name = section["typeName"].as_str().unwrap_or("");
-        let section_container_id = section["sectionContainerId"].as_str().unwrap_or("").to_string();
+        let section_container_id = section["sectionContainerId"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
         let def_opt = by_root_type(type_ns, type_name);
         let key = def_opt.map(|d| d.key).unwrap_or(type_name);
         let icon = def_opt.map(|d| d.icon).unwrap_or("·");

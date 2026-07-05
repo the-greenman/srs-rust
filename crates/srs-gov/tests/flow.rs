@@ -125,7 +125,10 @@ fn decision_log_list_renders_decisions() {
         out.contains("Adopt monthly cadence") || out.contains("Records live in the system"),
         "expected known decision text\n{out}"
     );
-    assert!(out.contains("Member IDs"), "expected Member IDs section\n{out}");
+    assert!(
+        out.contains("Member IDs"),
+        "expected Member IDs section\n{out}"
+    );
 }
 
 #[test]
@@ -150,12 +153,21 @@ fn create_decision_dry_run_emits_correct_command() {
     // Use a self-contained governance repo — field IDs are package constants regardless of repo.
     let repo = setup_repo("create-cmd");
     let out = gov_out(&repo.path, &["create", "decision_log", "decision"]);
-    assert!(out.contains("srs record create"), "expected srs record create\n{out}");
+    assert!(
+        out.contains("srs record create"),
+        "expected srs record create\n{out}"
+    );
     assert!(out.contains("governance/decision"), "expected type\n{out}");
-    assert!(out.contains("--container"), "expected --container flag\n{out}");
+    assert!(
+        out.contains("--container"),
+        "expected --container flag\n{out}"
+    );
     // fieldIds are governance package constants, identical across all repos
     assert!(out.contains("d7e82557"), "expected title fieldId\n{out}"); // title
-    assert!(out.contains("de1296e0"), "expected statement fieldId\n{out}"); // decision_statement
+    assert!(
+        out.contains("de1296e0"),
+        "expected statement fieldId\n{out}"
+    ); // decision_statement
 }
 
 #[test]
@@ -171,15 +183,18 @@ fn create_decision_dry_run_does_not_mutate() {
 #[test]
 fn create_decision_dry_run_escapes_quoted_values() {
     let repo = setup_repo("create-escape");
-    let out = gov_out(&repo.path, &[
-        "create",
-        "decision_log",
-        "decision",
-        "--title",
-        r#"Adopt the "new" policy"#,
-        "--statement",
-        "Use quoted title safely",
-    ]);
+    let out = gov_out(
+        &repo.path,
+        &[
+            "create",
+            "decision_log",
+            "decision",
+            "--title",
+            r#"Adopt the "new" policy"#,
+            "--statement",
+            "Use quoted title safely",
+        ],
+    );
 
     let start = out.find("{\n").expect("expected JSON heredoc body");
     let end = out[start..].find("\nEOF").expect("expected heredoc EOF") + start;
@@ -202,7 +217,10 @@ fn create_decision_dry_run_escapes_quoted_values() {
 fn explain_flag_prints_commands_without_running() {
     let repo = setup_repo("explain");
     let out = gov_out(&repo.path, &["--explain", "list", "decision_log"]);
-    assert!(out.contains("srs"), "expected srs command output in explain mode\n{out}");
+    assert!(
+        out.contains("srs"),
+        "expected srs command output in explain mode\n{out}"
+    );
     // Should NOT contain rendered decision content (since we returned early in explain mode)
     assert!(
         !out.contains("Adopt monthly cadence"),
