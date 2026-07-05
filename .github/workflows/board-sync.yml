@@ -13,13 +13,15 @@ name: Board sync
 # that intent into board Status=Ready (which then mirrors to the `ready` label). See
 # docs/project-management.md → "Promotion pipeline".
 #
-# Requires a PAT with `project` scope stored as the BOARD_TOKEN secret.
-# The default GITHUB_TOKEN does not carry project scope for user-level
-# Projects v2. If BOARD_TOKEN is absent this job emits a notice and exits 0.
+# Requires a PAT with `project` scope stored as the BOARD_SECRET secret
+# (BOARD_TOKEN also accepted). The default GITHUB_TOKEN does not carry project
+# scope for user-level Projects v2. If the secret is absent the job FAILS —
+# a silent skip lets the label mirror drift from the board unnoticed.
 #
-# To extend board sync to the other ecosystem repos (srs, srs-web,
-# muDemocracy.org), copy this file into each repo's .github/workflows/.
-# Each copy should share the same BOARD_TOKEN secret.
+# This is the ONLY board-sync workflow in the ecosystem. It reconciles the
+# whole cross-repo board on every trigger, so per-repo copies are unnecessary;
+# the hourly schedule covers merges in the other repos within the hour, and
+# `gh workflow run board-sync.yml --repo the-greenman/srs-rust` forces it.
 
 on:
   push:
@@ -43,12 +45,13 @@ jobs:
       - name: Promote, reconcile and rollup
         run: |
           if [ -z "${GH_TOKEN}" ]; then
-            echo "::notice::BOARD_TOKEN not set — skipping board sync. Add a PAT with 'project' scope as the BOARD_TOKEN secret to enable."
-            exit 0
+            echo "::error::Board PAT not set — board sync cannot run. Add a PAT with 'project' scope as the BOARD_SECRET secret. A silent skip here means labels drift from the board and routines pick up stale work, so this is a hard failure."
+            exit 1
           fi
           node scripts/gh-project.mjs promote --fix
           node scripts/gh-project.mjs reconcile --fix
           node scripts/gh-project.mjs rollup --fix
           node scripts/gh-project.mjs release-sync
         env:
-          GH_TOKEN: ${{ secrets.BOARD_TOKEN }}
+          # Accept either secret name; BOARD_SECRET is the one currently configured.
+          GH_TOKEN: ${{ secrets.BOARD_SECRET || secrets.BOARD_TOKEN }}
