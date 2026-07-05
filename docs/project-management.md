@@ -103,11 +103,30 @@ node /tmp/gh-project.mjs epic set 30 --priority P0 --release "Decision Logger v1
 node /tmp/gh-project.mjs epic add-story 30 21                          # link a story under an epic (sub-issue)
 node /tmp/gh-project.mjs release-sync --dry-run                        # preview each descendant's derived Release
 node /tmp/gh-project.mjs release-sync                                  # propagate epic Release to descendants
-node /tmp/gh-project.mjs tree 30                                       # story → sub-issue tree
+node /tmp/gh-project.mjs tree                                          # whole-board tree (epics → stories → issues)
+node /tmp/gh-project.mjs tree 30                                       # one story/epic's sub-issue tree
+node /tmp/gh-project.mjs size srs-rust 263 medium                      # effort estimate (label + board Size field)
+node /tmp/gh-project.mjs bands                                         # implementation order in 10 effort-bands
+node /tmp/gh-project.mjs bands --assign --dry-run                      # preview band → iteration assignment
 node /tmp/gh-project.mjs set srs-rust 263 --status "In progress"       # board write
 node /tmp/gh-project.mjs reconcile --fix                               # repair drift
 node /tmp/gh-project.mjs ensure-labels [--repo R]                      # create the mirror label set
 ```
+
+## Sizing & implementation bands
+
+**Size is a first-class, maintained input** — an effort estimate that is *not* derivable, set by a
+human/agent at triage via `gh-project size <repo> <#> <small|medium|large|xl>` (writes the `size:` label
+**and** the board Size field). `coverage`/`reconcile` flag `unsized` leaf issues so nothing is left
+unsized. Weighting decays if unmaintained, so the **SRS issue assessment** routine re-runs sizing on a
+schedule and `/triage` sizes anything new.
+
+`bands [--count N]` (default 10) prints the whole task list as an **implementation order** sliced into N
+**equal-effort bands**: ordered by **epic Priority → MoSCoW-derived priority → sub-issue position**, and
+weighted by the `size:` label (unsized ⇒ medium). Leaves under no epic are listed as a trailing *unlinked*
+group (link them via `/triage`). `bands --assign` writes each band onto the **Iteration** field (band k →
+the k-th upcoming iteration) — but GitHub can't create iterations via API, so you first create N iterations
+in the UI; the tool assigns whatever exists and reports how many more to add.
 
 The tool **self-discovers** the project field/option/iteration IDs — never hardcode them in a
 prompt or doc. `node /tmp/gh-project.mjs fields` dumps them if you need to inspect.
@@ -166,6 +185,8 @@ check the model — e.g. "everything is P0" usually means every story is set **M
 
 ## Agents vs humans
 
+- **Sizing:** a human/agent sets each leaf issue's **size** (`gh-project size`) at triage — an effort
+  estimate, not derivable; the assessment routine keeps it fresh. Bands weight on it.
 - **Human (board UI):** sets each **epic's Release identity + Priority** and story **MoSCoW**; links
   stories under epics and impl issues under stories (sub-issues); adds iterations. Child **Release is
   derived** (`release-sync`), never hand-set.

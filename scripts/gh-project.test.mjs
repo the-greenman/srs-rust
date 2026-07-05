@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import {
   MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs,
   STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant, epicRank,
+  bandTargets, SIZE_WEIGHT,
 } from "./gh-project.mjs";
 
 // The labels the scheduled cloud routines read/write. Missing any one hard-fails a
@@ -67,4 +68,24 @@ test("epicRank orders by Priority first, then issue number", () => {
   assert.deepEqual(sorted.map((e) => e.num), [30, 99, 1, 2]);
   assert.ok(epicRank(p0a) < epicRank(p0b), "same priority: lower # wins");
   assert.ok(epicRank(p1) < epicRank(none), "set priority beats unset");
+});
+
+// bandTargets slices an ordered weight stream into N ~equal-effort bands, preserving order.
+test("bandTargets fills equal-effort bands in order", () => {
+  // 10 unit weights, 5 bands → 2 per band.
+  assert.deepEqual(bandTargets([1, 1, 1, 1, 1, 1, 1, 1, 1, 1], 5), [0, 0, 1, 1, 2, 2, 3, 3, 4, 4]);
+  // Heavier items fill a band sooner; order is never reordered, only grouped.
+  const a = bandTargets([3, 1, 1, 3, 1, 1], 3); // total 10, target ~3.33
+  assert.equal(a.length, 6);
+  assert.deepEqual([...a].sort((x, y) => x - y), a, "band index is non-decreasing (order preserved)");
+  assert.equal(a[0], 0);
+  assert.ok(a[a.length - 1] <= 2, "never exceeds n-1 bands");
+  // Fewer items than bands: each item in its own band, remainder empty.
+  assert.deepEqual(bandTargets([1, 1], 5), [0, 1]);
+});
+
+test("SIZE_WEIGHT orders effort small < medium < large < xl", () => {
+  assert.ok(SIZE_WEIGHT.small < SIZE_WEIGHT.medium);
+  assert.ok(SIZE_WEIGHT.medium < SIZE_WEIGHT.large);
+  assert.ok(SIZE_WEIGHT.large < SIZE_WEIGHT.xl);
 });

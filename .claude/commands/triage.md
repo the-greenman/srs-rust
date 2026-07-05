@@ -46,6 +46,16 @@ node /tmp/gh-project.mjs release-sync             # propagate each epic's Releas
 `coverage` also reports `orphan_stories_no_epic` — stories under no epic, whose Release can't be
 derived. Link each with `epic add-story <epic#> <story#>` (epics are releases; see `epics`).
 
+## Stage 2b — Size unsized work
+
+`coverage` reports `unsized_issues` — open leaf issues with no `size:` label. Size is an **effort
+estimate**, not derivable: judge each from its scope and assign one. The implementation-order bands
+(`bands`) weight on it, so leaving work unsized degrades the plan.
+
+```bash
+node /tmp/gh-project.mjs size <repo> <issue#> <small|medium|large|xl>   # label + board Size field
+```
+
 ## Stage 3 — Readiness + iteration
 
 For each implementation issue in scope, set Status and Iteration using the tool:
