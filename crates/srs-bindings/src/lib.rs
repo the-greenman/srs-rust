@@ -15,6 +15,7 @@ use srs_repository::record_store::{self, RecordListFilter, TransitionLifecycleIn
 use srs_repository::relation_service::{self, ListRelationsFilter};
 use srs_repository::render_service::{self, RenderDocumentViewOptions};
 use srs_repository::repository_lifecycle::{self, InitNewRepositoryInput};
+use srs_repository::repository_navigation_service;
 use srs_repository::services::{self, ListNotesFilter};
 use srs_repository::tag_service;
 use srs_repository::type_schema_service::{self, TypeSchemaInput};
@@ -519,6 +520,23 @@ impl SrsRepository {
             },
         )
         .map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Return the repository's root identity and precedes-ordered section navigation.
+    /// Equivalent to `srs repo navigation`.
+    ///
+    /// Returns `{ rootContainerId, identity, sections, diagnostics }`.
+    /// - `identity`: `NavigationNode` for the root identity record (`instanceId`, `typeId`,
+    ///   `typeVersion`, `typeNamespace`, `typeName`, `displayLabel`).
+    /// - `sections`: precedes-ordered `NavigationNode` array; each carries an optional
+    ///   `sectionContainerId` pointing to the section's own container.
+    /// - `diagnostics`: non-empty when `manifest.container` is absent (pre-RFC-013 repo) or a
+    ///   member id fails to resolve; in that case `rootContainerId` is `""`, `identity` has
+    ///   all-empty-string/zero fields (it is a present object, not `null`), and `sections` is `[]`.
+    pub fn repository_navigation(&self) -> Result<JsValue, JsValue> {
+        let result =
+            repository_navigation_service::repository_navigation(&self.store).map_err(js_err)?;
         to_js(&result)
     }
 
