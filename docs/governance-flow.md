@@ -82,6 +82,15 @@ Matching on `containerType` is fragile:
 sections by `typeNamespace`/`typeName`. The `containerType` field is not read by
 `main.rs` at all.
 
+## srs-gov Call Boundary
+
+`srs-gov` is a thin client. There are two call paths:
+
+- **Shell-out via `run_srs()`** — used for all read operations (`cmd_top`, `cmd_list`, `cmd_get`, `resolve_container_id`). The `srs` binary's payload contract is the stable interface; no srs-repository crate dependency.
+- **Direct library call** — used only for `cmd_repo_create`, which delegates to `srs-repository::governance_scaffold_service`. This avoids piping a complex binary payload through stdin; the scaffold is a single write-then-done operation where subprocess round-trip adds friction without benefit.
+
+New commands should default to the shell-out path unless they require a write operation where the binary payload contract would be awkward to thread through stdin.
+
 ## TUI Caveat
 
 The read-only terminal UI (`tui_app.rs`, `tui_data.rs`) still uses `containerType`

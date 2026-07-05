@@ -83,6 +83,8 @@ fn top_level_lists_only_decision_log() {
         out.contains("decision_log"),
         "expected decision_log section\n{out}"
     );
+    // ⊕ icon confirms by_root_type matched the ContainerTypeDef; · would mean fallback path.
+    assert!(out.contains("⊕"), "expected ⊕ icon from matched ContainerTypeDef (check root_type_namespace/root_type_name constants)\n{out}");
     assert!(
         !out.contains("articles"),
         "articles section should not be surfaced in release 1\n{out}"
@@ -581,13 +583,14 @@ fn setup_repo(suffix: &str) -> TempGovRepo {
         String::from_utf8_lossy(&out.stderr)
     );
 
-    let dl = srs_json(&path, &["container", "list"], None)["payload"]["containers"]
+    let nav = srs_json(&path, &["repo", "navigation"], None);
+    let dl = nav["payload"]["navigation"]["sections"]
         .as_array()
         .unwrap()
         .iter()
-        .find(|c| c["containerType"] == "decision_log")
-        .and_then(|c| c["containerId"].as_str())
-        .expect("decision_log container")
+        .find(|s| s["typeNamespace"] == "governance" && s["typeName"] == "decision_log")
+        .and_then(|s| s["sectionContainerId"].as_str())
+        .expect("decision_log section via navigation")
         .to_string();
 
     // draft (initial state — no transition)
