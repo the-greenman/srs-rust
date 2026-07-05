@@ -10,7 +10,7 @@ use srs_core::validation::lifecycle::{validate_lifecycle, LifecycleDiagnosticSev
 use srs_core::validation::protocol::validate_protocol;
 use srs_core::validation::record::validate_record;
 use srs_core::validation::relation::{validate_relation, RelationValidationContext};
-use srs_schema::{SchemaRegistry, BLUEPRINT_SCHEMA_ID, NOTE_SCHEMA_ID, RECORD_SCHEMA_ID};
+use srs_schema::{SchemaRegistry, NOTE_SCHEMA_ID, RECORD_SCHEMA_ID};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
@@ -707,7 +707,7 @@ pub fn validate_repository(
                 Some(p) => p.clone(),
             };
 
-            // Blueprint: schema validation + semantic validation
+            // Blueprint: semantic validation only (blueprint files do not include $schema)
             for bp_path in &boundary.blueprint_paths {
                 let full_path = format!("{prefix}/{bp_path}");
                 let bp_value = match store.load_instance_json(&full_path) {
@@ -722,16 +722,6 @@ pub fn validate_repository(
                         continue;
                     }
                 };
-                // Schema validation
-                if let Some(schema_diags) = validate_value_against_schema(
-                    &bp_value,
-                    &full_path,
-                    BLUEPRINT_SCHEMA_ID,
-                    reg,
-                ) {
-                    diagnostics.extend(schema_diags);
-                }
-                // Semantic validation
                 match serde_json::from_value::<Blueprint>(bp_value) {
                     Ok(bp) => {
                         for diag in validate_blueprint(&bp).diagnostics {
@@ -3178,7 +3168,6 @@ mod tests {
     fn minimal_blueprint_json(id: &str, valid: bool) -> Value {
         if valid {
             json!({
-                "$schema": "https://srs.semanticops.com/schema/2.0/blueprint.json",
                 "id": id,
                 "namespace": "com.test",
                 "name": "test-blueprint",
@@ -3188,14 +3177,14 @@ mod tests {
                 "createdAt": "2026-01-01T00:00:00Z"
             })
         } else {
-            // Missing required "rootTypes" field — fails schema validation
+            // Empty rootTypes — fails semantic validation (root_types must not be empty)
             json!({
-                "$schema": "https://srs.semanticops.com/schema/2.0/blueprint.json",
                 "id": id,
                 "namespace": "com.test",
                 "name": "test-blueprint",
                 "version": 1,
                 "description": "A test blueprint",
+                "rootTypes": [],
                 "createdAt": "2026-01-01T00:00:00Z"
             })
         }
@@ -3312,7 +3301,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_blueprint_schema_error_reports_diagnostic() {
+    fn test_validate_blueprint_semantic_empty_root_types_reports_diagnostic() {
         let temp = TempDir::new().unwrap();
         let bp_json = minimal_blueprint_json("00000000-0000-4000-8000-000000000030", false);
         setup_repo_with_blueprint(&temp, "blueprints/test-bp.json", &bp_json);
@@ -3328,7 +3317,7 @@ mod tests {
             .collect();
         assert!(
             !bp_errors.is_empty(),
-            "expected at least one ERROR for blueprint missing rootTypes, got: {:?}",
+            "expected at least one ERROR for blueprint with empty rootTypes, got: {:?}",
             report.diagnostics
         );
     }
@@ -3338,7 +3327,6 @@ mod tests {
         let temp = TempDir::new().unwrap();
         // typeVersion: 0 is a semantic error (must be >= 1)
         let bp_json = json!({
-            "$schema": "https://srs.semanticops.com/schema/2.0/blueprint.json",
             "id": "00000000-0000-4000-8000-000000000030",
             "namespace": "com.test",
             "name": "test-blueprint",
