@@ -34,18 +34,24 @@ creation is explicitly out of scope for this plan (see Architecture Decisions).
 decision is required. The `graduate_note` operation is a multi-step service operation
 under the established pattern (ADR-010): load note → create record → update note →
 return typed result. No new crate boundary, no new extension model, no new payload
-convention. The `graduated_at` timestamp is written using the same `chrono::Utc::now()
-.to_rfc3339()` pattern already used throughout `srs-repository`.
+convention. The `graduated_at` timestamp is written using the `chrono::Utc::now()
+.to_rfc3339()` fully-qualified path already used throughout `srs-repository`.
 
 **Decision — no `derived-from` Relation in V1.** The `note.json` schema notes that
 "authoritative record of successors is in derived-from Relations from the successor
 Records." Creating such a relation requires the repository to have a registered
 `derived-from` RelationTypeDefinition (E1 validation). Most repos don't; creating the
-relation in `graduate_note` would fail silently or error for every repo that hasn't
-explicitly registered that RTD. The `graduated_at` timestamp is itself a sufficient
-and queryable formalisation signal — it is the `Note` field the spec defines for this
-purpose. Relation creation is therefore left as a future follow-up when a standardised
-`derived-from` RTD exists in the governance scaffold.
+relation in `graduate_note` would fail or error for repos that haven't explicitly
+registered that RTD. The `graduated_at` timestamp is a sufficient and queryable
+formalisation signal — it is the `Note` field the spec defines for this purpose.
+Relation creation is left as future work when a standardised `derived-from` RTD exists
+in the governance scaffold.
+
+**Decision — WASM binding exposes `container_id`.** The service supports atomic
+container placement (create record + stamp note + add to container in one call). The
+WASM binding exposes this via an explicit `container_id: Option<String>` parameter,
+matching the service contract. This is consistent with `add_container_member` already
+existing in the WASM surface.
 
 ---
 
@@ -98,12 +104,23 @@ implemented, tested with MemoryStore and FileStore.
 
 #### Tasks
 
-- [ ] In `crates/srs-repository/src/services.rs`, add the following public types and function
-  immediately after the `UpdateNoteResult` struct and `update_note_validated` function
-  (line ~297):
+- [ ] In `crates/srs-repository/src/services.rs`, add the following imports at the
+  top of the file (after the existing `use` block):
+
+  ```rust
+  use crate::record_store::{create_record_in_context, CreateRecordInput};
+  ```
+
+  (`chrono` is already in `srs-repository/Cargo.toml`. Use it fully-qualified as
+  `chrono::Utc::now().to_rfc3339()` — the existing pattern throughout this file. No
+  `use chrono::Utc;` import needed.)
+
+- [ ] In `crates/srs-repository/src/services.rs`, add the following public types and
+  function **after `update_note_validated` (line ~297), before `get_note_by_id`**:
 
   ```rust
   /// Input for `graduate_note`.
+  #[derive(Debug)]
   pub struct GraduateNoteInput {
       /// The instance ID of the Tier-0 Note to graduate.
       pub note_id: String,
@@ -118,6 +135,8 @@ implemented, tested with MemoryStore and FileStore.
   }
 
   /// Result of `graduate_note`.
+  #[derive(Debug, Clone, Serialize)]
+  #[serde(rename_all = "camelCase")]
   pub struct GraduateNoteResult {
       /// The Note with `graduated_at` stamped (ISO-8601 UTC timestamp).
       pub note: Note,
@@ -126,26 +145,36 @@ implemented, tested with MemoryStore and FileStore.
   }
   ```
 
-- [ ] Implement `pub fn graduate_note(store: &dyn RepositoryStore, input: GraduateNoteInput) -> Result<GraduateNoteResult, RepositoryError>` in `services.rs`:
+  `GraduateNoteResult` requires `Serialize` so the WASM binding can call `to_js(&result)`.
+  `Record` and `Note` already implement `Serialize`. `serde(rename_all = "camelCase")`
+  matches all sibling result types in this file.
+
+- [ ] Implement `pub fn graduate_note(store: &dyn RepositoryStore, input: GraduateNoteInput) -> Result<GraduateNoteResult, RepositoryError>` immediately after the struct definitions:
 
   ```rust
+  /// Promote a Tier-0 Note to a typed Tier-2 Record in one atomic step:
+  /// creates the Record, stamps `graduated_at` on the Note, and returns both.
   pub fn graduate_note(
       store: &dyn RepositoryStore,
       input: GraduateNoteInput,
   ) -> Result<GraduateNoteResult, RepositoryError> {
-      // Step 1: load and validate the note exists and is actually a Note (tier 0)
+      // Step 1: load and validate the note exists and is a Note (tier 0)
       let mut note = match get_note_by_id(store, &input.note_id)? {
           GetNoteResult::Found(n) => *n,
-          GetNoteResult::NotFound => return Err(RepositoryError::NoteNotFound {
-              path: std::path::PathBuf::from("records/notes"),
-              id: input.note_id.clone(),
-          }),
-          GetNoteResult::NotANote { tier } => return Err(RepositoryError::InvalidRepositoryInitialization {
-              message: format!(
-                  "Instance '{}' is not a Note (tier {}); cannot graduate",
-                  input.note_id, tier
-              ),
-          }),
+          GetNoteResult::NotFound => {
+              return Err(RepositoryError::NoteNotFound {
+                  path: std::path::PathBuf::from("records/notes"),
+                  id: input.note_id.clone(),
+              })
+          }
+          GetNoteResult::NotANote { tier } => {
+              return Err(RepositoryError::InvalidInput {
+                  message: format!(
+                      "Instance '{}' is not a Note (tier {}); cannot graduate",
+                      input.note_id, tier
+                  ),
+              })
+          }
       };
 
       // Step 2: create the typed Record
@@ -169,27 +198,21 @@ implemented, tested with MemoryStore and FileStore.
   }
   ```
 
-  Add these imports at the top of `services.rs` (they are NOT currently present):
-  ```rust
-  use chrono::Utc;
-  use crate::record_store::{create_record_in_context, CreateRecordInput};
-  ```
-  `chrono` is already in `srs-repository/Cargo.toml`; no `Cargo.toml` change needed.
-
-- [ ] Add `GraduateNoteResult` (and `GraduateNoteInput` if needed at the call site) to
-  the `pub use` exports in `crates/srs-repository/src/lib.rs` or export directly.
+- [ ] No changes to `crates/srs-repository/src/lib.rs` are needed — callers import via
+  `srs_repository::services::{graduate_note, GraduateNoteInput, GraduateNoteResult}`
+  (the module is already `pub mod services` in `lib.rs`). Confirm both structs and
+  the function are `pub`.
 
 #### Acceptance Criteria
 
 - [ ] Calling `graduate_note` with a valid note ID and type creates a new Record and
   returns it paired with the updated Note that has `graduated_at` set.
 - [ ] Calling `graduate_note` with a non-existent note ID returns
-  `RepositoryError::NoteNotFound`.
-- [ ] Calling `graduate_note` with an ID belonging to a non-Note (tier != 0) returns an
-  appropriate `RepositoryError`.
+  `Err(RepositoryError::NoteNotFound { .. })`.
+- [ ] Calling `graduate_note` with an ID belonging to a non-Note (tier != 0) returns
+  `Err(RepositoryError::InvalidInput { .. })`.
 - [ ] `graduated_at` on the returned Note is a valid ISO-8601 UTC timestamp string.
-- [ ] Cross-store roundtrip test passes (MemoryStore create → FileStore verify, or
-  FileStore write → reload from disk).
+- [ ] Cross-store roundtrip test passes.
 
 #### Testing
 
@@ -199,16 +222,21 @@ cargo test -p srs-repository
 ```
 
 Specific tests to write in `crates/srs-repository/src/services.rs` `#[cfg(test)]`,
-using `MemoryStore` (the canonical test double per CLAUDE.md Storage Boundary Rules):
+using `MemoryStore` (the canonical test double per CLAUDE.md). Follow the pattern of
+existing service tests in the same `#[cfg(test)]` block (e.g. `create_note_in_context`
+tests at the bottom of `services.rs`):
 
-- `graduate_note_creates_record_and_stamps_graduated_at` — set up a repo with a note
-  and a type; call `graduate_note`; assert `result.note.graduated_at.is_some()` and
-  `result.record.instance_id` is non-empty.
+- `graduate_note_creates_record_and_stamps_graduated_at` — set up a MemoryStore repo
+  with a note and a type; call `graduate_note`; assert `result.note.graduated_at.is_some()`
+  and `result.record.instance_id` is non-empty and differs from the note ID.
 - `graduate_note_not_found_returns_error` — call with a non-existent ID; assert
-  `Err(RepositoryError::NoteNotFound { .. })`.
-- `graduate_note_cross_store_roundtrip` — MemoryStore: create note + graduate; serialise
-  to JSON; FileStore: load from JSON; assert `note.graduated_at` survives the roundtrip
-  (matches the `MemoryStore` → `srsj` → reload pattern in existing tests).
+  `matches!(err, RepositoryError::NoteNotFound { .. })`.
+- `graduate_note_not_a_note_returns_error` — call with the ID of a tier-2 Record;
+  assert `matches!(err, RepositoryError::InvalidInput { .. })`.
+- `graduate_note_cross_store_roundtrip` — MemoryStore: create note + type + graduate;
+  serialise repo to `.srsj` string; reconstruct from JSON; assert `note.graduated_at`
+  survives the roundtrip. Follow the `MemoryStore → to_srsj_string → load` pattern
+  used in `container_view_service` and `record_store` roundtrip tests.
 
 #### Milestone gate
 
@@ -240,7 +268,7 @@ Mark checkboxes `[x]`, commit:
       /// Note instance ID to graduate
       id: String,
       /// Target type in namespace/name format (e.g. com.example/article)
-      #[arg(long = "type", visible_alias = "type-ref")]
+      #[arg(long = "type", visible_alias = "type-filter")]
       type_ref: String,
       /// Optional type version override (defaults to latest)
       #[arg(long)]
@@ -248,26 +276,36 @@ Mark checkboxes `[x]`, commit:
   },
   ```
 
-  (The container ID comes from the global `ctx.container_id` flag, not a local flag —
-  consistent with `record create`.)
+  Note: `visible_alias = "type-filter"` matches `record create` and `record list` —
+  same flag concept, same alias name. The global `ctx.container_id` provides optional
+  container placement (consistent with `record create`).
 
-- [ ] In `crates/srs-cli/src/payload.rs`, add `NoteGraduatePayload`:
+- [ ] In `crates/srs-cli/src/payload.rs`, add `NoteGraduatePayload` following the
+  pattern of every other Note-bearing payload struct (`NotePayload`, `NoteTagAddPayload`,
+  etc. — all annotate `Note` with `#[schemars(with = "serde_json::Value")]`):
 
   ```rust
-  #[derive(Debug, Serialize, Deserialize, JsonSchema)]
+  #[derive(Debug, Serialize, JsonSchema)]
   #[serde(rename_all = "camelCase")]
   pub struct NoteGraduatePayload {
+      #[schemars(with = "serde_json::Value")]
       pub note: Note,
       #[schemars(with = "serde_json::Value")]
       pub record: Record,
   }
   ```
 
+  Do **not** derive `Deserialize` — payload structs are output-only (ADR-011). All
+  existing payload structs derive only `Debug, Serialize, JsonSchema`.
+
 - [ ] In `crates/srs-cli/src/commands/note.rs`:
   - Add `Graduate { id, type_ref, type_version }` to the `dispatch` match arm:
     `NoteCommand::Graduate { id, type_ref, type_version } => cmd_note_graduate(ctx, id, type_ref, type_version),`
-  - Add to imports: `use srs_repository::services::{graduate_note, GraduateNoteInput, GraduateNoteResult}` (verify exact path).
-  - Add `NoteGraduatePayload` to the `payload` imports.
+  - Add to imports:
+    ```rust
+    use srs_repository::services::{graduate_note, GraduateNoteInput, GraduateNoteResult};
+    ```
+  - Add `NoteGraduatePayload` to the `use crate::payload::` import list.
   - Implement `cmd_note_graduate`:
 
     ```rust
@@ -299,14 +337,16 @@ Mark checkboxes `[x]`, commit:
     }
     ```
 
+  - Add `CreateRecordInput` to the `use srs_repository::services::` import (it is
+    exported from `record_store` — confirm import path compiles).
+
 - [ ] Run `cargo run --bin generate-schemas` from `srs-rust/` and commit the new file
   `crates/srs-cli/schemas/payload/note-graduate.json`.
 
 #### Acceptance Criteria
 
 - [ ] `srs note graduate <id> --type namespace/name` (with valid `CreateRecordInput` JSON
-  from stdin) prints a `NoteGraduatePayload` with `ok: true` and both `note`
-  (with `graduatedAt` set) and `record` (with the new instance ID).
+  from stdin) prints a JSON envelope with `ok: true` and `data: { note: { graduatedAt: "...", ... }, record: { ... } }`.
 - [ ] Handler is ≤ ~15 lines: parse stdin → one service call → `output::serialize`.
 - [ ] `cargo test --test payload_contracts` passes (golden schema committed).
 
@@ -318,11 +358,12 @@ cargo test --test payload_contracts
 ```
 
 Specific tests (in `crates/srs-cli/src/commands/note.rs` `#[cfg(test)]`, following
-the existing handler test style):
+the existing handler test style in that file):
 
 - `cmd_note_graduate_returns_note_and_record` — set up a MemoryStore-backed `CliContext`
-  with a note and a type; pipe valid `CreateRecordInput` JSON; assert the output payload
-  has `ok: true` and `data.note.graduatedAt` is present.
+  with a note and a type; supply valid `CreateRecordInput` JSON via stdin; assert the
+  output deserialises to a JSON envelope with `ok: true` and `data.note.graduatedAt`
+  present.
 - `cmd_note_graduate_unknown_note_returns_error` — unknown note ID; assert `ok: false`.
 
 #### Milestone gate
@@ -340,54 +381,70 @@ Mark checkboxes `[x]`, commit:
 
 ### Phase 3: WASM binding
 
-**Goal:** `SrsRepository.graduate_note(note_id, type_ref, input_json)` is available in
-the WASM surface and calls the same service.
+**Goal:** `SrsRepository.graduate_note(note_id, type_ref, type_version, container_id, input_json)`
+is available in the WASM surface and calls the same service.
 
 **Agent:** Bindings Worker (`agents.md#bindings-worker`)
 
 #### Tasks
 
-- [ ] In `crates/srs-bindings/src/lib.rs`, import `services::{graduate_note, GraduateNoteInput}`
-  (confirm exact path from `crates/srs-repository/src/lib.rs` pub-use exports).
+- [ ] In `crates/srs-bindings/src/lib.rs`, add a local import alias to avoid the
+  name clash between the service function and the method:
+
+  ```rust
+  use srs_repository::services::graduate_note as graduate_note_service;
+  use srs_repository::services::{GraduateNoteInput, GraduateNoteResult};
+  use srs_repository::record_store::CreateRecordInput;
+  ```
+
+  (Confirm import paths compile — `CreateRecordInput` may already be in scope via an
+  existing `use srs_repository::record_store::CreateRecordInput;` at line ~630+.)
+
 - [ ] Add to `SrsRepository` impl:
 
   ```rust
-  /// Graduate a Note to a typed Record. `input_json` is a `CreateRecordInput` JSON
-  /// object (`fieldValues`, `groupValues?`, `tags?`). Returns a `NoteGraduateResult`
-  /// object: `{ note, record }` where `note` has `graduatedAt` stamped.
+  /// Graduate a Note to a typed Record in one atomic step.
+  ///
+  /// `input_json` is a `CreateRecordInput` JSON object
+  /// (`fieldValues`, `groupValues?`, `tags?`). Returns `{ note, record }` where
+  /// `note` has `graduatedAt` stamped. `container_id` is optional; when supplied,
+  /// the new Record is added to that container atomically.
   #[wasm_bindgen]
   pub fn graduate_note(
       &self,
       note_id: &str,
       type_ref: &str,
       type_version: Option<u32>,
+      container_id: Option<String>,
       input_json: &str,
   ) -> Result<JsValue, JsValue> {
       let record_input: CreateRecordInput =
           serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
-      let result = graduate_note_service(&self.store, GraduateNoteInput {
-          note_id: note_id.to_string(),
-          type_ref: type_ref.to_string(),
-          type_version,
-          record_input,
-          container_id: None,
-      })
+      let result = graduate_note_service(
+          &self.store,
+          GraduateNoteInput {
+              note_id: note_id.to_string(),
+              type_ref: type_ref.to_string(),
+              type_version,
+              record_input,
+              container_id,
+          },
+      )
       .map_err(js_err)?;
       to_js(&result)
   }
   ```
 
-  Note: `graduate_note` the service function and `graduate_note` the method clash in
-  name. Use a local alias: `use srs_repository::services::graduate_note as
-  graduate_note_service;` or call it via the full path.
-
-- [ ] Ensure `GraduateNoteResult` derives `Serialize` so `to_js` can serialise it.
+  `GraduateNoteResult` already derives `Serialize` (Phase 1); `to_js` serialises it
+  via `serde_json::to_string`. No logic duplicated — one service call.
 
 #### Acceptance Criteria
 
-- [ ] Binding compiles for the workspace target (WASM target or native test target).
-- [ ] A smoke test asserts the binding output contains `note.graduatedAt` and `record`.
-- [ ] No business logic in the binding — it's one `from_str` + one service call + `to_js`.
+- [ ] Binding compiles for the workspace target (native test target sufficient;
+  full WASM build verified by CI).
+- [ ] Smoke test asserts the `graduate_note_service` result serialises to JSON
+  containing `note.graduatedAt` and `record`.
+- [ ] No business logic in the binding — one `from_str` + one service call + `to_js`.
 
 #### Testing
 
@@ -395,13 +452,25 @@ the WASM surface and calls the same service.
 cargo test -p srs-bindings
 ```
 
-Specific tests (in `crates/srs-bindings/src/lib.rs` `#[cfg(test)]`, following the
-existing smoke-test style in that file):
+Specific tests (add a new `#[cfg(test)]` block in `crates/srs-bindings/src/lib.rs` —
+this file currently has no tests; establish the pattern following the MemoryStore setup
+in `crates/srs-repository/src/services.rs` `#[cfg(test)]`):
 
-- `graduate_note_binding_smoke` — set up a repo with a note and a type; call
-  `graduate_note_service` directly (not via the `#[wasm_bindgen]` method, which
-  requires a JS runtime); assert the result fields are present. Mirror the pattern of
-  existing service-call tests in `srs-bindings`.
+```rust
+#[cfg(test)]
+mod tests {
+    use srs_repository::services::graduate_note as graduate_note_service;
+    use srs_repository::services::GraduateNoteInput;
+    use srs_repository::record_store::CreateRecordInput;
+    // set up MemoryStore with a note and type (same helpers as services.rs tests),
+    // then call graduate_note_service directly (not the #[wasm_bindgen] method —
+    // that requires a JS runtime). Assert result.note.graduated_at.is_some() and
+    // result.record.instance_id is non-empty.
+}
+```
+
+- `graduate_note_service_result_serialises` — calls `graduate_note_service`, then
+  `serde_json::to_value(&result)`, asserts the JSON has `note.graduatedAt` and `record`.
 
 #### Milestone gate
 
@@ -421,9 +490,24 @@ Mark checkboxes `[x]`, commit:
 - [ ] `cargo clippy -- -D warnings` passes
 - [ ] `cargo test --test payload_contracts` passes (golden schema committed)
 - [ ] `bash scripts/check-schema-sync.sh` exits 0 (no entity schemas changed — no-op)
-- [ ] `srs note graduate <id> --type ns/name` produces a typed Record and stamps
-  `graduated_at` on the Note (issue acceptance criterion)
+- [ ] End-to-end smoke: create a note and type in a temp repo, graduate it, verify output:
+  ```bash
+  REPO=$(mktemp -d)
+  cargo run --bin srs -- repo create --repo "$REPO" --namespace com.example.test
+  NOTE_ID=$(cargo run --bin srs -- --repo "$REPO" note create \
+    <<'EOF' | jq -r '.data.note.instanceId'
+  {"instanceId":"","sections":[{"name":"body","content":"test note"}]}
+  EOF
+  )
+  # (create a type in the repo first — or use the srs spec repo which has types)
+  # cargo run --bin srs -- --repo "$REPO" note graduate "$NOTE_ID" --type com.example.test/my-type \
+  #   <<'EOF' | jq '{ok, graduatedAt: .data.note.graduatedAt, recordId: .data.record.instanceId}'
+  # {"fieldValues":[]}
+  # EOF
+  ```
+  Assert: `ok: true`, `data.note.graduatedAt` is non-null, `data.record.instanceId` is non-empty.
 - [ ] Cross-store roundtrip test passes in Phase 1
+- [ ] The four acceptance-criteria tests in Phase 1 all pass (`cargo test -p srs-repository graduate_note`)
 
 ## Coordination Rules
 
@@ -433,8 +517,12 @@ Mark checkboxes `[x]`, commit:
 
 ## Assumptions
 
-- `chrono` is already in `srs-repository/Cargo.toml` but NOT yet imported in `services.rs`; the implementation adds `use chrono::Utc;` to the imports.
-- `update_note(store, note) -> Result<UpdateNoteResult>` is `pub fn` in `services.rs` and callable by `graduate_note` in the same file.
-- `create_record_in_context` is accessible from `services.rs` via `record_store::create_record_in_context` or equivalent import (confirm at implementation time).
-- `GraduateNoteResult` will need `#[derive(Serialize)]` so `to_js` can serialise it; `Record` and `Note` already implement `Serialize`.
-- `CreateRecordInput` from `record_store.rs` is already re-exported from `srs-repository/src/lib.rs` or accessible as `crate::record_store::CreateRecordInput` within `srs-bindings`.
+- `chrono::Utc::now().to_rfc3339()` is used fully-qualified — no `use chrono::Utc;` import
+  is added (`services.rs` already uses this pattern throughout, e.g. lines 181, 182, 293).
+- `update_note(store, note) -> Result<UpdateNoteResult>` is `pub fn` in `services.rs` and
+  callable by `graduate_note` in the same file (confirmed at line ~455).
+- `create_record_in_context` is in `crates/srs-repository/src/record_store.rs` — added to
+  `services.rs` imports as `use crate::record_store::{create_record_in_context, CreateRecordInput}`.
+- `GraduateNoteResult` derives `Serialize` (Phase 1 task) — required for `to_js` in Phase 3.
+- `CreateRecordInput` may already be in scope in `srs-bindings/src/lib.rs` (check line ~630;
+  if not, add `use srs_repository::record_store::CreateRecordInput;`).
