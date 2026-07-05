@@ -581,6 +581,65 @@ function ensureLabels(repo) {
 }
 
 // ---------------------------------------------------------------------------
+// Size (effort) — a first-class, maintained input. Lives as the `size: <v>` label
+// (what the bands calc + routines read) and is mirrored to the board Size field.
+// Not derivable — set by a human/agent at triage (see `size` command).
+// ---------------------------------------------------------------------------
+const SIZE_WEIGHT = { small: 1, medium: 2, large: 3, xl: 5 };
+const SIZE_VALUES = Object.keys(SIZE_WEIGHT);           // small|medium|large|xl
+const SIZE_TO_FIELD = { small: "S", medium: "M", large: "L", xl: "XL" }; // board Size options
+const SIZE_DEFAULT_WEIGHT = SIZE_WEIGHT.medium;          // unsized items default to medium
+const SIZE_LABEL_SPECS = [
+  { name: "size: small",  color: "C2E0C6", description: "Effort estimate — small" },
+  { name: "size: medium", color: "BFD4F2", description: "Effort estimate — medium" },
+  { name: "size: large",  color: "FBCA04", description: "Effort estimate — large" },
+  { name: "size: xl",     color: "E99695", description: "Effort estimate — extra large" },
+];
+
+// The `size:` value on a board row, or null.
+function sizeOf(row) {
+  const l = row.labels.find((x) => x.startsWith("size: "));
+  return l ? l.slice("size: ".length).trim() : null;
+}
+// Effort weight for banding: from the size label, default medium.
+function sizeWeight(row) {
+  return SIZE_WEIGHT[sizeOf(row)] ?? SIZE_DEFAULT_WEIGHT;
+}
+// A leaf work item: not an epic (`epic`), a user story, or an engineering epic (`plan`).
+function isWorkItem(row) {
+  return !row.labels.includes("epic")
+    && !row.labels.includes(STORY_LABEL)
+    && !row.labels.includes("plan");
+}
+// Open leaf work items with no size label.
+function unsizedLeaves() {
+  const out = [];
+  for (const row of board().values()) {
+    if (row.state !== "OPEN" || !isWorkItem(row)) continue;
+    if (!sizeOf(row)) out.push(row);
+  }
+  return out;
+}
+
+const _sizeLabelled = new Set();
+function ensureSizeLabels(repo) {
+  if (_sizeLabelled.has(repo)) return;
+  for (const spec of SIZE_LABEL_SPECS) { try { gh(labelCreateArgs(repo, spec)); } catch { /* non-fatal */ } }
+  _sizeLabelled.add(repo);
+}
+// Ensure exactly one `size:` label (mirror of setPriorityLabel).
+function setSizeLabel(repo, num, size, dryRun) {
+  const add = size ? [`size: ${size}`] : [];
+  const remove = SIZE_VALUES.filter((s) => s !== size).map((s) => `size: ${s}`);
+  if (dryRun) return;
+  ensureSizeLabels(repo);
+  const args = ["issue", "edit", String(num), "--repo", `${OWNER}/${repo}`];
+  for (const l of add) args.push("--add-label", l);
+  for (const l of remove) args.push("--remove-label", l);
+  if (add.length || remove.length) { try { gh(args); } catch { /* label may not be present; non-fatal */ } }
+}
+
+// ---------------------------------------------------------------------------
 // Rollup engine
 // ---------------------------------------------------------------------------
 const higher = (a, b) => (a && (!b || P_ORDER.indexOf(a) < P_ORDER.indexOf(b)) ? a : b);
@@ -809,9 +868,148 @@ function cmdEpicAddStory(argv, dryRun) {
 }
 
 // ---------------------------------------------------------------------------
+// Implementation order + effort bands
+// Order: epic Priority (`epicRank`) → issue MoSCoW-derived priority → sub-issue
+// position. Weight: `size:` label (default medium). Sliced into N equal-effort bands.
+// ---------------------------------------------------------------------------
+
+// Ordered stream of open leaf work items across all epics (roadmap order), plus any
+// open leaves under no epic (trailing `unlinkedLeaves`, never dropped).
+function computeImplementationOrder() {
+  const b = board();
+  const { epics, desc } = computeReleaseRollup(); // desc: key -> claiming epicNum
+  const roll = computeRollup();
+  const pByKey = new Map();
+  for (const e of [...roll.derived, ...roll.bugs, ...roll.unlinked]) pByKey.set(e.row.key, e.p ?? null);
+
+  const sortedEpics = [...epics].sort((a, c) => epicRank(a) - epicRank(c));
+  const seen = new Set();
+  const ordered = [];
+  for (const epic of sortedEpics) {
+    const local = [];
+    let pos = 0;
+    const tvisited = new Set();
+    const visit = (owner, repo, num) => {
+      for (const k of subIssues(owner, repo, num)) {
+        const { owner: o, repo: r } = ownerRepoOf(k);
+        if (!r || o !== OWNER) continue;
+        const key = `${r}#${k.number}`;
+        const myPos = pos++;
+        if (desc.get(key) === epic.num) {
+          const row = b.get(key);
+          if (row && row.state === "OPEN" && isWorkItem(row) && !seen.has(key)) local.push({ key, row, pos: myPos });
+        }
+        if (!tvisited.has(key)) { tvisited.add(key); visit(o, r, k.number); }
+      }
+    };
+    visit(OWNER, STORY_REPO, epic.num);
+    // within an epic: MoSCoW-derived priority first, then sub-issue position
+    local.sort((x, y) => pRank(pByKey.get(x.key)) - pRank(pByKey.get(y.key)) || x.pos - y.pos);
+    for (const it of local) {
+      if (seen.has(it.key)) continue;
+      seen.add(it.key);
+      ordered.push({ row: it.row, epic, p: pByKey.get(it.key) ?? null });
+    }
+  }
+  const unlinkedLeaves = [];
+  for (const row of b.values()) {
+    if (row.state !== "OPEN" || !isWorkItem(row) || seen.has(row.key)) continue;
+    unlinkedLeaves.push({ row, epic: null, p: pByKey.get(row.key) ?? null });
+  }
+  return { ordered, unlinkedLeaves, epics: sortedEpics };
+}
+
+// Equal-effort banding. Pure: weights[] → band index per item (monotonic, order-preserving).
+// Advances to the next band when cumulative effort crosses that band's share of the total;
+// a tail guard force-advances when items run low so trailing bands aren't left empty.
+// Exported for tests.
+function bandTargets(weights, n) {
+  const total = weights.reduce((a, w) => a + w, 0);
+  const target = n > 0 ? total / n : total || 1;
+  const out = [];
+  let bi = 0, cum = 0;
+  for (let i = 0; i < weights.length; i++) {
+    out.push(bi);
+    cum += weights[i];
+    const remainingItems = weights.length - 1 - i;
+    if (bi >= n - 1) continue;
+    if (cum >= (bi + 1) * target && remainingItems > 0) bi++;      // this band has its share
+    else if (remainingItems <= n - 1 - bi) bi++;                    // reserve a band per leftover item
+  }
+  return out;
+}
+
+function allocateBands(ordered, n) {
+  const weights = ordered.map((it) => sizeWeight(it.row));
+  const assign = bandTargets(weights, n);
+  const bands = Array.from({ length: n }, () => ({ items: [], effort: 0 }));
+  ordered.forEach((it, i) => { bands[assign[i]].items.push(it); bands[assign[i]].effort += weights[i]; });
+  const total = weights.reduce((a, w) => a + w, 0);
+  return { bands, total, target: n > 0 ? total / n : total };
+}
+
+// Opt-in: map band k → the k-th upcoming iteration and write the Iteration field.
+// GitHub cannot create iterations via API — only assign existing ones.
+function assignBandsToIterations(bands, dryRun) {
+  const iters = meta().fields["Iteration"]?.configuration?.iterations ?? [];
+  console.log("");
+  if (!iters.length) { console.log("No upcoming iterations exist — create them in the project UI to assign bands."); return; }
+  if (iters.length < bands.length)
+    console.log(`note: ${iters.length} iteration(s) exist for ${bands.length} bands — create ${bands.length - iters.length} more in the UI to cover all bands; assigning the first ${Math.min(iters.length, bands.length)}.`);
+  const nAssign = Math.min(iters.length, bands.length);
+  for (let i = 0; i < nAssign; i++) {
+    console.log(`${dryRun ? "[dry-run] " : ""}Band ${i + 1} → ${iters[i].title} (${bands[i].items.length} issues)`);
+    if (dryRun) continue;
+    for (const it of bands[i].items) setIteration(it.row.itemId, iters[i].title, false);
+  }
+}
+
+function cmdBands(argv) {
+  const dryRun = argv.includes("--dry-run");
+  const assign = argv.includes("--assign");
+  const showTree = argv.includes("--tree");
+  let n = 10;
+  const ci = argv.indexOf("--count");
+  if (ci !== -1 && argv[ci + 1]) n = Math.max(1, parseInt(argv[ci + 1], 10) || 10);
+  const { ordered, unlinkedLeaves } = computeImplementationOrder();
+  const { bands, total, target } = allocateBands(ordered, n);
+  const L = [];
+  if (showTree) { cmdTree(); L.push(""); }
+  L.push(`IMPLEMENTATION BANDS — ${ordered.length} leaf issues · total effort ${total} · ~${target.toFixed(1)}/band · ${n} bands`);
+  L.push("order: epic Priority → MoSCoW-derived priority → sub-issue position · weight: size label (default medium)");
+  bands.forEach((band, i) => {
+    L.push("");
+    L.push(`Band ${i + 1}  (effort ~${band.effort} · ${band.items.length} issues)`);
+    for (const it of band.items)
+      L.push(`  ${it.row.key.padEnd(16)} [${(it.p ?? "—").padEnd(2)}][${(sizeOf(it.row) ?? "?").padEnd(6)}] (${it.epic?.release ?? "—"}) ${it.row.title.slice(0, 56)}`);
+  });
+  if (unlinkedLeaves.length) {
+    L.push("");
+    L.push(`Unlinked — under no epic (not banded): ${unlinkedLeaves.length}`);
+    for (const it of unlinkedLeaves) L.push(`  ${it.row.key}  ${it.row.title.slice(0, 56)}`);
+  }
+  console.log(L.join("\n"));
+  if (assign) assignBandsToIterations(bands, dryRun);
+}
+
+// ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
 const fmt = (o) => JSON.stringify(o, null, 2);
+
+// `size <repo> <issue#> <small|medium|large|xl>` — the single writer of size:
+// sets the `size:` label AND the board Size field (small→S · medium→M · large→L · xl→XL).
+function cmdSize(argv) {
+  const dryRun = argv.includes("--dry-run");
+  const [repo, num, value] = argv;
+  if (!repo || !num || !value) die(`usage: size <repo> <issue#> <${SIZE_VALUES.join("|")}> [--dry-run]`);
+  const size = value.toLowerCase();
+  if (!SIZE_VALUES.includes(size)) die(`size must be one of: ${SIZE_VALUES.join(", ")}`);
+  const itemId = ensureOnBoard(repo, num, dryRun);
+  console.log(`${dryRun ? "[dry-run] " : ""}Size ${repo}#${num} = ${size}`);
+  setSizeLabel(repo, num, size, dryRun);
+  if (!dryRun && itemId) { try { setSingleSelect(itemId, "Size", SIZE_TO_FIELD[size], false); } catch (e) { console.error(`  (board Size field not set: ${e.message})`); } }
+}
 
 function cmdFields() {
   const m = meta();
@@ -898,8 +1096,9 @@ function cmdBoard(argv) {
   }))));
 }
 
+// `tree [<story#>]` — one story's sub-issue tree, or (no arg) the whole board:
+// every epic in roadmap (epicRank) order with its subtree.
 function cmdTree(storyNum) {
-  if (!storyNum) die("usage: tree <story#>");
   const seen = new Set();
   const render = (owner, repo, num, depth) => {
     for (const k of subIssues(owner, repo, num)) {
@@ -913,8 +1112,16 @@ function cmdTree(storyNum) {
       render(o, r, k.number, depth + 1);
     }
   };
-  console.log(`${STORY_REPO}#${storyNum} (story)`);
-  render(OWNER, STORY_REPO, storyNum, 1);
+  if (storyNum) {
+    console.log(`${STORY_REPO}#${storyNum} (story)`);
+    render(OWNER, STORY_REPO, storyNum, 1);
+    return;
+  }
+  const { epics } = computeReleaseRollup();
+  for (const e of [...epics].sort((a, c) => epicRank(a) - epicRank(c))) {
+    console.log(`${e.key} [${e.priority ?? "—"}] ${e.title}${e.release ? ` · ${e.release}` : ""}`);
+    render(OWNER, STORY_REPO, e.num, 1);
+  }
 }
 
 function cmdStoriesSync(dryRun) {
@@ -980,6 +1187,7 @@ function cmdCoverage() {
     unlinked_could_get_lost: r.unlinked.map((u) => ({ key: u.row.key, title: u.row.title })),
     uncovered_stories: r.uncovered.map((s) => ({ key: `${STORY_REPO}#${s.num}`, title: s.title })),
     orphan_stories_no_epic: orphanStories.map((s) => ({ key: `${STORY_REPO}#${s.num}`, title: s.title })),
+    unsized_issues: unsizedLeaves().map((row) => ({ key: row.key, title: row.title })),
   }));
 }
 
@@ -1176,6 +1384,8 @@ function cmdReconcile(argv) {
   // Stories under no epic — release can't be derived until they are linked
   for (const s of computeReleaseRollup().orphanStories)
     issues.push(`orphan-story-no-epic: ${STORY_REPO}#${s.num}`);
+  // Leaf work items with no size — bands weight on this; assign one at triage (report-only)
+  for (const row of unsizedLeaves()) issues.push(`unsized: ${row.key}`);
   console.log(issues.length ? issues.join("\n") : "no drift");
   if (dryRun && issues.length) console.log("\n(dry-run; pass --fix to repair closed-not-done + rollup-stale + status-mirror)");
 }
@@ -1192,7 +1402,7 @@ function help() {
   add <repo> <issue#> [--dry-run]
   stories sync [--dry-run]        add open user-story issues to the board
   story set <num> --moscow <M> [--release <ms>]
-  tree <story#>                   print story -> sub-issue tree
+  tree [<story#>]                 sub-issue tree — one story, or (no arg) the whole board by epic
   rollup [--fix]                  derive impl priority from stories (dry-run by default)
   summary [--repo R --release X --brief]   priority estimates with the calculation stages
   explain <repo> <issue#>         stage-by-stage derivation for one issue
@@ -1202,6 +1412,10 @@ function help() {
   epic add-story <epic#> <story#>            link a story under an epic (sub-issue)
   release-sync [--dry-run]        derive each descendant's Release from its epic (writes; --dry-run previews)
   set <repo> <issue#> [--status --priority --iteration] [--dry-run]
+  size <repo> <issue#> <small|medium|large|xl> [--dry-run]   effort estimate (label + board Size field)
+  bands [--count N] [--tree] [--assign] [--dry-run]
+                                  implementation order in N equal-effort bands (default 10);
+                                  --assign writes band k → k-th iteration (existing iterations only)
   reconcile [--fix]               report/repair board drift (priority + Status→label mirror)
 
 Priority stages: served stories → MoSCoW→P → base(max) → bug floor(P1) → bump(+1) → final.
@@ -1213,7 +1427,7 @@ Auth: requires an authenticated \`gh\` CLI, or GITHUB_TOKEN/GH_TOKEN env var (cu
 // Dispatch
 // ---------------------------------------------------------------------------
 // Pure helpers exported for unit tests. Importing the module must NOT run the CLI.
-export { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs, STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant, epicRank };
+export { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs, STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant, epicRank, bandTargets, SIZE_WEIGHT };
 
 // Only dispatch when run directly (`node gh-project.mjs ...`), not when imported.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -1241,6 +1455,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         else die("usage: epic set <num> --priority P [--release R] | epic add-story <epic#> <story#>");
         break;
       case "set": cmdSet(rest); break;
+      case "size": cmdSize(rest); break;
+      case "bands": cmdBands(rest); break;
       case "reconcile": cmdReconcile(rest); break;
       case "help": case "--help": case "-h": case undefined: help(); break;
       default: die(`unknown command "${cmd}" (try \`help\`)`);

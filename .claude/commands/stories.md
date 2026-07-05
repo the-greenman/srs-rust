@@ -38,6 +38,9 @@ Report four things and what to do about each:
 4. **Orphan stories (no epic)** — `orphan_stories_no_epic`: stories under no epic, so their Release
    can't be derived (epics are releases). Propose the epic each belongs to and link it:
    `node /tmp/gh-project.mjs epic add-story <epic#> <story#>`.
+5. **Unsized issues** — `unsized_issues`: leaf work items with no `size:` label. Size drives the
+   implementation-order bands; assign one from scope:
+   `node /tmp/gh-project.mjs size <repo> <issue#> <small|medium|large|xl>`.
 
 Also flag any **story missing a MoSCoW value** — priority can't be derived until a human sets it.
 You may propose a MoSCoW (Must/Should/Could/Won't) per story for the human to confirm in the UI.
