@@ -137,6 +137,11 @@ is in **[docs/project-management.md](docs/project-management.md)**.
 Quick rules:
 - **Never hand-set an implementation issue's priority.** It is derived from the user stories it
   serves (as native GitHub sub-issues) by `gh-project rollup`. Humans set **MoSCoW** on stories.
+  Engineering work with no story inherits its **epic's Priority one tier down** (epic fallback).
+- **File issues linked.** When you file an implementation issue, immediately parent it under the
+  story or engineering epic it serves: `gh-project link <parent-repo>#<n> <child-repo>#<n>` (plain
+  REST — works in proxy-bound routines too). An issue under no story and no epic is orphaned and
+  gets no priority.
 - **Bugs** are fixed ASAP — they floor at `priority: P1` even without a story.
 - **Unlinked non-bug** work is flagged ("could get lost"), never dropped — link it to a story.
 - **Epics are releases.** An `epic` (in muDemocracy.org) *is* a release: a human sets its **Release
