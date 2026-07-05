@@ -525,6 +525,15 @@ function setIteration(itemId, title, dryRun) {
   );
 }
 
+function setNumber(itemId, fieldName, value, dryRun) {
+  if (dryRun) return;
+  graphql(
+    `mutation($p:ID!,$i:ID!,$f:ID!,$v:Float!){
+       updateProjectV2ItemFieldValue(input:{projectId:$p,itemId:$i,fieldId:$f,value:{number:$v}}){ projectV2Item{ id } } }`,
+    { p: meta().id, i: itemId, f: field(fieldName).id, v: value }
+  );
+}
+
 function ensureOnBoard(repo, num, dryRun) {
   const key = `${repo}#${num}`;
   const existing = board().get(key);
@@ -982,20 +991,20 @@ function allocateBands(ordered, n) {
   return { bands, total, target: n > 0 ? total / n : total };
 }
 
-// Opt-in: map band k → the k-th upcoming iteration and write the Iteration field.
-// GitHub cannot create iterations via API — only assign existing ones.
-function assignBandsToIterations(bands, dryRun) {
-  const iters = meta().fields["Iteration"]?.configuration?.iterations ?? [];
+// Opt-in: write each item's band index (1-based) into the "Band" number field.
+// Replaces the old iteration mapping — iterations are date-bound (a band is not a
+// calendar sprint), so band k → Band = k is the stable, date-free home for the order.
+function assignBandsToBandField(bands, dryRun) {
   console.log("");
-  if (!iters.length) { console.log("No upcoming iterations exist — create them in the project UI to assign bands."); return; }
-  if (iters.length < bands.length)
-    console.log(`note: ${iters.length} iteration(s) exist for ${bands.length} bands — create ${bands.length - iters.length} more in the UI to cover all bands; assigning the first ${Math.min(iters.length, bands.length)}.`);
-  const nAssign = Math.min(iters.length, bands.length);
-  for (let i = 0; i < nAssign; i++) {
-    console.log(`${dryRun ? "[dry-run] " : ""}Band ${i + 1} → ${iters[i].title} (${bands[i].items.length} issues)`);
-    if (dryRun) continue;
-    for (const it of bands[i].items) setIteration(it.row.itemId, iters[i].title, false);
+  if (!meta().fields["Band"]) {
+    console.log('No "Band" field on the project — create a Number field named "Band" to assign bands.');
+    return;
   }
+  bands.forEach((band, i) => {
+    console.log(`${dryRun ? "[dry-run] " : ""}Band ${i + 1} → Band = ${i + 1} (${band.items.length} issues)`);
+    if (dryRun) return;
+    for (const it of band.items) setNumber(it.row.itemId, "Band", i + 1, false);
+  });
 }
 
 function cmdBands(argv) {
@@ -1023,7 +1032,7 @@ function cmdBands(argv) {
     for (const it of unlinkedLeaves) L.push(`  ${it.row.key}  ${it.row.title.slice(0, 56)}`);
   }
   console.log(L.join("\n"));
-  if (assign) assignBandsToIterations(bands, dryRun);
+  if (assign) assignBandsToBandField(bands, dryRun);
 }
 
 // ---------------------------------------------------------------------------
@@ -1377,6 +1386,34 @@ function cmdAdd(argv) {
   console.log(`${dryRun ? "[dry-run] " : ""}${repo}#${num} on board${id ? " (" + id + ")" : ""}`);
 }
 
+// Discover every issue carrying the promotion intent, across all mirrored repos, by LABEL search
+// (REST) — not just board items. The judge routinely marks issues that are not on the board yet
+// (a freshly-filed bug/enhancement), and those are exactly the ones we must pull onto the queue.
+// Board Status is merged in where the issue is already a project item so planPromotions can tell
+// Backlog from already-advanced; off-board issues have status null (→ promotable, and ensureOnBoard
+// adds them to the board when we set Ready). --state all so stale intents on closed issues get cleared.
+function intentRows() {
+  const byKey = new Map([...board().values()].map((r) => [r.key, r]));
+  const rows = [];
+  for (const repo of MIRROR_REPOS) {
+    const list = ghJson([
+      "issue", "list", "--repo", `${OWNER}/${repo}`,
+      "--label", PROMOTE_INTENT_LABEL, "--state", "all", "--limit", "200",
+      "--json", "number,state,labels",
+    ]) || [];
+    for (const i of list) {
+      const key = `${repo}#${i.number}`;
+      rows.push({
+        repo, num: i.number, key,
+        state: String(i.state).toUpperCase(),        // gh returns OPEN|CLOSED
+        status: byKey.get(key)?.status ?? null,       // board Status if on board, else null
+        labels: (i.labels || []).map((l) => l.name),
+      });
+    }
+  }
+  return rows;
+}
+
 // promote [--fix] — convert `promote:ready` intents into board Status=Ready. This is the
 // privileged half of the promotion pipeline: the judge (a proxy-bound cloud routine, a human, or
 // a future rule) can only add the intent label over REST; this command, run where Projects v2 is
@@ -1385,7 +1422,7 @@ function cmdAdd(argv) {
 function cmdPromote(argv) {
   const dryRun = !argv.includes("--fix");
   if (!dryRun) for (const repo of MIRROR_REPOS) ensureLabels(repo); // self-heal so the intent label exists
-  const plan = planPromotions([...board().values()]);
+  const plan = planPromotions(intentRows());
   for (const p of plan) {
     console.log(`${dryRun ? "[dry-run] " : ""}${p.action}: ${p.key}${p.promote ? ` ${p.from ?? "—"}→Ready` : ` (Status=${p.from ?? "—"}, clear intent)`}`);
     if (dryRun) continue;
@@ -1476,7 +1513,7 @@ function help() {
   size <repo> <issue#> <small|medium|large|xl> [--dry-run]   effort estimate (label + board Size field)
   bands [--count N] [--tree] [--assign] [--dry-run]
                                   implementation order in N equal-effort bands (default 10);
-                                  --assign writes band k → k-th iteration (existing iterations only)
+                                  --assign writes band k → the "Band" number field (k = 1..N)
   reconcile [--fix]               report/repair board drift (priority + Status→label mirror)
 
 Priority stages: served stories → MoSCoW→P → base(max) → bug floor(P1) → bump(+1) → final.

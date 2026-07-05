@@ -85,6 +85,13 @@ test("planPromotions promotes only OPEN Backlog/unset issues", () => {
   ]);
 });
 
+test("planPromotions promotes an OFF-board intent (status null) — the judge may label an issue not yet on the board", () => {
+  // Regression: `promote` must handle issues discovered by label search that aren't project items
+  // yet (status null). These get promoted (ensureOnBoard adds them when Status=Ready is set).
+  const plan = planPromotions([row({ num: 30, status: null, labels: [PROMOTE_INTENT_LABEL] })]);
+  assert.deepEqual(plan.map((p) => [p.action, p.promote]), [["promoted", true]]);
+});
+
 test("planPromotions never demotes/re-opens: advanced, ready, and closed intents are just cleared", () => {
   const rows = [
     row({ num: 20, status: "In progress", labels: [PROMOTE_INTENT_LABEL] }),
