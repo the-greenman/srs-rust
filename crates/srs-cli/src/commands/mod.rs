@@ -435,6 +435,17 @@ pub enum NoteCommand {
         #[arg(long, hide = true)]
         json: bool,
     },
+    /// Graduate a note to a typed record (reads CreateRecordInput JSON from stdin)
+    Graduate {
+        /// Note instance ID to graduate
+        id: String,
+        /// Target type in namespace/name format (e.g. com.example/article)
+        #[arg(long = "type", visible_alias = "type-filter")]
+        type_ref: String,
+        /// Optional type version override (defaults to latest)
+        #[arg(long)]
+        type_version: Option<u32>,
+    },
 }
 
 #[derive(Subcommand)]

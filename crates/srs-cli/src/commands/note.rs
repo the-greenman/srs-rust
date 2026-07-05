@@ -1,18 +1,20 @@
 use crate::commands::{with_store, CliContext, NoteCommand, NoteTagCommand};
 use crate::output;
 use crate::payload::{
-    DeletedPayload, NoteFoundationsPayload, NoteListEntry, NoteListPayload, NotePayload,
-    NoteTagAddPayload, NoteTagListPayload, NoteTagMapPayload, NoteTagRemovePayload,
+    DeletedPayload, NoteFoundationsPayload, NoteGraduatePayload, NoteListEntry, NoteListPayload,
+    NotePayload, NoteTagAddPayload, NoteTagListPayload, NoteTagMapPayload, NoteTagRemovePayload,
 };
 use anyhow::Result;
 use srs_core::types::note::Note;
 use srs_repository::analysis::{
     audit_note_tags, audit_note_tags_for_note, collect_foundation_notes,
 };
+use srs_repository::record_store::CreateRecordInput;
 use srs_repository::services::{
-    add_note_tag, create_note_in_context, delete_note_in_context, get_note_by_id, list_note_tags,
-    list_notes, remove_note_tag, update_note_validated, AddTagResult, CreateNoteInput,
-    DeleteNoteInput, DeleteNoteResult, GetNoteResult, ListNotesFilter, RemoveTagResult,
+    add_note_tag, create_note_in_context, delete_note_in_context, get_note_by_id,
+    graduate_note, list_note_tags, list_notes, remove_note_tag, update_note_validated,
+    AddTagResult, CreateNoteInput, DeleteNoteInput, DeleteNoteResult, GetNoteResult,
+    GraduateNoteInput, ListNotesFilter, RemoveTagResult,
 };
 use std::io::{self, Read};
 
@@ -25,6 +27,9 @@ pub fn dispatch(ctx: CliContext, cmd: NoteCommand) -> Result<String> {
         NoteCommand::Delete { id, json: _ } => cmd_note_delete(ctx, id),
         NoteCommand::Tag(tag_cmd) => cmd_note_tag_dispatch(ctx, tag_cmd),
         NoteCommand::Foundations { json: _ } => cmd_note_foundations(ctx),
+        NoteCommand::Graduate { id, type_ref, type_version } => {
+            cmd_note_graduate(ctx, id, type_ref, type_version)
+        }
     }
 }
 
@@ -173,4 +178,38 @@ fn cmd_note_foundations(ctx: CliContext) -> Result<String> {
         "note foundations",
         NoteFoundationsPayload { foundation_notes },
     )
+}
+
+fn cmd_note_graduate(
+    ctx: CliContext,
+    id: String,
+    type_ref: String,
+    type_version: Option<u32>,
+) -> Result<String> {
+    let mut stdin = String::new();
+    io::stdin().read_to_string(&mut stdin)?;
+    let record_input: CreateRecordInput = serde_json::from_str(&stdin)
+        .map_err(|e| anyhow::anyhow!("Failed to parse record input JSON: {}", e))?;
+    let container_id = ctx.container_id.clone();
+    match with_store(&ctx, |store| {
+        Ok(graduate_note(
+            store,
+            GraduateNoteInput {
+                note_id: id.clone(),
+                type_ref: type_ref.clone(),
+                type_version,
+                record_input,
+                container_id,
+            },
+        )?)
+    }) {
+        Ok(result) => output::serialize(
+            "note graduate",
+            NoteGraduatePayload {
+                note: result.note,
+                record: result.record,
+            },
+        ),
+        Err(e) => Ok(output::err("note graduate", vec![e.to_string()])),
+    }
 }

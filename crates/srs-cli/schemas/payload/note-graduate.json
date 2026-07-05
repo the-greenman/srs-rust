@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "NoteGraduatePayload",
+  "type": "object",
+  "required": [
+    "note",
+    "record"
+  ],
+  "properties": {
+    "note": true,
+    "record": true
+  }
+}
