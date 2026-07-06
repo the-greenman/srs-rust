@@ -3694,7 +3694,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(r1.record.lifecycle_state.as_deref(), Some("active"));
-        assert!(r1.warnings.is_empty(), "no warnings expected for non-final transition");
+        assert!(
+            r1.warnings.is_empty(),
+            "no warnings expected for non-final transition"
+        );
 
         // active → archived (final state — LIFECYCLE_FINAL_STATE warning expected)
         let r2 = transition_record_lifecycle(

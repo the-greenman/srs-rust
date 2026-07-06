@@ -3,9 +3,9 @@ use crate::commands::{
 };
 use crate::output;
 use crate::payload::{
-    DeletedPayload, RecordListPayload, RecordPayload, RecordSuccessorPayload,
-    RecordTransitionPayload, RecordTagAddPayload, RecordTagListPayload, RecordValidatePayload,
-    RevisionListPayload, RevisionPayload,
+    DeletedPayload, RecordListPayload, RecordPayload, RecordSuccessorPayload, RecordTagAddPayload,
+    RecordTagListPayload, RecordTransitionPayload, RecordValidatePayload, RevisionListPayload,
+    RevisionPayload,
 };
 use anyhow::Result;
 use srs_repository::record_store::{
