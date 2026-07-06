@@ -247,7 +247,8 @@ pub fn scaffold_governance_repo(
 ///
 /// The store must already contain a seeded `.srsj` bundle (loaded via
 /// `JsonStore::from_srsj` after RFC-014 migration). This function:
-/// 1. Stamps `repositoryId`, `namespace`, and `title` into `manifest.extra`.
+/// 1. Calls `init_new_repository` to stamp `repositoryId`, `namespace`, `title`,
+///    and `upstreamPackage.installedAt` into the manifest.
 /// 2. Calls `scaffold_governance_repo` to create records + containers.
 ///
 /// This is the one service call made by CLI handlers and WASM bindings for
