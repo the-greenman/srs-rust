@@ -1,8 +1,5 @@
 //! Integration test for the governance scaffold path (issue #381).
 //!
-//! Native Rust test (not `#[wasm_bindgen_test]`) — runs with `cargo test -p srs-bindings`
-//! without a browser or wasm-pack build. Exercises service functions directly, not the
-//! `SrsRepository` binding wrapper (which calls `js_sys::JSON::parse` and panics off-wasm).
 //! Proves that `load_from_srsj` on the raw (pre-RFC-014) governance seed, followed by
 //! `create_governance_repository` and `validate_repository`, produces a valid bundle.
 
@@ -23,7 +20,8 @@ fn scaffold_from_raw_seed_produces_valid_repository() {
     let store = srsj_migration_service::load_from_srsj(&raw)
         .expect("load_from_srsj must succeed on raw (pre-migration) seed");
 
-    create_governance_repository(
+    // create_governance_repository mutates store in place via interior mutability.
+    let _ = create_governance_repository(
         &store,
         CreateGovernanceRepositoryInput {
             namespace: Some("com.test.381".to_string()),
