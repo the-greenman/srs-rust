@@ -58,8 +58,7 @@ impl SrsRepository {
     /// Applies RFC-014 migration before loading (idempotent on already-migrated bundles),
     /// so callers do not need to migrate the seed separately.
     pub fn load(srsj: &str) -> Result<SrsRepository, JsValue> {
-        let store =
-            srs_repository::srsj_migration_service::load_from_srsj(srsj).map_err(js_err)?;
+        let store = srs_repository::srsj_migration_service::load_from_srsj(srsj).map_err(js_err)?;
         Ok(SrsRepository { store })
     }
 

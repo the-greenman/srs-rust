@@ -5,8 +5,7 @@
 
 use srs_repository::{
     governance_scaffold_service::{create_governance_repository, CreateGovernanceRepositoryInput},
-    srsj_migration_service,
-    validation,
+    srsj_migration_service, validation,
 };
 
 #[test]
