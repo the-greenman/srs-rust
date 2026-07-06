@@ -1,10 +1,11 @@
 use crate::commands::{
     with_store, CliContext, RecordCommand, RecordRevisionCommand, RecordTagCommand,
 };
-use crate::output::{self, OutputDTO};
+use crate::output;
 use crate::payload::{
     DeletedPayload, RecordListPayload, RecordPayload, RecordSuccessorPayload, RecordTagAddPayload,
-    RecordTagListPayload, RecordValidatePayload, RevisionListPayload, RevisionPayload,
+    RecordTagListPayload, RecordTransitionPayload, RecordValidatePayload, RevisionListPayload,
+    RevisionPayload,
 };
 use anyhow::Result;
 use srs_repository::record_store::{
@@ -244,27 +245,16 @@ fn cmd_record_transition(ctx: CliContext, id: String) -> Result<String> {
             ))
         }
     };
-
     match with_store(&ctx, |store| {
         Ok(transition_record_lifecycle(store, &id, input)?)
     }) {
-        Ok(result) => {
-            let payload = serde_json::to_value(RecordPayload {
+        Ok(result) => output::serialize(
+            "record transition",
+            RecordTransitionPayload {
                 record: result.record,
-            })?;
-            let dto = OutputDTO {
-                ok: true,
-                command: "record transition".to_string(),
-                version: output::VERSION.to_string(),
-                payload: Some(payload),
-                diagnostics: if result.warnings.is_empty() {
-                    None
-                } else {
-                    Some(result.warnings)
-                },
-            };
-            Ok(dto.render(ctx.format, ctx.pretty))
-        }
+                warnings: result.warnings,
+            },
+        ),
         Err(e) => Ok(output::err("record transition", vec![e.to_string()])),
     }
 }

@@ -135,7 +135,7 @@ This is the governance-profile workflow (`governance-profile.md` §6.3–6.4, §
 
 **Negative case.** Attempt a lifecycle transition that the lifecycle definition does not allow (e.g. `draft → ratified` skipping `proposed`, if disallowed), or attempt to edit a `closed`/ratified record's semantic fields — confirm the operation is rejected or flagged.
 
-**Done when.** The Decision visibly progresses through its states; `derived-from` ties it to the Exercise; the ratified record is superseded (not mutated) on change; the decision-log view renders the ratified decision with its reasoning. The Exercise remains part of the record after a Decision is derived from it.
+**Done when.** The Decision visibly progresses through its states; `derived-from` ties it to the Exercise; the ratified record is superseded (not mutated) on change; the decision-log view renders the ratified decision with its reasoning. The Exercise remains part of the record after a Decision is derived from it. When transitioning to a final state (`closed` or `superseded`), `payload.warnings` contains a `LIFECYCLE_FINAL_STATE` entry and envelope `diagnostics` is absent — the warning is informational, not an error.
 
 ### S5 — Assemble and render a document (records as source of truth)
 
@@ -178,6 +178,7 @@ This is the spec-as-repo pattern (`../srs/srs`): sections are records, order is 
 7. Inspect a lifecycle (`lifecycle get`) and drive a record through an allowed transition.
    - If the type uses an inline `lifecycle`, the steps above work as described.
    - To exercise the referenceable form: use the gallery-project-v2 or any repo with a standalone `Lifecycle` referenced via `lifecycleRef`. Confirm `record create` sets `lifecycleState` to the lifecycle's `initialState` (e.g. `"draft"`). Then pipe `{"byTransition": "<name>"}` or `{"to": "<state>"}` to `record transition` and confirm the state advances. (This path was broken before #114 — records were created without an initial state and transitions were rejected.)
+   - When advancing to a final state (`isFinal: true`), confirm `payload.warnings` contains a `LIFECYCLE_FINAL_STATE` message and that envelope `diagnostics` is absent (the warning is non-fatal and lives in the typed payload per ADR-011, not the error envelope).
 8. **`$schema` loader tolerance (#117):** If your editor adds a top-level `"$schema"` key to lifecycle or vocabulary JSON files (the standard JSON Schema association hint), confirm `lifecycle list` and `vocabulary list` still succeed. Before #117, the Lifecycle loader rejected `$schema` with "unknown field". Note: adding `$schema` via CLI is not yet supported — you will encounter this in practice when an editor or schema-aware tool writes the file. The gap (no `lifecycle create` CLI command) is tracked in issue #116.
 
 **Negative case.** (a) Promote with an unresolvable in-use key and confirm the structured block payload lists the same keys `derive-tag-set` classified `will-be-invalid`. (b) `derive-tag-set` on an unknown vocabulary id → `ok: false` with a diagnostic (no panic). (c) Attempt a `record transition` not present in the lifecycle's `transitions` and confirm rejection — this applies to both inline and `lifecycleRef`-bound Types. (d) Confirm `lifecycle list` succeeds even when a lifecycle file carries a `"$schema"` key (the old rejection error no longer occurs).

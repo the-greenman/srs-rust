@@ -3675,6 +3675,68 @@ mod tests {
     }
 
     #[test]
+    fn lifecycle_transition_roundtrip_stores() {
+        // Cross-store roundtrip: memory → multi-step transitions → file, verify lifecycle_state
+        // survives JSON serialization. Covers: initial state, happy-path transition (no warnings),
+        // final-state transition (LIFECYCLE_FINAL_STATE warning), and persistence to FileStore.
+        let store = make_store_with_lifecycle();
+        let record = create_lc_record(&store);
+        assert_eq!(record.lifecycle_state.as_deref(), Some("draft"));
+
+        // draft → active (non-final state, no warnings expected)
+        let r1 = transition_record_lifecycle(
+            &store,
+            &record.instance_id,
+            TransitionLifecycleInput {
+                to: Some("active".to_string()),
+                by_transition: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(r1.record.lifecycle_state.as_deref(), Some("active"));
+        assert!(
+            r1.warnings.is_empty(),
+            "no warnings expected for non-final transition"
+        );
+
+        // active → archived (final state — LIFECYCLE_FINAL_STATE warning expected)
+        let r2 = transition_record_lifecycle(
+            &store,
+            &record.instance_id,
+            TransitionLifecycleInput {
+                to: Some("archived".to_string()),
+                by_transition: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(r2.record.lifecycle_state.as_deref(), Some("archived"));
+        assert!(
+            !r2.warnings.is_empty(),
+            "expected LIFECYCLE_FINAL_STATE warning for final-state transition"
+        );
+        assert!(
+            r2.warnings[0].contains("LIFECYCLE_FINAL_STATE"),
+            "warning should contain LIFECYCLE_FINAL_STATE: {}",
+            r2.warnings[0]
+        );
+
+        // Copy to FileStore and verify final state survives JSON round-trip
+        let temp = tempfile::TempDir::new().unwrap();
+        let file_store = crate::store::FileStore::new(temp.path());
+        crate::repository_portability::copy_repository(&store, &file_store)
+            .expect("copy to FileStore");
+
+        let reloaded = get_record_by_id(&file_store, &record.instance_id)
+            .expect("lookup succeeded")
+            .expect("record found in FileStore");
+        assert_eq!(
+            reloaded.lifecycle_state.as_deref(),
+            Some("archived"),
+            "lifecycle_state must survive JSON round-trip"
+        );
+    }
+
+    #[test]
     fn transition_with_lifecycle_ref_invalid_transition_fails() {
         let store = make_store_with_lifecycle_ref();
         let record = create_lc_ref_record(&store);
