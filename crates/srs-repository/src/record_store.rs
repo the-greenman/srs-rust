@@ -730,6 +730,51 @@ pub fn delete_record_in_context(
     Ok(DeleteRecordResult { instance_id })
 }
 
+/// Input for `create_record_in_container`.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateRecordInContainerInput {
+    pub container_id: String,
+    pub type_id: String,
+    pub type_version: u32,
+    pub field_values: Vec<FieldValue>,
+    #[serde(default)]
+    pub group_values: Option<Vec<srs_core::types::record::FieldGroupValue>>,
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
+}
+
+/// Create a Tier-2 record and add it to a container in one call (caller-omission atomic).
+///
+/// Steps (in order):
+///   1. Validate the container exists — returns `ContainerNotFound` if absent (pre-write).
+///   2. Create the record via `create_record_at_dir` (uses `DEFAULT_RECORD_DIR`).
+///   3. Add the new record to the container's `memberInstanceIds` via `container_service::add_member`.
+///
+/// Residual risk: if step 3 fails after step 2 succeeds, the record exists but is not a member.
+/// This matches the existing partial-write risk in `create_record_in_context` (see ADR-007).
+/// Tracked for resolution (best-effort rollback or explicit ADR waiver) in issue #364.
+pub fn create_record_in_container(
+    store: &dyn RepositoryStore,
+    input: CreateRecordInContainerInput,
+) -> Result<CreateRecordResult, RepositoryError> {
+    container_service::get_container(store, &input.container_id)?;
+
+    let record = create_record_at_dir(
+        store,
+        &input.type_id,
+        input.type_version,
+        input.field_values,
+        input.group_values,
+        input.tags,
+        DEFAULT_RECORD_DIR,
+    )?;
+
+    container_service::add_member(store, &input.container_id, &record.instance_id)?;
+
+    Ok(CreateRecordResult { record })
+}
+
 /// Input for transitioning a record's lifecycle state.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -3646,5 +3691,170 @@ mod tests {
             result,
             Err(RepositoryError::LifecycleTransitionNotAllowed { .. })
         ));
+    }
+
+    // ── create_record_in_container ────────────────────────────────────────────
+
+    fn make_container_in_store(store: &MemoryStore) -> String {
+        use crate::container_service;
+        use srs_core::types::container::Container;
+        let c = Container {
+            container_id: "550e8400-e29b-41d4-a716-446655440001".to_string(),
+            title: "Test Container".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            identity_instance_id: None,
+            root_instance_ids: None,
+            member_instance_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: std::collections::HashMap::new(),
+        };
+        container_service::create_container(store, c)
+            .expect("container created")
+            .container_id
+    }
+
+    #[test]
+    fn create_record_in_container_adds_to_membership() {
+        let store = make_store_with_package();
+        let container_id = make_container_in_store(&store);
+
+        let result = create_record_in_container(
+            &store,
+            CreateRecordInContainerInput {
+                container_id: container_id.clone(),
+                type_id: "type-test-001".to_string(),
+                type_version: 1,
+                field_values: vec![FieldValue {
+                    field_id: "field-name-001".to_string(),
+                    value: json!("My Decision"),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                }],
+                group_values: None,
+                tags: None,
+            },
+        )
+        .expect("should create record");
+
+        assert!(!result.record.instance_id.is_empty());
+
+        let members =
+            crate::container_service::list_members(&store, &container_id).expect("members loaded");
+        assert!(
+            members.contains(&result.record.instance_id),
+            "record must be a member of the container"
+        );
+    }
+
+    #[test]
+    fn create_record_in_container_missing_container_fails() {
+        let store = make_store_with_package();
+        let initial_len = store.load_manifest().unwrap().instance_index.len();
+
+        let result = create_record_in_container(
+            &store,
+            CreateRecordInContainerInput {
+                container_id: "does-not-exist".to_string(),
+                type_id: "type-test-001".to_string(),
+                type_version: 1,
+                field_values: vec![FieldValue {
+                    field_id: "field-name-001".to_string(),
+                    value: json!("Should Not Exist"),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                }],
+                group_values: None,
+                tags: None,
+            },
+        );
+
+        assert!(matches!(
+            result,
+            Err(RepositoryError::ContainerNotFound { .. })
+        ));
+
+        let after_len = store.load_manifest().unwrap().instance_index.len();
+        assert_eq!(
+            initial_len, after_len,
+            "manifest index must be unchanged after early error"
+        );
+    }
+
+    #[test]
+    fn create_record_in_container_invalid_type_fails() {
+        let store = make_store_with_package();
+        let container_id = make_container_in_store(&store);
+        let initial_len = store.load_manifest().unwrap().instance_index.len();
+
+        let result = create_record_in_container(
+            &store,
+            CreateRecordInContainerInput {
+                container_id: container_id.clone(),
+                type_id: "type-does-not-exist".to_string(),
+                type_version: 1,
+                field_values: vec![],
+                group_values: None,
+                tags: None,
+            },
+        );
+
+        assert!(matches!(result, Err(RepositoryError::TypeNotFound { .. })));
+
+        let after_len = store.load_manifest().unwrap().instance_index.len();
+        assert_eq!(
+            initial_len, after_len,
+            "manifest index must be unchanged after type error"
+        );
+    }
+
+    #[test]
+    fn create_record_in_container_roundtrip_stores() {
+        let store = make_store_with_package();
+        let container_id = make_container_in_store(&store);
+
+        let result = create_record_in_container(
+            &store,
+            CreateRecordInContainerInput {
+                container_id: container_id.clone(),
+                type_id: "type-test-001".to_string(),
+                type_version: 1,
+                field_values: vec![FieldValue {
+                    field_id: "field-name-001".to_string(),
+                    value: json!("Roundtrip Decision"),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                }],
+                group_values: None,
+                tags: None,
+            },
+        )
+        .expect("memory store create should succeed");
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let file_store = crate::store::FileStore::new(temp.path());
+        crate::repository_portability::copy_repository(&store, &file_store)
+            .expect("copy to file store");
+
+        let reloaded = get_record_by_id(&file_store, &result.record.instance_id)
+            .expect("record must exist in file store")
+            .expect("record must be Some");
+        assert_eq!(reloaded.instance_id, result.record.instance_id);
+        assert_eq!(reloaded.type_id, "type-test-001");
+
+        let members = crate::container_service::list_members(&file_store, &container_id)
+            .expect("members loaded from file store");
+        assert!(
+            members.contains(&result.record.instance_id),
+            "record must be a member in the file store copy"
+        );
     }
 }
