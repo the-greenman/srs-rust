@@ -24,6 +24,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2
 
@@ -50,6 +52,21 @@ jobs:
             echo "archive=$archive"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Build WASM bindings
+        run: wasm-pack build crates/srs-bindings --target web --out-dir ../../dist/srs-bindings
+
+      - name: Package WASM bindings
+        id: package_wasm
+        run: |
+          set -euo pipefail
+          archive="srs-bindings-web.tar.gz"
+          tar -czf "$archive" -C dist/srs-bindings .
+          sha256sum "$archive" > "$archive.sha256"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -57,6 +74,8 @@ jobs:
           gh release create "${{ steps.package.outputs.tag }}" \
             "${{ steps.package.outputs.archive }}" \
             "${{ steps.package.outputs.archive }}.sha256" \
+            "${{ steps.package_wasm.outputs.archive }}" \
+            "${{ steps.package_wasm.outputs.archive }}.sha256" \
             scripts/gh-project.mjs \
             --target "${{ github.sha }}" \
             --title "srs v${{ steps.package.outputs.version }} (build ${{ github.run_number }}, ${{ steps.package.outputs.sha_short }})" \
@@ -73,5 +92,11 @@ jobs:
           A matching \`${{ steps.package.outputs.archive }}.sha256\` is attached for verification.
 
           The project/priority tool \`gh-project.mjs\` is also attached (stable URL
-          \`/releases/latest/download/gh-project.mjs\`); see \`docs/project-management.md\`." \
+          \`/releases/latest/download/gh-project.mjs\`); see \`docs/project-management.md\`.
+
+          The \`srs-bindings\` WASM package (\`wasm-pack build crates/srs-bindings --target web\`
+          output: \`.wasm\` + \`.js\` + \`.d.ts\`) is attached as \`${{ steps.package_wasm.outputs.archive }}\`
+          (stable URL \`/releases/latest/download/${{ steps.package_wasm.outputs.archive }}\`), with a
+          matching \`.sha256\` — consumers (e.g. srs-web) should fetch and extract this instead of
+          running \`wasm-pack\` locally." \
             --latest
