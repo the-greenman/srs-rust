@@ -72,12 +72,13 @@ pub struct CreateGovernanceRepositoryResult {
 /// a different organisational prefix should supply an explicit `namespace` instead
 /// of relying on the derived default.
 fn derive_namespace_from_title(title: &str) -> String {
-    let slug: String = title
+    let slug = title
         .to_lowercase()
-        .chars()
-        .filter(|c| c.is_alphanumeric() || *c == ' ')
-        .collect::<String>()
-        .replace(' ', "-");
+        .split_whitespace()
+        .map(|word| word.chars().filter(|c| c.is_alphanumeric()).collect::<String>())
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
     format!("com.example.{slug}")
 }
 
@@ -555,7 +556,7 @@ mod tests {
         );
         assert_eq!(
             derive_namespace_from_title("Acme & Co."),
-            "com.example.acme--co"
+            "com.example.acme-co"
         );
     }
 
