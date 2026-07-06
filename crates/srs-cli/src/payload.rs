@@ -1077,6 +1077,18 @@ pub struct RepoDiffSummary {
     pub relations_added: usize,
     pub relations_removed: usize,
     pub relations_modified: usize,
+    pub fields_added: usize,
+    pub fields_removed: usize,
+    pub fields_modified: usize,
+    pub record_types_added: usize,
+    pub record_types_removed: usize,
+    pub record_types_modified: usize,
+    pub blueprints_added: usize,
+    pub blueprints_removed: usize,
+    pub blueprints_modified: usize,
+    pub document_views_added: usize,
+    pub document_views_removed: usize,
+    pub document_views_modified: usize,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -1161,6 +1173,57 @@ pub struct RepoDiffRelations {
 
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+pub struct RepoDiffPackageItemAdded {
+    pub id: String,
+    pub namespace: String,
+    pub name: String,
+    pub version: u32,
+    #[schemars(with = "serde_json::Value")]
+    pub value: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoDiffPackageItemRemoved {
+    pub id: String,
+    pub namespace: String,
+    pub name: String,
+    pub version: u32,
+    #[schemars(with = "serde_json::Value")]
+    pub value: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoDiffPackageItemModified {
+    pub id: String,
+    pub namespace: String,
+    pub name: String,
+    #[schemars(with = "serde_json::Value")]
+    pub from_value: serde_json::Value,
+    #[schemars(with = "serde_json::Value")]
+    pub to_value: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoDiffPackageCategory {
+    pub added: Vec<RepoDiffPackageItemAdded>,
+    pub removed: Vec<RepoDiffPackageItemRemoved>,
+    pub modified: Vec<RepoDiffPackageItemModified>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoDiffPackage {
+    pub fields: RepoDiffPackageCategory,
+    pub record_types: RepoDiffPackageCategory,
+    pub blueprints: RepoDiffPackageCategory,
+    pub document_views: RepoDiffPackageCategory,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct RepoDiffPayload {
     pub from: PathBuf,
     pub to: PathBuf,
@@ -1168,6 +1231,7 @@ pub struct RepoDiffPayload {
     pub manifest: RepoDiffManifest,
     pub instances: RepoDiffInstances,
     pub relations: RepoDiffRelations,
+    pub package: RepoDiffPackage,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
