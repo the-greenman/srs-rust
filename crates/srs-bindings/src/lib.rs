@@ -166,6 +166,40 @@ impl SrsRepository {
         to_js(&record)
     }
 
+    /// Create a Tier-2 record and add it to a container in one call.
+    ///
+    /// `container_id` is the UUID of the container to add the record to.
+    /// `type_id` is the UUID of the type; `type_version` is the version number.
+    /// `input_json` is a JSON object with `fieldValues` (required), `groupValues` (optional),
+    /// and `tags` (optional) — the same shape as `create_record`.
+    ///
+    /// Returns the created `Record` as a JS value.
+    /// Returns a JS error if the container does not exist, the type is not found,
+    /// or field validation fails.
+    pub fn create_record_in_container(
+        &self,
+        container_id: &str,
+        type_id: &str,
+        type_version: u32,
+        input_json: &str,
+    ) -> Result<JsValue, JsValue> {
+        let input: CreateRecordBindingInput =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let result = record_store::create_record_in_container(
+            &self.store,
+            record_store::CreateRecordInContainerInput {
+                container_id: container_id.to_string(),
+                type_id: type_id.to_string(),
+                type_version,
+                field_values: input.field_values,
+                group_values: input.group_values,
+                tags: input.tags,
+            },
+        )
+        .map_err(js_err)?;
+        to_js(&result.record)
+    }
+
     /// Update a record. `input_json` is a JSON object with fields:
     /// `fieldValues` (array), `groupValues` (optional), `tags` (optional),
     /// `typeVersion` (optional u32 — omit to keep the stored version).
@@ -758,6 +792,109 @@ mod tests {
         assert!(
             json["record"]["instanceId"].is_string(),
             "record.instanceId must be present"
+        );
+    }
+
+    /// Minimal `.srsj` with one type `com.test/decision-type` (one required string field)
+    /// and one container. Used by `create_record_in_container_result_serialises`.
+    fn srsj_with_container_and_type() -> String {
+        serde_json::json!({
+            "srsj": "1",
+            "manifest": {
+                "repositoryId": "test-repo-bindings-container",
+                "srsVersion": "2.0-draft",
+                "namespace": "com.test",
+                "instanceIndex": [],
+                "containerIndex": [{
+                    "containerId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+                    "title": "Test Container"
+                }],
+                "packageRef": {"mode": "local", "path": "package"}
+            },
+            "data": {
+                "package/package.json": {
+                    "id": "pkg-container-001",
+                    "namespace": "com.test",
+                    "name": "container-package",
+                    "version": "1.0.0",
+                    "fields": ["fields/title.json"],
+                    "types": ["types/decision-type.json"],
+                    "relationTypes": [],
+                    "views": [],
+                    "documentViews": []
+                },
+                "package/fields/title.json": {
+                    "id": "field-title-00001",
+                    "namespace": "com.test",
+                    "name": "title",
+                    "version": 1,
+                    "valueType": "string",
+                    "description": "Title",
+                    "aiGuidance": null,
+                    "createdAt": "2026-01-01T00:00:00Z"
+                },
+                "package/types/decision-type.json": {
+                    "id": "type-decision-001",
+                    "namespace": "com.test",
+                    "name": "decision-type",
+                    "version": 1,
+                    "description": "Decision type for binding tests",
+                    "fields": [{
+                        "fieldId": "field-title-00001",
+                        "order": 0,
+                        "required": true,
+                        "repeatable": false
+                    }],
+                    "createdAt": "2026-01-01T00:00:00Z"
+                },
+                "containers/cccccccc-cccc-4ccc-8ccc-cccccccccccc.json": {
+                    "containerId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+                    "title": "Test Container",
+                    "memberInstanceIds": []
+                }
+            }
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn create_record_in_container_result_serialises() {
+        use srs_repository::container_service;
+        use srs_repository::record_store::{self, CreateRecordInContainerInput};
+
+        let srsj = srsj_with_container_and_type();
+        let store = srs_repository::JsonStore::from_srsj(&srsj).expect("load srsj");
+
+        let result = record_store::create_record_in_container(
+            &store,
+            CreateRecordInContainerInput {
+                container_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc".to_string(),
+                type_id: "type-decision-001".to_string(),
+                type_version: 1,
+                field_values: vec![srs_core::types::record::FieldValue {
+                    field_id: "field-title-00001".to_string(),
+                    value: serde_json::json!("My Decision"),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                }],
+                group_values: None,
+                tags: None,
+            },
+        )
+        .expect("create_record_in_container should succeed");
+
+        let json = serde_json::to_value(&result.record).expect("record must serialize");
+        let instance_id = json["instanceId"].as_str().expect("instanceId must be string");
+        assert!(!instance_id.is_empty(), "instanceId must be non-empty");
+
+        let container =
+            container_service::get_container(&store, "cccccccc-cccc-4ccc-8ccc-cccccccccccc")
+                .expect("container loaded");
+        let members = container.member_instance_ids.unwrap_or_default();
+        assert!(
+            members.contains(&instance_id.to_string()),
+            "instanceId must appear in container memberInstanceIds"
         );
     }
 
