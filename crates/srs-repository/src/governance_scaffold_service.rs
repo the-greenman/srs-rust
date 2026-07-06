@@ -37,11 +37,15 @@ pub struct ScaffoldGovernanceRepoResult {
 /// Stamps manifest identity and scaffolds all governance records in a single call,
 /// so CLI handlers and WASM bindings need exactly one service call.
 ///
+/// `namespace`: when `None` (or omitted in JSON), derived as `"com.example.<slug>"`
+/// where `<slug>` is the title lowercased with spaces replaced by hyphens.
+///
 /// `repository_id`: when `None`, a UUID v4 is minted inside the service.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateGovernanceRepositoryInput {
-    pub namespace: String,
+    #[serde(default)]
+    pub namespace: Option<String>,
     pub title: String,
     pub purpose: Option<String>,
     pub repository_id: Option<String>,
@@ -56,6 +60,14 @@ pub struct CreateGovernanceRepositoryResult {
     pub decision_log_container_id: String,
     pub decision_log_root_id: String,
     pub root_container_id: String,
+}
+
+/// Derive a default namespace from a repository title.
+///
+/// Produces `"com.example.<slug>"` where `<slug>` is the title lowercased
+/// with spaces replaced by hyphens (e.g. `"My Org"` → `"com.example.my-org"`).
+fn derive_namespace_from_title(title: &str) -> String {
+    format!("com.example.{}", title.to_lowercase().replace(' ', "-"))
 }
 
 /// Scaffold governance records into an already-stamped seed store.
@@ -229,16 +241,22 @@ pub fn create_governance_repository(
     store: &dyn RepositoryStore,
     input: CreateGovernanceRepositoryInput,
 ) -> Result<CreateGovernanceRepositoryResult, RepositoryError> {
-    if input.namespace.trim().is_empty() {
-        return Err(RepositoryError::InvalidRepositoryInitialization {
-            message: "namespace must not be empty".to_string(),
-        });
+    if let Some(ref ns) = input.namespace {
+        if ns.trim().is_empty() {
+            return Err(RepositoryError::InvalidRepositoryInitialization {
+                message: "namespace must not be empty".to_string(),
+            });
+        }
     }
     if input.title.trim().is_empty() {
         return Err(RepositoryError::InvalidRepositoryInitialization {
             message: "title must not be empty".to_string(),
         });
     }
+
+    let namespace = input
+        .namespace
+        .unwrap_or_else(|| derive_namespace_from_title(&input.title));
 
     let repository_id = input
         .repository_id
@@ -251,7 +269,7 @@ pub fn create_governance_repository(
     );
     manifest.extra.insert(
         "namespace".to_string(),
-        serde_json::Value::String(input.namespace),
+        serde_json::Value::String(namespace),
     );
     manifest.extra.insert(
         "title".to_string(),
@@ -376,7 +394,7 @@ mod tests {
         let result = create_governance_repository(
             &store,
             CreateGovernanceRepositoryInput {
-                namespace: "com.example.test".to_string(),
+                namespace: Some("com.example.test".to_string()),
                 title: "Example Gov".to_string(),
                 purpose: Some("A test governance repo.".to_string()),
                 repository_id: Some("test-repo-id-1234".to_string()),
@@ -420,7 +438,7 @@ mod tests {
         let result = create_governance_repository(
             &store,
             CreateGovernanceRepositoryInput {
-                namespace: "com.example.mint".to_string(),
+                namespace: Some("com.example.mint".to_string()),
                 title: "Minted ID Org".to_string(),
                 purpose: None,
                 repository_id: None,
@@ -440,7 +458,7 @@ mod tests {
         let err = create_governance_repository(
             &store,
             CreateGovernanceRepositoryInput {
-                namespace: "com.example.empty".to_string(),
+                namespace: Some("com.example.empty".to_string()),
                 title: "  ".to_string(),
                 purpose: None,
                 repository_id: None,
@@ -459,7 +477,7 @@ mod tests {
         let err = create_governance_repository(
             &store,
             CreateGovernanceRepositoryInput {
-                namespace: "  ".to_string(),
+                namespace: Some("  ".to_string()),
                 title: "Some Org".to_string(),
                 purpose: None,
                 repository_id: None,
@@ -473,12 +491,34 @@ mod tests {
     }
 
     #[test]
+    fn create_governance_repository_derives_namespace_from_title() {
+        let store = load_seed_store();
+        create_governance_repository(
+            &store,
+            CreateGovernanceRepositoryInput {
+                namespace: None,
+                title: "Test Org".to_string(),
+                purpose: None,
+                repository_id: Some("derived-ns-test".to_string()),
+            },
+        )
+        .expect("create with None namespace succeeds");
+
+        let manifest = store.load_manifest().unwrap();
+        assert_eq!(
+            manifest.extra.get("namespace").and_then(|v| v.as_str()),
+            Some("com.example.test-org"),
+            "namespace must be derived as com.example.<slug> when not provided"
+        );
+    }
+
+    #[test]
     fn json_store_roundtrip() {
         let store = load_seed_store();
         create_governance_repository(
             &store,
             CreateGovernanceRepositoryInput {
-                namespace: "com.example.roundtrip".to_string(),
+                namespace: Some("com.example.roundtrip".to_string()),
                 title: "Roundtrip Org".to_string(),
                 purpose: Some("Testing roundtrip.".to_string()),
                 repository_id: Some("roundtrip-id".to_string()),
