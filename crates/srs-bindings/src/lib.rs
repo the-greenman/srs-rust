@@ -795,7 +795,7 @@ mod tests {
         );
     }
 
-    /// Minimal `.srsj` with one type `com.test/decision-type` (one required string field)
+    /// Minimal `.srsj` with one type `com.test/container-item-type` (one required string field)
     /// and one container. Used by `create_record_in_container_result_serialises`.
     fn srsj_with_container_and_type() -> String {
         serde_json::json!({
@@ -818,7 +818,7 @@ mod tests {
                     "name": "container-package",
                     "version": "1.0.0",
                     "fields": ["fields/title.json"],
-                    "types": ["types/decision-type.json"],
+                    "types": ["types/container-item-type.json"],
                     "relationTypes": [],
                     "views": [],
                     "documentViews": []
@@ -833,12 +833,12 @@ mod tests {
                     "aiGuidance": null,
                     "createdAt": "2026-01-01T00:00:00Z"
                 },
-                "package/types/decision-type.json": {
-                    "id": "type-decision-001",
+                "package/types/container-item-type.json": {
+                    "id": "type-container-001",
                     "namespace": "com.test",
-                    "name": "decision-type",
+                    "name": "container-item-type",
                     "version": 1,
-                    "description": "Decision type for binding tests",
+                    "description": "Binding test type for container membership",
                     "fields": [{
                         "fieldId": "field-title-00001",
                         "order": 0,
@@ -869,7 +869,7 @@ mod tests {
             &store,
             CreateRecordInContainerInput {
                 container_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc".to_string(),
-                type_id: "type-decision-001".to_string(),
+                type_id: "type-container-001".to_string(),
                 type_version: 1,
                 field_values: vec![srs_core::types::record::FieldValue {
                     field_id: "field-title-00001".to_string(),

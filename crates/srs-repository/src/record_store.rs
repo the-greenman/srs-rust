@@ -753,6 +753,7 @@ pub struct CreateRecordInContainerInput {
 ///
 /// Residual risk: if step 3 fails after step 2 succeeds, the record exists but is not a member.
 /// This matches the existing partial-write risk in `create_record_in_context` (see ADR-007).
+/// Tracked for resolution (best-effort rollback or explicit ADR waiver) in issue #364.
 pub fn create_record_in_container(
     store: &dyn RepositoryStore,
     input: CreateRecordInContainerInput,
