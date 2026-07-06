@@ -224,8 +224,9 @@ pub fn init_new_repository(
     } else {
         let meta_val = manifest.extra.get_mut("meta").ok_or_else(|| {
             RepositoryError::InvalidRepositoryInitialization {
-                message: "upstreamPackage is absent — store must be a seed with upstream provenance"
-                    .to_string(),
+                message:
+                    "upstreamPackage is absent — store must be a seed with upstream provenance"
+                        .to_string(),
             }
         })?;
         let upstream = meta_val
