@@ -327,6 +327,17 @@ pub struct RecordSuccessorPayload {
     pub relation: Relation,
 }
 
+/// Payload for `record transition` — the updated record and any non-fatal warnings
+/// (e.g., LIFECYCLE_FINAL_STATE). Envelope `diagnostics` is reserved for `ok: false` errors;
+/// non-fatal operational signals on a successful response belong in the typed payload per ADR-011.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordTransitionPayload {
+    #[schemars(with = "serde_json::Value")]
+    pub record: Record,
+    pub warnings: Vec<String>,
+}
+
 /// Payload for `record tag add` and `record tag remove`.
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]

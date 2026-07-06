@@ -106,7 +106,7 @@ fn record_delete() {
 
 #[test]
 fn record_transition() {
-    check::<RecordPayload>("record-transition");
+    check::<RecordTransitionPayload>("record-transition");
 }
 
 #[test]
