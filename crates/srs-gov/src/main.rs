@@ -628,7 +628,7 @@ fn cmd_repo_create(output: &str, title: &str, purpose: Option<&str>) -> Result<(
     let result = create_governance_repository(
         &store,
         CreateGovernanceRepositoryInput {
-            namespace: format!("com.example.{}", title.to_lowercase().replace(' ', "-")),
+            namespace: None,
             title: title.to_string(),
             purpose: purpose.map(str::to_string),
             repository_id: None,
