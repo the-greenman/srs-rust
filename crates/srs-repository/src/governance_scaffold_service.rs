@@ -75,7 +75,11 @@ fn derive_namespace_from_title(title: &str) -> String {
     let slug = title
         .to_lowercase()
         .split_whitespace()
-        .map(|word| word.chars().filter(|c| c.is_alphanumeric()).collect::<String>())
+        .map(|word| {
+            word.chars()
+                .filter(|c| c.is_alphanumeric())
+                .collect::<String>()
+        })
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
         .join("-");
