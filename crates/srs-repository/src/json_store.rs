@@ -66,7 +66,6 @@ struct PackageMetadata {
     #[serde(default)]
     themes: Vec<String>,
     #[serde(default)]
-    #[allow(dead_code)] // blueprints not yet loaded in JsonStore; see TODO(#223)
     blueprints: Vec<String>,
     #[serde(default)]
     protocols: Vec<String>,
@@ -385,6 +384,7 @@ impl JsonStore {
             Vec<crate::package::LoadedProtocol>,
             Vec<Vocabulary>,
             Vec<Lifecycle>,
+            Vec<srs_core::types::blueprint::Blueprint>,
         ),
         RepositoryError,
     > {
@@ -623,6 +623,19 @@ impl JsonStore {
             lifecycles.push(lc);
         }
 
+        let mut blueprints = Vec::new();
+        for rel_path in &metadata.blueprints {
+            let full = format!("{package_prefix}/{rel_path}");
+            let bp: srs_core::types::blueprint::Blueprint =
+                serde_json::from_value(self.data_get(&full)?).map_err(|source| {
+                    RepositoryError::PackageLoad {
+                        path: PathBuf::from(&full),
+                        source,
+                    }
+                })?;
+            blueprints.push(bp);
+        }
+
         Ok((
             metadata,
             fields,
@@ -633,6 +646,7 @@ impl JsonStore {
             protocols,
             vocabularies,
             lifecycles,
+            blueprints,
         ))
     }
 }
@@ -805,6 +819,7 @@ impl RepositoryStore for JsonStore {
             mut protocols,
             mut vocabularies,
             mut lifecycles,
+            mut blueprints,
         ) = self.load_package_from_prefix("package", &mut rt_by_type)?;
 
         if let Some(pkg_refs) = manifest.extra.get("packageRefs").and_then(|v| v.as_array()) {
@@ -844,6 +859,7 @@ impl RepositoryStore for JsonStore {
                     sub_protocols,
                     sub_vocabs,
                     sub_lcs,
+                    sub_blueprints,
                 ) = self.load_package_from_prefix(rel_path, &mut rt_by_type)?;
 
                 for field in sub_fields {
@@ -949,6 +965,14 @@ impl RepositoryStore for JsonStore {
                         lifecycles.push(lc);
                     }
                 }
+                for bp in sub_blueprints {
+                    if !blueprints
+                        .iter()
+                        .any(|b: &srs_core::types::blueprint::Blueprint| b.id == bp.id)
+                    {
+                        blueprints.push(bp);
+                    }
+                }
             }
         }
 
@@ -969,7 +993,7 @@ impl RepositoryStore for JsonStore {
             views,
             document_views,
             themes,
-            blueprints: vec![], // TODO(#223): blueprints not yet loaded in JsonStore
+            blueprints,
             protocols,
             root: self.repository_root(),
             dependency_refs: vec![],
@@ -2577,5 +2601,19 @@ mod tests {
                 "record {record_key} not found after commit_batch"
             );
         }
+    }
+
+    #[test]
+    fn json_store_load_package_includes_blueprints() {
+        // Regression test for #368: JsonStore::load_package() was hardcoding
+        // blueprints: vec![] even when the .srsj package contained blueprint entries.
+        let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/governance-seed.srsj");
+        let store = JsonStore::open(&fixture).expect("governance-seed.srsj must exist");
+        let package = store.load_package().expect("load_package must succeed");
+        assert!(
+            !package.blueprints.is_empty(),
+            "governance-seed.srsj contains at least one blueprint; load_package must not drop it"
+        );
     }
 }
