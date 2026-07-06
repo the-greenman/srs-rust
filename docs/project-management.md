@@ -166,7 +166,7 @@ The canonical set:
 | `ready` | board Status=Ready mirror — the work queue | `promote --fix` / `reconcile --fix` (mirror; **not** by hand) |
 | `promote:ready` | promotion **intent** — judged unblocked, awaiting the privileged board write | the judge: progress-review routine / human / rule (REST) |
 | `priority: P0` / `P1` / `P2` | derived priority (§ the priority model) | `rollup --fix` |
-| `status: in progress` | claimed / in flight | "Do the SRS jobs" routine |
+| `status: in progress` | claimed / in flight | "Do the SRS jobs" routine (reclaimed by `stale-claims --fix` if the claim goes stale — see below) |
 
 `gh-project` is the single source of truth for this set (`MIRROR_LABELS` in the script) and creates
 any missing labels on demand — so it **can't drift**:
@@ -219,6 +219,39 @@ reconciles the entire cross-repo board on every run, so no other repo needs a co
 its own secret silently no-ops, which is worse than no copy). It authenticates with a PAT with
 `project` scope stored as the **`BOARD_SECRET`** repo secret in srs-rust (`BOARD_TOKEN` also
 accepted); if the secret is missing the job **fails loudly** rather than skipping.
+
+## Recovering a stale claim (In progress → Ready)
+
+Nothing in the pipeline above ever revisits an issue once it reaches **In progress**: `promote`
+explicitly leaves advanced statuses alone (that's "never demotes," above) and `reconcile` only
+mirrors the `status: in progress` label, it never changes Status itself. So if whatever claimed the
+issue — the "Do the SRS jobs" routine, another consumer, a human — crashes, times out, or is
+interrupted mid-task, the claim is permanent: the issue isn't Backlog (so `promote` can't touch it)
+and isn't Ready (so the queue consumer never picks it up again).
+
+`gh-project stale-claims [--hours N] [--fix]` closes that gap:
+
+1. Finds every OPEN board item with Status **In progress**.
+2. For each, reads the issue's REST event timeline for the most recent `labeled` event on
+   `status: in progress` — that's the claim's start time (Projects v2 has no per-field timestamp
+   reachable by the proxy-bound routines, so this reads the label history instead).
+3. Any claim older than the threshold (default **24h** — long enough that a real multi-hour
+   implementation task isn't falsely reclaimed, short enough to recover same-day given the hourly
+   schedule) is reset to **Status=Ready**, the `ready` label mirror is set immediately, and a comment
+   is left on the issue noting the auto-reclaim (so a still-genuinely-in-flight holder notices and
+   can re-claim it).
+4. A claim whose label event can't be resolved is reported as `unknown` rather than silently ignored
+   or wrongly reclaimed — it needs a human look.
+
+Idempotent and safe to re-run: a fresh claim is left alone; a reclaimed issue simply won't match
+"In progress" on the next pass. Wired into `board-sync`'s three triggers (push/hourly/dispatch)
+right after `promote --fix`, so a dead claim recovers within the hour, not just at the next merge.
+
+```bash
+gh-project stale-claims               # dry-run: which claims would be reclaimed
+gh-project stale-claims --hours 12    # tighter window for fast-turnaround work
+gh-project stale-claims --fix         # reset stale claims to Ready + comment
+```
 
 ```bash
 gh-project promote            # dry-run: what the intents would do

@@ -8,6 +8,7 @@ import {
   STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant,
   planPromotions, PROMOTE_INTENT_LABEL, epicRank,
   bandTargets, SIZE_WEIGHT, derivePriority, parseIssueRef,
+  planStaleClaims, STALE_CLAIM_HOURS_DEFAULT,
 } from "./gh-project.mjs";
 
 // The labels the scheduled cloud routines read/write. Missing any one hard-fails a
@@ -195,4 +196,53 @@ test("SIZE_WEIGHT orders effort small < medium < large < xl", () => {
   assert.ok(SIZE_WEIGHT.small < SIZE_WEIGHT.medium);
   assert.ok(SIZE_WEIGHT.medium < SIZE_WEIGHT.large);
   assert.ok(SIZE_WEIGHT.large < SIZE_WEIGHT.xl);
+});
+
+// Stale-claim recovery (the missing half of the promotion pipeline): nothing else ever revisits an
+// `In progress` issue, so a claim whose holder crashed/timed out would sit invisible forever without
+// this planner. planStaleClaims is the pure core; claimedAt()'s REST lookup is not unit-tested here.
+const HOUR = 3600 * 1000;
+const srow = (o) => ({ repo: "srs-rust", num: o.num ?? 1, key: `srs-rust#${o.num ?? 1}`, itemId: `item-${o.num ?? 1}`, state: "OPEN", status: "In progress", claimedAtMs: null, ...o });
+
+test("STALE_CLAIM_HOURS_DEFAULT is a sane default (long enough for real work, same-day recovery)", () => {
+  assert.ok(STALE_CLAIM_HOURS_DEFAULT >= 1 && STALE_CLAIM_HOURS_DEFAULT <= 48);
+});
+
+test("planStaleClaims ignores anything not OPEN + In progress", () => {
+  const rows = [
+    srow({ num: 1, state: "CLOSED", claimedAtMs: 0 }),
+    srow({ num: 2, status: "Ready", claimedAtMs: 0 }),
+    srow({ num: 3, status: "Backlog", claimedAtMs: 0 }),
+    srow({ num: 4, status: null, claimedAtMs: 0 }),
+  ];
+  assert.deepEqual(planStaleClaims(rows, 100 * HOUR, 24 * HOUR), []);
+});
+
+test("planStaleClaims reclaims a claim older than the threshold, leaves a fresh one alone", () => {
+  const now = 100 * HOUR;
+  const rows = [
+    srow({ num: 10, claimedAtMs: now - 48 * HOUR }), // well past a 24h threshold
+    srow({ num: 11, claimedAtMs: now - 1 * HOUR }),  // just claimed
+  ];
+  const plan = planStaleClaims(rows, now, 24 * HOUR);
+  assert.deepEqual(plan.map((p) => [p.num, p.action]), [[10, "reclaim"], [11, "fresh"]]);
+});
+
+test("planStaleClaims treats age exactly at the threshold as stale (>=, not >)", () => {
+  const now = 100 * HOUR;
+  const rows = [srow({ num: 20, claimedAtMs: now - 24 * HOUR })];
+  const plan = planStaleClaims(rows, now, 24 * HOUR);
+  assert.equal(plan[0].action, "reclaim");
+});
+
+test("planStaleClaims reports unresolvable claim times as unknown, never silently drops or reclaims them", () => {
+  const rows = [srow({ num: 30, claimedAtMs: null })];
+  const plan = planStaleClaims(rows, 100 * HOUR, 24 * HOUR);
+  assert.deepEqual(plan.map((p) => [p.num, p.action]), [[30, "unknown"]]);
+});
+
+test("planStaleClaims carries itemId through so the caller can write the board field without a second lookup", () => {
+  const rows = [srow({ num: 40, itemId: "PVTI_abc", claimedAtMs: 0 })];
+  const plan = planStaleClaims(rows, 100 * HOUR, 24 * HOUR);
+  assert.equal(plan[0].itemId, "PVTI_abc");
 });
