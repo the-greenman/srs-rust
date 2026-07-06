@@ -570,6 +570,9 @@ impl SrsRepository {
     ///
     /// `input_json` is a JSON string matching `CreateGovernanceRepositoryInput`
     /// (`{"namespace":"...","title":"...","purpose":"...","repositoryId":"..."}`).
+    /// `namespace` is optional — when omitted or `null`, the service derives
+    /// `"com.example.<slug>"` from the title (e.g. `"My Org"` → `"com.example.my-org"`).
+    /// Pass an explicit `namespace` when a different organisational prefix is required.
     ///
     /// Stamps manifest identity (repositoryId, namespace, title) and creates the
     /// governance/article identity record, Decision Log container + root record, and
