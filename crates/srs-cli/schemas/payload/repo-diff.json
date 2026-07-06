@@ -6,6 +6,7 @@
     "from",
     "instances",
     "manifest",
+    "package",
     "relations",
     "summary",
     "to"
@@ -19,6 +20,9 @@
     },
     "manifest": {
       "$ref": "#/definitions/RepoDiffManifest"
+    },
+    "package": {
+      "$ref": "#/definitions/RepoDiffPackage"
     },
     "relations": {
       "$ref": "#/definitions/RepoDiffRelations"
@@ -147,6 +151,134 @@
         }
       }
     },
+    "RepoDiffPackage": {
+      "type": "object",
+      "required": [
+        "blueprints",
+        "documentViews",
+        "fields",
+        "recordTypes"
+      ],
+      "properties": {
+        "blueprints": {
+          "$ref": "#/definitions/RepoDiffPackageCategory"
+        },
+        "documentViews": {
+          "$ref": "#/definitions/RepoDiffPackageCategory"
+        },
+        "fields": {
+          "$ref": "#/definitions/RepoDiffPackageCategory"
+        },
+        "recordTypes": {
+          "$ref": "#/definitions/RepoDiffPackageCategory"
+        }
+      }
+    },
+    "RepoDiffPackageCategory": {
+      "type": "object",
+      "required": [
+        "added",
+        "modified",
+        "removed"
+      ],
+      "properties": {
+        "added": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RepoDiffPackageItemAdded"
+          }
+        },
+        "modified": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RepoDiffPackageItemModified"
+          }
+        },
+        "removed": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RepoDiffPackageItemRemoved"
+          }
+        }
+      }
+    },
+    "RepoDiffPackageItemAdded": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "namespace",
+        "value",
+        "version"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "value": true,
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      }
+    },
+    "RepoDiffPackageItemModified": {
+      "type": "object",
+      "required": [
+        "fromValue",
+        "id",
+        "name",
+        "namespace",
+        "toValue"
+      ],
+      "properties": {
+        "fromValue": true,
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "toValue": true
+      }
+    },
+    "RepoDiffPackageItemRemoved": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "namespace",
+        "value",
+        "version"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "value": true,
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      }
+    },
     "RepoDiffRelationAdded": {
       "type": "object",
       "required": [
@@ -219,14 +351,71 @@
     "RepoDiffSummary": {
       "type": "object",
       "required": [
+        "blueprintsAdded",
+        "blueprintsModified",
+        "blueprintsRemoved",
+        "documentViewsAdded",
+        "documentViewsModified",
+        "documentViewsRemoved",
+        "fieldsAdded",
+        "fieldsModified",
+        "fieldsRemoved",
         "instancesAdded",
         "instancesModified",
         "instancesRemoved",
+        "recordTypesAdded",
+        "recordTypesModified",
+        "recordTypesRemoved",
         "relationsAdded",
         "relationsModified",
         "relationsRemoved"
       ],
       "properties": {
+        "blueprintsAdded": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "blueprintsModified": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "blueprintsRemoved": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "documentViewsAdded": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "documentViewsModified": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "documentViewsRemoved": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "fieldsAdded": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "fieldsModified": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "fieldsRemoved": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
         "instancesAdded": {
           "type": "integer",
           "format": "uint",
@@ -238,6 +427,21 @@
           "minimum": 0.0
         },
         "instancesRemoved": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "recordTypesAdded": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "recordTypesModified": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "recordTypesRemoved": {
           "type": "integer",
           "format": "uint",
           "minimum": 0.0

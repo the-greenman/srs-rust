@@ -2,10 +2,12 @@ use crate::commands::{with_store, CliContext, RepoCommand, RepoExtensionsCommand
 use crate::output;
 use crate::payload::{
     RepoCopyPayload, RepoCreatePayload, RepoDiffInstanceAdded, RepoDiffInstanceModified,
-    RepoDiffInstanceRemoved, RepoDiffInstances, RepoDiffManifest, RepoDiffPayload,
-    RepoDiffRelationAdded, RepoDiffRelationModified, RepoDiffRelationRemoved, RepoDiffRelations,
-    RepoDiffSummary, RepoExtensionsMutatePayload, RepoExtensionsPayload, RepoInitNewPayload,
-    RepoMapPayload, RepoNavigationPayload, RepoSetRootContainerPayload, RepoValidatePayload,
+    RepoDiffInstanceRemoved, RepoDiffInstances, RepoDiffManifest, RepoDiffPackage,
+    RepoDiffPackageCategory, RepoDiffPackageItemAdded, RepoDiffPackageItemModified,
+    RepoDiffPackageItemRemoved, RepoDiffPayload, RepoDiffRelationAdded, RepoDiffRelationModified,
+    RepoDiffRelationRemoved, RepoDiffRelations, RepoDiffSummary, RepoExtensionsMutatePayload,
+    RepoExtensionsPayload, RepoInitNewPayload, RepoMapPayload, RepoNavigationPayload,
+    RepoSetRootContainerPayload, RepoValidatePayload,
 };
 use anyhow::{Context, Result};
 use srs_repository::analysis::build_repo_map;
@@ -293,6 +295,18 @@ fn cmd_repo_diff(
                 relations_added: diff.summary.relations_added,
                 relations_removed: diff.summary.relations_removed,
                 relations_modified: diff.summary.relations_modified,
+                fields_added: diff.summary.fields_added,
+                fields_removed: diff.summary.fields_removed,
+                fields_modified: diff.summary.fields_modified,
+                record_types_added: diff.summary.record_types_added,
+                record_types_removed: diff.summary.record_types_removed,
+                record_types_modified: diff.summary.record_types_modified,
+                blueprints_added: diff.summary.blueprints_added,
+                blueprints_removed: diff.summary.blueprints_removed,
+                blueprints_modified: diff.summary.blueprints_modified,
+                document_views_added: diff.summary.document_views_added,
+                document_views_removed: diff.summary.document_views_removed,
+                document_views_modified: diff.summary.document_views_modified,
             },
             manifest: RepoDiffManifest {
                 namespace_changed: diff.manifest.namespace_changed,
@@ -363,8 +377,52 @@ fn cmd_repo_diff(
                     })
                     .collect(),
             },
+            package: RepoDiffPackage {
+                fields: map_pkg_category(diff.package.fields),
+                record_types: map_pkg_category(diff.package.record_types),
+                blueprints: map_pkg_category(diff.package.blueprints),
+                document_views: map_pkg_category(diff.package.document_views),
+            },
         },
     )
+}
+
+fn map_pkg_category(cat: srs_repository::diff::DiffPackageCategory) -> RepoDiffPackageCategory {
+    RepoDiffPackageCategory {
+        added: cat
+            .added
+            .into_iter()
+            .map(|i| RepoDiffPackageItemAdded {
+                id: i.id,
+                namespace: i.namespace,
+                name: i.name,
+                version: i.version,
+                value: i.value,
+            })
+            .collect(),
+        removed: cat
+            .removed
+            .into_iter()
+            .map(|i| RepoDiffPackageItemRemoved {
+                id: i.id,
+                namespace: i.namespace,
+                name: i.name,
+                version: i.version,
+                value: i.value,
+            })
+            .collect(),
+        modified: cat
+            .modified
+            .into_iter()
+            .map(|i| RepoDiffPackageItemModified {
+                id: i.id,
+                namespace: i.namespace,
+                name: i.name,
+                from_value: i.from_value,
+                to_value: i.to_value,
+            })
+            .collect(),
+    }
 }
 
 fn infer_copy_store(path: &std::path::Path) -> StoreBackend {
