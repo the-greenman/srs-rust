@@ -733,7 +733,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 
 Gaps are intentional and visible: they are the backlog of surfaces that need a meaningful scenario. Do not delete a gap row — fill it when a feature gives the surface a real workflow to demonstrate.
 
-**WASM bindings** are not directly CLI-drivable and are not covered by scenarios here. WASM binding coverage lives in `crates/srs-bindings/tests/` — integration tests that call `srs-repository` services via `JsonStore::from_srsj`. When a WASM binding PR adds or changes the binding surface, update the coverage matrix row for the underlying CLI command (or add a note like the `view` and `package` rows above).
+**WASM bindings** are not directly CLI-drivable and are not covered by scenarios here. WASM binding coverage lives in `crates/srs-bindings/tests/` and `crates/srs-repository/tests/` — integration tests that call `srs-repository` services via `srsj_migration_service::load_from_srsj` (the recommended entry point, which applies RFC-014 migration) or `JsonStore::from_srsj` (for already-migrated inputs). When a WASM binding PR adds or changes the binding surface, update the coverage matrix row for the underlying CLI command (or add a note like the `view` and `package` rows above).
 
 ## Maintaining this guide
 

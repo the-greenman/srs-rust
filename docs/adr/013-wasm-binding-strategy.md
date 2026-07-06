@@ -31,11 +31,13 @@ A web app loads this via `fetch()` and passes the response text directly to `Srs
 
 **Rejected alternative:** Passing a raw multi-file structure (a map of `{path: content}` pairs) would be more flexible but would require a new serialisation contract and a new store implementation.
 
-### No-filesystem entry point: `JsonStore::from_srsj()`
+### No-filesystem entry point: `srsj_migration_service::load_from_srsj()`
 
-A new constructor `JsonStore::from_srsj(content: &str) -> Result<Self, RepositoryError>` is added to `srs-repository`. It parses a `.srsj` string and populates the in-memory `JsonStoreState` without any `std::fs` calls. `manifest.root` is set to `PathBuf::from(".")`.
+A constructor `JsonStore::from_srsj(content: &str) -> Result<Self, RepositoryError>` is provided by `srs-repository`. It parses a `.srsj` string and populates the in-memory `JsonStoreState` without any `std::fs` calls. `manifest.root` is set to `PathBuf::from(".")`.
 
-`open()` is refactored to call `read_to_string()` then delegate to `from_srsj()`, so both paths share the same deserialization logic.
+`open()` calls `read_to_string()` then delegates to `from_srsj()`, so both paths share the same deserialization logic.
+
+`SrsRepository::load` (the WASM entry point) calls `srsj_migration_service::load_from_srsj`, which applies the RFC-014 manifest migration (moves `manifest.meta.upstreamPackage` to top-level and adds `contentHash`) before delegating to `from_srsj`. This is idempotent on already-migrated bundles. Callers that need migration applied automatically should use `load_from_srsj`; `from_srsj` remains available as a lower-level primitive for contexts where the input is guaranteed to be already migrated.
 
 **Known limitation:** `manifest.root = "."` means any package-ref paths resolved relative to the manifest root will resolve relative to the process CWD. This is acceptable for the initial read-only scope because the `.srsj` format embeds all package definitions inline and no external path resolution occurs during read-only service calls.
 
@@ -59,7 +61,7 @@ Write operations (create/update/delete) are deferred to a future plan. The `flus
 - SRS record querying and validation run entirely client-side — no server needed for read operations.
 - Crate boundaries are preserved: zero business logic in `srs-bindings`, all service logic stays in `srs-repository`.
 - The `.srsj` format becomes the canonical bundle for browser delivery of SRS repositories.
-- `JsonStore::from_srsj()` is a useful primitive for any embedding context that doesn't have filesystem access (not just Wasm).
+- `JsonStore::from_srsj()` is a useful primitive for any embedding context that doesn't have filesystem access (not just Wasm). `srsj_migration_service::load_from_srsj()` is the recommended entry point when RFC-014 migration must also be applied on load (e.g. the WASM binding).
 
 **Negative / trade-offs:**
 - Write operations via Wasm are deferred. A browser application cannot modify an SRS repository through the Wasm surface in this initial cut.
