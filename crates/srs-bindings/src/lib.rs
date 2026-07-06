@@ -624,7 +624,9 @@ impl SrsRepository {
     /// Re-stamp a seed repository's identity. `input_json` is a JSON string matching
     /// `InitNewRepositoryInput` (`{"namespace":"...","title":"...",...}`).
     /// Updates `repositoryId`, `namespace`, `title`, `description`, and
-    /// `meta.upstreamPackage.installedAt` in the manifest. Returns an
+    /// `installedAt` on the upstream package reference — at top-level
+    /// `upstreamPackage` for RFC-014-migrated seeds, or `meta.upstreamPackage`
+    /// for legacy seeds. Returns an
     /// `InitNewRepositoryResult` as a JS value.
     pub fn init_new_repository(&self, input_json: &str) -> Result<JsValue, JsValue> {
         let input: InitNewRepositoryInput =

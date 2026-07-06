@@ -2,9 +2,8 @@ use crate::container_service::{add_container_member, add_root, create_container}
 use crate::error::RepositoryError;
 use crate::manifest_service::{set_manifest_root_container, SetManifestRootContainerInput};
 use crate::record_store::{create_record_in_context, CreateRecordInput};
+use crate::repository_lifecycle::{init_new_repository, InitNewRepositoryInput};
 use crate::store::RepositoryStore;
-use crate::writer::write_manifest;
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use srs_core::types::container::Container;
 use srs_core::types::record::FieldValue;
@@ -248,7 +247,8 @@ pub fn scaffold_governance_repo(
 ///
 /// The store must already contain a seeded `.srsj` bundle (loaded via
 /// `JsonStore::from_srsj` after RFC-014 migration). This function:
-/// 1. Stamps `repositoryId`, `namespace`, and `title` into `manifest.extra`.
+/// 1. Calls `init_new_repository` to stamp `repositoryId`, `namespace`, `title`,
+///    and `upstreamPackage.installedAt` into the manifest.
 /// 2. Calls `scaffold_governance_repo` to create records + containers.
 ///
 /// This is the one service call made by CLI handlers and WASM bindings for
@@ -257,6 +257,9 @@ pub fn create_governance_repository(
     store: &dyn RepositoryStore,
     input: CreateGovernanceRepositoryInput,
 ) -> Result<CreateGovernanceRepositoryResult, RepositoryError> {
+    // Fast-path guards: fail before namespace derivation. init_new_repository
+    // also validates these, but catching them here avoids computing a derived
+    // namespace from a blank title only to reject it a call later.
     if let Some(ref ns) = input.namespace {
         if ns.trim().is_empty() {
             return Err(RepositoryError::InvalidRepositoryInitialization {
@@ -274,35 +277,15 @@ pub fn create_governance_repository(
         .namespace
         .unwrap_or_else(|| derive_namespace_from_title(&input.title));
 
-    let repository_id = input
-        .repository_id
-        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-
-    let mut manifest = store.load_manifest()?;
-    manifest.extra.insert(
-        "repositoryId".to_string(),
-        serde_json::Value::String(repository_id.clone()),
-    );
-    manifest.extra.insert(
-        "namespace".to_string(),
-        serde_json::Value::String(namespace),
-    );
-    manifest.extra.insert(
-        "title".to_string(),
-        serde_json::Value::String(input.title.clone()),
-    );
-    // Stamp installedAt on the RFC-014 top-level upstreamPackage (if present).
-    // init_new_repository writes to meta.upstreamPackage (pre-RFC-014 location);
-    // governance seeds are always RFC-014-migrated, so we write to the top-level field.
-    if let Some(up_val) = manifest.extra.get_mut("upstreamPackage") {
-        if let Some(up_obj) = up_val.as_object_mut() {
-            up_obj.insert(
-                "installedAt".to_string(),
-                serde_json::Value::String(Utc::now().to_rfc3339()),
-            );
-        }
-    }
-    write_manifest(store, &manifest)?;
+    let init_result = init_new_repository(
+        store,
+        InitNewRepositoryInput {
+            repository_id: input.repository_id,
+            namespace,
+            title: input.title.clone(),
+            description: None,
+        },
+    )?;
 
     let scaffold = scaffold_governance_repo(
         store,
@@ -313,7 +296,7 @@ pub fn create_governance_repository(
     )?;
 
     Ok(CreateGovernanceRepositoryResult {
-        repository_id,
+        repository_id: init_result.repository_id,
         identity_record_id: scaffold.identity_record_id,
         decision_log_container_id: scaffold.decision_log_container_id,
         decision_log_root_id: scaffold.decision_log_root_id,
