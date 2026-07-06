@@ -604,6 +604,26 @@ function planPromotions(rows) {
   return out;
 }
 
+// Pure staleness planner (unit-tested). `status: in progress` has no board-native timestamp, so
+// callers annotate each row with `claimedAtMs` (epoch ms the label was last applied, from the
+// issue's REST event timeline — see `claimedAt()`) before calling this. Only OPEN issues whose
+// board Status is "In progress" are candidates; nothing else in the pipeline ever revisits a claim
+// (`promote` explicitly skips advanced statuses, `reconcile` only mirrors the label) so a dead claim
+// would otherwise sit invisible forever. A row with no resolvable claimedAtMs is reported as
+// `unknown` rather than silently left alone or wrongly reclaimed.
+// Returns [{ repo, num, key, itemId, claimedAtMs, action, ageMs }] — action: reclaim|fresh|unknown.
+function planStaleClaims(rows, nowMs, thresholdMs) {
+  const out = [];
+  for (const row of rows) {
+    if (row.state !== "OPEN" || row.status !== "In progress") continue;
+    const base = { repo: row.repo, num: row.num, key: row.key, itemId: row.itemId, claimedAtMs: row.claimedAtMs ?? null };
+    if (row.claimedAtMs == null) { out.push({ ...base, action: "unknown" }); continue; }
+    const ageMs = nowMs - row.claimedAtMs;
+    out.push({ ...base, action: ageMs >= thresholdMs ? "reclaim" : "fresh", ageMs });
+  }
+  return out;
+}
+
 // Remove a single label from an issue (REST via gh). Non-fatal if absent.
 function removeLabel(repo, num, label) {
   try { gh(["issue", "edit", String(num), "--repo", `${OWNER}/${repo}`, "--remove-label", label]); }
@@ -1474,6 +1494,65 @@ function intentRows() {
   return rows;
 }
 
+// Default staleness window for `stale-claims`: long enough that a genuinely long-running
+// implementation task isn't falsely reclaimed, short enough that a dead claim recovers same-day
+// given the hourly board-sync schedule.
+const STALE_CLAIM_HOURS_DEFAULT = 24;
+
+// When the `status: in progress` label was most recently applied — the claim's start time.
+// Projects v2 has no per-field-value timestamp reachable here, so this reads the issue's REST
+// event timeline (ascending order) and takes the last matching "labeled" event; a prior
+// label/unlabel/re-label cycle is superseded by that most recent application. Returns epoch ms,
+// or null if no such event is found (label present but timeline unreadable/incomplete).
+function claimedAt(repo, num) {
+  let events;
+  try {
+    events = ghJson(["api", "--paginate", `repos/${OWNER}/${repo}/issues/${num}/events`]) || [];
+  } catch (e) {
+    console.error(`gh-project: warning: could not read events for ${repo}#${num}: ${(e.stderr ? String(e.stderr) : e.message).trim()}`);
+    return null;
+  }
+  const labelEvents = events.filter((e) => e.event === "labeled" && e.label?.name === "status: in progress");
+  if (!labelEvents.length) return null;
+  return Date.parse(labelEvents[labelEvents.length - 1].created_at);
+}
+
+// stale-claims [--hours N] [--fix] — detect (and with --fix, recover) `In progress` issues whose
+// claim has gone stale: whatever claimed it (the "SRS jobs routine" or any other consumer) wrote
+// `status: in progress` and never finished — crashed, timed out, or was interrupted. Nothing else
+// in this pipeline ever revisits an in-progress issue: `promote` explicitly skips advanced statuses
+// and `reconcile` only mirrors the label, never demotes it. Without this, a dead claim is invisible
+// forever — not Backlog (so `promote` can't touch it), not Ready (so the queue consumer never sees
+// it again). Recovery resets Status to Ready (mirrors the `ready` label) and leaves a comment so
+// whatever actually holds the claim knows it was reclaimed. Idempotent: a claim younger than the
+// threshold is left alone; an issue moved back to Ready simply won't match "In progress" next run.
+function cmdStaleClaims(argv) {
+  const dryRun = !argv.includes("--fix");
+  let hours = STALE_CLAIM_HOURS_DEFAULT;
+  for (let i = 0; i < argv.length; i++) if (argv[i] === "--hours") hours = Number(argv[++i]);
+  const thresholdMs = hours * 3600 * 1000;
+  const candidates = [...board().values()].filter((r) => r.state === "OPEN" && r.status === "In progress");
+  const annotated = candidates.map((r) => ({ ...r, claimedAtMs: claimedAt(r.repo, r.num) }));
+  const plan = planStaleClaims(annotated, Date.now(), thresholdMs);
+  for (const p of plan) {
+    const ageStr = p.ageMs != null ? `${(p.ageMs / 3600000).toFixed(1)}h` : "—";
+    console.log(`${dryRun ? "[dry-run] " : ""}${p.action}: ${p.key} (age ${ageStr})`);
+    if (dryRun || p.action !== "reclaim") continue;
+    setSingleSelect(p.itemId, "Status", "Ready", false);
+    setStatusLabel(p.repo, p.num, "ready", false); // mirror immediately; reconcile also keeps it in sync
+    try {
+      gh(["issue", "comment", String(p.num), "--repo", `${OWNER}/${p.repo}`,
+        "--body", `Auto-reclaimed: this issue's \`status: in progress\` claim was stale (>${hours}h since claimed) and has been reset to **Ready** for re-pickup. If work is still genuinely in flight, re-claim it.`]);
+    } catch (e) {
+      console.error(`gh-project: warning: could not comment on ${p.key}: ${(e.stderr ? String(e.stderr) : e.message).trim()}`);
+    }
+  }
+  const reclaimed = plan.filter((p) => p.action === "reclaim").length;
+  const unknown = plan.filter((p) => p.action === "unknown").length;
+  console.log(`${plan.length} in-progress · ${reclaimed} ${dryRun ? "would be " : ""}reclaimed · ${plan.length - reclaimed - unknown} fresh${unknown ? ` · ${unknown} unknown (no labeled event found)` : ""}`);
+  if (dryRun && reclaimed) console.log("(dry-run; pass --fix to reclaim)");
+}
+
 // promote [--fix] — convert `promote:ready` intents into board Status=Ready. This is the
 // privileged half of the promotion pipeline: the judge (a proxy-bound cloud routine, a human, or
 // a future rule) can only add the intent label over REST; this command, run where Projects v2 is
@@ -1577,6 +1656,9 @@ function help() {
                                   implementation order in N equal-effort bands (default 10);
                                   --assign writes band k → the "Band" number field (k = 1..N)
   reconcile [--fix]               report/repair board drift (priority + Status→label mirror)
+  stale-claims [--hours N] [--fix]
+                                  recover dead \`In progress\` claims (default 24h) — resets Status
+                                  to Ready + comments; nothing else in the pipeline revisits a claim
 
 Priority stages: served stories → MoSCoW→P → base(max) → epic fallback(−1 tier) → bug floor(P1) → bump(+1) → final.
 Env: GHP_OWNER, GHP_PROJECT, GHP_STORY_REPO.
@@ -1587,7 +1669,7 @@ Auth: requires an authenticated \`gh\` CLI, or GITHUB_TOKEN/GH_TOKEN env var (cu
 // Dispatch
 // ---------------------------------------------------------------------------
 // Pure helpers exported for unit tests. Importing the module must NOT run the CLI.
-export { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs, STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant, planPromotions, PROMOTE_INTENT_LABEL, epicRank, bandTargets, SIZE_WEIGHT, derivePriority, parseIssueRef };
+export { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs, STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant, planPromotions, PROMOTE_INTENT_LABEL, epicRank, bandTargets, SIZE_WEIGHT, derivePriority, parseIssueRef, planStaleClaims, STALE_CLAIM_HOURS_DEFAULT };
 
 // Only dispatch when run directly (`node gh-project.mjs ...`), not when imported.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -1620,6 +1702,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       case "size": cmdSize(rest); break;
       case "bands": cmdBands(rest); break;
       case "reconcile": cmdReconcile(rest); break;
+      case "stale-claims": cmdStaleClaims(rest); break;
       case "help": case "--help": case "-h": case undefined: help(); break;
       default: die(`unknown command "${cmd}" (try \`help\`)`);
     }

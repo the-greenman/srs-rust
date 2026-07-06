@@ -3,7 +3,8 @@ name: Board sync
 # Reconciles Project #5 and promotes work onto the Ready queue. Runs on three triggers:
 #   - push to master  — reconcile right after each merge (closed→Done, re-derive priorities)
 #   - schedule (hourly) — promote `promote:ready` intents even during quiet periods, so the
-#                         Ready queue refills at the same cadence the hourly consumer drains it
+#                         Ready queue refills at the same cadence the hourly consumer drains it;
+#                         also the cadence stale-claims relies on to recover dead claims same-day
 #   - workflow_dispatch — lets a cloud Claude session (or a human) trigger promotion on demand
 #                         via `gh workflow run board-sync.yml` after it has judged/labelled issues
 #
@@ -12,6 +13,12 @@ name: Board sync
 # `promote:ready` label — it cannot set the board Status through its proxy — and this job converts
 # that intent into board Status=Ready (which then mirrors to the `ready` label). See
 # docs/project-management.md → "Promotion pipeline".
+#
+# The `stale-claims` step is the recovery half: nothing else ever revisits an issue sitting in
+# `In progress` (`promote` explicitly skips advanced statuses; `reconcile` only mirrors the label),
+# so a claim whose holder crashed or timed out would otherwise be invisible forever. It resets any
+# claim older than the default threshold back to Status=Ready. See docs/project-management.md →
+# "Recovering a stale claim".
 #
 # Requires a PAT with `project` scope stored as the BOARD_SECRET secret
 # (BOARD_TOKEN also accepted). The default GITHUB_TOKEN does not carry project
@@ -49,6 +56,7 @@ jobs:
             exit 1
           fi
           node scripts/gh-project.mjs promote --fix
+          node scripts/gh-project.mjs stale-claims --fix
           node scripts/gh-project.mjs reconcile --fix
           node scripts/gh-project.mjs rollup --fix
           node scripts/gh-project.mjs release-sync
