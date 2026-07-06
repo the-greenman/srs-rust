@@ -425,6 +425,39 @@ mod tests {
         .to_string()
     }
 
+    /// RFC-014 format: `upstreamPackage` at top level (not under `meta`), plus `contentHash`.
+    fn seed_rfc014_srsj() -> String {
+        serde_json::json!({
+            "srsj": "1",
+            "manifest": {
+                "repositoryId": "seed-repo-id",
+                "srsVersion": "2.0-draft",
+                "namespace": "com.mudemocracy.governance",
+                "instanceIndex": [],
+                "packageRef": {"mode": "local", "path": "package"},
+                "upstreamPackage": {
+                    "packageId": "pkg-upstream-001",
+                    "namespace": "com.mudemocracy.governance",
+                    "name": "Governance",
+                    "version": "1.0.0",
+                    "contentHash": "sha256:abc123",
+                    "installedAt": ""
+                }
+            },
+            "data": {
+                "package/package.json": {
+                    "id": "pkg-upstream-001",
+                    "namespace": "com.mudemocracy.governance",
+                    "name": "Governance",
+                    "version": "1.0.0",
+                    "fields": [], "types": [], "relationTypes": [],
+                    "views": [], "documentViews": []
+                }
+            }
+        })
+        .to_string()
+    }
+
     #[test]
     fn init_new_repository_updates_identity_on_memory_store() {
         let store = seed_memory_store();
@@ -684,6 +717,67 @@ mod tests {
         );
         assert_eq!(
             manifest.extra["upstreamPackage"]["contentHash"]
+                .as_str()
+                .unwrap(),
+            "sha256:abc123"
+        );
+    }
+
+    #[test]
+    fn init_new_repository_rfc014_roundtrips_via_json_store() {
+        let store = crate::json_store::JsonStore::from_srsj(&seed_rfc014_srsj()).unwrap();
+        let input = super::InitNewRepositoryInput {
+            repository_id: Some("new-fixed-uuid-rfc014".to_string()),
+            namespace: "com.example.roundtrip-rfc014".to_string(),
+            title: "RFC-014 Roundtrip Test".to_string(),
+            description: None,
+        };
+
+        let result = super::init_new_repository(&store, input).unwrap();
+        assert_eq!(result.repository_id, "new-fixed-uuid-rfc014");
+        assert_eq!(result.package_id, "pkg-upstream-001");
+        assert_eq!(result.package_version, "1.0.0");
+
+        let serialized = store.to_srsj_string().unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(
+            parsed["manifest"]["repositoryId"].as_str().unwrap(),
+            "new-fixed-uuid-rfc014"
+        );
+        assert_eq!(
+            parsed["manifest"]["namespace"].as_str().unwrap(),
+            "com.example.roundtrip-rfc014"
+        );
+        assert_eq!(
+            parsed["manifest"]["title"].as_str().unwrap(),
+            "RFC-014 Roundtrip Test"
+        );
+
+        // upstreamPackage at top level (RFC-014), not under meta
+        assert!(
+            parsed["manifest"].get("meta").is_none()
+                || parsed["manifest"]["meta"].get("upstreamPackage").is_none(),
+            "upstreamPackage should not be under meta for RFC-014 seeds"
+        );
+        let installed_at = parsed["manifest"]["upstreamPackage"]["installedAt"]
+            .as_str()
+            .unwrap();
+        assert!(
+            !installed_at.is_empty(),
+            "installedAt should be set after init"
+        );
+        assert!(installed_at.contains('T'), "installedAt should be ISO-8601");
+
+        // Other upstreamPackage fields preserved
+        assert_eq!(
+            parsed["manifest"]["upstreamPackage"]["packageId"]
+                .as_str()
+                .unwrap(),
+            "pkg-upstream-001"
+        );
+        assert_eq!(
+            parsed["manifest"]["upstreamPackage"]["contentHash"]
                 .as_str()
                 .unwrap(),
             "sha256:abc123"

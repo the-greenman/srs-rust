@@ -257,6 +257,9 @@ pub fn create_governance_repository(
     store: &dyn RepositoryStore,
     input: CreateGovernanceRepositoryInput,
 ) -> Result<CreateGovernanceRepositoryResult, RepositoryError> {
+    // Fast-path guards: fail before namespace derivation. init_new_repository
+    // also validates these, but catching them here avoids computing a derived
+    // namespace from a blank title only to reject it a call later.
     if let Some(ref ns) = input.namespace {
         if ns.trim().is_empty() {
             return Err(RepositoryError::InvalidRepositoryInitialization {
