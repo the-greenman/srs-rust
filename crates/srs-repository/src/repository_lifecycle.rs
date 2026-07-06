@@ -165,11 +165,12 @@ pub struct InitNewRepositoryResult {
     pub package_version: String,
 }
 
-/// Re-stamp a seed repository's identity and update `meta.upstreamPackage.installedAt`.
+/// Re-stamp a seed repository's identity and update `installedAt` on its upstream package.
 ///
-/// The store must already contain a manifest with `meta.upstreamPackage`
-/// (written by the governance-seed install; WS-1 guarantee). All other
-/// `upstreamPackage` fields are preserved unchanged.
+/// The store must already contain a manifest with an `upstreamPackage` object at either
+/// the RFC-014 top-level location or the pre-RFC-014 `meta.upstreamPackage` location.
+/// The top-level location is tried first (RFC-014-migrated stores); `meta.upstreamPackage`
+/// is the fallback for pre-RFC-014 seeds. All other `upstreamPackage` fields are preserved.
 pub fn init_new_repository(
     store: &dyn RepositoryStore,
     input: InitNewRepositoryInput,
@@ -208,25 +209,36 @@ pub fn init_new_repository(
             .insert("description".to_string(), Value::String(d));
     }
 
-    let meta_val = manifest.extra.get_mut("meta").ok_or_else(|| {
-        RepositoryError::InvalidRepositoryInitialization {
-            message:
-                "manifest meta object is absent — store must be a seed with upstream provenance"
-                    .to_string(),
-        }
-    })?;
-
-    let upstream = meta_val
+    // Stamp installedAt at whichever location carries upstreamPackage.
+    // RFC-014-migrated stores (all governance seeds after migrate_rfc014) have it at top level;
+    // pre-RFC-014 seeds have it under meta.upstreamPackage.
+    if let Some(up) = manifest
+        .extra
         .get_mut("upstreamPackage")
         .and_then(|v| v.as_object_mut())
-        .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
-            message: "meta.upstreamPackage is absent or not an object".to_string(),
+    {
+        up.insert(
+            "installedAt".to_string(),
+            Value::String(Utc::now().to_rfc3339()),
+        );
+    } else {
+        let meta_val = manifest.extra.get_mut("meta").ok_or_else(|| {
+            RepositoryError::InvalidRepositoryInitialization {
+                message: "upstreamPackage is absent — store must be a seed with upstream provenance"
+                    .to_string(),
+            }
         })?;
-
-    upstream.insert(
-        "installedAt".to_string(),
-        Value::String(Utc::now().to_rfc3339()),
-    );
+        let upstream = meta_val
+            .get_mut("upstreamPackage")
+            .and_then(|v| v.as_object_mut())
+            .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
+                message: "meta.upstreamPackage is absent or not an object".to_string(),
+            })?;
+        upstream.insert(
+            "installedAt".to_string(),
+            Value::String(Utc::now().to_rfc3339()),
+        );
+    }
 
     store.save_manifest(&manifest)?;
 
@@ -603,6 +615,77 @@ mod tests {
             matches!(err, RepositoryError::InvalidRepositoryInitialization { .. }),
             "expected InvalidRepositoryInitialization, got {:?}",
             err
+        );
+    }
+
+    #[test]
+    fn init_new_repository_handles_rfc014_top_level_upstream_package() {
+        // Post-RFC-014 store: upstreamPackage at top level, meta.upstreamPackage absent.
+        let store = MemoryStore::empty();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.extra.insert(
+            "repositoryId".to_string(),
+            serde_json::json!("seed-repo-id"),
+        );
+        manifest.extra.insert(
+            "namespace".to_string(),
+            serde_json::json!("com.mudemocracy.governance"),
+        );
+        manifest
+            .extra
+            .insert("title".to_string(), serde_json::json!("Seed"));
+        manifest.extra.insert(
+            "upstreamPackage".to_string(),
+            serde_json::json!({
+                "packageId": "pkg-upstream-001",
+                "namespace": "com.mudemocracy.governance",
+                "name": "governance",
+                "version": "1.0.0",
+                "contentHash": "sha256:abc123",
+                "installedAt": ""
+            }),
+        );
+        store.save_manifest(&manifest).unwrap();
+
+        let result = super::init_new_repository(
+            &store,
+            super::InitNewRepositoryInput {
+                repository_id: None,
+                namespace: "com.example.test".to_string(),
+                title: "Test Repo".to_string(),
+                description: None,
+            },
+        )
+        .unwrap();
+
+        assert_ne!(result.repository_id, "seed-repo-id", "should have a new ID");
+        assert_eq!(result.namespace, "com.example.test");
+
+        let manifest = store.load_manifest().unwrap();
+        let installed_at = manifest.extra["upstreamPackage"]["installedAt"]
+            .as_str()
+            .unwrap();
+        assert!(!installed_at.is_empty(), "installedAt should be set");
+        assert!(installed_at.contains('T'), "installedAt should be ISO-8601");
+
+        // Other upstreamPackage fields preserved
+        assert_eq!(
+            manifest.extra["upstreamPackage"]["packageId"]
+                .as_str()
+                .unwrap(),
+            "pkg-upstream-001"
+        );
+        assert_eq!(
+            manifest.extra["upstreamPackage"]["namespace"]
+                .as_str()
+                .unwrap(),
+            "com.mudemocracy.governance"
+        );
+        assert_eq!(
+            manifest.extra["upstreamPackage"]["contentHash"]
+                .as_str()
+                .unwrap(),
+            "sha256:abc123"
         );
     }
 }
