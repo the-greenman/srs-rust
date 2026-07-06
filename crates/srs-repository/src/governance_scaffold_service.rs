@@ -64,10 +64,21 @@ pub struct CreateGovernanceRepositoryResult {
 
 /// Derive a default namespace from a repository title.
 ///
-/// Produces `"com.example.<slug>"` where `<slug>` is the title lowercased
-/// with spaces replaced by hyphens (e.g. `"My Org"` → `"com.example.my-org"`).
+/// Produces `"com.example.<slug>"` where `<slug>` is the title lowercased,
+/// stripped of non-alphanumeric-non-space characters, with spaces replaced
+/// by hyphens (e.g. `"My Org"` → `"com.example.my-org"`).
+///
+/// `"com.example."` is an intentional placeholder prefix. Callers that require
+/// a different organisational prefix should supply an explicit `namespace` instead
+/// of relying on the derived default.
 fn derive_namespace_from_title(title: &str) -> String {
-    format!("com.example.{}", title.to_lowercase().replace(' ', "-"))
+    let slug: String = title
+        .to_lowercase()
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == ' ')
+        .collect::<String>()
+        .replace(' ', "-");
+    format!("com.example.{slug}")
 }
 
 /// Scaffold governance records into an already-stamped seed store.
@@ -509,6 +520,42 @@ mod tests {
             manifest.extra.get("namespace").and_then(|v| v.as_str()),
             Some("com.example.test-org"),
             "namespace must be derived as com.example.<slug> when not provided"
+        );
+    }
+
+    #[test]
+    fn derive_namespace_roundtrip_survives_srsj_serialisation() {
+        let store = load_seed_store();
+        create_governance_repository(
+            &store,
+            CreateGovernanceRepositoryInput {
+                namespace: None,
+                title: "Roundtrip Derived".to_string(),
+                purpose: None,
+                repository_id: Some("derived-roundtrip-id".to_string()),
+            },
+        )
+        .expect("create with None namespace succeeds");
+
+        let srsj = store.to_srsj_string().expect("to_srsj_string");
+        let store2 = JsonStore::from_srsj(&srsj).expect("re-parse");
+        let manifest = store2.load_manifest().unwrap();
+        assert_eq!(
+            manifest.extra.get("namespace").and_then(|v| v.as_str()),
+            Some("com.example.roundtrip-derived"),
+            "derived namespace must survive to_srsj_string → from_srsj roundtrip"
+        );
+    }
+
+    #[test]
+    fn derive_namespace_strips_special_characters() {
+        assert_eq!(
+            derive_namespace_from_title("O'Reilly Org"),
+            "com.example.oreilly-org"
+        );
+        assert_eq!(
+            derive_namespace_from_title("Acme & Co."),
+            "com.example.acme--co"
         );
     }
 
