@@ -885,7 +885,9 @@ mod tests {
         .expect("create_record_in_container should succeed");
 
         let json = serde_json::to_value(&result.record).expect("record must serialize");
-        let instance_id = json["instanceId"].as_str().expect("instanceId must be string");
+        let instance_id = json["instanceId"]
+            .as_str()
+            .expect("instanceId must be string");
         assert!(!instance_id.is_empty(), "instanceId must be non-empty");
 
         let container =

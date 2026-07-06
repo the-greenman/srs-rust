@@ -3745,8 +3745,8 @@ mod tests {
 
         assert!(!result.record.instance_id.is_empty());
 
-        let members = crate::container_service::list_members(&store, &container_id)
-            .expect("members loaded");
+        let members =
+            crate::container_service::list_members(&store, &container_id).expect("members loaded");
         assert!(
             members.contains(&result.record.instance_id),
             "record must be a member of the container"
@@ -3806,10 +3806,7 @@ mod tests {
             },
         );
 
-        assert!(matches!(
-            result,
-            Err(RepositoryError::TypeNotFound { .. })
-        ));
+        assert!(matches!(result, Err(RepositoryError::TypeNotFound { .. })));
 
         let after_len = store.load_manifest().unwrap().instance_index.len();
         assert_eq!(
