@@ -264,6 +264,8 @@ impl SrsRepository {
     /// Transition a record's lifecycle state.
     /// `state` is the target state name (e.g. `"ratified"`).
     /// Returns the updated `Record` as a JS value.
+    /// Note: non-fatal warnings (e.g. LIFECYCLE_FINAL_STATE) are not surfaced here;
+    /// the CLI payload exposes them via `RecordTransitionPayload.warnings`. See #367.
     pub fn set_lifecycle_state(&self, instance_id: &str, state: &str) -> Result<JsValue, JsValue> {
         let input = TransitionLifecycleInput {
             to: Some(state.to_string()),
