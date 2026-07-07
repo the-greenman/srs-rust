@@ -340,7 +340,10 @@ fn cmd_record_allowed_transitions(ctx: CliContext, id: String) -> Result<String>
             "record allowed-transitions",
             RecordAllowedTransitionsPayload::from(result),
         ),
-        Err(e) => Ok(output::err("record allowed-transitions", vec![e.to_string()])),
+        Err(e) => Ok(output::err(
+            "record allowed-transitions",
+            vec![e.to_string()],
+        )),
     }
 }
 

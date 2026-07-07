@@ -52,7 +52,10 @@ fn main() {
     write_schema!("record-tag-add", RecordTagAddPayload);
     write_schema!("record-tag-remove", RecordTagAddPayload);
     write_schema!("record-tag-list", RecordTagListPayload);
-    write_schema!("record-allowed-transitions", RecordAllowedTransitionsPayload);
+    write_schema!(
+        "record-allowed-transitions",
+        RecordAllowedTransitionsPayload
+    );
 
     // Relation payloads
     write_schema!("relation-list", RelationListPayload);

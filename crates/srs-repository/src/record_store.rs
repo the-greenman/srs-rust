@@ -3905,7 +3905,8 @@ mod tests {
     #[test]
     fn allowed_transitions_record_not_found_returns_error() {
         let store = make_store_with_lifecycle();
-        let result = get_allowed_lifecycle_transitions(&store, "00000000-0000-0000-0000-000000000000");
+        let result =
+            get_allowed_lifecycle_transitions(&store, "00000000-0000-0000-0000-000000000000");
         assert!(matches!(result, Err(RepositoryError::NotFound { .. })));
     }
 

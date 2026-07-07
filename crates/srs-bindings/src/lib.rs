@@ -281,13 +281,9 @@ impl SrsRepository {
 
     /// Query the allowed lifecycle transitions for a record (ext:lifecycle).
     /// Returns `{ "currentState": string, "transitions": [{ "name": string, "to": string, "toIsFinal": bool }], "isImmutable": bool }` as a JS value.
-    pub fn get_allowed_lifecycle_transitions(
-        &self,
-        instance_id: &str,
-    ) -> Result<JsValue, JsValue> {
-        let result =
-            record_store::get_allowed_lifecycle_transitions(&self.store, instance_id)
-                .map_err(js_err)?;
+    pub fn get_allowed_lifecycle_transitions(&self, instance_id: &str) -> Result<JsValue, JsValue> {
+        let result = record_store::get_allowed_lifecycle_transitions(&self.store, instance_id)
+            .map_err(js_err)?;
         to_js(&result)
     }
 
