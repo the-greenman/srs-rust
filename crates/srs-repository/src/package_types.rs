@@ -31,9 +31,10 @@ impl PackageBoundary {
     /// All fields default to empty string / empty vec when absent rather than returning an error —
     /// validation of required fields (e.g. `id`) is the caller's responsibility.
     ///
-    /// This constructor accepts `serde_json::Value` because it lives in `srs-repository` (which
-    /// already depends on `serde_json`). It must not be moved to `srs-core`, which has no
-    /// `serde_json` dependency.
+    /// This constructor belongs in `srs-repository`, not `srs-core`. Constructing a
+    /// `PackageBoundary` from a raw parsed `package.json` blob is a storage-adapter concern
+    /// (ADR-001, ADR-009); the core type layer constructs types with explicit, validated fields
+    /// rather than interpreting on-disk JSON shapes.
     pub fn from_pkg_json(
         pkg_json: &serde_json::Value,
         selector: PackageSelector,

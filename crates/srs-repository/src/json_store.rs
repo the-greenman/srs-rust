@@ -1,6 +1,7 @@
 use crate::error::RepositoryError;
 use crate::manifest::Manifest;
 use crate::package::Package;
+use crate::package_types::PackageBoundary;
 use crate::repository_lifecycle::{
     default_repository_container, CreateRepositoryResult, InitializeRepositoryInput,
 };
@@ -1457,10 +1458,7 @@ impl RepositoryStore for JsonStore {
 
         // Primary
         let primary_json = self.data_get("package/package.json")?;
-        result.push(crate::package_types::PackageBoundary::from_pkg_json(
-            &primary_json,
-            None,
-        ));
+        result.push(PackageBoundary::from_pkg_json(&primary_json, None));
 
         // Sub-packages from manifest
         let state = self.state.borrow();
@@ -1477,7 +1475,7 @@ impl RepositoryStore for JsonStore {
                 if let Some(path) = pkg_ref.get("path").and_then(|p| p.as_str()) {
                     let key = format!("{path}/package.json");
                     if let Some(pkg_json) = state.data.get(&key).cloned() {
-                        result.push(crate::package_types::PackageBoundary::from_pkg_json(
+                        result.push(PackageBoundary::from_pkg_json(
                             &pkg_json,
                             Some(path.to_string()),
                         ));
@@ -1501,10 +1499,7 @@ impl RepositoryStore for JsonStore {
             .map_err(|_| RepositoryError::PackageNotFound {
                 selector: selector.clone(),
             })?;
-        Ok(crate::package_types::PackageBoundary::from_pkg_json(
-            &pkg_json,
-            selector.clone(),
-        ))
+        Ok(PackageBoundary::from_pkg_json(&pkg_json, selector.clone()))
     }
 
     fn save_package_boundary_metadata(
