@@ -62,9 +62,9 @@ Both `tui_data.rs` and `governance.rs` changes are done in a single phase to avo
 
 #### Tasks
 
-- [ ] **`tui_data.rs` — fix import (line 5):** Change `use crate::governance::{match_container, GOVERNANCE_CONTAINERS};` to `use crate::governance::by_root_type;`.
+- [x] **`tui_data.rs` — fix import (line 5):** Change `use crate::governance::{match_container, GOVERNANCE_CONTAINERS};` to `use crate::governance::by_root_type;`.
 
-- [ ] **`tui_data.rs` — rewrite `sections_from_navigation` (lines 59–76):** Replace the function body with a `filter_map` over the sections array:
+- [x] **`tui_data.rs` — rewrite `sections_from_navigation` (lines 59–76):** Replace the function body with a `filter_map` over the sections array:
   ```rust
   fn sections_from_navigation(payload: &Value) -> Vec<SectionItem> {
       let sections = payload["navigation"]["sections"]
@@ -89,9 +89,9 @@ Both `tui_data.rs` and `governance.rs` changes are done in a single phase to avo
   }
   ```
 
-- [ ] **`tui_data.rs` — delete `governance_key_for_label` (lines 329–343):** Remove the private function entirely (its only caller was `sections_from_navigation`).
+- [x] **`tui_data.rs` — delete `governance_key_for_label` (lines 329–343):** Remove the private function entirely (its only caller was `sections_from_navigation`).
 
-- [ ] **`tui_data.rs` — delete `sections_from_container_list` (lines 78–101):** Remove the function. In `load_app_state` (lines 9–31), remove the fallback block:
+- [x] **`tui_data.rs` — delete `sections_from_container_list` (lines 78–101):** Remove the function. In `load_app_state` (lines 9–31), remove the fallback block:
   ```rust
   if sections.is_empty() {
       let fallback = sections_from_container_list(repo)?;
@@ -103,7 +103,7 @@ Both `tui_data.rs` and `governance.rs` changes are done in a single phase to avo
   ```
   Note: `HashSet` is still used in `allowed_hits` and `detail_rows` — retain `use std::collections::HashSet;`.
 
-- [ ] **`tui_data.rs` — update test `sections_from_navigation_maps_labels_to_governance_keys`:** Replace the fixture and assertions with:
+- [x] **`tui_data.rs` — update test `sections_from_navigation_maps_labels_to_governance_keys`:** Replace the fixture and assertions with:
   ```rust
   #[test]
   fn sections_from_navigation_maps_labels_to_governance_keys() {
@@ -134,29 +134,29 @@ Both `tui_data.rs` and `governance.rs` changes are done in a single phase to avo
   }
   ```
 
-- [ ] **`governance.rs` — remove `container_type` field (line 25):** Delete `pub container_type: &'static str,` from `ContainerTypeDef`.
+- [x] **`governance.rs` — remove `container_type` field (line 25):** Delete `pub container_type: &'static str,` from `ContainerTypeDef`.
 
-- [ ] **`governance.rs` — remove `container_type` entry from static (line 42):** Delete `container_type: "decision_log",` from the `GOVERNANCE_CONTAINERS` initializer.
+- [x] **`governance.rs` — remove `container_type` entry from static (line 42):** Delete `container_type: "decision_log",` from the `GOVERNANCE_CONTAINERS` initializer.
 
-- [ ] **`governance.rs` — delete `match_container` function (lines 67–86):** Remove the entire function.
+- [x] **`governance.rs` — delete `match_container` function (lines 67–86):** Remove the entire function.
 
-- [ ] **`governance.rs` — delete `decision_log_container_matches_by_type` test (lines 106–117):** Remove the test (it tests the now-deleted function).
+- [x] **`governance.rs` — delete `decision_log_container_matches_by_type` test (lines 106–117):** Remove the test (it tests the now-deleted function).
 
-- [ ] **`governance.rs` — update module doc comment:** Remove the paragraph noting "`container_type` field is retained only for the TUI path … it will be removed when the TUI migrates (epic #262)." Replace with a sentence noting that the RFC-009 migration to `typeNamespace`/`typeName` is now complete.
+- [x] **`governance.rs` — update module doc comment:** Remove the paragraph noting "`container_type` field is retained only for the TUI path … it will be removed when the TUI migrates (epic #262)." Replace with a sentence noting that the RFC-009 migration to `typeNamespace`/`typeName` is now complete.
 
 #### Acceptance Criteria
 
-- [ ] `sections_from_navigation` uses `filter_map` + `by_root_type` + reads `sectionContainerId`.
-- [ ] `sections_from_container_list` does not exist in `tui_data.rs`.
-- [ ] `governance_key_for_label` does not exist in `tui_data.rs`.
-- [ ] Import in `tui_data.rs` is `use crate::governance::by_root_type;` only.
-- [ ] `ContainerTypeDef` has no `container_type` field.
-- [ ] `match_container` does not exist in `governance.rs`.
-- [ ] `decision_log_container_matches_by_type` test does not exist.
-- [ ] Test `sections_from_navigation_maps_labels_to_governance_keys` asserts `sections.len() == 1`, `key == "decision_log"`, `container_id == Some("c-1")`, and the unknown-type section is absent.
-- [ ] No reference to `containerType`, `match_container`, `container_type` field, or `governance_key_for_label` in `crates/srs-gov/`.
-- [ ] `cargo test -p srs-gov` passes.
-- [ ] `cargo clippy -p srs-gov -- -D warnings` is clean.
+- [x] `sections_from_navigation` uses `filter_map` + `by_root_type` + reads `sectionContainerId`.
+- [x] `sections_from_container_list` does not exist in `tui_data.rs`.
+- [x] `governance_key_for_label` does not exist in `tui_data.rs`.
+- [x] Import in `tui_data.rs` is `use crate::governance::by_root_type;` only.
+- [x] `ContainerTypeDef` has no `container_type` field.
+- [x] `match_container` does not exist in `governance.rs`.
+- [x] `decision_log_container_matches_by_type` test does not exist.
+- [x] Test `sections_from_navigation_maps_labels_to_governance_keys` asserts `sections.len() == 1`, `key == "decision_log"`, `container_id == Some("c-1")`, and the unknown-type section is absent.
+- [x] No reference to `containerType`, `match_container`, `container_type` field, or `governance_key_for_label` in `crates/srs-gov/`.
+- [x] `cargo test -p srs-gov` passes.
+- [x] `cargo clippy -p srs-gov -- -D warnings` is clean.
 
 #### Testing
 
