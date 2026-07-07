@@ -3,11 +3,12 @@ use crate::output;
 use crate::payload::{
     InstancePathRename, RepoCopyPayload, RepoCreatePayload, RepoDiffInstanceAdded,
     RepoDiffInstanceModified, RepoDiffInstanceRemoved, RepoDiffInstances, RepoDiffManifest,
-    RepoDiffPackage, RepoDiffPackageCategory, RepoDiffPackageItemAdded, RepoDiffPackageItemModified,
-    RepoDiffPackageItemRemoved, RepoDiffPayload, RepoDiffRelationAdded, RepoDiffRelationModified,
-    RepoDiffRelationRemoved, RepoDiffRelations, RepoDiffSummary, RepoExtensionsMutatePayload,
-    RepoExtensionsPayload, RepoInitNewPayload, RepoMapPayload, RepoNavigationPayload,
-    RepoSetRootContainerPayload, RepoUpgradePayload, RepoValidatePayload,
+    RepoDiffPackage, RepoDiffPackageCategory, RepoDiffPackageItemAdded,
+    RepoDiffPackageItemModified, RepoDiffPackageItemRemoved, RepoDiffPayload,
+    RepoDiffRelationAdded, RepoDiffRelationModified, RepoDiffRelationRemoved, RepoDiffRelations,
+    RepoDiffSummary, RepoExtensionsMutatePayload, RepoExtensionsPayload, RepoInitNewPayload,
+    RepoMapPayload, RepoNavigationPayload, RepoSetRootContainerPayload, RepoUpgradePayload,
+    RepoValidatePayload,
 };
 use anyhow::{Context, Result};
 use srs_repository::analysis::build_repo_map;

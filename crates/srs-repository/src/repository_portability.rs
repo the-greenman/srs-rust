@@ -666,9 +666,7 @@ pub fn upgrade_repository_paths(
         let canonical = canonical_instance_path(&instance);
         if !canonical_paths.insert(canonical.clone()) {
             return Err(RepositoryError::InvalidSnapshotData {
-                message: format!(
-                    "path collision: two instances would normalise to '{canonical}'"
-                ),
+                message: format!("path collision: two instances would normalise to '{canonical}'"),
             });
         }
         if entry.path() != canonical {
@@ -1480,13 +1478,15 @@ mod tests {
             .unwrap();
         store.save_instance_json(path, &value).unwrap();
         let mut manifest = store.load_manifest().unwrap();
-        manifest.instance_index.push(crate::index::InstanceIndexEntry {
-            instance_id: instance_id.to_string(),
-            tier,
-            path: path.to_string(),
-            title: None,
-            tags: None,
-        });
+        manifest
+            .instance_index
+            .push(crate::index::InstanceIndexEntry {
+                instance_id: instance_id.to_string(),
+                tier,
+                path: path.to_string(),
+                title: None,
+                tags: None,
+            });
         store.save_manifest(&manifest).unwrap();
     }
 
@@ -1500,7 +1500,11 @@ mod tests {
         copy_repository(&source, &store).unwrap();
 
         let result = upgrade_repository_paths(&store).unwrap();
-        assert_eq!(result.renames.len(), 0, "should be a no-op on canonical repo");
+        assert_eq!(
+            result.renames.len(),
+            0,
+            "should be a no-op on canonical repo"
+        );
     }
 
     #[test]
@@ -1548,13 +1552,7 @@ mod tests {
 
         let id = "11223344-0000-0000-0000-000000000000";
         let value = serde_json::json!({"title": "My Note", "id": id});
-        inject_non_canonical_instance(
-            &store,
-            id,
-            0,
-            "records/notes/raw-note.json",
-            value.clone(),
-        );
+        inject_non_canonical_instance(&store, id, 0, "records/notes/raw-note.json", value.clone());
         // Patch title in manifest entry for slug derivation.
         let mut manifest = store.load_manifest().unwrap();
         manifest.instance_index[0].title = Some(serde_json::Value::String("My Note".to_string()));
