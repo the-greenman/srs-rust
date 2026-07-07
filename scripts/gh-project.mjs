@@ -62,6 +62,7 @@ const MIRROR_LABELS = [
   { name: "priority: P2", color: "FBCA04", description: "Derived priority (highest served story)" },
   { name: "status: in progress", color: "1D76DB", description: "Claimed in progress by the SRS jobs routine" },
   { name: PROMOTE_INTENT_LABEL, color: "5319E7", description: "Judged unblocked; awaiting CI promotion to board Status=Ready (write this, not `ready`)" },
+  { name: "blocked", color: "E4E669", description: "Unmet prerequisites — auto-topup skips this issue; remove when unblocked" },
 ];
 // Repos whose merges/routines depend on the mirror set existing. Overridable for tests/forks.
 const MIRROR_REPOS = (process.env.GHP_MIRROR_REPOS || `srs,srs-rust,srs-web,${STORY_REPO}`)
@@ -622,6 +623,18 @@ function planStaleClaims(rows, nowMs, thresholdMs) {
     out.push({ ...base, action: ageMs >= thresholdMs ? "reclaim" : "fresh", ageMs });
   }
   return out;
+}
+
+// Pure topup planner (unit-tested). Receives pre-filtered, pre-sorted candidate rows (open
+// workItems, Backlog/null status, not `blocked`, not `promote:ready` — caller's responsibility).
+// Does NOT filter internally — do not move filtering here, it would break unit tests that pass
+// raw arrays. Computes how many intents to write to fill the Ready queue to `target` depth, and
+// returns the first `deficit` candidates as nominees. Caller writes `promote:ready` on each;
+// `promote --fix` (run next in board-sync) converts them to board Status=Ready immediately.
+// Returns { toNominate, deficit, currentReady, target }.
+function planTopup(candidates, readyCount, target) {
+  const deficit = Math.max(0, target - readyCount);
+  return { toNominate: candidates.slice(0, deficit), deficit, currentReady: readyCount, target };
 }
 
 // Remove a single label from an issue (REST via gh). Non-fatal if absent.
@@ -1499,6 +1512,10 @@ function intentRows() {
 // given the hourly board-sync schedule.
 const STALE_CLAIM_HOURS_DEFAULT = 24;
 
+// Target depth for the Ready queue. `topup` writes `promote:ready` intents to fill the queue
+// to this depth on every board-sync run. Overridable via GHP_TOPUP_TARGET env or --target flag.
+const TOPUP_TARGET_DEFAULT = 3;
+
 // When the `status: in progress` label was most recently applied — the claim's start time.
 // Projects v2 has no per-field-value timestamp reachable here, so this reads the issue's REST
 // event timeline (ascending order) and takes the last matching "labeled" event; a prior
@@ -1669,7 +1686,7 @@ Auth: requires an authenticated \`gh\` CLI, or GITHUB_TOKEN/GH_TOKEN env var (cu
 // Dispatch
 // ---------------------------------------------------------------------------
 // Pure helpers exported for unit tests. Importing the module must NOT run the CLI.
-export { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs, STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant, planPromotions, PROMOTE_INTENT_LABEL, epicRank, bandTargets, SIZE_WEIGHT, derivePriority, parseIssueRef, planStaleClaims, STALE_CLAIM_HOURS_DEFAULT };
+export { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs, STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant, planPromotions, PROMOTE_INTENT_LABEL, epicRank, bandTargets, SIZE_WEIGHT, derivePriority, parseIssueRef, planStaleClaims, STALE_CLAIM_HOURS_DEFAULT, planTopup, TOPUP_TARGET_DEFAULT };
 
 // Only dispatch when run directly (`node gh-project.mjs ...`), not when imported.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
