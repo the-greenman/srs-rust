@@ -1580,10 +1580,10 @@ function cmdStaleClaims(argv) {
 function cmdTopup(argv) {
   const dryRun = !argv.includes("--fix");
   let target = Number(process.env.GHP_TOPUP_TARGET) || TOPUP_TARGET_DEFAULT;
-  for (let i = 0; i < argv.length; i++) if (argv[i] === "--target") target = Number(argv[++i]);
+  for (let i = 0; i < argv.length; i++) if (argv[i] === "--target") { target = Number(argv[++i]); if (isNaN(target)) die("topup: --target requires a numeric argument"); }
   // Early exit: target ≤ 0 means no work regardless of board state.
   if (target <= 0) {
-    console.log(`Ready: 0 · target: ${target} · deficit: 0 · nominated: 0`);
+    console.log(`target: ${target} · deficit: 0 · nominated: 0`);
     return;
   }
   if (!dryRun) for (const repo of MIRROR_REPOS) ensureLabels(repo);
@@ -1602,10 +1602,10 @@ function cmdTopup(argv) {
     !row.labels.includes("blocked") &&
     !row.labels.includes(PROMOTE_INTENT_LABEL)
   );
-  candidates.sort((a, c) => {
+  candidates.sort((a, b) => {
     const pa = a.labels.find((l) => l.startsWith("priority: "));
-    const pc = c.labels.find((l) => l.startsWith("priority: "));
-    return pRank(pa ? pa.replace("priority: ", "") : null) - pRank(pc ? pc.replace("priority: ", "") : null);
+    const pb = b.labels.find((l) => l.startsWith("priority: "));
+    return pRank(pa ? pa.replace("priority: ", "") : null) - pRank(pb ? pb.replace("priority: ", "") : null);
   });
 
   const result = planTopup(candidates, readyCount, target);
