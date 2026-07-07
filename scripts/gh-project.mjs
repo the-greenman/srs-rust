@@ -62,6 +62,7 @@ const MIRROR_LABELS = [
   { name: "priority: P2", color: "FBCA04", description: "Derived priority (highest served story)" },
   { name: "status: in progress", color: "1D76DB", description: "Claimed in progress by the SRS jobs routine" },
   { name: PROMOTE_INTENT_LABEL, color: "5319E7", description: "Judged unblocked; awaiting CI promotion to board Status=Ready (write this, not `ready`)" },
+  { name: "blocked", color: "E4E669", description: "Unmet prerequisites — auto-topup skips this issue; remove when unblocked" },
 ];
 // Repos whose merges/routines depend on the mirror set existing. Overridable for tests/forks.
 const MIRROR_REPOS = (process.env.GHP_MIRROR_REPOS || `srs,srs-rust,srs-web,${STORY_REPO}`)
@@ -622,6 +623,18 @@ function planStaleClaims(rows, nowMs, thresholdMs) {
     out.push({ ...base, action: ageMs >= thresholdMs ? "reclaim" : "fresh", ageMs });
   }
   return out;
+}
+
+// Pure topup planner (unit-tested). Receives pre-filtered, pre-sorted candidate rows (open
+// workItems, Backlog/null status, not `blocked`, not `promote:ready` — caller's responsibility).
+// Does NOT filter internally — do not move filtering here, it would break unit tests that pass
+// raw arrays. Computes how many intents to write to fill the Ready queue to `target` depth, and
+// returns the first `deficit` candidates as nominees. Caller writes `promote:ready` on each;
+// `promote --fix` (run next in board-sync) converts them to board Status=Ready immediately.
+// Returns { toNominate, deficit, currentReady, target }.
+function planTopup(candidates, readyCount, target) {
+  const deficit = Math.max(0, target - readyCount);
+  return { toNominate: candidates.slice(0, deficit), deficit, currentReady: readyCount, target };
 }
 
 // Remove a single label from an issue (REST via gh). Non-fatal if absent.
@@ -1499,6 +1512,10 @@ function intentRows() {
 // given the hourly board-sync schedule.
 const STALE_CLAIM_HOURS_DEFAULT = 24;
 
+// Target depth for the Ready queue. `topup` writes `promote:ready` intents to fill the queue
+// to this depth on every board-sync run. Overridable via GHP_TOPUP_TARGET env or --target flag.
+const TOPUP_TARGET_DEFAULT = 3;
+
 // When the `status: in progress` label was most recently applied — the claim's start time.
 // Projects v2 has no per-field-value timestamp reachable here, so this reads the issue's REST
 // event timeline (ascending order) and takes the last matching "labeled" event; a prior
@@ -1551,6 +1568,56 @@ function cmdStaleClaims(argv) {
   const unknown = plan.filter((p) => p.action === "unknown").length;
   console.log(`${plan.length} in-progress · ${reclaimed} ${dryRun ? "would be " : ""}reclaimed · ${plan.length - reclaimed - unknown} fresh${unknown ? ` · ${unknown} unknown (no labeled event found)` : ""}`);
   if (dryRun && reclaimed) console.log("(dry-run; pass --fix to reclaim)");
+}
+
+// topup [--fix] [--target N] — keep the Ready queue at target depth by writing `promote:ready`
+// intents to the highest-priority unblocked Backlog leaves. Runs before `promote --fix` in
+// board-sync.yml so the intents are converted to board Status=Ready on the same run. Idempotent:
+// if the queue is already at or above target, nothing is written. Issues with the `blocked` label
+// are skipped. readyCount includes both Status=Ready and existing `promote:ready` issues already
+// on the board; note: off-board issues carrying `promote:ready` are not counted (they are not
+// in board().values()), so readyCount may undercount by ≤1 — over-nomination by 1 is benign.
+function cmdTopup(argv) {
+  const dryRun = !argv.includes("--fix");
+  let target = Number(process.env.GHP_TOPUP_TARGET) || TOPUP_TARGET_DEFAULT;
+  for (let i = 0; i < argv.length; i++) if (argv[i] === "--target") { target = Number(argv[++i]); if (isNaN(target)) die("topup: --target requires a numeric argument"); }
+  // Early exit: target ≤ 0 means no work regardless of board state.
+  if (target <= 0) {
+    console.log(`target: ${target} · deficit: 0 · nominated: 0`);
+    return;
+  }
+  if (!dryRun) for (const repo of MIRROR_REPOS) ensureLabels(repo);
+
+  const b = board();
+  let readyCount = 0;
+  for (const row of b.values()) {
+    if (row.state !== "OPEN") continue;
+    if (row.status === "Ready" || row.labels.includes(PROMOTE_INTENT_LABEL)) readyCount++;
+  }
+
+  const candidates = [...b.values()].filter((row) =>
+    row.state === "OPEN" &&
+    isWorkItem(row) &&
+    (row.status === "Backlog" || row.status == null) &&
+    !row.labels.includes("blocked") &&
+    !row.labels.includes(PROMOTE_INTENT_LABEL)
+  );
+  candidates.sort((a, b) => {
+    const pa = a.labels.find((l) => l.startsWith("priority: "));
+    const pb = b.labels.find((l) => l.startsWith("priority: "));
+    return pRank(pa ? pa.replace("priority: ", "") : null) - pRank(pb ? pb.replace("priority: ", "") : null);
+  });
+
+  const result = planTopup(candidates, readyCount, target);
+  for (const row of result.toNominate) {
+    const p = row.labels.find((l) => l.startsWith("priority: ")) ?? "no priority";
+    console.log(`${dryRun ? "[dry-run] " : ""}topup: ${row.key} (${p}) → promote:ready`);
+    if (!dryRun) {
+      gh(["issue", "edit", String(row.num), "--repo", `${OWNER}/${row.repo}`, "--add-label", PROMOTE_INTENT_LABEL]);
+    }
+  }
+  console.log(`Ready: ${readyCount} · target: ${target} · deficit: ${result.deficit} · nominated: ${result.toNominate.length}`);
+  if (dryRun && result.toNominate.length > 0) console.log("(dry-run; pass --fix to nominate)");
 }
 
 // promote [--fix] — convert `promote:ready` intents into board Status=Ready. This is the
@@ -1651,6 +1718,9 @@ function help() {
   promote [--fix]                 promote every \`promote:ready\`-labelled issue to board Status=Ready
                                   (the privileged half of promotion; a REST-only judge adds the
                                   intent label, this converts it — run in CI/local, not the routines)
+  topup [--fix] [--target N]      keep Ready queue at target depth (default 3, GHP_TOPUP_TARGET)
+                                  by writing \`promote:ready\` to the highest-priority unblocked
+                                  Backlog leaves; skips \`blocked\` issues; \`promote\` converts intents
   size <repo> <issue#> <small|medium|large|xl> [--dry-run]   effort estimate (label + board Size field)
   bands [--count N] [--tree] [--assign] [--dry-run]
                                   implementation order in N equal-effort bands (default 10);
@@ -1669,7 +1739,7 @@ Auth: requires an authenticated \`gh\` CLI, or GITHUB_TOKEN/GH_TOKEN env var (cu
 // Dispatch
 // ---------------------------------------------------------------------------
 // Pure helpers exported for unit tests. Importing the module must NOT run the CLI.
-export { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs, STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant, planPromotions, PROMOTE_INTENT_LABEL, epicRank, bandTargets, SIZE_WEIGHT, derivePriority, parseIssueRef, planStaleClaims, STALE_CLAIM_HOURS_DEFAULT };
+export { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs, STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant, planPromotions, PROMOTE_INTENT_LABEL, epicRank, bandTargets, SIZE_WEIGHT, derivePriority, parseIssueRef, planStaleClaims, STALE_CLAIM_HOURS_DEFAULT, planTopup, TOPUP_TARGET_DEFAULT };
 
 // Only dispatch when run directly (`node gh-project.mjs ...`), not when imported.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -1698,6 +1768,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         break;
       case "link": cmdLink(rest, dry); break;
       case "set": cmdSet(rest); break;
+      case "topup": cmdTopup(rest); break;
       case "promote": cmdPromote(rest); break;
       case "size": cmdSize(rest); break;
       case "bands": cmdBands(rest); break;

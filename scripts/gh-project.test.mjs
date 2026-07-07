@@ -9,11 +9,12 @@ import {
   planPromotions, PROMOTE_INTENT_LABEL, epicRank,
   bandTargets, SIZE_WEIGHT, derivePriority, parseIssueRef,
   planStaleClaims, STALE_CLAIM_HOURS_DEFAULT,
+  planTopup, TOPUP_TARGET_DEFAULT,
 } from "./gh-project.mjs";
 
 // The labels the scheduled cloud routines read/write. Missing any one hard-fails a
 // `gh issue edit --add-label` in a repo that lacks it — the whole point of #335.
-const REQUIRED = ["ready", "priority: P0", "priority: P1", "priority: P2", "status: in progress", "promote:ready"];
+const REQUIRED = ["ready", "priority: P0", "priority: P1", "priority: P2", "status: in progress", "promote:ready", "blocked"];
 
 test("mirror set covers every label the routines read/write", () => {
   const names = MIRROR_LABELS.map((l) => l.name);
@@ -245,4 +246,54 @@ test("planStaleClaims carries itemId through so the caller can write the board f
   const rows = [srow({ num: 40, itemId: "PVTI_abc", claimedAtMs: 0 })];
   const plan = planStaleClaims(rows, 100 * HOUR, 24 * HOUR);
   assert.equal(plan[0].itemId, "PVTI_abc");
+});
+
+// Auto-topup: keeps the Ready queue at a target depth by writing `promote:ready` to the
+// highest-priority unblocked Backlog leaves. planTopup is the pure core — no filtering, no
+// side effects; the caller pre-filters and pre-sorts candidates before passing them in.
+const trow = (o) => ({ repo: "srs-rust", num: o.num ?? 1, key: `srs-rust#${o.num ?? 1}`, ...o });
+
+test("TOPUP_TARGET_DEFAULT is a positive integer", () => {
+  assert.ok(Number.isInteger(TOPUP_TARGET_DEFAULT) && TOPUP_TARGET_DEFAULT > 0,
+    "default target must be a positive integer");
+});
+
+test("planTopup returns empty toNominate when queue is already at target", () => {
+  const candidates = [trow({ num: 1 }), trow({ num: 2 })];
+  const result = planTopup(candidates, 3, 3);
+  assert.deepEqual(result.toNominate, []);
+  assert.equal(result.deficit, 0);
+  assert.equal(result.currentReady, 3);
+  assert.equal(result.target, 3);
+});
+
+test("planTopup nominates up to deficit rows in order", () => {
+  const candidates = [trow({ num: 10 }), trow({ num: 20 }), trow({ num: 30 }), trow({ num: 40 }), trow({ num: 50 })];
+  const result = planTopup(candidates, 1, 3); // deficit = 2
+  assert.equal(result.deficit, 2);
+  assert.equal(result.toNominate.length, 2);
+  assert.deepEqual(result.toNominate.map((r) => r.num), [10, 20]); // first two in order
+});
+
+test("planTopup clamps when fewer candidates than deficit", () => {
+  const candidates = [trow({ num: 1 }), trow({ num: 2 })];
+  const result = planTopup(candidates, 0, 5); // deficit = 5, only 2 available
+  assert.equal(result.deficit, 5);
+  assert.equal(result.toNominate.length, 2); // all available, no error
+});
+
+test("planTopup returns correct metadata fields", () => {
+  const result = planTopup([trow({ num: 1 })], 2, 4);
+  assert.equal(result.deficit, 2);
+  assert.equal(result.currentReady, 2);
+  assert.equal(result.target, 4);
+  assert.equal(result.toNominate.length, 1);
+});
+
+test("planTopup returns empty toNominate when queue exceeds target (overprovisioned)", () => {
+  // If ready count is already above target, deficit is 0 and nothing is nominated.
+  const candidates = [trow({ num: 1 })];
+  const result = planTopup(candidates, 5, 3);
+  assert.deepEqual(result.toNominate, []);
+  assert.equal(result.deficit, 0);
 });

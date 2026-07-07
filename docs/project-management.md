@@ -134,6 +134,9 @@ node /tmp/gh-project.mjs bands --assign --dry-run                      # preview
 node /tmp/gh-project.mjs set srs-rust 263 --status "In progress"       # board write
 node /tmp/gh-project.mjs reconcile --fix                               # repair drift
 node /tmp/gh-project.mjs ensure-labels [--repo R]                      # create the mirror label set
+node /tmp/gh-project.mjs topup                                         # dry-run: what would be promoted
+node /tmp/gh-project.mjs topup --fix                                   # write promote:ready to fill Ready to target depth
+node /tmp/gh-project.mjs promote --fix                                 # convert promote:ready intents to board Status=Ready
 ```
 
 ## Sizing & implementation bands
@@ -167,6 +170,7 @@ The canonical set:
 | `promote:ready` | promotion **intent** — judged unblocked, awaiting the privileged board write | the judge: progress-review routine / human / rule (REST) |
 | `priority: P0` / `P1` / `P2` | derived priority (§ the priority model) | `rollup --fix` |
 | `status: in progress` | claimed / in flight | "Do the SRS jobs" routine (reclaimed by `stale-claims --fix` if the claim goes stale — see below) |
+| `blocked` | Unmet prerequisites — auto-topup skips this issue; remove when resolved | judge / human |
 
 `gh-project` is the single source of truth for this set (`MIRROR_LABELS` in the script) and creates
 any missing labels on demand — so it **can't drift**:
@@ -207,6 +211,31 @@ the `ready` label directly, the next `reconcile` would wipe it (board Status sti
    to board **Status=Ready**, mirrors the `ready` label, and clears the intent. It is idempotent and
    never demotes: already-advanced (In progress / In review / Done), already-Ready, and closed issues
    just have the stale intent cleared. `reconcile --fix` keeps the `ready` mirror in sync thereafter.
+
+### Auto-topup (Backlog → promote:ready)
+
+`gh-project topup [--fix] [--target N]` keeps the Ready queue at a target depth (default **3**,
+overridable via `--target N` or the `GHP_TOPUP_TARGET` environment variable). It runs **before**
+`promote --fix` in `board-sync`, so any intents it writes are immediately realized on the same run:
+
+- Counts `readyCount`: board issues that are OPEN and either Status=Ready or already carry
+  `promote:ready`.
+- Builds candidates: OPEN work-items (not epic/plan/user-story) with Status=Backlog or no Status,
+  **excluding** issues carrying the `blocked` label or an existing `promote:ready` intent.
+- Sorts candidates by derived priority label (P0 first, then P1, then P2, then unlabelled).
+- Nominates the top `deficit = max(0, target − readyCount)` candidates and writes `promote:ready`
+  to each. If fewer candidates exist than the deficit, all are nominated — no error.
+
+The **`blocked` label** is the machine-readable "do not auto-promote" signal. A judge or human adds
+it to an issue whose prerequisites are unmet; removing it makes the issue eligible again on the next
+topup run. It is part of `MIRROR_LABELS` so `ensureLabels` creates it in all ecosystem repos.
+
+```bash
+node /tmp/gh-project.mjs topup                  # dry-run: shows what would be nominated
+node /tmp/gh-project.mjs topup --target 5       # dry-run with a different target depth
+node /tmp/gh-project.mjs topup --fix            # write promote:ready intents
+node /tmp/gh-project.mjs topup --fix --target 0 # fill to 0 (no-op, safe check)
+```
 
 The `board-sync` Action runs `promote --fix` on three triggers: **push** to master (post-merge),
 an **hourly schedule** (so the queue refills even during quiet periods, matching the hourly consumer),
