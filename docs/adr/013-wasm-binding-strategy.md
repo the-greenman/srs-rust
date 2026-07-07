@@ -70,3 +70,4 @@ Write operations (create/update/delete) are deferred to a future plan. The `flus
 **Neutral:**
 - The `wasm-pack` tool is required to build the Wasm package. It is not part of the standard Cargo build.
 - The `pkg/` output directory produced by `wasm-pack` is gitignored.
+- **CI enforcement:** CI type-safety verification for `srs-bindings` uses `cargo build --target wasm32-unknown-unknown -p srs-bindings` rather than `wasm-pack build`. Rationale: (1) `wasm-pack` is not in the standard Rust toolchain and requires a separate install step; (2) `cargo build` for the `wasm32-unknown-unknown` target is sufficient to catch `WasmDescribe`-incompatible types at compile time, which is the class of failure CI must prevent; (3) JS binding and package generation are distribution concerns, not CI type-safety concerns.
