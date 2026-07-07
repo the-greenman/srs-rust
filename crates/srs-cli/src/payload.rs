@@ -799,6 +799,7 @@ pub struct BriefField {
     pub required: bool,
     pub value_type: String,
     #[schemars(with = "Option<serde_json::Value>")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_guidance: Option<serde_json::Value>,
 }
 
@@ -809,6 +810,7 @@ pub struct BriefType {
     pub namespace: String,
     pub name: String,
     #[schemars(with = "Option<serde_json::Value>")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_guidance: Option<serde_json::Value>,
     pub fields: Vec<BriefField>,
 }
@@ -827,7 +829,7 @@ pub struct BriefRelationSpec {
 
 /// Payload mirror of `srs_core::types::protocol::FieldRef`.
 /// Separate struct because payload types must derive `JsonSchema`; srs-core must not
-/// depend on schemars (ADR-010).
+/// depend on schemars (ADR-011).
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct FieldRef {
@@ -841,13 +843,18 @@ pub struct FieldRef {
 pub struct BriefStage {
     pub stage_id: String,
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub purpose: Option<String>,
     pub order: i32,
     pub depends_on: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub question: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub completion_criteria: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub contributes_to: Option<Vec<FieldRef>>,
     #[schemars(with = "Option<serde_json::Value>")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_guidance: Option<serde_json::Value>,
     #[schemars(with = "Option<serde_json::Value>")]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -872,11 +879,13 @@ pub struct BlueprintBriefPayload {
     pub name: String,
     pub version: u32,
     #[schemars(with = "Option<serde_json::Value>")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_guidance: Option<serde_json::Value>,
     #[schemars(with = "Vec<serde_json::Value>")]
     pub required_types: Vec<serde_json::Value>,
     pub types: Vec<BriefType>,
     pub structure: Vec<BriefRelationSpec>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub protocol: Option<BriefProtocol>,
     pub diagnostics: Vec<String>,
 }
@@ -1385,4 +1394,97 @@ pub struct InstancePathRename {
 pub struct RepoUpgradePayload {
     pub renames: Vec<InstancePathRename>,
     pub already_canonical_count: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn brief_stage_none_fields_absent_from_json() {
+        let stage = BriefStage {
+            stage_id: "s1".to_string(),
+            name: "Stage One".to_string(),
+            purpose: None,
+            order: 1,
+            depends_on: vec![],
+            question: None,
+            completion_criteria: None,
+            contributes_to: None,
+            ai_guidance: None,
+            output_type: None,
+        };
+        let json = serde_json::to_string(&stage).unwrap();
+        assert!(
+            !json.contains("purpose"),
+            "purpose should be absent, got: {json}"
+        );
+        assert!(
+            !json.contains("question"),
+            "question should be absent, got: {json}"
+        );
+        assert!(
+            !json.contains("completionCriteria"),
+            "completionCriteria should be absent, got: {json}"
+        );
+        assert!(
+            !json.contains("contributesTo"),
+            "contributesTo should be absent, got: {json}"
+        );
+        assert!(
+            !json.contains("aiGuidance"),
+            "aiGuidance should be absent, got: {json}"
+        );
+        assert!(
+            !json.contains("outputType"),
+            "outputType should be absent, got: {json}"
+        );
+        assert!(
+            !json.contains("null"),
+            "no null values should appear, got: {json}"
+        );
+    }
+
+    #[test]
+    fn brief_field_ai_guidance_none_absent_from_json() {
+        let field = BriefField {
+            field_id: "f1".to_string(),
+            name: "Title".to_string(),
+            order: 0,
+            required: true,
+            value_type: "text".to_string(),
+            ai_guidance: None,
+        };
+        let json = serde_json::to_string(&field).unwrap();
+        assert!(
+            !json.contains("aiGuidance"),
+            "aiGuidance should be absent, got: {json}"
+        );
+    }
+
+    #[test]
+    fn blueprint_brief_payload_none_fields_absent_from_json() {
+        let payload = BlueprintBriefPayload {
+            rendered: "# Brief".to_string(),
+            blueprint_id: "bp1".to_string(),
+            namespace: "com.example".to_string(),
+            name: "MyBlueprint".to_string(),
+            version: 1,
+            ai_guidance: None,
+            required_types: vec![],
+            types: vec![],
+            structure: vec![],
+            protocol: None,
+            diagnostics: vec![],
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(
+            !json.contains("aiGuidance"),
+            "aiGuidance should be absent, got: {json}"
+        );
+        assert!(
+            !json.contains("protocol"),
+            "protocol should be absent, got: {json}"
+        );
+    }
 }

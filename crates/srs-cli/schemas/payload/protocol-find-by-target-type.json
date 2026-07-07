@@ -30,7 +30,7 @@
   },
   "definitions": {
     "FieldRef": {
-      "description": "Payload mirror of `srs_core::types::protocol::FieldRef`. Separate struct because payload types must derive `JsonSchema`; srs-core must not depend on schemars (ADR-010).",
+      "description": "Payload mirror of `srs_core::types::protocol::FieldRef`. Separate struct because payload types must derive `JsonSchema`; srs-core must not depend on schemars (ADR-011).",
       "type": "object",
       "required": [
         "fieldId"
