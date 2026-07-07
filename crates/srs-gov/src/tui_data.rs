@@ -330,6 +330,42 @@ mod tests {
     }
 
     #[test]
+    fn sections_from_navigation_no_container_id_produces_none() {
+        let payload = serde_json::json!({
+            "navigation": {
+                "identity": { "displayLabel": "Example" },
+                "sections": [
+                    {
+                        "typeNamespace": "governance",
+                        "typeName": "decision_log"
+                        // sectionContainerId absent — section not yet provisioned
+                    }
+                ]
+            }
+        });
+
+        let sections = sections_from_navigation(&payload);
+
+        assert_eq!(sections.len(), 1);
+        assert_eq!(sections[0].key, "decision_log");
+        assert_eq!(sections[0].container_id, None);
+    }
+
+    #[test]
+    fn sections_from_navigation_empty_sections_returns_empty() {
+        let payload = serde_json::json!({
+            "navigation": {
+                "identity": { "displayLabel": "Example" },
+                "sections": []
+            }
+        });
+
+        let sections = sections_from_navigation(&payload);
+
+        assert!(sections.is_empty());
+    }
+
+    #[test]
     fn record_item_reads_presentation_fields_without_type_specific_rules() {
         let member = serde_json::json!({
             "instanceId": "r-1",
