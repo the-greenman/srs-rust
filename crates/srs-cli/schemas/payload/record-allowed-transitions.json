@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RecordAllowedTransitionsPayload",
+  "description": "Payload for `record allowed-transitions` — current lifecycle state, permitted next transitions, and whether the record is in a final (immutable) state.",
+  "type": "object",
+  "required": [
+    "currentState",
+    "isImmutable",
+    "transitions"
+  ],
+  "properties": {
+    "currentState": {
+      "type": "string"
+    },
+    "isImmutable": {
+      "type": "boolean"
+    },
+    "transitions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/AllowedTransitionEntry"
+      }
+    }
+  },
+  "definitions": {
+    "AllowedTransitionEntry": {
+      "description": "One allowed lifecycle transition for `record allowed-transitions`.",
+      "type": "object",
+      "required": [
+        "name",
+        "to",
+        "toIsFinal"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "toIsFinal": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

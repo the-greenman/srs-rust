@@ -734,6 +734,46 @@ Must return `ok: false` with a message referencing the absent `meta` or `upstrea
 
 ---
 
+### S19 — Query allowed lifecycle transitions before advancing a record (ext:lifecycle)
+
+**Intention.** *"Before I advance a decision's status I want to know what moves are allowed from where it is now — without guessing at the lifecycle definition or accidentally trying an invalid transition."*
+
+**Repo.** `srs/docs/spec/examples/gallery-project-v2` (read-only; has `governance/decision` records with an inline lifecycle).
+
+**CLI surface.** `record allowed-transitions`, `record list`.
+
+**Steps.**
+
+1. Pick an active (non-final) decision:
+   ```bash
+   REPO=<path-to-gallery-project-v2>
+   RECORD_ID=$(srs record list --repo "$REPO" | \
+     python3 -c "import json,sys; d=json.load(sys.stdin); print(next(r['record']['instanceId'] for r in d['payload']['records'] if r.get('record',{}).get('lifecycleState') == 'ratified'))")
+   ```
+2. Query allowed transitions:
+   ```bash
+   srs record allowed-transitions --repo "$REPO" --id "$RECORD_ID" --pretty
+   ```
+   Confirm `ok: true`, `payload.currentState == "ratified"`, `payload.transitions` is non-empty (names: `supersede`, `close`), `payload.isImmutable == false`.
+
+3. Query a final-state record (e.g. one with `lifecycleState == "superseded"`):
+   ```bash
+   FINAL_ID=$(srs record list --repo "$REPO" | \
+     python3 -c "import json,sys; d=json.load(sys.stdin); print(next(r['record']['instanceId'] for r in d['payload']['records'] if r.get('record',{}).get('lifecycleState') == 'superseded'))")
+   srs record allowed-transitions --repo "$REPO" --id "$FINAL_ID" --pretty
+   ```
+   Confirm `payload.isImmutable == true` and `payload.transitions == []`.
+
+**Negative case.** Non-existent ID:
+```bash
+srs record allowed-transitions --repo "$REPO" --id 00000000-0000-0000-0000-000000000000
+```
+Confirm `ok: false`, diagnostic mentions `not found`.
+
+**Done when.** Active record returns the correct transition list with `isImmutable: false`; final-state record returns `isImmutable: true` and empty transitions; unknown ID returns `ok: false` with a clear error.
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -755,6 +795,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `record list` core `displayLabel` (tree-parity, type_name fallback) | S1 |
 | `record validate` (no-write preflight) | S2 |
 | `record transition` | S4, S6 |
+| `record allowed-transitions` (ext:lifecycle query path, ADR-022) | S19 |
 | `record successor` | S3, S4 |
 | `record tag` | S6 |
 | `relation` (create/list/get/delete) | S1, S3, S5 |

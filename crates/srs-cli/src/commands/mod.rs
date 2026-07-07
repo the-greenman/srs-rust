@@ -1018,6 +1018,12 @@ pub enum RecordCommand {
         #[arg(long)]
         id: String,
     },
+    /// Query allowed lifecycle transitions for a record (ext:lifecycle)
+    AllowedTransitions {
+        /// Record instance ID
+        #[arg(long)]
+        id: String,
+    },
     /// Revision management commands (ext:addressability)
     #[command(subcommand)]
     Revision(RecordRevisionCommand),
