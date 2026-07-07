@@ -334,8 +334,8 @@ impl SrsRepository {
     }
 
     /// List document-view (L2) summaries. `filter_json` is a JSON string matching
-    /// `{ "namespace"?: string, "containerType"?: string, "rootTypeId"?: string }`;
-    /// pass `"{}"` for all document views. `rootTypeId` keeps only views whose
+    /// `{ "namespace"?: string, "name"?: string, "containerType"?: string, "rootTypeId"?: string }`;
+    /// pass `"{}"` for all document views. `name` filters to an exact view name. `rootTypeId` keeps only views whose
     /// `rootTypeRefs` include that Type UUID (RFC-009). Returns a JS array of objects
     /// `{ id, namespace, name, version, description, containerType?, rootTypeRefs?, sourcePackage? }`.
     pub fn list_document_views(&self, filter_json: &str) -> Result<JsValue, JsValue> {
@@ -343,6 +343,7 @@ impl SrsRepository {
             .map_err(|e| js_err(format!("invalid filter: {e}")))?;
         let filter = DocumentViewListFilter {
             namespace: parsed.namespace,
+            name: parsed.name,
             container_type: parsed.container_type,
             root_type_id: parsed.root_type_id,
         };
@@ -648,6 +649,8 @@ impl SrsRepository {
 struct DocumentViewListBindingFilter {
     #[serde(default)]
     namespace: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
     #[serde(default)]
     container_type: Option<String>,
     #[serde(default)]
