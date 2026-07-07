@@ -55,6 +55,7 @@ jobs:
             echo "::error::Board PAT not set — board sync cannot run. Add a PAT with 'project' scope as the BOARD_SECRET secret. A silent skip here means labels drift from the board and routines pick up stale work, so this is a hard failure."
             exit 1
           fi
+          node scripts/gh-project.mjs topup --fix
           node scripts/gh-project.mjs promote --fix
           node scripts/gh-project.mjs stale-claims --fix
           node scripts/gh-project.mjs reconcile --fix

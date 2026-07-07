@@ -1570,6 +1570,56 @@ function cmdStaleClaims(argv) {
   if (dryRun && reclaimed) console.log("(dry-run; pass --fix to reclaim)");
 }
 
+// topup [--fix] [--target N] — keep the Ready queue at target depth by writing `promote:ready`
+// intents to the highest-priority unblocked Backlog leaves. Runs before `promote --fix` in
+// board-sync.yml so the intents are converted to board Status=Ready on the same run. Idempotent:
+// if the queue is already at or above target, nothing is written. Issues with the `blocked` label
+// are skipped. readyCount includes both Status=Ready and existing `promote:ready` issues already
+// on the board; note: off-board issues carrying `promote:ready` are not counted (they are not
+// in board().values()), so readyCount may undercount by ≤1 — over-nomination by 1 is benign.
+function cmdTopup(argv) {
+  const dryRun = !argv.includes("--fix");
+  let target = Number(process.env.GHP_TOPUP_TARGET) || TOPUP_TARGET_DEFAULT;
+  for (let i = 0; i < argv.length; i++) if (argv[i] === "--target") target = Number(argv[++i]);
+  // Early exit: target ≤ 0 means no work regardless of board state.
+  if (target <= 0) {
+    console.log(`Ready: 0 · target: ${target} · deficit: 0 · nominated: 0`);
+    return;
+  }
+  if (!dryRun) for (const repo of MIRROR_REPOS) ensureLabels(repo);
+
+  const b = board();
+  let readyCount = 0;
+  for (const row of b.values()) {
+    if (row.state !== "OPEN") continue;
+    if (row.status === "Ready" || row.labels.includes(PROMOTE_INTENT_LABEL)) readyCount++;
+  }
+
+  const candidates = [...b.values()].filter((row) =>
+    row.state === "OPEN" &&
+    isWorkItem(row) &&
+    (row.status === "Backlog" || row.status == null) &&
+    !row.labels.includes("blocked") &&
+    !row.labels.includes(PROMOTE_INTENT_LABEL)
+  );
+  candidates.sort((a, c) => {
+    const pa = a.labels.find((l) => l.startsWith("priority: "));
+    const pc = c.labels.find((l) => l.startsWith("priority: "));
+    return pRank(pa ? pa.replace("priority: ", "") : null) - pRank(pc ? pc.replace("priority: ", "") : null);
+  });
+
+  const result = planTopup(candidates, readyCount, target);
+  for (const row of result.toNominate) {
+    const p = row.labels.find((l) => l.startsWith("priority: ")) ?? "no priority";
+    console.log(`${dryRun ? "[dry-run] " : ""}topup: ${row.key} (${p}) → promote:ready`);
+    if (!dryRun) {
+      gh(["issue", "edit", String(row.num), "--repo", `${OWNER}/${row.repo}`, "--add-label", PROMOTE_INTENT_LABEL]);
+    }
+  }
+  console.log(`Ready: ${readyCount} · target: ${target} · deficit: ${result.deficit} · nominated: ${result.toNominate.length}`);
+  if (dryRun && result.toNominate.length > 0) console.log("(dry-run; pass --fix to nominate)");
+}
+
 // promote [--fix] — convert `promote:ready` intents into board Status=Ready. This is the
 // privileged half of the promotion pipeline: the judge (a proxy-bound cloud routine, a human, or
 // a future rule) can only add the intent label over REST; this command, run where Projects v2 is
@@ -1668,6 +1718,9 @@ function help() {
   promote [--fix]                 promote every \`promote:ready\`-labelled issue to board Status=Ready
                                   (the privileged half of promotion; a REST-only judge adds the
                                   intent label, this converts it — run in CI/local, not the routines)
+  topup [--fix] [--target N]      keep Ready queue at target depth (default 3, GHP_TOPUP_TARGET)
+                                  by writing \`promote:ready\` to the highest-priority unblocked
+                                  Backlog leaves; skips \`blocked\` issues; \`promote\` converts intents
   size <repo> <issue#> <small|medium|large|xl> [--dry-run]   effort estimate (label + board Size field)
   bands [--count N] [--tree] [--assign] [--dry-run]
                                   implementation order in N equal-effort bands (default 10);
@@ -1715,6 +1768,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         break;
       case "link": cmdLink(rest, dry); break;
       case "set": cmdSet(rest); break;
+      case "topup": cmdTopup(rest); break;
       case "promote": cmdPromote(rest); break;
       case "size": cmdSize(rest); break;
       case "bands": cmdBands(rest); break;
