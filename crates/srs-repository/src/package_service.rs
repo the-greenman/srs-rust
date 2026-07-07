@@ -984,12 +984,10 @@ pub fn import_package_local(
         }
     })?;
 
-    let id = pkg_json["id"].as_str().unwrap_or("").to_string();
-    let namespace = pkg_json["namespace"].as_str().unwrap_or("").to_string();
-    let name = pkg_json["name"].as_str().unwrap_or("").to_string();
-    let version = pkg_json["version"].as_str().unwrap_or("").to_string();
+    // Register the boundary using metadata from the existing package.json
+    let boundary = PackageBoundary::from_pkg_json(&pkg_json, Some(source_path.clone()));
 
-    if id.is_empty() {
+    if boundary.id.is_empty() {
         return Err(RepositoryError::InvalidRepositoryInitialization {
             message: "source package.json missing required 'id' field".to_string(),
         });
@@ -997,60 +995,20 @@ pub fn import_package_local(
 
     // Reject duplicate id
     let all = store.list_package_boundaries()?;
-    if all.iter().any(|b| b.id == id) {
-        return Err(RepositoryError::PackageAlreadyRegistered { id });
+    if all.iter().any(|b| b.id == boundary.id) {
+        return Err(RepositoryError::PackageAlreadyRegistered {
+            id: boundary.id.clone(),
+        });
     }
 
-    let selector: PackageSelector = Some(source_path.clone());
-
-    // Register the boundary using metadata from the existing package.json
-    let boundary = PackageBoundary {
-        selector: selector.clone(),
-        id: id.clone(),
-        namespace: namespace.clone(),
-        name: name.clone(),
-        version,
-        field_paths: pkg_json["fields"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                    .collect()
-            })
-            .unwrap_or_default(),
-        type_paths: pkg_json["types"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                    .collect()
-            })
-            .unwrap_or_default(),
-        blueprint_paths: pkg_json["blueprints"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                    .collect()
-            })
-            .unwrap_or_default(),
-        protocol_paths: pkg_json["protocols"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                    .collect()
-            })
-            .unwrap_or_default(),
-    };
     store.save_package_boundary_metadata(&boundary)?;
-    store.register_package_boundary(&selector)?;
+    store.register_package_boundary(&boundary.selector)?;
 
     Ok(ImportPackageLocalResult {
-        selector,
-        id,
-        namespace,
-        name,
+        selector: boundary.selector.clone(),
+        id: boundary.id.clone(),
+        namespace: boundary.namespace.clone(),
+        name: boundary.name.clone(),
     })
 }
 
