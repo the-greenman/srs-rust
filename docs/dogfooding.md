@@ -33,6 +33,7 @@ These existing repos anchor the scenarios — use them as the representative tar
 | Governance profile | `../srs/docs/spec/profiles/governance-profile.md` | The semantic vocabulary for decisions, exercises, articles, roles, ratifications, and the deliberation protocols. |
 | muDemocracy guide repo | `../../muDemocracy.org/muSrs` | Governance profile in live use: guide containers, decision/exercise records, document views. |
 | RFC-008 container-subset fixture | `crates/srs-cli/tests/fixtures/rfc008-container-subset` | A heterogeneous container (two `section.text` + two `section.table` records in a `table-1 → text-1 → table-2 → text-2` precedes chain) with three document views demonstrating `typeFilter`, `typeDispatch`, and cross-type precedes ordering. Anchors S11. |
+| Blueprint Brief fixture | `crates/srs-cli/tests/fixtures/blueprint-brief` | Self-contained blueprint + protocol with three stages: clean (s1), valid typeId (s2), ghost typeId (s3). Anchors the S7 negative case for `contributesTo.typeId` resolution in `blueprint brief`. |
 
 Paths are relative to `srs-rust/`. For a fresh throwaway repo use `srs repo create --repo /tmp/dogfood-<slug> --namespace com.example.dogfood`.
 
@@ -220,9 +221,21 @@ This is the spec-as-repo pattern (`../srs/srs`): sections are records, order is 
 - `srs blueprint schema <nonexistent-uuid> --repo ../../muDemocracy.org/muSrs --pretty` → `ok: false` with a diagnostic naming the unknown blueprint ID.
 - `srs blueprint brief 00000000-0000-0000-0000-000000000000 --repo ../../muDemocracy.org/muSrs --pretty` → `ok: false`, `diagnostics[0]` names the unknown blueprint ID; no crash or empty envelope.
 - Protocol stage with a bad `contributesTo.fieldId`: `blueprint brief` returns `ok: true`; `payload.diagnostics` contains `"contributesTo field <id> not found in package"`; the stage is still present in `payload.protocol.stages` with both valid and invalid field refs intact. Confirms non-fatal: a typo in one field ref does not suppress the rest of the brief.
-- Protocol stage with a bad `contributesTo.typeId`: `blueprint brief` returns `ok: true`; `payload.diagnostics` contains `"contributesTo type <id> not found in package"`; the stage is still present. Mirrors the fieldId case — a ghost typeId is non-fatal.
+- Protocol stage with a bad `contributesTo.typeId`: `blueprint brief` returns `ok: true`; `payload.diagnostics` contains `"contributesTo type <id> not found in package"`; the stage is still present. Mirrors the fieldId case — a ghost typeId is non-fatal. Run against the self-contained fixture to verify:
+  ```
+  srs repo validate --repo crates/srs-cli/tests/fixtures/blueprint-brief --pretty
+  # → ok: true, summary.errors: 0
 
-**Done when.** `payload.schema.properties.contains.items.oneOf` has exactly the section types declared in the blueprint; the table section type's definition includes the `x-srs-composite-renderer: "table"` group property; removing a type from the blueprint's `structure[]` and re-projecting drops it from `items.oneOf` — the schema is derived, not cached; `blueprint validate` shows zero diagnostics. `blueprint brief` returns a non-empty `rendered` string and structured `types[]` with field-level `aiGuidance`; missing-blueprint input yields a correct `ok: false` envelope. A protocol stage whose `contributesTo` carries an unresolvable `fieldId` or `typeId` yields `ok: true` with a diagnostic — the rest of the brief is unaffected.
+  srs blueprint brief 00000000-0000-4000-8000-000000004621 \
+    --repo crates/srs-cli/tests/fixtures/blueprint-brief --pretty
+  # → ok: true
+  # payload.diagnostics: ["contributesTo type 00000000-0000-0000-0000-000000000000 not found in package"]
+  # payload.protocol.stages has 3 entries (s1 Gather, s2 Extract, s3 Classify all present)
+  # payload.protocol.stages[2].name == "Classify" — ghost-typeId stage is present and named correctly
+  # payload.diagnostics total count == 1 (stage s2's valid typeId produces no diagnostic)
+  ```
+
+**Done when.** `payload.schema.properties.contains.items.oneOf` has exactly the section types declared in the blueprint; the table section type's definition includes the `x-srs-composite-renderer: "table"` group property; removing a type from the blueprint's `structure[]` and re-projecting drops it from `items.oneOf` — the schema is derived, not cached; `blueprint validate` shows zero diagnostics. `blueprint brief` returns a non-empty `rendered` string and structured `types[]` with field-level `aiGuidance`; missing-blueprint input yields a correct `ok: false` envelope. A protocol stage whose `contributesTo` carries an unresolvable `fieldId` or `typeId` yields `ok: true` with a diagnostic — the rest of the brief is unaffected. For the typeId case, the fixture command above is the verification path: `repo validate` → 0 errors; `blueprint brief` → `ok: true`, exactly 1 diagnostic for the ghost typeId, and all 3 stages present in `payload.protocol.stages`.
 
 ### S8 — Render a document view in multiple formats with per-format themes
 

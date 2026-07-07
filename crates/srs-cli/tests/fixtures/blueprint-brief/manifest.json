@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+  "srsVersion": "2.0",
+  "repositoryId": "00000000-0000-4000-8000-000000004600",
+  "namespace": "fixture.brief",
+  "title": "Blueprint Brief Fixture",
+  "container": {
+    "containerId": "00000000-0000-4000-8000-000000004600",
+    "title": "Blueprint Brief Fixture"
+  },
+  "containerIndex": [],
+  "instanceIndex": [],
+  "relationsPath": "relations/relations.json",
+  "createdAt": "2026-01-01T00:00:00Z"
+}

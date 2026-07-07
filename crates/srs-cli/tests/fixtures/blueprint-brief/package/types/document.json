@@ -1,0 +1,17 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "00000000-0000-4000-8000-000000004611",
+  "namespace": "fixture.brief",
+  "name": "document",
+  "version": 1,
+  "description": "A minimal document type for blueprint brief fixture",
+  "fields": [
+    {
+      "fieldId": "00000000-0000-4000-8000-000000004601",
+      "order": 0,
+      "required": true,
+      "repeatable": false
+    }
+  ],
+  "createdAt": "2026-01-01T00:00:00Z"
+}

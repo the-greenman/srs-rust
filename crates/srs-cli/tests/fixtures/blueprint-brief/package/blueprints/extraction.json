@@ -1,0 +1,16 @@
+{
+  "id": "00000000-0000-4000-8000-000000004621",
+  "namespace": "fixture.brief",
+  "name": "extraction-blueprint",
+  "version": 1,
+  "description": "Blueprint for blueprint-brief fixture: one root type, targeted by the extraction protocol.",
+  "rootTypes": [
+    {
+      "typeId": "00000000-0000-4000-8000-000000004611",
+      "typeVersion": 1
+    }
+  ],
+  "structure": [],
+  "requiredTypes": [],
+  "createdAt": "2026-01-01T00:00:00Z"
+}
