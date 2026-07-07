@@ -307,6 +307,43 @@ This is the muSrs guide pattern: `guide-body-view` has a default `themeRef` targ
 
 ---
 
+### S9b — Normalise instance file paths in-place (repo upgrade)
+
+**Intention.** *"My repository was created before the `{slug}-{id8}.json` convention was enforced. I want to normalise all file paths in-place without creating a full copy, so that the filenames are human-readable."*
+
+**Capabilities exercised.** `srs repo upgrade` (in-place path normalisation); idempotency guarantee; FileStore-only restriction; `repo validate` confirming structural integrity after upgrade.
+
+**CLI surface.** `repo create`, `repo upgrade`, `repo validate`.
+
+1. Create a fresh repo: `srs repo create --repo /tmp/s9b --namespace com.example.s9b --package-name primary --package-version 1.0.0 --srs-version "2.0-draft"`.
+2. Create a note: `srs note create --repo /tmp/s9b` (stdin: `{"title": "Deployment Checklist"}`).
+3. Run upgrade on a repo that already has canonical paths:
+   ```bash
+   srs repo upgrade --repo /tmp/s9b --pretty
+   ```
+4. Run upgrade a second time to verify idempotency:
+   ```bash
+   srs repo upgrade --repo /tmp/s9b --pretty
+   ```
+5. Inject a non-canonical file manually to simulate a pre-ADR-008 repo (edit `manifest.json` to add an entry at an arbitrary path; write the file). Run upgrade:
+   ```bash
+   srs repo upgrade --repo /tmp/s9b --pretty
+   ```
+6. Validate the repo after upgrade:
+   ```bash
+   srs repo validate --repo /tmp/s9b --pretty
+   ```
+7. **Negative case.** Run upgrade with `--store json` — confirm `ok: false` with a clear message that upgrade requires a file-backed repository.
+
+**Done when:**
+- Step 3 returns `renames: []` and `alreadyCanonicalCount` equals the number of instances.
+- Step 4 (idempotency) also returns `renames: []` — the second run is a no-op.
+- Step 5 returns a rename entry with `fromPath` being the injected path and `toPath` being the canonical `{slug}-{id8}.json` form; the old file is absent on disk and the new file is present.
+- Step 6 returns `ok: true` with 0 errors.
+- Step 7 returns `ok: false` with `"repo upgrade only supports file-backed repositories"`.
+
+---
+
 ### S10 — Edit a `.srsj` bundle and get a reviewable diff
 
 **Intention.** *"I keep my repository as a single `.srsj` bundle in git. When I change one record through the CLI, I want the commit to show just that change — so I can review it and trust it — not a whole-file reshuffle."*
@@ -693,6 +730,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `repo init-new` (re-stamp seed identity) | S16 |
 | `repo set-root-container` (write manifest.container pointer) | S17 |
 | `repo copy` | S9, S10 |
+| `repo upgrade` (in-place path normalisation) | S9b |
 | `.srsj` write determinism (idempotent, minimal-diff) | S10 |
 | `note` (create/get/list/update/delete) | S1, S10 |
 | `note graduate` (atomic Note→Record promotion) | S18 |

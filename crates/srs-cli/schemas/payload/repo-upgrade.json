@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RepoUpgradePayload",
+  "type": "object",
+  "required": [
+    "alreadyCanonicalCount",
+    "renames"
+  ],
+  "properties": {
+    "alreadyCanonicalCount": {
+      "type": "integer",
+      "format": "uint",
+      "minimum": 0.0
+    },
+    "renames": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/InstancePathRename"
+      }
+    }
+  },
+  "definitions": {
+    "InstancePathRename": {
+      "type": "object",
+      "required": [
+        "fromPath",
+        "instanceId",
+        "toPath"
+      ],
+      "properties": {
+        "fromPath": {
+          "type": "string"
+        },
+        "instanceId": {
+          "type": "string"
+        },
+        "toPath": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

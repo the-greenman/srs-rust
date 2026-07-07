@@ -1,13 +1,14 @@
 use crate::commands::{with_store, CliContext, RepoCommand, RepoExtensionsCommand, StoreBackend};
 use crate::output;
 use crate::payload::{
-    RepoCopyPayload, RepoCreatePayload, RepoDiffInstanceAdded, RepoDiffInstanceModified,
-    RepoDiffInstanceRemoved, RepoDiffInstances, RepoDiffManifest, RepoDiffPackage,
-    RepoDiffPackageCategory, RepoDiffPackageItemAdded, RepoDiffPackageItemModified,
-    RepoDiffPackageItemRemoved, RepoDiffPayload, RepoDiffRelationAdded, RepoDiffRelationModified,
-    RepoDiffRelationRemoved, RepoDiffRelations, RepoDiffSummary, RepoExtensionsMutatePayload,
-    RepoExtensionsPayload, RepoInitNewPayload, RepoMapPayload, RepoNavigationPayload,
-    RepoSetRootContainerPayload, RepoValidatePayload,
+    InstancePathRename, RepoCopyPayload, RepoCreatePayload, RepoDiffInstanceAdded,
+    RepoDiffInstanceModified, RepoDiffInstanceRemoved, RepoDiffInstances, RepoDiffManifest,
+    RepoDiffPackage, RepoDiffPackageCategory, RepoDiffPackageItemAdded,
+    RepoDiffPackageItemModified, RepoDiffPackageItemRemoved, RepoDiffPayload,
+    RepoDiffRelationAdded, RepoDiffRelationModified, RepoDiffRelationRemoved, RepoDiffRelations,
+    RepoDiffSummary, RepoExtensionsMutatePayload, RepoExtensionsPayload, RepoInitNewPayload,
+    RepoMapPayload, RepoNavigationPayload, RepoSetRootContainerPayload, RepoUpgradePayload,
+    RepoValidatePayload,
 };
 use anyhow::{Context, Result};
 use srs_repository::analysis::build_repo_map;
@@ -22,6 +23,7 @@ use srs_repository::repository_lifecycle::{
 };
 use srs_repository::repository_navigation_service::repository_navigation;
 use srs_repository::repository_portability::copy_repository;
+use srs_repository::upgrade_repository_paths;
 use srs_repository::validation::validate_repository;
 use srs_repository::{FileStore, JsonStore};
 
@@ -75,7 +77,36 @@ pub fn dispatch(ctx: CliContext, cmd: RepoCommand) -> Result<String> {
             title,
             description,
         } => cmd_repo_init_new(ctx, repository_id, namespace, title, description),
+        RepoCommand::Upgrade => cmd_repo_upgrade(ctx),
     }
+}
+
+fn cmd_repo_upgrade(ctx: CliContext) -> Result<String> {
+    let store = match ctx.store {
+        StoreBackend::File => FileStore::new(&ctx.repo),
+        _ => {
+            return Err(anyhow::anyhow!(
+                "repo upgrade only supports file-backed repositories (--store file)"
+            ))
+        }
+    };
+    let result = upgrade_repository_paths(&store)?;
+    let already_canonical_count = result.total_instances - result.renames.len();
+    output::serialize(
+        "repo upgrade",
+        RepoUpgradePayload {
+            already_canonical_count,
+            renames: result
+                .renames
+                .into_iter()
+                .map(|r| InstancePathRename {
+                    instance_id: r.instance_id,
+                    from_path: r.from_path,
+                    to_path: r.to_path,
+                })
+                .collect(),
+        },
+    )
 }
 
 #[allow(clippy::too_many_arguments)]

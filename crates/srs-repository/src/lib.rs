@@ -46,4 +46,7 @@ pub mod writer;
 pub use json_store::JsonStore;
 pub use package::EffectiveLifecycle;
 pub use package_types::{DefinitionKind, OwnedField, OwnedType, PackageBoundary, PackageSelector};
+pub use repository_portability::{
+    upgrade_repository_paths, InstancePathRename, UpgradeRepositoryPathsResult,
+};
 pub use store::{FileStore, RepositoryStore};
