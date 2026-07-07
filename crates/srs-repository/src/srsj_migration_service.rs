@@ -18,7 +18,7 @@ pub(crate) fn compute_package_content_hash(
     use sha2::Digest;
     let pkg = &data["package/package.json"];
     if pkg.is_null() {
-        return Err(RepositoryError::InvalidRepositoryInitialization {
+        return Err(RepositoryError::InvalidSnapshotData {
             message: "package/package.json absent in srsj data".to_string(),
         });
     }
@@ -44,9 +44,20 @@ pub(crate) fn compute_package_content_hash(
             for file_ref in files {
                 if let Some(rel_path) = file_ref.as_str() {
                     let data_key = format!("package/{rel_path}");
+                    let entry = &data[&data_key];
+                    if entry.is_null() {
+                        return Err(RepositoryError::InvalidSnapshotData {
+                            message: format!(
+                                "definition file '{data_key}' referenced in \
+                                 package/package.json is absent from srsj data"
+                            ),
+                        });
+                    }
                     hasher.update(
-                        serde_json::to_string(&data[&data_key])
-                            .unwrap_or_default()
+                        serde_json::to_string(entry)
+                            .expect(
+                                "serde_json::to_string on a validated non-null Value is infallible",
+                            )
                             .as_bytes(),
                     );
                 }
@@ -165,8 +176,8 @@ mod tests {
         let empty_data = serde_json::Value::Object(Default::default());
         let err = compute_package_content_hash(&empty_data).unwrap_err();
         assert!(
-            matches!(err, RepositoryError::InvalidRepositoryInitialization { .. }),
-            "expected InvalidRepositoryInitialization, got: {err:?}"
+            matches!(err, RepositoryError::InvalidSnapshotData { .. }),
+            "expected InvalidSnapshotData, got: {err:?}"
         );
     }
 
@@ -183,8 +194,8 @@ mod tests {
         });
         let err = migrate_rfc014(&serde_json::to_string(&input).unwrap()).unwrap_err();
         assert!(
-            matches!(err, RepositoryError::InvalidRepositoryInitialization { .. }),
-            "expected InvalidRepositoryInitialization, got: {err:?}"
+            matches!(err, RepositoryError::InvalidSnapshotData { .. }),
+            "expected InvalidSnapshotData, got: {err:?}"
         );
     }
 
