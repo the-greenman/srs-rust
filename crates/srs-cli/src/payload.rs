@@ -1415,8 +1415,14 @@ mod tests {
             output_type: None,
         };
         let json = serde_json::to_string(&stage).unwrap();
-        assert!(!json.contains("purpose"), "purpose should be absent, got: {json}");
-        assert!(!json.contains("question"), "question should be absent, got: {json}");
+        assert!(
+            !json.contains("purpose"),
+            "purpose should be absent, got: {json}"
+        );
+        assert!(
+            !json.contains("question"),
+            "question should be absent, got: {json}"
+        );
         assert!(
             !json.contains("completionCriteria"),
             "completionCriteria should be absent, got: {json}"
@@ -1433,7 +1439,10 @@ mod tests {
             !json.contains("outputType"),
             "outputType should be absent, got: {json}"
         );
-        assert!(!json.contains("null"), "no null values should appear, got: {json}");
+        assert!(
+            !json.contains("null"),
+            "no null values should appear, got: {json}"
+        );
     }
 
     #[test]
