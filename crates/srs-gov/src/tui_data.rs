@@ -61,6 +61,7 @@ fn sections_from_navigation(payload: &Value) -> Vec<SectionItem> {
             let type_name = section["typeName"].as_str().unwrap_or("");
             let def = by_root_type(type_ns, type_name)?;
             let container_id = section["sectionContainerId"].as_str().map(String::from);
+            // Use the canonical label from the type registry rather than the navigation response's displayLabel.
             Some(SectionItem {
                 key: def.key.to_string(),
                 label: def.label.to_string(),
@@ -301,7 +302,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sections_from_navigation_maps_labels_to_governance_keys() {
+    fn sections_from_navigation_maps_type_chain_to_governance_sections() {
         let payload = serde_json::json!({
             "navigation": {
                 "identity": { "displayLabel": "Example" },
