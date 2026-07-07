@@ -267,7 +267,7 @@ fn do_import(
     let mut used_paths: HashMap<String, String> = HashMap::with_capacity(snapshot.instances.len());
     manifest.instance_index = Vec::new();
     for instance in &snapshot.instances {
-        let rel_path = canonical_instance_path(instance)?;
+        let rel_path = canonical_instance_path(instance);
         if let Some(first_id) = used_paths.get(&rel_path) {
             return Err(RepositoryError::InvalidSnapshotData {
                 message: format!(
@@ -616,8 +616,135 @@ fn ensure_target_empty(target: &dyn RepositoryStore) -> Result<(), RepositoryErr
     Ok(())
 }
 
-fn canonical_instance_path(instance: &SnapshotInstance) -> Result<String, RepositoryError> {
-    let id8 = id_prefix(&instance.instance_id)?;
+// ---------------------------------------------------------------------------
+// upgrade_repository_paths
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct InstancePathRename {
+    pub instance_id: String,
+    pub from_path: String,
+    pub to_path: String,
+}
+
+#[derive(Debug)]
+pub struct UpgradeRepositoryPathsResult {
+    pub renames: Vec<InstancePathRename>,
+    pub total_instances: usize,
+}
+
+struct PlannedRename {
+    manifest_index: usize,
+    instance_id: String,
+    from_path: String,
+    to_path: String,
+    value: serde_json::Value,
+    has_sidecar: bool,
+}
+
+pub fn upgrade_repository_paths(
+    store: &dyn RepositoryStore,
+) -> Result<UpgradeRepositoryPathsResult, RepositoryError> {
+    use crate::revision_service::sidecar_path_for;
+    use std::collections::HashSet;
+
+    let mut manifest = store.load_manifest()?;
+    let total_instances = manifest.instance_index.len();
+
+    // Phase 1: plan — compute canonical paths, detect collisions
+    let mut planned: Vec<PlannedRename> = Vec::new();
+    let mut canonical_paths: HashSet<String> = HashSet::new();
+    for (idx, entry) in manifest.instance_index.iter().enumerate() {
+        let value = store.load_instance_json(entry.path())?;
+        let instance = SnapshotInstance {
+            instance_id: entry.instance_id.clone(),
+            tier: entry.tier,
+            title: entry.title.clone(),
+            tags: entry.tags.clone(),
+            value: value.clone(),
+        };
+        let canonical = canonical_instance_path(&instance);
+        if !canonical_paths.insert(canonical.clone()) {
+            return Err(RepositoryError::InvalidSnapshotData {
+                message: format!(
+                    "path collision: two instances would normalise to '{canonical}'"
+                ),
+            });
+        }
+        if entry.path() != canonical {
+            let old_sidecar = sidecar_path_for(entry.path());
+            let has_sidecar = match store.load_instance_json(&old_sidecar) {
+                Ok(_) => true,
+                Err(RepositoryError::NotFound { .. }) => false,
+                Err(RepositoryError::Io { source, .. })
+                    if source.kind() == std::io::ErrorKind::NotFound =>
+                {
+                    false
+                }
+                Err(e) => return Err(e),
+            };
+            planned.push(PlannedRename {
+                manifest_index: idx,
+                instance_id: entry.instance_id.clone(),
+                from_path: entry.path().to_string(),
+                to_path: canonical,
+                value,
+                has_sidecar,
+            });
+        }
+    }
+
+    if planned.is_empty() {
+        return Ok(UpgradeRepositoryPathsResult {
+            renames: vec![],
+            total_instances,
+        });
+    }
+
+    // Phase 2: apply — write canonical instance files (and sidecars)
+    for rename in &planned {
+        ensure_instance_parent(store, &rename.to_path)?;
+        store.save_instance_json(&rename.to_path, &rename.value)?;
+        if rename.has_sidecar {
+            let old_sidecar = sidecar_path_for(&rename.from_path);
+            let new_sidecar = sidecar_path_for(&rename.to_path);
+            let sidecar_value = store.load_instance_json(&old_sidecar)?;
+            ensure_instance_parent(store, &new_sidecar)?;
+            store.save_instance_json(&new_sidecar, &sidecar_value)?;
+        }
+    }
+
+    // Phase 3: manifest update — persist index before any deletes (ADR-007)
+    for rename in &planned {
+        manifest.instance_index[rename.manifest_index].path = rename.to_path.clone();
+    }
+    store.save_manifest(&manifest)?;
+
+    // Phase 4: cleanup — delete old files (best-effort; orphans are harmless per ADR-007)
+    for rename in &planned {
+        let _ = store.delete_instance_file(&rename.from_path);
+        if rename.has_sidecar {
+            let _ = store.delete_instance_file(&sidecar_path_for(&rename.from_path));
+        }
+    }
+
+    let renames = planned
+        .into_iter()
+        .map(|r| InstancePathRename {
+            instance_id: r.instance_id,
+            from_path: r.from_path,
+            to_path: r.to_path,
+        })
+        .collect();
+
+    Ok(UpgradeRepositoryPathsResult {
+        renames,
+        total_instances,
+    })
+}
+
+pub(crate) fn canonical_instance_path(instance: &SnapshotInstance) -> String {
+    let id8 = &instance.instance_id[..8];
     let slug = match instance.tier {
         0 => instance
             .title
@@ -638,12 +765,12 @@ fn canonical_instance_path(instance: &SnapshotInstance) -> Result<String, Reposi
     } else {
         format!("{slug}-{id8}.json")
     };
-    Ok(match instance.tier {
+    match instance.tier {
         0 => format!("records/notes/{filename}"),
         1 => format!("records/tier-1/{filename}"),
         2 => format!("records/tier-2/{filename}"),
         tier => format!("records/tier-{tier}/{filename}"),
-    })
+    }
 }
 
 fn slugify(name: &str) -> String {
@@ -1315,6 +1442,227 @@ mod tests {
         assert_eq!(
             final_contents, initial_contents,
             "abort_batch must leave the disk file in its pre-import state (no partial records)"
+        );
+    }
+
+    // --- upgrade_repository_paths tests ---
+
+    fn make_upgrade_input() -> InitializeRepositoryInput {
+        InitializeRepositoryInput {
+            repository: RepositoryMetadata {
+                repository_id: "upgrade-test-repo".to_string(),
+                namespace: "com.example.upgrade".to_string(),
+                srs_version: "2.0-draft".to_string(),
+                title: None,
+                description: None,
+            },
+            primary_package: PrimaryPackageMetadata {
+                id: "upgrade-test-pkg".to_string(),
+                namespace: "com.example.upgrade".to_string(),
+                name: "primary".to_string(),
+                version: "1.0.0".to_string(),
+            },
+        }
+    }
+
+    fn inject_non_canonical_instance(
+        store: &dyn RepositoryStore,
+        instance_id: &str,
+        tier: u8,
+        path: &str,
+        value: serde_json::Value,
+    ) {
+        store
+            .ensure_instance_dir(path.rsplit_once('/').map(|(d, _)| d).unwrap_or("records"))
+            .unwrap();
+        store.save_instance_json(path, &value).unwrap();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.instance_index.push(crate::index::InstanceIndexEntry {
+            instance_id: instance_id.to_string(),
+            tier,
+            path: path.to_string(),
+            title: None,
+            tags: None,
+        });
+        store.save_manifest(&manifest).unwrap();
+    }
+
+    #[test]
+    fn upgrade_no_op_when_paths_canonical() {
+        // A repo initialised via copy_repository already has canonical paths.
+        let source = MemoryStore::uninitialized();
+        source.initialize_repository(&make_upgrade_input()).unwrap();
+        let temp = TempDir::new().unwrap();
+        let store = FileStore::new(temp.path());
+        copy_repository(&source, &store).unwrap();
+
+        let result = upgrade_repository_paths(&store).unwrap();
+        assert_eq!(result.renames.len(), 0, "should be a no-op on canonical repo");
+    }
+
+    #[test]
+    fn upgrade_renames_non_canonical_tier2_path() {
+        let store = MemoryStore::uninitialized();
+        store.initialize_repository(&make_upgrade_input()).unwrap();
+
+        // Inject a tier-2 instance at a non-canonical path.
+        let id = "aabbccdd-1234-5678-90ab-cdef01234567";
+        let value = serde_json::json!({"typeName": "com.example/my-type", "id": id});
+        inject_non_canonical_instance(&store, id, 2, "records/tier-2/old-name.json", value);
+
+        let result = upgrade_repository_paths(&store).unwrap();
+        assert_eq!(result.renames.len(), 1);
+        assert_eq!(result.renames[0].from_path, "records/tier-2/old-name.json");
+        assert_eq!(
+            result.renames[0].to_path,
+            "records/tier-2/com-example-my-type-aabbccdd.json"
+        );
+        assert_eq!(result.total_instances, 1);
+
+        // Old path gone, new path present in store.
+        assert!(
+            store
+                .load_instance_json("records/tier-2/old-name.json")
+                .is_err(),
+            "old path should be deleted"
+        );
+        let canonical =
+            store.load_instance_json("records/tier-2/com-example-my-type-aabbccdd.json");
+        assert!(canonical.is_ok(), "canonical path should exist");
+
+        // Manifest updated.
+        let manifest = store.load_manifest().unwrap();
+        assert_eq!(
+            manifest.instance_index[0].path,
+            "records/tier-2/com-example-my-type-aabbccdd.json"
+        );
+    }
+
+    #[test]
+    fn upgrade_renames_non_canonical_note_path() {
+        let store = MemoryStore::uninitialized();
+        store.initialize_repository(&make_upgrade_input()).unwrap();
+
+        let id = "11223344-0000-0000-0000-000000000000";
+        let value = serde_json::json!({"title": "My Note", "id": id});
+        inject_non_canonical_instance(
+            &store,
+            id,
+            0,
+            "records/notes/raw-note.json",
+            value.clone(),
+        );
+        // Patch title in manifest entry for slug derivation.
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.instance_index[0].title = Some(serde_json::Value::String("My Note".to_string()));
+        store.save_manifest(&manifest).unwrap();
+
+        let result = upgrade_repository_paths(&store).unwrap();
+        assert_eq!(result.renames.len(), 1);
+        assert_eq!(result.renames[0].from_path, "records/notes/raw-note.json");
+        assert_eq!(
+            result.renames[0].to_path,
+            "records/notes/my-note-11223344.json"
+        );
+    }
+
+    #[test]
+    fn upgrade_is_idempotent() {
+        let store = MemoryStore::uninitialized();
+        store.initialize_repository(&make_upgrade_input()).unwrap();
+
+        let id = "aabbccdd-1234-5678-90ab-cdef01234567";
+        let value = serde_json::json!({"typeName": "com.example/my-type", "id": id});
+        inject_non_canonical_instance(&store, id, 2, "records/tier-2/old-name.json", value);
+
+        let first = upgrade_repository_paths(&store).unwrap();
+        assert_eq!(first.renames.len(), 1);
+
+        let second = upgrade_repository_paths(&store).unwrap();
+        assert_eq!(second.renames.len(), 0, "second run should be a no-op");
+        assert_eq!(second.total_instances, 1);
+    }
+
+    #[test]
+    fn upgrade_does_not_rename_already_canonical_paths() {
+        // copy_repository writes canonical paths; upgrade is a no-op afterward.
+        let source = MemoryStore::uninitialized();
+        source.initialize_repository(&make_upgrade_input()).unwrap();
+
+        let target = MemoryStore::uninitialized();
+        copy_repository(&source, &target).unwrap();
+
+        let result = upgrade_repository_paths(&target).unwrap();
+        assert_eq!(result.renames.len(), 0);
+    }
+
+    #[test]
+    fn upgrade_renames_non_canonical_path_on_filestore() {
+        // Cross-store roundtrip: inject a non-canonical file on disk, verify filesystem state.
+        let temp = TempDir::new().unwrap();
+        let store = FileStore::new(temp.path());
+
+        // Bootstrap with copy_repository so the manifest and package exist.
+        let source = MemoryStore::uninitialized();
+        source.initialize_repository(&make_upgrade_input()).unwrap();
+        copy_repository(&source, &store).unwrap();
+
+        // Inject a non-canonical tier-1 file directly to disk via the store.
+        let id = "ddccbbaa-1234-5678-90ab-cdef01234567";
+        let value = serde_json::json!({"typeName": "com.example/section", "id": id});
+        inject_non_canonical_instance(&store, id, 1, "records/tier-1/old-section.json", value);
+
+        let canonical_path = "records/tier-1/com-example-section-ddccbbaa.json";
+
+        let result = upgrade_repository_paths(&store).unwrap();
+        assert_eq!(result.renames.len(), 1);
+        assert_eq!(result.renames[0].to_path, canonical_path);
+
+        // Verify filesystem state.
+        assert!(
+            !temp.path().join("records/tier-1/old-section.json").exists(),
+            "old file must not exist on disk"
+        );
+        assert!(
+            temp.path().join(canonical_path).exists(),
+            "canonical file must exist on disk"
+        );
+
+        // Filesystem state is the focus here; full schema validation is covered by dogfooding.
+    }
+
+    #[test]
+    fn upgrade_moves_revision_sidecar() {
+        use crate::revision_service::sidecar_path_for;
+
+        let store = MemoryStore::uninitialized();
+        store.initialize_repository(&make_upgrade_input()).unwrap();
+
+        let id = "aabbccdd-1234-5678-90ab-cdef01234567";
+        let old_path = "records/tier-2/old-name.json";
+        let canonical_path = "records/tier-2/com-example-my-type-aabbccdd.json";
+        let old_sidecar = sidecar_path_for(old_path);
+        let new_sidecar = sidecar_path_for(canonical_path);
+
+        let value = serde_json::json!({"typeName": "com.example/my-type", "id": id});
+        inject_non_canonical_instance(&store, id, 2, old_path, value);
+
+        // Write a fake sidecar at the old path.
+        let sidecar_value = serde_json::json!({"recordId": id, "revisions": []});
+        store
+            .save_instance_json(&old_sidecar, &sidecar_value)
+            .unwrap();
+
+        upgrade_repository_paths(&store).unwrap();
+
+        // Old sidecar gone, new sidecar present.
+        assert!(
+            store.load_instance_json(&old_sidecar).is_err(),
+            "old sidecar should be deleted"
+        );
+        assert!(
+            store.load_instance_json(&new_sidecar).is_ok(),
+            "new sidecar should exist at canonical path"
         );
     }
 }
