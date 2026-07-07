@@ -1585,7 +1585,7 @@ impl RepositoryStore for FileStore {
 
         // Primary package
         let primary_json = self.read_json(&self.repo_root.join("package/package.json"))?;
-        result.push(file_store_boundary_from_json(&primary_json, None));
+        result.push(PackageBoundary::from_pkg_json(&primary_json, None));
 
         // Sub-packages from manifest packageRefs
         let manifest = self.load_manifest()?;
@@ -1597,7 +1597,7 @@ impl RepositoryStore for FileStore {
                 if let Some(path) = pkg_ref.get("path").and_then(|p| p.as_str()) {
                     let pkg_json_path = self.repo_root.join(path).join("package.json");
                     if let Ok(pkg_json) = self.read_json(&pkg_json_path) {
-                        result.push(file_store_boundary_from_json(
+                        result.push(PackageBoundary::from_pkg_json(
                             &pkg_json,
                             Some(path.to_string()),
                         ));
@@ -1621,7 +1621,7 @@ impl RepositoryStore for FileStore {
                 .map_err(|_| RepositoryError::PackageNotFound {
                     selector: selector.clone(),
                 })?;
-        Ok(file_store_boundary_from_json(&pkg_json, selector.clone()))
+        Ok(PackageBoundary::from_pkg_json(&pkg_json, selector.clone()))
     }
 
     fn save_package_boundary_metadata(
@@ -1810,56 +1810,6 @@ impl RepositoryStore for FileStore {
         }
 
         Ok(())
-    }
-}
-
-/// Build a `PackageBoundary` from a parsed `package.json` value and its selector.
-fn file_store_boundary_from_json(
-    pkg_json: &serde_json::Value,
-    selector: PackageSelector,
-) -> PackageBoundary {
-    let field_paths = pkg_json["fields"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect()
-        })
-        .unwrap_or_default();
-    let type_paths = pkg_json["types"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect()
-        })
-        .unwrap_or_default();
-    let blueprint_paths = pkg_json["blueprints"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect()
-        })
-        .unwrap_or_default();
-    let protocol_paths = pkg_json["protocols"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect()
-        })
-        .unwrap_or_default();
-    PackageBoundary {
-        selector,
-        id: pkg_json["id"].as_str().unwrap_or("").to_string(),
-        namespace: pkg_json["namespace"].as_str().unwrap_or("").to_string(),
-        name: pkg_json["name"].as_str().unwrap_or("").to_string(),
-        version: pkg_json["version"].as_str().unwrap_or("").to_string(),
-        field_paths,
-        type_paths,
-        blueprint_paths,
-        protocol_paths,
     }
 }
 

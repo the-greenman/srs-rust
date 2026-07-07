@@ -161,55 +161,6 @@ struct FieldAssignmentOverrideJson {
     required: Option<bool>,
 }
 
-fn json_store_boundary_from_json(
-    pkg_json: &serde_json::Value,
-    selector: crate::package_types::PackageSelector,
-) -> crate::package_types::PackageBoundary {
-    let field_paths = pkg_json["fields"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect()
-        })
-        .unwrap_or_default();
-    let type_paths = pkg_json["types"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect()
-        })
-        .unwrap_or_default();
-    let blueprint_paths = pkg_json["blueprints"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect()
-        })
-        .unwrap_or_default();
-    let protocol_paths = pkg_json["protocols"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect()
-        })
-        .unwrap_or_default();
-    crate::package_types::PackageBoundary {
-        selector,
-        id: pkg_json["id"].as_str().unwrap_or("").to_string(),
-        namespace: pkg_json["namespace"].as_str().unwrap_or("").to_string(),
-        name: pkg_json["name"].as_str().unwrap_or("").to_string(),
-        version: pkg_json["version"].as_str().unwrap_or("").to_string(),
-        field_paths,
-        type_paths,
-        blueprint_paths,
-        protocol_paths,
-    }
-}
-
 impl JsonStore {
     pub fn create(file_path: impl Into<PathBuf>) -> Result<Self, RepositoryError> {
         let file_path = file_path.into();
@@ -1506,7 +1457,7 @@ impl RepositoryStore for JsonStore {
 
         // Primary
         let primary_json = self.data_get("package/package.json")?;
-        result.push(json_store_boundary_from_json(&primary_json, None));
+        result.push(crate::package_types::PackageBoundary::from_pkg_json(&primary_json, None));
 
         // Sub-packages from manifest
         let state = self.state.borrow();
@@ -1523,7 +1474,7 @@ impl RepositoryStore for JsonStore {
                 if let Some(path) = pkg_ref.get("path").and_then(|p| p.as_str()) {
                     let key = format!("{path}/package.json");
                     if let Some(pkg_json) = state.data.get(&key).cloned() {
-                        result.push(json_store_boundary_from_json(
+                        result.push(crate::package_types::PackageBoundary::from_pkg_json(
                             &pkg_json,
                             Some(path.to_string()),
                         ));
@@ -1547,7 +1498,7 @@ impl RepositoryStore for JsonStore {
             .map_err(|_| RepositoryError::PackageNotFound {
                 selector: selector.clone(),
             })?;
-        Ok(json_store_boundary_from_json(&pkg_json, selector.clone()))
+        Ok(crate::package_types::PackageBoundary::from_pkg_json(&pkg_json, selector.clone()))
     }
 
     fn save_package_boundary_metadata(

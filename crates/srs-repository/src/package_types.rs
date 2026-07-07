@@ -25,6 +25,75 @@ pub struct PackageBoundary {
     pub protocol_paths: Vec<String>,
 }
 
+impl PackageBoundary {
+    /// Build a `PackageBoundary` from a parsed `package.json` value and its selector.
+    ///
+    /// All fields default to empty string / empty vec when absent rather than returning an error —
+    /// validation of required fields (e.g. `id`) is the caller's responsibility.
+    pub fn from_pkg_json(pkg_json: &serde_json::Value, selector: PackageSelector) -> PackageBoundary {
+        let str_paths = |key: &str| -> Vec<String> {
+            pkg_json[key]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        PackageBoundary {
+            selector,
+            id: pkg_json["id"].as_str().unwrap_or("").to_string(),
+            namespace: pkg_json["namespace"].as_str().unwrap_or("").to_string(),
+            name: pkg_json["name"].as_str().unwrap_or("").to_string(),
+            version: pkg_json["version"].as_str().unwrap_or("").to_string(),
+            field_paths: str_paths("fields"),
+            type_paths: str_paths("types"),
+            blueprint_paths: str_paths("blueprints"),
+            protocol_paths: str_paths("protocols"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn from_pkg_json_extracts_all_fields() {
+        let pkg = serde_json::json!({
+            "id": "com.example/pkg",
+            "namespace": "com.example",
+            "name": "My Package",
+            "version": "1.0.0",
+            "fields": ["fields/a.json", "fields/b.json"],
+            "types": ["types/t.json"],
+            "blueprints": ["blueprints/bp.json"],
+            "protocols": ["protocols/p.json"]
+        });
+        let b = PackageBoundary::from_pkg_json(&pkg, Some("sub/pkg".to_string()));
+        assert_eq!(b.id, "com.example/pkg");
+        assert_eq!(b.namespace, "com.example");
+        assert_eq!(b.name, "My Package");
+        assert_eq!(b.version, "1.0.0");
+        assert_eq!(b.field_paths, vec!["fields/a.json", "fields/b.json"]);
+        assert_eq!(b.type_paths, vec!["types/t.json"]);
+        assert_eq!(b.blueprint_paths, vec!["blueprints/bp.json"]);
+        assert_eq!(b.protocol_paths, vec!["protocols/p.json"]);
+        assert_eq!(b.selector, Some("sub/pkg".to_string()));
+    }
+
+    #[test]
+    fn from_pkg_json_missing_arrays_default_to_empty() {
+        let pkg = serde_json::json!({ "id": "com.example/minimal", "namespace": "com.example", "name": "Min", "version": "0.1.0" });
+        let b = PackageBoundary::from_pkg_json(&pkg, None);
+        assert!(b.field_paths.is_empty());
+        assert!(b.type_paths.is_empty());
+        assert!(b.blueprint_paths.is_empty());
+        assert!(b.protocol_paths.is_empty());
+    }
+}
+
 /// A field merged from all boundaries, carrying its source boundary.
 #[derive(Debug, Clone)]
 pub struct OwnedField {
