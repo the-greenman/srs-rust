@@ -91,9 +91,10 @@ sections by `typeNamespace`/`typeName`. The `containerType` field is not read by
 
 New commands should default to the shell-out path unless they require a write operation where the binary payload contract would be awkward to thread through stdin.
 
-## TUI Caveat
+## TUI
 
-The read-only terminal UI (`tui_app.rs`, `tui_data.rs`) still uses `containerType`
-matching via `governance::match_container`. This is tracked under epic #262 and will
-be migrated to `srs repo navigation` in a follow-on issue. The `container_type` field
-and `match_container` function are retained in `governance.rs` solely for this path.
+The read-only terminal UI (`tui_app.rs`, `tui_data.rs`) uses `srs repo navigation` for
+section resolution, matching navigation nodes by `typeNamespace`/`typeName` via
+`governance::by_root_type` — the same path used by `cmd_top` and `resolve_container_id`.
+The RFC-009 migration off the deprecated `containerType` hint is complete across all
+srs-gov paths (#384).

@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
-use crate::governance::{match_container, GOVERNANCE_CONTAINERS};
+use crate::governance::by_root_type;
 use crate::srs::run_srs;
 use crate::tui_state::{AppState, ColumnItem, DetailRow, RecordItem, SectionItem};
 
@@ -10,20 +10,12 @@ pub fn load_app_state(repo: &str) -> Result<AppState> {
     let navigation = run_srs(&["repo", "navigation"], repo, false, false)
         .context("load repository navigation")?;
 
-    let mut sections = sections_from_navigation(&navigation);
-    let mut repo_title = navigation["navigation"]["identity"]["displayLabel"]
+    let sections = sections_from_navigation(&navigation);
+    let repo_title = navigation["navigation"]["identity"]["displayLabel"]
         .as_str()
         .filter(|s| !s.is_empty())
         .unwrap_or("Governance")
         .to_string();
-
-    if sections.is_empty() {
-        let fallback = sections_from_container_list(repo)?;
-        if !fallback.is_empty() {
-            sections = fallback;
-            repo_title = "Governance".to_string();
-        }
-    }
 
     let mut state = AppState::new(repo_title, sections);
     refresh_records(repo, &mut state)?;
@@ -64,40 +56,19 @@ fn sections_from_navigation(payload: &Value) -> Vec<SectionItem> {
 
     sections
         .iter()
-        .map(|section| {
-            let label = section["displayLabel"].as_str().unwrap_or("Untitled");
-            SectionItem {
-                key: governance_key_for_label(label),
-                label: label.to_string(),
-                container_id: section["containerId"].as_str().map(String::from),
-            }
-        })
-        .collect()
-}
-
-fn sections_from_container_list(repo: &str) -> Result<Vec<SectionItem>> {
-    let payload = run_srs(&["container", "list"], repo, false, false)?;
-    let containers = payload["containers"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
-    let mut used_keys = HashSet::new();
-    let mut sections = Vec::new();
-
-    for container in containers {
-        let title = container["title"].as_str().unwrap_or("");
-        let container_type = container["containerType"].as_str();
-        let container_id = container["containerId"].as_str().map(String::from);
-        if let Some(def) = match_container(container_type, title, &mut used_keys) {
-            sections.push(SectionItem {
+        .filter_map(|section| {
+            let type_ns = section["typeNamespace"].as_str().unwrap_or("");
+            let type_name = section["typeName"].as_str().unwrap_or("");
+            let def = by_root_type(type_ns, type_name)?;
+            let container_id = section["sectionContainerId"].as_str().map(String::from);
+            // Use the canonical label from the type registry rather than the navigation response's displayLabel.
+            Some(SectionItem {
                 key: def.key.to_string(),
                 label: def.label.to_string(),
                 container_id,
-            });
-        }
-    }
-
-    Ok(sections)
+            })
+        })
+        .collect()
 }
 
 fn load_section_view(
@@ -326,43 +297,72 @@ fn display_value(value: &Value) -> String {
     }
 }
 
-fn governance_key_for_label(label: &str) -> String {
-    GOVERNANCE_CONTAINERS
-        .iter()
-        .find(|def| label.eq_ignore_ascii_case(def.label))
-        .map(|def| def.key.to_string())
-        .unwrap_or_else(|| {
-            label
-                .to_ascii_lowercase()
-                .chars()
-                .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
-                .collect::<String>()
-                .trim_matches('_')
-                .to_string()
-        })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn sections_from_navigation_maps_labels_to_governance_keys() {
+    fn sections_from_navigation_maps_type_chain_to_governance_sections() {
         let payload = serde_json::json!({
             "navigation": {
                 "identity": { "displayLabel": "Example" },
                 "sections": [
-                    { "displayLabel": "Decision Log", "containerId": "c-1" },
-                    { "displayLabel": "Roles", "containerId": "c-2" }
+                    {
+                        "typeNamespace": "governance",
+                        "typeName": "decision_log",
+                        "sectionContainerId": "c-1"
+                    },
+                    {
+                        "typeNamespace": "unknown",
+                        "typeName": "something_else",
+                        "sectionContainerId": "c-2"
+                    }
                 ]
             }
         });
 
         let sections = sections_from_navigation(&payload);
 
+        // Only governance-typed sections are included; unknown types are filtered out.
+        assert_eq!(sections.len(), 1);
         assert_eq!(sections[0].key, "decision_log");
         assert_eq!(sections[0].container_id.as_deref(), Some("c-1"));
-        assert_eq!(sections[1].key, "roles");
+    }
+
+    #[test]
+    fn sections_from_navigation_no_container_id_produces_none() {
+        let payload = serde_json::json!({
+            "navigation": {
+                "identity": { "displayLabel": "Example" },
+                "sections": [
+                    {
+                        "typeNamespace": "governance",
+                        "typeName": "decision_log"
+                        // sectionContainerId absent — section not yet provisioned
+                    }
+                ]
+            }
+        });
+
+        let sections = sections_from_navigation(&payload);
+
+        assert_eq!(sections.len(), 1);
+        assert_eq!(sections[0].key, "decision_log");
+        assert_eq!(sections[0].container_id, None);
+    }
+
+    #[test]
+    fn sections_from_navigation_empty_sections_returns_empty() {
+        let payload = serde_json::json!({
+            "navigation": {
+                "identity": { "displayLabel": "Example" },
+                "sections": []
+            }
+        });
+
+        let sections = sections_from_navigation(&payload);
+
+        assert!(sections.is_empty());
     }
 
     #[test]
