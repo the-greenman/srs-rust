@@ -30,7 +30,14 @@ impl PackageBoundary {
     ///
     /// All fields default to empty string / empty vec when absent rather than returning an error —
     /// validation of required fields (e.g. `id`) is the caller's responsibility.
-    pub fn from_pkg_json(pkg_json: &serde_json::Value, selector: PackageSelector) -> PackageBoundary {
+    ///
+    /// This constructor accepts `serde_json::Value` because it lives in `srs-repository` (which
+    /// already depends on `serde_json`). It must not be moved to `srs-core`, which has no
+    /// `serde_json` dependency.
+    pub fn from_pkg_json(
+        pkg_json: &serde_json::Value,
+        selector: PackageSelector,
+    ) -> PackageBoundary {
         let str_paths = |key: &str| -> Vec<String> {
             pkg_json[key]
                 .as_array()
@@ -91,6 +98,21 @@ mod tests {
         assert!(b.type_paths.is_empty());
         assert!(b.blueprint_paths.is_empty());
         assert!(b.protocol_paths.is_empty());
+    }
+
+    #[test]
+    fn from_pkg_json_non_string_array_entries_are_silently_skipped() {
+        let pkg = serde_json::json!({
+            "id": "com.example/pkg",
+            "namespace": "com.example",
+            "name": "Pkg",
+            "version": "1.0.0",
+            "fields": [1, null, "fields/valid.json"],
+            "types": []
+        });
+        let b = PackageBoundary::from_pkg_json(&pkg, None);
+        assert_eq!(b.field_paths, vec!["fields/valid.json"]);
+        assert!(b.type_paths.is_empty());
     }
 }
 

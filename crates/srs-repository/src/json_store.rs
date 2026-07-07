@@ -1457,7 +1457,10 @@ impl RepositoryStore for JsonStore {
 
         // Primary
         let primary_json = self.data_get("package/package.json")?;
-        result.push(crate::package_types::PackageBoundary::from_pkg_json(&primary_json, None));
+        result.push(crate::package_types::PackageBoundary::from_pkg_json(
+            &primary_json,
+            None,
+        ));
 
         // Sub-packages from manifest
         let state = self.state.borrow();
@@ -1498,7 +1501,10 @@ impl RepositoryStore for JsonStore {
             .map_err(|_| RepositoryError::PackageNotFound {
                 selector: selector.clone(),
             })?;
-        Ok(crate::package_types::PackageBoundary::from_pkg_json(&pkg_json, selector.clone()))
+        Ok(crate::package_types::PackageBoundary::from_pkg_json(
+            &pkg_json,
+            selector.clone(),
+        ))
     }
 
     fn save_package_boundary_metadata(
