@@ -18,9 +18,10 @@ pub fn dispatch(ctx: CliContext, cmd: DocumentViewCommand) -> Result<String> {
     match cmd {
         DocumentViewCommand::List {
             namespace,
+            name,
             container_type,
             root_type,
-        } => cmd_document_view_list(ctx, namespace, container_type, root_type),
+        } => cmd_document_view_list(ctx, namespace, name, container_type, root_type),
         DocumentViewCommand::Get { id } => cmd_document_view_get(ctx, id),
         DocumentViewCommand::Create { package } => cmd_document_view_create(ctx, package),
         DocumentViewCommand::Update { id } => cmd_document_view_update(ctx, id),
@@ -34,11 +35,13 @@ pub fn dispatch(ctx: CliContext, cmd: DocumentViewCommand) -> Result<String> {
 fn cmd_document_view_list(
     ctx: CliContext,
     namespace: Option<String>,
+    name: Option<String>,
     container_type: Option<String>,
     root_type: Option<String>,
 ) -> Result<String> {
     let filter = DocumentViewListFilter {
         namespace,
+        name,
         container_type,
         root_type_id: root_type,
     };

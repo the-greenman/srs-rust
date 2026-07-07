@@ -87,6 +87,7 @@ pub struct DocumentViewSummary {
 #[derive(Debug, Clone, Default)]
 pub struct DocumentViewListFilter {
     pub namespace: Option<String>,
+    pub name: Option<String>,
     pub container_type: Option<String>,
     pub root_type_id: Option<String>,
 }
@@ -303,6 +304,12 @@ pub fn list_document_views_summary(
             // namespace: exact match
             if let Some(ns) = &filter.namespace {
                 if &v.namespace != ns {
+                    return false;
+                }
+            }
+            // name: exact match
+            if let Some(name) = &filter.name {
+                if &v.name != name {
                     return false;
                 }
             }
@@ -907,6 +914,36 @@ mod tests {
         let summaries =
             list_document_views_summary(&store, &DocumentViewListFilter::default()).unwrap();
         assert!(summaries.iter().any(|s| s.id == created.document_view.id));
+    }
+
+    #[test]
+    fn list_document_views_summary_filters_by_name() {
+        let temp = tempfile::TempDir::new().unwrap();
+        setup_minimal_repo(temp.path());
+        let store = FileStore::new(temp.path());
+
+        // Two views in the same namespace — filtering by name must narrow to one (issue #404).
+        let wanted =
+            create_document_view(&store, minimal_document_view("wanted-dv"), None).unwrap();
+        create_document_view(&store, minimal_document_view("other-dv"), None).unwrap();
+
+        let filter = DocumentViewListFilter {
+            name: Some("wanted-dv".to_string()),
+            ..Default::default()
+        };
+        let matched = list_document_views_summary(&store, &filter).unwrap();
+        assert_eq!(matched.len(), 1, "name filter must return exactly one view");
+        assert_eq!(matched[0].id, wanted.document_view.id);
+        assert_eq!(matched[0].name, "wanted-dv");
+
+        // A non-matching name returns nothing.
+        let none_filter = DocumentViewListFilter {
+            name: Some("no-such-dv".to_string()),
+            ..Default::default()
+        };
+        assert!(list_document_views_summary(&store, &none_filter)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

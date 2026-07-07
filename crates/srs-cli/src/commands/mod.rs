@@ -815,6 +815,9 @@ pub enum DocumentViewCommand {
         /// Filter by namespace
         #[arg(long)]
         namespace: Option<String>,
+        /// Filter by exact view name
+        #[arg(long)]
+        name: Option<String>,
         /// Filter by containerType
         #[arg(long = "container-type")]
         container_type: Option<String>,
