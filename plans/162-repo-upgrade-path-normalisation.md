@@ -27,8 +27,9 @@ repository, updating the manifest's `instanceIndex` and renaming the physical fi
 
 | ADR | Decision | Status |
 |---|---|---|
+| [ADR-007](../docs/adr/007-file-index-io-ordering.md) | I/O order: write canonical files → update and persist manifest → delete old files. Deletes happen only after the index is persisted; orphaned files on crash are harmless; dangling index entries are prevented. | accepted |
 | [ADR-008](../docs/adr/008-repository-lifecycle-and-portability.md) | `upgrade_repository_paths` is the in-place sibling of `copy_repository` — normalises paths without a target-store round-trip | accepted |
-| [ADR-010](../docs/adr/010-service-boundary-contract.md) | `upgrade_repository_paths` takes no input struct (store is the only parameter); returns `UpgradeRepositoryPathsResult`; all logic in `srs-repository`, zero business logic in the CLI handler | accepted |
+| [ADR-010](../docs/adr/010-service-boundary-contract.md) | `upgrade_repository_paths` takes no input struct (store is the only parameter; no filter/config axes — a zero-field input struct would be cargo cult); returns `UpgradeRepositoryPathsResult`; all logic in `srs-repository`, zero business logic in the CLI handler | accepted |
 | [ADR-011](../docs/adr/011-cli-output-contract.md) | New `RepoUpgradePayload` struct in `payload.rs`; golden schema regenerated | accepted |
 | [ADR-013](../docs/adr/013-wasm-binding-strategy.md) | **No WASM binding.** `upgrade_repository_paths` is a FileStore-specific operation (physical file renames). WASM uses `JsonStore`, which has no persistent file paths to normalise. Consistent with `copy_repository`, which also has no WASM binding. No new ADR needed — ADR-013 already notes that FileStore uses `std::fs` and is not callable from WASM. | accepted |
 
@@ -80,6 +81,8 @@ No changes to `srs/docs/schema/2.0/` — no entity schemas change.
   `crates/srs-repository/src/repository_portability.rs`.
 - Make `canonical_instance_path` `pub(crate)` so the new service can call it directly
   (it is currently private within that file — still private to the crate).
+- Migrate revision sidecar files (`*.revisions.json`) alongside renamed record files,
+  using `sidecar_path_for` from `revision_service.rs` (same crate, `pub(crate)`).
 - Add `RepoUpgradePayload` and `InstancePathRename` payload structs to
   `crates/srs-cli/src/payload.rs`.
 - Add `RepoCommand::Upgrade` variant to `commands/mod.rs` and `cmd_repo_upgrade` handler in
@@ -122,18 +125,19 @@ FileStore, and is idempotent.
     #[derive(Debug)]
     pub struct UpgradeRepositoryPathsResult {
         pub renames: Vec<InstancePathRename>,
+        pub total_instances: usize,
     }
     ```
-  - Add `pub fn upgrade_repository_paths(store: &dyn RepositoryStore) -> Result<UpgradeRepositoryPathsResult, RepositoryError>` implementing the two-phase strategy:
-    1. **Plan phase** — load manifest; for each `InstanceIndexEntry`, load instance JSON, construct a `SnapshotInstance`, call `canonical_instance_path`. If the current path differs from canonical, record a `PlannedRename { manifest_index, instance_id, from_path, to_path, value }`. Detect path collisions (two instances that would normalise to the same canonical path) and return `RepositoryError::InvalidSnapshotData` immediately.
-    2. **Apply phase** — for each planned rename: call `ensure_instance_parent(store, &to_path)` then `store.save_instance_json(&to_path, &value)`.
-    3. **Manifest update** — patch each renamed entry's `path` field and call `store.save_manifest(&manifest)`.
-    4. **Cleanup** — for each rename call `let _ = store.delete_instance_file(&from_path)` (best-effort; orphan files are harmless if delete fails).
-    5. Return `UpgradeRepositoryPathsResult { renames }`.
+  - Add `pub fn upgrade_repository_paths(store: &dyn RepositoryStore) -> Result<UpgradeRepositoryPathsResult, RepositoryError>` implementing the ADR-007-ordered strategy:
+    1. **Plan phase** — load manifest; for each `InstanceIndexEntry`, call `store.load_instance_json(entry.path())` to get the file value (`typeName` for tier-1/2 records lives in the file, not the manifest entry — do not construct `SnapshotInstance` from the manifest entry alone). Construct a `SnapshotInstance` and call `canonical_instance_path`. If the current path differs from canonical, record a `PlannedRename { manifest_index, instance_id, from_path, to_path, value }`. Detect path collisions and return `RepositoryError::InvalidSnapshotData` immediately.
+    2. **Apply phase** — for each planned rename: `ensure_instance_parent(store, &to_path)`, then `store.save_instance_json(&to_path, &value)`. Also copy any revision sidecar: `sidecar_path_for(&from_path)` → `store.load_instance_json(...)` → on success, `store.save_instance_json(&sidecar_path_for(&to_path), &sidecar_value)`; on `RepositoryError::NotFound` or `Io { source }` where `source.kind() == NotFound`, skip silently; propagate other errors. `sidecar_path_for` is `pub(crate)` in `revision_service.rs`.
+    3. **Manifest update** — patch each renamed entry's `path` field in the manifest and call `store.save_manifest(&manifest)`. (ADR-007: index must be persisted before any deletes.)
+    4. **Cleanup** — for each rename: `let _ = store.delete_instance_file(&from_path)`; also `let _ = store.delete_instance_file(&sidecar_path_for(&from_path))` if the old sidecar existed. Both deletes are best-effort; orphan files are harmless per ADR-007.
+    5. Return `UpgradeRepositoryPathsResult { renames, total_instances }`.
   - If no renames are needed, return early without touching the manifest.
 
-- [ ] Export the result types from `srs-repository/src/lib.rs` (or re-export from the
-  portability module path so CLI can use them).
+- [ ] Export the result types from `crates/srs-repository/src/lib.rs` — add to the existing
+  `pub use repository_portability::{...}` block alongside `SnapshotRepository`/`SnapshotInstance`.
 
 #### Acceptance Criteria
 
@@ -162,6 +166,9 @@ Specific tests to add in `crates/srs-repository/src/repository_portability.rs` (
   second call returns empty `renames`.
 - `upgrade_does_not_rename_already_canonical_paths` — round-trip through `copy_repository`
   (which canonicalises), then `upgrade_repository_paths` — assert 0 renames.
+- `upgrade_renames_non_canonical_path_on_filestore` — using a `TempDir`-backed `FileStore`:
+  write a non-canonical instance file to disk via `store.save_instance_json("records/tier-2/old.json", &value)` and patch the manifest entry, call `upgrade_repository_paths`, assert the canonical file exists on disk, the old file is absent, and the manifest entry reflects the new path. This is the required cross-store roundtrip test (CLAUDE.md: "New service features need at least one cross-store roundtrip test").
+- `upgrade_moves_revision_sidecar` — inject a non-canonical record file plus its `.revisions.json` sidecar (via `sidecar_path_for`), call upgrade, assert the sidecar exists at the new canonical sidecar path and the old sidecar is absent.
 
 ```bash
 cargo test -p srs-repository upgrade
