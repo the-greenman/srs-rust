@@ -983,13 +983,16 @@ pub fn transition_record_lifecycle(
 /// is in a final (immutable) state. Returns `RepositoryError::NotFound` if the
 /// instance ID does not exist, `RepositoryError::LifecycleNotDefined` if the type
 /// has no lifecycle.
+///
+/// If the record has never been transitioned (`lifecycle_state` is `None`), `current_state`
+/// is `""` and `transitions` will be empty (no transition is defined from the empty state).
 pub fn get_allowed_lifecycle_transitions(
     store: &dyn RepositoryStore,
     instance_id: &str,
 ) -> Result<AllowedLifecycleTransitionsResult, RepositoryError> {
     let record =
         get_record_by_id(store, instance_id)?.ok_or_else(|| RepositoryError::NotFound {
-            path: std::path::PathBuf::from(instance_id),
+            path: std::path::PathBuf::from("records"),
         })?;
     let package = store.load_package()?;
     let record_type = package
@@ -3911,10 +3914,10 @@ mod tests {
         let store = make_store_with_lifecycle_ref();
         let record = create_lc_ref_record(&store);
         let result = get_allowed_lifecycle_transitions(&store, &record.instance_id).unwrap();
-        // make_store_with_lifecycle_ref initial_state is "draft" (confirmed at line 3235)
+        // make_store_with_lifecycle_ref creates a type with a draft→active lifecycle via ref
         assert_eq!(result.current_state, "draft");
         assert!(!result.is_immutable);
-        assert!(!result.transitions.is_empty());
+        assert_eq!(result.transitions.len(), 1);
         assert_eq!(result.transitions[0].name, "promote");
     }
 
