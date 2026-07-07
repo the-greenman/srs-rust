@@ -1,0 +1,53 @@
+{
+  "protocolId": "brief-fixture-proto-1",
+  "protocolNamespace": "fixture.brief",
+  "protocolName": "extraction",
+  "protocolVersion": 1,
+  "protocolDescription": "Fixture protocol for testing contributesTo.typeId resolution in blueprint brief.",
+  "protocolTargetType": "00000000-0000-4000-8000-000000004611",
+  "protocolCreatedAt": "2026-01-01T00:00:00Z",
+  "protocolStages": [
+    {
+      "stageId": "s1",
+      "name": "Gather",
+      "order": 1,
+      "dependsOn": [],
+      "question": "What is the subject?",
+      "completionCriteria": "Subject identified.",
+      "contributesTo": [
+        {"fieldId": "00000000-0000-4000-8000-000000004601"}
+      ],
+      "aiGuidance": "Look for the main topic."
+    },
+    {
+      "stageId": "s2",
+      "name": "Extract",
+      "order": 2,
+      "dependsOn": ["s1"],
+      "question": "What fields can be extracted?",
+      "completionCriteria": "Fields extracted.",
+      "contributesTo": [
+        {
+          "fieldId": "00000000-0000-4000-8000-000000004601",
+          "typeId": "00000000-0000-4000-8000-000000004611"
+        }
+      ],
+      "aiGuidance": "Extract field values."
+    },
+    {
+      "stageId": "s3",
+      "name": "Classify",
+      "order": 3,
+      "dependsOn": ["s2"],
+      "question": "How should this be classified?",
+      "completionCriteria": "Classification recorded.",
+      "contributesTo": [
+        {
+          "fieldId": "00000000-0000-4000-8000-000000004601",
+          "typeId": "00000000-0000-0000-0000-000000000000"
+        }
+      ],
+      "aiGuidance": "Assign a category."
+    }
+  ]
+}

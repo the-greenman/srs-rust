@@ -263,7 +263,7 @@ The protocol has no fixed UUID — `protocolId` is a short string `"brief-fixtur
   - `payload.protocol.stages` has 3 entries (stages s1, s2, s3 all present — including the ghost-typeId stage)
   - `payload.protocol.stages[2].name` is `"Classify"` (the ghost-typeId stage is still present and named correctly)
 
-- [ ] Update `docs/dogfooding.md` S7 negative case: replace the narrative description of the `contributesTo.typeId` case (currently lines 222-223) with concrete CLI commands pointing to the new fixture. The update must:
+- [ ] Update `docs/dogfooding.md` S7 negative case: replace the narrative description of the `contributesTo.typeId` case (currently line 223, the `contributesTo.typeId` bullet) with concrete CLI commands pointing to the new fixture. The update must:
   - Retain the introductory narrative sentence.
   - Add the runnable `srs blueprint brief` command for the ghost-typeId stage.
   - Show the expected diagnostic message.
@@ -276,7 +276,7 @@ The protocol has no fixed UUID — `protocolId` is a short string `"brief-fixtur
 
 - [ ] `srs repo validate --repo crates/srs-cli/tests/fixtures/blueprint-brief --pretty` → `ok: true`, `summary.errors: 0`.
 - [ ] `srs blueprint brief 00000000-0000-4000-8000-000000004621 --repo crates/srs-cli/tests/fixtures/blueprint-brief --pretty` → `ok: true`, exactly one diagnostic `"contributesTo type 00000000-0000-0000-0000-000000000000 not found in package"`, and all three stages present in `payload.protocol.stages`.
-- [ ] Stage s2 produces no diagnostic (valid typeId `..4611` resolves to the `document` type).
+- [ ] `payload.diagnostics` total count is exactly 1 (stage s2's valid typeId produces no diagnostic; only stage s3's ghost typeId triggers one).
 - [ ] `docs/dogfooding.md` S7 negative case references the fixture with a runnable command and expected output.
 - [ ] Fixture table in `docs/dogfooding.md` includes an entry for `blueprint-brief/`.
 - [ ] `cargo test` passes with no failures.

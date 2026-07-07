@@ -1,0 +1,18 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+  "id": "fixture.brief.pkg",
+  "namespace": "fixture.brief",
+  "name": "blueprint-brief-fixture",
+  "title": "Blueprint Brief Fixture",
+  "description": "Fixture for dogfooding blueprint brief contributesTo.typeId negative case.",
+  "status": "active",
+  "version": "1.0.0",
+  "fields": ["fields/title.json"],
+  "types": ["types/document.json"],
+  "blueprints": ["blueprints/extraction.json"],
+  "protocols": ["protocols/extraction.json"],
+  "relationTypes": [],
+  "views": [],
+  "documentViews": [],
+  "createdAt": "2026-01-01T00:00:00Z"
+}
