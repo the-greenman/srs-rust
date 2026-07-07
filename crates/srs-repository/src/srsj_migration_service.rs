@@ -9,11 +9,25 @@ use crate::error::RepositoryError;
 /// declaration order, with no separator bytes.
 ///
 /// `data` is the top-level `data` map from a parsed `.srsj` envelope.
-pub fn compute_package_content_hash(data: &serde_json::Value) -> String {
+///
+/// Returns an error if `data["package/package.json"]` is absent or null — a malformed
+/// bundle must not silently produce a hash over the string `"null"`.
+pub(crate) fn compute_package_content_hash(
+    data: &serde_json::Value,
+) -> Result<String, RepositoryError> {
     use sha2::Digest;
-    let mut hasher = sha2::Sha256::new();
     let pkg = &data["package/package.json"];
-    hasher.update(serde_json::to_string(pkg).unwrap_or_default().as_bytes());
+    if pkg.is_null() {
+        return Err(RepositoryError::InvalidSnapshotData {
+            message: "package/package.json absent in srsj data".to_string(),
+        });
+    }
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(
+        serde_json::to_string(pkg)
+            .expect("serde_json::to_string on a validated non-null Value is infallible")
+            .as_bytes(),
+    );
     for array_key in &[
         "fields",
         "types",
@@ -30,16 +44,27 @@ pub fn compute_package_content_hash(data: &serde_json::Value) -> String {
             for file_ref in files {
                 if let Some(rel_path) = file_ref.as_str() {
                     let data_key = format!("package/{rel_path}");
+                    let entry = &data[&data_key];
+                    if entry.is_null() {
+                        return Err(RepositoryError::InvalidSnapshotData {
+                            message: format!(
+                                "definition file '{data_key}' referenced in \
+                                 package/package.json is absent from srsj data"
+                            ),
+                        });
+                    }
                     hasher.update(
-                        serde_json::to_string(&data[&data_key])
-                            .unwrap_or_default()
+                        serde_json::to_string(entry)
+                            .expect(
+                                "serde_json::to_string on a validated non-null Value is infallible",
+                            )
                             .as_bytes(),
                     );
                 }
             }
         }
     }
-    format!("sha256:{:x}", hasher.finalize())
+    Ok(format!("sha256:{:x}", hasher.finalize()))
 }
 
 /// Migrate a raw `.srsj` string (RFC-014) and load it into a `JsonStore` in one call.
@@ -69,7 +94,7 @@ pub fn migrate_rfc014(srsj_str: &str) -> Result<String, RepositoryError> {
         })?;
 
     if seed["manifest"]["meta"]["upstreamPackage"].is_object() {
-        let content_hash = compute_package_content_hash(&seed["data"]);
+        let content_hash = compute_package_content_hash(&seed["data"])?;
         let pkg_info = seed["manifest"]["meta"]["upstreamPackage"].clone();
         let mut up = pkg_info.as_object().cloned().unwrap_or_default();
         up.insert(
@@ -140,9 +165,38 @@ mod tests {
     fn compute_package_content_hash_returns_sha256_prefix() {
         let seed: serde_json::Value =
             serde_json::from_str(&governance_seed_str()).expect("seed parses");
-        let hash = compute_package_content_hash(&seed["data"]);
+        let hash =
+            compute_package_content_hash(&seed["data"]).expect("hash succeeds on valid data");
         assert!(hash.starts_with("sha256:"), "hash: {hash}");
         assert!(hash.len() > 10, "hash non-trivial: {hash}");
+    }
+
+    #[test]
+    fn compute_package_content_hash_errors_on_missing_package_key() {
+        let empty_data = serde_json::Value::Object(Default::default());
+        let err = compute_package_content_hash(&empty_data).unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::InvalidSnapshotData { .. }),
+            "expected InvalidSnapshotData, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn migrate_rfc014_errors_when_package_json_absent_in_data() {
+        // Valid JSON with upstreamPackage present but data missing package/package.json
+        let input = serde_json::json!({
+            "manifest": {
+                "meta": {
+                    "upstreamPackage": { "id": "com.example.pkg" }
+                }
+            },
+            "data": {}
+        });
+        let err = migrate_rfc014(&serde_json::to_string(&input).unwrap()).unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::InvalidSnapshotData { .. }),
+            "expected InvalidSnapshotData, got: {err:?}"
+        );
     }
 
     #[test]
