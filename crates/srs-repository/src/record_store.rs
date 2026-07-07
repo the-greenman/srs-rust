@@ -793,6 +793,30 @@ pub struct TransitionLifecycleResult {
     pub warnings: Vec<String>,
 }
 
+/// One legal next transition for a record in its current lifecycle state.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LifecycleTransitionOption {
+    /// Display name of the transition (e.g. "promote", "archive").
+    pub name: String,
+    /// Target state key.
+    pub to: String,
+    /// Whether the target state has `is_final: true`.
+    pub to_is_final: bool,
+}
+
+/// Result of `get_allowed_lifecycle_transitions`.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AllowedLifecycleTransitionsResult {
+    /// The record's current lifecycle state key (empty string if unset).
+    pub current_state: String,
+    /// Transitions the record is permitted to take from its current state.
+    pub transitions: Vec<LifecycleTransitionOption>,
+    /// True when the current state has `is_final: true`.
+    pub is_immutable: bool,
+}
+
 /// Input for creating a successor record.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -950,6 +974,61 @@ pub fn transition_record_lifecycle(
     Ok(TransitionLifecycleResult {
         record: updated,
         warnings,
+    })
+}
+
+/// Query the allowed lifecycle transitions for a record in its current state.
+///
+/// Returns the current state, all transitions valid from it, and whether the record
+/// is in a final (immutable) state. Returns `RepositoryError::NotFound` if the
+/// instance ID does not exist, `RepositoryError::LifecycleNotDefined` if the type
+/// has no lifecycle.
+pub fn get_allowed_lifecycle_transitions(
+    store: &dyn RepositoryStore,
+    instance_id: &str,
+) -> Result<AllowedLifecycleTransitionsResult, RepositoryError> {
+    let record =
+        get_record_by_id(store, instance_id)?.ok_or_else(|| RepositoryError::NotFound {
+            path: std::path::PathBuf::from(instance_id),
+        })?;
+    let package = store.load_package()?;
+    let record_type = package
+        .resolve_type(&record.type_id, record.type_version)
+        .ok_or_else(|| RepositoryError::TypeNotFound {
+            type_id: record.type_id.clone(),
+            version: record.type_version,
+        })?;
+    let lifecycle = package.effective_lifecycle(record_type).ok_or_else(|| {
+        RepositoryError::LifecycleNotDefined {
+            id: instance_id.to_string(),
+        }
+    })?;
+
+    let current_state = record.lifecycle_state.clone().unwrap_or_default();
+    let is_immutable = lifecycle
+        .states
+        .iter()
+        .any(|s| s.key == current_state && s.is_final == Some(true));
+    let transitions = lifecycle
+        .transitions
+        .iter()
+        .filter(|t| t.from == current_state)
+        .map(|t| {
+            let to_is_final = lifecycle
+                .states
+                .iter()
+                .any(|s| s.key == t.to && s.is_final == Some(true));
+            LifecycleTransitionOption {
+                name: t.name.clone(),
+                to: t.to.clone(),
+                to_is_final,
+            }
+        })
+        .collect();
+    Ok(AllowedLifecycleTransitionsResult {
+        current_state,
+        transitions,
+        is_immutable,
     })
 }
 
@@ -3753,6 +3832,108 @@ mod tests {
             result,
             Err(RepositoryError::LifecycleTransitionNotAllowed { .. })
         ));
+    }
+
+    // ── get_allowed_lifecycle_transitions ────────────────────────────────────
+
+    #[test]
+    fn allowed_transitions_from_draft_returns_correct_options() {
+        let store = make_store_with_lifecycle();
+        let record = create_lc_record(&store);
+        let result = get_allowed_lifecycle_transitions(&store, &record.instance_id).unwrap();
+        assert_eq!(result.current_state, "draft");
+        assert!(!result.is_immutable);
+        assert_eq!(result.transitions.len(), 1);
+        assert_eq!(result.transitions[0].name, "promote");
+        assert_eq!(result.transitions[0].to, "active");
+        assert!(!result.transitions[0].to_is_final);
+    }
+
+    #[test]
+    fn allowed_transitions_from_active_returns_correct_options() {
+        let store = make_store_with_lifecycle();
+        let record = create_lc_record(&store);
+        transition_record_lifecycle(
+            &store,
+            &record.instance_id,
+            TransitionLifecycleInput {
+                to: Some("active".to_string()),
+                by_transition: None,
+            },
+        )
+        .unwrap();
+        let result = get_allowed_lifecycle_transitions(&store, &record.instance_id).unwrap();
+        assert_eq!(result.current_state, "active");
+        assert!(!result.is_immutable);
+        assert_eq!(result.transitions.len(), 1);
+        assert_eq!(result.transitions[0].name, "archive");
+        assert_eq!(result.transitions[0].to, "archived");
+        assert!(result.transitions[0].to_is_final);
+    }
+
+    #[test]
+    fn allowed_transitions_from_final_state_returns_immutable_empty() {
+        let store = make_store_with_lifecycle();
+        let record = create_lc_record(&store);
+        transition_record_lifecycle(
+            &store,
+            &record.instance_id,
+            TransitionLifecycleInput {
+                to: Some("active".to_string()),
+                by_transition: None,
+            },
+        )
+        .unwrap();
+        transition_record_lifecycle(
+            &store,
+            &record.instance_id,
+            TransitionLifecycleInput {
+                to: Some("archived".to_string()),
+                by_transition: None,
+            },
+        )
+        .unwrap();
+        let result = get_allowed_lifecycle_transitions(&store, &record.instance_id).unwrap();
+        assert_eq!(result.current_state, "archived");
+        assert!(result.is_immutable);
+        assert!(result.transitions.is_empty());
+    }
+
+    #[test]
+    fn allowed_transitions_record_not_found_returns_error() {
+        let store = make_store_with_lifecycle();
+        let result = get_allowed_lifecycle_transitions(&store, "00000000-0000-0000-0000-000000000000");
+        assert!(matches!(result, Err(RepositoryError::NotFound { .. })));
+    }
+
+    #[test]
+    fn allowed_transitions_with_lifecycle_ref() {
+        let store = make_store_with_lifecycle_ref();
+        let record = create_lc_ref_record(&store);
+        let result = get_allowed_lifecycle_transitions(&store, &record.instance_id).unwrap();
+        // make_store_with_lifecycle_ref initial_state is "draft" (confirmed at line 3235)
+        assert_eq!(result.current_state, "draft");
+        assert!(!result.is_immutable);
+        assert!(!result.transitions.is_empty());
+        assert_eq!(result.transitions[0].name, "promote");
+    }
+
+    #[test]
+    fn allowed_transitions_roundtrip_file_store() {
+        let store = make_store_with_lifecycle();
+        let record = create_lc_record(&store);
+
+        // Copy to FileStore
+        let temp = tempfile::TempDir::new().unwrap();
+        let file_store = crate::store::FileStore::new(temp.path());
+        crate::repository_portability::copy_repository(&store, &file_store)
+            .expect("copy to FileStore");
+
+        let result = get_allowed_lifecycle_transitions(&file_store, &record.instance_id).unwrap();
+        assert_eq!(result.current_state, "draft");
+        assert!(!result.is_immutable);
+        assert_eq!(result.transitions.len(), 1);
+        assert_eq!(result.transitions[0].name, "promote");
     }
 
     // ── create_record_in_container ────────────────────────────────────────────
