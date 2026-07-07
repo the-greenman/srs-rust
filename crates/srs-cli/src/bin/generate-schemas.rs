@@ -167,6 +167,7 @@ fn main() {
     write_schema!("repo-extensions-disable", RepoExtensionsMutatePayload);
     write_schema!("repo-init-new", RepoInitNewPayload);
     write_schema!("repo-set-root-container", RepoSetRootContainerPayload);
+    write_schema!("repo-upgrade", RepoUpgradePayload);
 
     // Package payloads
     write_schema!("package-list", PackageListPayload);

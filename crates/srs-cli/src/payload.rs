@@ -1369,3 +1369,20 @@ pub struct RepoInitNewPayload {
     pub package_id: String,
     pub package_version: String,
 }
+
+// ── Repo upgrade payload ──────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct InstancePathRename {
+    pub instance_id: String,
+    pub from_path: String,
+    pub to_path: String,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoUpgradePayload {
+    pub renames: Vec<InstancePathRename>,
+    pub already_canonical_count: usize,
+}

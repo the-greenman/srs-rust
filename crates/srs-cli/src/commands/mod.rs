@@ -585,6 +585,9 @@ pub enum RepoCommand {
         #[arg(long)]
         description: Option<String>,
     },
+    /// Normalise instance file paths in-place to the canonical slug-id8 convention.
+    /// Only valid for file-backed repositories. Idempotent — safe to run multiple times.
+    Upgrade,
 }
 
 #[derive(Subcommand)]
