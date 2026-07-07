@@ -3,18 +3,18 @@ use crate::commands::{
 };
 use crate::output;
 use crate::payload::{
-    DeletedPayload, RecordListPayload, RecordPayload, RecordSuccessorPayload, RecordTagAddPayload,
-    RecordTagListPayload, RecordTransitionPayload, RecordValidatePayload, RevisionListPayload,
-    RevisionPayload,
+    DeletedPayload, RecordAllowedTransitionsPayload, RecordListPayload, RecordPayload,
+    RecordSuccessorPayload, RecordTagAddPayload, RecordTagListPayload, RecordTransitionPayload,
+    RecordValidatePayload, RevisionListPayload, RevisionPayload,
 };
 use anyhow::Result;
 use srs_repository::record_store::{
     add_record_tag, create_record_in_context, create_record_successor, delete_record_in_context,
-    get_record_by_id, get_record_revision, list_record_revisions, list_record_summaries,
-    list_record_tags, remove_record_tag, transition_record_lifecycle, update_record,
-    validate_record_input, AddRecordTagResult, CreateRecordInput, CreateRecordSuccessorInput,
-    RecordListFilter, RemoveRecordTagResult, TransitionLifecycleInput, UpdateRecordInput,
-    ValidateRecordInput,
+    get_allowed_lifecycle_transitions, get_record_by_id, get_record_revision,
+    list_record_revisions, list_record_summaries, list_record_tags, remove_record_tag,
+    transition_record_lifecycle, update_record, validate_record_input, AddRecordTagResult,
+    CreateRecordInput, CreateRecordSuccessorInput, RecordListFilter, RemoveRecordTagResult,
+    TransitionLifecycleInput, UpdateRecordInput, ValidateRecordInput,
 };
 use std::io::{self, Read};
 
@@ -37,6 +37,7 @@ pub fn dispatch(ctx: CliContext, cmd: RecordCommand) -> Result<String> {
         RecordCommand::Delete { id, json: _ } => cmd_record_delete(ctx, id),
         RecordCommand::Transition { id } => cmd_record_transition(ctx, id),
         RecordCommand::Successor { id } => cmd_record_successor(ctx, id),
+        RecordCommand::AllowedTransitions { id } => cmd_record_allowed_transitions(ctx, id),
         RecordCommand::Revision(rev_cmd) => dispatch_revision(ctx, rev_cmd),
         RecordCommand::Tag(tag_cmd) => dispatch_tag(ctx, tag_cmd),
     }
@@ -328,6 +329,18 @@ fn cmd_revision_get(ctx: CliContext, id: String, revision_id: String) -> Result<
             )],
         )),
         Err(e) => Ok(output::err("record revision get", vec![e.to_string()])),
+    }
+}
+
+fn cmd_record_allowed_transitions(ctx: CliContext, id: String) -> Result<String> {
+    match with_store(&ctx, |store| {
+        Ok(get_allowed_lifecycle_transitions(store, &id)?)
+    }) {
+        Ok(result) => output::serialize(
+            "record allowed-transitions",
+            RecordAllowedTransitionsPayload::from(result),
+        ),
+        Err(e) => Ok(output::err("record allowed-transitions", vec![e.to_string()])),
     }
 }
 

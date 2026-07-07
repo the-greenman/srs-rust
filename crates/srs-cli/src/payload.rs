@@ -38,7 +38,10 @@ use srs_repository::{
     container_view_service::ContainerView,
     discovery_service::DiscoveryResult,
     extension_service::ExtensionSummary,
-    record_store::{ListRecordTagsResult, RecordSummary, RecordTagSummary},
+    record_store::{
+        AllowedLifecycleTransitionsResult, LifecycleTransitionOption, ListRecordTagsResult,
+        RecordSummary, RecordTagSummary,
+    },
     relation_service::RelationSummary,
     repository_navigation_service::RepositoryNavigation,
     services::{ListNoteTagsResult, NoteSummary, TagSummary},
@@ -336,6 +339,49 @@ pub struct RecordTransitionPayload {
     #[schemars(with = "serde_json::Value")]
     pub record: Record,
     pub warnings: Vec<String>,
+}
+
+/// One allowed lifecycle transition for `record allowed-transitions`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AllowedTransitionEntry {
+    pub name: String,
+    pub to: String,
+    pub to_is_final: bool,
+}
+
+impl From<LifecycleTransitionOption> for AllowedTransitionEntry {
+    fn from(t: LifecycleTransitionOption) -> Self {
+        Self {
+            name: t.name,
+            to: t.to,
+            to_is_final: t.to_is_final,
+        }
+    }
+}
+
+/// Payload for `record allowed-transitions` — current lifecycle state, permitted next
+/// transitions, and whether the record is in a final (immutable) state.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordAllowedTransitionsPayload {
+    pub current_state: String,
+    pub transitions: Vec<AllowedTransitionEntry>,
+    pub is_immutable: bool,
+}
+
+impl From<AllowedLifecycleTransitionsResult> for RecordAllowedTransitionsPayload {
+    fn from(r: AllowedLifecycleTransitionsResult) -> Self {
+        Self {
+            current_state: r.current_state,
+            transitions: r
+                .transitions
+                .into_iter()
+                .map(AllowedTransitionEntry::from)
+                .collect(),
+            is_immutable: r.is_immutable,
+        }
+    }
 }
 
 /// Payload for `record tag add` and `record tag remove`.
