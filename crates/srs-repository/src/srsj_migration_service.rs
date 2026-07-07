@@ -42,6 +42,16 @@ pub fn compute_package_content_hash(data: &serde_json::Value) -> String {
     format!("sha256:{:x}", hasher.finalize())
 }
 
+/// Migrate a raw `.srsj` string (RFC-014) and load it into a `JsonStore` in one call.
+///
+/// Equivalent to `JsonStore::from_srsj(&migrate_rfc014(srsj_str)?)`, but presented
+/// as a single entry point so callers (e.g. WASM bindings) satisfy the one-service-call
+/// rule without embedding migration logic themselves.
+pub fn load_from_srsj(srsj_str: &str) -> Result<crate::JsonStore, RepositoryError> {
+    let migrated = migrate_rfc014(srsj_str)?;
+    crate::JsonStore::from_srsj(&migrated)
+}
+
 /// Apply the RFC-014 manifest migration to a raw `.srsj` JSON string.
 ///
 /// Moves `manifest.meta.upstreamPackage` to the top-level `manifest.upstreamPackage`

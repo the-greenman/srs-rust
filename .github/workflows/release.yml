@@ -58,6 +58,12 @@ jobs:
       - name: Build WASM bindings
         run: wasm-pack build crates/srs-bindings --target web --out-dir ../../dist/srs-bindings
 
+      - name: Generate migrated governance seed
+        run: |
+          cargo run --release --bin generate-governance-seed -- \
+            crates/srs-gov/assets/governance-seed.srsj \
+            dist/srs-bindings/governance-seed.srsj
+
       - name: Package WASM bindings
         id: package_wasm
         run: |

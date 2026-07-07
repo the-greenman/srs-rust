@@ -54,8 +54,11 @@ pub struct SrsRepository {
 #[wasm_bindgen]
 impl SrsRepository {
     /// Load a repository from a `.srsj` JSON string.
+    ///
+    /// Applies RFC-014 migration before loading (idempotent on already-migrated bundles),
+    /// so callers do not need to migrate the seed separately.
     pub fn load(srsj: &str) -> Result<SrsRepository, JsValue> {
-        let store = JsonStore::from_srsj(srsj).map_err(js_err)?;
+        let store = srs_repository::srsj_migration_service::load_from_srsj(srsj).map_err(js_err)?;
         Ok(SrsRepository { store })
     }
 
@@ -602,7 +605,7 @@ impl SrsRepository {
         to_js(&terms)
     }
 
-    /// Scaffold a governance repository from a seeded, RFC-014-migrated `.srsj` store.
+    /// Scaffold a governance repository from a seeded `.srsj` store.
     ///
     /// `input_json` is a JSON string matching `CreateGovernanceRepositoryInput`
     /// (`{"title":"...","purpose":"...","repositoryId":"..."}`).
@@ -613,7 +616,7 @@ impl SrsRepository {
     ///
     /// Stamps manifest identity (repositoryId, namespace, title) and creates the
     /// governance/article identity record, Decision Log container + root record, and
-    /// root container — all in one call. After this returns, call `to_srsj()` to get
+    /// root container — all in one call. After this returns, call `export_srsj()` to get
     /// the final bundle for download.
     pub fn scaffold_new_repository(&self, input_json: &str) -> Result<JsValue, JsValue> {
         let input: CreateGovernanceRepositoryInput =
