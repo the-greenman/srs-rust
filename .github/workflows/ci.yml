@@ -64,7 +64,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Build srs-bindings for wasm32-unknown-unknown
+      - name: Build
         run: cargo build --target wasm32-unknown-unknown -p srs-bindings
 
   schema-drift:
