@@ -406,7 +406,12 @@ function board() {
   let cursor = null;
   do {
     const data = graphql(q, { owner: OWNER, number: PROJECT_NUMBER, endCursor: cursor });
-    const items = data.user.projectV2.items;
+    const items = data?.user?.projectV2?.items;
+    if (!items) {
+      const why = data?.message || data?.errors?.[0]?.message
+        || "unexpected response shape";
+      die(`Projects v2 GraphQL is unavailable in this session — ${why}; run from a local machine or CI`);
+    }
     for (const n of items.nodes) {
       if (seen.has(n.id)) continue;
       seen.add(n.id);
