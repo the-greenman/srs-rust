@@ -94,6 +94,9 @@ function, and all new unit tests pass with `node --test scripts/gh-project.test.
   - Place just below `planStaleClaims` in the file.
 - [ ] Export `planTopup` and `TOPUP_TARGET_DEFAULT` in the existing `export { ... }` statement.
 - [ ] In `scripts/gh-project.test.mjs`, import `planTopup, TOPUP_TARGET_DEFAULT` from the module.
+- [ ] Add `"blocked"` to the `REQUIRED` array (line 16 in the current file, the hardcoded list of
+      must-have mirror labels). This ensures the existing test `"mirror set covers every label the
+      routines read/write"` catches any accidental future removal of `blocked` from `MIRROR_LABELS`.
 - [ ] Add these unit tests:
   - `TOPUP_TARGET_DEFAULT is a positive integer` — `assert.ok(Number.isInteger(TOPUP_TARGET_DEFAULT) && TOPUP_TARGET_DEFAULT > 0)`.
   - `planTopup returns empty toNominate when queue is already at target` — readyCount=3, target=3, one candidate row → `toNominate` is `[]`, `deficit` is 0.
@@ -158,7 +161,8 @@ intents to fill the Ready queue to target depth; `board-sync.yml` runs it before
   - Log summary: `"Ready: ${readyCount} · target: ${target} · deficit: ${result.deficit} · nominated: ${result.toNominate.length}"`.
   - When `dryRun && result.toNominate.length > 0`: log `"(dry-run; pass --fix to nominate)"`.
 - [ ] Add `case "topup": cmdTopup(rest); break;` to the dispatch switch (after `case "promote"`).
-- [ ] Add `topup [--fix] [--target N]   keep Ready queue at target depth (default ${TOPUP_TARGET_DEFAULT}) by nominating` to `help()` output.
+- [ ] Add this complete help line to `help()` (after the `promote` line, matching the 2-space indent + padding style of adjacent entries):
+      `  topup [--fix] [--target N]       keep Ready queue at target depth (default 3, GHP_TOPUP_TARGET)\n                                  by writing \`promote:ready\` to the highest-priority unblocked\n                                  Backlog leaves; skips \`blocked\` issues; \`promote\` converts intents`
 - [ ] In `.github/workflows/board-sync.yml`, insert `node scripts/gh-project.mjs topup --fix`
       as the **first** step inside the `run:` block, before `node scripts/gh-project.mjs promote --fix`.
 - [ ] Update `docs/project-management.md`:
@@ -173,7 +177,7 @@ intents to fill the Ready queue to target depth; `board-sync.yml` runs it before
 
 #### Acceptance Criteria
 
-- [ ] `node scripts/gh-project.mjs topup --dry-run` (no `--fix`) runs without shell calls and exits 0.
+- [ ] `node scripts/gh-project.mjs topup` (bare, no `--fix`) runs without shell calls, logs summary, and exits 0. Note: the command follows the existing `!argv.includes("--fix")` convention — bare invocation = dry-run. There is no `--dry-run` flag; passing unknown flags is silently ignored.
 - [ ] `node scripts/gh-project.mjs topup --target 0` logs `deficit: 0` and makes no changes even with `--fix`.
 - [ ] `node scripts/gh-project.mjs help` output includes the word `topup`.
 - [ ] `board-sync.yml` contains `topup --fix` before `promote --fix`.
@@ -183,7 +187,7 @@ intents to fill the Ready queue to target depth; `board-sync.yml` runs it before
 #### Testing
 
 ```bash
-node scripts/gh-project.mjs topup --dry-run
+node scripts/gh-project.mjs topup          # bare invocation = dry-run (per convention)
 node scripts/gh-project.mjs topup --target 0
 node scripts/gh-project.mjs help | grep topup
 grep -n "topup" .github/workflows/board-sync.yml
@@ -234,3 +238,12 @@ git commit -m "feat(gh-project): topup command + board-sync integration (#386)"
 - `pRank` is a module-internal function (defined at line ~39 of `gh-project.mjs`). `cmdTopup`
   uses it directly since both live in the same file — no export needed. Only `planTopup` and
   `TOPUP_TARGET_DEFAULT` need to be added to the `export { ... }` statement.
+- `planTopup` receives pre-filtered, pre-sorted candidates (caller's responsibility), unlike
+  `planPromotions`/`planStaleClaims` which filter internally. This is intentional: the filtering
+  logic (isWorkItem + status + label checks) is more complex and benefits from being tested at
+  the `cmdTopup` level. Implementors must NOT move the candidate filtering inside `planTopup`
+  as it would break the unit tests that pass raw arrays.
+- `readyCount` is computed from `board().values()` (on-board issues only). Off-board issues
+  carrying `promote:ready` won't appear in the board cache and are not counted. This causes a
+  slight undercount of in-flight promotions. Over-nomination by 1 is benign (promote converts all
+  intents on the next step) — add a comment in `cmdTopup` noting this limitation.
