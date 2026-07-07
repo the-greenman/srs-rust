@@ -639,7 +639,7 @@ struct PlannedRename {
     from_path: String,
     to_path: String,
     value: serde_json::Value,
-    has_sidecar: bool,
+    sidecar_value: Option<serde_json::Value>,
 }
 
 pub fn upgrade_repository_paths(
@@ -673,13 +673,13 @@ pub fn upgrade_repository_paths(
         }
         if entry.path() != canonical {
             let old_sidecar = sidecar_path_for(entry.path());
-            let has_sidecar = match store.load_instance_json(&old_sidecar) {
-                Ok(_) => true,
-                Err(RepositoryError::NotFound { .. }) => false,
+            let sidecar_value = match store.load_instance_json(&old_sidecar) {
+                Ok(v) => Some(v),
+                Err(RepositoryError::NotFound { .. }) => None,
                 Err(RepositoryError::Io { source, .. })
                     if source.kind() == std::io::ErrorKind::NotFound =>
                 {
-                    false
+                    None
                 }
                 Err(e) => return Err(e),
             };
@@ -689,7 +689,7 @@ pub fn upgrade_repository_paths(
                 from_path: entry.path().to_string(),
                 to_path: canonical,
                 value,
-                has_sidecar,
+                sidecar_value,
             });
         }
     }
@@ -705,12 +705,10 @@ pub fn upgrade_repository_paths(
     for rename in &planned {
         ensure_instance_parent(store, &rename.to_path)?;
         store.save_instance_json(&rename.to_path, &rename.value)?;
-        if rename.has_sidecar {
-            let old_sidecar = sidecar_path_for(&rename.from_path);
+        if let Some(sidecar_value) = &rename.sidecar_value {
             let new_sidecar = sidecar_path_for(&rename.to_path);
-            let sidecar_value = store.load_instance_json(&old_sidecar)?;
             ensure_instance_parent(store, &new_sidecar)?;
-            store.save_instance_json(&new_sidecar, &sidecar_value)?;
+            store.save_instance_json(&new_sidecar, sidecar_value)?;
         }
     }
 
@@ -723,7 +721,7 @@ pub fn upgrade_repository_paths(
     // Phase 4: cleanup — delete old files (best-effort; orphans are harmless per ADR-007)
     for rename in &planned {
         let _ = store.delete_instance_file(&rename.from_path);
-        if rename.has_sidecar {
+        if rename.sidecar_value.is_some() {
             let _ = store.delete_instance_file(&sidecar_path_for(&rename.from_path));
         }
     }
@@ -744,7 +742,12 @@ pub fn upgrade_repository_paths(
 }
 
 pub(crate) fn canonical_instance_path(instance: &SnapshotInstance) -> String {
-    let id8 = &instance.instance_id[..8];
+    let id = &instance.instance_id;
+    assert!(
+        id.len() >= 8,
+        "instance_id '{id}' must be at least 8 characters"
+    );
+    let id8 = &id[..8];
     let slug = match instance.tier {
         0 => instance
             .title
