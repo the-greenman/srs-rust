@@ -774,13 +774,51 @@ Confirm `ok: false`, diagnostic mentions `not found`.
 
 ---
 
+### S20 — Validate RFC-018 I-81: identityInstanceId type check
+
+**Intention.** *"I want to confirm that my repository's identity pointer is set up correctly — and if it still points at a legacy note, get a clear migration hint without the repository being rejected as invalid."*
+
+**Capabilities exercised.** RFC-018 I-81 extension in `validate_repository`: Advisory `Warning` when `identityInstanceId` resolves to a Tier-0 Note or a Tier-2 record of the wrong type; no diagnostic when it resolves to a `com.semanticops.core/purpose` Record; repo remains `ok: true` throughout.
+
+**CLI surface.** `repo create`, `note create`, `container create`, `container members add`, `repo set-root-container`, `repo validate`.
+
+**Steps.**
+
+```bash
+SRS_BIN=target/debug/srs
+SCRATCH=/tmp/dogfood-rfc018
+rm -rf "$SCRATCH"
+
+$SRS_BIN repo create --repo "$SCRATCH" --namespace com.example.rfc018test --pretty
+
+NOTE_ID=$($SRS_BIN note create --repo "$SCRATCH" <<'EOF' | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['note']['instanceId'])"
+{"title": "Placeholder identity", "sections": []}
+EOF
+)
+
+CONTAINER_ID=$($SRS_BIN container create --repo "$SCRATCH" <<'EOF' | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['container']['containerId'])"
+{"title": "Root", "memberInstanceIds": []}
+EOF
+)
+
+$SRS_BIN container members add --repo "$SCRATCH" "$CONTAINER_ID" "$NOTE_ID" --pretty
+$SRS_BIN repo set-root-container --repo "$SCRATCH" --container-id "$CONTAINER_ID" --identity-instance-id "$NOTE_ID" --pretty
+$SRS_BIN repo validate --repo "$SCRATCH" --pretty
+```
+
+**Done when.** `repo validate` returns `ok: true` (not `false`), `summary.errors: 0`, `summary.warnings: 1`, and `diagnostics[0]` is a `"warning"` severity entry with `"path": "manifest.json"` whose message contains `"RFC-018 I-81"` and `"Tier-0 Note"`. The repo is loadable despite the warning — migration is needed (#426), not a hard rejection.
+
+**Negative case (not applicable in isolation).** A Tier-2 record of the wrong type (e.g. `governance/article`) also emits an RFC-018 I-81 warning with the actual type in the message, and the repo still returns `ok: true`. The scaffold integration test `crates/srs-repository/tests/scaffold.rs` covers this path.
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
 
 | Command group | Exercised by |
 |---|---|
-| `repo` (map, validate, init) | S1–S6 (orientation + validation in every scenario); `repo validate` now includes manifest.json schema validation — see S1 negative case; RFC-013 I-79/I-80/I-81/I-82 root-container invariants — see S1 negative case (I-79) and S15 step 10 (full happy path); blueprint semantic validation + protocol stage-dependency validation — see S13 (`repo validate` on a repo with a protocol) |
+| `repo` (map, validate, init) | S1–S6 (orientation + validation in every scenario); `repo validate` now includes manifest.json schema validation — see S1 negative case; RFC-013 I-79/I-80/I-81/I-82 root-container invariants — see S1 negative case (I-79) and S15 step 10 (full happy path); blueprint semantic validation + protocol stage-dependency validation — see S13 (`repo validate` on a repo with a protocol); **RFC-018 I-81** identity type check (Warning when `identityInstanceId` resolves to a Tier-0 Note or wrong Tier-2 type) — see S20 |
 | `repo init-new` (re-stamp seed identity) | S16 |
 | `repo set-root-container` (write manifest.container pointer) | S17 |
 | `repo copy` | S9, S10 |
