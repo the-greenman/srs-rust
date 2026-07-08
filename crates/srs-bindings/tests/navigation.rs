@@ -310,8 +310,7 @@ fn repository_navigation_tier0_note_identity_returns_diagnostic() {
 /// Tier-0 note with no title in the index: display label falls back to the instance ID.
 #[test]
 fn repository_navigation_tier0_note_identity_no_title_uses_id_as_label() {
-    let store =
-        JsonStore::from_srsj(&tier0_nav_fixture_srsj(None)).expect("fixture must load");
+    let store = JsonStore::from_srsj(&tier0_nav_fixture_srsj(None)).expect("fixture must load");
     let nav = repository_navigation(&store).expect("navigation must return Ok, not Err");
 
     assert_eq!(nav.identity.instance_id, NOTE_INSTANCE_ID);

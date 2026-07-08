@@ -70,36 +70,35 @@ pub fn repository_navigation(
     let field_name_index = record_label::build_field_name_index(store)?;
     let mut diagnostics = Vec::new();
 
-    let identity = {
-        let note_entry = manifest
-            .instance_index
-            .iter()
-            .find(|e| e.instance_id() == identity_id && e.is_note());
-        if let Some(entry) = note_entry {
-            // Transitional grace for un-migrated repos whose identityInstanceId points to a
-            // Tier-0 note. Surface a diagnostic and use the index title as the display label
-            // so the repo remains openable. Remove once all repos are migrated to a Tier-2
-            // purpose record (tracked in epic #262 via issues #424 and #426).
-            let label = entry.title().unwrap_or_else(|| identity_id.clone());
-            diagnostics.push(format!(
+    let identity =
+        {
+            let note_entry = manifest
+                .instance_index
+                .iter()
+                .find(|e| e.instance_id() == identity_id && e.is_note());
+            if let Some(entry) = note_entry {
+                // Transitional grace for un-migrated repos whose identityInstanceId points to a
+                // Tier-0 note. Surface a diagnostic and use the index title as the display label
+                // so the repo remains openable. Remove once all repos are migrated to a Tier-2
+                // purpose record (tracked in epic #262 via issues #424 and #426).
+                let label = entry.title().unwrap_or_else(|| identity_id.clone());
+                diagnostics.push(format!(
                 "repository-navigation: identity {identity_id} is a Tier-0 note (un-migrated); \
                  run identity migration to upgrade to a Tier-2 purpose record - see #426"
             ));
-            NavigationNode {
-                instance_id: identity_id.clone(),
-                display_label: label,
-                ..Default::default()
-            }
-        } else {
-            let identity_record =
-                record_store::get_record_by_id(store, &identity_id)?.ok_or_else(|| {
-                    RepositoryError::NotFound {
+                NavigationNode {
+                    instance_id: identity_id.clone(),
+                    display_label: label,
+                    ..Default::default()
+                }
+            } else {
+                let identity_record = record_store::get_record_by_id(store, &identity_id)?
+                    .ok_or_else(|| RepositoryError::NotFound {
                         path: PathBuf::from(format!("instance/{identity_id}")),
-                    }
-                })?;
-            node_for_record(&identity_record, &field_name_index, None)
-        }
-    };
+                    })?;
+                node_for_record(&identity_record, &field_name_index, None)
+            }
+        };
 
     let member_ids = root_container.member_instance_ids.unwrap_or_default();
     let mut section_records = Vec::new();
