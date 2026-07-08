@@ -536,7 +536,7 @@ fn load_package_from_dir(
         Vec<View>,
         Vec<DocumentView>,
         Vec<Theme>,
-        Vec<srs_core::types::blueprint::Blueprint>,
+        Vec<crate::package::LoadedBlueprint>,
         Vec<crate::package::LoadedProtocol>,
     ),
     RepositoryError,
@@ -752,7 +752,7 @@ fn load_package_from_dir(
         themes.push(theme);
     }
 
-    let mut blueprints: Vec<srs_core::types::blueprint::Blueprint> = Vec::new();
+    let mut blueprints: Vec<crate::package::LoadedBlueprint> = Vec::new();
     for blueprint_path in &metadata.blueprints {
         let full_path = package_dir.join(blueprint_path);
         let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
@@ -764,7 +764,10 @@ fn load_package_from_dir(
                 path: full_path.clone(),
                 source,
             })?;
-        blueprints.push(blueprint);
+        blueprints.push(crate::package::LoadedBlueprint {
+            blueprint,
+            source_package: None,
+        });
     }
 
     let mut protocols: Vec<crate::package::LoadedProtocol> = Vec::new();
@@ -965,8 +968,8 @@ impl RepositoryStore for FileStore {
             for theme in &themes {
                 theme_sources.insert(theme.id.clone(), package_dir.clone());
             }
-            for bp in &blueprints {
-                blueprint_sources.insert(bp.id.clone(), package_dir.clone());
+            for lb in &blueprints {
+                blueprint_sources.insert(lb.blueprint.id.clone(), package_dir.clone());
             }
             for lp in &protocols {
                 protocol_sources.insert(lp.protocol.protocol_id.clone(), package_dir.clone());
@@ -1092,21 +1095,25 @@ impl RepositoryStore for FileStore {
                         themes.push(theme);
                     }
                 }
-                for bp in sub_blueprints {
-                    if let Some(first_path) = blueprint_sources.get(&bp.id) {
-                        let existing = blueprints.iter().find(|b| b.id == bp.id).unwrap();
-                        if existing.name != bp.name {
+                for mut lb in sub_blueprints {
+                    if let Some(first_path) = blueprint_sources.get(&lb.blueprint.id) {
+                        let existing = blueprints
+                            .iter()
+                            .find(|b| b.blueprint.id == lb.blueprint.id)
+                            .unwrap();
+                        if existing.blueprint.name != lb.blueprint.name {
                             return Err(RepositoryError::PackageRefConflict {
                                 path: rel_path.to_string(),
                                 kind: "blueprint".to_string(),
-                                id: bp.id.clone(),
+                                id: lb.blueprint.id.clone(),
                                 first_path: first_path.clone(),
                                 second_path: sub_dir.clone(),
                             });
                         }
                     } else {
-                        blueprint_sources.insert(bp.id.clone(), sub_dir.clone());
-                        blueprints.push(bp);
+                        lb.source_package = Some(rel_path.to_string());
+                        blueprint_sources.insert(lb.blueprint.id.clone(), sub_dir.clone());
+                        blueprints.push(lb);
                     }
                 }
                 for mut lp in sub_protocols {

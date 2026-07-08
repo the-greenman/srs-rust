@@ -357,7 +357,7 @@ impl JsonStore {
             Vec<crate::package::LoadedProtocol>,
             Vec<Vocabulary>,
             Vec<Lifecycle>,
-            Vec<srs_core::types::blueprint::Blueprint>,
+            Vec<crate::package::LoadedBlueprint>,
         ),
         RepositoryError,
     > {
@@ -596,17 +596,20 @@ impl JsonStore {
             lifecycles.push(lc);
         }
 
-        let mut blueprints = Vec::new();
+        let mut blueprints: Vec<crate::package::LoadedBlueprint> = Vec::new();
         for rel_path in &metadata.blueprints {
             let full = format!("{package_prefix}/{rel_path}");
-            let bp: srs_core::types::blueprint::Blueprint =
+            let blueprint: srs_core::types::blueprint::Blueprint =
                 serde_json::from_value(self.data_get(&full)?).map_err(|source| {
                     RepositoryError::PackageLoad {
                         path: PathBuf::from(&full),
                         source,
                     }
                 })?;
-            blueprints.push(bp);
+            blueprints.push(crate::package::LoadedBlueprint {
+                blueprint,
+                source_package: None,
+            });
         }
 
         Ok((
@@ -938,12 +941,10 @@ impl RepositoryStore for JsonStore {
                         lifecycles.push(lc);
                     }
                 }
-                for bp in sub_blueprints {
-                    if !blueprints
-                        .iter()
-                        .any(|b: &srs_core::types::blueprint::Blueprint| b.id == bp.id)
-                    {
-                        blueprints.push(bp);
+                for mut lb in sub_blueprints {
+                    if !blueprints.iter().any(|b| b.blueprint.id == lb.blueprint.id) {
+                        lb.source_package = Some(rel_path.to_string());
+                        blueprints.push(lb);
                     }
                 }
             }

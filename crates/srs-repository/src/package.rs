@@ -25,7 +25,7 @@ pub struct Package {
     pub views: Vec<View>,
     pub document_views: Vec<DocumentView>,
     pub themes: Vec<Theme>,
-    pub blueprints: Vec<Blueprint>,
+    pub blueprints: Vec<LoadedBlueprint>,
     pub protocols: Vec<LoadedProtocol>,
     pub root: PathBuf,
     /// ext:type-inheritance — external package dependencies declared in dependencyRefs.
@@ -44,6 +44,17 @@ pub struct Package {
 pub struct LoadedProtocol {
     pub protocol: Protocol,
     pub raw: serde_json::Value,
+    pub source_package: Option<String>,
+}
+
+/// A blueprint as loaded from a package, tracking sub-package provenance.
+///
+/// `source_package` is `None` for the root package and `Some(rel_path)` for
+/// blueprints merged from a dependency package. No `raw` field: unlike protocols,
+/// no blueprint CLI command returns an opaque verbatim payload.
+#[derive(Debug, Clone)]
+pub struct LoadedBlueprint {
+    pub blueprint: Blueprint,
     pub source_package: Option<String>,
 }
 
