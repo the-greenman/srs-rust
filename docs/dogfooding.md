@@ -804,9 +804,12 @@ EOF
 $SRS_BIN container members add --repo "$SCRATCH" "$CONTAINER_ID" "$NOTE_ID" --pretty
 $SRS_BIN repo set-root-container --repo "$SCRATCH" --container-id "$CONTAINER_ID" --identity-instance-id "$NOTE_ID" --pretty
 $SRS_BIN repo validate --repo "$SCRATCH" --pretty
+$SRS_BIN repo navigation --repo "$SCRATCH" --pretty
 ```
 
 **Done when.** `repo validate` returns `ok: true` (not `false`), `summary.errors: 0`, `summary.warnings: 1`, and `diagnostics[0]` is a `"warning"` severity entry with `"path": "manifest.json"` whose message contains `"RFC-018 I-81"` and `"Tier-0 Note"`. The repo is loadable despite the warning — migration is needed (#426), not a hard rejection.
+
+`repo navigation` also returns `ok: true` (not an error), `payload.navigation.identity.instanceId == $NOTE_ID`, `payload.navigation.identity.displayLabel == "Placeholder identity"` (the note title from the index), and `payload.navigation.diagnostics` contains exactly one entry whose message contains `"Tier-0"`. This confirms the graceful branch lands in the navigation payload rather than propagating a hard error (#427).
 
 **Negative case (not applicable in isolation).** A Tier-2 record of the wrong type (e.g. `governance/article`) also emits an RFC-018 I-81 warning with the actual type in the message, and the repo still returns `ok: true`. The scaffold integration test `crates/srs-repository/tests/scaffold.rs` covers this path.
 
@@ -842,7 +845,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `container resolve-view` (structured container view, `--view-id`) | S14 |
 | `container resolve-view` authored `excludeLifecycleStates` (ADR-020) | S15 |
 | `find` (ext:discovery query — type/tag/lifecycle/exclude/text) | S15 |
-| `repo navigation` (RFC-013 root container + identity + sections) | S15, S17; WASM binding (`repository_navigation`) verified via integration tests in `crates/srs-bindings/tests/navigation.rs` (#268) |
+| `repo navigation` (RFC-013 root container + identity + sections) | S15, S17; WASM binding (`repository_navigation`) verified via integration tests in `crates/srs-bindings/tests/navigation.rs` (#268); Tier-0 note identity grace (returns Ok + diagnostic instead of erroring) — see S20 (#427) |
 | `srs-gov` (governance client: `repo-create`, `list` + `--all`/`--search`/`--tag`, `tui --smoke`) | S15; `SrsRepository::load` WASM binding applies RFC-014 migration automatically (#381); `crates/srs-repository/tests/scaffold.rs` covers the migrate→scaffold→validate chain |
 | `document-view` (create/get/list/…) | S4, S5, S11 |
 | `render document-view` | S4, S5, S8, S11 |
