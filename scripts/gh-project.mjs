@@ -612,16 +612,22 @@ function planPromotions(rows) {
 
 // Pure staleness planner (unit-tested). `status: in progress` has no board-native timestamp, so
 // callers annotate each row with `claimedAtMs` (epoch ms the label was last applied, from the
-// issue's REST event timeline — see `claimedAt()`) before calling this. Only OPEN issues whose
-// board Status is "In progress" are candidates; nothing else in the pipeline ever revisits a claim
-// (`promote` explicitly skips advanced statuses, `reconcile` only mirrors the label) so a dead claim
-// would otherwise sit invisible forever. A row with no resolvable claimedAtMs is reported as
+// issue's REST event timeline — see `claimedAt()`) before calling this. Candidates are OPEN issues
+// carrying the `status: in progress` claim label (or board Status "In progress"); nothing else in
+// the pipeline ever revisits a claim (`promote` explicitly skips advanced statuses, `reconcile` only
+// mirrors the label) so a dead claim would otherwise sit invisible forever. A row with no resolvable claimedAtMs is reported as
 // `unknown` rather than silently left alone or wrongly reclaimed.
 // Returns [{ repo, num, key, itemId, claimedAtMs, action, ageMs }] — action: reclaim|fresh|unknown.
 function planStaleClaims(rows, nowMs, thresholdMs) {
   const out = [];
+  const inProgLabel = STATUS_LABEL_MAP["In progress"];
   for (const row of rows) {
-    if (row.state !== "OPEN" || row.status !== "In progress") continue;
+    // A claim is the `status: in progress` LABEL (what routines actually write — they can't set the
+    // board Status through their proxy), not board Status "In progress". Keying off the label also
+    // recovers zombie claims that never advanced the board (board still "Ready", label still set) —
+    // previously invisible to both this recovery and the consumer. Board-Status matches still count.
+    if (row.state !== "OPEN") continue;
+    if (row.status !== "In progress" && !row.labels?.includes(inProgLabel)) continue;
     const base = { repo: row.repo, num: row.num, key: row.key, itemId: row.itemId, claimedAtMs: row.claimedAtMs ?? null };
     if (row.claimedAtMs == null) { out.push({ ...base, action: "unknown" }); continue; }
     const ageMs = nowMs - row.claimedAtMs;
@@ -694,6 +700,20 @@ function isWorkItem(row) {
   return !row.labels.includes("epic")
     && !row.labels.includes(STORY_LABEL)
     && !row.labels.includes("plan");
+}
+// The Ready-queue depth as the hourly *consumer* sees it: OPEN leaf work-items (no epic/story/plan)
+// that are actually pickable — Status=Ready (or a `promote:ready` intent about to become Ready) and
+// NOT already claimed (`status: in progress`). This MUST match what the consumer skips, or topup
+// mis-measures the queue. Counting stories/epics/claimed items made it read "full" (Ready: 8) while
+// zero consumable work remained, so it never refilled — and merges never rehydrated the queue.
+function isConsumableReady(row) {
+  return row.state === "OPEN"
+    && isWorkItem(row)
+    && !row.labels.includes(STATUS_LABEL_MAP["In progress"])
+    && (row.status === "Ready" || row.labels.includes(PROMOTE_INTENT_LABEL));
+}
+function countConsumableReady(rows) {
+  return rows.filter(isConsumableReady).length;
 }
 // Open leaf work items with no size label.
 function unsizedLeaves() {
@@ -1529,7 +1549,9 @@ const TOPUP_TARGET_DEFAULT = 3;
 function claimedAt(repo, num) {
   let events;
   try {
-    events = ghJson(["api", "--paginate", `repos/${OWNER}/${repo}/issues/${num}/events`]) || [];
+    // Use /timeline, not /issues/{n}/events: the events endpoint 404s for some issues (observed on
+    // srs-rust#367) while /timeline reliably carries `labeled` events with `.label.name`+`.created_at`.
+    events = ghJson(["api", "--paginate", `repos/${OWNER}/${repo}/issues/${num}/timeline`]) || [];
   } catch (e) {
     console.error(`gh-project: warning: could not read events for ${repo}#${num}: ${(e.stderr ? String(e.stderr) : e.message).trim()}`);
     return null;
@@ -1553,7 +1575,10 @@ function cmdStaleClaims(argv) {
   let hours = STALE_CLAIM_HOURS_DEFAULT;
   for (let i = 0; i < argv.length; i++) if (argv[i] === "--hours") hours = Number(argv[++i]);
   const thresholdMs = hours * 3600 * 1000;
-  const candidates = [...board().values()].filter((r) => r.state === "OPEN" && r.status === "In progress");
+  const inProgLabel = STATUS_LABEL_MAP["In progress"];
+  const candidates = [...board().values()].filter(
+    (r) => r.state === "OPEN" && (r.status === "In progress" || r.labels.includes(inProgLabel))
+  );
   const annotated = candidates.map((r) => ({ ...r, claimedAtMs: claimedAt(r.repo, r.num) }));
   const plan = planStaleClaims(annotated, Date.now(), thresholdMs);
   for (const p of plan) {
@@ -1579,9 +1604,11 @@ function cmdStaleClaims(argv) {
 // intents to the highest-priority unblocked Backlog leaves. Runs before `promote --fix` in
 // board-sync.yml so the intents are converted to board Status=Ready on the same run. Idempotent:
 // if the queue is already at or above target, nothing is written. Issues with the `blocked` label
-// are skipped. readyCount includes both Status=Ready and existing `promote:ready` issues already
-// on the board; note: off-board issues carrying `promote:ready` are not counted (they are not
-// in board().values()), so readyCount may undercount by ≤1 — over-nomination by 1 is benign.
+// are skipped. readyCount counts only *consumable* Ready leaves (countConsumableReady): OPEN
+// work-items (no epic/story/plan) that are Status=Ready or carry a `promote:ready` intent and are
+// NOT already claimed (`status: in progress`) — i.e. exactly what the hourly consumer can pick up.
+// note: off-board issues carrying `promote:ready` are not counted (they are not in board().values()),
+// so readyCount may undercount by ≤1 — over-nomination by 1 is benign.
 function cmdTopup(argv) {
   const dryRun = !argv.includes("--fix");
   let target = Number(process.env.GHP_TOPUP_TARGET) || TOPUP_TARGET_DEFAULT;
@@ -1594,11 +1621,7 @@ function cmdTopup(argv) {
   if (!dryRun) for (const repo of MIRROR_REPOS) ensureLabels(repo);
 
   const b = board();
-  let readyCount = 0;
-  for (const row of b.values()) {
-    if (row.state !== "OPEN") continue;
-    if (row.status === "Ready" || row.labels.includes(PROMOTE_INTENT_LABEL)) readyCount++;
-  }
+  const readyCount = countConsumableReady([...b.values()]);
 
   const candidates = [...b.values()].filter((row) =>
     row.state === "OPEN" &&
@@ -1744,7 +1767,7 @@ Auth: requires an authenticated \`gh\` CLI, or GITHUB_TOKEN/GH_TOKEN env var (cu
 // Dispatch
 // ---------------------------------------------------------------------------
 // Pure helpers exported for unit tests. Importing the module must NOT run the CLI.
-export { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs, STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant, planPromotions, PROMOTE_INTENT_LABEL, epicRank, bandTargets, SIZE_WEIGHT, derivePriority, parseIssueRef, planStaleClaims, STALE_CLAIM_HOURS_DEFAULT, planTopup, TOPUP_TARGET_DEFAULT };
+export { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs, STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant, planPromotions, PROMOTE_INTENT_LABEL, epicRank, bandTargets, SIZE_WEIGHT, derivePriority, parseIssueRef, planStaleClaims, STALE_CLAIM_HOURS_DEFAULT, planTopup, TOPUP_TARGET_DEFAULT, isWorkItem, isConsumableReady, countConsumableReady };
 
 // Only dispatch when run directly (`node gh-project.mjs ...`), not when imported.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

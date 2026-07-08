@@ -10,6 +10,7 @@ import {
   bandTargets, SIZE_WEIGHT, derivePriority, parseIssueRef,
   planStaleClaims, STALE_CLAIM_HOURS_DEFAULT,
   planTopup, TOPUP_TARGET_DEFAULT,
+  isWorkItem, isConsumableReady, countConsumableReady,
 } from "./gh-project.mjs";
 
 // The labels the scheduled cloud routines read/write. Missing any one hard-fails a
@@ -296,4 +297,74 @@ test("planTopup returns empty toNominate when queue exceeds target (overprovisio
   const result = planTopup(candidates, 5, 3);
   assert.deepEqual(result.toNominate, []);
   assert.equal(result.deficit, 0);
+});
+
+// countConsumableReady is the queue-depth measure topup uses. It must match exactly what the hourly
+// consumer can pick up — else topup mis-measures. Regression: it once counted stories/epics/claimed
+// items, so a queue of 5 stories + 1 epic + 2 claimed read "full" (8) while 0 consumable work
+// remained, and topup never refilled (and merges never rehydrated the queue).
+const crow = (o) => ({ repo: "srs-rust", num: o.num ?? 1, key: `srs-rust#${o.num ?? 1}`, state: "OPEN", status: null, labels: [], ...o });
+
+test("isConsumableReady: a plain Ready work-item counts", () => {
+  assert.equal(isConsumableReady(crow({ status: "Ready" })), true);
+});
+
+test("isConsumableReady: a Backlog item carrying promote:ready counts (about to be Ready)", () => {
+  assert.equal(isConsumableReady(crow({ status: "Backlog", labels: ["promote:ready"] })), true);
+});
+
+test("isConsumableReady: epics, stories, and plans never count even when Ready", () => {
+  assert.equal(isConsumableReady(crow({ status: "Ready", labels: ["epic"] })), false);
+  assert.equal(isConsumableReady(crow({ status: "Ready", labels: ["user-story"] })), false);
+  assert.equal(isConsumableReady(crow({ status: "Ready", labels: ["plan"] })), false);
+});
+
+test("isConsumableReady: an already-claimed (status: in progress) Ready item does not count", () => {
+  assert.equal(isConsumableReady(crow({ status: "Ready", labels: ["status: in progress"] })), false);
+});
+
+test("isConsumableReady: CLOSED and non-Ready items do not count", () => {
+  assert.equal(isConsumableReady(crow({ status: "Ready", state: "CLOSED" })), false);
+  assert.equal(isConsumableReady(crow({ status: "Backlog" })), false);
+});
+
+test("countConsumableReady mirrors the real drain scenario: 5 stories + 1 epic + 2 claimed = 0 consumable", () => {
+  const rows = [
+    crow({ num: 1, status: "Ready", labels: ["user-story"] }),
+    crow({ num: 2, status: "Ready", labels: ["user-story"] }),
+    crow({ num: 3, status: "Ready", labels: ["user-story"] }),
+    crow({ num: 4, status: "Ready", labels: ["user-story"] }),
+    crow({ num: 5, status: "Ready", labels: ["user-story"] }),
+    crow({ num: 6, status: "Ready", labels: ["plan", "epic"] }),
+    crow({ num: 7, status: "Ready", labels: ["ready", "status: in progress"] }),
+    crow({ num: 8, status: "Ready", labels: ["ready", "status: in progress"] }),
+  ];
+  assert.equal(countConsumableReady(rows), 0);
+});
+
+test("countConsumableReady counts only the genuinely pickable leaves in a mixed board", () => {
+  const rows = [
+    crow({ num: 1, status: "Ready" }),                                  // ✓
+    crow({ num: 2, status: "Backlog", labels: ["promote:ready"] }),     // ✓ intent
+    crow({ num: 3, status: "Ready", labels: ["user-story"] }),          // ✗ story
+    crow({ num: 4, status: "Ready", labels: ["status: in progress"] }), // ✗ claimed
+    crow({ num: 5, status: "Backlog" }),                                // ✗ not ready
+  ];
+  assert.equal(countConsumableReady(rows), 2);
+});
+
+// D3: a claim is the `status: in progress` LABEL (routines can't set board Status), so stale-claims
+// must recover a zombie claim whose board Status never advanced past "Ready".
+test("planStaleClaims recovers a label-only claim (board still Ready) that is stale", () => {
+  const now = 100 * HOUR;
+  const rows = [
+    srow({ num: 50, status: "Ready", labels: ["ready", "status: in progress"], claimedAtMs: now - 48 * HOUR }),
+  ];
+  const plan = planStaleClaims(rows, now, 24 * HOUR);
+  assert.deepEqual(plan.map((p) => [p.num, p.action]), [[50, "reclaim"]]);
+});
+
+test("planStaleClaims ignores a Ready item that is NOT claimed (no in-progress label)", () => {
+  const rows = [srow({ num: 51, status: "Ready", labels: ["ready"], claimedAtMs: 0 })];
+  assert.deepEqual(planStaleClaims(rows, 100 * HOUR, 24 * HOUR), []);
 });
