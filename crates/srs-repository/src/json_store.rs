@@ -217,6 +217,19 @@ impl JsonStore {
                 }
             })?;
         manifest.root = PathBuf::from(".");
+        // Reconcile index entries: if an entry is missing tags but the bundled record
+        // file has tags, fill them in. `list_records_filtered` trusts the index for
+        // tag queries without loading the file, so a stale or absent `tags` field
+        // silently drops records from tag discovery (#406).
+        for entry in &mut manifest.instance_index {
+            if entry.tags.is_none() {
+                if let Some(record_json) = envelope.data.get(entry.path()) {
+                    if let Some(tags) = Self::extract_tags_from_record_json(record_json) {
+                        entry.tags = Some(tags);
+                    }
+                }
+            }
+        }
         Ok(Self {
             file_path: mem_path,
             state: RefCell::new(JsonStoreState {
@@ -226,6 +239,14 @@ impl JsonStore {
                 batching: false,
             }),
         })
+    }
+
+    /// Extract the `tags` array from a record JSON value.
+    /// Returns `None` if the field is absent, null, or not a valid `Vec<String>`.
+    fn extract_tags_from_record_json(record_json: &serde_json::Value) -> Option<Vec<String>> {
+        record_json
+            .get("tags")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
     }
 
     pub fn open(file_path: impl Into<PathBuf>) -> Result<Self, RepositoryError> {
@@ -2566,6 +2587,141 @@ mod tests {
         assert!(
             !package.blueprints.is_empty(),
             "governance-seed.srsj contains at least one blueprint; load_package must not drop it"
+        );
+    }
+
+    // --- Index tag reconciliation tests (#406) ---
+
+    /// Build a minimal .srsj JSON string where the manifest instanceIndex has no `tags`
+    /// field on a tier-2 entry but the bundled record file carries `tags: ["foo"]`.
+    fn tagless_index_srsj() -> String {
+        serde_json::json!({
+            "srsj": "1",
+            "manifest": {
+                "instanceIndex": [
+                    {
+                        "instanceId": "00000000-0000-4000-8000-000000000001",
+                        "tier": 2,
+                        "path": "records/tier-2/test-record.json"
+                    }
+                ]
+            },
+            "data": {
+                "records/tier-2/test-record.json": {
+                    "instanceId": "00000000-0000-4000-8000-000000000001",
+                    "typeId": "00000000-0000-4000-8000-000000000002",
+                    "typeVersion": 1,
+                    "typeNamespace": "com.example.test",
+                    "typeName": "test-type",
+                    "fieldValues": [],
+                    "tags": ["foo"]
+                }
+            }
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn from_srsj_reconciles_tags_from_record_file() {
+        // Regression test for #406: when the manifest instanceIndex has no `tags`
+        // but the bundled record file does, `from_srsj` must fill the index so
+        // tag-filtered queries (`list_records_filtered`) return the record.
+        use crate::record_store::{list_records_filtered, RecordListFilter};
+
+        let srsj = tagless_index_srsj();
+        let store = JsonStore::from_srsj(&srsj).expect("must parse");
+
+        // Verify the reconciliation happened: the index entry must now have tags.
+        let manifest = store.load_manifest().unwrap();
+        assert_eq!(
+            manifest.instance_index[0].tags,
+            Some(vec!["foo".to_string()]),
+            "from_srsj must fill missing index tags from the bundled record file"
+        );
+
+        // Verify that tag discovery works end-to-end.
+        let records = list_records_filtered(
+            &store,
+            RecordListFilter {
+                tag: Some("foo".to_string()),
+                ..Default::default()
+            },
+        )
+        .expect("list_records_filtered must not error");
+        assert_eq!(
+            records.len(),
+            1,
+            "tag-filtered query must find the record whose index tags were reconciled"
+        );
+        assert_eq!(
+            records[0].instance_id,
+            "00000000-0000-4000-8000-000000000001"
+        );
+    }
+
+    #[test]
+    fn from_srsj_reconcile_skips_entries_without_data() {
+        // An index entry whose path is not in the `data` map must not panic or error —
+        // the reconciliation simply leaves `entry.tags` as `None`.
+        let srsj = serde_json::json!({
+            "srsj": "1",
+            "manifest": {
+                "instanceIndex": [
+                    {
+                        "instanceId": "00000000-0000-4000-8000-000000000099",
+                        "tier": 2,
+                        "path": "records/tier-2/missing.json"
+                    }
+                ]
+            },
+            "data": {}
+        })
+        .to_string();
+
+        let store = JsonStore::from_srsj(&srsj).expect("must parse even when data is missing");
+        let manifest = store.load_manifest().unwrap();
+        assert!(
+            manifest.instance_index[0].tags.is_none(),
+            "entry with no data counterpart must keep tags = None"
+        );
+    }
+
+    #[test]
+    fn from_srsj_does_not_overwrite_existing_index_tags() {
+        // If the index entry already has tags set, from_srsj must not overwrite them
+        // even if the bundled record file has different tags.
+        let srsj = serde_json::json!({
+            "srsj": "1",
+            "manifest": {
+                "instanceIndex": [
+                    {
+                        "instanceId": "00000000-0000-4000-8000-000000000001",
+                        "tier": 2,
+                        "path": "records/tier-2/test-record.json",
+                        "tags": ["existing"]
+                    }
+                ]
+            },
+            "data": {
+                "records/tier-2/test-record.json": {
+                    "instanceId": "00000000-0000-4000-8000-000000000001",
+                    "typeId": "00000000-0000-4000-8000-000000000002",
+                    "typeVersion": 1,
+                    "typeNamespace": "com.example.test",
+                    "typeName": "test-type",
+                    "fieldValues": [],
+                    "tags": ["different"]
+                }
+            }
+        })
+        .to_string();
+
+        let store = JsonStore::from_srsj(&srsj).expect("must parse");
+        let manifest = store.load_manifest().unwrap();
+        assert_eq!(
+            manifest.instance_index[0].tags,
+            Some(vec!["existing".to_string()]),
+            "from_srsj must not overwrite an index entry that already has tags"
         );
     }
 }
