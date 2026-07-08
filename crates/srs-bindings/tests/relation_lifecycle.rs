@@ -6,8 +6,7 @@
 // directly via `JsonStore` and the service functions that the WASM wrapper delegates to.
 // These tests call the repository service layer directly, exercising the same service-layer
 // code paths as the WASM methods. They do not invoke the WASM wrapper itself (which requires
-// the WASM runtime). Note: the `set_lifecycle_state` binding has a known divergence from the
-// CLI payload — it discards transition warnings; see #367.
+// the WASM runtime).
 
 use srs_core::types::record::FieldValue;
 use srs_repository::record_store::{self, CreateRecordSuccessorInput, TransitionLifecycleInput};
