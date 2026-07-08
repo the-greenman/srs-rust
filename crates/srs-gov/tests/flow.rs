@@ -325,13 +325,12 @@ fn repo_create_produces_valid_srsj() {
         .as_str()
         .unwrap_or("");
     assert_eq!(ns, "com.mudemocracy.governance");
-    // contentHash must be present and well-formed (RFC-014 R10)
-    let ch = content["manifest"]["upstreamPackage"]["contentHash"]
-        .as_str()
-        .unwrap_or("");
+    // RFC-014 Rev 4 records no contentHash — divergence is detected by file comparison.
     assert!(
-        ch.starts_with("sha256:") && ch.len() == 71,
-        "contentHash missing or malformed: {ch:?}"
+        content["manifest"]["upstreamPackage"]
+            .get("contentHash")
+            .is_none(),
+        "RFC-014 Rev 4 upstreamPackage must not carry a contentHash"
     );
 
     // RFC-013: a required root container is scaffolded with identity + sections in the store.

@@ -4,12 +4,16 @@
   "title": "SRS Repository Manifest (ext:repository)",
   "description": "Root file for a SRS ext:repository. Acts as the authoritative index and entry point for the repository. Every repository must have exactly one manifest.json at its root.",
   "type": "object",
-  "required": ["$schema", "srsVersion", "repositoryId", "title", "container", "instanceIndex", "createdAt"],
+  "required": [
+    "$schema",
+    "srsVersion",
+    "repositoryId",
+    "title",
+    "container",
+    "instanceIndex",
+    "createdAt"
+  ],
   "additionalProperties": false,
-  "not": {
-    "required": ["upstreamPackage", "upstreamPackages"],
-    "description": "R8 (RFC-014): a repository MUST NOT declare both upstreamPackage and upstreamPackages."
-  },
   "properties": {
     "$schema": {
       "type": "string",
@@ -36,7 +40,9 @@
     },
     "declaredExtensions": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "description": "SRS extensions this repository conforms to, e.g. ['ext:lifecycle', 'ext:views-l1', 'ext:views-l2']."
     },
     "container": {
@@ -45,7 +51,9 @@
     },
     "containerIndex": {
       "type": "array",
-      "items": { "$ref": "#/$defs/ContainerIndexEntry" },
+      "items": {
+        "$ref": "#/$defs/ContainerIndexEntry"
+      },
       "description": "Index of all Containers in this repository."
     },
     "packageRef": {
@@ -54,21 +62,20 @@
     },
     "packageRefs": {
       "type": "array",
-      "items": { "$ref": "#/$defs/PackageRef" },
-      "description": "References to one or more SRS Packages that supply field and type definitions. Use instead of packageRef when multiple packages are in scope."
+      "items": {
+        "$ref": "#/$defs/PackageRef"
+      },
+      "description": "References to one or more SRS Packages that supply field and type definitions. Use instead of packageRef for multi-package and multi-version repositories (see RFC-014 Change C)."
     },
     "upstreamPackage": {
       "$ref": "#/$defs/UpstreamPackage",
-      "description": "RFC-014 (ext:import-tracking). Provenance stamp for a repository initialised from exactly one upstream Package. Records the package identity, version, and content hash at install time. Use upstreamPackages instead when two or more upstream packages are in scope. MUST NOT be present together with upstreamPackages (R8)."
-    },
-    "upstreamPackages": {
-      "type": "array",
-      "items": { "$ref": "#/$defs/UpstreamPackage" },
-      "description": "RFC-014 (ext:import-tracking). Provenance stamps for a repository initialised from two or more upstream Packages. Each entry records the package identity, version, and content hash at install time. MUST NOT be present together with upstreamPackage (R8). Results are reported in declaration order (R9)."
+      "description": "RFC-014 (ext:import-tracking). Top-level normative provenance stamp for a repository initialised from an upstream Package. Records the package identity, version, and install time. MUST be written at the top level (not inside meta) by conformant tools (R7). On read, tools MUST prefer this field and fall back to meta.upstreamPackage for pre-RFC-014 repositories (R9)."
     },
     "instanceIndex": {
       "type": "array",
-      "items": { "$ref": "#/$defs/InstanceIndexEntry" },
+      "items": {
+        "$ref": "#/$defs/InstanceIndexEntry"
+      },
       "description": "Authoritative list of all instances in this repository. Files not listed here are not members."
     },
     "relationsPath": {
@@ -81,12 +88,16 @@
     },
     "sourceDocumentIndex": {
       "type": "array",
-      "items": { "$ref": "#/$defs/SourceDocumentIndexEntry" },
+      "items": {
+        "$ref": "#/$defs/SourceDocumentIndexEntry"
+      },
       "description": "Optional explicit index of source documents."
     },
     "relationsChecksums": {
       "type": "array",
-      "items": { "$ref": "#/$defs/RelationsChecksumEntry" },
+      "items": {
+        "$ref": "#/$defs/RelationsChecksumEntry"
+      },
       "description": "Optional checksums for each relations file. Enables fast no-op detection during re-import."
     },
     "federationPath": {
@@ -102,17 +113,23 @@
       "description": "Comprehension guidance for AI agents reading this repository.",
       "additionalProperties": false,
       "properties": {
-        "summary": { "type": "string" },
+        "summary": {
+          "type": "string"
+        },
         "suggestedEntryPoints": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
-        "navigationHints": { "type": "string" }
+        "navigationHints": {
+          "type": "string"
+        }
       }
     },
     "meta": {
       "type": "object",
-      "description": "Implementation-local key-value pairs. Common keys: 'sourceOfTruth', 'renderedExports'. Cross-system keys should be namespaced.",
+      "description": "Implementation-local key-value pairs. Common keys: 'sourceOfTruth', 'renderedExports'. Cross-system keys should be namespaced. Note: upstreamPackage was previously accepted here; see manifest.upstreamPackage (RFC-014). Since meta permits additional properties, existing manifests remain schema-valid but conformant tools MUST NOT write meta.upstreamPackage.",
       "properties": {
         "upstreamPackage": {
           "$ref": "#/$defs/UpstreamPackage",
@@ -123,7 +140,9 @@
     },
     "renderedPresentations": {
       "type": "array",
-      "items": { "$ref": "#/$defs/RenderedPresentation" },
+      "items": {
+        "$ref": "#/$defs/RenderedPresentation"
+      },
       "description": "RFC-015 [N+31]. Declared presentations for this repository. A conformant viewer selects the first entry with isDefault:true as the default; when none carry isDefault, the first entry is the default. When absent or empty, viewer falls back to implementation-defined selection."
     },
     "createdAt": {
@@ -138,44 +157,85 @@
   "$defs": {
     "Container": {
       "type": "object",
-      "required": ["containerId", "title"],
+      "required": [
+        "containerId",
+        "title"
+      ],
       "additionalProperties": false,
       "properties": {
-        "containerId": { "type": "string", "format": "uuid" },
-        "namespace": { "type": "string" },
-        "name": { "type": "string" },
-        "title": { "type": "string" },
-        "description": { "type": "string" },
+        "containerId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
         "containerType": {
           "type": "string",
           "description": "Soft-deprecated hint (RFC-009). When rootInstanceIds is present, SHOULD equal the resolved root Type's name field (bare name, not namespace/name). A mismatch is diagnostic-only; the Container remains valid. See RFC-009 I-64."
         },
         "rootInstanceIds": {
           "type": "array",
-          "items": { "type": "string", "format": "uuid" }
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
         },
         "memberInstanceIds": {
           "type": "array",
-          "items": { "type": "string", "format": "uuid" }
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
         },
         "identityInstanceId": {
           "type": "string",
           "format": "uuid",
           "description": "RFC-013. The instance id of the record that is this Container's identity / purpose statement. On the root container (manifest.container), names the repository's identity record (default: the Tier 0 root note). Reassignable; when present MUST equal a member id in rootInstanceIds or memberInstanceIds. See RFC-013 I-81."
         },
-        "tags": { "type": "array", "items": { "type": "string" } },
-        "createdAt": { "type": "string", "format": "date-time" },
-        "updatedAt": { "type": "string", "format": "date-time" },
-        "meta": { "type": "object" }
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "meta": {
+          "type": "object"
+        }
       }
     },
     "ContainerIndexEntry": {
       "type": "object",
-      "required": ["containerId", "path"],
+      "required": [
+        "containerId",
+        "path"
+      ],
       "additionalProperties": false,
       "properties": {
-        "containerId": { "type": "string", "format": "uuid" },
-        "title": { "type": "string" },
+        "containerId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "title": {
+          "type": "string"
+        },
         "path": {
           "type": "string",
           "description": "Relative path from manifest.json to the container file."
@@ -184,17 +244,27 @@
           "type": "string",
           "description": "Soft-deprecated hint (RFC-009). SHOULD equal the resolved root Type's name field. See RFC-009 I-64."
         },
-        "tags": { "type": "array", "items": { "type": "string" } }
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       }
     },
     "PackageRef": {
       "type": "object",
-      "required": ["mode"],
+      "required": [
+        "mode"
+      ],
       "additionalProperties": false,
       "properties": {
         "mode": {
           "type": "string",
-          "enum": ["local", "external"],
+          "enum": [
+            "local",
+            "external"
+          ],
           "description": "'local': definitions live in the repository under package/. 'external': definitions are expected pre-installed in the consumer's registry."
         },
         "path": {
@@ -204,21 +274,25 @@
         "packageId": {
           "type": "string",
           "format": "uuid",
-          "description": "Identifies the external package (external mode)."
+          "description": "Stable UUID of the package. For external mode: identifies the upstream package (required per R4a, tool-behavioral, not JSON Schema enforced). For local mode: optional; when set, allows same-logical-package identity check without reading the package manifest file."
         },
         "packageName": {
           "type": "string",
-          "description": "Human-readable name of the external package (external mode)."
+          "description": "Human-readable name of the package (any mode, optional)."
         },
         "packageVersion": {
           "type": "string",
-          "description": "Semver of the external package (external mode)."
+          "description": "Semver of the package (both local and external modes). SHOULD be set when the version is known."
         }
       }
     },
     "InstanceIndexEntry": {
       "type": "object",
-      "required": ["instanceId", "tier", "path"],
+      "required": [
+        "instanceId",
+        "tier",
+        "path"
+      ],
       "additionalProperties": false,
       "properties": {
         "instanceId": {
@@ -227,7 +301,11 @@
         },
         "tier": {
           "type": "integer",
-          "enum": [0, 1, 2]
+          "enum": [
+            0,
+            1,
+            2
+          ]
         },
         "path": {
           "type": "string",
@@ -247,7 +325,9 @@
         },
         "tags": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "checksum": {
           "type": "string",
@@ -258,16 +338,26 @@
     },
     "SourceDocumentIndexEntry": {
       "type": "object",
-      "required": ["documentId", "sidecarPath", "contentPath"],
+      "required": [
+        "documentId",
+        "sidecarPath",
+        "contentPath"
+      ],
       "additionalProperties": false,
       "properties": {
         "documentId": {
           "type": "string",
           "format": "uuid"
         },
-        "sidecarPath": { "type": "string" },
-        "contentPath": { "type": "string" },
-        "title": { "type": "string" },
+        "sidecarPath": {
+          "type": "string"
+        },
+        "contentPath": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
         "sidecarChecksum": {
           "type": "string",
           "pattern": "^[a-z0-9]+:.+$"
@@ -280,10 +370,15 @@
     },
     "RelationsChecksumEntry": {
       "type": "object",
-      "required": ["path", "checksum"],
+      "required": [
+        "path",
+        "checksum"
+      ],
       "additionalProperties": false,
       "properties": {
-        "path": { "type": "string" },
+        "path": {
+          "type": "string"
+        },
         "checksum": {
           "type": "string",
           "pattern": "^[a-z0-9]+:.+$"
@@ -292,7 +387,9 @@
     },
     "RenderedPresentation": {
       "type": "object",
-      "required": ["viewId"],
+      "required": [
+        "viewId"
+      ],
       "additionalProperties": false,
       "description": "RFC-015 [N+31]. A declared presentation of this repository: a DocumentView that a conformant viewer should offer as a rendered entry point.",
       "properties": {
@@ -317,14 +414,20 @@
     },
     "UpstreamPackage": {
       "type": "object",
-      "description": "RFC-014 (ext:import-tracking). Provenance stamp recording the upstream Package a repository was initialised from. Enables repository-level divergence detection (clean / local-ahead / diverged) without network access. Set at repository creation; updated when the upstream Package is upgraded.",
-      "required": ["packageId", "namespace", "name", "version", "installedAt", "contentHash"],
+      "description": "RFC-014 (ext:import-tracking). Normative provenance stamp recording the upstream Package a repository was initialised from. Set at repository creation time; updated when the upstream Package is upgraded.",
+      "required": [
+        "packageId",
+        "namespace",
+        "name",
+        "version",
+        "installedAt"
+      ],
       "additionalProperties": false,
       "properties": {
         "packageId": {
           "type": "string",
           "format": "uuid",
-          "description": "Stable UUID of the upstream Package this repository was created from. Never changes across upgrades within the same Package lineage. Used as the matching key for divergence detection (R5)."
+          "description": "Stable UUID of the upstream Package this repository was created from. Never changes across upgrades."
         },
         "namespace": {
           "type": "string",
@@ -342,11 +445,6 @@
           "type": "string",
           "format": "date-time",
           "description": "When this upstream Package version was installed into the repository."
-        },
-        "contentHash": {
-          "type": "string",
-          "pattern": "^sha256:[0-9a-f]{64}$",
-          "description": "RFC-014 R10. SHA-256 hash of the upstream package content at install time. Format: 'sha256:<lowercase-hex-digest>'. Computed as SHA-256 over: (1) raw bytes of package-manifest.json, then (2) raw bytes of each definition file listed in package-manifest.json (fields[], types[], views[], documentViews[], themes[], relationTypes[], vocabularies[], lifecycles[], blueprints[], protocols[]) in that property order and within each array in declaration order, with no separator bytes. Updated on every upgrade (R11)."
         }
       }
     }

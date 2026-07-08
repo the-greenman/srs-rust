@@ -425,7 +425,7 @@ mod tests {
         .to_string()
     }
 
-    /// RFC-014 format: `upstreamPackage` at top level (not under `meta`), plus `contentHash`.
+    /// RFC-014 format: `upstreamPackage` at top level (not under `meta`).
     fn seed_rfc014_srsj() -> String {
         serde_json::json!({
             "srsj": "1",
@@ -440,7 +440,6 @@ mod tests {
                     "namespace": "com.mudemocracy.governance",
                     "name": "Governance",
                     "version": "1.0.0",
-                    "contentHash": "sha256:abc123",
                     "installedAt": ""
                 }
             },
@@ -675,7 +674,6 @@ mod tests {
                 "namespace": "com.mudemocracy.governance",
                 "name": "governance",
                 "version": "1.0.0",
-                "contentHash": "sha256:abc123",
                 "installedAt": ""
             }),
         );
@@ -714,12 +712,6 @@ mod tests {
                 .as_str()
                 .unwrap(),
             "com.mudemocracy.governance"
-        );
-        assert_eq!(
-            manifest.extra["upstreamPackage"]["contentHash"]
-                .as_str()
-                .unwrap(),
-            "sha256:abc123"
         );
     }
 
@@ -775,12 +767,6 @@ mod tests {
                 .as_str()
                 .unwrap(),
             "pkg-upstream-001"
-        );
-        assert_eq!(
-            parsed["manifest"]["upstreamPackage"]["contentHash"]
-                .as_str()
-                .unwrap(),
-            "sha256:abc123"
         );
     }
 }

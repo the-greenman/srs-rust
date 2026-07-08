@@ -1,72 +1,5 @@
 use crate::error::RepositoryError;
 
-/// Compute the RFC-014 `contentHash` for a package embedded in a `.srsj` bundle.
-///
-/// Hash = SHA-256 over compact-JSON bytes of: `package/package.json`, then each
-/// definition file listed in `package/package.json` (`fields`, `types`, `views`,
-/// `documentViews`, `themes`, `relationTypes`, `vocabularies`, `lifecycles`,
-/// `blueprints`, `protocols`) in that property order, within each array in
-/// declaration order, with no separator bytes.
-///
-/// `data` is the top-level `data` map from a parsed `.srsj` envelope.
-///
-/// Returns an error if `data["package/package.json"]` is absent or null — a malformed
-/// bundle must not silently produce a hash over the string `"null"`.
-pub(crate) fn compute_package_content_hash(
-    data: &serde_json::Value,
-) -> Result<String, RepositoryError> {
-    use sha2::Digest;
-    let pkg = &data["package/package.json"];
-    if pkg.is_null() {
-        return Err(RepositoryError::InvalidSnapshotData {
-            message: "package/package.json absent in srsj data".to_string(),
-        });
-    }
-    let mut hasher = sha2::Sha256::new();
-    hasher.update(
-        serde_json::to_string(pkg)
-            .expect("serde_json::to_string on a validated non-null Value is infallible")
-            .as_bytes(),
-    );
-    for array_key in &[
-        "fields",
-        "types",
-        "views",
-        "documentViews",
-        "themes",
-        "relationTypes",
-        "vocabularies",
-        "lifecycles",
-        "blueprints",
-        "protocols",
-    ] {
-        if let Some(files) = pkg[array_key].as_array() {
-            for file_ref in files {
-                if let Some(rel_path) = file_ref.as_str() {
-                    let data_key = format!("package/{rel_path}");
-                    let entry = &data[&data_key];
-                    if entry.is_null() {
-                        return Err(RepositoryError::InvalidSnapshotData {
-                            message: format!(
-                                "definition file '{data_key}' referenced in \
-                                 package/package.json is absent from srsj data"
-                            ),
-                        });
-                    }
-                    hasher.update(
-                        serde_json::to_string(entry)
-                            .expect(
-                                "serde_json::to_string on a validated non-null Value is infallible",
-                            )
-                            .as_bytes(),
-                    );
-                }
-            }
-        }
-    }
-    Ok(format!("sha256:{:x}", hasher.finalize()))
-}
-
 /// Migrate a raw `.srsj` string (RFC-014) and load it into a `JsonStore` in one call.
 ///
 /// Equivalent to `JsonStore::from_srsj(&migrate_rfc014(srsj_str)?)`, but presented
@@ -79,10 +12,10 @@ pub fn load_from_srsj(srsj_str: &str) -> Result<crate::JsonStore, RepositoryErro
 
 /// Apply the RFC-014 manifest migration to a raw `.srsj` JSON string.
 ///
-/// Moves `manifest.meta.upstreamPackage` to the top-level `manifest.upstreamPackage`
-/// and adds `contentHash` (SHA-256 over the embedded package files). This must be
-/// applied to the raw JSON value before loading into `JsonStore`, because computing
-/// `contentHash` requires access to the embedded package files in the `data` map.
+/// Promotes `manifest.meta.upstreamPackage` to the first-class top-level
+/// `manifest.upstreamPackage` property (RFC-014 Rev 4, change A). No content hash is
+/// recorded — Rev 4 detects divergence by comparing installed definition files against a
+/// reference copy, not via a stored hash.
 ///
 /// Returns the migrated `.srsj` JSON string. If `meta.upstreamPackage` is absent
 /// the input is returned unchanged (idempotent on already-migrated bundles).
@@ -94,14 +27,7 @@ pub fn migrate_rfc014(srsj_str: &str) -> Result<String, RepositoryError> {
         })?;
 
     if seed["manifest"]["meta"]["upstreamPackage"].is_object() {
-        let content_hash = compute_package_content_hash(&seed["data"])?;
-        let pkg_info = seed["manifest"]["meta"]["upstreamPackage"].clone();
-        let mut up = pkg_info.as_object().cloned().unwrap_or_default();
-        up.insert(
-            "contentHash".to_string(),
-            serde_json::Value::String(content_hash),
-        );
-        seed["manifest"]["upstreamPackage"] = serde_json::Value::Object(up);
+        seed["manifest"]["upstreamPackage"] = seed["manifest"]["meta"]["upstreamPackage"].clone();
         if let Some(meta_obj) = seed["manifest"]["meta"].as_object_mut() {
             meta_obj.remove("upstreamPackage");
         }
@@ -126,7 +52,7 @@ mod tests {
     }
 
     #[test]
-    fn migrate_rfc014_moves_upstream_package_and_adds_content_hash() {
+    fn migrate_rfc014_moves_upstream_package_to_top_level() {
         let seed = governance_seed_str();
         let migrated_str = migrate_rfc014(&seed).expect("migration succeeds");
         let migrated: serde_json::Value = serde_json::from_str(&migrated_str).unwrap();
@@ -135,12 +61,11 @@ mod tests {
             migrated["manifest"]["upstreamPackage"].is_object(),
             "upstreamPackage must be at top level after migration"
         );
-        let content_hash = migrated["manifest"]["upstreamPackage"]["contentHash"]
-            .as_str()
-            .expect("contentHash present");
         assert!(
-            content_hash.starts_with("sha256:"),
-            "contentHash must start with sha256:"
+            migrated["manifest"]["upstreamPackage"]
+                .get("contentHash")
+                .is_none(),
+            "RFC-014 Rev 4 must not record a contentHash"
         );
         assert!(
             migrated["manifest"]["meta"]["upstreamPackage"].is_null(),
@@ -158,44 +83,6 @@ mod tests {
         assert_eq!(
             once_v["manifest"]["upstreamPackage"], twice_v["manifest"]["upstreamPackage"],
             "second migration must not change upstreamPackage"
-        );
-    }
-
-    #[test]
-    fn compute_package_content_hash_returns_sha256_prefix() {
-        let seed: serde_json::Value =
-            serde_json::from_str(&governance_seed_str()).expect("seed parses");
-        let hash =
-            compute_package_content_hash(&seed["data"]).expect("hash succeeds on valid data");
-        assert!(hash.starts_with("sha256:"), "hash: {hash}");
-        assert!(hash.len() > 10, "hash non-trivial: {hash}");
-    }
-
-    #[test]
-    fn compute_package_content_hash_errors_on_missing_package_key() {
-        let empty_data = serde_json::Value::Object(Default::default());
-        let err = compute_package_content_hash(&empty_data).unwrap_err();
-        assert!(
-            matches!(err, RepositoryError::InvalidSnapshotData { .. }),
-            "expected InvalidSnapshotData, got: {err:?}"
-        );
-    }
-
-    #[test]
-    fn migrate_rfc014_errors_when_package_json_absent_in_data() {
-        // Valid JSON with upstreamPackage present but data missing package/package.json
-        let input = serde_json::json!({
-            "manifest": {
-                "meta": {
-                    "upstreamPackage": { "id": "com.example.pkg" }
-                }
-            },
-            "data": {}
-        });
-        let err = migrate_rfc014(&serde_json::to_string(&input).unwrap()).unwrap_err();
-        assert!(
-            matches!(err, RepositoryError::InvalidSnapshotData { .. }),
-            "expected InvalidSnapshotData, got: {err:?}"
         );
     }
 
