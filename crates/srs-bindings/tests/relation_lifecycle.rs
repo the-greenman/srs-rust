@@ -393,11 +393,13 @@ fn set_lifecycle_state_result_includes_warnings_field() {
         json.get("warnings").is_some(),
         "serialized result must contain 'warnings' key"
     );
-    let warnings = json["warnings"].as_array().expect("warnings must be an array");
+    let warnings = json["warnings"]
+        .as_array()
+        .expect("warnings must be an array");
     assert!(
-        warnings
-            .iter()
-            .any(|w| w.as_str().map_or(false, |s| s.contains("LIFECYCLE_FINAL_STATE"))),
+        warnings.iter().any(|w| w
+            .as_str()
+            .map_or(false, |s| s.contains("LIFECYCLE_FINAL_STATE"))),
         "warnings must contain LIFECYCLE_FINAL_STATE entry for final-state transition"
     );
 }
