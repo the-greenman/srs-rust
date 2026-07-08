@@ -3,11 +3,11 @@ use crate::container_service::{
 };
 use crate::error::RepositoryError;
 use crate::index::InstanceIndexEntry;
+use crate::paths::{DEFAULT_RECORD_DIR, NOTES_RECORD_DIR, TIER1_RECORD_DIR};
 use crate::relation_service::load_relations;
 use crate::repository_lifecycle::{
     InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
 };
-use crate::paths::{DEFAULT_RECORD_DIR, NOTES_RECORD_DIR, TIER1_RECORD_DIR};
 use crate::store::RepositoryStore;
 use crate::writer::slugify_instance_name;
 use srs_core::types::blueprint::Blueprint;
