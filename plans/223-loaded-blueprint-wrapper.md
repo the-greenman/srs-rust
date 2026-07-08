@@ -2,7 +2,7 @@
 
 ## Summary
 
-`Package.blueprints` currently stores bare `Blueprint` values, discarding sub-package provenance during the merge in `load_package`. `LoadedProtocol` already carries `{ protocol, raw, source_package }` for this exact reason (introduced in #176). This plan adds a structural parallel: `LoadedBlueprint { blueprint, raw, source_package }` in `package.rs`, updates both `FileStore` and `JsonStore` loaders to populate it with the same first-boundary-wins merge logic used for protocols, and fixes all downstream call sites that read `Package.blueprints`. A consumer now exists (`list_blueprints_summary` in `blueprint_service.rs` already tracks `source_package` — the `Package.blueprints` path was the remaining asymmetry). No CLI output changes, no WASM binding changes, no spec change.
+`Package.blueprints` currently stores bare `Blueprint` values, discarding sub-package provenance during the merge in `load_package`. `LoadedProtocol` already carries `{ protocol, raw, source_package }` for this reason (introduced in #176). This plan adds a structural parallel: `LoadedBlueprint { blueprint, source_package }` in `package.rs` — without `raw`, because no blueprint CLI command returns an opaque verbatim payload. Both `FileStore` and `JsonStore` loaders are updated to populate `LoadedBlueprint` with the same first-boundary-wins merge logic used for protocols, and all downstream call sites that read `Package.blueprints` are fixed. A consumer now exists (`list_blueprints_summary` in `blueprint_service.rs` already tracks `source_package` — the `Package.blueprints` path was the remaining asymmetry). No CLI output changes, no WASM binding changes, no spec change.
 
 ## Agent Assignments
 
@@ -42,7 +42,7 @@ No JSON Schema files under `srs/docs/schema/2.0/` are modified. **No schema sync
 
 ## Scope
 
-- Add `LoadedBlueprint { blueprint: Blueprint, raw: serde_json::Value, source_package: Option<String> }` to `crates/srs-repository/src/package.rs`
+- Add `LoadedBlueprint { blueprint: Blueprint, source_package: Option<String> }` to `crates/srs-repository/src/package.rs`
 - Change `Package.blueprints: Vec<Blueprint>` to `Package.blueprints: Vec<LoadedBlueprint>`
 - Update `FileStore::load_package` (in `crates/srs-repository/src/store.rs`) to populate `LoadedBlueprint` and set `source_package = Some(rel_path)` for sub-package blueprints
 - Update `JsonStore::load_package` (in `crates/srs-repository/src/json_store.rs`) to populate `LoadedBlueprint` and set `source_package = Some(rel_path)` for sub-package blueprints
@@ -70,30 +70,30 @@ No JSON Schema files under `srs/docs/schema/2.0/` are modified. **No schema sync
 
 - [ ] In `crates/srs-repository/src/package.rs`, add `LoadedBlueprint` struct immediately after `LoadedProtocol` (lines 43–48):
   ```rust
-  /// A blueprint as loaded from a package, bundling typed struct + verbatim JSON.
+  /// A blueprint as loaded from a package, tracking sub-package provenance.
   ///
-  /// `raw` preserves all fields from the on-disk JSON that are not captured by
-  /// the typed `Blueprint` struct. `source_package` is `None` for the root package
-  /// and `Some(path)` for blueprints merged from a dependency package.
+  /// `source_package` is `None` for the root package and `Some(rel_path)` for
+  /// blueprints merged from a dependency package. No `raw` field is included:
+  /// unlike protocols, no blueprint CLI command returns an opaque verbatim payload.
   #[derive(Debug, Clone)]
   pub struct LoadedBlueprint {
       pub blueprint: Blueprint,
-      pub raw: serde_json::Value,
       pub source_package: Option<String>,
   }
   ```
 - [ ] Change `Package.blueprints: Vec<Blueprint>` (line 28) to `Package.blueprints: Vec<LoadedBlueprint>`
 - [ ] In `crates/srs-repository/src/store.rs`, update `load_package_from_dir`:
-  - At lines 755–768: change blueprint loading to capture `raw` first, then parse `blueprint`, then push `LoadedBlueprint { blueprint, raw, source_package: None }`
+  - At lines 755–768: change blueprint loading to parse `blueprint` from the JSON file, then push `LoadedBlueprint { blueprint, source_package: None }`
   - Update the function's return tuple type: change `Vec<Blueprint>` to `Vec<LoadedBlueprint>`
 - [ ] In `crates/srs-repository/src/store.rs`, update the sub-package merge loop in `load_package` (lines 968–969 and 1095–1109):
   - Change initial `for bp in &blueprints` to `for lb in &blueprints` with `lb.blueprint.id`
   - Change `for bp in sub_blueprints` to `for mut lb in sub_blueprints`; use `lb.blueprint.id`, `lb.blueprint.name`; set `lb.source_package = Some(rel_path.to_string())` before pushing (exactly parallel to protocol handling at line 1128)
 - [ ] In `crates/srs-repository/src/json_store.rs`, update `load_package_from_prefix` (lines 578–588):
-  - Capture `raw: serde_json::Value` from `self.data_get(&full)?`, parse `blueprint` from `raw.clone()`, push `LoadedBlueprint { blueprint, raw, source_package: None }`
+  - Parse `blueprint: Blueprint` from `self.data_get(&full)?`, push `LoadedBlueprint { blueprint, source_package: None }`
+  - Update the function's return type to include `Vec<LoadedBlueprint>` in place of `Vec<Blueprint>`
 - [ ] In `crates/srs-repository/src/json_store.rs`, update sub-package merge loop (lines 920–926):
   - Change `for bp in sub_blueprints` to `for mut lb in sub_blueprints`; check `lb.blueprint.id`; set `lb.source_package = Some(rel_path.to_string())` before pushing
-  - Fix type annotation on the `.any()` closure: change `|b: &srs_core::types::blueprint::Blueprint|` to `|b: &crate::package::LoadedBlueprint|` and use `b.blueprint.id`
+  - Update the `.any()` closure to remove any explicit Blueprint type annotation (change to `LoadedBlueprint`) and use `b.blueprint.id`
 - [ ] In `crates/srs-repository/src/repository_portability.rs` line 339, update:
   ```rust
   blueprints: pkg.blueprints,
@@ -106,7 +106,7 @@ No JSON Schema files under `srs/docs/schema/2.0/` are modified. **No schema sync
 
 #### Acceptance Criteria
 
-- [ ] `LoadedBlueprint` exists in `package.rs` with fields `blueprint: Blueprint`, `raw: serde_json::Value`, `source_package: Option<String>`
+- [ ] `LoadedBlueprint` exists in `package.rs` with fields `blueprint: Blueprint`, `source_package: Option<String>` (no `raw` field)
 - [ ] `Package.blueprints` type is `Vec<LoadedBlueprint>`
 - [ ] `cargo build -p srs-repository` succeeds with zero errors
 
@@ -136,18 +136,24 @@ Specific tests to write or verify:
 
 #### Tasks
 
-- [ ] In `crates/srs-repository/src/package.rs` (in the `#[cfg(test)]` module), add a test `loaded_blueprint_sub_package_sets_source_package`:
+- [ ] In `crates/srs-repository/src/store.rs` (or `package.rs`) test module, add `loaded_blueprint_source_package_filestore`:
   - Create a temp dir with a minimal FileStore repo
   - Add a blueprint to the primary package
-  - Create a sub-package directory with another blueprint
-  - Register the sub-package in `manifest.json` via `packageRefs`
+  - Create a sub-package directory with another blueprint, registered via `packageRefs` in `manifest.json`
   - Call `FileStore::new(root).load_package()`
   - Assert the primary blueprint's `source_package` is `None`
-  - Assert the sub-package blueprint's `source_package` equals `Some("package/ext")` (or whichever path was used)
+  - Assert the sub-package blueprint's `source_package` equals `Some("<rel_path>")` (the relative path used)
+
+- [ ] In `crates/srs-repository/src/json_store.rs` test module, add `loaded_blueprint_source_package_json_store`:
+  - Populate a `JsonStore` with the same two-package fixture (root + sub-package blueprint, sub registered via `packageRefs`)
+  - Call `JsonStore::load_package()`
+  - Assert the same provenance invariants: root blueprint `source_package` is `None`, sub-package blueprint is `Some("<rel_path>")`
+  - This verifies the `JsonStore` sub-package merge path independently from the `FileStore` path
 
 #### Acceptance Criteria
 
-- [ ] `test loaded_blueprint_sub_package_sets_source_package` exists in `package.rs` and passes
+- [ ] `loaded_blueprint_source_package_filestore` exists and passes (FileStore path)
+- [ ] `loaded_blueprint_source_package_json_store` exists and passes (JsonStore path)
 - [ ] `cargo test -p srs-repository` passes with zero failures
 - [ ] `cargo clippy -p srs-repository -- -D warnings` passes
 
@@ -159,7 +165,8 @@ cargo clippy -p srs-repository -- -D warnings
 ```
 
 Specific tests to verify:
-- `loaded_blueprint_sub_package_sets_source_package` — proves source_package is set for sub-package blueprints and None for root package blueprints
+- `loaded_blueprint_source_package_filestore` — proves FileStore sets `source_package` correctly for sub-package blueprints and `None` for root
+- `loaded_blueprint_source_package_json_store` — same assertion via JsonStore, covering the independently-updated merge path
 
 #### Milestone gate
 
@@ -178,7 +185,7 @@ All of the following must be true before this plan is closed:
 - [ ] `cargo clippy -- -D warnings` passes
 - [ ] CLI output format unchanged — `cargo test --test payload_contracts` passes
 - [ ] `bash scripts/check-schema-sync.sh` exits 0 (no entity schemas changed)
-- [ ] `LoadedBlueprint` exists in `package.rs` with `blueprint`, `raw`, `source_package` fields
+- [ ] `LoadedBlueprint` exists in `package.rs` with `blueprint` and `source_package` fields (no `raw`)
 - [ ] `Package.blueprints` is `Vec<LoadedBlueprint>`
 - [ ] A test verifies `source_package` is `None` for root-package blueprints and `Some(path)` for sub-package blueprints
 
