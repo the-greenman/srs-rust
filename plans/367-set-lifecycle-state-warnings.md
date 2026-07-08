@@ -21,6 +21,8 @@ See [agents.md](agents.md) for role definitions.
 |---|---|---|
 | [ADR-010](../docs/adr/010-service-boundary-contract.md) | Service returns typed result; binding must not drop fields from it | accepted |
 | [ADR-013](../docs/adr/013-wasm-binding-strategy.md) | WASM binding calls same service as CLI; uses `to_js(&result)` — no duplicate structs | accepted |
+| [ADR-015](../docs/adr/015-wasm-write-and-export.md) | B7 write bindings (lifecycle transitions) call exactly one service function; no business logic in `srs-bindings` | accepted |
+| [ADR-022](../docs/adr/022-governance-status-is-lifecycle-state.md) | `set_lifecycle_state` is the only correct write path for governance status; CLI/WASM parity is required | accepted |
 
 No new ADRs needed: the fix restores the structural consistency that ADR-013 requires between the CLI and WASM surfaces. The return shape change (`Record` → `{ record, warnings }`) is a breaking change to the WASM JS API but is tracked as part of this issue (#367), and `warnings` was always present in the service result — this makes it visible.
 
@@ -134,7 +136,7 @@ git commit -m "feat(repository): derive Serialize on TransitionLifecycleResult (
     ```
   - Replace the final line `to_js(&result.record)` with `to_js(&result)`
 
-- [ ] In `crates/srs-bindings/tests/relation_lifecycle.rs`, add a new test after `set_lifecycle_state_full_chain_to_final`:
+- [ ] In `crates/srs-bindings/tests/relation_lifecycle.rs`, add a new test after `set_lifecycle_state_full_chain_to_final`. Note: `serde_json` is already in scope (the `lifecycle_srsj()` fixture helper uses `serde_json::json!`); no new import is needed.
   ```rust
   // ---------------------------------------------------------------------------
   // 4c. set_lifecycle_state serialized output contains both `record` and `warnings`.
@@ -242,3 +244,4 @@ All of the following must be true before this plan is closed:
 - `Record` already implements `serde::Serialize` (confirmed: `CreateRecordSuccessorResult` derives it with `pub record: Record`)
 - `to_js` in `srs-bindings/src/lib.rs` calls `serde_json::to_string` internally and converts to `JsValue` — serializing the full result struct works the same way as for `create_record_successor`
 - No downstream WASM consumer in `srs-web` currently reads the `set_lifecycle_state` return value as a multi-field object — the call site returns the full JS object and any consumer reading `.record` from the result will still work correctly since the field is still present
+- `#[serde(rename_all = "camelCase")]` on `TransitionLifecycleResult` has no effect on `record` or `warnings` (neither contains underscores), but is kept for consistency with neighbouring structs (`LifecycleTransitionOption`, `AllowedLifecycleTransitionsResult`) and to document intent for future fields
