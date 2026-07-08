@@ -30,8 +30,7 @@ use crate::revision_service;
 use crate::store::RepositoryStore;
 use crate::writer::{new_instance_id, slugify_instance_name, write_manifest};
 
-/// Default directory for newly created tier-2 records, relative to the repository root.
-pub(crate) const DEFAULT_RECORD_DIR: &str = "records/tier-2";
+use crate::paths::DEFAULT_RECORD_DIR;
 use serde::{Deserialize, Serialize};
 use srs_core::types::record::{FieldValue, Record};
 use srs_core::types::relation::Relation;

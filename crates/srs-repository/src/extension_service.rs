@@ -22,13 +22,12 @@
 use srs_core::types::record::{FieldValue, Record};
 
 use crate::error::RepositoryError;
+use crate::paths::EXTENSION_RECORD_DIR;
 use crate::record_store::{
     create_record_at_dir, delete_record, get_record_by_id, list_records_by_type, update_record,
     UpdateRecordInput,
 };
 use crate::store::RepositoryStore;
-
-pub(crate) const EXTENSION_RECORD_DIR: &str = "package/records";
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]

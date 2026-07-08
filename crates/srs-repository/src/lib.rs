@@ -19,6 +19,7 @@ pub mod manifest_service;
 pub mod package;
 pub mod package_service;
 pub mod package_types;
+pub(crate) mod paths;
 pub mod protocol_service;
 pub mod record_label;
 pub mod record_store;
