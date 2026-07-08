@@ -337,7 +337,7 @@ fn export_package_boundary(
             relation_type_definitions: pkg.relation_type_definitions,
             views: pkg.views,
             document_views: pkg.document_views,
-            blueprints: pkg.blueprints,
+            blueprints: pkg.blueprints.into_iter().map(|lb| lb.blueprint).collect(),
             themes: pkg.themes,
             vocabularies: pkg.vocabularies,
             lifecycles: pkg.lifecycles,

@@ -27,9 +27,9 @@ See [agents.md](agents.md) for role definitions.
 
 No new ADRs are required — this plan implements the Package model pattern established for blueprints in ADR-009 and applies the service contract from ADR-010.
 
-**Design note — `source_package` asymmetry with `Blueprint`:** `LoadedProtocol` carries `source_package: Option<String>` but `Blueprint` does not. This asymmetry is justified by different service requirements: `ProtocolSummary` (the existing CLI output for `protocol list`) includes `source_package`, so the loader must preserve it; blueprints have no equivalent summary type that requires provenance. Adding `LoadedBlueprint` when the blueprint read path is similarly refactored is tracked in #223. The asymmetry is intentional and documented here rather than deferred silently.
+**Design note — `source_package` asymmetry with `Blueprint`:** `LoadedProtocol` carries `source_package: Option<String>` but `Blueprint` did not at the time this plan was written. This asymmetry was intentional and documented here rather than deferred silently. **Resolved in #223** — `LoadedBlueprint { blueprint, source_package }` was added to `package.rs`, removing the asymmetry.
 
-**Design note — JsonStore protocol loading diverges from blueprints:** `JsonStore::load_package()` currently returns `blueprints: vec![]` — blueprints are not loaded through the JsonStore/WASM path. This plan makes protocols the *first* definition type loaded in `load_package_from_prefix()`. This is an intentional divergence: the Decision Logger v1 flow requires protocol lookup through the compiled model for both the CLI (FileStore) and the in-memory roundtrip test (JsonStore), and loading blueprints in JsonStore is a future enhancement (no current consumer). Blueprint loading in JsonStore is tracked as part of #223.
+**Design note — JsonStore protocol loading diverges from blueprints:** At the time this plan was written, `JsonStore::load_package()` returned `blueprints: vec![]`. **Resolved in #223** — blueprint loading in `JsonStore` (and `FileStore`) was completed as part of the `LoadedBlueprint` refactor.
 
 ---
 

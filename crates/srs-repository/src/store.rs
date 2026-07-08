@@ -536,7 +536,7 @@ fn load_package_from_dir(
         Vec<View>,
         Vec<DocumentView>,
         Vec<Theme>,
-        Vec<srs_core::types::blueprint::Blueprint>,
+        Vec<crate::package::LoadedBlueprint>,
         Vec<crate::package::LoadedProtocol>,
     ),
     RepositoryError,
@@ -752,7 +752,7 @@ fn load_package_from_dir(
         themes.push(theme);
     }
 
-    let mut blueprints: Vec<srs_core::types::blueprint::Blueprint> = Vec::new();
+    let mut blueprints: Vec<crate::package::LoadedBlueprint> = Vec::new();
     for blueprint_path in &metadata.blueprints {
         let full_path = package_dir.join(blueprint_path);
         let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
@@ -764,7 +764,10 @@ fn load_package_from_dir(
                 path: full_path.clone(),
                 source,
             })?;
-        blueprints.push(blueprint);
+        blueprints.push(crate::package::LoadedBlueprint {
+            blueprint,
+            source_package: None,
+        });
     }
 
     let mut protocols: Vec<crate::package::LoadedProtocol> = Vec::new();
@@ -965,8 +968,8 @@ impl RepositoryStore for FileStore {
             for theme in &themes {
                 theme_sources.insert(theme.id.clone(), package_dir.clone());
             }
-            for bp in &blueprints {
-                blueprint_sources.insert(bp.id.clone(), package_dir.clone());
+            for lb in &blueprints {
+                blueprint_sources.insert(lb.blueprint.id.clone(), package_dir.clone());
             }
             for lp in &protocols {
                 protocol_sources.insert(lp.protocol.protocol_id.clone(), package_dir.clone());
@@ -1092,21 +1095,25 @@ impl RepositoryStore for FileStore {
                         themes.push(theme);
                     }
                 }
-                for bp in sub_blueprints {
-                    if let Some(first_path) = blueprint_sources.get(&bp.id) {
-                        let existing = blueprints.iter().find(|b| b.id == bp.id).unwrap();
-                        if existing.name != bp.name {
+                for mut lb in sub_blueprints {
+                    if let Some(first_path) = blueprint_sources.get(&lb.blueprint.id) {
+                        let existing = blueprints
+                            .iter()
+                            .find(|b| b.blueprint.id == lb.blueprint.id)
+                            .unwrap();
+                        if existing.blueprint.name != lb.blueprint.name {
                             return Err(RepositoryError::PackageRefConflict {
                                 path: rel_path.to_string(),
                                 kind: "blueprint".to_string(),
-                                id: bp.id.clone(),
+                                id: lb.blueprint.id.clone(),
                                 first_path: first_path.clone(),
                                 second_path: sub_dir.clone(),
                             });
                         }
                     } else {
-                        blueprint_sources.insert(bp.id.clone(), sub_dir.clone());
-                        blueprints.push(bp);
+                        lb.source_package = Some(rel_path.to_string());
+                        blueprint_sources.insert(lb.blueprint.id.clone(), sub_dir.clone());
+                        blueprints.push(lb);
                     }
                 }
                 for mut lp in sub_protocols {
@@ -3601,5 +3608,114 @@ mod tests {
             .find(|b| b.selector == Some("extensions/myext".to_string()))
             .unwrap();
         assert_eq!(ext.id, "ext-pkg");
+    }
+
+    #[test]
+    fn loaded_blueprint_source_package_filestore() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+
+        // Primary package with one blueprint.
+        std::fs::create_dir_all(root.join("package/blueprints")).unwrap();
+        let manifest = serde_json::json!({
+            "instanceIndex": [],
+            "srsVersion": "2.0-draft",
+            "repositoryId": "bp-prov-test",
+            "namespace": "com.test",
+            "packageRefs": [{"mode": "local", "path": "extensions/subpkg"}]
+        });
+        std::fs::write(
+            root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        let primary_pkg = serde_json::json!({
+            "id": "primary-pkg",
+            "namespace": "com.test",
+            "name": "primary",
+            "version": "1.0.0",
+            "fields": [],
+            "types": [],
+            "views": [],
+            "documentViews": [],
+            "blueprints": ["blueprints/root-bp.json"]
+        });
+        std::fs::write(
+            root.join("package/package.json"),
+            serde_json::to_string_pretty(&primary_pkg).unwrap(),
+        )
+        .unwrap();
+        let root_bp = serde_json::json!({
+            "id": "root-bp-001",
+            "namespace": "com.test",
+            "name": "Root Blueprint",
+            "version": 1,
+            "description": "Root package blueprint",
+            "rootTypes": [],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        std::fs::write(
+            root.join("package/blueprints/root-bp.json"),
+            serde_json::to_string_pretty(&root_bp).unwrap(),
+        )
+        .unwrap();
+
+        // Sub-package with one blueprint.
+        std::fs::create_dir_all(root.join("extensions/subpkg/blueprints")).unwrap();
+        let sub_pkg = serde_json::json!({
+            "id": "sub-pkg-001",
+            "namespace": "com.test.ext",
+            "name": "subpkg",
+            "version": "1.0.0",
+            "fields": [],
+            "types": [],
+            "views": [],
+            "documentViews": [],
+            "blueprints": ["blueprints/sub-bp.json"]
+        });
+        std::fs::write(
+            root.join("extensions/subpkg/package.json"),
+            serde_json::to_string_pretty(&sub_pkg).unwrap(),
+        )
+        .unwrap();
+        let sub_bp = serde_json::json!({
+            "id": "sub-bp-002",
+            "namespace": "com.test.ext",
+            "name": "Sub Blueprint",
+            "version": 1,
+            "description": "Sub-package blueprint",
+            "rootTypes": [],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        std::fs::write(
+            root.join("extensions/subpkg/blueprints/sub-bp.json"),
+            serde_json::to_string_pretty(&sub_bp).unwrap(),
+        )
+        .unwrap();
+
+        let store = FileStore::new(root);
+        let package = store.load_package().unwrap();
+        assert_eq!(package.blueprints.len(), 2);
+
+        let root_loaded = package
+            .blueprints
+            .iter()
+            .find(|lb| lb.blueprint.id == "root-bp-001")
+            .expect("root blueprint must be present");
+        assert_eq!(
+            root_loaded.source_package, None,
+            "root package blueprint must have source_package = None"
+        );
+
+        let sub_loaded = package
+            .blueprints
+            .iter()
+            .find(|lb| lb.blueprint.id == "sub-bp-002")
+            .expect("sub-package blueprint must be present");
+        assert_eq!(
+            sub_loaded.source_package,
+            Some("extensions/subpkg".to_string()),
+            "sub-package blueprint must carry source_package = Some(rel_path)"
+        );
     }
 }
