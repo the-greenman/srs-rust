@@ -2,6 +2,7 @@ use crate::container_service::{self, ContainerListFilter};
 use crate::error::RepositoryError;
 use crate::loader::load_note;
 use crate::manifest::Manifest;
+use crate::paths::NOTES_RECORD_DIR;
 use crate::store::RepositoryStore;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -222,7 +223,7 @@ pub fn audit_note_tags_for_note(
         .iter()
         .find(|e| e.is_note() && e.instance_id() == note_id)
         .ok_or_else(|| crate::error::RepositoryError::NoteNotFound {
-            path: std::path::PathBuf::from("records/notes"),
+            path: std::path::PathBuf::from(NOTES_RECORD_DIR),
             id: note_id.to_string(),
         })?;
 
