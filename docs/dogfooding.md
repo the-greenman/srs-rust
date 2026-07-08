@@ -794,7 +794,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `record update` with `typeVersion` migration (srs-rust#42) | S2 negative case — pass `typeVersion: 2` when package has advanced past stored version; confirm `ok: true` and returned record carries `typeVersion: 2`; pass `typeVersion: 99` and confirm `ok: false` with `"type version 99 not found"` diagnostic; `repo validate` must be 0 errors throughout |
 | `record list` core `displayLabel` (tree-parity, type_name fallback) | S1 |
 | `record validate` (no-write preflight) | S2 |
-| `record transition` | S4, S6 |
+| `record transition` | S4, S6; WASM binding (`set_lifecycle_state`) now returns `{ record, warnings }` — verified via integration tests in `crates/srs-bindings/tests/relation_lifecycle.rs` (#367) |
 | `record allowed-transitions` (ext:lifecycle query path, ADR-022) | S19 |
 | `record successor` | S3, S4 |
 | `record tag` | S6 |

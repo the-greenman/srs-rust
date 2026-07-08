@@ -6,8 +6,7 @@
 // directly via `JsonStore` and the service functions that the WASM wrapper delegates to.
 // These tests call the repository service layer directly, exercising the same service-layer
 // code paths as the WASM methods. They do not invoke the WASM wrapper itself (which requires
-// the WASM runtime). Note: the `set_lifecycle_state` binding has a known divergence from the
-// CLI payload — it discards transition warnings; see #367.
+// the WASM runtime).
 
 use srs_core::types::record::FieldValue;
 use srs_repository::record_store::{self, CreateRecordSuccessorInput, TransitionLifecycleInput};
@@ -351,6 +350,57 @@ fn set_lifecycle_state_full_chain_to_final() {
             .iter()
             .any(|w| w.contains("LIFECYCLE_FINAL_STATE")),
         "final-state transition must emit LIFECYCLE_FINAL_STATE warning"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 4c. set_lifecycle_state serialized output contains both `record` and `warnings`.
+//     Mirrors what to_js(&result) does in the WASM binding: serialize the full
+//     TransitionLifecycleResult to JSON and assert both fields are present.
+// ---------------------------------------------------------------------------
+#[test]
+fn set_lifecycle_state_result_includes_warnings_field() {
+    let store = JsonStore::from_srsj(&lifecycle_srsj()).expect("lifecycle fixture must load");
+
+    // Transition to a final state (active → archived) so warnings is non-empty.
+    record_store::transition_record_lifecycle(
+        &store,
+        "rec-lc-001",
+        TransitionLifecycleInput {
+            to: Some("active".to_string()),
+            by_transition: None,
+        },
+    )
+    .expect("draft→active must succeed");
+
+    let result = record_store::transition_record_lifecycle(
+        &store,
+        "rec-lc-001",
+        TransitionLifecycleInput {
+            to: Some("archived".to_string()),
+            by_transition: None,
+        },
+    )
+    .expect("active→archived must succeed");
+
+    // serde_json is already in scope (used by lifecycle_srsj() fixture helper).
+    let json = serde_json::to_value(&result).expect("TransitionLifecycleResult must serialize");
+    assert!(
+        json.get("record").is_some(),
+        "serialized result must contain 'record' key"
+    );
+    assert!(
+        json.get("warnings").is_some(),
+        "serialized result must contain 'warnings' key"
+    );
+    let warnings = json["warnings"]
+        .as_array()
+        .expect("warnings must be an array");
+    assert!(
+        warnings.iter().any(|w| w
+            .as_str()
+            .map_or(false, |s| s.contains("LIFECYCLE_FINAL_STATE"))),
+        "warnings must contain LIFECYCLE_FINAL_STATE entry for final-state transition"
     );
 }
 

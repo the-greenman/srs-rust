@@ -786,7 +786,8 @@ pub struct TransitionLifecycleInput {
 
 /// Result for transition_record_lifecycle — includes warnings for final-state transitions
 /// and any diagnostics from the best-effort revision append step.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TransitionLifecycleResult {
     pub record: Record,
     pub warnings: Vec<String>,

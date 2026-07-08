@@ -266,9 +266,9 @@ impl SrsRepository {
 
     /// Transition a record's lifecycle state.
     /// `state` is the target state name (e.g. `"ratified"`).
-    /// Returns the updated `Record` as a JS value.
-    /// Note: non-fatal warnings (e.g. LIFECYCLE_FINAL_STATE) are not surfaced here;
-    /// the CLI payload exposes them via `RecordTransitionPayload.warnings`. See #367.
+    /// Returns `{ "record": <Record>, "warnings": ["LIFECYCLE_FINAL_STATE: ..."] }` as a JS value.
+    /// `warnings` is empty for non-final transitions; contains a `LIFECYCLE_FINAL_STATE` entry
+    /// when the target state has `isFinal: true`.
     pub fn set_lifecycle_state(&self, instance_id: &str, state: &str) -> Result<JsValue, JsValue> {
         let input = TransitionLifecycleInput {
             to: Some(state.to_string()),
@@ -276,7 +276,7 @@ impl SrsRepository {
         };
         let result = record_store::transition_record_lifecycle(&self.store, instance_id, input)
             .map_err(js_err)?;
-        to_js(&result.record)
+        to_js(&result)
     }
 
     /// Query the allowed lifecycle transitions for a record (ext:lifecycle).
