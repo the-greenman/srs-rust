@@ -68,17 +68,41 @@ pub fn repository_navigation(
         })?;
 
     let field_name_index = record_label::build_field_name_index(store)?;
-    let identity_record =
-        record_store::get_record_by_id(store, &identity_id)?.ok_or_else(|| {
-            RepositoryError::NotFound {
-                path: PathBuf::from(format!("instance/{identity_id}")),
+    let mut diagnostics = Vec::new();
+
+    let identity = {
+        let note_entry = manifest
+            .instance_index
+            .iter()
+            .find(|e| e.instance_id() == identity_id && e.is_note());
+        if let Some(entry) = note_entry {
+            // Transitional grace for un-migrated repos whose identityInstanceId points to a
+            // Tier-0 note. Surface a diagnostic and use the index title as the display label
+            // so the repo remains openable. Remove once all repos are migrated to a Tier-2
+            // purpose record (tracked in epic #262 via issues #424 and #426).
+            let label = entry.title().unwrap_or_else(|| identity_id.clone());
+            diagnostics.push(format!(
+                "repository-navigation: identity {identity_id} is a Tier-0 note (un-migrated); \
+                 run identity migration to upgrade to a Tier-2 purpose record — see #426"
+            ));
+            NavigationNode {
+                instance_id: identity_id.clone(),
+                display_label: label,
+                ..Default::default()
             }
-        })?;
-    let identity = node_for_record(&identity_record, &field_name_index, None);
+        } else {
+            let identity_record =
+                record_store::get_record_by_id(store, &identity_id)?.ok_or_else(|| {
+                    RepositoryError::NotFound {
+                        path: PathBuf::from(format!("instance/{identity_id}")),
+                    }
+                })?;
+            node_for_record(&identity_record, &field_name_index, None)
+        }
+    };
 
     let member_ids = root_container.member_instance_ids.unwrap_or_default();
     let mut section_records = Vec::new();
-    let mut diagnostics = Vec::new();
     for id in &member_ids {
         if id == &identity_id {
             continue;
@@ -427,5 +451,92 @@ mod tests {
                     .to_string()
             ]
         );
+    }
+
+    fn tier0_note_store(note_title: Option<&str>) -> MemoryStore {
+        let note_id = "00000000-0000-4000-8000-00000000d100".to_string();
+        let manifest = Manifest {
+            instance_index: vec![InstanceIndexEntry {
+                instance_id: note_id.clone(),
+                tier: 0,
+                path: "records/notes/intent.json".to_string(),
+                title: note_title.map(|t| serde_json::Value::String(t.to_string())),
+                tags: None,
+            }],
+            container: Some(Container {
+                container_id: "00000000-0000-4000-8000-00000000a000".to_string(),
+                title: String::new(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: Some(note_id.clone()),
+                root_instance_ids: None,
+                member_instance_ids: Some(vec![note_id.clone()]),
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: HashMap::new(),
+            }),
+            container_index: None,
+            extra: HashMap::new(),
+            root: PathBuf::from("/memory"),
+        };
+        let store = MemoryStore::new(manifest, empty_package());
+
+        container_service::create_container(
+            &store,
+            Container {
+                container_id: "00000000-0000-4000-8000-00000000a000".to_string(),
+                title: "Test Repo".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: None,
+                member_instance_ids: Some(vec![note_id]),
+                root_instance_ids: None,
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: HashMap::new(),
+            },
+        )
+        .unwrap();
+
+        store
+    }
+
+    #[test]
+    fn navigation_tier0_note_identity_returns_diagnostic() {
+        let store = tier0_note_store(Some("Test Governance"));
+        let nav = super::repository_navigation(&store).unwrap();
+
+        assert_eq!(
+            nav.identity.instance_id,
+            "00000000-0000-4000-8000-00000000d100"
+        );
+        assert_eq!(nav.identity.display_label, "Test Governance");
+        assert_eq!(nav.diagnostics.len(), 1);
+        assert!(nav.diagnostics[0].contains("Tier-0"));
+        assert!(nav.sections.is_empty());
+    }
+
+    #[test]
+    fn navigation_tier0_note_identity_no_title_falls_back_to_id() {
+        let store = tier0_note_store(None);
+        let nav = super::repository_navigation(&store).unwrap();
+
+        assert_eq!(
+            nav.identity.instance_id,
+            "00000000-0000-4000-8000-00000000d100"
+        );
+        assert_eq!(
+            nav.identity.display_label,
+            "00000000-0000-4000-8000-00000000d100"
+        );
+        assert_eq!(nav.diagnostics.len(), 1);
     }
 }
