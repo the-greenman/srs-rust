@@ -7,7 +7,7 @@ use crate::relation_service::load_relations;
 use crate::repository_lifecycle::{
     InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
 };
-use crate::paths::{DEFAULT_RECORD_DIR, NOTES_RECORD_DIR};
+use crate::paths::{DEFAULT_RECORD_DIR, NOTES_RECORD_DIR, TIER1_RECORD_DIR};
 use crate::store::RepositoryStore;
 use crate::writer::slugify_instance_name;
 use srs_core::types::blueprint::Blueprint;
@@ -769,7 +769,7 @@ pub(crate) fn canonical_instance_path(instance: &SnapshotInstance) -> String {
     };
     match instance.tier {
         0 => format!("{NOTES_RECORD_DIR}/{filename}"),
-        1 => format!("records/tier-1/{filename}"),
+        1 => format!("{TIER1_RECORD_DIR}/{filename}"),
         2 => format!("{DEFAULT_RECORD_DIR}/{filename}"),
         tier => format!("records/tier-{tier}/{filename}"),
     }
