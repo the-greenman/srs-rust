@@ -16,6 +16,7 @@ const ROOT_CONTAINER_ID: &str = "00000000-0000-4000-8000-00000000a000";
 const ARTICLES_CONTAINER_ID: &str = "00000000-0000-4000-8000-00000000b000";
 const DECISIONS_CONTAINER_ID: &str = "00000000-0000-4000-8000-00000000c000";
 const FIELD_TITLE_ID: &str = "00000000-0000-4000-8000-00000000f100";
+const NOTE_INSTANCE_ID: &str = "00000000-0000-4000-8000-00000000d100";
 
 /// Minimal `.srsj` with `manifest.container`, an identity record, two section roots with a
 /// `precedes` relation (articles precedes decisions), and two section containers.
@@ -165,6 +166,157 @@ fn repository_navigation_returns_identity_and_sections() {
     assert!(json["sections"].is_array());
     assert_eq!(json["sections"].as_array().unwrap().len(), 2);
     assert!(json["diagnostics"].as_array().unwrap().is_empty());
+}
+
+/// Fixture for un-migrated repos where identityInstanceId points to a Tier-0 note.
+/// `note_title` controls whether the index entry carries a title (Some) or not (None).
+/// The note file itself is absent — the graceful branch must not attempt to load it.
+fn tier0_nav_fixture_srsj(note_title: Option<&str>) -> String {
+    let mut note_entry = serde_json::json!({
+        "instanceId": NOTE_INSTANCE_ID,
+        "path": "records/notes/intent.json",
+        "tier": 0
+    });
+    if let Some(t) = note_title {
+        note_entry["title"] = serde_json::Value::String(t.to_string());
+    }
+
+    serde_json::json!({
+        "srsj": "1",
+        "manifest": {
+            "repositoryId": "test-repo-tier0",
+            "srsVersion": "2.0-draft",
+            "namespace": "com.test",
+            "container": {
+                "containerId": ROOT_CONTAINER_ID,
+                "title": "Governance Repo",
+                "identityInstanceId": NOTE_INSTANCE_ID,
+                "memberInstanceIds": [NOTE_INSTANCE_ID, ARTICLES_ID, DECISIONS_ID]
+            },
+            "instanceIndex": [
+                note_entry,
+                {"instanceId": ARTICLES_ID, "path": format!("records/tier-2/{ARTICLES_ID}.json"), "tier": 2},
+                {"instanceId": DECISIONS_ID, "path": format!("records/tier-2/{DECISIONS_ID}.json"), "tier": 2}
+            ],
+            "packageRef": {"mode": "local", "path": "package"}
+        },
+        "data": {
+            "package/package.json": {
+                "id": "pkg-nav-tier0",
+                "namespace": "com.test",
+                "name": "test-nav-tier0-package",
+                "version": "1.0.0",
+                "fields": ["fields/title.json"],
+                "types": [],
+                "relationTypes": [],
+                "views": [],
+                "documentViews": [],
+                "blueprints": []
+            },
+            "package/fields/title.json": {
+                "id": FIELD_TITLE_ID,
+                "namespace": "com.test",
+                "name": "title",
+                "version": 1,
+                "description": "Title",
+                "aiGuidance": {},
+                "valueType": "string",
+                "createdAt": "2026-01-01T00:00:00Z"
+            },
+            format!("records/tier-2/{ARTICLES_ID}.json"): {
+                "instanceId": ARTICLES_ID,
+                "typeId": "type-section",
+                "typeVersion": 1,
+                "typeNamespace": "com.test",
+                "typeName": "section",
+                "fieldValues": [{"fieldId": FIELD_TITLE_ID, "value": "Articles"}]
+            },
+            format!("records/tier-2/{DECISIONS_ID}.json"): {
+                "instanceId": DECISIONS_ID,
+                "typeId": "type-section",
+                "typeVersion": 1,
+                "typeNamespace": "com.test",
+                "typeName": "section",
+                "fieldValues": [{"fieldId": FIELD_TITLE_ID, "value": "Decision Log"}]
+            },
+            format!("containers/{ROOT_CONTAINER_ID}.json"): {
+                "containerId": ROOT_CONTAINER_ID,
+                "containerType": "root",
+                "title": "Governance Repo",
+                "memberInstanceIds": [NOTE_INSTANCE_ID, ARTICLES_ID, DECISIONS_ID],
+                "createdAt": "2026-01-01T00:00:00Z"
+            },
+            format!("containers/{ARTICLES_CONTAINER_ID}.json"): {
+                "containerId": ARTICLES_CONTAINER_ID,
+                "containerType": "document",
+                "title": "Articles",
+                "rootInstanceIds": [ARTICLES_ID],
+                "createdAt": "2026-01-01T00:00:00Z"
+            },
+            format!("containers/{DECISIONS_CONTAINER_ID}.json"): {
+                "containerId": DECISIONS_CONTAINER_ID,
+                "containerType": "document",
+                "title": "Decision Log",
+                "rootInstanceIds": [DECISIONS_ID],
+                "createdAt": "2026-01-01T00:00:00Z"
+            },
+            "relations/relations.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
+                "relations": [{
+                    "relationId": "rel-articles-precedes-decisions",
+                    "relationType": "precedes",
+                    "sourceInstanceId": ARTICLES_ID,
+                    "targetInstanceId": DECISIONS_ID,
+                    "createdAt": "2026-01-01T00:00:00Z"
+                }]
+            },
+            "manifest.json": {
+                "containerIndex": [
+                    {"containerId": ARTICLES_CONTAINER_ID, "title": "Articles"},
+                    {"containerId": DECISIONS_CONTAINER_ID, "title": "Decision Log"}
+                ]
+            }
+        }
+    })
+    .to_string()
+}
+
+/// Tier-0 note as identityInstanceId: navigation returns Ok with a diagnostic and uses the
+/// note title from the instance index as the identity display label.
+#[test]
+fn repository_navigation_tier0_note_identity_returns_diagnostic() {
+    let store = JsonStore::from_srsj(&tier0_nav_fixture_srsj(Some("Example Governance")))
+        .expect("fixture must load");
+    let nav = repository_navigation(&store).expect("navigation must return Ok, not Err");
+
+    assert_eq!(nav.identity.instance_id, NOTE_INSTANCE_ID);
+    assert_eq!(nav.identity.display_label, "Example Governance");
+    assert_eq!(nav.diagnostics.len(), 1);
+    assert!(nav.diagnostics[0].contains("Tier-0"));
+
+    assert_eq!(nav.sections.len(), 2);
+    assert_eq!(nav.sections[0].display_label, "Articles");
+    assert_eq!(
+        nav.sections[0].section_container_id.as_deref(),
+        Some(ARTICLES_CONTAINER_ID)
+    );
+    assert_eq!(nav.sections[1].display_label, "Decision Log");
+    assert_eq!(
+        nav.sections[1].section_container_id.as_deref(),
+        Some(DECISIONS_CONTAINER_ID)
+    );
+}
+
+/// Tier-0 note with no title in the index: display label falls back to the instance ID.
+#[test]
+fn repository_navigation_tier0_note_identity_no_title_uses_id_as_label() {
+    let store =
+        JsonStore::from_srsj(&tier0_nav_fixture_srsj(None)).expect("fixture must load");
+    let nav = repository_navigation(&store).expect("navigation must return Ok, not Err");
+
+    assert_eq!(nav.identity.instance_id, NOTE_INSTANCE_ID);
+    assert_eq!(nav.identity.display_label, NOTE_INSTANCE_ID);
+    assert_eq!(nav.diagnostics.len(), 1);
 }
 
 /// Missing manifest.container (pre-RFC-013 repo): sections empty, one diagnostic entry.
