@@ -12,10 +12,8 @@ pub fn load_from_srsj(srsj_str: &str) -> Result<crate::JsonStore, RepositoryErro
 
 /// Apply the RFC-014 manifest migration to a raw `.srsj` JSON string.
 ///
-/// Promotes `manifest.meta.upstreamPackage` to the first-class top-level
-/// `manifest.upstreamPackage` property (RFC-014 Rev 4, change A). No content hash is
-/// recorded — Rev 4 detects divergence by comparing installed definition files against a
-/// reference copy, not via a stored hash.
+/// Moves `manifest.meta.upstreamPackage` to the top-level `manifest.upstreamPackage`
+/// and strips `contentHash` if present (the field was removed from the spec schema).
 ///
 /// Returns the migrated `.srsj` JSON string. If `meta.upstreamPackage` is absent
 /// the input is returned unchanged (idempotent on already-migrated bundles).
@@ -27,7 +25,10 @@ pub fn migrate_rfc014(srsj_str: &str) -> Result<String, RepositoryError> {
         })?;
 
     if seed["manifest"]["meta"]["upstreamPackage"].is_object() {
-        seed["manifest"]["upstreamPackage"] = seed["manifest"]["meta"]["upstreamPackage"].clone();
+        let pkg_info = seed["manifest"]["meta"]["upstreamPackage"].clone();
+        let mut up = pkg_info.as_object().cloned().unwrap_or_default();
+        up.remove("contentHash");
+        seed["manifest"]["upstreamPackage"] = serde_json::Value::Object(up);
         if let Some(meta_obj) = seed["manifest"]["meta"].as_object_mut() {
             meta_obj.remove("upstreamPackage");
         }
@@ -62,10 +63,8 @@ mod tests {
             "upstreamPackage must be at top level after migration"
         );
         assert!(
-            migrated["manifest"]["upstreamPackage"]
-                .get("contentHash")
-                .is_none(),
-            "RFC-014 Rev 4 must not record a contentHash"
+            migrated["manifest"]["upstreamPackage"]["contentHash"].is_null(),
+            "contentHash must be absent after migration (removed from spec schema)"
         );
         assert!(
             migrated["manifest"]["meta"]["upstreamPackage"].is_null(),
@@ -83,6 +82,24 @@ mod tests {
         assert_eq!(
             once_v["manifest"]["upstreamPackage"], twice_v["manifest"]["upstreamPackage"],
             "second migration must not change upstreamPackage"
+        );
+    }
+
+    #[test]
+    fn migrate_rfc014_succeeds_when_package_json_absent_in_data() {
+        // Migration no longer computes contentHash, so missing package/package.json is fine.
+        let input = serde_json::json!({
+            "manifest": {
+                "meta": {
+                    "upstreamPackage": { "packageId": "com.example.pkg" }
+                }
+            },
+            "data": {}
+        });
+        let result = migrate_rfc014(&serde_json::to_string(&input).unwrap());
+        assert!(
+            result.is_ok(),
+            "migration must succeed without package data: {result:?}"
         );
     }
 
