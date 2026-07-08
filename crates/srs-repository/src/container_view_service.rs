@@ -54,6 +54,11 @@ pub struct ResolvedMember {
     pub tier: u8,
     /// Core-resolved label via `record_display_label`.
     pub display_label: String,
+    /// `false` when this member's `lifecycleState` is in the container's authored
+    /// `excludeLifecycleStates` list (ADR-020). `true` when the lifecycle state is absent
+    /// or not in the exclusion list. Clients use this to implement a "show all" toggle
+    /// without re-querying or re-deriving the governing DocumentSection.
+    pub is_visible_by_default: bool,
     pub record: Record,
 }
 
@@ -165,6 +170,7 @@ pub fn resolve_container_view(
             root_id,
             &tier_by_id,
             &field_name_index,
+            &exclude_lifecycle_states,
             "root instance",
             &mut diagnostics,
         )?,
@@ -180,6 +186,7 @@ pub fn resolve_container_view(
             id,
             &tier_by_id,
             &field_name_index,
+            &exclude_lifecycle_states,
             "instance",
             &mut diagnostics,
         )? {
@@ -205,6 +212,7 @@ fn resolve_member(
     id: &str,
     tier_by_id: &HashMap<String, u8>,
     field_name_index: &HashMap<String, String>,
+    exclude_lifecycle_states: &[String],
     kind: &str,
     diagnostics: &mut Vec<String>,
 ) -> Result<Option<ResolvedMember>, RepositoryError> {
@@ -212,10 +220,15 @@ fn resolve_member(
         Some(2) => match record_store::get_record_by_id(store, id)? {
             Some(record) => {
                 let display_label = record_label::record_display_label(&record, field_name_index);
+                let is_visible_by_default = record
+                    .lifecycle_state
+                    .as_deref()
+                    .is_none_or(|s| !exclude_lifecycle_states.iter().any(|e| e == s));
                 Ok(Some(ResolvedMember {
                     instance_id: id.to_string(),
                     tier: 2,
                     display_label,
+                    is_visible_by_default,
                     record,
                 }))
             }
@@ -1088,6 +1101,153 @@ mod tests {
             serde_json::to_value(&from_memory).unwrap(),
             serde_json::to_value(&from_file).unwrap(),
             "ContainerView (incl. exclude_lifecycle_states) must survive memory -> file"
+        );
+    }
+
+    #[test]
+    fn resolve_view_is_visible_by_default_computed() {
+        // Three members: no lifecycle state (→ true), "active" (→ true), "superseded" (→ false)
+        // when the section declares excludeLifecycleStates: ["superseded", "abandoned"].
+        const F_TITLE: &str = "f-title";
+
+        let no_state = record("no-state", F_TITLE, "No State");
+
+        let mut active = record("active-1", F_TITLE, "Active Record");
+        active.lifecycle_state = Some("active".to_string());
+
+        let mut superseded_rec = record("superseded1", F_TITLE, "Superseded Record");
+        superseded_rec.lifecycle_state = Some("superseded".to_string());
+
+        let dv = document_view(
+            DV_ID,
+            vec![section(
+                "s1",
+                0,
+                type_query_source(Some(vec!["superseded", "abandoned"])),
+                Some(VIEW_ID),
+            )],
+        );
+        let store = build_store(
+            vec![field(F_TITLE, "title")],
+            vec![view_with_fields(vec![field_view(F_TITLE, 0, None, None)])],
+            vec![dv],
+            vec![
+                ("no-state", 2, serde_json::to_value(&no_state).unwrap()),
+                ("active-1", 2, serde_json::to_value(&active).unwrap()),
+                (
+                    "superseded1",
+                    2,
+                    serde_json::to_value(&superseded_rec).unwrap(),
+                ),
+            ],
+        );
+        container_service::create_container(
+            &store,
+            make_container(
+                vec!["no-state"],
+                vec!["active-1", "superseded1"],
+            ),
+        )
+        .unwrap();
+
+        let result = resolve_container_view(&store, input(None)).unwrap();
+
+        // Root (no lifecycle state) is visible.
+        assert!(
+            result.root.as_ref().unwrap().is_visible_by_default,
+            "None lifecycle state → visible by default"
+        );
+        // members order: roots-first (no-state), then active-1, superseded1.
+        assert!(
+            result.members[0].is_visible_by_default,
+            "None lifecycle state → visible by default"
+        );
+        assert!(
+            result.members[1].is_visible_by_default,
+            "'active' not in exclusion list → visible by default"
+        );
+        assert!(
+            !result.members[2].is_visible_by_default,
+            "'superseded' in exclusion list → not visible by default"
+        );
+    }
+
+    /// Cross-store roundtrip: `is_visible_by_default: false` must survive memory → file.
+    #[test]
+    fn resolve_view_roundtrip_is_visible_by_default_false() {
+        const F_TITLE: &str = "field-title-0001";
+        const VIEW: &str = "view-decision-0001";
+        const DV: &str = "dv-decision-0001";
+        const ROOT: &str = "record-root-0001";
+        const SUPERSEDED: &str = "record-superseded-0001";
+
+        let fields = vec![field(F_TITLE, "title")];
+        let view = View {
+            id: VIEW.to_string(),
+            ..view_with_fields(vec![field_view(F_TITLE, 0, None, None)])
+        };
+        let dv = DocumentView {
+            id: DV.to_string(),
+            sections: vec![section(
+                "section-0001",
+                0,
+                type_query_source(Some(vec!["superseded", "abandoned"])),
+                Some(VIEW),
+            )],
+            ..document_view(DV, vec![])
+        };
+        let root = record(ROOT, F_TITLE, "Root Decision");
+        let mut superseded_rec = record(SUPERSEDED, F_TITLE, "Superseded Decision");
+        superseded_rec.lifecycle_state = Some("superseded".to_string());
+
+        let store = build_store(
+            fields,
+            vec![view],
+            vec![dv],
+            vec![
+                (ROOT, 2, serde_json::to_value(&root).unwrap()),
+                (SUPERSEDED, 2, serde_json::to_value(&superseded_rec).unwrap()),
+            ],
+        );
+        container_service::create_container(
+            &store,
+            make_container(vec![ROOT], vec![SUPERSEDED]),
+        )
+        .unwrap();
+
+        let from_memory = resolve_container_view(&store, input(None)).unwrap();
+        // Sanity: root is visible, superseded member is not.
+        assert!(from_memory.root.as_ref().unwrap().is_visible_by_default);
+        let sup_mem = from_memory
+            .members
+            .iter()
+            .find(|m| m.instance_id == SUPERSEDED)
+            .expect("superseded member present");
+        assert!(
+            !sup_mem.is_visible_by_default,
+            "memory: 'superseded' → not visible by default"
+        );
+
+        // Roundtrip through FileStore.
+        let temp = tempfile::TempDir::new().unwrap();
+        let file_store = crate::store::FileStore::new(temp.path());
+        crate::repository_portability::copy_repository(&store, &file_store).unwrap();
+        let from_file = resolve_container_view(&file_store, input(None)).unwrap();
+
+        let sup_file = from_file
+            .members
+            .iter()
+            .find(|m| m.instance_id == SUPERSEDED)
+            .expect("superseded member present in file result");
+        assert!(
+            !sup_file.is_visible_by_default,
+            "file: 'superseded' → not visible by default"
+        );
+
+        assert_eq!(
+            serde_json::to_value(&from_memory).unwrap(),
+            serde_json::to_value(&from_file).unwrap(),
+            "is_visible_by_default must survive memory -> file roundtrip"
         );
     }
 }
