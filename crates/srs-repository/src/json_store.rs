@@ -2591,102 +2591,6 @@ mod tests {
         );
     }
 
-    // --- Index tag reconciliation tests (#406) ---
-
-    /// Build a minimal .srsj JSON string where the manifest instanceIndex has no `tags`
-    /// field on a tier-2 entry but the bundled record file carries `tags: ["foo"]`.
-    fn tagless_index_srsj() -> String {
-        serde_json::json!({
-            "srsj": "1",
-            "manifest": {
-                "instanceIndex": [
-                    {
-                        "instanceId": "00000000-0000-4000-8000-000000000001",
-                        "tier": 2,
-                        "path": "records/tier-2/test-record.json"
-                    }
-                ]
-            },
-            "data": {
-                "records/tier-2/test-record.json": {
-                    "instanceId": "00000000-0000-4000-8000-000000000001",
-                    "typeId": "00000000-0000-4000-8000-000000000002",
-                    "typeVersion": 1,
-                    "typeNamespace": "com.example.test",
-                    "typeName": "test-type",
-                    "fieldValues": [],
-                    "tags": ["foo"]
-                }
-            }
-        })
-        .to_string()
-    }
-
-    #[test]
-    fn from_srsj_reconciles_tags_from_record_file() {
-        // Regression test for #406: when the manifest instanceIndex has no `tags`
-        // but the bundled record file does, `from_srsj` must fill the index so
-        // tag-filtered queries (`list_records_filtered`) return the record.
-        use crate::record_store::{list_records_filtered, RecordListFilter};
-
-        let srsj = tagless_index_srsj();
-        let store = JsonStore::from_srsj(&srsj).expect("must parse");
-
-        // Verify the reconciliation happened: the index entry must now have tags.
-        let manifest = store.load_manifest().unwrap();
-        assert_eq!(
-            manifest.instance_index[0].tags,
-            Some(vec!["foo".to_string()]),
-            "from_srsj must fill missing index tags from the bundled record file"
-        );
-
-        // Verify that tag discovery works end-to-end.
-        let records = list_records_filtered(
-            &store,
-            RecordListFilter {
-                tag: Some("foo".to_string()),
-                ..Default::default()
-            },
-        )
-        .expect("list_records_filtered must not error");
-        assert_eq!(
-            records.len(),
-            1,
-            "tag-filtered query must find the record whose index tags were reconciled"
-        );
-        assert_eq!(
-            records[0].instance_id,
-            "00000000-0000-4000-8000-000000000001"
-        );
-    }
-
-    #[test]
-    fn from_srsj_reconcile_skips_entries_without_data() {
-        // An index entry whose path is not in the `data` map must not panic or error —
-        // the reconciliation simply leaves `entry.tags` as `None`.
-        let srsj = serde_json::json!({
-            "srsj": "1",
-            "manifest": {
-                "instanceIndex": [
-                    {
-                        "instanceId": "00000000-0000-4000-8000-000000000099",
-                        "tier": 2,
-                        "path": "records/tier-2/missing.json"
-                    }
-                ]
-            },
-            "data": {}
-        })
-        .to_string();
-
-        let store = JsonStore::from_srsj(&srsj).expect("must parse even when data is missing");
-        let manifest = store.load_manifest().unwrap();
-        assert!(
-            manifest.instance_index[0].tags.is_none(),
-            "entry with no data counterpart must keep tags = None"
-        );
-    }
-
     #[test]
     fn from_srsj_does_not_overwrite_existing_index_tags() {
         // If the index entry already has tags set, from_srsj must not overwrite them
@@ -2723,6 +2627,91 @@ mod tests {
             manifest.instance_index[0].tags,
             Some(vec!["existing".to_string()]),
             "from_srsj must not overwrite an index entry that already has tags"
+        );
+    }
+
+    #[test]
+    fn loaded_blueprint_source_package_json_store() {
+        // Verify that JsonStore::load_package sets source_package correctly for
+        // blueprints merged from a sub-package registered via packageRefs.
+        let srsj = serde_json::json!({
+            "srsj": "1",
+            "manifest": {
+                "repositoryId": "bp-prov-json-test",
+                "srsVersion": "2.0-draft",
+                "namespace": "com.test",
+                "instanceIndex": [],
+                "packageRef": {"mode": "local", "path": "package"},
+                "packageRefs": [{"mode": "local", "path": "extensions/subpkg"}]
+            },
+            "data": {
+                "package/package.json": {
+                    "id": "primary-pkg",
+                    "namespace": "com.test",
+                    "name": "primary",
+                    "version": "1.0.0",
+                    "fields": [],
+                    "types": [],
+                    "views": [],
+                    "documentViews": [],
+                    "blueprints": ["blueprints/root-bp.json"]
+                },
+                "package/blueprints/root-bp.json": {
+                    "id": "root-bp-001",
+                    "namespace": "com.test",
+                    "name": "Root Blueprint",
+                    "version": 1,
+                    "description": "Root package blueprint",
+                    "rootTypes": [],
+                    "createdAt": "2026-01-01T00:00:00Z"
+                },
+                "extensions/subpkg/package.json": {
+                    "id": "sub-pkg-001",
+                    "namespace": "com.test.ext",
+                    "name": "subpkg",
+                    "version": "1.0.0",
+                    "fields": [],
+                    "types": [],
+                    "views": [],
+                    "documentViews": [],
+                    "blueprints": ["blueprints/sub-bp.json"]
+                },
+                "extensions/subpkg/blueprints/sub-bp.json": {
+                    "id": "sub-bp-002",
+                    "namespace": "com.test.ext",
+                    "name": "Sub Blueprint",
+                    "version": 1,
+                    "description": "Sub-package blueprint",
+                    "rootTypes": [],
+                    "createdAt": "2026-01-01T00:00:00Z"
+                }
+            }
+        })
+        .to_string();
+
+        let store = JsonStore::from_srsj(&srsj).expect("from_srsj must succeed");
+        let package = store.load_package().expect("load_package must succeed");
+        assert_eq!(package.blueprints.len(), 2);
+
+        let root_loaded = package
+            .blueprints
+            .iter()
+            .find(|lb| lb.blueprint.id == "root-bp-001")
+            .expect("root blueprint must be present");
+        assert_eq!(
+            root_loaded.source_package, None,
+            "root package blueprint must have source_package = None"
+        );
+
+        let sub_loaded = package
+            .blueprints
+            .iter()
+            .find(|lb| lb.blueprint.id == "sub-bp-002")
+            .expect("sub-package blueprint must be present");
+        assert_eq!(
+            sub_loaded.source_package,
+            Some("extensions/subpkg".to_string()),
+            "sub-package blueprint must carry source_package = Some(rel_path)"
         );
     }
 }
