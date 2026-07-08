@@ -265,8 +265,10 @@ pub fn validate_repository(
             }
 
             // RFC-018 I-81 extension: identityInstanceId MUST resolve to a Tier-2
-            // com.semanticops.core/purpose Record. Un-migrated repos whose identity is
-            // still a Tier-0 Note emit a Warning so they remain loadable until migrated.
+            // com.semanticops.core/purpose Record.
+            // - Tier-0 Note: Warning (transitional grace while migration tooling is absent)
+            // - Tier-2 wrong-type: Warning (migration-period grace; migration tooling tracks #426)
+            // - Other tiers: Warning (unexpected, should not occur in valid SRS repos)
             // Runs independently of full_container availability — only needs the index.
             if let Some(ref identity_id) = root.identity_instance_id {
                 if let Some(idx_entry) = manifest
@@ -324,8 +326,19 @@ pub fn validate_repository(
                                 });
                             }
                         }
+                    } else {
+                        diagnostics.push(ValidationDiagnostic {
+                            severity: DiagnosticSeverity::Warning,
+                            relative_path: "manifest.json".to_string(),
+                            schema_id: None,
+                            message: format!(
+                                "RFC-018 I-81: identityInstanceId '{}' resolves to an \
+                                 unexpected tier {}; must be a Tier-2 com.semanticops.core/purpose Record",
+                                identity_id,
+                                idx_entry.tier()
+                            ),
+                        });
                     }
-                    // other tiers: skip (no valid SRS tier for identity records)
                 }
                 // not found in index: the membership check above already emits an Error
             }
@@ -2850,11 +2863,13 @@ mod tests {
         let i81_errors: Vec<_> = report
             .diagnostics
             .iter()
-            .filter(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("I-81"))
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Error && d.message.contains("RFC-013 I-81")
+            })
             .collect();
         assert!(
             i81_errors.is_empty(),
-            "expected no I-81 errors when identity in rootInstanceIds, got: {:?}",
+            "expected no RFC-013 I-81 errors when identity in rootInstanceIds, got: {:?}",
             report.diagnostics
         );
     }
@@ -2901,11 +2916,13 @@ mod tests {
         let i81_errors: Vec<_> = report
             .diagnostics
             .iter()
-            .filter(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("I-81"))
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Error && d.message.contains("RFC-013 I-81")
+            })
             .collect();
         assert!(
             i81_errors.is_empty(),
-            "expected no I-81 errors when identity in memberInstanceIds, got: {:?}",
+            "expected no RFC-013 I-81 errors when identity in memberInstanceIds, got: {:?}",
             report.diagnostics
         );
     }
@@ -3116,22 +3133,34 @@ mod tests {
         });
         write_json(temp.path(), "containers/section.json", &section_container);
 
-        // Write instance records
-        for id in &[identity_id, section_id] {
-            write_json(
-                temp.path(),
-                &format!("records/{id}.json"),
-                &json!({
-                    "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-                    "instanceId": id,
-                    "typeId": "t1",
-                    "typeVersion": 1,
-                    "typeNamespace": "ns",
-                    "typeName": "Entity",
-                    "fieldValues": []
-                }),
-            );
-        }
+        // Write instance records: identity uses com.semanticops.core/purpose so the
+        // repo also satisfies RFC-018 I-81. Section uses an arbitrary type.
+        write_json(
+            temp.path(),
+            &format!("records/{identity_id}.json"),
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                "instanceId": identity_id,
+                "typeId": "t-purpose",
+                "typeVersion": 1,
+                "typeNamespace": "com.semanticops.core",
+                "typeName": "purpose",
+                "fieldValues": []
+            }),
+        );
+        write_json(
+            temp.path(),
+            &format!("records/{section_id}.json"),
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                "instanceId": section_id,
+                "typeId": "t1",
+                "typeVersion": 1,
+                "typeNamespace": "ns",
+                "typeName": "Entity",
+                "fieldValues": []
+            }),
+        );
 
         let store = crate::store::FileStore::new(temp.path());
         let report = validate_repository(&store).unwrap();
@@ -3519,6 +3548,60 @@ mod tests {
     }
 
     #[test]
+    fn identity_tier0_memory_store_emits_rfc018_warning() {
+        // Cross-store: MemoryStore must produce the same RFC-018 Warning as FileStore
+        // for a Tier-0 Note identity. The Tier-0 path only reads the index tier,
+        // so no data write is needed — the index entry in the manifest is enough.
+        // Note: manifest_store only copies container/container_index from the JSON,
+        // not instance_index, so we push the entry manually after store creation.
+        let identity_id = "00000000-0000-4000-8000-000000000011";
+        let store = manifest_store(manifest_with_identity(identity_id, 0, "records/notes/id.json"));
+        let mut m = store.load_manifest().unwrap();
+        m.instance_index.push(crate::index::InstanceIndexEntry {
+            instance_id: identity_id.to_string(),
+            tier: 0,
+            path: "records/notes/id.json".to_string(),
+            title: None,
+            tags: None,
+        });
+        store.save_manifest(&m).unwrap();
+        // Provide the actual note data so the instance-index validation loop doesn't
+        // emit an I/O error for the missing file.
+        store
+            .save_instance_json("records/notes/id.json", &valid_note(identity_id))
+            .unwrap();
+
+        let report = validate_repository(&store).unwrap();
+
+        let rfc018_diags: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("RFC-018 I-81"))
+            .collect();
+        assert_eq!(
+            rfc018_diags.len(),
+            1,
+            "MemoryStore: expected exactly one RFC-018 I-81 diagnostic, got: {:?}",
+            rfc018_diags
+        );
+        assert_eq!(
+            rfc018_diags[0].severity,
+            DiagnosticSeverity::Warning,
+            "MemoryStore: expected Warning for Tier-0 note identity"
+        );
+        assert!(
+            rfc018_diags[0].message.contains("Tier-0 Note"),
+            "MemoryStore: expected 'Tier-0 Note' in message, got: {}",
+            rfc018_diags[0].message
+        );
+        assert!(
+            report.is_ok(),
+            "MemoryStore: un-migrated repo must remain is_ok(): {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
     fn identity_tier0_note_emits_rfc018_warning() {
         let temp = TempDir::new().unwrap();
         let identity_id = "00000000-0000-4000-8000-000000000001";
@@ -3596,15 +3679,16 @@ mod tests {
             .iter()
             .filter(|d| d.message.contains("RFC-018 I-81"))
             .collect();
-        assert!(
-            !rfc018_diags.is_empty(),
-            "expected at least one RFC-018 I-81 diagnostic for wrong-type Tier-2 identity, got: {:?}",
+        assert_eq!(
+            rfc018_diags.len(),
+            1,
+            "expected exactly one RFC-018 I-81 diagnostic for wrong-type Tier-2 identity, got: {:?}",
             report.diagnostics
         );
         assert_eq!(
             rfc018_diags[0].severity,
             DiagnosticSeverity::Warning,
-            "expected Warning severity for wrong-type Tier-2 identity"
+            "expected Warning severity for wrong-type Tier-2 identity (migration-period grace)"
         );
         assert!(
             rfc018_diags[0].message.contains("com.test/test-type"),
