@@ -325,12 +325,10 @@ fn repo_create_produces_valid_srsj() {
         .as_str()
         .unwrap_or("");
     assert_eq!(ns, "com.mudemocracy.governance");
-    // RFC-014 Rev 4 records no contentHash — divergence is detected by file comparison.
+    // contentHash was removed from the UpstreamPackage spec schema — must be absent
     assert!(
-        content["manifest"]["upstreamPackage"]
-            .get("contentHash")
-            .is_none(),
-        "RFC-014 Rev 4 upstreamPackage must not carry a contentHash"
+        content["manifest"]["upstreamPackage"]["contentHash"].is_null(),
+        "contentHash must be absent from upstreamPackage (removed from spec schema)"
     );
 
     // RFC-013: a required root container is scaffolded with identity + sections in the store.
