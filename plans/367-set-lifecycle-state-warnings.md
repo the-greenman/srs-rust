@@ -66,7 +66,7 @@ No changes to `srs/docs/schema/2.0/` — no action required.
 
 #### Tasks
 
-- [ ] In `crates/srs-repository/src/record_store.rs`, update the `TransitionLifecycleResult` struct (at ~line 790) from:
+- [x] In `crates/srs-repository/src/record_store.rs`, update the `TransitionLifecycleResult` struct (at ~line 790) from:
   ```rust
   #[derive(Debug, Clone)]
   pub struct TransitionLifecycleResult {
@@ -86,9 +86,9 @@ No changes to `srs/docs/schema/2.0/` — no action required.
 
 #### Acceptance Criteria
 
-- [ ] `TransitionLifecycleResult` derives `serde::Serialize` and has `#[serde(rename_all = "camelCase")]`
-- [ ] `cargo test -p srs-repository` passes with no failures
-- [ ] `cargo clippy -p srs-repository -- -D warnings` passes
+- [x] `TransitionLifecycleResult` derives `serde::Serialize` and has `#[serde(rename_all = "camelCase")]`
+- [x] `cargo test -p srs-repository` passes with no failures
+- [x] `cargo clippy -p srs-repository -- -D warnings` passes
 
 #### Testing
 
@@ -136,7 +136,7 @@ git commit -m "feat(repository): derive Serialize on TransitionLifecycleResult (
     ```
   - Replace the final line `to_js(&result.record)` with `to_js(&result)`
 
-- [ ] In `crates/srs-bindings/tests/relation_lifecycle.rs`, add a new test after `set_lifecycle_state_full_chain_to_final`. Note: `serde_json` is already in scope (the `lifecycle_srsj()` fixture helper uses `serde_json::json!`); no new import is needed.
+- [x] In `crates/srs-bindings/tests/relation_lifecycle.rs`, add a new test after `set_lifecycle_state_full_chain_to_final`. Note: `serde_json` is already in scope (the `lifecycle_srsj()` fixture helper uses `serde_json::json!`); no new import is needed.
   ```rust
   // ---------------------------------------------------------------------------
   // 4c. set_lifecycle_state serialized output contains both `record` and `warnings`.
@@ -186,12 +186,12 @@ git commit -m "feat(repository): derive Serialize on TransitionLifecycleResult (
 
 #### Acceptance Criteria
 
-- [ ] `set_lifecycle_state` calls `to_js(&result)` instead of `to_js(&result.record)`
-- [ ] Doc comment reflects the new return shape `{ record, warnings }`
-- [ ] `set_lifecycle_state_result_includes_warnings_field` test exists and passes
-- [ ] `cargo test -p srs-bindings` passes
-- [ ] `cargo clippy -p srs-bindings -- -D warnings` passes
-- [ ] `cargo build -p srs-bindings` succeeds
+- [x] `set_lifecycle_state` calls `to_js(&result)` instead of `to_js(&result.record)`
+- [x] Doc comment reflects the new return shape `{ record, warnings }`
+- [x] `set_lifecycle_state_result_includes_warnings_field` test exists and passes
+- [x] `cargo test -p srs-bindings` passes
+- [x] `cargo clippy -p srs-bindings -- -D warnings` passes
+- [x] `cargo build -p srs-bindings` succeeds
 
 #### Testing
 

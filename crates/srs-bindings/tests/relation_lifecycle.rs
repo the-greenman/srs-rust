@@ -355,6 +355,55 @@ fn set_lifecycle_state_full_chain_to_final() {
 }
 
 // ---------------------------------------------------------------------------
+// 4c. set_lifecycle_state serialized output contains both `record` and `warnings`.
+//     Mirrors what to_js(&result) does in the WASM binding: serialize the full
+//     TransitionLifecycleResult to JSON and assert both fields are present.
+// ---------------------------------------------------------------------------
+#[test]
+fn set_lifecycle_state_result_includes_warnings_field() {
+    let store = JsonStore::from_srsj(&lifecycle_srsj()).expect("lifecycle fixture must load");
+
+    // Transition to a final state (active → archived) so warnings is non-empty.
+    record_store::transition_record_lifecycle(
+        &store,
+        "rec-lc-001",
+        TransitionLifecycleInput {
+            to: Some("active".to_string()),
+            by_transition: None,
+        },
+    )
+    .expect("draft→active must succeed");
+
+    let result = record_store::transition_record_lifecycle(
+        &store,
+        "rec-lc-001",
+        TransitionLifecycleInput {
+            to: Some("archived".to_string()),
+            by_transition: None,
+        },
+    )
+    .expect("active→archived must succeed");
+
+    // serde_json is already in scope (used by lifecycle_srsj() fixture helper).
+    let json = serde_json::to_value(&result).expect("TransitionLifecycleResult must serialize");
+    assert!(
+        json.get("record").is_some(),
+        "serialized result must contain 'record' key"
+    );
+    assert!(
+        json.get("warnings").is_some(),
+        "serialized result must contain 'warnings' key"
+    );
+    let warnings = json["warnings"].as_array().expect("warnings must be an array");
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.as_str().map_or(false, |s| s.contains("LIFECYCLE_FINAL_STATE"))),
+        "warnings must contain LIFECYCLE_FINAL_STATE entry for final-state transition"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // 5. create_record_successor with "supersedes" — new record created, relation
 //    runs from successor (source) to predecessor (target).
 // ---------------------------------------------------------------------------
