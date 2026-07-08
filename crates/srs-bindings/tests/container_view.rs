@@ -163,8 +163,14 @@ fn resolve_container_view_returns_root_members_and_columns() {
     assert_eq!(json["containerView"], serde_json::Value::Null); // sanity: not double-wrapped
     assert!(json["columns"].is_array());
     // isVisibleByDefault must appear on members (no lifecycle state → always true here).
-    assert_eq!(json["members"][0]["isVisibleByDefault"], serde_json::Value::Bool(true));
-    assert_eq!(json["members"][1]["isVisibleByDefault"], serde_json::Value::Bool(true));
+    assert_eq!(
+        json["members"][0]["isVisibleByDefault"],
+        serde_json::Value::Bool(true)
+    );
+    assert_eq!(
+        json["members"][1]["isVisibleByDefault"],
+        serde_json::Value::Bool(true)
+    );
 }
 
 /// Fixture that uses a TypeQuery section source with `excludeLifecycleStates: ["superseded"]`

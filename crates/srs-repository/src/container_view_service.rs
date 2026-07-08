@@ -1143,10 +1143,7 @@ mod tests {
         );
         container_service::create_container(
             &store,
-            make_container(
-                vec!["no-state"],
-                vec!["active-1", "superseded1"],
-            ),
+            make_container(vec!["no-state"], vec!["active-1", "superseded1"]),
         )
         .unwrap();
 
@@ -1206,14 +1203,15 @@ mod tests {
             vec![dv],
             vec![
                 (ROOT, 2, serde_json::to_value(&root).unwrap()),
-                (SUPERSEDED, 2, serde_json::to_value(&superseded_rec).unwrap()),
+                (
+                    SUPERSEDED,
+                    2,
+                    serde_json::to_value(&superseded_rec).unwrap(),
+                ),
             ],
         );
-        container_service::create_container(
-            &store,
-            make_container(vec![ROOT], vec![SUPERSEDED]),
-        )
-        .unwrap();
+        container_service::create_container(&store, make_container(vec![ROOT], vec![SUPERSEDED]))
+            .unwrap();
 
         let from_memory = resolve_container_view(&store, input(None)).unwrap();
         // Sanity: root is visible, superseded member is not.
