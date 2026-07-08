@@ -294,13 +294,9 @@ pub fn validate_repository(
                                     .get("typeNamespace")
                                     .and_then(|v| v.as_str())
                                     .unwrap_or("");
-                                let type_name = val
-                                    .get("typeName")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("");
-                                if !(type_ns == "com.semanticops.core"
-                                    && type_name == "purpose")
-                                {
+                                let type_name =
+                                    val.get("typeName").and_then(|v| v.as_str()).unwrap_or("");
+                                if !(type_ns == "com.semanticops.core" && type_name == "purpose") {
                                     diagnostics.push(ValidationDiagnostic {
                                         severity: DiagnosticSeverity::Warning,
                                         relative_path: "manifest.json".to_string(),
@@ -3555,7 +3551,11 @@ mod tests {
         // Note: manifest_store only copies container/container_index from the JSON,
         // not instance_index, so we push the entry manually after store creation.
         let identity_id = "00000000-0000-4000-8000-000000000011";
-        let store = manifest_store(manifest_with_identity(identity_id, 0, "records/notes/id.json"));
+        let store = manifest_store(manifest_with_identity(
+            identity_id,
+            0,
+            "records/notes/id.json",
+        ));
         let mut m = store.load_manifest().unwrap();
         m.instance_index.push(crate::index::InstanceIndexEntry {
             instance_id: identity_id.to_string(),
@@ -3610,7 +3610,11 @@ mod tests {
             "manifest.json",
             &manifest_with_identity(identity_id, 0, "records/notes/identity.json"),
         );
-        write_json(temp.path(), "records/notes/identity.json", &valid_note(identity_id));
+        write_json(
+            temp.path(),
+            "records/notes/identity.json",
+            &valid_note(identity_id),
+        );
 
         let store = crate::store::FileStore::new(temp.path());
         let report = validate_repository(&store).unwrap();
