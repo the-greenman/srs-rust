@@ -41,7 +41,7 @@ are incorrect regardless of which field UUID they target.
 - Governance files written today remain valid as the tooling evolves: the data model is the
   authoritative transition graph, not a hardcoded constant.
 - The TypeScript transition tables (`LIFECYCLE_TRANSITIONS`, `IMMUTABLE_STATES`) and the
-  hardcoded `STATUS_FIELD_ID` constant are deleted entirely (srs-web ADR-011).
+  hardcoded `STATUS_FIELD_ID` constant are deleted entirely (srs-web ADR-001).
 
 **Negative / trade-offs:**
 - Record types intended as governance decisions must carry the `ext:lifecycle` extension. Types
