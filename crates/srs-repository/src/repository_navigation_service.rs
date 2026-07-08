@@ -83,7 +83,7 @@ pub fn repository_navigation(
             let label = entry.title().unwrap_or_else(|| identity_id.clone());
             diagnostics.push(format!(
                 "repository-navigation: identity {identity_id} is a Tier-0 note (un-migrated); \
-                 run identity migration to upgrade to a Tier-2 purpose record — see #426"
+                 run identity migration to upgrade to a Tier-2 purpose record - see #426"
             ));
             NavigationNode {
                 instance_id: identity_id.clone(),
@@ -434,6 +434,7 @@ mod tests {
             nav.sections[1].section_container_id.as_deref(),
             Some("00000000-0000-4000-8000-00000000c000")
         );
+        assert!(nav.diagnostics.is_empty());
     }
 
     #[test]
@@ -538,5 +539,71 @@ mod tests {
             "00000000-0000-4000-8000-00000000d100"
         );
         assert_eq!(nav.diagnostics.len(), 1);
+    }
+
+    #[test]
+    fn navigation_tier0_identity_and_missing_member_accumulates_both_diagnostics() {
+        // Verify that diagnostics from the identity branch and the sections loop both
+        // accumulate into the same vec — guards against accidentally re-declaring `diagnostics`
+        // between the two push sites.
+        let note_id = "00000000-0000-4000-8000-00000000d100".to_string();
+        let ghost_id = "00000000-0000-4000-8000-00000000ffff".to_string();
+        let manifest = Manifest {
+            instance_index: vec![InstanceIndexEntry {
+                instance_id: note_id.clone(),
+                tier: 0,
+                path: "records/notes/intent.json".to_string(),
+                title: Some(serde_json::Value::String("Test Gov".to_string())),
+                tags: None,
+            }],
+            container: Some(Container {
+                container_id: "00000000-0000-4000-8000-00000000a000".to_string(),
+                title: String::new(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: Some(note_id.clone()),
+                root_instance_ids: None,
+                member_instance_ids: Some(vec![note_id.clone(), ghost_id.clone()]),
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: HashMap::new(),
+            }),
+            container_index: None,
+            extra: HashMap::new(),
+            root: PathBuf::from("/memory"),
+        };
+        let store = MemoryStore::new(manifest, empty_package());
+        container_service::create_container(
+            &store,
+            Container {
+                container_id: "00000000-0000-4000-8000-00000000a000".to_string(),
+                title: "Test Repo".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: None,
+                member_instance_ids: Some(vec![note_id, ghost_id]),
+                root_instance_ids: None,
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: HashMap::new(),
+            },
+        )
+        .unwrap();
+
+        let nav = super::repository_navigation(&store).unwrap();
+        assert_eq!(nav.diagnostics.len(), 2);
+        assert!(nav.diagnostics.iter().any(|d| d.contains("Tier-0")));
+        assert!(nav
+            .diagnostics
+            .iter()
+            .any(|d| d.contains("does not resolve")));
     }
 }
