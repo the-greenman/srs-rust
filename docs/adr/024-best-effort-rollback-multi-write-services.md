@@ -1,6 +1,6 @@
 # ADR-024: Best-effort Rollback for Two-Write Service Operations
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-07-09
 - **Supersedes:** —
 - **Superseded by:** —
