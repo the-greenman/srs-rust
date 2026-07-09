@@ -4,7 +4,7 @@ use crate::error::RepositoryError;
 use crate::index::InstanceIndexEntry;
 use crate::loader;
 use crate::paths;
-use crate::record_store::write_new_record;
+use crate::record_store::{upsert_record_index_entry, write_new_record};
 use crate::store::RepositoryStore;
 use crate::writer;
 use serde::Serialize;
@@ -80,6 +80,7 @@ pub fn migrate_identity(
         let statement = mc
             .description
             .as_deref()
+            .map(str::trim)
             .filter(|d| !d.is_empty())
             .unwrap_or(mc.title.as_str());
         if statement.is_empty() {
@@ -98,25 +99,14 @@ pub fn migrate_identity(
         let record =
             core_purpose::build_purpose_record(&new_id, statement, record_title, &now);
 
-        let relative_path = format!(
-            "{}/purpose-{}.json",
-            paths::DEFAULT_RECORD_DIR,
-            &new_id[..8]
-        );
-        manifest.instance_index.push(InstanceIndexEntry {
-            instance_id: new_id.clone(),
-            tier: 2,
-            path: relative_path.clone(),
-            title: None,
-            tags: None,
-        });
-        if let Some(ref mut container) = manifest.container {
-            container.identity_instance_id = Some(new_id.clone());
-        }
         let root_container_id = mc.container_id.clone();
         store.begin_batch();
         let batch_result = (|| -> Result<(), RepositoryError> {
-            write_new_record(store, &record, paths::DEFAULT_RECORD_DIR)?;
+            let relative_path = write_new_record(store, &record, paths::DEFAULT_RECORD_DIR)?;
+            upsert_record_index_entry(&mut manifest, &record, &relative_path);
+            if let Some(ref mut container) = manifest.container {
+                container.identity_instance_id = Some(new_id.clone());
+            }
             writer::write_manifest(store, &manifest)?;
             container_service::add_container_member(store, &root_container_id, &new_id)?;
             Ok(())
@@ -175,24 +165,6 @@ pub fn migrate_identity(
 
     let record = core_purpose::build_purpose_record(&new_id, &statement, title.as_deref(), &now);
 
-    let relative_path = format!(
-        "{}/purpose-{}.json",
-        paths::DEFAULT_RECORD_DIR,
-        &new_id[..8]
-    );
-
-    // Update manifest in memory: push index entry and repoint identity pointer.
-    manifest.instance_index.push(InstanceIndexEntry {
-        instance_id: new_id.clone(),
-        tier: 2,
-        path: relative_path.clone(),
-        title: None,
-        tags: None,
-    });
-    if let Some(ref mut mc) = manifest.container {
-        mc.identity_instance_id = Some(new_id.clone());
-    }
-
     // ADR-021 batch: record file + manifest + container membership atomically.
     // Also remove the old identity from container members: it was there only to satisfy
     // RFC-013 I-81 (identity must be a member). After migration the new record takes
@@ -200,7 +172,11 @@ pub fn migrate_identity(
     // not rooting a section container).
     store.begin_batch();
     let batch_result = (|| -> Result<(), RepositoryError> {
-        write_new_record(store, &record, paths::DEFAULT_RECORD_DIR)?;
+        let relative_path = write_new_record(store, &record, paths::DEFAULT_RECORD_DIR)?;
+        upsert_record_index_entry(&mut manifest, &record, &relative_path);
+        if let Some(ref mut mc) = manifest.container {
+            mc.identity_instance_id = Some(new_id.clone());
+        }
         writer::write_manifest(store, &manifest)?;
         container_service::add_container_member(store, &root_container_id, &new_id)?;
         container_service::remove_container_member(store, &root_container_id, &old_id)?;
@@ -233,6 +209,7 @@ mod tests {
     use super::*;
     use crate::container_service::{create_container, get_container};
     use crate::core_purpose;
+    use crate::index::InstanceIndexEntry;
     use crate::repository_portability::copy_repository;
     use crate::store::memory::MemoryStore;
     use crate::writer::{upsert_index_entry, write_manifest, write_note};
@@ -573,6 +550,24 @@ mod tests {
             members.contains(&result.new_identity_id),
             "new_identity_id must be in container members, got: {members:?}"
         );
+    }
+
+    #[test]
+    fn migrate_creates_purpose_from_description_when_title_empty() {
+        // Empty title + non-empty description: statement = description, no title field in record.
+        let store = MemoryStore::default();
+        let container_id = "660e8400-e29b-41d4-a716-446655440003";
+        let mut container = bare_container(container_id);
+        container.title = "".to_string();
+        container.description = Some("We build SRS.".to_string());
+        create_container(&store, bare_container(container_id)).unwrap();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.container = Some(container);
+        write_manifest(&store, &manifest).unwrap();
+
+        let result = migrate_identity(&store).unwrap();
+        assert_eq!(result.statement, "We build SRS.");
+        assert!(result.title.is_none(), "title must be None when container title is empty");
     }
 
     #[test]
