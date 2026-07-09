@@ -195,10 +195,12 @@ pub fn update_container(
     }
     if let Some(mut v) = patch.root_instance_ids {
         v.sort();
+        v.dedup();
         container.root_instance_ids = if v.is_empty() { None } else { Some(v) };
     }
     if let Some(mut v) = patch.member_instance_ids {
         v.sort();
+        v.dedup();
         container.member_instance_ids = if v.is_empty() { None } else { Some(v) };
     }
 
@@ -1145,6 +1147,15 @@ mod tests {
         assert_eq!(
             manifest.container.unwrap().identity_instance_id,
             Some("11111111-1111-4111-8111-111111111111".to_string())
+        );
+        let reloaded = get_container(&store, container_id).unwrap();
+        assert_eq!(
+            reloaded.root_instance_ids,
+            Some(vec!["11111111-1111-4111-8111-111111111111".to_string()])
+        );
+        assert_eq!(
+            reloaded.member_instance_ids,
+            Some(vec!["22222222-2222-4222-8222-222222222222".to_string()])
         );
     }
 
