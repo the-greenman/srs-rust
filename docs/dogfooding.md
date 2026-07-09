@@ -1034,6 +1034,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `relation` (create/list/get/delete) | S1, S3, S5 |
 | `relation-type` | CLI: _gap — no scenario yet_; WASM read binding (`list_relation_types`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#411) |
 | `container` (create/members/roots/validate/…) | S4 |
+| `container update` (`rootInstanceIds`/`memberInstanceIds`/`identityInstanceId` patch fields, `deny_unknown_fields`) | S4 (extended — patch membership fields, unknown-field error); verified end-to-end in worktree dogfood (#422) |
 | `container resolve-view` (structured container view, `--view-id`) | S14 |
 | `container resolve-view` authored `excludeLifecycleStates` (ADR-020) | S15 |
 | `find` (ext:discovery query — type/tag/lifecycle/exclude/text) | S15 |

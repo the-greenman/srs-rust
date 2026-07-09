@@ -3988,6 +3988,97 @@ fn container_update_list_reflects_new_title() {
 }
 
 #[test]
+fn container_update_patches_root_instance_ids() {
+    let temp = make_container_test_repo();
+    let payload = serde_json::json!({
+        "containerId":"00000000-0000-4000-8000-000000000001",
+        "title":"Root"
+    })
+    .to_string();
+    run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);
+    let patch = serde_json::json!({
+        "rootInstanceIds":["11111111-1111-4111-8111-111111111111"]
+    })
+    .to_string();
+    let updated = run_srs_stdin_in_dir(
+        temp.path(),
+        &[
+            "container",
+            "update",
+            "00000000-0000-4000-8000-000000000001",
+        ],
+        &patch,
+    );
+    assert_eq!(updated["ok"], true);
+    assert_eq!(
+        updated["payload"]["container"]["rootInstanceIds"],
+        serde_json::json!(["11111111-1111-4111-8111-111111111111"])
+    );
+    let got = run_srs_in_dir(
+        temp.path(),
+        &["container", "get", "00000000-0000-4000-8000-000000000001"],
+    );
+    assert_eq!(
+        got["payload"]["container"]["rootInstanceIds"],
+        serde_json::json!(["11111111-1111-4111-8111-111111111111"])
+    );
+}
+
+#[test]
+fn container_update_patches_member_instance_ids() {
+    let temp = make_container_test_repo();
+    let payload = serde_json::json!({
+        "containerId":"00000000-0000-4000-8000-000000000001",
+        "title":"Container"
+    })
+    .to_string();
+    run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);
+    let patch = serde_json::json!({
+        "memberInstanceIds":["22222222-2222-4222-8222-222222222222"]
+    })
+    .to_string();
+    let updated = run_srs_stdin_in_dir(
+        temp.path(),
+        &[
+            "container",
+            "update",
+            "00000000-0000-4000-8000-000000000001",
+        ],
+        &patch,
+    );
+    assert_eq!(updated["ok"], true);
+    assert_eq!(
+        updated["payload"]["container"]["memberInstanceIds"],
+        serde_json::json!(["22222222-2222-4222-8222-222222222222"])
+    );
+}
+
+#[test]
+fn container_update_unknown_field_in_patch_returns_error() {
+    let temp = make_container_test_repo();
+    let payload = serde_json::json!({
+        "containerId":"00000000-0000-4000-8000-000000000001",
+        "title":"Container"
+    })
+    .to_string();
+    run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);
+    let patch = serde_json::json!({"unknownField": "value"}).to_string();
+    let result = run_srs_stdin_in_dir(
+        temp.path(),
+        &[
+            "container",
+            "update",
+            "00000000-0000-4000-8000-000000000001",
+        ],
+        &patch,
+    );
+    assert_eq!(
+        result["ok"], false,
+        "unknown field in patch must return ok:false, not silently drop"
+    );
+}
+
+#[test]
 fn container_delete_removes_container() {
     let temp = make_container_test_repo();
     let payload = serde_json::json!({
