@@ -1,10 +1,11 @@
-// Temporary hardcoded UUIDs pending core-type registry (#423).
-// Canonical values from srs/srs/package/core/:
-//   fields/statement-3b000001.json, fields/title-3b000002.json, types/purpose-3c000001.json
-// Replace with core_package::resolve_type("com.semanticops.core", "purpose") once #423 lands.
-// STATEMENT_FIELD_ID/TITLE_FIELD_ID are shared by both repository_lifecycle (repo create
-// scaffold) and migrate_identity_service (repo migrate-identity) specifically so the two
-// paths can't diverge again as they once did (#441) — do not fork a local copy.
+// Hardcoded UUIDs for com.semanticops.core purpose, statement, and title.
+// These match the embedded core-bundle (core_package.rs / assets/core-bundle.srsj, #423).
+// They will be retired in #434 (WASM binding plan) once callers switch to
+// core_package::core_package() lookups. Until then, keep them here — STATEMENT_FIELD_ID and
+// TITLE_FIELD_ID are shared by both repository_lifecycle and migrate_identity_service so the
+// two paths can't diverge again as they once did (#441).
+//
+// Canonical values from srs/packages/com.semanticops.core/1.0.0/core-bundle.srsj
 pub(crate) const PURPOSE_TYPE_ID: &str = "3c000001-0000-4000-a000-000000000001";
 pub(crate) const PURPOSE_TYPE_VERSION: u32 = 1;
 pub(crate) const PURPOSE_TYPE_NAMESPACE: &str = "com.semanticops.core";
@@ -13,6 +14,40 @@ pub(crate) const STATEMENT_FIELD_ID: &str = "3b000001-0000-4000-a000-00000000000
 pub(crate) const TITLE_FIELD_ID: &str = "3b000002-0000-4000-a000-000000000002";
 
 use srs_core::types::record::{FieldValue, Record};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn core_purpose_constants_match_embedded_core_package() {
+        let cp = crate::core_package::core_package();
+
+        let purpose = cp
+            .record_types
+            .iter()
+            .find(|rt| rt.name == PURPOSE_TYPE_NAME && rt.namespace == PURPOSE_TYPE_NAMESPACE)
+            .expect("core package must contain the purpose type");
+        assert_eq!(purpose.id, PURPOSE_TYPE_ID);
+        assert_eq!(purpose.version, PURPOSE_TYPE_VERSION);
+
+        let statement = cp
+            .fields
+            .iter()
+            .find(|f| f.id == STATEMENT_FIELD_ID)
+            .expect("core package must contain the statement field");
+        assert_eq!(statement.namespace, "com.semanticops.core");
+        assert_eq!(statement.name, "statement");
+
+        let title = cp
+            .fields
+            .iter()
+            .find(|f| f.id == TITLE_FIELD_ID)
+            .expect("core package must contain the title field");
+        assert_eq!(title.namespace, "com.semanticops.core");
+        assert_eq!(title.name, "title");
+    }
+}
 use std::collections::HashMap;
 
 /// Build an in-memory `com.semanticops.core/purpose` Record.
