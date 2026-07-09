@@ -974,7 +974,9 @@ fn validate_vocabulary_invariants(
 
         // V9: structural checks on inline TypeLifecycle
         if let Some(inline_lc) = &rt.lifecycle {
-            for diag in validate_type_lifecycle_v9(&inline_lc.states, &inline_lc.transitions, &rt.name) {
+            for diag in
+                validate_type_lifecycle_v9(&inline_lc.states, &inline_lc.transitions, &rt.name)
+            {
                 let severity = match diag.severity {
                     LifecycleDiagnosticSeverity::Error => DiagnosticSeverity::Error,
                 };
@@ -2289,6 +2291,36 @@ mod tests {
             1,
             "expected exactly one V7 error, got: {:?}",
             v7_errors
+        );
+    }
+
+    #[test]
+    fn vocabulary_v7_both_lifecycle_and_ref_produces_error_memory_store() {
+        // Cross-store variant: same semantic as vocabulary_v7_both_lifecycle_and_ref_produces_error
+        // but uses MemoryStore::with_type() to confirm the check runs against the in-memory package.
+        // The manifest.json text is added to the data map so validate_repository's load_text_file
+        // call succeeds; the typed manifest in self.manifest remains the empty-container default
+        // (fires I-79, which is fine — we only assert that V7 is present).
+        let type_id = "00000000-0000-4000-8000-000000000040";
+        let lc_id = "00000000-0000-4000-8000-000000000050";
+
+        let type_json = minimal_type_json_with_both_lifecycle_fields(type_id, lc_id);
+        let record_type: srs_core::types::record_type::RecordType =
+            serde_json::from_value(type_json).unwrap();
+        let manifest_str = serde_json::to_string(&minimal_manifest(json!([]))).unwrap();
+        let store = MemoryStore::with_type(record_type)
+            .with_data("manifest.json", serde_json::Value::String(manifest_str));
+
+        let report = validate_repository(&store).unwrap();
+        let v7_error = report.diagnostics.iter().find(|d| {
+            d.severity == DiagnosticSeverity::Error
+                && d.message.contains("V7")
+                && d.message.contains("both")
+        });
+        assert!(
+            v7_error.is_some(),
+            "expected V7 mutual-exclusion error (MemoryStore), got: {:?}",
+            report.diagnostics
         );
     }
 
