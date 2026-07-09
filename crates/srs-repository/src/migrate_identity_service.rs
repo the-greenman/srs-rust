@@ -96,8 +96,7 @@ pub fn migrate_identity(
         };
         let now = chrono::Utc::now().to_rfc3339();
         let new_id = writer::new_instance_id();
-        let record =
-            core_purpose::build_purpose_record(&new_id, statement, record_title, &now);
+        let record = core_purpose::build_purpose_record(&new_id, statement, record_title, &now);
 
         store.begin_batch();
         let batch_result = (|| -> Result<(), RepositoryError> {
@@ -153,9 +152,10 @@ pub fn migrate_identity(
 
     if entry.tier() == 2 {
         let raw = store.load_instance_json(entry.path())?;
-        let ns_ok =
-            raw.get("typeNamespace").and_then(|v| v.as_str()) == Some(core_purpose::PURPOSE_TYPE_NAMESPACE);
-        let name_ok = raw.get("typeName").and_then(|v| v.as_str()) == Some(core_purpose::PURPOSE_TYPE_NAME);
+        let ns_ok = raw.get("typeNamespace").and_then(|v| v.as_str())
+            == Some(core_purpose::PURPOSE_TYPE_NAMESPACE);
+        let name_ok =
+            raw.get("typeName").and_then(|v| v.as_str()) == Some(core_purpose::PURPOSE_TYPE_NAME);
         if ns_ok && name_ok {
             return Err(RepositoryError::InvalidInput {
                 message: "already a com.semanticops.core/purpose record; no migration needed"
@@ -311,7 +311,10 @@ mod tests {
             raw["typeNamespace"].as_str(),
             Some(core_purpose::PURPOSE_TYPE_NAMESPACE)
         );
-        assert_eq!(raw["typeName"].as_str(), Some(core_purpose::PURPOSE_TYPE_NAME));
+        assert_eq!(
+            raw["typeName"].as_str(),
+            Some(core_purpose::PURPOSE_TYPE_NAME)
+        );
         assert_eq!(
             raw["instanceId"].as_str(),
             Some(result.new_identity_id.as_str())
@@ -548,8 +551,7 @@ mod tests {
 
     #[test]
     fn migrate_from_container_adds_to_members() {
-        let (store, container_id) =
-            make_store_without_identity("My Repo", Some("We build SRS."));
+        let (store, container_id) = make_store_without_identity("My Repo", Some("We build SRS."));
         let result = migrate_identity(&store).unwrap();
         let container = get_container(&store, &container_id).unwrap();
         let members = container.member_instance_ids.unwrap_or_default();
@@ -574,7 +576,10 @@ mod tests {
 
         let result = migrate_identity(&store).unwrap();
         assert_eq!(result.statement, "We build SRS.");
-        assert!(result.title.is_none(), "title must be None when container title is empty");
+        assert!(
+            result.title.is_none(),
+            "title must be None when container title is empty"
+        );
     }
 
     #[test]
@@ -608,8 +613,7 @@ mod tests {
 
     #[test]
     fn cross_store_roundtrip_none_branch() {
-        let (source, container_id) =
-            make_store_without_identity("My Repo", Some("We build SRS."));
+        let (source, container_id) = make_store_without_identity("My Repo", Some("We build SRS."));
         let result = migrate_identity(&source).unwrap();
 
         let target = MemoryStore::uninitialized();
