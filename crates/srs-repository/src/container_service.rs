@@ -41,7 +41,7 @@ pub struct ContainerSummary {
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ContainerPatch {
     pub title: Option<String>,
     pub namespace: Option<String>,
@@ -51,6 +51,8 @@ pub struct ContainerPatch {
     pub tags: Option<Vec<String>>,
     pub meta: Option<serde_json::Value>,
     pub identity_instance_id: Option<String>,
+    pub root_instance_ids: Option<Vec<String>>,
+    pub member_instance_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -190,6 +192,16 @@ pub fn update_container(
     }
     if let Some(ref v) = patch.identity_instance_id {
         container.identity_instance_id = Some(v.clone());
+    }
+    if let Some(mut v) = patch.root_instance_ids {
+        v.sort();
+        v.dedup();
+        container.root_instance_ids = if v.is_empty() { None } else { Some(v) };
+    }
+    if let Some(mut v) = patch.member_instance_ids {
+        v.sort();
+        v.dedup();
+        container.member_instance_ids = if v.is_empty() { None } else { Some(v) };
     }
 
     // Schema validation at service boundary (after patch application)
@@ -1002,5 +1014,157 @@ mod tests {
 
         let manifest = store.load_manifest().unwrap();
         assert_eq!(manifest.container.unwrap().identity_instance_id, None);
+    }
+
+    #[test]
+    fn update_container_patches_root_instance_ids() {
+        let store = make_store();
+        let id = "550e8400-e29b-41d4-a716-446655440000";
+        create_container(&store, minimal_container(id, "Root")).unwrap();
+        let patch = ContainerPatch {
+            root_instance_ids: Some(vec!["11111111-1111-4111-8111-111111111111".to_string()]),
+            ..ContainerPatch::default()
+        };
+        let updated = update_container(&store, id, patch).unwrap();
+        assert_eq!(
+            updated.root_instance_ids,
+            Some(vec!["11111111-1111-4111-8111-111111111111".to_string()])
+        );
+        let reloaded = get_container(&store, id).unwrap();
+        assert_eq!(
+            reloaded.root_instance_ids,
+            Some(vec!["11111111-1111-4111-8111-111111111111".to_string()])
+        );
+    }
+
+    #[test]
+    fn update_container_patches_member_instance_ids() {
+        let store = make_store();
+        let id = "550e8400-e29b-41d4-a716-446655440000";
+        create_container(&store, minimal_container(id, "Container")).unwrap();
+        let patch = ContainerPatch {
+            member_instance_ids: Some(vec!["22222222-2222-4222-8222-222222222222".to_string()]),
+            ..ContainerPatch::default()
+        };
+        let updated = update_container(&store, id, patch).unwrap();
+        assert_eq!(
+            updated.member_instance_ids,
+            Some(vec!["22222222-2222-4222-8222-222222222222".to_string()])
+        );
+        let reloaded = get_container(&store, id).unwrap();
+        assert_eq!(
+            reloaded.member_instance_ids,
+            Some(vec!["22222222-2222-4222-8222-222222222222".to_string()])
+        );
+    }
+
+    #[test]
+    fn update_container_with_empty_root_instance_ids_clears_field() {
+        let store = make_store();
+        let id = "550e8400-e29b-41d4-a716-446655440000";
+        let mut c = minimal_container(id, "Container");
+        c.root_instance_ids = Some(vec!["11111111-1111-4111-8111-111111111111".to_string()]);
+        create_container(&store, c).unwrap();
+        let patch = ContainerPatch {
+            root_instance_ids: Some(vec![]),
+            ..ContainerPatch::default()
+        };
+        let updated = update_container(&store, id, patch).unwrap();
+        assert!(updated.root_instance_ids.is_none());
+        let reloaded = get_container(&store, id).unwrap();
+        assert!(reloaded.root_instance_ids.is_none());
+    }
+
+    #[test]
+    fn update_container_with_empty_member_instance_ids_clears_field() {
+        let store = make_store();
+        let id = "550e8400-e29b-41d4-a716-446655440000";
+        let mut c = minimal_container(id, "Container");
+        c.member_instance_ids = Some(vec!["22222222-2222-4222-8222-222222222222".to_string()]);
+        create_container(&store, c).unwrap();
+        let patch = ContainerPatch {
+            member_instance_ids: Some(vec![]),
+            ..ContainerPatch::default()
+        };
+        let updated = update_container(&store, id, patch).unwrap();
+        assert!(updated.member_instance_ids.is_none());
+        let reloaded = get_container(&store, id).unwrap();
+        assert!(reloaded.member_instance_ids.is_none());
+    }
+
+    #[test]
+    fn update_container_sorts_patched_root_and_member_ids() {
+        let store = make_store();
+        let id = "550e8400-e29b-41d4-a716-446655440000";
+        create_container(&store, minimal_container(id, "Container")).unwrap();
+        let patch = ContainerPatch {
+            root_instance_ids: Some(vec![
+                "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb".to_string(),
+                "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa".to_string(),
+            ]),
+            ..ContainerPatch::default()
+        };
+        let updated = update_container(&store, id, patch).unwrap();
+        assert_eq!(
+            updated.root_instance_ids,
+            Some(vec![
+                "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa".to_string(),
+                "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb".to_string(),
+            ])
+        );
+    }
+
+    #[test]
+    fn update_container_combined_patch_on_root_container_syncs_all_fields() {
+        let store = make_store();
+        let container_id = "550e8400-e29b-41d4-a716-446655440000";
+        create_container(&store, minimal_container(container_id, "Root")).unwrap();
+
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.container = Some(minimal_container(container_id, "Root"));
+        store.save_manifest(&manifest).unwrap();
+
+        let patch = ContainerPatch {
+            identity_instance_id: Some("11111111-1111-4111-8111-111111111111".to_string()),
+            root_instance_ids: Some(vec!["11111111-1111-4111-8111-111111111111".to_string()]),
+            member_instance_ids: Some(vec!["22222222-2222-4222-8222-222222222222".to_string()]),
+            ..ContainerPatch::default()
+        };
+        let updated = update_container(&store, container_id, patch).unwrap();
+        assert_eq!(
+            updated.identity_instance_id,
+            Some("11111111-1111-4111-8111-111111111111".to_string())
+        );
+        assert_eq!(
+            updated.root_instance_ids,
+            Some(vec!["11111111-1111-4111-8111-111111111111".to_string()])
+        );
+        assert_eq!(
+            updated.member_instance_ids,
+            Some(vec!["22222222-2222-4222-8222-222222222222".to_string()])
+        );
+        let manifest = store.load_manifest().unwrap();
+        assert_eq!(
+            manifest.container.unwrap().identity_instance_id,
+            Some("11111111-1111-4111-8111-111111111111".to_string())
+        );
+        let reloaded = get_container(&store, container_id).unwrap();
+        assert_eq!(
+            reloaded.root_instance_ids,
+            Some(vec!["11111111-1111-4111-8111-111111111111".to_string()])
+        );
+        assert_eq!(
+            reloaded.member_instance_ids,
+            Some(vec!["22222222-2222-4222-8222-222222222222".to_string()])
+        );
+    }
+
+    #[test]
+    fn container_patch_unknown_field_fails_deserialization() {
+        let result: Result<ContainerPatch, _> = serde_json::from_str(r#"{"unknownField": "x"}"#);
+        assert!(
+            result.is_err(),
+            "unknown fields in ContainerPatch must fail deserialization, not silently drop"
+        );
     }
 }
