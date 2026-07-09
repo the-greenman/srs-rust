@@ -14,11 +14,12 @@
 
 If step 2 fails after step 1 succeeds, the manifest retains an entry for a record that is not a member of any container. ADR-010 requires multi-step service operations to be atomic in the service layer. ADR-007 establishes the file-before-index create ordering used by step 1; no cross-file atomic transaction mechanism is available in the target environment (plain filesystem, no WAL, no SQLite).
 
-Three options were evaluated:
+Four options were evaluated:
 
 - **Option A — best-effort rollback:** on step 2 failure, call `delete_record` in the error arm to undo step 1. Not crash-safe: if the cleanup call itself fails, the error is swallowed and the manifest may retain an orphaned entry. Transparent to callers — they see only the original `add_member` error.
 - **Option B — write-ahead log / journal:** new infrastructure (a WAL or repair journal) that lets the repository detect and repair half-applied operations on load. Crash-safe but requires significant new machinery across `FileStore` and the load path.
 - **Option C — explicit ADR waiver:** document the gap and close the issue as `won't fix`, acknowledging that ADR-010 is not satisfied for this class of operation.
+- **Option D — `begin_batch`/`abort_batch` (ADR-021):** ADR-021 added `begin_batch`/`abort_batch`/`commit_batch` to `RepositoryStore` for bulk-write rollback. Calling `abort_batch` in the error arm would restore in-memory state for `JsonStore`, but `abort_batch` is a trait-default no-op for `FileStore` (and `MemoryStore`) — ADR-021 documents this explicitly. Because both functions operate on `store: &dyn RepositoryStore` and must work across all store implementations, `abort_batch` alone cannot replace an explicit compensating delete. Option D is therefore insufficient as a standalone mechanism.
 
 ## Decision
 
@@ -27,6 +28,8 @@ Implement **Option A (best-effort rollback)** for both `create_record_in_contain
 Option B is deferred: the added complexity of a WAL is not justified by the current use cases (local filesystem access, in-process WASM). A crash between the two writes bypasses the error handler entirely, but such crashes are rare and recoverable via `srs repo repair` (future work, ADR-007).
 
 Option C is rejected: it would leave ADR-010 unaddressed with no mitigation for the common case (transient I/O errors).
+
+Option D is rejected: `abort_batch` is a no-op for `FileStore` and `MemoryStore`, so it cannot provide a store-agnostic rollback (see Context above).
 
 ## Consequences
 

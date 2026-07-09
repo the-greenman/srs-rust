@@ -625,6 +625,23 @@ pub fn list_record_summaries(
         .collect())
 }
 
+/// Best-effort rollback for a failed `add_member` step.
+///
+/// Calls `delete_record` to remove the newly-written record from the manifest. Any error from
+/// the cleanup is silently discarded via `let _ = …`.
+///
+/// **Failure mode:** `delete_record` deletes the file first, then rewrites the manifest (file-
+/// before-index ordering). This is the inverse of ADR-007's prescribed index-before-file
+/// ordering for deletes. If the file deletion succeeds but `write_manifest` fails, the result
+/// is a dangling index entry — strictly worse than the pre-rollback state (an orphaned entry
+/// that has no backing file). This is an accepted limitation; the common case (transient I/O
+/// error on `add_member`) cleans up correctly. See ADR-024.
+///
+/// TODO: fault-injection test for this error arm pending a FailStore test double (see ADR-024).
+fn attempt_rollback_delete(store: &dyn RepositoryStore, instance_id: &str) {
+    let _ = delete_record(store, instance_id);
+}
+
 /// Create a record from a `namespace/name` type filter and optionally add to a container.
 ///
 /// - Parses `type_filter` as `namespace/name`
@@ -632,9 +649,8 @@ pub fn list_record_summaries(
 /// - Creates the record
 /// - If `container_id` is Some, validates the container exists and adds the record
 ///
-/// If the `add_member` step fails, best-effort rollback: `delete_record` is called to remove
-/// the manifest entry. If the rollback itself fails, the secondary error is swallowed; the
-/// manifest may retain an orphaned entry. See ADR-024.
+/// If the `add_member` step fails, best-effort rollback via `attempt_rollback_delete`.
+/// See ADR-024 for the accepted limitations of this approach.
 ///
 /// `dir_override` lets CLI callers honour a user-supplied `--dir` flag. Pass `None`
 /// to use `DEFAULT_RECORD_DIR`. Raw path strings must not appear in binding code or
@@ -703,9 +719,7 @@ pub fn create_record_in_context(
 
     if let Some(ref cid) = container_id {
         if let Err(e) = container_service::add_member(store, cid, &record.instance_id) {
-            // Best-effort rollback — same caveats as create_record_in_container; see ADR-024.
-            // TODO: fault-injection test for this error arm pending a FailStore test double.
-            let _ = delete_record(store, &record.instance_id);
+            attempt_rollback_delete(store, &record.instance_id);
             return Err(e);
         }
     }
@@ -759,9 +773,8 @@ pub struct CreateRecordInContainerInput {
 ///   2. Create the record via `create_record_at_dir` (uses `DEFAULT_RECORD_DIR`).
 ///   3. Add the new record to the container's `memberInstanceIds` via `container_service::add_member`.
 ///
-/// If step 3 fails, best-effort rollback: `delete_record` is called to remove the manifest entry.
-/// If the rollback itself fails, the secondary error is swallowed; the manifest may retain an
-/// orphaned entry for a record not in any container. See ADR-024.
+/// If step 3 fails, best-effort rollback via `attempt_rollback_delete`. See ADR-024 for
+/// the accepted limitations of this approach.
 pub fn create_record_in_container(
     store: &dyn RepositoryStore,
     input: CreateRecordInContainerInput,
@@ -780,12 +793,7 @@ pub fn create_record_in_container(
 
     if let Err(e) = container_service::add_member(store, &input.container_id, &record.instance_id)
     {
-        // Best-effort rollback: delete_record uses file-before-index ordering for deletes,
-        // so if file removal succeeds but write_manifest fails, we produce a dangling index
-        // entry (worse than the pre-rollback state). This is an accepted limitation under
-        // ADR-024; the common case (transient I/O error) cleans up correctly.
-        // TODO: fault-injection test for this error arm pending a FailStore test double.
-        let _ = delete_record(store, &record.instance_id);
+        attempt_rollback_delete(store, &record.instance_id);
         return Err(e);
     }
 
@@ -4248,6 +4256,51 @@ mod tests {
         assert!(
             members.contains(&result.record.instance_id),
             "record must be a member of the container after create_record_in_context"
+        );
+    }
+
+    #[test]
+    fn create_record_in_context_container_branch_roundtrip_stores() {
+        // Cross-store coverage for the container branch of create_record_in_context
+        // (required by CLAUDE.md: "New service features need at least one cross-store roundtrip test").
+        let store = make_store_with_package();
+        let container_id = make_container_in_store(&store);
+
+        let result = create_record_in_context(
+            &store,
+            "com.test/test-type",
+            None,
+            CreateRecordInput {
+                field_values: vec![FieldValue {
+                    field_id: "field-name-001".to_string(),
+                    value: json!("Roundtrip Context"),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                }],
+                group_values: None,
+                tags: None,
+            },
+            Some(container_id.clone()),
+            None,
+        )
+        .expect("create_record_in_context should succeed on MemoryStore");
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let file_store = crate::store::FileStore::new(temp.path());
+        crate::repository_portability::copy_repository(&store, &file_store)
+            .expect("copy to file store");
+
+        let reloaded = get_record_by_id(&file_store, &result.record.instance_id)
+            .expect("record must be loadable from file store")
+            .expect("record must be Some");
+        assert_eq!(reloaded.instance_id, result.record.instance_id);
+
+        let members = crate::container_service::list_members(&file_store, &container_id)
+            .expect("members loaded from file store");
+        assert!(
+            members.contains(&result.record.instance_id),
+            "record must be a member of the container in the file store copy"
         );
     }
 }
