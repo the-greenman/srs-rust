@@ -26,12 +26,14 @@ See [agents.md](agents.md) for role definitions.
 | [ADR-010](../docs/adr/010-service-boundary-contract.md) | Migration logic lives entirely in `srs-repository`; CLI handler is a thin wrapper | accepted |
 | [ADR-011](../docs/adr/011-cli-output-contract.md) | New `RepoMigrateIdentityPayload` struct in `payload.rs`; `generate-schemas` run after | accepted |
 | [ADR-007](../docs/adr/007-file-index-io-ordering.md) | Record file written first; manifest index updated in the same pass as identity repoint (single write gate) | accepted |
+| [ADR-021](../docs/adr/021-jsonstore-batch-write-mode.md) | Multi-write sequences in Phase 1 and Phase 2 wrapped in `begin_batch`/`commit_batch` to keep `JsonStore` atomic | accepted |
+| [ADR-002](../docs/adr/002-tier2-generic-record-operations.md) | Generic Tier-2 record operations bypassed — hardcoded UUID constants used pending core-type registry (#423); revert to `create_record` when #423 lands | bounded bypass |
 
 **Intentional bypass — core type UUIDs hardcoded (#423 not yet landed):**  
 `com.semanticops.core/purpose` is not yet in the installed package because the core-type registry (#423) is not merged. The migration service uses hardcoded type/field UUID constants (same pattern as #424). These are bounded to `migrate_identity_service.rs` via named constants with a comment referencing #423/#135. When #423 lands, the constants will be replaced with the registry call. No new ADR is created here — the governing ADR will be filed by #423 (as noted in the #424 plan).
 
 **`update_container` + manifest sync for `identity_instance_id`:**  
-When `ContainerPatch.identity_instance_id` is set, `update_container` additionally checks whether the container being patched is the manifest's root container (by comparing `manifest.container.container_id`). If yes, it updates `manifest.container.identity_instance_id` in the same request. This collapses the old two-step (update container file + overwrite entire `manifest.container` via `set_manifest_root_container`) into a single targeted patch. This is consistent with ADR-010: a service owns the complete invariant-preserving operation.
+When `ContainerPatch.identity_instance_id` is set, `update_container` additionally checks whether the container being patched is the manifest's root container (by comparing `manifest.container.container_id`). If yes, it updates `manifest.container.identity_instance_id` in the same request, wrapped in ADR-021 batch mode. This collapses the old two-step (update container file + overwrite entire `manifest.container` via `set_manifest_root_container`) into a single targeted patch. This is consistent with ADR-010: a service owns the complete invariant-preserving operation.
 
 ---
 
@@ -56,7 +58,7 @@ No changes to JSON Schema files under `srs/docs/schema/2.0/`. No action required
 ## Scope
 
 - Add `identity_instance_id: Option<String>` to `ContainerPatch` in `container_service.rs`
-- Handle `identity_instance_id` in `update_container`: patch container file + sync `manifest.container` if this is the root container
+- Handle `identity_instance_id` in `update_container`: patch container file + sync `manifest.container` if this is the root container (wrapped in batch write per ADR-021)
 - New `crates/srs-repository/src/migrate_identity_service.rs` with `migrate_identity` function
 - `MigrateIdentityResult` typed output struct (serializable)
 - New `RepoMigrateIdentityPayload` in `payload.rs` + generated schema
@@ -69,7 +71,7 @@ No changes to JSON Schema files under `srs/docs/schema/2.0/`. No action required
 
 - `root_instance_ids`/`member_instance_ids` in `ContainerPatch` — deferred follow-up (tracked as a new issue after plan review)
 - Core-type registry (#423) — migration uses hardcoded constants, bounded bypass
-- WASM binding for `migrate_identity` — deferred until #423 lands (otherwise bindings would also need the bypass)
+- WASM binding for `migrate_identity` — deferred until #423 lands; tracked in #434
 - Automatic migration on `repo validate` — this is a deliberate CLI-only operation per RFC-018 R8
 - Migrating the `srs/srs` spec repo and `srs-gov` seed — done in Stage 7.6 (dogfooding), not in code
 
@@ -79,7 +81,7 @@ No changes to JSON Schema files under `srs/docs/schema/2.0/`. No action required
 
 ### Phase 1: ContainerPatch.identity_instance_id + manifest sync
 
-**Goal:** `update_container` can repoint `identityInstanceId` on the container file and, when the container is the root container, sync `manifest.container.identity_instance_id` in the same request.
+**Goal:** `update_container` can repoint `identityInstanceId` on the container file and, when the container is the root container, sync `manifest.container.identity_instance_id` atomically in the same request.
 
 **Agent:** Repository Service Worker
 
@@ -89,26 +91,43 @@ No changes to JSON Schema files under `srs/docs/schema/2.0/`. No action required
   ```rust
   pub identity_instance_id: Option<String>,
   ```
+- [ ] Implement `Default` for `ContainerPatch` (derive or manual) so existing struct-literal test constructions do not require exhaustive field enumeration:
+  ```rust
+  #[derive(Debug, Clone, Deserialize, Default)]
+  #[serde(rename_all = "camelCase")]
+  pub struct ContainerPatch { ... }
+  ```
+  Then update every existing `ContainerPatch { ... }` literal in `container_service.rs` tests to either:
+  - add `identity_instance_id: None` explicitly, or
+  - use `..ContainerPatch::default()` spread.
 - [ ] In `update_container` (after existing field patches, before schema validation), handle the new field:
   ```rust
   if let Some(ref v) = patch.identity_instance_id {
       container.identity_instance_id = Some(v.clone());
   }
   ```
-  — apply before the `validate_container` call so the new value is validated.
-- [ ] After `store.save_container(&container)`, if `patch.identity_instance_id` is Some AND the container is the root container, sync to manifest:
+  Apply before the `validate_container` call so the new value is validated.
+- [ ] After `store.save_container(&container)`, if `patch.identity_instance_id` is Some AND the container is the root container, sync to manifest. Wrap both writes in ADR-021 batch mode:
   ```rust
-  // Sync identityInstanceId to manifest.container when patching the root container.
   if let Some(ref new_identity_id) = patch.identity_instance_id {
       let mut manifest = store.load_manifest()?;
       let is_root = manifest.container.as_ref()
           .map(|mc| mc.container_id.as_str() == container_id)
           .unwrap_or(false);
       if is_root {
-          if let Some(ref mut mc) = manifest.container {
-              mc.identity_instance_id = Some(new_identity_id.clone());
+          store.begin_batch();
+          let result = (|| {
+              store.save_container(&container)?;
+              if let Some(ref mut mc) = manifest.container {
+                  mc.identity_instance_id = Some(new_identity_id.clone());
+              }
+              write_manifest(store, &manifest)?;
+              Ok(())
+          })();
+          match result {
+              Ok(()) => store.commit_batch()?,
+              Err(e) => { store.abort_batch(); return Err(e); }
           }
-          write_manifest(store, &manifest)?;
       }
   }
   ```
@@ -118,8 +137,9 @@ No changes to JSON Schema files under `srs/docs/schema/2.0/`. No action required
 #### Acceptance Criteria
 
 - [ ] `ContainerPatch` has `identity_instance_id: Option<String>` field
+- [ ] `ContainerPatch` derives or implements `Default`
 - [ ] Patching `identity_instance_id` on a non-root container: container file updated, manifest unchanged
-- [ ] Patching `identity_instance_id` on the root container: both container file and `manifest.container.identity_instance_id` updated
+- [ ] Patching `identity_instance_id` on the root container: both container file and `manifest.container.identity_instance_id` updated atomically (batch-wrapped)
 - [ ] All existing `update_container` tests still pass (no regression)
 - [ ] New unit tests pass (see Testing)
 
@@ -147,7 +167,7 @@ git commit -m "feat(container): patch identityInstanceId in update_container + m
 
 ### Phase 2: Migration service
 
-**Goal:** `migrate_identity` service function takes a store, promotes the current Tier-0 identity note to a `com.semanticops.core/purpose` Record, repoints the manifest pointer, adds the record to root container membership, and returns `MigrateIdentityResult`.
+**Goal:** `migrate_identity` service function takes a store, promotes the current Tier-0 identity note to a `com.semanticops.core/purpose` Record, repoints the manifest pointer, adds the record to root container membership atomically, and returns `MigrateIdentityResult`.
 
 **Agent:** Repository Service Worker
 
@@ -193,30 +213,31 @@ const CORE_TITLE_FIELD_ID: &str = "fc000002-0000-4000-a000-000000000002";
 - [ ] Implement `pub fn migrate_identity(store: &dyn RepositoryStore) -> Result<MigrateIdentityResult, RepositoryError>`:
 
   ```
-  1. let mut manifest = store.load_manifest()?;
-  2. let mc = manifest.container.as_ref().ok_or(InvalidInput "manifest.container is not set")?.clone();
-  3. let old_id = mc.identity_instance_id.clone().ok_or(InvalidInput "manifest.container.identityInstanceId is not set")?;
-  4. let root_container_id = mc.container_id.clone();
-  5. Find identity_entry: manifest.instance_index.iter().find(|e| e.instance_id() == old_id).cloned().ok_or(InvalidInput "identity instance not found in instanceIndex")?
-  6. If tier==2: load raw JSON, check typeNamespace/typeName. If already purpose: return Err(InvalidInput "already a com.semanticops.core/purpose record; no migration needed").
-  7. let old_tier = entry.tier();
-  8. let (statement, title) = extract_identity_text(store, &entry)?;
-  9. Mint new_id = writer::new_instance_id().
-  10. Build field_values: always include CORE_STATEMENT_FIELD_ID with statement.clone(); if title.is_some() include CORE_TITLE_FIELD_ID.
-  11. Build Record { instance_id: new_id, type_id: CORE_PURPOSE_TYPE_ID, type_version: 1, type_namespace: CORE_PURPOSE_TYPE_NAMESPACE, type_name: CORE_PURPOSE_TYPE_NAME, field_values, group_values: None, lifecycle_state: None, tags: None, created_at: Some(now), updated_at: Some(now), extra: HashMap::new() }.
-  12. let dir = paths::DEFAULT_RECORD_DIR ("records/tier-2").
-  13. store.ensure_instance_dir(dir)?.
-  14. let relative_path = format!("{dir}/purpose-{}.json", &new_id[..8]).
+  1.  let mut manifest = store.load_manifest()?;
+  2.  let mc = manifest.container.as_ref().ok_or(InvalidInput "manifest.container is not set")?.clone();
+  3.  let old_id = mc.identity_instance_id.clone().ok_or(InvalidInput "manifest.container.identityInstanceId is not set")?;
+  4.  let root_container_id = mc.container_id.clone();
+  5.  Find identity_entry: manifest.instance_index.iter().find(|e| e.instance_id() == old_id).cloned().ok_or(InvalidInput "identity instance not found in instanceIndex")?
+  6.  If tier==2: load raw JSON, check typeNamespace/typeName. If already purpose: return Err(InvalidInput "already a com.semanticops.core/purpose record; no migration needed").
+  7.  let old_tier = entry.tier();
+  8.  let (statement, title) = extract_identity_text(store, &entry)?;
+  9.  let new_id = writer::new_instance_id();
+  10. let now = chrono::Utc::now().to_rfc3339();
+  11. Build field_values: Vec<FieldValue>: always push FieldValue { field_id: CORE_STATEMENT_FIELD_ID.to_string(), value: serde_json::Value::String(statement.clone()), entries: None, source: None, edited_at: None }; if title.is_some() also push FieldValue { field_id: CORE_TITLE_FIELD_ID.to_string(), value: serde_json::Value::String(title.clone().unwrap()), entries: None, source: None, edited_at: None }.
+  12. Build Record { instance_id: new_id.clone(), type_id: CORE_PURPOSE_TYPE_ID.to_string(), type_version: CORE_PURPOSE_TYPE_VERSION, type_namespace: CORE_PURPOSE_TYPE_NAMESPACE.to_string(), type_name: CORE_PURPOSE_TYPE_NAME.to_string(), field_values, group_values: None, lifecycle_state: None, tags: None, created_at: Some(now.clone()), updated_at: Some(now), extra: HashMap::new() }.
+  13. let dir = paths::DEFAULT_RECORD_DIR;  // "records/tier-2"
+  14. let relative_path = format!("{dir}/purpose-{}.json", &new_id[..8]);
   15. Serialize record to JSON value, insert "$schema" key.
   16. store.save_instance_json(&relative_path, &record_json)?.
-  17. Upsert InstanceIndexEntry { instance_id: new_id.clone(), tier: 2, path: relative_path, title: None, tags: None } into manifest.instance_index.
+  17. Push new InstanceIndexEntry { instance_id: new_id.clone(), tier: 2, path: relative_path, title: None, tags: None } onto manifest.instance_index.
   18. Update manifest.container.identity_instance_id = Some(new_id.clone()) (on the same `manifest` already loaded).
-  19. writer::write_manifest(store, &manifest)?.
-  20. container_service::add_member(store, &root_container_id, &new_id)?.
-  21. Return MigrateIdentityResult { old_identity_id: old_id, old_identity_tier: old_tier, new_identity_id: new_id, statement, title }.
+  19. Wrap steps 16–21 in ADR-021 batch mode: store.begin_batch() before step 16; store.commit_batch()? after step 21; store.abort_batch() + early return in error path.
+  20. writer::write_manifest(store, &manifest)?.
+  21. container_service::add_container_member(store, &root_container_id, &new_id)?.
+  22. Return MigrateIdentityResult { old_identity_id: old_id, old_identity_tier: old_tier, new_identity_id: new_id, statement, title }.
   ```
 
-  Steps 17+18+19 are one manifest write. Step 16 (record file) and step 20 (container file) are separate writes. This is consistent with ADR-007's file-then-index ordering.
+  Steps 17+18+20 are one manifest write. Step 16 (record file), step 20 (manifest), and step 21 (container file) are the three writes all wrapped in one batch (steps 16–21). This is consistent with ADR-007's file-then-index ordering (record file before manifest index update) and ADR-021's atomic batch requirement.
 
 - [ ] Export from crate: in `crates/srs-repository/src/lib.rs`, add `pub mod migrate_identity_service;`.
 
@@ -234,6 +255,7 @@ const CORE_TITLE_FIELD_ID: &str = "fc000002-0000-4000-a000-000000000002";
 - [ ] Missing `identityInstanceId`: returns `Err(InvalidInput "...identityInstanceId is not set")`
 - [ ] 7+ unit tests pass (MemoryStore)
 - [ ] 1 cross-store roundtrip test passes
+- [ ] `migrate_identity_service` exported in `crates/srs-repository/src/lib.rs`
 
 #### Testing
 
@@ -252,7 +274,7 @@ Tests to write in `migrate_identity_service.rs` `#[cfg(test)]` block:
 - `migrate_index_entry_has_tier_2` — verify InstanceIndexEntry for new record has tier == 2
 - `migrate_errors_if_already_purpose` — calling migrate twice produces InvalidInput error
 - `migrate_errors_if_no_identity_pointer` — `identityInstanceId` not set → InvalidInput
-- `cross_store_roundtrip` — migrate in MemoryStore, export to .srsj, import to second MemoryStore, verify identity_instance_id matches new record
+- `cross_store_roundtrip` — migrate in MemoryStore, export to .srsj via `export_srsj`, import to second MemoryStore via `import_srsj`, verify `manifest.container.identity_instance_id` in the imported store matches the new record's instanceId
 
 #### Milestone gate
 
@@ -315,7 +337,6 @@ git commit -m "feat(repository): migrate_identity service — Tier-0 note → pu
     }
     ```
   - Add import: `use crate::payload::RepoMigrateIdentityPayload;` (or add to existing import block)
-  - Check: `with_store` must be imported (should already be via `use crate::commands::{with_store, ...}`)
 
 - [ ] Run `cargo run --bin generate-schemas` and commit `schemas/payload/repo-migrate-identity.json`.
 
@@ -358,6 +379,7 @@ git commit -m "feat(cli): srs repo migrate-identity command + RepoMigrateIdentit
 - [ ] `srs repo migrate-identity --repo <path>` on a legacy repo produces a valid output and `srs repo validate --repo <path>` reports 0 RFC-018 warnings for the identity
 - [ ] `migrate_identity` returns a meaningful error when called on an already-migrated repo (not a panic)
 - [ ] Cross-store roundtrip test passes
+- [ ] `migrate_identity_service` is exported in `crates/srs-repository/src/lib.rs`
 
 ## Coordination Rules
 
@@ -374,4 +396,5 @@ git commit -m "feat(cli): srs repo migrate-identity command + RepoMigrateIdentit
 - `#424` (repo create scaffolds purpose record) is not yet landed; the migration service is independent and compatible with it.
 - The migration preserves the old identity record (does NOT delete or modify it) — RFC-018 R8 says "MAY be retained".
 - The `statement` field uses the full verbatim content of all Note sections joined by newline (RFC-018 R8: "without truncation or summarization").
-- `container_service::add_member` is accessible from `migrate_identity_service.rs` — both are in `srs-repository` crate; `add_member` is `pub`.
+- `container_service::add_container_member` (the public API at `container_service.rs:320`) is used; `add_member` is `pub(crate)` and must not be called from outside its module.
+- `FileStore::save_instance_json` creates parent directories internally — no explicit `ensure_instance_dir` call is needed in service logic.
