@@ -73,9 +73,7 @@ pub fn declared_extensions_conformance(
 /// Only extensions with a detectable content signal are checked. `ext:repository` and
 /// `ext:discovery` have no absence signal (they are structural/always-available) and are
 /// excluded from detection — they will never appear in `used_but_undeclared`.
-fn detect_used_extensions(
-    store: &dyn RepositoryStore,
-) -> Result<Vec<String>, RepositoryError> {
+fn detect_used_extensions(store: &dyn RepositoryStore) -> Result<Vec<String>, RepositoryError> {
     let mut used = Vec::new();
 
     // ext:lifecycle — any Tier 2 record has lifecycleState set
@@ -768,10 +766,9 @@ mod tests {
     fn conformance_supported_declared_extension_not_flagged() {
         let store = MemoryStore::default();
         let mut manifest = store.load_manifest().unwrap();
-        manifest.extra.insert(
-            "declaredExtensions".to_string(),
-            json!(["ext:lifecycle"]),
-        );
+        manifest
+            .extra
+            .insert("declaredExtensions".to_string(), json!(["ext:lifecycle"]));
         store.save_manifest(&manifest).unwrap();
 
         let report = declared_extensions_conformance(&store).unwrap();
@@ -836,7 +833,9 @@ mod tests {
 
         let report = declared_extensions_conformance(&store).unwrap();
         assert!(
-            report.used_but_undeclared.contains(&"ext:lifecycle".to_string()),
+            report
+                .used_but_undeclared
+                .contains(&"ext:lifecycle".to_string()),
             "ext:lifecycle should be detected as used: {:?}",
             report.used_but_undeclared
         );
@@ -899,7 +898,9 @@ mod tests {
 
         let report = declared_extensions_conformance(&store).unwrap();
         assert!(
-            !report.used_but_undeclared.contains(&"ext:lifecycle".to_string()),
+            !report
+                .used_but_undeclared
+                .contains(&"ext:lifecycle".to_string()),
             "ext:lifecycle is declared; must not appear in used_but_undeclared"
         );
     }
@@ -950,7 +951,9 @@ mod tests {
         let report = declared_extensions_conformance(&store).unwrap();
 
         assert!(
-            report.used_but_undeclared.contains(&"ext:lifecycle".to_string()),
+            report
+                .used_but_undeclared
+                .contains(&"ext:lifecycle".to_string()),
             "FileStore: ext:lifecycle should be detected via record lifecycleState: {:?}",
             report.used_but_undeclared
         );

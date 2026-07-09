@@ -193,7 +193,10 @@ fn cmd_repo_extensions_dispatch(ctx: CliContext, cmd: RepoExtensionsCommand) -> 
 
 fn cmd_repo_extensions_conformance(ctx: CliContext) -> Result<String> {
     let report = with_store(&ctx, |store| Ok(declared_extensions_conformance(store)?))?;
-    output::serialize("repo extensions conformance", RepoExtensionsConformancePayload::from(report))
+    output::serialize(
+        "repo extensions conformance",
+        RepoExtensionsConformancePayload::from(report),
+    )
 }
 
 fn cmd_repo_extensions_list(ctx: CliContext) -> Result<String> {
