@@ -523,7 +523,7 @@ impl SrsRepository {
     }
 
     /// List relation type definitions from the compiled package.
-    /// `filter_json` is `{}` or `{"status": "active"}` to filter by status.
+    /// `filter_json` is `{}` or `{"status":"active"}` to filter by status.
     /// Returns a JS array of `RelationTypeDefinition` objects.
     pub fn list_relation_types(&self, filter_json: &str) -> Result<JsValue, JsValue> {
         let filter: RelationTypeListBindingFilter = serde_json::from_str(filter_json)
@@ -714,8 +714,8 @@ struct TypeListBindingFilter {
 }
 
 /// Input shape for `list_relation_types` — parsed from caller-supplied JSON.
-/// `status`: `None` returns all relation type definitions; `Some(s)` returns only those
-/// whose serialized status string equals `s` (e.g. `"active"`).
+/// `status`: None returns all relation type definitions; Some(s) returns only those
+/// whose serialized status string equals s (e.g. "active").
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct RelationTypeListBindingFilter {
