@@ -11,7 +11,7 @@ use serde::de::Error as SerdeDeError;
 use srs_core::types::field::{Field, ValueType};
 use srs_core::types::lifecycle::Lifecycle;
 use srs_core::types::record_type::{
-    FieldAssignment, FieldAssignmentOverride, FieldGroup, RecordType, TypeLifecycle,
+    CrossFieldRule, FieldAssignment, FieldAssignmentOverride, FieldGroup, RecordType, TypeLifecycle,
 };
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::types::theme::Theme;
@@ -118,6 +118,8 @@ struct TypeJson {
     lifecycle: Option<TypeLifecycle>,
     #[serde(default)]
     lifecycle_ref: Option<String>,
+    #[serde(default)]
+    validation_rules: Option<Vec<CrossFieldRule>>,
     created_at: Option<String>,
     #[serde(flatten)]
     _extra: HashMap<String, serde_json::Value>,
@@ -472,6 +474,7 @@ impl JsonStore {
                 field_assignment_overrides,
                 lifecycle: tj.lifecycle,
                 lifecycle_ref: tj.lifecycle_ref,
+                validation_rules: tj.validation_rules,
                 created_at: tj.created_at.unwrap_or_default(),
                 extra: HashMap::new(),
             });
