@@ -1089,6 +1089,61 @@ $SRS_BIN repo validate --repo "$SCRATCH" --pretty   # must produce field-orderin
 - After adding the out-of-order record: `repo validate` returns `ok: false`; `diagnostics[0]` contains `"field-ordering"` and references `decision_date`'s field ID.
 - The error is attributed to the specific record file, not the type or repo globally.
 
+### S24 — Resolve a core type in a fresh repo with no package config (implicit core merge, #423)
+
+**Intention.** *"I have a brand-new repository with no `packageRefs`. I want to create a `com.semanticops.core/purpose` record without declaring anything in the manifest — the runtime should make core types available automatically."*
+
+**Capabilities exercised.** Implicit core package merge (`core_package::merge_core_into_package`): `FileStore::load_package` silently prepends the embedded `com.semanticops.core` fields and types to every package; `srs type list` surfaces core types; `srs repo map` reports a `corePackage` summary; a repo that tries to shadow a core type gets a loud error.
+
+**CLI surface.** `repo create`, `repo map`, `type list`, `record create` (with a core type), `repo validate`.
+
+**Steps.**
+
+```bash
+SRS_BIN=$(cargo build --bin srs 2>&1 | tail -1; echo "$(pwd)/target/debug/srs")
+SCRATCH=/tmp/dogfood-s24
+rm -rf "$SCRATCH"
+
+# 1. Create a fresh repo with no packageRefs
+$SRS_BIN repo create --repo "$SCRATCH" --namespace com.example.dogfood --pretty
+
+# 2. Confirm repo map shows corePackage summary
+$SRS_BIN repo map --repo "$SCRATCH" --pretty
+# payload.repoMap.corePackage.name should be "core" (package name from the bundle)
+# payload.repoMap.corePackage.types should include "com.semanticops.core/purpose"
+
+# 3. Confirm type list shows core types despite zero packageRefs in manifest
+$SRS_BIN type list --repo "$SCRATCH" --pretty
+# Output must include com.semanticops.core/purpose
+
+# 4. Create a purpose record using the core type directly
+echo '{
+  "fieldValues": [
+    {"fieldId":"3b000001-0000-4000-a000-000000000001","value":"This repo proves implicit core merge"},
+    {"fieldId":"3b000002-0000-4000-a000-000000000002","value":"Dogfood S24"}
+  ]
+}' | $SRS_BIN record create --repo "$SCRATCH" --type com.semanticops.core/purpose --pretty
+
+# 5. Validate — must be clean
+$SRS_BIN repo validate --repo "$SCRATCH" --pretty
+```
+
+**Negative case.** Attempt to define a field whose ID matches a core field ID but with a different namespace (simulating a repo that tries to shadow a core definition).
+
+```bash
+# The CLI does not support creating fields with an explicit UUID today — this case
+# is covered by the unit test `load_package_repo_declaring_core_field_conflicts` in
+# crates/srs-repository/src/store.rs, which injects the conflict at the MemoryStore level.
+# File srs-rust#<follow-up> to expose a CLI negative-case path if the field-create command
+# gains explicit-UUID support.
+```
+
+**Done when.**
+- Step 2: `payload.repoMap.corePackage.name` is `"core"` and `payload.repoMap.corePackage.types` contains `"com.semanticops.core/purpose"`.
+- Step 3: `srs type list` output includes at least one entry with `namespace: "com.semanticops.core"`.
+- Step 4: `record create` returns `ok: true`; the returned record has `typeNamespace: "com.semanticops.core"` and `typeName: "purpose"`.
+- Step 5: `repo validate` returns `ok: true`, `diagnostics` is empty.
+
 ---
 
 ## Coverage matrix
@@ -1097,7 +1152,8 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 
 | Command group | Exercised by |
 |---|---|
-| `repo` (map, validate, init) | S1–S6 (orientation + validation in every scenario); `repo validate` now includes manifest.json schema validation — see S1 negative case; RFC-013 I-79/I-80/I-81/I-82 root-container invariants — see S1 negative case (I-79) and S15 step 10 (full happy path); blueprint semantic validation + protocol stage-dependency validation — see S13 (`repo validate` on a repo with a protocol); **RFC-018 I-81** identity type check (Warning when `identityInstanceId` resolves to a Tier-0 Note or wrong Tier-2 type) — see S20; **`repo create` always scaffolds a `com.semanticops.core/purpose` Tier-2 record and sets `identityInstanceId` unconditionally (#424)** — happy path covered by S17 step 3 (navigation reads back the purpose record); **ext:lifecycle V7/V8/V9 invariants now enforced at validate time (#239)**: V7 (type declares both `lifecycle` and `lifecycleRef`), V8 (lifecycleRef UUID does not resolve), V9 (inline TypeLifecycle structural errors + `initialState`/`isInitial` key mismatch) — see S6 negative case; **RFC-020 Rule [N+33]** identityFieldId effective-field-set check (a Type's `identityFieldId`, own or inherited, must resolve to a `fieldId` in that Type's effective field set; runs independent of whether any record of that Type exists, and one Type's resolution error does not block others) — see S1 negative case (#376) |
+| `repo` (map, validate, init) | S1–S6 (orientation + validation in every scenario); `repo validate` now includes manifest.json schema validation — see S1 negative case; RFC-013 I-79/I-80/I-81/I-82 root-container invariants — see S1 negative case (I-79) and S15 step 10 (full happy path); blueprint semantic validation + protocol stage-dependency validation — see S13 (`repo validate` on a repo with a protocol); **RFC-018 I-81** identity type check (Warning when `identityInstanceId` resolves to a Tier-0 Note or wrong Tier-2 type) — see S20; **`repo create` always scaffolds a `com.semanticops.core/purpose` Tier-2 record and sets `identityInstanceId` unconditionally (#424)** — happy path covered by S17 step 3 (navigation reads back the purpose record); **ext:lifecycle V7/V8/V9 invariants now enforced at validate time (#239)**: V7 (type declares both `lifecycle` and `lifecycleRef`), V8 (lifecycleRef UUID does not resolve), V9 (inline TypeLifecycle structural errors + `initialState`/`isInitial` key mismatch) — see S6 negative case; **RFC-020 Rule [N+33]** identityFieldId effective-field-set check (a Type's `identityFieldId`, own or inherited, must resolve to a `fieldId` in that Type's effective field set; runs independent of whether any record of that Type exists, and one Type's resolution error does not block others) — see S1 negative case (#376); **`repo map` now includes `payload.corePackage` summary** (id, name, version, types, fields) from the embedded `com.semanticops.core` package (#423) — see S24 |
+| `implicit core type availability` (`srs type list` shows `com.semanticops.core/*`; `srs repo map` shows `corePackage`; zero-config `com.semanticops.core/purpose` resolution, #423) | S24 |
 | `repo init-new` (re-stamp seed identity) | S16 |
 | `repo set-root-container` (write manifest.container pointer) | S17 |
 | `repo copy` | S9, S10 |

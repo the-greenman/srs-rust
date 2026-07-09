@@ -1,6 +1,6 @@
 # ADR-025: Implicit Core Package Merge
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-07-09
 - **Supersedes:** —
 - **Superseded by:** —
@@ -35,16 +35,19 @@ Three mechanisms were considered:
 `crates/srs-repository/assets/core-bundle.srsj` via `include_str!` and parsed
 lazily once at startup (`core_package::core_package()`).
 
-`RepositoryStore::load_package` — in both `FileStore` and `MemoryStore` —
-merges the core package's fields and types into the returned `Package` **after**
-all explicit `packageRefs` are folded in, using the existing
-`PackageRefConflict` coalescing logic:
+`RepositoryStore::load_package` — in `FileStore`, `MemoryStore`, and `JsonStore`
+(the WASM backend, per ADR-013) — merges the core package's fields and types
+into the returned `Package` **after** all explicit `packageRefs` are folded in:
 
-- If a repo already has a field or type with the same ID as a core definition,
-  `load_package` returns `PackageRefConflict`. Repos must not declare their
-  own `com.semanticops.core/*` definitions.
+- If a repo already has a field or type with the same ID as a core definition
+  but a different namespace or name, `load_package` returns
+  `CorePackageConflict`. Repos must not declare their own
+  `com.semanticops.core/*` definitions.
+- If the IDs match and the namespace + name also match (the repo was copied
+  from a state that already had core fields embedded), the merge is idempotent
+  — the duplicate is silently skipped.
 - If the IDs are absent (the normal case), the core fields and types are
-  appended silently.
+  silently appended.
 
 A drift-check integration test (`tests/core_bundle_drift.rs`) compares the
 embedded artifact against the canonical copy in `srs/packages/com.semanticops.core/`
