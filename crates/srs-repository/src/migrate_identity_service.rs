@@ -99,16 +99,23 @@ pub fn migrate_identity(
         let record =
             core_purpose::build_purpose_record(&new_id, statement, record_title, &now);
 
-        let root_container_id = mc.container_id.clone();
         store.begin_batch();
         let batch_result = (|| -> Result<(), RepositoryError> {
             let relative_path = write_new_record(store, &record, paths::DEFAULT_RECORD_DIR)?;
             upsert_record_index_entry(&mut manifest, &record, &relative_path);
             if let Some(ref mut container) = manifest.container {
                 container.identity_instance_id = Some(new_id.clone());
+                container
+                    .member_instance_ids
+                    .get_or_insert_with(Vec::new)
+                    .push(new_id.clone());
             }
             writer::write_manifest(store, &manifest)?;
-            container_service::add_container_member(store, &root_container_id, &new_id)?;
+            // Persist container file so FileStore's load_container lookups succeed
+            // after migration (scaffold_purpose_record uses the same pattern).
+            if let Some(ref container) = manifest.container {
+                store.save_container(container)?;
+            }
             Ok(())
         })();
         match batch_result {
