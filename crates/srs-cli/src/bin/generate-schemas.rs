@@ -40,7 +40,7 @@ fn main() {
 
     // Record payloads
     write_schema!("record-list", RecordListPayload);
-    write_schema!("record-get", RecordPayload);
+    write_schema!("record-get", RecordGetPayload);
     write_schema!("record-create", RecordPayload);
     write_schema!("record-update", RecordPayload);
     write_schema!("record-validate", RecordValidatePayload);

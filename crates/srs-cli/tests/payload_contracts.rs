@@ -96,7 +96,7 @@ fn record_list() {
 
 #[test]
 fn record_get() {
-    check::<RecordPayload>("record-get");
+    check::<RecordGetPayload>("record-get");
 }
 
 #[test]

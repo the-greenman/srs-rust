@@ -2743,6 +2743,23 @@ fn record_list_returns_records_by_type() {
 fn record_get_returns_record_by_id() {
     let temp = create_temp_repo();
 
+    // Package required for build_field_name_index (label resolution)
+    let package_dir = temp.path().join("package");
+    std::fs::create_dir_all(&package_dir).unwrap();
+    std::fs::write(
+        package_dir.join("package.json"),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "id": "test-pkg",
+            "namespace": "com.test",
+            "name": "test",
+            "version": "1.0.0",
+            "fields": [],
+            "types": []
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
     let record_id = "cccccccc-cccc-cccc-8ccc-cccccccccccc";
     std::fs::create_dir_all(temp.path().join("records/test-items")).unwrap();
     let record = serde_json::json!({
@@ -2782,6 +2799,10 @@ fn record_get_returns_record_by_id() {
         "record get should succeed: {:?}",
         result["diagnostics"]
     );
+    // RecordGetPayload shape: { instanceId, displayLabel, record: { ... } } (#294)
+    assert_eq!(result["payload"]["instanceId"], record_id);
+    // No title/name/label field → displayLabel falls back to type_name
+    assert_eq!(result["payload"]["displayLabel"], "test-item");
     assert_eq!(result["payload"]["record"]["instanceId"], record_id);
 }
 

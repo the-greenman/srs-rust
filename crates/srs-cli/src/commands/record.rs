@@ -3,14 +3,14 @@ use crate::commands::{
 };
 use crate::output;
 use crate::payload::{
-    DeletedPayload, RecordAllowedTransitionsPayload, RecordListPayload, RecordPayload,
-    RecordSuccessorPayload, RecordTagAddPayload, RecordTagListPayload, RecordTransitionPayload,
-    RecordValidatePayload, RevisionListPayload, RevisionPayload,
+    DeletedPayload, RecordAllowedTransitionsPayload, RecordGetPayload, RecordListPayload,
+    RecordPayload, RecordSuccessorPayload, RecordTagAddPayload, RecordTagListPayload,
+    RecordTransitionPayload, RecordValidatePayload, RevisionListPayload, RevisionPayload,
 };
 use anyhow::Result;
 use srs_repository::record_store::{
     add_record_tag, create_record_in_context, create_record_successor, delete_record_in_context,
-    get_allowed_lifecycle_transitions, get_record_by_id, get_record_revision,
+    get_allowed_lifecycle_transitions, get_record_revision, get_record_summary_by_id,
     list_record_revisions, list_record_summaries, list_record_tags, remove_record_tag,
     transition_record_lifecycle, update_record, validate_record_input, AddRecordTagResult,
     CreateRecordInput, CreateRecordSuccessorInput, RecordListFilter, RemoveRecordTagResult,
@@ -135,8 +135,8 @@ fn cmd_record_tag_list(ctx: CliContext) -> Result<String> {
 }
 
 fn cmd_record_get(ctx: CliContext, id: String) -> Result<String> {
-    match with_store(&ctx, |store| Ok(get_record_by_id(store, &id)?))? {
-        Some(record) => output::serialize("record get", RecordPayload { record }),
+    match with_store(&ctx, |store| Ok(get_record_summary_by_id(store, &id)?))? {
+        Some(summary) => output::serialize("record get", RecordGetPayload::from(summary)),
         None => Ok(output::err(
             "record get",
             vec![format!("Record with id '{}' not found", id)],
