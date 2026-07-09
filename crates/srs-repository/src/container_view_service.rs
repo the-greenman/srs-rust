@@ -43,6 +43,10 @@ pub struct ColumnSpec {
     /// `i32` to match `FieldView.order`.
     pub order: i32,
     pub required: bool,
+    /// True when this column's fieldId is the resolved View's Type's effective
+    /// `identityFieldId` (RFC-020), and that Type was unambiguously resolvable
+    /// (see ADR-023). Never affects column order.
+    pub is_identity_column: bool,
 }
 
 /// A resolved Tier-2 member (or root) of the container.
@@ -148,6 +152,7 @@ pub fn resolve_container_view(
             store,
             dv,
             &container_id,
+            &identity_field_index,
             &field_name_index,
             &mut diagnostics,
         )?,
@@ -265,10 +270,20 @@ fn resolve_member(
 }
 
 /// Resolve the column spec from a DocumentView, per the ADR-018 precedence.
+///
+/// `is_identity_column` (ADR-023, RFC-020) is looked up from `identity_field_index` — the same
+/// `(type_id, type_version) -> identityFieldId` index `resolve_container_view` already builds
+/// once for `record_display_label`. This function never calls `Package::resolve_type` or
+/// `Package::effective_identity_field_id` itself: doing so would duplicate that resolution and
+/// risk a second `Package` load. The marker is scoped to the unambiguous case only — `dv`'s
+/// `root_type_refs` must have exactly one entry, and that entry's key must be present in the
+/// index; every other case yields `is_identity_column: false` on every column, which is a normal
+/// outcome (not a diagnostic-worthy error — see ADR-023).
 fn resolve_columns(
     store: &dyn RepositoryStore,
     dv: &DocumentView,
     container_id: &str,
+    identity_field_index: &HashMap<(String, u32), String>,
     field_name_index: &HashMap<String, String>,
     diagnostics: &mut Vec<String>,
 ) -> Result<Vec<ColumnSpec>, RepositoryError> {
@@ -294,6 +309,11 @@ fn resolve_columns(
         .collect();
     field_views.sort_by_key(|fv| fv.order);
 
+    let identity_field_id: Option<&String> = match dv.root_type_refs.as_deref() {
+        Some([single]) => identity_field_index.get(&(single.type_id.clone(), single.type_version)),
+        _ => None,
+    };
+
     let mut columns = Vec::new();
     for fv in field_views {
         let field_name = match field_name_index.get(&fv.field_id) {
@@ -316,6 +336,7 @@ fn resolve_columns(
             display_label,
             order: fv.order,
             required: fv.required.unwrap_or(false),
+            is_identity_column: identity_field_id == Some(&fv.field_id),
         });
     }
     Ok(columns)
@@ -391,7 +412,10 @@ mod tests {
     use srs_core::types::container::Container;
     use srs_core::types::field::{Field, ValueType};
     use srs_core::types::record::{FieldValue, Record};
-    use srs_core::types::view::{DocumentSection, DocumentView, FieldView, SectionSource, View};
+    use srs_core::types::record_type::{FieldAssignment, RecordType};
+    use srs_core::types::view::{
+        DocumentSection, DocumentView, ExactTypeRef, FieldView, SectionSource, View,
+    };
     use std::path::PathBuf;
 
     const TYPE_ID: &str = "00000000-0000-4000-8000-00000000aaaa";
@@ -527,6 +551,19 @@ mod tests {
         document_views: Vec<DocumentView>,
         instances: Vec<(&str, u8, serde_json::Value)>,
     ) -> MemoryStore {
+        build_store_with_types(fields, vec![], views, document_views, instances)
+    }
+
+    /// Like [`build_store`], but also installs the given `record_types` in the package —
+    /// needed for `identityFieldId`/`isIdentityColumn` tests, which must resolve a Type by
+    /// `(type_id, type_version)`.
+    fn build_store_with_types(
+        fields: Vec<Field>,
+        record_types: Vec<RecordType>,
+        views: Vec<View>,
+        document_views: Vec<DocumentView>,
+        instances: Vec<(&str, u8, serde_json::Value)>,
+    ) -> MemoryStore {
         let manifest = Manifest {
             instance_index: instances
                 .iter()
@@ -549,7 +586,7 @@ mod tests {
             name: "test".to_string(),
             version: "1.0.0".to_string(),
             fields,
-            record_types: vec![],
+            record_types,
             relation_type_definitions: vec![],
             views,
             document_views,
@@ -1257,6 +1294,249 @@ mod tests {
             serde_json::to_value(&from_memory).unwrap(),
             serde_json::to_value(&from_file).unwrap(),
             "is_visible_by_default must survive memory -> file roundtrip"
+        );
+    }
+
+    // --- ADR-023 / RFC-020: ColumnSpec.is_identity_column ---
+
+    fn record_type_with_identity(identity_field_id: Option<&str>) -> RecordType {
+        RecordType {
+            id: TYPE_ID.to_string(),
+            namespace: "com.test".to_string(),
+            name: "decision".to_string(),
+            version: 1,
+            description: "test".to_string(),
+            fields: vec![
+                FieldAssignment {
+                    field_id: "f-title".to_string(),
+                    order: 0,
+                    required: true,
+                    display_label: None,
+                    repeatable: false,
+                    min_items: None,
+                    max_items: None,
+                },
+                FieldAssignment {
+                    field_id: "f-status".to_string(),
+                    order: 1,
+                    required: false,
+                    display_label: None,
+                    repeatable: false,
+                    min_items: None,
+                    max_items: None,
+                },
+            ],
+            field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            identity_field_id: identity_field_id.map(|s| s.to_string()),
+            lifecycle: None,
+            lifecycle_ref: None,
+            validation_rules: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn resolve_container_view_marks_identity_column_for_single_type_container() {
+        let fvs = vec![
+            field_view("f-title", 0, None, None),
+            field_view("f-status", 1, None, None),
+        ];
+        let sections = vec![section(
+            "s1",
+            0,
+            SectionSource::ContainerSubset {
+                container_id: CONTAINER_ID.to_string(),
+                container_type: None,
+                type_filter: None,
+            },
+            Some(VIEW_ID),
+        )];
+        let fields = vec![field("f-title", "title"), field("f-status", "status")];
+        let view = view_with_fields(fvs);
+        let dv = document_view(DV_ID, sections);
+        let root = record("root-1", "f-title", "Root Decision");
+        let store = build_store_with_types(
+            fields,
+            vec![record_type_with_identity(Some("f-title"))],
+            vec![view],
+            vec![dv],
+            vec![("root-1", 2, serde_json::to_value(&root).unwrap())],
+        );
+        container_service::create_container(&store, make_container(vec!["root-1"], vec![]))
+            .unwrap();
+
+        let result = resolve_container_view(&store, input(None)).unwrap();
+
+        let title_col = result
+            .columns
+            .iter()
+            .find(|c| c.field_id == "f-title")
+            .unwrap();
+        let status_col = result
+            .columns
+            .iter()
+            .find(|c| c.field_id == "f-status")
+            .unwrap();
+        assert!(
+            title_col.is_identity_column,
+            "f-title must be marked as the identity column"
+        );
+        assert!(
+            !status_col.is_identity_column,
+            "f-status must not be marked as the identity column"
+        );
+    }
+
+    #[test]
+    fn resolve_container_view_no_identity_field_id_all_columns_false() {
+        let fvs = vec![
+            field_view("f-title", 0, None, None),
+            field_view("f-status", 1, None, None),
+        ];
+        let sections = vec![section(
+            "s1",
+            0,
+            SectionSource::ContainerSubset {
+                container_id: CONTAINER_ID.to_string(),
+                container_type: None,
+                type_filter: None,
+            },
+            Some(VIEW_ID),
+        )];
+        let fields = vec![field("f-title", "title"), field("f-status", "status")];
+        let view = view_with_fields(fvs);
+        let dv = document_view(DV_ID, sections);
+        let root = record("root-1", "f-title", "Root Decision");
+        let store = build_store_with_types(
+            fields,
+            vec![record_type_with_identity(None)],
+            vec![view],
+            vec![dv],
+            vec![("root-1", 2, serde_json::to_value(&root).unwrap())],
+        );
+        container_service::create_container(&store, make_container(vec!["root-1"], vec![]))
+            .unwrap();
+
+        let result = resolve_container_view(&store, input(None)).unwrap();
+
+        assert!(
+            result.columns.iter().all(|c| !c.is_identity_column),
+            "no Type declares identityFieldId — every column must be false, got: {:?}",
+            result.columns
+        );
+    }
+
+    #[test]
+    fn resolve_container_view_ambiguous_root_type_refs_all_columns_false() {
+        let fvs = vec![field_view("f-title", 0, None, None)];
+        let sections = vec![section(
+            "s1",
+            0,
+            SectionSource::ContainerSubset {
+                container_id: CONTAINER_ID.to_string(),
+                container_type: None,
+                type_filter: None,
+            },
+            Some(VIEW_ID),
+        )];
+        let fields = vec![field("f-title", "title")];
+        let view = view_with_fields(fvs);
+        // Two root_type_refs entries — ambiguous, per ADR-023 no identity signal is derived.
+        let mut dv = document_view(DV_ID, sections);
+        dv.root_type_refs = Some(vec![
+            ExactTypeRef {
+                type_id: TYPE_ID.to_string(),
+                type_version: 1,
+            },
+            ExactTypeRef {
+                type_id: "00000000-0000-4000-8000-00000000bbbb".to_string(),
+                type_version: 1,
+            },
+        ]);
+        let root = record("root-1", "f-title", "Root Decision");
+        let store = build_store_with_types(
+            fields,
+            vec![record_type_with_identity(Some("f-title"))],
+            vec![view],
+            vec![dv],
+            vec![("root-1", 2, serde_json::to_value(&root).unwrap())],
+        );
+        container_service::create_container(&store, make_container(vec!["root-1"], vec![]))
+            .unwrap();
+
+        let result = resolve_container_view(&store, input(None)).unwrap();
+
+        assert!(
+            result.columns.iter().all(|c| !c.is_identity_column),
+            "ambiguous (multi-entry) root_type_refs must yield no identity signal, got: {:?}",
+            result.columns
+        );
+    }
+
+    #[test]
+    fn resolve_container_view_view_id_override_still_resolves_identity_column() {
+        // The explicit view_id branch skips document_views_for_container entirely
+        // (container_view_service.rs ~126-135) — this test proves is_identity_column still
+        // resolves correctly via the explicitly-referenced DocumentView's own root_type_refs.
+        let fields = vec![field("f-title", "title"), field("f-status", "status")];
+        let view = view_with_fields(vec![
+            field_view("f-title", 0, None, None),
+            field_view("f-status", 1, None, None),
+        ]);
+        let primary = document_view(
+            DV_ID,
+            vec![section(
+                "s1",
+                0,
+                SectionSource::ContainerSubset {
+                    container_id: CONTAINER_ID.to_string(),
+                    container_type: None,
+                    type_filter: None,
+                },
+                Some(VIEW_ID),
+            )],
+        );
+        // The alt DV also targets TYPE_ID via `document_view()`'s default root_type_refs, and
+        // its own section carries a render_view_id so columns actually resolve.
+        let alt = document_view(
+            ALT_DV_ID,
+            vec![section(
+                "s1",
+                0,
+                SectionSource::FixedInstances {
+                    instance_ids: vec![],
+                },
+                Some(VIEW_ID),
+            )],
+        );
+        let root = record("root-1", "f-title", "Root Decision");
+        let store = build_store_with_types(
+            fields,
+            vec![record_type_with_identity(Some("f-title"))],
+            vec![view],
+            vec![primary, alt],
+            vec![("root-1", 2, serde_json::to_value(&root).unwrap())],
+        );
+        container_service::create_container(&store, make_container(vec!["root-1"], vec![]))
+            .unwrap();
+
+        let result = resolve_container_view(&store, input(Some(ALT_DV_ID))).unwrap();
+
+        assert_eq!(result.document_view_id.as_deref(), Some(ALT_DV_ID));
+        let title_col = result
+            .columns
+            .iter()
+            .find(|c| c.field_id == "f-title")
+            .unwrap();
+        assert!(
+            title_col.is_identity_column,
+            "identity column must resolve via the explicitly-referenced DocumentView, got: {:?}",
+            result.columns
         );
     }
 }
