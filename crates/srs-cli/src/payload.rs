@@ -1334,6 +1334,19 @@ pub struct RepoExtensionsConformancePayload {
     pub used_but_undeclared: Vec<String>,
 }
 
+impl From<srs_repository::manifest_service::DeclaredExtensionsReport>
+    for RepoExtensionsConformancePayload
+{
+    fn from(r: srs_repository::manifest_service::DeclaredExtensionsReport) -> Self {
+        Self {
+            declared: r.declared,
+            supported: r.supported,
+            declared_but_unsupported: r.declared_but_unsupported,
+            used_but_undeclared: r.used_but_undeclared,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoSetRootContainerPayload {

@@ -6,20 +6,28 @@ use crate::writer::write_manifest;
 use serde_json::json;
 use std::collections::HashMap;
 
+const EXT_ADDRESSABILITY: &str = "ext:addressability";
+const EXT_DISCOVERY: &str = "ext:discovery";
+const EXT_FIELD_GROUPS: &str = "ext:field-groups";
+const EXT_LIFECYCLE: &str = "ext:lifecycle";
+const EXT_RELATIONS: &str = "ext:relations";
+const EXT_REPOSITORY: &str = "ext:repository";
+const EXT_TYPE_INHERITANCE: &str = "ext:type-inheritance";
+
 /// Extension IDs actively implemented by this version of the SRS engine.
 /// This is the single authoritative list — do not add `ext:` literals elsewhere.
 pub const SUPPORTED_EXTENSIONS: &[&str] = &[
-    "ext:addressability",
-    "ext:discovery",
-    "ext:field-groups",
-    "ext:lifecycle",
-    "ext:relations",
-    "ext:repository",
-    "ext:type-inheritance",
+    EXT_ADDRESSABILITY,
+    EXT_DISCOVERY,
+    EXT_FIELD_GROUPS,
+    EXT_LIFECYCLE,
+    EXT_RELATIONS,
+    EXT_REPOSITORY,
+    EXT_TYPE_INHERITANCE,
 ];
 
 /// Conformance report: declared vs supported vs content-detected extension usage.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeclaredExtensionsReport {
     /// Extension IDs declared in `manifest.extra.declaredExtensions`.
@@ -73,17 +81,19 @@ fn detect_used_extensions(
     // ext:lifecycle — any Tier 2 record has lifecycleState set
     match list_all_records(store) {
         Ok(records) if records.iter().any(|r| r.lifecycle_state.is_some()) => {
-            used.push("ext:lifecycle".to_string());
+            used.push(EXT_LIFECYCLE.to_string());
         }
-        _ => {}
+        Ok(_) => {}
+        Err(e) => return Err(e),
     }
 
     // ext:relations — relations collection is non-empty
     match list_relations(store, ListRelationsFilter::default()) {
         Ok(relations) if !relations.is_empty() => {
-            used.push("ext:relations".to_string());
+            used.push(EXT_RELATIONS.to_string());
         }
-        _ => {}
+        Ok(_) => {}
+        Err(e) => return Err(e),
     }
 
     // ext:type-inheritance — any package type declares an extends base type
@@ -106,10 +116,10 @@ fn detect_used_extensions(
                 }
             }
             if has_inheritance {
-                used.push("ext:type-inheritance".to_string());
+                used.push(EXT_TYPE_INHERITANCE.to_string());
             }
             if has_field_groups {
-                used.push("ext:field-groups".to_string());
+                used.push(EXT_FIELD_GROUPS.to_string());
             }
         }
         Err(RepositoryError::Io { .. } | RepositoryError::PackageLoad { .. }) => {}
@@ -117,12 +127,8 @@ fn detect_used_extensions(
     }
 
     // ext:addressability — any .revisions.json sidecar file exists
-    let revision_files = store.list_files_recursive("records");
-    if revision_files
-        .iter()
-        .any(|p| p.ends_with(".revisions.json"))
-    {
-        used.push("ext:addressability".to_string());
+    if store.has_revision_sidecars() {
+        used.push(EXT_ADDRESSABILITY.to_string());
     }
 
     used.sort();

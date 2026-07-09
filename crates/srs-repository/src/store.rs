@@ -303,6 +303,13 @@ pub trait RepositoryStore {
     /// Returns an empty Vec if the directory does not exist.
     fn list_files_recursive(&self, relative_dir: &str) -> Vec<String>;
 
+    /// Return true if any addressability revision sidecar (`.revisions.json`) exists.
+    fn has_revision_sidecars(&self) -> bool {
+        self.list_files_recursive("records")
+            .iter()
+            .any(|p| p.ends_with(".revisions.json"))
+    }
+
     /// Read a text file at `relative_path` and return its contents.
     fn load_text_file(&self, relative_path: &str) -> Result<String, RepositoryError>;
 
