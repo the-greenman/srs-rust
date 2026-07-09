@@ -121,6 +121,8 @@ pub fn resolve_container_view(
 
     // Build the field_id -> field_name index once.
     let field_name_index = record_label::build_field_name_index(store)?;
+    // RFC-020 — build the (type_id, type_version) -> identityFieldId index once.
+    let identity_field_index = record_label::build_identity_field_index(store)?;
 
     // Resolve the DocumentView.
     let document_view: Option<DocumentView> = match &input.view_id {
@@ -169,6 +171,7 @@ pub fn resolve_container_view(
             store,
             root_id,
             &tier_by_id,
+            &identity_field_index,
             &field_name_index,
             &exclude_lifecycle_states,
             "root instance",
@@ -185,6 +188,7 @@ pub fn resolve_container_view(
             store,
             id,
             &tier_by_id,
+            &identity_field_index,
             &field_name_index,
             &exclude_lifecycle_states,
             "instance",
@@ -207,10 +211,12 @@ pub fn resolve_container_view(
 
 /// Load one instance as a Tier-2 [`ResolvedMember`]; non-Tier-2 or unresolved
 /// instances yield `None` plus a diagnostic (mirrors `tree_service`).
+#[allow(clippy::too_many_arguments)]
 fn resolve_member(
     store: &dyn RepositoryStore,
     id: &str,
     tier_by_id: &HashMap<String, u8>,
+    identity_field_index: &HashMap<(String, u32), String>,
     field_name_index: &HashMap<String, String>,
     exclude_lifecycle_states: &[String],
     kind: &str,
@@ -219,7 +225,11 @@ fn resolve_member(
     match tier_by_id.get(id) {
         Some(2) => match record_store::get_record_by_id(store, id)? {
             Some(record) => {
-                let display_label = record_label::record_display_label(&record, field_name_index);
+                let display_label = record_label::record_display_label(
+                    &record,
+                    identity_field_index,
+                    field_name_index,
+                );
                 let is_visible_by_default = record
                     .lifecycle_state
                     .as_deref()

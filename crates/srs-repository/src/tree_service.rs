@@ -62,6 +62,7 @@ pub fn build_tree(
 
     let relations = load_relations(store)?;
     let field_name_index = record_label::build_field_name_index(store)?;
+    let identity_field_index = record_label::build_identity_field_index(store)?;
 
     let root_ids = resolve_roots(store, &options, &relations)?;
 
@@ -74,6 +75,7 @@ pub fn build_tree(
             store,
             id,
             &relations,
+            &identity_field_index,
             &field_name_index,
             &options,
             0,
@@ -138,6 +140,7 @@ fn build_node(
     store: &dyn RepositoryStore,
     instance_id: &str,
     relations: &[srs_core::types::relation::Relation],
+    identity_field_index: &HashMap<(String, u32), String>,
     field_name_index: &HashMap<String, String>,
     options: &TreeOptions,
     depth: u32,
@@ -162,7 +165,7 @@ fn build_node(
         }
     }
 
-    let label = record_label::record_display_label(&record, field_name_index);
+    let label = record_label::record_display_label(&record, identity_field_index, field_name_index);
 
     // Cycle check must precede max_depth: a node at exactly max_depth that is also
     // an ancestor is a back-edge and must be flagged cycle_pruned, not silently truncated.
@@ -193,6 +196,7 @@ fn build_node(
                 store,
                 &child.instance_id,
                 relations,
+                identity_field_index,
                 field_name_index,
                 options,
                 depth + 1,

@@ -34,19 +34,27 @@ pub struct TextSegment {
 }
 
 /// Field text metadata derived from the repository package, built once per batch
-/// with [`build_field_text_index`] and reused across every record. Both maps are
+/// with [`build_field_text_index`] and reused across every record. All maps are
 /// prebuilt so projecting a record allocates nothing here.
 pub struct FieldTextIndex {
     /// `field_id → field_name`, also the map [`record_label::record_display_label`] expects.
     names: HashMap<String, String>,
     /// Field ids whose `ValueType` is searchable.
     searchable: HashSet<String>,
+    /// RFC-020 — `(type_id, type_version) → identityFieldId`, the other map
+    /// [`record_label::record_display_label`] expects.
+    identity_field_ids: HashMap<(String, u32), String>,
 }
 
 impl FieldTextIndex {
     /// Borrow the prebuilt `field_id → field_name` map (no per-call allocation).
     pub(crate) fn names(&self) -> &HashMap<String, String> {
         &self.names
+    }
+
+    /// Borrow the prebuilt `(type_id, type_version) → identityFieldId` map.
+    pub(crate) fn identity_field_ids(&self) -> &HashMap<(String, u32), String> {
+        &self.identity_field_ids
     }
 
     fn name_of(&self, field_id: &str) -> Option<&str> {
@@ -80,7 +88,12 @@ pub fn build_field_text_index(
         }
         names.insert(f.id, f.name);
     }
-    Ok(FieldTextIndex { names, searchable })
+    let identity_field_ids = record_label::build_identity_field_index(store)?;
+    Ok(FieldTextIndex {
+        names,
+        searchable,
+        identity_field_ids,
+    })
 }
 
 /// Apply RFC-012 normalization: NFC then Unicode simple lowercasing. Used at match
@@ -110,7 +123,8 @@ pub fn project_text(record: &Record, index: &FieldTextIndex) -> Vec<TextSegment>
         }
     }
 
-    let label = record_label::record_display_label(record, index.names());
+    let label =
+        record_label::record_display_label(record, index.identity_field_ids(), index.names());
     if !label.is_empty() {
         segments.push(TextSegment {
             field_id: LABEL_SENTINEL.to_string(),
@@ -217,7 +231,11 @@ mod tests {
             .filter(|(_, _, searchable)| *searchable)
             .map(|(id, _, _)| id.to_string())
             .collect();
-        FieldTextIndex { names, searchable }
+        FieldTextIndex {
+            names,
+            searchable,
+            identity_field_ids: HashMap::new(),
+        }
     }
 
     fn fv(field_id: &str, value: serde_json::Value) -> FieldValue {

@@ -611,11 +611,16 @@ pub fn list_record_summaries(
 ) -> Result<Vec<RecordSummary>, RepositoryError> {
     let records = list_records_filtered(store, filter)?;
     let field_name_index = record_label::build_field_name_index(store)?;
+    let identity_field_index = record_label::build_identity_field_index(store)?;
     Ok(records
         .into_iter()
         .map(|record| {
             let instance_id = record.instance_id.clone();
-            let display_label = record_label::record_display_label(&record, &field_name_index);
+            let display_label = record_label::record_display_label(
+                &record,
+                &identity_field_index,
+                &field_name_index,
+            );
             RecordSummary {
                 instance_id,
                 display_label,
