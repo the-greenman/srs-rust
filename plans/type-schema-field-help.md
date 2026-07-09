@@ -165,13 +165,13 @@ instead of silently dropping it — the gap an in-memory-only Phase 1 would othe
 
 #### Tasks
 
-- [ ] In `crates/srs-repository/src/json_store.rs`, add `instructions: Option<String>,` to the
+- [x] In `crates/srs-repository/src/json_store.rs`, add `instructions: Option<String>,` to the
   `FieldJson` struct (~line 79, alongside `description: Option<String>,`; no `#[serde(default)]`
   needed since the field is already `Option`). In the `Field { .. }` construction that consumes it
   (~line 362-375), add `instructions: fj.instructions,`.
-- [ ] In `crates/srs-repository/src/store.rs`, make the identical change to its own `FieldJson`
+- [x] In `crates/srs-repository/src/store.rs`, make the identical change to its own `FieldJson`
   struct (~line 425) and `Field { .. }` construction (~line 568-580).
-- [ ] Add a cross-store roundtrip test (per `CLAUDE.md`'s Storage Boundary Rules: "New service
+- [x] Add a cross-store roundtrip test (per `CLAUDE.md`'s Storage Boundary Rules: "New service
   features need at least one cross-store roundtrip test") that writes a field with a non-empty
   `instructions` value, loads it back through both `FileStore` and `JsonStore`, and asserts
   `field.instructions` matches. Place it in `crates/srs-repository/src/json_store.rs`'s or
@@ -180,11 +180,11 @@ instead of silently dropping it — the gap an in-memory-only Phase 1 would othe
 
 #### Acceptance Criteria
 
-- [ ] A `Field` with `instructions` set in its source JSON survives a `FileStore` load with
+- [x] A `Field` with `instructions` set in its source JSON survives a `FileStore` load with
   `instructions` populated (not dropped into `extra`).
-- [ ] The same holds for a `JsonStore` (`.srsj`) load.
-- [ ] `MemoryStore` was already correct (it holds `Field` directly) — no change needed there.
-- [ ] The *write* path (`save_field`/`update_field_file` in both stores) already serializes the whole
+- [x] The same holds for a `JsonStore` (`.srsj`) load.
+- [x] `MemoryStore` was already correct (it holds `Field` directly) — no change needed there.
+- [x] The *write* path (`save_field`/`update_field_file` in both stores) already serializes the whole
   `Field` struct directly via `serde_json::to_value`, not through `FieldJson` — writes already
   round-trip `instructions` with zero code change. Only the read path had the gap.
 
