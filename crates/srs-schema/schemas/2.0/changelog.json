@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/changelog.json",
+  "title": "SRS Changelog Collection (ext:changelog)",
+  "description": "Append-only log of entity-level changes in a repository that declares ext:changelog. Lives at manifest.changelogPath (default: changelog/changelog.json).",
+  "type": "object",
+  "required": ["$schema", "entries"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://srs.semanticops.com/schema/2.0/changelog.json"
+    },
+    "entries": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ChangelogEntry" },
+      "description": "Ordered list of change entries. Entries are append-only; no entry may be removed or modified once written (RFC-018 R4)."
+    }
+  },
+  "$defs": {
+    "ChangelogEntry": {
+      "type": "object",
+      "required": ["entryId", "instanceId", "changeKind", "timestamp"],
+      "additionalProperties": false,
+      "if": {
+        "properties": {
+          "changeKind": {
+            "enum": ["note-created", "note-updated", "note-deleted"]
+          }
+        },
+        "required": ["changeKind"]
+      },
+      "then": {
+        "required": ["noteId"]
+      },
+      "properties": {
+        "entryId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable UUID4 for this entry. Freshly minted per write. Immutable once written (RFC-018 R3)."
+        },
+        "instanceId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The instanceId of the record affected by this change. For deleted records, this is the former instanceId."
+        },
+        "changeKind": {
+          "type": "string",
+          "enum": [
+            "created",
+            "updated",
+            "deleted",
+            "note-created",
+            "note-updated",
+            "note-deleted"
+          ],
+          "description": "The kind of change. 'created'/'updated'/'deleted' cover record-level operations. 'note-created'/'note-updated'/'note-deleted' cover note-level operations on the instance; noteId is required for all note variants (RFC-018 R7)."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO8601 timestamp (UTC preferred) when this change was committed by the implementation (RFC-018 R6)."
+        },
+        "assertedBy": {
+          "type": "string",
+          "description": "Optional. Identifier for the agent, tool, or user that asserted the change. Free-form string; implementations SHOULD use a stable identifier (e.g. CLI process name, agent UUID, user handle)."
+        },
+        "noteId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Required when changeKind is 'note-created', 'note-updated', or 'note-deleted'. The UUID of the note affected (RFC-018 R7)."
+        }
+      }
+    }
+  }
+}
