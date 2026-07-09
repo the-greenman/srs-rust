@@ -40,7 +40,7 @@ pub struct CreateRepositoryResult {
     pub repo_root: PathBuf,
     pub repository_id: String,
     pub package_id: String,
-    pub root_note_id: Option<String>,
+    pub identity_instance_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -126,7 +126,7 @@ pub fn create_repository_with_intent(
             meta: None,
         };
         let note_result = create_note(store, note)?;
-        result.root_note_id = Some(note_result.note.instance_id);
+        result.identity_instance_id = Some(note_result.note.instance_id);
     }
 
     Ok(result)

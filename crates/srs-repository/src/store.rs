@@ -880,7 +880,7 @@ impl RepositoryStore for FileStore {
             repo_root: self.repo_root.clone(),
             repository_id: input.repository.repository_id.clone(),
             package_id: input.primary_package.id.clone(),
-            root_note_id: None,
+            identity_instance_id: None,
         })
     }
 
@@ -2314,7 +2314,7 @@ pub mod memory {
                 repo_root: PathBuf::from("/memory"),
                 repository_id: input.repository.repository_id.clone(),
                 package_id: input.primary_package.id.clone(),
-                root_note_id: None,
+                identity_instance_id: None,
             })
         }
 

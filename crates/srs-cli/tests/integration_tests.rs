@@ -517,12 +517,12 @@ fn repo_create_with_name_and_description_creates_root_note() {
     let pkg_id = result["payload"]["packageId"].as_str().unwrap();
     assert!(!repo_id.is_empty(), "repositoryId must be auto-generated");
     assert!(!pkg_id.is_empty(), "packageId must be auto-generated");
-    let root_note_id = result["payload"]["rootNoteId"]
+    let identity_instance_id = result["payload"]["identityInstanceId"]
         .as_str()
-        .expect("rootNoteId should be present when --title is given");
-    assert!(!root_note_id.is_empty());
+        .expect("identityInstanceId should be present when --title is given");
+    assert!(!identity_instance_id.is_empty());
 
-    // Verify the note actually exists in the repo
+    // Verify the identity instance actually exists in the repo (as a Tier-0 note pre-#424 completion)
     let notes = run_srs_in_dir(repo_dir.as_path(), &["note", "list"]);
     assert_eq!(notes["ok"], true);
     let note_ids: Vec<&str> = notes["payload"]["notes"]
@@ -532,8 +532,8 @@ fn repo_create_with_name_and_description_creates_root_note() {
         .filter_map(|n| n["instanceId"].as_str())
         .collect();
     assert!(
-        note_ids.contains(&root_note_id),
-        "intent note must appear in note list"
+        note_ids.contains(&identity_instance_id),
+        "identity instance must appear in note list"
     );
 }
 

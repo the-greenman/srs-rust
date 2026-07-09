@@ -1099,7 +1099,7 @@ pub struct RepoCreatePayload {
     pub repository_id: String,
     pub package_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub root_note_id: Option<String>,
+    pub identity_instance_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
