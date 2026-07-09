@@ -221,7 +221,7 @@ proves it; the whole workspace is green.
 
 #### Tasks
 
-- [ ] In `field_to_property` (`crates/srs-repository/src/type_schema_service.rs`), after the existing
+- [x] In `field_to_property` (`crates/srs-repository/src/type_schema_service.rs`), after the existing
   `title` block, insert:
   ```rust
   if !field.description.is_empty() {
@@ -236,22 +236,22 @@ proves it; the whole workspace is green.
   Place it before the existing `x-srs-order` / `x-srs-field-id` inserts, or after — order in the
   `Map` doesn't affect JSON semantics; keep it adjacent to the `title` block since both derive from
   `description`.
-- [ ] Add a unit test in `crates/srs-repository/src/type_schema_service.rs`'s existing test module
+- [x] Add a unit test in `crates/srs-repository/src/type_schema_service.rs`'s existing test module
   (alongside the other `field_to_property` / `type_schema` tests) that:
   - builds a `Field` with a non-empty `description` and `instructions: Some("...".to_string())`,
   - asserts the resulting property object has `x-srs-description` equal to the field's description
     and `x-srs-instructions` equal to the field's instructions.
-- [ ] Add a second assertion (same test or a sibling) that a `Field` with `instructions: None` does
+- [x] Add a second assertion (same test or a sibling) that a `Field` with `instructions: None` does
   **not** carry an `x-srs-instructions` key.
 
 #### Acceptance Criteria
 
-- [ ] `srs` type-schema output for a field with both `description` and `instructions` carries both
+- [x] `srs` type-schema output for a field with both `description` and `instructions` carries both
   `x-srs-description` and `x-srs-instructions`.
-- [ ] A field with empty `description`, or `instructions` that is `None` **or** `Some("")`, omits the
+- [x] A field with empty `description`, or `instructions` that is `None` **or** `Some("")`, omits the
   corresponding key (no empty strings emitted) — the `!instructions.is_empty()` guard in the code
   above covers both the `None` and `Some("")` cases identically since it's checked after unwrapping.
-- [ ] Field-group sub-fields (RFC-007) also carry the new keys, verified by the fact that
+- [x] Field-group sub-fields (RFC-007) also carry the new keys, verified by the fact that
   `field_group_to_property` delegates to `field_to_property` unchanged — no explicit new test
   required there, but confirm no existing field-group test asserts a fixed property-key set that
   the new keys would silently break (`cargo test -p srs-repository field_group` must stay green).
