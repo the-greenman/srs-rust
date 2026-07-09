@@ -182,9 +182,9 @@ This is the spec-as-repo pattern (`../srs/srs`): sections are records, order is 
    - When advancing to a final state (`isFinal: true`), confirm `payload.warnings` contains a `LIFECYCLE_FINAL_STATE` message and that envelope `diagnostics` is absent (the warning is non-fatal and lives in the typed payload per ADR-011, not the error envelope).
 8. **`$schema` loader tolerance (#117):** If your editor adds a top-level `"$schema"` key to lifecycle or vocabulary JSON files (the standard JSON Schema association hint), confirm `lifecycle list` and `vocabulary list` still succeed. Before #117, the Lifecycle loader rejected `$schema` with "unknown field". Note: adding `$schema` via CLI is not yet supported — you will encounter this in practice when an editor or schema-aware tool writes the file. The gap (no `lifecycle create` CLI command) is tracked in issue #116.
 
-**Negative case.** (a) Promote with an unresolvable in-use key and confirm the structured block payload lists the same keys `derive-tag-set` classified `will-be-invalid`. (b) `derive-tag-set` on an unknown vocabulary id → `ok: false` with a diagnostic (no panic). (c) Attempt a `record transition` not present in the lifecycle's `transitions` and confirm rejection — this applies to both inline and `lifecycleRef`-bound Types. (d) Confirm `lifecycle list` succeeds even when a lifecycle file carries a `"$schema"` key (the old rejection error no longer occurs).
+**Negative case.** (a) Promote with an unresolvable in-use key and confirm the structured block payload lists the same keys `derive-tag-set` classified `will-be-invalid`. (b) `derive-tag-set` on an unknown vocabulary id → `ok: false` with a diagnostic (no panic). (c) Attempt a `record transition` not present in the lifecycle's `transitions` and confirm rejection — this applies to both inline and `lifecycleRef`-bound Types. (d) Confirm `lifecycle list` succeeds even when a lifecycle file carries a `"$schema"` key (the old rejection error no longer occurs). (e) **`repo validate` lifecycle invariants (#239):** Write a type file directly into the package with an invalid inline lifecycle (e.g. no `isInitial: true` state, or `initialState` pointing to the wrong state key), then run `srs repo validate --repo <repo> --pretty` — confirm a `"V9"` error appears in `payload.diagnostics`. Write a type with a `lifecycleRef` UUID that does not match any installed lifecycle, run `repo validate` — confirm a `"V8"` error naming the dangling UUID appears. Note: both V7 (mutual exclusion) and V9 (structural) violations can only be introduced via direct file editing because the CLI enforces these rules at write time — `repo validate` is the net that catches repos created or modified by other tools.
 
-**Done when.** `open` accepts arbitrary keys; `closed` rejects unknown keys; **`derive-tag-set`'s `will-be-invalid` set equals `promote`'s `unresolvableKeys`** — the read-only pre-flight predicts the write outcome exactly; `promote` blocks with `unresolvableKeys` exactly when an in-use key lacks an active term (and succeeds within a grace `promotionWindow` if one is set); lifecycle transitions honour the declared state machine for both inline and `lifecycleRef`-bound Types; lifecycle and vocabulary files with a `$schema` key load without error.
+**Done when.** `open` accepts arbitrary keys; `closed` rejects unknown keys; **`derive-tag-set`'s `will-be-invalid` set equals `promote`'s `unresolvableKeys`** — the read-only pre-flight predicts the write outcome exactly; `promote` blocks with `unresolvableKeys` exactly when an in-use key lacks an active term (and succeeds within a grace `promotionWindow` if one is set); lifecycle transitions honour the declared state machine for both inline and `lifecycleRef`-bound Types; lifecycle and vocabulary files with a `$schema` key load without error; `repo validate` catches V8 (dangling lifecycleRef UUID) with `ok: false` and a top-level `diagnostics` string naming the missing UUID, and V9 (invalid inline lifecycle) with the structural error in the same envelope format — a valid inline lifecycle returns `ok: true` with no errors.
 
 ### S7 — Verify a document type is correctly composed (Blueprint schema + brief)
 
@@ -647,11 +647,11 @@ Must return `ok: false` with a message referencing the absent `meta` or `upstrea
      | srs container create --repo /tmp/dogfood-s17
    ```
    Capture `payload.container.containerId` as `$ROOT_ID`.
-3. Retrieve the identity instance (the repository identity record created by `repo create`):
+3. Retrieve the identity instance (`repo create` always scaffolds a `com.semanticops.core/purpose` record and sets `manifest.container.identityInstanceId` to it since #424):
    ```bash
    srs repo navigation --repo /tmp/dogfood-s17 --pretty
    ```
-   Capture `payload.navigation.identity.instanceId` as `$IDENTITY_ID` (or use any non-empty UUID if navigation returns a diagnostic at this stage — the pointer can be set before the identity record exists).
+   Capture `payload.navigation.identity.instanceId` as `$IDENTITY_ID`.
 4. Pin the root container in the manifest:
    ```bash
    srs repo set-root-container --repo /tmp/dogfood-s17 \
@@ -774,13 +774,175 @@ Confirm `ok: false`, diagnostic mentions `not found`.
 
 ---
 
+### S20 — Validate RFC-018 I-81: identityInstanceId type check
+
+**Intention.** *"I want to confirm that my repository's identity pointer is set up correctly — and if it still points at a legacy note, get a clear migration hint without the repository being rejected as invalid."*
+
+**Capabilities exercised.** RFC-018 I-81 extension in `validate_repository`: Advisory `Warning` when `identityInstanceId` resolves to a Tier-0 Note or a Tier-2 record of the wrong type; no diagnostic when it resolves to a `com.semanticops.core/purpose` Record; repo remains `ok: true` throughout.
+
+**CLI surface.** `repo create`, `note create`, `container create`, `container members add`, `repo set-root-container`, `repo validate`.
+
+**Note (post-#424).** `repo create` now always scaffolds a `com.semanticops.core/purpose` record and sets `identityInstanceId` to it (the no-warning happy path). This scenario tests the **legacy/override** case: after `repo create`, `set-root-container` deliberately points `identityInstanceId` at a Tier-0 note to trigger the RFC-018 I-81 warning. This path is still important for repos created before #424 landed, and for any user who manually overrides the pointer.
+
+**Steps.**
+
+```bash
+SRS_BIN=target/debug/srs
+SCRATCH=/tmp/dogfood-rfc018
+rm -rf "$SCRATCH"
+
+# repo create auto-scaffolds a purpose record and sets identityInstanceId (happy path, #424)
+$SRS_BIN repo create --repo "$SCRATCH" --namespace com.example.rfc018test --pretty
+
+NOTE_ID=$($SRS_BIN note create --repo "$SCRATCH" <<'EOF' | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['note']['instanceId'])"
+{"title": "Placeholder identity", "sections": []}
+EOF
+)
+
+CONTAINER_ID=$($SRS_BIN container create --repo "$SCRATCH" <<'EOF' | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['container']['containerId'])"
+{"title": "Root", "memberInstanceIds": []}
+EOF
+)
+
+# Override identityInstanceId to a Tier-0 note — simulates the legacy case that triggers I-81
+$SRS_BIN container members add --repo "$SCRATCH" "$CONTAINER_ID" "$NOTE_ID" --pretty
+$SRS_BIN repo set-root-container --repo "$SCRATCH" --container-id "$CONTAINER_ID" --identity-instance-id "$NOTE_ID" --pretty
+$SRS_BIN repo validate --repo "$SCRATCH" --pretty
+$SRS_BIN repo navigation --repo "$SCRATCH" --pretty
+```
+
+**Done when.** `repo validate` returns `ok: true` (not `false`), `summary.errors: 0`, `summary.warnings: 1`, and `diagnostics[0]` is a `"warning"` severity entry with `"path": "manifest.json"` whose message contains `"RFC-018 I-81"` and `"Tier-0 Note"`. The repo is loadable despite the warning — migration is needed (#426), not a hard rejection.
+
+`repo navigation` also returns `ok: true` (not an error), `payload.navigation.identity.instanceId == $NOTE_ID`, `payload.navigation.identity.displayLabel == "Placeholder identity"` (the note title from the index), and `payload.navigation.diagnostics` contains exactly one entry whose message contains `"Tier-0"`. This confirms the graceful branch lands in the navigation payload rather than propagating a hard error (#427).
+
+**Negative case (not applicable in isolation).** A Tier-2 record of the wrong type (e.g. `governance/article`) also emits an RFC-018 I-81 warning with the actual type in the message, and the repo still returns `ok: true`. The scaffold integration test `crates/srs-repository/tests/scaffold.rs` covers this path.
+
+**Note.** Once the RFC-018 I-81 warning appears, use `repo migrate-identity` (S21) to resolve it.
+
+---
+
+### S21 — Graduate a Tier-0 identity note to a purpose record (`repo migrate-identity`)
+
+**Intention.** *"My repository's identity is stored as a free-text note (Tier 0). I want to promote it to the formal `com.semanticops.core/purpose` record so the RFC-018 identity invariant is satisfied and repo validate is clean."*
+
+**Capabilities exercised.** `migrate_identity_service`: extracts statement + title from the existing Tier-0 note, writes a `com.semanticops.core/purpose` Tier-2 Record, updates `manifest.container.identityInstanceId`, adds the new record to the container's `memberInstanceIds`, all in a single ADR-021 batch. Old identity note is preserved (not deleted).
+
+**CLI surface.** `repo create`, `note create`, `container create`, `container members add`, `repo set-root-container`, `repo validate`, `repo migrate-identity`.
+
+**Steps.**
+
+```bash
+SRS_BIN=target/debug/srs
+SCRATCH=/tmp/dogfood-migrate-identity-s21
+rm -rf "$SCRATCH"
+
+$SRS_BIN repo create --repo "$SCRATCH" --namespace com.example.dogfood --pretty
+
+NOTE_ID=$($SRS_BIN note create --repo "$SCRATCH" <<'EOF' | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['note']['instanceId'])"
+{
+  "title": "I Build Better Knowledge Tools",
+  "sections": [{"name": "body", "content": "I build tools that help teams govern and share knowledge across time and context."}]
+}
+EOF
+)
+
+CONTAINER_ID=$($SRS_BIN container create --repo "$SCRATCH" <<'EOF' | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['container']['containerId'])"
+{"title": "My Repo", "namespace": "com.example.dogfood", "name": "root"}
+EOF
+)
+
+# Identity must be in the container's member list before set-root-container
+$SRS_BIN container members add --repo "$SCRATCH" "$CONTAINER_ID" "$NOTE_ID"
+$SRS_BIN repo set-root-container --repo "$SCRATCH" \
+  --container-id "$CONTAINER_ID" \
+  --identity-instance-id "$NOTE_ID" --pretty
+
+# Before migration: validate warns about Tier-0 identity (ok: true, warnings: 1)
+$SRS_BIN repo validate --repo "$SCRATCH" --pretty
+
+# Run migration
+$SRS_BIN repo migrate-identity --repo "$SCRATCH" --pretty
+
+# After migration: validate is clean (ok: true, warnings: 0)
+$SRS_BIN repo validate --repo "$SCRATCH" --pretty
+```
+
+**Negative case.** Running `repo migrate-identity` a second time on the same repo returns `ok: false` with `"already a com.semanticops.core/purpose record; no migration needed"` in `diagnostics`.
+
+```bash
+$SRS_BIN repo migrate-identity --repo "$SCRATCH" --pretty   # second call: must error
+```
+
+**Done when.**
+- First `repo validate`: `summary.warnings: 1`, message contains `"RFC-018 I-81"` and `"Tier-0 Note"`.
+- `repo migrate-identity` payload: `oldIdentityTier: 0`, `statement` matches the note body, `title` matches the note title, `newIdentityId` is a valid UUID.
+- Second `repo validate`: `summary.errors: 0`, `summary.warnings: 0`.
+- Second `repo migrate-identity` call: `ok: false`, `diagnostics[0]` contains `"already"`.
+
+---
+
+## S22 — Keeping declared extensions in sync with repo content (#237)
+
+**Intention.** I want to know whether my repo's `declaredExtensions` list accurately reflects which SRS extensions the content actually uses — so I can catch documentation gaps before sharing the repo with others.
+
+**Prepare.**
+
+```bash
+SCRATCH=$(mktemp -d)
+$SRS_BIN repo create --repo "$SCRATCH" --namespace com.example.dogfood
+```
+
+**Happy path — empty repo reports nothing used or declared.**
+
+```bash
+$SRS_BIN repo extensions conformance --repo "$SCRATCH" --pretty
+```
+
+`payload.declared`, `payload.usedButUndeclared`, and `payload.declaredButUnsupported` are all empty. `payload.supported` lists all 7 implemented extension IDs.
+
+**Scenario — declare a supported extension, confirm it is no longer a gap.**
+
+```bash
+$SRS_BIN repo extensions enable --repo "$SCRATCH" ext:lifecycle --pretty
+$SRS_BIN repo extensions conformance --repo "$SCRATCH" --pretty
+```
+
+`payload.declared` contains `"ext:lifecycle"`. `payload.usedButUndeclared` is empty (nothing detected in content yet). `payload.declaredButUnsupported` is empty.
+
+**Negative case — declare an unsupported extension.**
+
+```bash
+$SRS_BIN repo extensions enable --repo "$SCRATCH" ext:federation --pretty
+$SRS_BIN repo extensions conformance --repo "$SCRATCH" --pretty
+```
+
+`payload.declaredButUnsupported` contains `"ext:federation"`. This flags that the repo claims to rely on an extension the engine does not implement — a portability warning.
+
+**Validate repo is still healthy.**
+
+```bash
+$SRS_BIN repo validate --repo "$SCRATCH" --pretty
+```
+
+`ok: true`, `diagnostics: []` — conformance mismatches are informational, not validation errors.
+
+**Done when.**
+- Empty repo: `declared: []`, `usedButUndeclared: []`, `declaredButUnsupported: []`, `supported` has 7 entries.
+- After `extensions enable ext:lifecycle`: `declared` contains `"ext:lifecycle"`, `declaredButUnsupported` empty.
+- After `extensions enable ext:federation`: `declaredButUnsupported` contains `"ext:federation"`.
+- `repo validate` returns `ok: true` throughout.
+
+**Capabilities exercised.** `repo extensions list/enable/conformance`; `SUPPORTED_EXTENSIONS` constant; `detect_used_extensions`; `declaredButUnsupported` and `usedButUndeclared` computation.
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
 
 | Command group | Exercised by |
 |---|---|
-| `repo` (map, validate, init) | S1–S6 (orientation + validation in every scenario); `repo validate` now includes manifest.json schema validation — see S1 negative case; RFC-013 I-79/I-80/I-81/I-82 root-container invariants — see S1 negative case (I-79) and S15 step 10 (full happy path); blueprint semantic validation + protocol stage-dependency validation — see S13 (`repo validate` on a repo with a protocol) |
+| `repo` (map, validate, init) | S1–S6 (orientation + validation in every scenario); `repo validate` now includes manifest.json schema validation — see S1 negative case; RFC-013 I-79/I-80/I-81/I-82 root-container invariants — see S1 negative case (I-79) and S15 step 10 (full happy path); blueprint semantic validation + protocol stage-dependency validation — see S13 (`repo validate` on a repo with a protocol); **RFC-018 I-81** identity type check (Warning when `identityInstanceId` resolves to a Tier-0 Note or wrong Tier-2 type) — see S20; **`repo create` always scaffolds a `com.semanticops.core/purpose` Tier-2 record and sets `identityInstanceId` unconditionally (#424)** — happy path covered by S17 step 3 (navigation reads back the purpose record); **ext:lifecycle V7/V8/V9 invariants now enforced at validate time (#239)**: V7 (type declares both `lifecycle` and `lifecycleRef`), V8 (lifecycleRef UUID does not resolve), V9 (inline TypeLifecycle structural errors + `initialState`/`isInitial` key mismatch) — see S6 negative case |
 | `repo init-new` (re-stamp seed identity) | S16 |
 | `repo set-root-container` (write manifest.container pointer) | S17 |
 | `repo copy` | S9, S10 |
@@ -799,12 +961,12 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `record successor` | S3, S4 |
 | `record tag` | S6 |
 | `relation` (create/list/get/delete) | S1, S3, S5 |
-| `relation-type` | _gap — no scenario yet_ |
+| `relation-type` | CLI: _gap — no scenario yet_; WASM read binding (`list_relation_types`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#411) |
 | `container` (create/members/roots/validate/…) | S4 |
 | `container resolve-view` (structured container view, `--view-id`) | S14 |
 | `container resolve-view` authored `excludeLifecycleStates` (ADR-020) | S15 |
 | `find` (ext:discovery query — type/tag/lifecycle/exclude/text) | S15 |
-| `repo navigation` (RFC-013 root container + identity + sections) | S15, S17; WASM binding (`repository_navigation`) verified via integration tests in `crates/srs-bindings/tests/navigation.rs` (#268) |
+| `repo navigation` (RFC-013 root container + identity + sections) | S15, S17; WASM binding (`repository_navigation`) verified via integration tests in `crates/srs-bindings/tests/navigation.rs` (#268); Tier-0 note identity grace (returns Ok + diagnostic instead of erroring) — see S20 (#427) |
 | `srs-gov` (governance client: `repo-create`, `list` + `--all`/`--search`/`--tag`, `tui --smoke`) | S15; `SrsRepository::load` WASM binding applies RFC-014 migration automatically (#381); `crates/srs-repository/tests/scaffold.rs` covers the migrate→scaffold→validate chain |
 | `document-view` (create/get/list/…) | S4, S5, S11 |
 | `render document-view` | S4, S5, S8, S11 |
@@ -819,8 +981,8 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `blueprint` (list/get/validate/structure/schema/brief) | S7 |
 | `protocol` (create/list/get/stages/find-by-target-type) | S13 |
 | `theme` | S8 |
-| `extension` | _gap — no scenario yet_ |
-| `migrate` | _gap — no scenario yet_ |
+| `repo extensions` (list/enable/disable/conformance) | S22 |
+| `repo migrate-identity` (graduate Tier-0 identity note to purpose record, #426) | S21 |
 | `tag` (definition) | _gap — being deprecated; see open issues_ |
 | `package` | CLI: covered implicitly by field/type creation in S2; WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330) |
 

@@ -60,3 +60,7 @@ No new Rust library code is required per type.
 **Neutral:**
 - The `FOUNDATION_SIGNAL_TAGS` CLI constant (a list of tags used to select foundation notes) is transitional. Once `tag-definition` records with a `foundation` role exist in the repo, `cmd_note_foundations` can derive its tag list from the data. The constant is removed at that point.
 - Tier 1 (TypedRecord) is deferred — no concrete use case exists yet. If it is implemented, it follows the same generic-operations principle.
+
+## Known Deviations
+
+**`migrate_identity_service` (#426):** `migrate_identity` constructs a `com.semanticops.core/purpose` Tier-2 Record without going through `create_record()`, because the `com.semanticops.core` package is not yet registered in the repository (#423). It uses hardcoded type/field UUID constants and performs manual inline validation instead of relying on the generic validation path. Once #423 lands and the purpose type is registered, these constants must be replaced with `core_package::resolve_type("com.semanticops.core", "purpose")` and the call should be routed through `create_record()`.

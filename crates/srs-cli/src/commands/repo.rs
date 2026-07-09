@@ -6,17 +6,18 @@ use crate::payload::{
     RepoDiffPackage, RepoDiffPackageCategory, RepoDiffPackageItemAdded,
     RepoDiffPackageItemModified, RepoDiffPackageItemRemoved, RepoDiffPayload,
     RepoDiffRelationAdded, RepoDiffRelationModified, RepoDiffRelationRemoved, RepoDiffRelations,
-    RepoDiffSummary, RepoExtensionsMutatePayload, RepoExtensionsPayload, RepoInitNewPayload,
-    RepoMapPayload, RepoNavigationPayload, RepoSetRootContainerPayload, RepoUpgradePayload,
-    RepoValidatePayload,
+    RepoDiffSummary, RepoExtensionsConformancePayload, RepoExtensionsMutatePayload,
+    RepoExtensionsPayload, RepoInitNewPayload, RepoMapPayload, RepoMigrateIdentityPayload,
+    RepoNavigationPayload, RepoSetRootContainerPayload, RepoUpgradePayload, RepoValidatePayload,
 };
 use anyhow::{Context, Result};
 use srs_repository::analysis::build_repo_map;
 use srs_repository::diff::diff_repositories;
 use srs_repository::manifest_service::{
-    add_declared_extension, list_declared_extensions, remove_declared_extension,
-    set_manifest_root_container, SetManifestRootContainerInput,
+    add_declared_extension, declared_extensions_conformance, list_declared_extensions,
+    remove_declared_extension, set_manifest_root_container, SetManifestRootContainerInput,
 };
+use srs_repository::migrate_identity_service;
 use srs_repository::repository_lifecycle::{
     create_repository_with_intent, init_new_repository, InitNewRepositoryInput,
     InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
@@ -78,6 +79,7 @@ pub fn dispatch(ctx: CliContext, cmd: RepoCommand) -> Result<String> {
             description,
         } => cmd_repo_init_new(ctx, repository_id, namespace, title, description),
         RepoCommand::Upgrade => cmd_repo_upgrade(ctx),
+        RepoCommand::MigrateIdentity => cmd_repo_migrate_identity(ctx),
     }
 }
 
@@ -106,6 +108,16 @@ fn cmd_repo_upgrade(ctx: CliContext) -> Result<String> {
                 })
                 .collect(),
         },
+    )
+}
+
+fn cmd_repo_migrate_identity(ctx: CliContext) -> Result<String> {
+    let result = with_store(&ctx, |store| {
+        migrate_identity_service::migrate_identity(store).map_err(anyhow::Error::from)
+    })?;
+    output::serialize(
+        "repo migrate-identity",
+        RepoMigrateIdentityPayload::from(result),
     )
 }
 
@@ -159,7 +171,7 @@ fn cmd_repo_create(
             repo_root: result.repo_root,
             repository_id: result.repository_id,
             package_id: result.package_id,
-            root_note_id: result.root_note_id,
+            identity_instance_id: result.identity_instance_id,
         },
     )
 }
@@ -175,7 +187,16 @@ fn cmd_repo_extensions_dispatch(ctx: CliContext, cmd: RepoExtensionsCommand) -> 
             extension_id,
             json: _,
         } => cmd_repo_extensions_disable(ctx, extension_id),
+        RepoExtensionsCommand::Conformance => cmd_repo_extensions_conformance(ctx),
     }
+}
+
+fn cmd_repo_extensions_conformance(ctx: CliContext) -> Result<String> {
+    let report = with_store(&ctx, |store| Ok(declared_extensions_conformance(store)?))?;
+    output::serialize(
+        "repo extensions conformance",
+        RepoExtensionsConformancePayload::from(report),
+    )
 }
 
 fn cmd_repo_extensions_list(ctx: CliContext) -> Result<String> {

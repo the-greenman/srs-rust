@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RepoExtensionsConformancePayload",
+  "type": "object",
+  "required": [
+    "declared",
+    "declaredButUnsupported",
+    "supported",
+    "usedButUndeclared"
+  ],
+  "properties": {
+    "declared": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "declaredButUnsupported": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "supported": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "usedButUndeclared": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

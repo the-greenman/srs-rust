@@ -480,8 +480,8 @@ fn repo_create_happy_path() {
     assert_eq!(result["payload"]["repositoryId"], "repo-123");
     assert_eq!(result["payload"]["packageId"], "pkg-123");
     assert!(
-        result["payload"]["rootNoteId"].is_null(),
-        "rootNoteId should be absent when no name/description given"
+        result["payload"]["identityInstanceId"].as_str().is_some(),
+        "identityInstanceId must always be set"
     );
     assert!(repo_dir.join(".srs").is_dir());
     assert!(repo_dir.join("manifest.json").is_file());
@@ -489,7 +489,7 @@ fn repo_create_happy_path() {
 }
 
 #[test]
-fn repo_create_with_name_and_description_creates_root_note() {
+fn repo_create_with_name_and_description_creates_purpose_record() {
     let temp = TempDir::new().unwrap();
     let repo_dir = temp.path().join("intent-repo");
     std::fs::create_dir_all(&repo_dir).unwrap();
@@ -517,23 +517,23 @@ fn repo_create_with_name_and_description_creates_root_note() {
     let pkg_id = result["payload"]["packageId"].as_str().unwrap();
     assert!(!repo_id.is_empty(), "repositoryId must be auto-generated");
     assert!(!pkg_id.is_empty(), "packageId must be auto-generated");
-    let root_note_id = result["payload"]["rootNoteId"]
+    let identity_instance_id = result["payload"]["identityInstanceId"]
         .as_str()
-        .expect("rootNoteId should be present when --title is given");
-    assert!(!root_note_id.is_empty());
+        .expect("identityInstanceId must be set");
+    assert!(!identity_instance_id.is_empty());
 
-    // Verify the note actually exists in the repo
-    let notes = run_srs_in_dir(repo_dir.as_path(), &["note", "list"]);
-    assert_eq!(notes["ok"], true);
-    let note_ids: Vec<&str> = notes["payload"]["notes"]
+    // Verify the purpose record actually exists in the repo as a Tier-2 record
+    let records = run_srs_in_dir(repo_dir.as_path(), &["record", "list"]);
+    assert_eq!(records["ok"], true);
+    let record_ids: Vec<&str> = records["payload"]["records"]
         .as_array()
         .unwrap()
         .iter()
-        .filter_map(|n| n["instanceId"].as_str())
+        .filter_map(|r| r["instanceId"].as_str())
         .collect();
     assert!(
-        note_ids.contains(&root_note_id),
-        "intent note must appear in note list"
+        record_ids.contains(&identity_instance_id),
+        "identity instance must appear in record list"
     );
 }
 
@@ -1027,7 +1027,8 @@ fn json_store_cli_schema_record_and_roundtrip_workflow() {
     assert_eq!(types["payload"]["types"].as_array().unwrap().len(), 1);
     let records = run_srs_in_dir(temp.path(), &["--repo", json_repo_str, "record", "list"]);
     assert_eq!(records["ok"], true);
-    assert_eq!(records["payload"]["records"].as_array().unwrap().len(), 1);
+    // 1 purpose record (from repo create) + 1 explicitly created decision record
+    assert_eq!(records["payload"]["records"].as_array().unwrap().len(), 2);
 
     let copied_to_files = run_srs_in_dir(
         temp.path(),
@@ -1087,12 +1088,13 @@ fn json_store_cli_schema_record_and_roundtrip_workflow() {
         temp.path(),
         &["--repo", roundtrip_json_str, "record", "list"],
     );
+    // 1 purpose record (from repo create) + 1 explicitly created decision record
     assert_eq!(
         roundtrip_records["payload"]["records"]
             .as_array()
             .unwrap()
             .len(),
-        1
+        2
     );
 }
 
@@ -6622,7 +6624,12 @@ fn record_validate_does_not_persist() {
         let list = run_srs_in_dir(repo, &["record", "list"]);
         list["payload"]["records"].as_array().unwrap().len()
     };
-    assert_eq!(count_records(&repo), 0, "repo should start with no records");
+    // repo create always scaffolds a purpose record, so initial count is 1
+    let initial_count = count_records(&repo);
+    assert_eq!(
+        initial_count, 1,
+        "repo should start with exactly the purpose record"
+    );
 
     let input = serde_json::json!({
         "typeId": type_id, "typeVersion": 1,
@@ -6633,7 +6640,7 @@ fn record_validate_does_not_persist() {
 
     assert_eq!(
         count_records(&repo),
-        0,
+        initial_count,
         "record validate must not create any record"
     );
 }

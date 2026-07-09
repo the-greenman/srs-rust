@@ -8,6 +8,12 @@
     "repositoryId"
   ],
   "properties": {
+    "identityInstanceId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "packageId": {
       "type": "string"
     },
@@ -16,12 +22,6 @@
     },
     "repositoryId": {
       "type": "string"
-    },
-    "rootNoteId": {
-      "type": [
-        "string",
-        "null"
-      ]
     }
   }
 }
