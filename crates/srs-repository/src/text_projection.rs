@@ -8,7 +8,6 @@
 //! the raw stored value so the stream is reproducible by any implementation.
 
 use crate::error::RepositoryError;
-use crate::package_service;
 use crate::record_label;
 use crate::store::RepositoryStore;
 use serde::{Deserialize, Serialize};
@@ -34,19 +33,27 @@ pub struct TextSegment {
 }
 
 /// Field text metadata derived from the repository package, built once per batch
-/// with [`build_field_text_index`] and reused across every record. Both maps are
+/// with [`build_field_text_index`] and reused across every record. All maps are
 /// prebuilt so projecting a record allocates nothing here.
 pub struct FieldTextIndex {
     /// `field_id → field_name`, also the map [`record_label::record_display_label`] expects.
     names: HashMap<String, String>,
     /// Field ids whose `ValueType` is searchable.
     searchable: HashSet<String>,
+    /// RFC-020 — `(type_id, type_version) → identityFieldId`, the other map
+    /// [`record_label::record_display_label`] expects.
+    identity_field_ids: HashMap<(String, u32), String>,
 }
 
 impl FieldTextIndex {
     /// Borrow the prebuilt `field_id → field_name` map (no per-call allocation).
     pub(crate) fn names(&self) -> &HashMap<String, String> {
         &self.names
+    }
+
+    /// Borrow the prebuilt `(type_id, type_version) → identityFieldId` map.
+    pub(crate) fn identity_field_ids(&self) -> &HashMap<(String, u32), String> {
+        &self.identity_field_ids
     }
 
     fn name_of(&self, field_id: &str) -> Option<&str> {
@@ -68,19 +75,31 @@ fn is_searchable(value_type: &str) -> bool {
 }
 
 /// Build the field text index from the repository package.
+///
+/// Loads the package once and derives `names`, `searchable`, and `identity_field_ids`
+/// from it directly, rather than calling `package_service::list_fields` (its own
+/// `store.load_package()`) and `record_label::build_identity_field_index` (a second
+/// `store.load_package()`) — `store.load_package()` has no caching and re-reads/re-parses
+/// every package file on `FileStore`.
 pub fn build_field_text_index(
     store: &dyn RepositoryStore,
 ) -> Result<FieldTextIndex, RepositoryError> {
-    let fields = package_service::list_fields(store)?;
+    let package = store.load_package()?;
     let mut names = HashMap::new();
     let mut searchable = HashSet::new();
-    for f in fields {
-        if is_searchable(&f.value_type) {
+    for f in &package.fields {
+        let value_type = format!("{:?}", f.value_type).to_lowercase();
+        if is_searchable(&value_type) {
             searchable.insert(f.id.clone());
         }
-        names.insert(f.id, f.name);
+        names.insert(f.id.clone(), f.name.clone());
     }
-    Ok(FieldTextIndex { names, searchable })
+    let identity_field_ids = record_label::identity_field_index_from_package(&package);
+    Ok(FieldTextIndex {
+        names,
+        searchable,
+        identity_field_ids,
+    })
 }
 
 /// Apply RFC-012 normalization: NFC then Unicode simple lowercasing. Used at match
@@ -110,7 +129,8 @@ pub fn project_text(record: &Record, index: &FieldTextIndex) -> Vec<TextSegment>
         }
     }
 
-    let label = record_label::record_display_label(record, index.names());
+    let label =
+        record_label::record_display_label(record, index.identity_field_ids(), index.names());
     if !label.is_empty() {
         segments.push(TextSegment {
             field_id: LABEL_SENTINEL.to_string(),
@@ -217,7 +237,11 @@ mod tests {
             .filter(|(_, _, searchable)| *searchable)
             .map(|(id, _, _)| id.to_string())
             .collect();
-        FieldTextIndex { names, searchable }
+        FieldTextIndex {
+            names,
+            searchable,
+            identity_field_ids: HashMap::new(),
+        }
     }
 
     fn fv(field_id: &str, value: serde_json::Value) -> FieldValue {

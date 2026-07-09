@@ -179,7 +179,11 @@ pub fn find(
 
         hits.push(DiscoveryHit {
             instance_id: record.instance_id.clone(),
-            label: record_label::record_display_label(record, field_text_index.names()),
+            label: record_label::record_display_label(
+                record,
+                field_text_index.identity_field_ids(),
+                field_text_index.names(),
+            ),
             type_namespace: record.type_namespace.clone(),
             type_name: record.type_name.clone(),
             lifecycle_state: record.lifecycle_state.clone(),

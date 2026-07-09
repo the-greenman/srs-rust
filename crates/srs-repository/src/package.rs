@@ -172,6 +172,46 @@ impl Package {
         &self.record_types
     }
 
+    /// ext:type-inheritance — resolve the ancestor chain for a RecordType, self first,
+    /// walking `extendsTypeId` up through each ancestor with cycle detection (Inv 39).
+    ///
+    /// Returns `[record_type, parent, grandparent, ..., root]`. For a non-inheriting
+    /// type, returns `[record_type]`. Shared by [`effective_fields`] and
+    /// [`effective_identity_field_id`] so both walk the chain identically.
+    fn ancestor_chain<'a>(
+        &'a self,
+        record_type: &'a RecordType,
+    ) -> Result<Vec<&'a RecordType>, crate::error::RepositoryError> {
+        use crate::error::RepositoryError;
+        use std::collections::HashSet;
+
+        let mut chain: Vec<&RecordType> = vec![record_type];
+        let mut visited: HashSet<String> = HashSet::new();
+        visited.insert(record_type.id.clone());
+
+        let mut current = record_type;
+        while let Some(extends_type_id) = &current.extends_type_id {
+            let extends_version = current.extends_type_version.unwrap_or(1);
+
+            if visited.contains(extends_type_id) {
+                return Err(RepositoryError::TypeInheritanceCycle {
+                    type_id: extends_type_id.clone(),
+                });
+            }
+            let base = self
+                .resolve_type(extends_type_id, extends_version)
+                .ok_or_else(|| RepositoryError::TypeNotFound {
+                    type_id: extends_type_id.clone(),
+                    version: extends_version,
+                })?;
+            visited.insert(extends_type_id.clone());
+            chain.push(base);
+            current = base;
+        }
+
+        Ok(chain)
+    }
+
     /// ext:type-inheritance — resolve the effective field list for a RecordType.
     ///
     /// For non-inheriting types, returns a clone of `record_type.fields` sorted by `order`.
@@ -184,49 +224,18 @@ impl Package {
         use crate::error::RepositoryError;
         use std::collections::HashSet;
 
-        let extends_type_id = match &record_type.extends_type_id {
-            None => {
-                let mut fields = record_type.fields.clone();
-                fields.sort_by_key(|fa| fa.order);
-                return Ok(fields);
-            }
-            Some(id) => id.clone(),
-        };
-        let extends_version = record_type.extends_type_version.unwrap_or(1);
-
-        // Walk the inheritance chain iteratively, collecting type IDs to detect cycles.
-        let mut chain: Vec<Vec<FieldAssignment>> = vec![record_type.fields.clone()];
-        let mut visited: HashSet<String> = HashSet::new();
-        visited.insert(record_type.id.clone());
-
-        let mut current_id = extends_type_id;
-        let mut current_version = extends_version;
-
-        loop {
-            if visited.contains(&current_id) {
-                return Err(RepositoryError::TypeInheritanceCycle {
-                    type_id: current_id,
-                });
-            }
-            let base = self
-                .resolve_type(&current_id, current_version)
-                .ok_or_else(|| RepositoryError::TypeNotFound {
-                    type_id: current_id.clone(),
-                    version: current_version,
-                })?;
-            visited.insert(current_id.clone());
-            chain.push(base.fields.clone());
-            match &base.extends_type_id {
-                None => break,
-                Some(next_id) => {
-                    current_id = next_id.clone();
-                    current_version = base.extends_type_version.unwrap_or(1);
-                }
-            }
+        if record_type.extends_type_id.is_none() {
+            let mut fields = record_type.fields.clone();
+            fields.sort_by_key(|fa| fa.order);
+            return Ok(fields);
         }
 
-        // Build the merged list: base fields first, then own fields (chain is reversed).
-        chain.reverse();
+        // ancestor_chain returns [self, parent, ..., root]; ancestors in root-to-parent
+        // order (oldest first) is chain[1..].rev() — matches the original chain.reverse()
+        // + chain[..chain.len()-1] derivation exactly, just expressed over &RecordType
+        // instead of pre-cloned Vec<FieldAssignment> per level.
+        let chain = self.ancestor_chain(record_type)?;
+
         let mut merged: Vec<FieldAssignment> = Vec::new();
         let own_field_ids: HashSet<String> = record_type
             .fields
@@ -235,8 +244,8 @@ impl Package {
             .collect();
 
         let mut seen_ids: HashSet<String> = HashSet::new();
-        for level_fields in &chain[..chain.len() - 1] {
-            for fa in level_fields {
+        for ancestor in chain[1..].iter().rev() {
+            for fa in &ancestor.fields {
                 // Inv 40: own fields must not duplicate inherited fields
                 if own_field_ids.contains(&fa.field_id) {
                     return Err(RepositoryError::InheritedFieldDuplicate {
@@ -353,6 +362,26 @@ impl Package {
         }
 
         Ok(merged)
+    }
+
+    /// RFC-020 — resolve a RecordType's effective `identityFieldId`, cascading the
+    /// ext:type-inheritance ancestor chain (Rule [N+34]).
+    ///
+    /// A Type's own `identityFieldId`, if declared, wins immediately (no chain walk).
+    /// Otherwise, returns the nearest ancestor's own `identityFieldId`, resolved
+    /// transitively up the chain. Returns `Ok(None)` if no Type in the chain declares
+    /// one. This inheritance rule cascades, unlike `fieldOrder`/`effective_fields`,
+    /// which only look at the resolving Type itself.
+    pub fn effective_identity_field_id(
+        &self,
+        record_type: &RecordType,
+    ) -> Result<Option<String>, crate::error::RepositoryError> {
+        if let Some(field_id) = &record_type.identity_field_id {
+            return Ok(Some(field_id.clone()));
+        }
+
+        let chain = self.ancestor_chain(record_type)?;
+        Ok(chain.iter().find_map(|rt| rt.identity_field_id.clone()))
     }
 
     /// Resolve the effective field list AND the merged position of each field group.
@@ -1285,6 +1314,7 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+            identity_field_id: None,
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
@@ -1312,6 +1342,7 @@ mod tests {
             extends_type_version: Some(1),
             field_order,
             field_assignment_overrides: overrides,
+            identity_field_id: None,
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
@@ -1364,6 +1395,85 @@ mod tests {
         b.extends_type_id = Some("a".to_string());
         let pkg = make_package_with_types(vec![a.clone(), b]);
         let result = pkg.effective_fields(&a);
+        assert!(
+            matches!(
+                result,
+                Err(crate::error::RepositoryError::TypeInheritanceCycle { .. })
+            ),
+            "expected TypeInheritanceCycle, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn effective_identity_field_id_own_value_wins_without_walking_chain() {
+        let base = make_type("base", vec![fa("f1", 0, true)]);
+        let mut child = make_child_type("child", vec![fa("f2", 0, false)], "base", None, None);
+        child.identity_field_id = Some("f2".to_string());
+        let pkg = make_package_with_types(vec![base, child.clone()]);
+        let result = pkg.effective_identity_field_id(&child).unwrap();
+        assert_eq!(result, Some("f2".to_string()));
+    }
+
+    #[test]
+    fn effective_identity_field_id_inherits_from_base() {
+        let mut base = make_type("base", vec![fa("f1", 0, true)]);
+        base.identity_field_id = Some("f1".to_string());
+        let child = make_child_type("child", vec![fa("f2", 0, false)], "base", None, None);
+        let pkg = make_package_with_types(vec![base, child.clone()]);
+        let result = pkg.effective_identity_field_id(&child).unwrap();
+        assert_eq!(result, Some("f1".to_string()));
+    }
+
+    #[test]
+    fn effective_identity_field_id_inherits_transitively_through_two_levels() {
+        let mut grandparent = make_type("gp", vec![fa("f1", 0, true)]);
+        grandparent.identity_field_id = Some("f1".to_string());
+        let mut parent = make_child_type("parent", vec![fa("f2", 0, false)], "gp", None, None);
+        parent.extends_type_id = Some("gp".to_string());
+        let mut child = make_child_type("child", vec![fa("f3", 0, false)], "parent", None, None);
+        child.extends_type_id = Some("parent".to_string());
+        let pkg = make_package_with_types(vec![grandparent, parent, child.clone()]);
+        let result = pkg.effective_identity_field_id(&child).unwrap();
+        assert_eq!(
+            result,
+            Some("f1".to_string()),
+            "grandparent's identityFieldId resolves transitively"
+        );
+    }
+
+    #[test]
+    fn effective_identity_field_id_override_wins_over_base() {
+        let mut base = make_type("base", vec![fa("f1", 0, true)]);
+        base.identity_field_id = Some("f1".to_string());
+        let mut child = make_child_type("child", vec![fa("f2", 0, false)], "base", None, None);
+        child.identity_field_id = Some("f2".to_string());
+        let pkg = make_package_with_types(vec![base, child.clone()]);
+        let result = pkg.effective_identity_field_id(&child).unwrap();
+        assert_eq!(
+            result,
+            Some("f2".to_string()),
+            "child's own identityFieldId overrides the inherited one"
+        );
+    }
+
+    #[test]
+    fn effective_identity_field_id_none_when_no_type_in_chain_declares_one() {
+        let base = make_type("base", vec![fa("f1", 0, true)]);
+        let child = make_child_type("child", vec![fa("f2", 0, false)], "base", None, None);
+        let pkg = make_package_with_types(vec![base, child.clone()]);
+        let result = pkg.effective_identity_field_id(&child).unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn effective_identity_field_id_detects_cycle() {
+        let mut a = make_child_type("a", vec![], "b", None, None);
+        let mut b = make_child_type("b", vec![], "a", None, None);
+        a.extends_type_id = Some("b".to_string());
+        b.extends_type_id = Some("a".to_string());
+        let pkg = make_package_with_types(vec![a.clone(), b]);
+        let result = pkg.effective_identity_field_id(&a);
         assert!(
             matches!(
                 result,
@@ -1495,6 +1605,8 @@ mod tests {
                 "f2".to_string(),
             ]),
             field_assignment_overrides: None,
+
+            identity_field_id: None,
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
@@ -1739,6 +1851,8 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+
+            identity_field_id: None,
             lifecycle,
             lifecycle_ref,
             validation_rules: None,
@@ -1880,6 +1994,8 @@ mod tests {
             extends_type_version: None,
             field_order,
             field_assignment_overrides: None,
+
+            identity_field_id: None,
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,

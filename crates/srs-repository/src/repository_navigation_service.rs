@@ -67,7 +67,7 @@ pub fn repository_navigation(
             path: PathBuf::from("manifest.container.identityInstanceId"),
         })?;
 
-    let field_name_index = record_label::build_field_name_index(store)?;
+    let (field_name_index, identity_field_index) = record_label::build_label_indexes(store)?;
     let mut diagnostics = Vec::new();
 
     let identity =
@@ -96,7 +96,12 @@ pub fn repository_navigation(
                     .ok_or_else(|| RepositoryError::NotFound {
                         path: PathBuf::from(format!("instance/{identity_id}")),
                     })?;
-                node_for_record(&identity_record, &field_name_index, None)
+                node_for_record(
+                    &identity_record,
+                    &identity_field_index,
+                    &field_name_index,
+                    None,
+                )
             }
         };
 
@@ -123,6 +128,7 @@ pub fn repository_navigation(
         let section_container_id = section_containers.get(&record.instance_id).cloned();
         sections.push(node_for_record(
             &record,
+            &identity_field_index,
             &field_name_index,
             section_container_id,
         ));
@@ -138,6 +144,7 @@ pub fn repository_navigation(
 
 fn node_for_record(
     record: &Record,
+    identity_field_index: &HashMap<(String, u32), String>,
     field_name_index: &HashMap<String, String>,
     section_container_id: Option<String>,
 ) -> NavigationNode {
@@ -147,13 +154,17 @@ fn node_for_record(
         type_version: record.type_version,
         type_namespace: record.type_namespace.clone(),
         type_name: record.type_name.clone(),
-        display_label: display_label(record, field_name_index),
+        display_label: display_label(record, identity_field_index, field_name_index),
         section_container_id,
     }
 }
 
-fn display_label(record: &Record, field_name_index: &HashMap<String, String>) -> String {
-    record_label::record_display_label(record, field_name_index)
+fn display_label(
+    record: &Record,
+    identity_field_index: &HashMap<(String, u32), String>,
+    field_name_index: &HashMap<String, String>,
+) -> String {
+    record_label::record_display_label(record, identity_field_index, field_name_index)
 }
 
 fn section_containers_by_root(

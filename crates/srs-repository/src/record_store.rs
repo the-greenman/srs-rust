@@ -610,12 +610,16 @@ pub fn list_record_summaries(
     filter: RecordListFilter,
 ) -> Result<Vec<RecordSummary>, RepositoryError> {
     let records = list_records_filtered(store, filter)?;
-    let field_name_index = record_label::build_field_name_index(store)?;
+    let (field_name_index, identity_field_index) = record_label::build_label_indexes(store)?;
     Ok(records
         .into_iter()
         .map(|record| {
             let instance_id = record.instance_id.clone();
-            let display_label = record_label::record_display_label(&record, &field_name_index);
+            let display_label = record_label::record_display_label(
+                &record,
+                &identity_field_index,
+                &field_name_index,
+            );
             RecordSummary {
                 instance_id,
                 display_label,
@@ -628,12 +632,12 @@ pub fn list_record_summaries(
 /// Get a single record by instance ID, paired with its core-resolved display label.
 ///
 /// Returns `None` when no record with `id` exists (same semantics as [`get_record_by_id`]).
-/// Label resolution uses the same priority as [`list_record_summaries`]:
-/// field named "title" > "name" > "label" > `type_name` fallback.
+/// Label resolution uses the same priority as [`list_record_summaries`]: the record's Type's
+/// effective `identityFieldId` > field named "title" > "name" > "label" > `type_name` fallback.
 ///
-/// Builds the field-name index on every call — suitable for UI single-record fetches.
-/// Callers fetching multiple records should use [`list_record_summaries`] to amortise the
-/// index-build cost.
+/// Builds the label indexes on every call — suitable for UI single-record fetches. Callers
+/// fetching multiple records should use [`list_record_summaries`] to amortise the index-build
+/// cost.
 pub fn get_record_summary_by_id(
     store: &dyn RepositoryStore,
     id: &str,
@@ -641,9 +645,14 @@ pub fn get_record_summary_by_id(
     match get_record_by_id(store, id)? {
         None => Ok(None),
         Some(record) => {
-            let field_name_index = record_label::build_field_name_index(store)?;
+            let (field_name_index, identity_field_index) =
+                record_label::build_label_indexes(store)?;
             let instance_id = record.instance_id.clone();
-            let display_label = record_label::record_display_label(&record, &field_name_index);
+            let display_label = record_label::record_display_label(
+                &record,
+                &identity_field_index,
+                &field_name_index,
+            );
             Ok(Some(RecordSummary {
                 instance_id,
                 display_label,
@@ -653,12 +662,32 @@ pub fn get_record_summary_by_id(
     }
 }
 
+/// Best-effort rollback for a failed `add_member` step.
+///
+/// Calls `delete_record` to remove the newly-written record from the manifest. Any error from
+/// the cleanup is silently discarded via `let _ = …`.
+///
+/// **Failure mode:** `delete_record` deletes the file first, then rewrites the manifest (file-
+/// before-index ordering). This is the inverse of ADR-007's prescribed index-before-file
+/// ordering for deletes. If the file deletion succeeds but `write_manifest` fails, the result
+/// is a dangling index entry — strictly worse than the pre-rollback state (an orphaned entry
+/// that has no backing file). This is an accepted limitation; the common case (transient I/O
+/// error on `add_member`) cleans up correctly. See ADR-024.
+///
+/// TODO: fault-injection test for this error arm pending a FailStore test double (see ADR-024).
+fn attempt_rollback_delete(store: &dyn RepositoryStore, instance_id: &str) {
+    let _ = delete_record(store, instance_id);
+}
+
 /// Create a record from a `namespace/name` type filter and optionally add to a container.
 ///
 /// - Parses `type_filter` as `namespace/name`
 /// - Resolves the type (with optional version pin)
 /// - Creates the record
 /// - If `container_id` is Some, validates the container exists and adds the record
+///
+/// If the `add_member` step fails, best-effort rollback via `attempt_rollback_delete`.
+/// See ADR-024 for the accepted limitations of this approach.
 ///
 /// `dir_override` lets CLI callers honour a user-supplied `--dir` flag. Pass `None`
 /// to use `DEFAULT_RECORD_DIR`. Raw path strings must not appear in binding code or
@@ -726,7 +755,10 @@ pub fn create_record_in_context(
     )?;
 
     if let Some(ref cid) = container_id {
-        container_service::add_member(store, cid, &record.instance_id)?;
+        if let Err(e) = container_service::add_member(store, cid, &record.instance_id) {
+            attempt_rollback_delete(store, &record.instance_id);
+            return Err(e);
+        }
     }
 
     Ok(CreateRecordResult { record })
@@ -778,9 +810,8 @@ pub struct CreateRecordInContainerInput {
 ///   2. Create the record via `create_record_at_dir` (uses `DEFAULT_RECORD_DIR`).
 ///   3. Add the new record to the container's `memberInstanceIds` via `container_service::add_member`.
 ///
-/// Residual risk: if step 3 fails after step 2 succeeds, the record exists but is not a member.
-/// This matches the existing partial-write risk in `create_record_in_context` (see ADR-007).
-/// Tracked for resolution (best-effort rollback or explicit ADR waiver) in issue #364.
+/// If step 3 fails, best-effort rollback via `attempt_rollback_delete`. See ADR-024 for
+/// the accepted limitations of this approach.
 pub fn create_record_in_container(
     store: &dyn RepositoryStore,
     input: CreateRecordInContainerInput,
@@ -797,7 +828,10 @@ pub fn create_record_in_container(
         DEFAULT_RECORD_DIR,
     )?;
 
-    container_service::add_member(store, &input.container_id, &record.instance_id)?;
+    if let Err(e) = container_service::add_member(store, &input.container_id, &record.instance_id) {
+        attempt_rollback_delete(store, &record.instance_id);
+        return Err(e);
+    }
 
     Ok(CreateRecordResult { record })
 }
@@ -1513,6 +1547,8 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+
+            identity_field_id: None,
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
@@ -1597,6 +1633,8 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+
+            identity_field_id: None,
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
@@ -2474,6 +2512,8 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+
+            identity_field_id: None,
             lifecycle: Some(TypeLifecycle {
                 states: vec![
                     LifecycleState {
@@ -3459,6 +3499,8 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+
+            identity_field_id: None,
             lifecycle: None,
             lifecycle_ref: Some("lc-ref-standalone-001".to_string()),
             validation_rules: None,
@@ -3606,6 +3648,8 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+
+            identity_field_id: None,
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
@@ -3624,6 +3668,8 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+
+            identity_field_id: None,
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
@@ -4222,6 +4268,144 @@ mod tests {
         assert!(
             members.contains(&result.record.instance_id),
             "record must be a member in the file store copy"
+        );
+    }
+
+    // ── rollback mechanism ─────────────────────────────────────────────────────
+
+    #[test]
+    fn rollback_mechanism_delete_record_cleans_manifest() {
+        // Verifies the building blocks used by the best-effort rollback in
+        // create_record_in_container / create_record_in_context: that
+        // create_record_at_dir followed by delete_record returns the manifest
+        // instance index to its original length. This is the two-step sequence
+        // the rollback error arm executes when add_member fails.
+        //
+        // Note: the error-path trigger (that add_member failure invokes this
+        // sequence) is verified by code inspection of the match arm; fault-
+        // injection integration testing is deferred (see ADR-024).
+        let store = make_store_with_package();
+        let initial_len = store.load_manifest().unwrap().instance_index.len();
+
+        let record = create_record_at_dir(
+            &store,
+            "type-test-001",
+            1,
+            vec![FieldValue {
+                field_id: "field-name-001".to_string(),
+                value: json!("Rollback Test"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            }],
+            None,
+            None,
+            DEFAULT_RECORD_DIR,
+        )
+        .expect("create should succeed");
+
+        let after_create_len = store.load_manifest().unwrap().instance_index.len();
+        assert_eq!(
+            after_create_len,
+            initial_len + 1,
+            "manifest must have one more entry after create"
+        );
+
+        delete_record(&store, &record.instance_id).expect("delete should succeed");
+
+        let after_delete_len = store.load_manifest().unwrap().instance_index.len();
+        assert_eq!(
+            after_delete_len, initial_len,
+            "manifest must return to its original length after rollback delete"
+        );
+    }
+
+    #[test]
+    fn create_record_in_context_container_branch_success_unaffected() {
+        // Regression test: the container-branch success path of create_record_in_context
+        // must continue to work after the rollback error arm was added. Record is created,
+        // manifest grows by one, and the record is a member of the container.
+        let store = make_store_with_package();
+        let container_id = make_container_in_store(&store);
+        let initial_len = store.load_manifest().unwrap().instance_index.len();
+
+        let result = create_record_in_context(
+            &store,
+            "com.test/test-type",
+            None,
+            CreateRecordInput {
+                field_values: vec![FieldValue {
+                    field_id: "field-name-001".to_string(),
+                    value: json!("Context Success"),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                }],
+                group_values: None,
+                tags: None,
+            },
+            Some(container_id.clone()),
+            None,
+        )
+        .expect("create_record_in_context should succeed on valid type and container");
+
+        let after_len = store.load_manifest().unwrap().instance_index.len();
+        assert_eq!(
+            after_len,
+            initial_len + 1,
+            "manifest must have one more entry after successful create_record_in_context"
+        );
+
+        let members =
+            crate::container_service::list_members(&store, &container_id).expect("members loaded");
+        assert!(
+            members.contains(&result.record.instance_id),
+            "record must be a member of the container after create_record_in_context"
+        );
+    }
+
+    #[test]
+    fn create_record_in_context_container_branch_roundtrip_stores() {
+        // Cross-store coverage for the container branch of create_record_in_context
+        // (required by CLAUDE.md: "New service features need at least one cross-store roundtrip test").
+        let store = make_store_with_package();
+        let container_id = make_container_in_store(&store);
+
+        let result = create_record_in_context(
+            &store,
+            "com.test/test-type",
+            None,
+            CreateRecordInput {
+                field_values: vec![FieldValue {
+                    field_id: "field-name-001".to_string(),
+                    value: json!("Roundtrip Context"),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                }],
+                group_values: None,
+                tags: None,
+            },
+            Some(container_id.clone()),
+            None,
+        )
+        .expect("create_record_in_context should succeed on MemoryStore");
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let file_store = crate::store::FileStore::new(temp.path());
+        crate::repository_portability::copy_repository(&store, &file_store)
+            .expect("copy to file store");
+
+        let reloaded = get_record_by_id(&file_store, &result.record.instance_id)
+            .expect("record must be loadable from file store")
+            .expect("record must be Some");
+        assert_eq!(reloaded.instance_id, result.record.instance_id);
+
+        let members = crate::container_service::list_members(&file_store, &container_id)
+            .expect("members loaded from file store");
+        assert!(
+            members.contains(&result.record.instance_id),
+            "record must be a member of the container in the file store copy"
         );
     }
 }
