@@ -17,13 +17,13 @@ use srs_repository::manifest_service::{
     add_declared_extension, list_declared_extensions, remove_declared_extension,
     set_manifest_root_container, SetManifestRootContainerInput,
 };
+use srs_repository::migrate_identity_service;
 use srs_repository::repository_lifecycle::{
     create_repository_with_intent, init_new_repository, InitNewRepositoryInput,
     InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
 };
 use srs_repository::repository_navigation_service::repository_navigation;
 use srs_repository::repository_portability::copy_repository;
-use srs_repository::migrate_identity_service;
 use srs_repository::upgrade_repository_paths;
 use srs_repository::validation::validate_repository;
 use srs_repository::{FileStore, JsonStore};
@@ -115,7 +115,10 @@ fn cmd_repo_migrate_identity(ctx: CliContext) -> Result<String> {
     let result = with_store(&ctx, |store| {
         migrate_identity_service::migrate_identity(store).map_err(anyhow::Error::from)
     })?;
-    output::serialize("repo migrate-identity", RepoMigrateIdentityPayload::from(result))
+    output::serialize(
+        "repo migrate-identity",
+        RepoMigrateIdentityPayload::from(result),
+    )
 }
 
 #[allow(clippy::too_many_arguments)]

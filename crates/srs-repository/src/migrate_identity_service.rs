@@ -87,11 +87,12 @@ pub fn migrate_identity(
         })?
         .clone();
 
-    let old_id = mc.identity_instance_id.clone().ok_or_else(|| {
-        RepositoryError::InvalidInput {
+    let old_id = mc
+        .identity_instance_id
+        .clone()
+        .ok_or_else(|| RepositoryError::InvalidInput {
             message: "manifest.container.identityInstanceId is not set".to_string(),
-        }
-    })?;
+        })?;
 
     let root_container_id = mc.container_id.clone();
 
@@ -106,14 +107,9 @@ pub fn migrate_identity(
 
     if entry.tier() == 2 {
         let raw = store.load_instance_json(entry.path())?;
-        let ns_ok = raw
-            .get("typeNamespace")
-            .and_then(|v| v.as_str())
-            == Some(CORE_PURPOSE_TYPE_NAMESPACE);
-        let name_ok = raw
-            .get("typeName")
-            .and_then(|v| v.as_str())
-            == Some(CORE_PURPOSE_TYPE_NAME);
+        let ns_ok =
+            raw.get("typeNamespace").and_then(|v| v.as_str()) == Some(CORE_PURPOSE_TYPE_NAMESPACE);
+        let name_ok = raw.get("typeName").and_then(|v| v.as_str()) == Some(CORE_PURPOSE_TYPE_NAME);
         if ns_ok && name_ok {
             return Err(RepositoryError::InvalidInput {
                 message: "already a com.semanticops.core/purpose record; no migration needed"
@@ -328,7 +324,11 @@ mod tests {
             one_section("I build SRS."),
         );
         let result = migrate_identity(&store).unwrap();
-        let expected_path = format!("{}/purpose-{}.json", paths::DEFAULT_RECORD_DIR, &result.new_identity_id[..8]);
+        let expected_path = format!(
+            "{}/purpose-{}.json",
+            paths::DEFAULT_RECORD_DIR,
+            &result.new_identity_id[..8]
+        );
         let raw = store.load_instance_json(&expected_path).unwrap();
         assert_eq!(
             raw["typeNamespace"].as_str(),
@@ -359,11 +359,8 @@ mod tests {
                 tags: None,
             },
         ];
-        let (store, _) = make_store_with_identity(
-            "11111111-1111-4111-8111-111111111112",
-            None,
-            sections,
-        );
+        let (store, _) =
+            make_store_with_identity("11111111-1111-4111-8111-111111111112", None, sections);
         let result = migrate_identity(&store).unwrap();
         assert_eq!(result.statement, "First.\nSecond.");
     }
@@ -397,11 +394,8 @@ mod tests {
     #[test]
     fn migrate_adds_new_and_removes_old_from_container_members() {
         let old_id = "11111111-1111-4111-8111-111111111115";
-        let (store, container_id) = make_store_with_identity(
-            old_id,
-            Some("Repo"),
-            one_section("Content."),
-        );
+        let (store, container_id) =
+            make_store_with_identity(old_id, Some("Repo"), one_section("Content."));
         let result = migrate_identity(&store).unwrap();
         let container = get_container(&store, &container_id).unwrap();
         let members = container.member_instance_ids.unwrap_or_default();
