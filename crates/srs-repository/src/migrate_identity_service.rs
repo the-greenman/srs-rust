@@ -1,25 +1,13 @@
 use crate::container_service;
+use crate::core_purpose;
 use crate::error::RepositoryError;
 use crate::index::InstanceIndexEntry;
 use crate::loader;
 use crate::paths;
+use crate::record_store::write_new_record;
 use crate::store::RepositoryStore;
 use crate::writer;
 use serde::Serialize;
-use srs_core::types::record::{FieldValue, Record};
-use std::collections::HashMap;
-
-// ADR-002 deviation: hardcoded type/field UUIDs pending core-type registry (#423).
-// com.semanticops.core/purpose is not yet registered in the package, so create_record()
-// would fail with TypeNotFound. These constants must match what #423 registers. Once
-// that issue lands, replace with: core_package::resolve_type("com.semanticops.core", "purpose").
-const CORE_PURPOSE_TYPE_ID: &str = "3c000001-0000-4000-a000-000000000001";
-const CORE_PURPOSE_TYPE_VERSION: u32 = 1;
-const CORE_PURPOSE_TYPE_NAMESPACE: &str = "com.semanticops.core";
-const CORE_PURPOSE_TYPE_NAME: &str = "purpose";
-// Field UUIDs: canonical values TBD by #423/#135.
-const CORE_STATEMENT_FIELD_ID: &str = "fc000001-0000-4000-a000-000000000001";
-const CORE_TITLE_FIELD_ID: &str = "fc000002-0000-4000-a000-000000000002";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -108,8 +96,8 @@ pub fn migrate_identity(
     if entry.tier() == 2 {
         let raw = store.load_instance_json(entry.path())?;
         let ns_ok =
-            raw.get("typeNamespace").and_then(|v| v.as_str()) == Some(CORE_PURPOSE_TYPE_NAMESPACE);
-        let name_ok = raw.get("typeName").and_then(|v| v.as_str()) == Some(CORE_PURPOSE_TYPE_NAME);
+            raw.get("typeNamespace").and_then(|v| v.as_str()) == Some(core_purpose::PURPOSE_TYPE_NAMESPACE);
+        let name_ok = raw.get("typeName").and_then(|v| v.as_str()) == Some(core_purpose::PURPOSE_TYPE_NAME);
         if ns_ok && name_ok {
             return Err(RepositoryError::InvalidInput {
                 message: "already a com.semanticops.core/purpose record; no migration needed"
@@ -124,69 +112,13 @@ pub fn migrate_identity(
     let new_id = writer::new_instance_id();
     let now = chrono::Utc::now().to_rfc3339();
 
-    let mut field_values = vec![FieldValue {
-        field_id: CORE_STATEMENT_FIELD_ID.to_string(),
-        value: serde_json::Value::String(statement.clone()),
-        entries: None,
-        source: None,
-        edited_at: None,
-    }];
-    if let Some(ref t) = title {
-        field_values.push(FieldValue {
-            field_id: CORE_TITLE_FIELD_ID.to_string(),
-            value: serde_json::Value::String(t.clone()),
-            entries: None,
-            source: None,
-            edited_at: None,
-        });
-    }
+    let record = core_purpose::build_purpose_record(&new_id, &statement, title.as_deref(), &now);
 
-    // Inline validation: validate_record() cannot be called because the purpose type is not
-    // yet in the package registry (ADR-002 deviation, blocked on #423). Validate what we can.
-    for fv in &field_values {
-        if !fv.value.is_string() {
-            return Err(RepositoryError::InvalidInput {
-                message: format!("field '{}' value must be a non-null string", fv.field_id),
-            });
-        }
-        if fv.value.as_str().is_none_or(|s| s.is_empty()) {
-            return Err(RepositoryError::InvalidInput {
-                message: format!("field '{}' value must not be empty", fv.field_id),
-            });
-        }
-    }
-
-    let record = Record {
-        instance_id: new_id.clone(),
-        type_id: CORE_PURPOSE_TYPE_ID.to_string(),
-        type_version: CORE_PURPOSE_TYPE_VERSION,
-        type_namespace: CORE_PURPOSE_TYPE_NAMESPACE.to_string(),
-        type_name: CORE_PURPOSE_TYPE_NAME.to_string(),
-        field_values,
-        group_values: None,
-        lifecycle_state: None,
-        tags: None,
-        created_at: Some(now.clone()),
-        updated_at: Some(now),
-        extra: HashMap::new(),
-    };
-
-    let dir = paths::DEFAULT_RECORD_DIR;
-    let relative_path = format!("{dir}/purpose-{}.json", &new_id[..8]);
-
-    let mut record_json =
-        serde_json::to_value(&record).map_err(|e| RepositoryError::Serialize {
-            path: std::path::PathBuf::from(&relative_path),
-            source: e,
-        })?;
-    if let serde_json::Value::Object(ref mut obj) = record_json {
-        obj.insert(
-            "$schema".to_string(),
-            serde_json::Value::String(
-                "https://srs.semanticops.com/schema/2.0/record.json".to_string(),
-            ),
-        );
-    }
+    let relative_path = format!(
+        "{}/purpose-{}.json",
+        paths::DEFAULT_RECORD_DIR,
+        &new_id[..8]
+    );
 
     // Update manifest in memory: push index entry and repoint identity pointer.
     manifest.instance_index.push(InstanceIndexEntry {
@@ -200,8 +132,6 @@ pub fn migrate_identity(
         mc.identity_instance_id = Some(new_id.clone());
     }
 
-    store.ensure_instance_dir(paths::DEFAULT_RECORD_DIR)?;
-
     // ADR-021 batch: record file + manifest + container membership atomically.
     // Also remove the old identity from container members: it was there only to satisfy
     // RFC-013 I-81 (identity must be a member). After migration the new record takes
@@ -209,7 +139,7 @@ pub fn migrate_identity(
     // not rooting a section container).
     store.begin_batch();
     let batch_result = (|| -> Result<(), RepositoryError> {
-        store.save_instance_json(&relative_path, &record_json)?;
+        write_new_record(store, &record, paths::DEFAULT_RECORD_DIR)?;
         writer::write_manifest(store, &manifest)?;
         container_service::add_container_member(store, &root_container_id, &new_id)?;
         container_service::remove_container_member(store, &root_container_id, &old_id)?;
@@ -241,11 +171,13 @@ pub fn migrate_identity(
 mod tests {
     use super::*;
     use crate::container_service::{create_container, get_container};
+    use crate::core_purpose;
     use crate::repository_portability::copy_repository;
     use crate::store::memory::MemoryStore;
     use crate::writer::{upsert_index_entry, write_manifest, write_note};
     use srs_core::types::container::Container;
     use srs_core::types::note::{Note, NoteSection};
+    use std::collections::HashMap;
 
     fn bare_container(container_id: &str) -> Container {
         Container {
@@ -332,9 +264,9 @@ mod tests {
         let raw = store.load_instance_json(&expected_path).unwrap();
         assert_eq!(
             raw["typeNamespace"].as_str(),
-            Some(CORE_PURPOSE_TYPE_NAMESPACE)
+            Some(core_purpose::PURPOSE_TYPE_NAMESPACE)
         );
-        assert_eq!(raw["typeName"].as_str(), Some(CORE_PURPOSE_TYPE_NAME));
+        assert_eq!(raw["typeName"].as_str(), Some(core_purpose::PURPOSE_TYPE_NAME));
         assert_eq!(
             raw["instanceId"].as_str(),
             Some(result.new_identity_id.as_str())
