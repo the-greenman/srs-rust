@@ -1,11 +1,14 @@
 use crate::error::RepositoryError;
-use crate::services::create_note;
+use crate::paths::DEFAULT_RECORD_DIR;
+use crate::record_store::{upsert_record_index_entry, write_new_record};
 use crate::store::RepositoryStore;
+use crate::writer::new_instance_id;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use srs_core::types::container::Container;
-use srs_core::types::note::{Note, NoteSection};
+use srs_core::types::record::{FieldValue, Record};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -40,7 +43,7 @@ pub struct CreateRepositoryResult {
     pub repo_root: PathBuf,
     pub repository_id: String,
     pub package_id: String,
-    pub root_note_id: Option<String>,
+    pub identity_instance_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -48,6 +51,15 @@ pub struct CreateRepositoryResult {
 pub struct RepositoryStatus {
     pub exists: bool,
 }
+
+// Hard-coded until #423 (create_record_in_context) lands.
+// Replace with create_record_in_context when package loading works post-init.
+const CORE_PURPOSE_TYPE_ID: &str = "3c000001-0000-4000-a000-000000000001";
+const CORE_PURPOSE_TYPE_VERSION: u32 = 1;
+const CORE_PURPOSE_TYPE_NAMESPACE: &str = "com.semanticops.core";
+const CORE_PURPOSE_TYPE_NAME: &str = "purpose";
+const CORE_STATEMENT_FIELD_ID: &str = "3b000001-0000-4000-a000-000000000001";
+const CORE_TITLE_FIELD_ID: &str = "3b000002-0000-4000-a000-000000000002";
 
 /// Build the initial container for a newly created repository.
 /// Business rule: containerId = repositoryId, title = the repository's effective title.
@@ -90,44 +102,100 @@ pub fn create_repository(
     store.initialize_repository(&resolved)
 }
 
-/// Create a repository and optionally create a root intent note when name or
-/// description is provided. Both operations share the same store so they are
-/// executed atomically from the store's perspective. The repository is written
-/// first; if note creation fails the caller receives the error and the repo
-/// directory will exist (no rollback), which is the intended behaviour — the
-/// caller can retry the note creation separately.
+fn scaffold_purpose_record(
+    store: &dyn RepositoryStore,
+    repository_id: &str,
+    container_title: &str,
+    record_title: Option<&str>,
+    description: Option<&str>,
+) -> Result<String, RepositoryError> {
+    let instance_id = new_instance_id();
+    let now = Utc::now().to_rfc3339();
+
+    let mut field_values = vec![FieldValue {
+        field_id: CORE_STATEMENT_FIELD_ID.to_string(),
+        value: Value::String(description.unwrap_or("").to_string()),
+        entries: None,
+        source: None,
+        edited_at: None,
+    }];
+    if let Some(t) = record_title {
+        field_values.push(FieldValue {
+            field_id: CORE_TITLE_FIELD_ID.to_string(),
+            value: Value::String(t.to_string()),
+            entries: None,
+            source: None,
+            edited_at: None,
+        });
+    }
+
+    let record = Record {
+        instance_id: instance_id.clone(),
+        type_id: CORE_PURPOSE_TYPE_ID.to_string(),
+        type_version: CORE_PURPOSE_TYPE_VERSION,
+        type_namespace: CORE_PURPOSE_TYPE_NAMESPACE.to_string(),
+        type_name: CORE_PURPOSE_TYPE_NAME.to_string(),
+        field_values,
+        group_values: None,
+        lifecycle_state: None,
+        tags: None,
+        created_at: Some(now.clone()),
+        updated_at: Some(now),
+        extra: HashMap::new(),
+    };
+
+    let relative_path = write_new_record(store, &record, DEFAULT_RECORD_DIR)?;
+
+    let mut manifest = store.load_manifest()?;
+    upsert_record_index_entry(&mut manifest, &record, &relative_path);
+
+    let container = manifest.container.get_or_insert_with(|| Container {
+        container_id: repository_id.to_string(),
+        title: container_title.to_string(),
+        namespace: None,
+        name: None,
+        description: None,
+        container_type: None,
+        identity_instance_id: None,
+        root_instance_ids: None,
+        member_instance_ids: None,
+        tags: None,
+        created_at: None,
+        updated_at: None,
+        meta: None,
+        extra: HashMap::new(),
+    });
+    container.identity_instance_id = Some(instance_id.clone());
+    container
+        .member_instance_ids
+        .get_or_insert_with(Vec::new)
+        .push(instance_id.clone());
+
+    store.save_manifest(&manifest)?;
+
+    Ok(instance_id)
+}
+
 pub fn create_repository_with_intent(
     store: &dyn RepositoryStore,
     input: &InitializeRepositoryInput,
 ) -> Result<CreateRepositoryResult, RepositoryError> {
     let mut result = create_repository(store, input)?;
 
-    let title = input.repository.title.clone();
-    let description = input.repository.description.clone();
-
-    if title.is_some() || description.is_some() {
-        let title = title.unwrap_or_else(|| "Repository Intent".to_string());
-        let content = description.unwrap_or_default();
-        let note = Note {
-            instance_id: String::new(),
-            title: Some(title),
-            tags: Some(vec!["intent".to_string()]),
-            sections: vec![NoteSection {
-                name: "intent".to_string(),
-                label: None,
-                content,
-                content_hint: None,
-                tags: None,
-            }],
-            graduated_at: None,
-            source_refs: None,
-            created_at: None,
-            updated_at: None,
-            meta: None,
-        };
-        let note_result = create_note(store, note)?;
-        result.root_note_id = Some(note_result.note.instance_id);
-    }
+    // Effective title matches the normalization applied in create_repository.
+    let effective_title = input
+        .repository
+        .title
+        .as_deref()
+        .unwrap_or(input.repository.namespace.as_str());
+    let identity_instance_id = scaffold_purpose_record(
+        store,
+        &result.repository_id,
+        effective_title,
+        input.repository.title.as_deref(),
+        input.repository.description.as_deref(),
+    )?;
+    result.identity_instance_id = Some(identity_instance_id);
 
     Ok(result)
 }
@@ -712,6 +780,259 @@ mod tests {
                 .as_str()
                 .unwrap(),
             "com.mudemocracy.governance"
+        );
+    }
+
+    // ── create_repository_with_intent / scaffold_purpose_record tests ────────
+
+    #[test]
+    fn create_repository_with_intent_returns_identity_instance_id() {
+        let store = MemoryStore::uninitialized();
+        let result = create_repository_with_intent(&store, &input()).unwrap();
+        assert!(
+            result.identity_instance_id.is_some(),
+            "identity_instance_id must always be set"
+        );
+    }
+
+    #[test]
+    fn create_repository_with_intent_creates_purpose_record_in_index() {
+        let store = MemoryStore::uninitialized();
+        let result = create_repository_with_intent(&store, &input()).unwrap();
+        let id = result.identity_instance_id.unwrap();
+
+        let manifest = store.load_manifest().unwrap();
+        let in_index = manifest
+            .instance_index
+            .iter()
+            .any(|e| e.instance_id() == id);
+        assert!(in_index, "purpose record must appear in instance_index");
+    }
+
+    #[test]
+    fn create_repository_with_intent_sets_container_identity_instance_id() {
+        let store = MemoryStore::uninitialized();
+        let result = create_repository_with_intent(&store, &input()).unwrap();
+        let id = result.identity_instance_id.unwrap();
+
+        let manifest = store.load_manifest().unwrap();
+        let container_id = manifest
+            .container
+            .as_ref()
+            .and_then(|c| c.identity_instance_id.as_deref());
+        assert_eq!(
+            container_id,
+            Some(id.as_str()),
+            "container.identityInstanceId must match the purpose record"
+        );
+    }
+
+    #[test]
+    fn create_repository_with_intent_adds_to_member_instance_ids() {
+        let store = MemoryStore::uninitialized();
+        let result = create_repository_with_intent(&store, &input()).unwrap();
+        let id = result.identity_instance_id.unwrap();
+
+        let manifest = store.load_manifest().unwrap();
+        let members = manifest
+            .container
+            .as_ref()
+            .and_then(|c| c.member_instance_ids.as_ref())
+            .expect("member_instance_ids must be set");
+        assert!(
+            members.contains(&id),
+            "purpose record must be in member_instance_ids"
+        );
+    }
+
+    #[test]
+    fn create_repository_with_intent_record_has_correct_type() {
+        let store = MemoryStore::uninitialized();
+        let result = create_repository_with_intent(&store, &input()).unwrap();
+        let id = result.identity_instance_id.unwrap();
+
+        let manifest = store.load_manifest().unwrap();
+        let entry = manifest
+            .instance_index
+            .iter()
+            .find(|e| e.instance_id() == id)
+            .unwrap();
+        let record: srs_core::types::record::Record =
+            serde_json::from_value(store.load_instance_json(entry.path()).unwrap()).unwrap();
+
+        assert_eq!(record.type_id, CORE_PURPOSE_TYPE_ID);
+        assert_eq!(record.type_namespace, CORE_PURPOSE_TYPE_NAMESPACE);
+        assert_eq!(record.type_name, CORE_PURPOSE_TYPE_NAME);
+    }
+
+    #[test]
+    fn create_repository_with_intent_record_has_statement_field() {
+        let store = MemoryStore::uninitialized();
+        let result = create_repository_with_intent(&store, &input()).unwrap();
+        let id = result.identity_instance_id.unwrap();
+
+        let manifest = store.load_manifest().unwrap();
+        let entry = manifest
+            .instance_index
+            .iter()
+            .find(|e| e.instance_id() == id)
+            .unwrap();
+        let record: srs_core::types::record::Record =
+            serde_json::from_value(store.load_instance_json(entry.path()).unwrap()).unwrap();
+
+        let has_statement = record
+            .field_values
+            .iter()
+            .any(|fv| fv.field_id == CORE_STATEMENT_FIELD_ID);
+        assert!(has_statement, "purpose record must have statement field");
+    }
+
+    #[test]
+    fn create_repository_with_intent_with_title_has_title_field() {
+        let store = MemoryStore::uninitialized();
+        let mut titled = input();
+        titled.repository.title = Some("My Project".to_string());
+        let result = create_repository_with_intent(&store, &titled).unwrap();
+        let id = result.identity_instance_id.unwrap();
+
+        let manifest = store.load_manifest().unwrap();
+        let entry = manifest
+            .instance_index
+            .iter()
+            .find(|e| e.instance_id() == id)
+            .unwrap();
+        let record: srs_core::types::record::Record =
+            serde_json::from_value(store.load_instance_json(entry.path()).unwrap()).unwrap();
+
+        let title_fv = record
+            .field_values
+            .iter()
+            .find(|fv| fv.field_id == CORE_TITLE_FIELD_ID)
+            .expect("title field must be present when title given");
+        assert_eq!(title_fv.value.as_str(), Some("My Project"));
+    }
+
+    #[test]
+    fn create_repository_with_intent_without_title_no_title_field() {
+        let store = MemoryStore::uninitialized();
+        let result = create_repository_with_intent(&store, &input()).unwrap();
+        let id = result.identity_instance_id.unwrap();
+
+        let manifest = store.load_manifest().unwrap();
+        let entry = manifest
+            .instance_index
+            .iter()
+            .find(|e| e.instance_id() == id)
+            .unwrap();
+        let record: srs_core::types::record::Record =
+            serde_json::from_value(store.load_instance_json(entry.path()).unwrap()).unwrap();
+
+        let has_title = record
+            .field_values
+            .iter()
+            .any(|fv| fv.field_id == CORE_TITLE_FIELD_ID);
+        assert!(!has_title, "title field must be absent when no title given");
+    }
+
+    #[test]
+    fn create_repository_with_intent_record_path_uses_type_name_and_id8() {
+        let store = MemoryStore::uninitialized();
+        let result = create_repository_with_intent(&store, &input()).unwrap();
+        let id = result.identity_instance_id.unwrap();
+
+        let manifest = store.load_manifest().unwrap();
+        let entry = manifest
+            .instance_index
+            .iter()
+            .find(|e| e.instance_id() == id)
+            .unwrap();
+        let path = entry.path();
+        assert!(
+            path.contains("purpose-"),
+            "record path must use type_name-id8 convention, got: {path}"
+        );
+        assert!(
+            path.contains(&id[..8]),
+            "record path must include first 8 chars of instance_id, got: {path}"
+        );
+    }
+
+    #[test]
+    fn create_repository_with_intent_container_title_uses_namespace_fallback() {
+        // When no title is provided, the container title should be the namespace,
+        // not an empty string — consistent with what FileStore computes.
+        let store = MemoryStore::uninitialized();
+        let result = create_repository_with_intent(&store, &input()).unwrap();
+        assert!(result.identity_instance_id.is_some());
+
+        let manifest = store.load_manifest().unwrap();
+        let container = manifest.container.as_ref().expect("container must be set");
+        assert_eq!(
+            container.title, "com.semanticops.test",
+            "container title must fall back to namespace when no title given"
+        );
+    }
+
+    #[test]
+    fn create_repository_with_intent_record_has_created_at() {
+        let store = MemoryStore::uninitialized();
+        let result = create_repository_with_intent(&store, &input()).unwrap();
+        let id = result.identity_instance_id.unwrap();
+
+        let manifest = store.load_manifest().unwrap();
+        let entry = manifest
+            .instance_index
+            .iter()
+            .find(|e| e.instance_id() == id)
+            .unwrap();
+        let record: srs_core::types::record::Record =
+            serde_json::from_value(store.load_instance_json(entry.path()).unwrap()).unwrap();
+
+        assert!(
+            record.created_at.is_some(),
+            "purpose record must have created_at timestamp"
+        );
+        assert!(
+            record.updated_at.is_some(),
+            "purpose record must have updated_at timestamp"
+        );
+    }
+
+    #[test]
+    fn create_repository_with_intent_roundtrips_via_file_store() {
+        let tmp = TempDir::new().unwrap();
+        let store = FileStore::new(tmp.path());
+
+        let mut titled = input();
+        titled.repository.title = Some("FileStore Project".to_string());
+        titled.repository.description = Some("Testing roundtrip.".to_string());
+
+        let result = create_repository_with_intent(&store, &titled).unwrap();
+        let id = result.identity_instance_id.unwrap();
+
+        // Reload from disk to verify persistence
+        let store2 = FileStore::new(tmp.path());
+        let manifest = store2.load_manifest().unwrap();
+
+        let entry = manifest
+            .instance_index
+            .iter()
+            .find(|e| e.instance_id() == id)
+            .expect("purpose record must be in instance_index after file roundtrip");
+
+        let record: srs_core::types::record::Record =
+            serde_json::from_value(store2.load_instance_json(entry.path()).unwrap()).unwrap();
+        assert_eq!(record.instance_id, id);
+        assert_eq!(record.type_id, CORE_PURPOSE_TYPE_ID);
+
+        let container_id = manifest
+            .container
+            .as_ref()
+            .and_then(|c| c.identity_instance_id.as_deref());
+        assert_eq!(
+            container_id,
+            Some(id.as_str()),
+            "container.identityInstanceId must survive file roundtrip"
         );
     }
 

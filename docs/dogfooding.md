@@ -647,11 +647,11 @@ Must return `ok: false` with a message referencing the absent `meta` or `upstrea
      | srs container create --repo /tmp/dogfood-s17
    ```
    Capture `payload.container.containerId` as `$ROOT_ID`.
-3. Retrieve the identity instance (the repository identity record created by `repo create`):
+3. Retrieve the identity instance (`repo create` always scaffolds a `com.semanticops.core/purpose` record and sets `manifest.container.identityInstanceId` to it since #424):
    ```bash
    srs repo navigation --repo /tmp/dogfood-s17 --pretty
    ```
-   Capture `payload.navigation.identity.instanceId` as `$IDENTITY_ID` (or use any non-empty UUID if navigation returns a diagnostic at this stage — the pointer can be set before the identity record exists).
+   Capture `payload.navigation.identity.instanceId` as `$IDENTITY_ID`.
 4. Pin the root container in the manifest:
    ```bash
    srs repo set-root-container --repo /tmp/dogfood-s17 \
@@ -782,6 +782,8 @@ Confirm `ok: false`, diagnostic mentions `not found`.
 
 **CLI surface.** `repo create`, `note create`, `container create`, `container members add`, `repo set-root-container`, `repo validate`.
 
+**Note (post-#424).** `repo create` now always scaffolds a `com.semanticops.core/purpose` record and sets `identityInstanceId` to it (the no-warning happy path). This scenario tests the **legacy/override** case: after `repo create`, `set-root-container` deliberately points `identityInstanceId` at a Tier-0 note to trigger the RFC-018 I-81 warning. This path is still important for repos created before #424 landed, and for any user who manually overrides the pointer.
+
 **Steps.**
 
 ```bash
@@ -789,6 +791,7 @@ SRS_BIN=target/debug/srs
 SCRATCH=/tmp/dogfood-rfc018
 rm -rf "$SCRATCH"
 
+# repo create auto-scaffolds a purpose record and sets identityInstanceId (happy path, #424)
 $SRS_BIN repo create --repo "$SCRATCH" --namespace com.example.rfc018test --pretty
 
 NOTE_ID=$($SRS_BIN note create --repo "$SCRATCH" <<'EOF' | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['note']['instanceId'])"
@@ -801,6 +804,7 @@ CONTAINER_ID=$($SRS_BIN container create --repo "$SCRATCH" <<'EOF' | python3 -c 
 EOF
 )
 
+# Override identityInstanceId to a Tier-0 note — simulates the legacy case that triggers I-81
 $SRS_BIN container members add --repo "$SCRATCH" "$CONTAINER_ID" "$NOTE_ID" --pretty
 $SRS_BIN repo set-root-container --repo "$SCRATCH" --container-id "$CONTAINER_ID" --identity-instance-id "$NOTE_ID" --pretty
 $SRS_BIN repo validate --repo "$SCRATCH" --pretty
@@ -821,7 +825,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 
 | Command group | Exercised by |
 |---|---|
-| `repo` (map, validate, init) | S1–S6 (orientation + validation in every scenario); `repo validate` now includes manifest.json schema validation — see S1 negative case; RFC-013 I-79/I-80/I-81/I-82 root-container invariants — see S1 negative case (I-79) and S15 step 10 (full happy path); blueprint semantic validation + protocol stage-dependency validation — see S13 (`repo validate` on a repo with a protocol); **RFC-018 I-81** identity type check (Warning when `identityInstanceId` resolves to a Tier-0 Note or wrong Tier-2 type) — see S20 |
+| `repo` (map, validate, init) | S1–S6 (orientation + validation in every scenario); `repo validate` now includes manifest.json schema validation — see S1 negative case; RFC-013 I-79/I-80/I-81/I-82 root-container invariants — see S1 negative case (I-79) and S15 step 10 (full happy path); blueprint semantic validation + protocol stage-dependency validation — see S13 (`repo validate` on a repo with a protocol); **RFC-018 I-81** identity type check (Warning when `identityInstanceId` resolves to a Tier-0 Note or wrong Tier-2 type) — see S20; **`repo create` always scaffolds a `com.semanticops.core/purpose` Tier-2 record and sets `identityInstanceId` unconditionally (#424)** — happy path covered by S17 step 3 (navigation reads back the purpose record) |
 | `repo init-new` (re-stamp seed identity) | S16 |
 | `repo set-root-container` (write manifest.container pointer) | S17 |
 | `repo copy` | S9, S10 |

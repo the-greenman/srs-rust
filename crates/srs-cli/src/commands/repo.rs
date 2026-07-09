@@ -159,7 +159,7 @@ fn cmd_repo_create(
             repo_root: result.repo_root,
             repository_id: result.repository_id,
             package_id: result.package_id,
-            root_note_id: result.root_note_id,
+            identity_instance_id: result.identity_instance_id,
         },
     )
 }

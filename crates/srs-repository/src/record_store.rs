@@ -1340,8 +1340,31 @@ pub fn list_record_tags(
     })
 }
 
+/// Write a new record JSON file to `dir` using the canonical `{type_name}-{id8}.json` filename
+/// convention. Does NOT update the manifest index — callers must call `upsert_record_index_entry`
+/// after this. Returns the relative path written.
+pub(crate) fn write_new_record(
+    store: &dyn RepositoryStore,
+    record: &Record,
+    dir: &str,
+) -> Result<String, RepositoryError> {
+    let relative_path = format!(
+        "{}/{}-{}.json",
+        dir,
+        slugify_instance_name(&record.type_name),
+        &record.instance_id[..8]
+    );
+    store.ensure_instance_dir(dir)?;
+    write_record(store, record, &relative_path)?;
+    Ok(relative_path)
+}
+
 /// Add or replace the manifest index entry for a Record (in memory only).
-fn upsert_record_index_entry(manifest: &mut Manifest, record: &Record, relative_path: &str) {
+pub(crate) fn upsert_record_index_entry(
+    manifest: &mut Manifest,
+    record: &Record,
+    relative_path: &str,
+) {
     let entry = InstanceIndexEntry {
         instance_id: record.instance_id.clone(),
         tier: 2,
