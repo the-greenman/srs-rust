@@ -791,8 +791,7 @@ pub fn create_record_in_container(
         DEFAULT_RECORD_DIR,
     )?;
 
-    if let Err(e) = container_service::add_member(store, &input.container_id, &record.instance_id)
-    {
+    if let Err(e) = container_service::add_member(store, &input.container_id, &record.instance_id) {
         attempt_rollback_delete(store, &record.instance_id);
         return Err(e);
     }
