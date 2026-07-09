@@ -204,6 +204,8 @@ pub fn migrate_identity(
         mc.identity_instance_id = Some(new_id.clone());
     }
 
+    store.ensure_instance_dir(paths::DEFAULT_RECORD_DIR)?;
+
     // ADR-021 batch: record file + manifest + container membership atomically.
     store.begin_batch();
     let batch_result = (|| -> Result<(), RepositoryError> {
