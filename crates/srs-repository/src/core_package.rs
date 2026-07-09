@@ -19,7 +19,6 @@ const CORE_BUNDLE_JSON: &str = include_str!("../assets/core-bundle.srsj");
 /// Doubles as the serde target for the bundle JSON — `#[serde(rename_all = "camelCase")]`
 /// matches the bundle's camelCase keys; `#[serde(rename = "types")]` maps the bundle's
 /// `types` array to `record_types`.
-#[allow(dead_code)]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EmbeddedCorePackage {
@@ -62,7 +61,12 @@ pub(crate) fn merge_core_into_package(
     let cp = core_package();
 
     for core_field in &cp.fields {
-        if let Some(existing) = fields.iter().find(|f| f.id == core_field.id) {
+        // Match by id + version so both field and type lookups behave consistently when the
+        // core bundle gains new versions in the future.
+        if let Some(existing) = fields
+            .iter()
+            .find(|f| f.id == core_field.id && f.version == core_field.version)
+        {
             // Already present from a prior merge (e.g. a repo-copy) — skip silently.
             if existing.namespace == core_field.namespace && existing.name == core_field.name {
                 continue;
@@ -70,7 +74,7 @@ pub(crate) fn merge_core_into_package(
             return Err(RepositoryError::CorePackageConflict {
                 kind: "field".to_string(),
                 id: core_field.id.clone(),
-                qualified_name: format!("{}/{}", core_field.namespace, core_field.name),
+                qualified_name: format!("{}/{}", existing.namespace, existing.name),
             });
         }
         fields.push(core_field.clone());
@@ -87,7 +91,7 @@ pub(crate) fn merge_core_into_package(
             return Err(RepositoryError::CorePackageConflict {
                 kind: "type".to_string(),
                 id: core_type.id.clone(),
-                qualified_name: format!("{}/{}", core_type.namespace, core_type.name),
+                qualified_name: format!("{}/{}", existing.namespace, existing.name),
             });
         }
         record_types.push(core_type.clone());
@@ -99,6 +103,92 @@ pub(crate) fn merge_core_into_package(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn make_field(id: &str, namespace: &str, name: &str, version: u32) -> Field {
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "namespace": namespace,
+            "name": name,
+            "version": version,
+            "description": "",
+            "aiGuidance": null,
+            "valueType": "string",
+            "createdAt": "2026-01-01T00:00:00Z"
+        }))
+        .unwrap()
+    }
+
+    fn make_type(id: &str, namespace: &str, name: &str, version: u32) -> RecordType {
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "namespace": namespace,
+            "name": name,
+            "version": version,
+            "description": "",
+            "aiGuidance": null,
+            "fields": [],
+            "createdAt": "2026-01-01T00:00:00Z"
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn merge_core_into_empty_vecs_appends_core_definitions() {
+        let mut fields = vec![];
+        let mut types = vec![];
+        merge_core_into_package(&mut fields, &mut types).unwrap();
+        let cp = core_package();
+        assert_eq!(fields.len(), cp.fields.len());
+        assert_eq!(types.len(), cp.record_types.len());
+        assert!(fields.iter().any(|f| f.namespace == "com.semanticops.core" && f.name == "statement"));
+        assert!(types.iter().any(|t| t.namespace == "com.semanticops.core" && t.name == "purpose"));
+    }
+
+    #[test]
+    fn merge_core_idempotent_when_core_already_present() {
+        let cp = core_package();
+        // Pre-populate with the actual core definitions (as a repo-copy would serialise them).
+        let mut fields = cp.fields.clone();
+        let mut types = cp.record_types.clone();
+        let field_count_before = fields.len();
+        let type_count_before = types.len();
+
+        merge_core_into_package(&mut fields, &mut types).unwrap();
+
+        assert_eq!(fields.len(), field_count_before, "idempotent: fields must not be duplicated");
+        assert_eq!(types.len(), type_count_before, "idempotent: types must not be duplicated");
+    }
+
+    #[test]
+    fn merge_core_errors_when_repo_shadows_core_field_id() {
+        let cp = core_package();
+        // A field with the same id as the core statement field but a different namespace/name.
+        let shadow = make_field(&cp.fields[0].id, "com.shadow", "shadow-field", 1);
+        let mut fields = vec![shadow];
+        let mut types = vec![];
+
+        let err = merge_core_into_package(&mut fields, &mut types).unwrap_err();
+        assert!(
+            matches!(&err, RepositoryError::CorePackageConflict { kind, qualified_name, .. }
+                if kind == "field" && qualified_name.starts_with("com.shadow/")),
+            "expected CorePackageConflict for field with repo's qualified_name, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn merge_core_errors_when_repo_shadows_core_type_id() {
+        let cp = core_package();
+        let shadow = make_type(&cp.record_types[0].id, "com.shadow", "shadow-type", cp.record_types[0].version);
+        let mut fields = vec![];
+        let mut types = vec![shadow];
+
+        let err = merge_core_into_package(&mut fields, &mut types).unwrap_err();
+        assert!(
+            matches!(&err, RepositoryError::CorePackageConflict { kind, qualified_name, .. }
+                if kind == "type" && qualified_name.starts_with("com.shadow/")),
+            "expected CorePackageConflict for type with repo's qualified_name, got: {err:?}"
+        );
+    }
 
     #[test]
     fn core_package_parses_successfully() {
