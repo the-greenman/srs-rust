@@ -434,6 +434,11 @@ fn repo_extensions_disable() {
 }
 
 #[test]
+fn repo_extensions_conformance() {
+    check::<RepoExtensionsConformancePayload>("repo-extensions-conformance");
+}
+
+#[test]
 fn repo_init_new() {
     check::<RepoInitNewPayload>("repo-init-new");
 }

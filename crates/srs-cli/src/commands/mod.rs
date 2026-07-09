@@ -618,6 +618,8 @@ pub enum RepoExtensionsCommand {
         #[arg(long, hide = true)]
         json: bool,
     },
+    /// Report declared vs supported vs content-detected extension conformance
+    Conformance,
 }
 
 #[derive(Subcommand)]
@@ -1301,6 +1303,10 @@ pub enum RenderCommand {
         /// Optional named theme variant defined on the DocumentView
         #[arg(long = "theme-variant")]
         theme_variant: Option<String>,
+        /// Optional instance UUID: scopes ContainerSubset sections to this single record,
+        /// producing a per-record export document
+        #[arg(long)]
+        instance: Option<String>,
         /// Optional output file path for rendered content
         #[arg(long)]
         output: Option<PathBuf>,

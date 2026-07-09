@@ -881,6 +881,132 @@ $SRS_BIN repo migrate-identity --repo "$SCRATCH" --pretty   # second call: must 
 
 ---
 
+### S21b — Bootstrap identity for a pre-#424 repository with no identity pointer (`repo migrate-identity` None-branch, #432)
+
+**Intention.** *"I have an older repository that was created before #424 shipped — it has no `identityInstanceId` in `manifest.container` at all. I want to run `repo migrate-identity` to derive a purpose record from the container's title and description so I can bring the repo into conformance without losing any existing content."*
+
+**Capabilities exercised.** `migrate_identity_service` None-branch: when `manifest.container.identityInstanceId` is absent, derives a `com.semanticops.core/purpose` record directly from `container.title` / `container.description`; writes the record, updates `identityInstanceId`, persists container file, all in a single ADR-021 batch. `oldIdentityId` and `oldIdentityTier` are absent from the payload (pre-#424 repos have no prior identity to report).
+
+**CLI surface.** `repo create`, `repo migrate-identity`, `repo validate`.
+
+**Setup (simulate a pre-#424 repo).**
+
+```bash
+SRS_BIN=target/debug/srs
+SCRATCH=/tmp/dogfood-migrate-identity-s21b
+rm -rf "$SCRATCH"
+
+$SRS_BIN repo create --repo "$SCRATCH" --namespace com.example.dogfood \
+  --title "SRS Dog Food" --description "We build tools to govern knowledge." --pretty
+
+# Strip identityInstanceId to simulate a repo created before #424.
+# (In a real pre-#424 repo this field is simply absent from the manifest.)
+python3 - <<'PYEOF'
+import json, os, glob
+SCRATCH = "/tmp/dogfood-migrate-identity-s21b"
+with open(f"{SCRATCH}/manifest.json") as f:
+    m = json.load(f)
+iid = m["container"].pop("identityInstanceId", None)
+m["container"]["memberInstanceIds"] = []
+m["instanceIndex"] = [e for e in m.get("instanceIndex", []) if e.get("instanceId") != iid]
+with open(f"{SCRATCH}/manifest.json", "w") as f:
+    json.dump(m, f, indent=2)
+for rf in glob.glob(f"{SCRATCH}/records/**/*.json", recursive=True):
+    if json.loads(open(rf).read()).get("instanceId") == iid:
+        os.remove(rf)
+PYEOF
+```
+
+**Steps.**
+
+```bash
+# Before migration: validate is clean (no identity invariant errors for absent pointer)
+$SRS_BIN repo validate --repo "$SCRATCH" --pretty
+
+# Migrate: derives purpose record from container.title / container.description
+$SRS_BIN repo migrate-identity --repo "$SCRATCH" --pretty
+
+# After migration: validate must still be clean
+$SRS_BIN repo validate --repo "$SCRATCH" --pretty
+```
+
+**Negative case.** Running a second time returns `ok: false` — second call hits the Some-branch because `identityInstanceId` is now set and the pointed record is already a purpose type.
+
+```bash
+$SRS_BIN repo migrate-identity --repo "$SCRATCH" --pretty   # second call: must error
+```
+
+**Negative case 2.** A repo whose container has an empty title **and** no description cannot derive a statement; migration must error.
+
+```bash
+# (Testing via unit tests: migrate_from_container_errors_if_empty_title_and_no_description)
+cargo test -p srs-repository migrate_from_container_errors_if_empty_title_and_no_description
+```
+
+**Done when.**
+- `repo migrate-identity` (first call): `ok: true`, `payload.newIdentityId` is a valid UUID, `payload.statement` equals `container.description` (preferred) or `container.title` (fallback), `payload.oldIdentityId` is absent, `payload.oldIdentityTier` is absent.
+- `repo validate` after migration: `summary.errors: 0`, `summary.warnings: 0`.
+- Second `repo migrate-identity` call: `ok: false`, `diagnostics[0]` contains `"already"`.
+- `manifest.container.identityInstanceId` equals `payload.newIdentityId`.
+- `manifest.container.memberInstanceIds` contains `payload.newIdentityId`.
+
+---
+
+## S22 — Keeping declared extensions in sync with repo content (#237)
+
+**Intention.** I want to know whether my repo's `declaredExtensions` list accurately reflects which SRS extensions the content actually uses — so I can catch documentation gaps before sharing the repo with others.
+
+**Prepare.**
+
+```bash
+SCRATCH=$(mktemp -d)
+$SRS_BIN repo create --repo "$SCRATCH" --namespace com.example.dogfood
+```
+
+**Happy path — empty repo reports nothing used or declared.**
+
+```bash
+$SRS_BIN repo extensions conformance --repo "$SCRATCH" --pretty
+```
+
+`payload.declared`, `payload.usedButUndeclared`, and `payload.declaredButUnsupported` are all empty. `payload.supported` lists all 7 implemented extension IDs.
+
+**Scenario — declare a supported extension, confirm it is no longer a gap.**
+
+```bash
+$SRS_BIN repo extensions enable --repo "$SCRATCH" ext:lifecycle --pretty
+$SRS_BIN repo extensions conformance --repo "$SCRATCH" --pretty
+```
+
+`payload.declared` contains `"ext:lifecycle"`. `payload.usedButUndeclared` is empty (nothing detected in content yet). `payload.declaredButUnsupported` is empty.
+
+**Negative case — declare an unsupported extension.**
+
+```bash
+$SRS_BIN repo extensions enable --repo "$SCRATCH" ext:federation --pretty
+$SRS_BIN repo extensions conformance --repo "$SCRATCH" --pretty
+```
+
+`payload.declaredButUnsupported` contains `"ext:federation"`. This flags that the repo claims to rely on an extension the engine does not implement — a portability warning.
+
+**Validate repo is still healthy.**
+
+```bash
+$SRS_BIN repo validate --repo "$SCRATCH" --pretty
+```
+
+`ok: true`, `diagnostics: []` — conformance mismatches are informational, not validation errors.
+
+**Done when.**
+- Empty repo: `declared: []`, `usedButUndeclared: []`, `declaredButUnsupported: []`, `supported` has 7 entries.
+- After `extensions enable ext:lifecycle`: `declared` contains `"ext:lifecycle"`, `declaredButUnsupported` empty.
+- After `extensions enable ext:federation`: `declaredButUnsupported` contains `"ext:federation"`.
+- `repo validate` returns `ok: true` throughout.
+
+**Capabilities exercised.** `repo extensions list/enable/conformance`; `SUPPORTED_EXTENSIONS` constant; `detect_used_extensions`; `declaredButUnsupported` and `usedButUndeclared` computation.
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -906,7 +1032,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `record successor` | S3, S4 |
 | `record tag` | S6 |
 | `relation` (create/list/get/delete) | S1, S3, S5 |
-| `relation-type` | _gap — no scenario yet_ |
+| `relation-type` | CLI: _gap — no scenario yet_; WASM read binding (`list_relation_types`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#411) |
 | `container` (create/members/roots/validate/…) | S4 |
 | `container resolve-view` (structured container view, `--view-id`) | S14 |
 | `container resolve-view` authored `excludeLifecycleStates` (ADR-020) | S15 |
@@ -926,8 +1052,8 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `blueprint` (list/get/validate/structure/schema/brief) | S7 |
 | `protocol` (create/list/get/stages/find-by-target-type) | S13 |
 | `theme` | S8 |
-| `extension` | _gap — no scenario yet_ |
-| `repo migrate-identity` (graduate Tier-0 identity note to purpose record, #426) | S21 |
+| `repo extensions` (list/enable/disable/conformance) | S22 |
+| `repo migrate-identity` (graduate Tier-0 identity note to purpose record, #426; bootstrap identity for pre-#424 repos with no `identityInstanceId`, #432) | S21 (Tier-0 note branch), S21b (None-branch: absent pointer) |
 | `tag` (definition) | _gap — being deprecated; see open issues_ |
 | `package` | CLI: covered implicitly by field/type creation in S2; WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330) |
 
