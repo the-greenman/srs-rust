@@ -12,8 +12,8 @@ use serde::Serialize;
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MigrateIdentityResult {
-    pub old_identity_id: String,
-    pub old_identity_tier: u8,
+    pub old_identity_id: Option<String>,
+    pub old_identity_tier: Option<u8>,
     pub new_identity_id: String,
     pub statement: String,
     pub title: Option<String>,
@@ -75,13 +75,74 @@ pub fn migrate_identity(
         })?
         .clone();
 
-    let old_id = mc
-        .identity_instance_id
-        .clone()
-        .ok_or_else(|| RepositoryError::InvalidInput {
-            message: "manifest.container.identityInstanceId is not set".to_string(),
-        })?;
+    // None-branch: identity_instance_id is absent — derive purpose record from container metadata.
+    if mc.identity_instance_id.is_none() {
+        let statement = mc
+            .description
+            .as_deref()
+            .filter(|d| !d.is_empty())
+            .unwrap_or(mc.title.as_str());
+        if statement.is_empty() {
+            return Err(RepositoryError::InvalidInput {
+                message: "container has no title or description to derive a purpose statement"
+                    .to_string(),
+            });
+        }
+        let record_title = if mc.title.is_empty() {
+            None
+        } else {
+            Some(mc.title.as_str())
+        };
+        let now = chrono::Utc::now().to_rfc3339();
+        let new_id = writer::new_instance_id();
+        let record =
+            core_purpose::build_purpose_record(&new_id, statement, record_title, &now);
 
+        let relative_path = format!(
+            "{}/purpose-{}.json",
+            paths::DEFAULT_RECORD_DIR,
+            &new_id[..8]
+        );
+        manifest.instance_index.push(InstanceIndexEntry {
+            instance_id: new_id.clone(),
+            tier: 2,
+            path: relative_path.clone(),
+            title: None,
+            tags: None,
+        });
+        if let Some(ref mut container) = manifest.container {
+            container.identity_instance_id = Some(new_id.clone());
+        }
+        let root_container_id = mc.container_id.clone();
+        store.begin_batch();
+        let batch_result = (|| -> Result<(), RepositoryError> {
+            write_new_record(store, &record, paths::DEFAULT_RECORD_DIR)?;
+            writer::write_manifest(store, &manifest)?;
+            container_service::add_container_member(store, &root_container_id, &new_id)?;
+            Ok(())
+        })();
+        match batch_result {
+            Ok(()) => {
+                if let Err(e) = store.commit_batch() {
+                    store.abort_batch();
+                    return Err(e);
+                }
+            }
+            Err(e) => {
+                store.abort_batch();
+                return Err(e);
+            }
+        }
+        return Ok(MigrateIdentityResult {
+            old_identity_id: None,
+            old_identity_tier: None,
+            new_identity_id: new_id,
+            statement: statement.to_string(),
+            title: record_title.map(str::to_string),
+        });
+    }
+
+    let old_id = mc.identity_instance_id.clone().unwrap();
     let root_container_id = mc.container_id.clone();
 
     let entry = manifest
@@ -159,8 +220,8 @@ pub fn migrate_identity(
     }
 
     Ok(MigrateIdentityResult {
-        old_identity_id: old_id,
-        old_identity_tier: old_tier,
+        old_identity_id: Some(old_id),
+        old_identity_tier: Some(old_tier),
         new_identity_id: new_id,
         statement,
         title,
@@ -414,22 +475,6 @@ mod tests {
     }
 
     #[test]
-    fn migrate_errors_if_no_identity_pointer() {
-        let store = MemoryStore::default();
-        let container_id = "550e8400-e29b-41d4-a716-446655440000";
-        create_container(&store, bare_container(container_id)).unwrap();
-        let mut manifest = store.load_manifest().unwrap();
-        manifest.container = Some(bare_container(container_id)); // identity_instance_id: None
-        write_manifest(&store, &manifest).unwrap();
-
-        let err = migrate_identity(&store).unwrap_err();
-        assert!(
-            matches!(&err, RepositoryError::InvalidInput { message } if message.contains("identityInstanceId")),
-            "expected identityInstanceId error, got: {err:?}"
-        );
-    }
-
-    #[test]
     fn cross_store_roundtrip() {
         let (source, container_id) = make_store_with_identity(
             "11111111-1111-4111-8111-111111111119",
@@ -458,6 +503,129 @@ mod tests {
         assert!(
             members.contains(&result.new_identity_id),
             "purpose record must remain in container members after roundtrip"
+        );
+    }
+
+    /// Build a MemoryStore with a root container whose `identity_instance_id` is `None`.
+    /// Returns (store, root_container_id).
+    fn make_store_without_identity(
+        title: &str,
+        description: Option<&str>,
+    ) -> (MemoryStore, String) {
+        let store = MemoryStore::default();
+        let container_id = "660e8400-e29b-41d4-a716-446655440001";
+        let mut container = bare_container(container_id);
+        container.title = title.to_string();
+        container.description = description.map(|d| d.to_string());
+        create_container(&store, container.clone()).unwrap();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.container = Some(container);
+        write_manifest(&store, &manifest).unwrap();
+        (store, container_id.to_string())
+    }
+
+    #[test]
+    fn migrate_creates_purpose_from_container_title_and_description() {
+        let (store, _) = make_store_without_identity("My Repo", Some("We build SRS."));
+        let result = migrate_identity(&store).unwrap();
+        assert_eq!(result.statement, "We build SRS.");
+        assert_eq!(result.title, Some("My Repo".to_string()));
+        assert!(result.old_identity_id.is_none());
+        assert!(result.old_identity_tier.is_none());
+        let expected_path = format!(
+            "{}/purpose-{}.json",
+            paths::DEFAULT_RECORD_DIR,
+            &result.new_identity_id[..8]
+        );
+        assert!(
+            store.load_instance_json(&expected_path).is_ok(),
+            "purpose record must exist at {expected_path}"
+        );
+    }
+
+    #[test]
+    fn migrate_creates_purpose_from_container_title_only() {
+        let (store, _) = make_store_without_identity("My Repo", None);
+        let result = migrate_identity(&store).unwrap();
+        assert_eq!(result.statement, "My Repo");
+        assert_eq!(result.title, Some("My Repo".to_string()));
+    }
+
+    #[test]
+    fn migrate_from_container_sets_identity_instance_id() {
+        let (store, _) = make_store_without_identity("My Repo", Some("We build SRS."));
+        let result = migrate_identity(&store).unwrap();
+        let manifest = store.load_manifest().unwrap();
+        assert_eq!(
+            manifest.container.unwrap().identity_instance_id,
+            Some(result.new_identity_id)
+        );
+    }
+
+    #[test]
+    fn migrate_from_container_adds_to_members() {
+        let (store, container_id) =
+            make_store_without_identity("My Repo", Some("We build SRS."));
+        let result = migrate_identity(&store).unwrap();
+        let container = get_container(&store, &container_id).unwrap();
+        let members = container.member_instance_ids.unwrap_or_default();
+        assert!(
+            members.contains(&result.new_identity_id),
+            "new_identity_id must be in container members, got: {members:?}"
+        );
+    }
+
+    #[test]
+    fn migrate_from_container_errors_if_empty_title_and_no_description() {
+        // Bypass create_container (which validates title is non-empty) to set up the error case.
+        let store = MemoryStore::default();
+        let container_id = "660e8400-e29b-41d4-a716-446655440002";
+        let mut container = bare_container(container_id);
+        container.title = "".to_string();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.container = Some(container);
+        write_manifest(&store, &manifest).unwrap();
+
+        let err = migrate_identity(&store).unwrap_err();
+        assert!(
+            matches!(&err, RepositoryError::InvalidInput { message } if message.contains("no title or description")),
+            "expected no-title-or-description error, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn migrate_from_container_errors_on_second_run() {
+        let (store, _) = make_store_without_identity("My Repo", Some("We build SRS."));
+        migrate_identity(&store).unwrap();
+        let err = migrate_identity(&store).unwrap_err();
+        assert!(
+            matches!(&err, RepositoryError::InvalidInput { message } if message.contains("already")),
+            "expected already-migrated error on second run, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn cross_store_roundtrip_none_branch() {
+        let (source, container_id) =
+            make_store_without_identity("My Repo", Some("We build SRS."));
+        let result = migrate_identity(&source).unwrap();
+
+        let target = MemoryStore::uninitialized();
+        copy_repository(&source, &target).unwrap();
+
+        let manifest = target.load_manifest().unwrap();
+        let entry = manifest
+            .instance_index
+            .iter()
+            .find(|e| e.instance_id() == result.new_identity_id)
+            .expect("purpose record must be in instanceIndex after roundtrip");
+        assert_eq!(entry.tier(), 2);
+
+        let container = get_container(&target, &container_id).unwrap();
+        let members = container.member_instance_ids.unwrap_or_default();
+        assert!(
+            members.contains(&result.new_identity_id),
+            "purpose record must be in container members after roundtrip"
         );
     }
 }
