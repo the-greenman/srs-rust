@@ -24,15 +24,15 @@ When an extension's status changes, update the table here and the linked issues 
 | 8 | `ext:protocol` | lifecycle (rec.) | 🟢 Definitions done | Runs/execution + `AttentionState` deferred (ADR-016) |
 | 9 | `ext:recommended-relations` | — | ✅ Retired → core | Compatibility label only (RFC-005); relation types are core |
 | 10 | `ext:lifecycle` | — | 🟢 Substantially done | Transitions, initialState injection, V7–V9 enforced; needs a verification pass to close any remaining V-gaps |
-| 11 | `ext:cross-field-validation` | — | ❌ Not implemented | No `CrossFieldRule`; 3 rule types missing |
+| 11 | `ext:cross-field-validation` | — | ✅ Implemented | `CrossFieldRule` (conditional-required / field-ordering / mutual-exclusion), `Type.validationRules`; schema mirror synced (#242) |
 | 12 | `ext:import-tracking` | — | ❌ Not implemented | `package import` registers a boundary only; no `ImportMode`/`ImportRecord`/`ImportSummary` |
 | 13 | `ext:registry` | — | ❌ Not implemented | No `Registry`/`RegistryEntry` catalog |
 | 14 | `ext:federation` | — | ❌ Not implemented | No cross-repo relation qualifiers, `RepositoryRegistry`, `FederationEvent` |
 | 15 | `ext:addressability` | — | ❌ Not implemented | No `Address`/`AttentionState`/`Revision`; no context-query patterns |
 
-**Remaining work = 6 extensions:** one verify-and-finish (`lifecycle`), one partial
-(`protocol` runs), and four-to-five greenfield (`cross-field-validation`, `import-tracking`,
-`registry`, `federation`, `addressability`).
+**Remaining work = 5 extensions:** one verify-and-finish (`lifecycle`), one partial
+(`protocol` runs), and four greenfield (`import-tracking`, `registry`, `federation`,
+`addressability`). `ext:cross-field-validation` is now implemented (#242).
 
 ## Conformance / drift review
 
@@ -93,7 +93,7 @@ all validation) → `srs-cli` payload + golden schema → `srs-bindings` method 
 |---|---|---|---|
 | **0 — Conformance baseline** | This doc; README fix (D1/D2); `declaredExtensions` report (D4); spec-change tickets for D2/D3 in `srs` | small | — |
 | **1 — Finish `ext:lifecycle`** | Audit V7–V9 coverage, close gaps, cross-store roundtrip tests, CLI transition surface, docs | small–medium | — |
-| **2 — `ext:cross-field-validation`** | `CrossFieldRule` (conditional-required / field-ordering / mutual-exclusion), `Type.validationRules`; validation + schema sync | medium | — |
+| **2 — `ext:cross-field-validation`** | ✅ Done — `CrossFieldRule` (conditional-required / field-ordering / mutual-exclusion), `Type.validationRules`; validation + schema sync (#242) | medium | — |
 | **3 — `ext:registry` + `ext:import-tracking`** | `Registry`/`RegistryEntry`; `ImportMode`/`ImportRecord`/`ImportSummary`; extend `package import` provenance + divergence detection | medium + large | — |
 | **4 — `ext:federation`** | Cross-repo relation qualifiers; `RepositoryRegistry` resolution (depth-first, cycle detection); `FederationEvent` log; manifest paths; graceful degradation | large | — |
 | **5 — `ext:addressability` (+ `ext:protocol` runs)** | `Address`/`AttentionState`/`Revision`; four context-query patterns; then protocol execution consuming `AttentionState` | xl | Epic 5 core unblocks protocol-runs (D5) |
