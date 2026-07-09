@@ -328,12 +328,12 @@ mod tests {
             .filter_map(|fv| fv["fieldId"].as_str())
             .collect();
         assert!(
-            field_ids.contains(&core_purpose::STATEMENT_FIELD_ID),
-            "migrated purpose record must use core_purpose::STATEMENT_FIELD_ID"
+            field_ids.contains(&core_purpose::statement_field_id()),
+            "migrated purpose record must use core_purpose::statement_field_id()"
         );
         assert!(
-            field_ids.contains(&core_purpose::TITLE_FIELD_ID),
-            "migrated purpose record must use core_purpose::TITLE_FIELD_ID"
+            field_ids.contains(&core_purpose::title_field_id()),
+            "migrated purpose record must use core_purpose::title_field_id()"
         );
     }
 
@@ -383,15 +383,15 @@ mod tests {
             record
                 .field_values
                 .iter()
-                .any(|fv| fv.field_id == core_purpose::STATEMENT_FIELD_ID),
-            "scaffolded record must use core_purpose::STATEMENT_FIELD_ID"
+                .any(|fv| fv.field_id == core_purpose::statement_field_id()),
+            "scaffolded record must use core_purpose::statement_field_id()"
         );
         assert!(
             record
                 .field_values
                 .iter()
-                .any(|fv| fv.field_id == core_purpose::TITLE_FIELD_ID),
-            "scaffolded record must use core_purpose::TITLE_FIELD_ID"
+                .any(|fv| fv.field_id == core_purpose::title_field_id()),
+            "scaffolded record must use core_purpose::title_field_id()"
         );
 
         let err = migrate_identity(&store).unwrap_err();

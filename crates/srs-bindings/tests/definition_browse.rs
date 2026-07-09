@@ -47,7 +47,7 @@ fn list_fields_returns_all_fields() {
     let store = gallery_store();
     let fields =
         list_fields_filtered(&store, FieldListFilter::default()).expect("list_fields must succeed");
-    assert_eq!(fields.len(), 24, "gallery has 24 fields");
+    assert_eq!(fields.len(), 26, "gallery has 24 fields + 2 core fields (statement, title)");
 }
 
 #[test]
@@ -100,7 +100,7 @@ fn list_types_returns_all_types() {
     let store = gallery_store();
     let types =
         list_types_filtered(&store, TypeListFilter::default()).expect("list_types must succeed");
-    assert_eq!(types.len(), 4, "gallery has 4 types");
+    assert_eq!(types.len(), 5, "gallery has 4 types + 1 core type (purpose)");
 }
 
 #[test]
@@ -232,8 +232,8 @@ fn field_filter_empty_json_produces_default_filter() {
     let fields = list_fields_filtered(&store, filter).expect("list_fields must succeed");
     assert_eq!(
         fields.len(),
-        24,
-        "default filter returns all 24 gallery fields"
+        26,
+        "default filter returns all gallery fields + 2 merged core fields (statement, title)"
     );
 }
 

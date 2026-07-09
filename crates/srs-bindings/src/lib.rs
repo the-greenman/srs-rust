@@ -2,6 +2,7 @@ use serde::Deserialize;
 use srs_core::types::record::{FieldGroupValue, FieldValue};
 use srs_core::types::relation::Relation;
 use srs_repository::blueprint_schema_service::{self, BlueprintSchemaInput};
+use srs_repository::migrate_identity_service;
 use srs_repository::blueprint_service;
 use srs_repository::container_service::{self, ContainerListFilter};
 use srs_repository::container_view_service::{self, ResolveContainerViewInput};
@@ -664,6 +665,26 @@ impl SrsRepository {
             serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
         let result =
             repository_lifecycle::init_new_repository(&self.store, input).map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Migrate the repository's identity to a `com.semanticops.core/purpose` Tier-2 record.
+    ///
+    /// Handles two cases: (a) `manifest.container.identityInstanceId` points to a Tier-0 note —
+    /// extracts the statement text from note sections; (b) `identityInstanceId` is absent —
+    /// derives the statement from the container's `title`/`description`. Both write a new
+    /// `purpose` record, update `manifest.container.identityInstanceId`, and update container
+    /// membership atomically (ADR-021 batch).
+    ///
+    /// Returns a `MigrateIdentityResult` as a JS value with fields:
+    /// `oldIdentityId` (null if no prior identity), `oldIdentityTier` (null if absent),
+    /// `newIdentityId`, `statement`, `title`.
+    ///
+    /// Returns a JS error if the identity is already a `com.semanticops.core/purpose` record,
+    /// if the existing Tier-2 identity is of a different type (manual migration required),
+    /// or if no statement can be derived.
+    pub fn migrate_identity(&self) -> Result<JsValue, JsValue> {
+        let result = migrate_identity_service::migrate_identity(&self.store).map_err(js_err)?;
         to_js(&result)
     }
 }

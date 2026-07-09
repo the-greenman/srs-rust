@@ -828,7 +828,7 @@ mod tests {
         let record: srs_core::types::record::Record =
             serde_json::from_value(store.load_instance_json(entry.path()).unwrap()).unwrap();
 
-        assert_eq!(record.type_id, core_purpose::PURPOSE_TYPE_ID);
+        assert_eq!(record.type_id, core_purpose::purpose_type_id());
         assert_eq!(record.type_namespace, core_purpose::PURPOSE_TYPE_NAMESPACE);
         assert_eq!(record.type_name, core_purpose::PURPOSE_TYPE_NAME);
     }
@@ -851,7 +851,7 @@ mod tests {
         let has_statement = record
             .field_values
             .iter()
-            .any(|fv| fv.field_id == core_purpose::STATEMENT_FIELD_ID);
+            .any(|fv| fv.field_id == core_purpose::statement_field_id());
         assert!(has_statement, "purpose record must have statement field");
     }
 
@@ -875,7 +875,7 @@ mod tests {
         let title_fv = record
             .field_values
             .iter()
-            .find(|fv| fv.field_id == core_purpose::TITLE_FIELD_ID)
+            .find(|fv| fv.field_id == core_purpose::title_field_id())
             .expect("title field must be present when title given");
         assert_eq!(title_fv.value.as_str(), Some("My Project"));
     }
@@ -898,7 +898,7 @@ mod tests {
         let has_title = record
             .field_values
             .iter()
-            .any(|fv| fv.field_id == core_purpose::TITLE_FIELD_ID);
+            .any(|fv| fv.field_id == core_purpose::title_field_id());
         assert!(!has_title, "title field must be absent when no title given");
     }
 
@@ -991,7 +991,7 @@ mod tests {
         let record: srs_core::types::record::Record =
             serde_json::from_value(store2.load_instance_json(entry.path()).unwrap()).unwrap();
         assert_eq!(record.instance_id, id);
-        assert_eq!(record.type_id, core_purpose::PURPOSE_TYPE_ID);
+        assert_eq!(record.type_id, core_purpose::purpose_type_id());
 
         let container_id = manifest
             .container
