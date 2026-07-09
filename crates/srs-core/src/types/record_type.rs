@@ -59,6 +59,11 @@ pub struct RecordType {
     pub field_order: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub field_assignment_overrides: Option<Vec<FieldAssignmentOverride>>,
+    /// RFC-020 — names one fieldId from this Type's effective field set as the
+    /// record's identity/display field. Cascades across the ext:type-inheritance
+    /// ancestor chain independently of `field_order`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identity_field_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lifecycle: Option<TypeLifecycle>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -193,6 +198,7 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+            identity_field_id: None,
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
@@ -259,6 +265,7 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+            identity_field_id: None,
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
@@ -390,6 +397,7 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+            identity_field_id: None,
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
@@ -426,6 +434,7 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+            identity_field_id: None,
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
@@ -557,6 +566,7 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+            identity_field_id: None,
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
@@ -582,6 +592,7 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+            identity_field_id: None,
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
@@ -633,6 +644,7 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+            identity_field_id: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
@@ -657,6 +669,7 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+            identity_field_id: None,
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
@@ -729,6 +742,52 @@ mod tests {
     }
 
     #[test]
+    fn type_with_identity_field_id_passes_schema() {
+        let reg = srs_schema::SchemaRegistry::global();
+        let rt = RecordType {
+            id: "00000000-0000-4000-8000-000000000020".to_string(),
+            namespace: "test".to_string(),
+            name: "decision".to_string(),
+            version: 1,
+            description: "A decision record type".to_string(),
+            fields: vec![FieldAssignment {
+                field_id: "00000000-0000-4000-8000-000000000010".to_string(),
+                order: 0,
+                required: true,
+                display_label: None,
+                repeatable: false,
+                min_items: None,
+                max_items: None,
+            }],
+            field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            identity_field_id: Some("00000000-0000-4000-8000-000000000010".to_string()),
+            lifecycle: None,
+            lifecycle_ref: None,
+            validation_rules: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let mut value = serde_json::to_value(&rt).unwrap();
+        value["$schema"] = serde_json::json!("https://srs.semanticops.com/schema/2.0/type.json");
+        assert_eq!(
+            value["identityFieldId"], "00000000-0000-4000-8000-000000000010",
+            "identity_field_id must serialize as camelCase identityFieldId"
+        );
+        reg.validate_by_id(srs_schema::TYPE_SCHEMA_ID, &value)
+            .expect("RecordType with identityFieldId must pass type.json schema");
+
+        let parsed: RecordType = serde_json::from_value(value).unwrap();
+        assert_eq!(
+            parsed.identity_field_id.as_deref(),
+            Some("00000000-0000-4000-8000-000000000010")
+        );
+    }
+
+    #[test]
     fn find_field_group_returns_none_when_no_groups() {
         let rt = RecordType {
             id: "id".to_string(),
@@ -742,6 +801,7 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+            identity_field_id: None,
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,

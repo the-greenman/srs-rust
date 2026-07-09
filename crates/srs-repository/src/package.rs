@@ -1285,6 +1285,8 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+
+            identity_field_id: None,
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
@@ -1312,6 +1314,7 @@ mod tests {
             extends_type_version: Some(1),
             field_order,
             field_assignment_overrides: overrides,
+            identity_field_id: None,
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
@@ -1495,6 +1498,8 @@ mod tests {
                 "f2".to_string(),
             ]),
             field_assignment_overrides: None,
+
+            identity_field_id: None,
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
@@ -1739,6 +1744,8 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+
+            identity_field_id: None,
             lifecycle,
             lifecycle_ref,
             validation_rules: None,
@@ -1880,6 +1887,8 @@ mod tests {
             extends_type_version: None,
             field_order,
             field_assignment_overrides: None,
+
+            identity_field_id: None,
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
