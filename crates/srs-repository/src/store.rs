@@ -438,6 +438,8 @@ struct FieldJson {
     version: u32,
     value_type: String,
     description: Option<String>,
+    #[serde(default)]
+    instructions: Option<String>,
     ai_guidance: Option<serde_json::Value>,
     allowed_values: Option<Vec<String>>,
     #[serde(default)]
@@ -581,6 +583,7 @@ fn load_package_from_dir(
             version: fj.version,
             value_type: parse_value_type(&fj.value_type, &full_path)?,
             description: fj.description.unwrap_or_default(),
+            instructions: fj.instructions,
             ai_guidance: fj.ai_guidance.unwrap_or(serde_json::Value::Null),
             allowed_values: fj.allowed_values,
             vocabulary_ref: fj.vocabulary_ref,
@@ -3140,6 +3143,47 @@ mod tests {
     // --- FileStore tests ---
 
     #[test]
+    fn file_store_field_instructions_roundtrip() {
+        use crate::package_service::create_field;
+        use srs_core::types::field::{Field, ValueType};
+
+        let temp = TempDir::new().unwrap();
+        write_minimal_file_repo(&temp);
+        let store = FileStore::new(temp.path());
+
+        let field = Field {
+            id: "00000000-0000-0000-0000-aabbccddee02".to_string(),
+            namespace: "com.test".to_string(),
+            name: "help-field".to_string(),
+            version: 1,
+            value_type: ValueType::String,
+            description: "A help field".to_string(),
+            instructions: Some("Fill this in carefully.".to_string()),
+            ai_guidance: serde_json::Value::Null,
+            allowed_values: None,
+            vocabulary_ref: None,
+            default_value: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        create_field(&store, field.clone()).unwrap();
+
+        // Reload via a fresh FileStore instance to prove the value survives an
+        // on-disk roundtrip, not just an in-process cache.
+        let reloaded = FileStore::new(temp.path());
+        let package = reloaded.load_package().unwrap();
+        let loaded_field = package
+            .fields
+            .iter()
+            .find(|f| f.id == field.id)
+            .expect("field must be present after reload");
+        assert_eq!(
+            loaded_field.instructions,
+            Some("Fill this in carefully.".to_string())
+        );
+    }
+
+    #[test]
     fn file_store_load_manifest_roundtrips() {
         let temp = TempDir::new().unwrap();
         write_minimal_file_repo(&temp);
@@ -3395,6 +3439,7 @@ mod tests {
             version: 1,
             value_type: ValueType::String,
             description: String::new(),
+            instructions: None,
             ai_guidance: serde_json::Value::Null,
             allowed_values: None,
             vocabulary_ref: None,
@@ -3477,6 +3522,7 @@ mod tests {
             version: 1,
             value_type: ValueType::String,
             description: String::new(),
+            instructions: None,
             ai_guidance: serde_json::Value::Null,
             allowed_values: None,
             vocabulary_ref: None,
@@ -3522,6 +3568,7 @@ mod tests {
             version: 1,
             value_type: ValueType::String,
             description: String::new(),
+            instructions: None,
             ai_guidance: serde_json::Value::Null,
             allowed_values: None,
             vocabulary_ref: None,

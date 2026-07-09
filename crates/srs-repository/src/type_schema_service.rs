@@ -196,6 +196,19 @@ fn field_to_property(
         prop.insert("title".into(), json!(title));
     }
 
+    // Field help text: `description` (short caption) and `instructions` (fuller
+    // human guidance) each get a dedicated vendor key so neither collides with
+    // `title` (label) or `description` (already occupied by string aiGuidance
+    // below). See ADR-023.
+    if !field.description.is_empty() {
+        prop.insert("x-srs-description".into(), json!(field.description));
+    }
+    if let Some(instructions) = &field.instructions {
+        if !instructions.is_empty() {
+            prop.insert("x-srs-instructions".into(), json!(instructions));
+        }
+    }
+
     if let Some(default) = &field.default_value {
         prop.insert("default".into(), default.clone());
     }
@@ -327,6 +340,7 @@ mod tests {
             name: name.to_string(),
             version: 1,
             description: format!("{name} description"),
+            instructions: None,
             ai_guidance: json!(null),
             value_type,
             allowed_values: None,
@@ -501,6 +515,42 @@ mod tests {
             "no diagnostics expected: {:?}",
             result.diagnostics
         );
+    }
+
+    #[test]
+    fn field_to_property_emits_description_and_instructions_keys() {
+        let mut f = field("f-help", "help_field", ValueType::String);
+        f.description = "Short caption.".to_string();
+        f.instructions = Some("Fuller how-to-complete guidance.".to_string());
+        let a = assignment("f-help", 0, false);
+        let mut diagnostics = Vec::new();
+
+        let prop = field_to_property(&f, &a, &mut diagnostics);
+
+        assert_eq!(prop["x-srs-description"], json!("Short caption."));
+        assert_eq!(
+            prop["x-srs-instructions"],
+            json!("Fuller how-to-complete guidance.")
+        );
+    }
+
+    #[test]
+    fn field_to_property_omits_absent_instructions() {
+        let mut f = field("f-no-help", "no_help_field", ValueType::String);
+        f.description = String::new();
+        f.instructions = None;
+        let a = assignment("f-no-help", 0, false);
+        let mut diagnostics = Vec::new();
+
+        let prop = field_to_property(&f, &a, &mut diagnostics);
+
+        assert!(prop.get("x-srs-description").is_none());
+        assert!(prop.get("x-srs-instructions").is_none());
+
+        // Some("") must also omit the key — empty strings carry no help text.
+        f.instructions = Some(String::new());
+        let prop = field_to_property(&f, &a, &mut diagnostics);
+        assert!(prop.get("x-srs-instructions").is_none());
     }
 
     #[test]
