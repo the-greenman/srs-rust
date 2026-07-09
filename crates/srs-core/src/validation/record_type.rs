@@ -1,7 +1,9 @@
 use crate::error::CoreError;
 use crate::types::field::ValueType;
 use crate::types::record::Record;
-use crate::types::record_type::{CrossFieldRule, CrossFieldRuleEffect, CrossFieldRuleKind, RecordType};
+use crate::types::record_type::{
+    CrossFieldRule, CrossFieldRuleEffect, CrossFieldRuleKind, RecordType,
+};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -61,9 +63,9 @@ pub fn validate_cross_field_rules(
 
 /// Returns the non-empty string value for the field with `field_id` in the record, or None.
 fn field_value_str<'a>(record: &'a Record, field_id: &str) -> Option<&'a str> {
-    record.find_field_value(field_id).and_then(|fv| {
-        fv.value.as_str().filter(|s| !s.is_empty())
-    })
+    record
+        .find_field_value(field_id)
+        .and_then(|fv| fv.value.as_str().filter(|s| !s.is_empty()))
 }
 
 fn evaluate_conditional_required(
@@ -189,11 +191,7 @@ fn evaluate_field_ordering(
     }
 }
 
-fn evaluate_mutual_exclusion(
-    record: &Record,
-    rule: &CrossFieldRule,
-    errors: &mut Vec<CoreError>,
-) {
+fn evaluate_mutual_exclusion(record: &Record, rule: &CrossFieldRule, errors: &mut Vec<CoreError>) {
     let Some(field_ids) = rule.field_ids.as_ref() else {
         errors.push(CoreError::CrossFieldRuleMisconfigured {
             reason: "mutual-exclusion rule requires fieldIds with at least 2 entries".to_string(),
@@ -458,7 +456,11 @@ mod tests {
             ("f-start-date", serde_json::json!("2026-01-01")),
         ]);
         // f-end-date must follow f-start-date: end > start → pass
-        let rule = ordering_rule("f-start-date", "f-end-date", CrossFieldRuleEffect::MustFollow);
+        let rule = ordering_rule(
+            "f-start-date",
+            "f-end-date",
+            CrossFieldRuleEffect::MustFollow,
+        );
         let mut ft = HashMap::new();
         ft.insert("f-end-date".to_string(), ValueType::Date);
         ft.insert("f-start-date".to_string(), ValueType::Date);
@@ -473,7 +475,11 @@ mod tests {
             ("f-start-date", serde_json::json!("2026-06-01")),
         ]);
         // f-end-date must follow f-start-date: end(2026-01-01) <= start(2026-06-01) → violation
-        let rule = ordering_rule("f-start-date", "f-end-date", CrossFieldRuleEffect::MustFollow);
+        let rule = ordering_rule(
+            "f-start-date",
+            "f-end-date",
+            CrossFieldRuleEffect::MustFollow,
+        );
         let mut ft = HashMap::new();
         ft.insert("f-end-date".to_string(), ValueType::Date);
         ft.insert("f-start-date".to_string(), ValueType::Date);
@@ -518,10 +524,18 @@ mod tests {
             ("f-end", serde_json::json!("20")),
         ]);
         // Rule references field IDs not present in field_types map
-        let rule = ordering_rule("f-nonexistent-end", "f-start", CrossFieldRuleEffect::MustPrecede);
+        let rule = ordering_rule(
+            "f-nonexistent-end",
+            "f-start",
+            CrossFieldRuleEffect::MustPrecede,
+        );
         let ft: HashMap<String, ValueType> = HashMap::new();
         let errs = validate_cross_field_rules(&record, &[rule], &ft);
-        assert!(errs.is_empty(), "absent field IDs silently skip, got: {:?}", errs);
+        assert!(
+            errs.is_empty(),
+            "absent field IDs silently skip, got: {:?}",
+            errs
+        );
     }
 
     #[test]
@@ -561,7 +575,10 @@ mod tests {
         let rule = mutex_rule(vec!["f-a"]); // only 1 field — misconfigured
         let errs = validate_cross_field_rules(&record, &[rule], &HashMap::new());
         assert_eq!(errs.len(), 1);
-        assert!(matches!(errs[0], CoreError::CrossFieldRuleMisconfigured { .. }));
+        assert!(matches!(
+            errs[0],
+            CoreError::CrossFieldRuleMisconfigured { .. }
+        ));
     }
 
     #[test]

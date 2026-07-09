@@ -2,6 +2,7 @@ use crate::error::RepositoryError;
 use crate::store::RepositoryStore;
 use serde_json::Value;
 use srs_core::types::blueprint::{Blueprint, BlueprintDiagnosticSeverity};
+use srs_core::types::field::ValueType;
 use srs_core::types::protocol::{Protocol, ProtocolDiagnosticSeverity};
 use srs_core::types::record::Record;
 use srs_core::types::relation::RelationsCollection;
@@ -10,7 +11,6 @@ use srs_core::validation::lifecycle::{
     validate_lifecycle, validate_type_lifecycle_v9, LifecycleDiagnosticSeverity,
 };
 use srs_core::validation::protocol::validate_protocol;
-use srs_core::types::field::ValueType;
 use srs_core::validation::record::validate_record;
 use srs_core::validation::record_type::validate_cross_field_rules;
 use srs_core::validation::relation::{validate_relation, RelationValidationContext};
@@ -411,7 +411,11 @@ pub fn validate_repository(
             if package_for_tier2.is_none() {
                 let pkg = store.load_package().ok();
                 field_type_map = Some(match &pkg {
-                    Some(p) => p.fields.iter().map(|f| (f.id.clone(), f.value_type)).collect(),
+                    Some(p) => p
+                        .fields
+                        .iter()
+                        .map(|f| (f.id.clone(), f.value_type))
+                        .collect(),
                     None => HashMap::new(),
                 });
                 package_for_tier2 = Some(pkg);
@@ -523,11 +527,8 @@ pub fn validate_repository(
                                     let ftype_map = field_type_map
                                         .as_ref()
                                         .expect("field_type_map is populated in the same tier-2 lazy-load block");
-                                    let cfr_errors = validate_cross_field_rules(
-                                        &record,
-                                        rules,
-                                        ftype_map,
-                                    );
+                                    let cfr_errors =
+                                        validate_cross_field_rules(&record, rules, ftype_map);
                                     for err in cfr_errors {
                                         diagnostics.push(ValidationDiagnostic {
                                             severity: DiagnosticSeverity::Error,
@@ -4354,10 +4355,9 @@ mod tests {
 
         let store = crate::store::FileStore::new(temp.path());
         let report = validate_repository(&store).unwrap();
-        let cfr_err = report
-            .diagnostics
-            .iter()
-            .find(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("conditional-required"));
+        let cfr_err = report.diagnostics.iter().find(|d| {
+            d.severity == DiagnosticSeverity::Error && d.message.contains("conditional-required")
+        });
         assert!(
             cfr_err.is_some(),
             "expected conditional-required error, got: {:?}",
@@ -4528,10 +4528,9 @@ mod tests {
 
         let store = crate::store::FileStore::new(temp.path());
         let report = validate_repository(&store).unwrap();
-        let cfr_err = report
-            .diagnostics
-            .iter()
-            .find(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("field-ordering"));
+        let cfr_err = report.diagnostics.iter().find(|d| {
+            d.severity == DiagnosticSeverity::Error && d.message.contains("field-ordering")
+        });
         assert!(
             cfr_err.is_some(),
             "expected field-ordering error when end < start, got: {:?}",
@@ -4699,10 +4698,9 @@ mod tests {
 
         let store = crate::store::FileStore::new(temp.path());
         let report = validate_repository(&store).unwrap();
-        let cfr_err = report
-            .diagnostics
-            .iter()
-            .find(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("mutual-exclusion"));
+        let cfr_err = report.diagnostics.iter().find(|d| {
+            d.severity == DiagnosticSeverity::Error && d.message.contains("mutual-exclusion")
+        });
         assert!(
             cfr_err.is_some(),
             "expected mutual-exclusion error when both fields set, got: {:?}",
@@ -4791,24 +4789,23 @@ mod tests {
         let field_a = "00000000-0000-4000-8000-000000009210";
         let field_b = "00000000-0000-4000-8000-000000009211";
 
-        let record_type: srs_core::types::record_type::RecordType =
-            serde_json::from_value(json!({
-                "id": type_id,
-                "namespace": "com.test",
-                "name": "me-type",
-                "version": 1,
-                "description": "Mutual exclusion MemoryStore test type",
-                "fields": [
-                    {"fieldId": field_a, "order": 1, "required": false},
-                    {"fieldId": field_b, "order": 2, "required": false}
-                ],
-                "validationRules": [{
-                    "type": "mutual-exclusion",
-                    "fieldIds": [field_a, field_b]
-                }],
-                "createdAt": "2026-01-01T00:00:00Z"
-            }))
-            .unwrap();
+        let record_type: srs_core::types::record_type::RecordType = serde_json::from_value(json!({
+            "id": type_id,
+            "namespace": "com.test",
+            "name": "me-type",
+            "version": 1,
+            "description": "Mutual exclusion MemoryStore test type",
+            "fields": [
+                {"fieldId": field_a, "order": 1, "required": false},
+                {"fieldId": field_b, "order": 2, "required": false}
+            ],
+            "validationRules": [{
+                "type": "mutual-exclusion",
+                "fieldIds": [field_a, field_b]
+            }],
+            "createdAt": "2026-01-01T00:00:00Z"
+        }))
+        .unwrap();
 
         let record_json = cfr_record_json(
             record_id,
