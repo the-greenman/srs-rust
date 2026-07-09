@@ -322,6 +322,75 @@ mod tests {
     }
 
     #[test]
+    fn migrate_identity_recognizes_scaffolded_purpose_record() {
+        use crate::repository_lifecycle::{
+            create_repository_with_intent, InitializeRepositoryInput, PrimaryPackageMetadata,
+            RepositoryMetadata,
+        };
+
+        // MemoryStore::uninitialized() — not ::default() — because
+        // create_repository_with_intent errors with RepositoryAlreadyExists on an
+        // already-initialized store.
+        let store = MemoryStore::uninitialized();
+        let input = InitializeRepositoryInput {
+            repository: RepositoryMetadata {
+                repository_id: "repo-1".to_string(),
+                namespace: "com.semanticops.test".to_string(),
+                srs_version: "2.0-draft".to_string(),
+                title: Some("My Repo".to_string()),
+                description: Some("I build SRS.".to_string()),
+            },
+            primary_package: PrimaryPackageMetadata {
+                id: "pkg-1".to_string(),
+                namespace: "com.semanticops.test".to_string(),
+                name: "primary".to_string(),
+                version: "1.0.0".to_string(),
+            },
+        };
+
+        let result = create_repository_with_intent(&store, &input).unwrap();
+        let scaffolded_id = result.identity_instance_id.unwrap();
+
+        let manifest = store.load_manifest().unwrap();
+        let entry = manifest
+            .instance_index
+            .iter()
+            .find(|e| e.instance_id() == scaffolded_id)
+            .unwrap();
+        let record: srs_core::types::record::Record =
+            serde_json::from_value(store.load_instance_json(entry.path()).unwrap()).unwrap();
+
+        // Regression guard for #441: repo create's scaffold and repo migrate-identity
+        // previously used divergent field-ID constants. This ties the scaffold's actual
+        // output to the same constants migrate_identity reads.
+        assert!(
+            record
+                .field_values
+                .iter()
+                .any(|fv| fv.field_id == core_purpose::STATEMENT_FIELD_ID),
+            "scaffolded record must use core_purpose::STATEMENT_FIELD_ID"
+        );
+        assert!(
+            record
+                .field_values
+                .iter()
+                .any(|fv| fv.field_id == core_purpose::TITLE_FIELD_ID),
+            "scaffolded record must use core_purpose::TITLE_FIELD_ID"
+        );
+
+        let err = migrate_identity(&store).unwrap_err();
+        match err {
+            RepositoryError::InvalidInput { message } => {
+                assert!(
+                    message.contains("no migration needed"),
+                    "unexpected message: {message}"
+                );
+            }
+            other => panic!("expected InvalidInput, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn migrate_sets_statement_from_note_sections() {
         let sections = vec![
             NoteSection {

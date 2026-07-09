@@ -2,6 +2,9 @@
 // Canonical values from srs/srs/package/core/:
 //   fields/statement-3b000001.json, fields/title-3b000002.json, types/purpose-3c000001.json
 // Replace with core_package::resolve_type("com.semanticops.core", "purpose") once #423 lands.
+// STATEMENT_FIELD_ID/TITLE_FIELD_ID are shared by both repository_lifecycle (repo create
+// scaffold) and migrate_identity_service (repo migrate-identity) specifically so the two
+// paths can't diverge again as they once did (#441) — do not fork a local copy.
 pub(crate) const PURPOSE_TYPE_ID: &str = "3c000001-0000-4000-a000-000000000001";
 pub(crate) const PURPOSE_TYPE_VERSION: u32 = 1;
 pub(crate) const PURPOSE_TYPE_NAMESPACE: &str = "com.semanticops.core";
