@@ -296,8 +296,8 @@ fn relation_type_filter_json_maps_to_service() {
         serde_json::from_str(r#"{"status":"active"}"#).expect("filter json must parse");
     assert_eq!(raw.status, Some("active".to_string()));
     // Call the service with the deserialized filter — proving the full JSON → filter → service chain.
-    let relation_types = list_relation_types_filtered(&store, raw.status)
-        .expect("list_relation_types must succeed");
+    let relation_types =
+        list_relation_types_filtered(&store, raw.status).expect("list_relation_types must succeed");
     assert!(
         relation_types.is_empty(),
         "no gallery relation types match status 'active'"
