@@ -1027,7 +1027,8 @@ fn json_store_cli_schema_record_and_roundtrip_workflow() {
     assert_eq!(types["payload"]["types"].as_array().unwrap().len(), 1);
     let records = run_srs_in_dir(temp.path(), &["--repo", json_repo_str, "record", "list"]);
     assert_eq!(records["ok"], true);
-    assert_eq!(records["payload"]["records"].as_array().unwrap().len(), 1);
+    // 1 purpose record (from repo create) + 1 explicitly created decision record
+    assert_eq!(records["payload"]["records"].as_array().unwrap().len(), 2);
 
     let copied_to_files = run_srs_in_dir(
         temp.path(),
@@ -1087,12 +1088,13 @@ fn json_store_cli_schema_record_and_roundtrip_workflow() {
         temp.path(),
         &["--repo", roundtrip_json_str, "record", "list"],
     );
+    // 1 purpose record (from repo create) + 1 explicitly created decision record
     assert_eq!(
         roundtrip_records["payload"]["records"]
             .as_array()
             .unwrap()
             .len(),
-        1
+        2
     );
 }
 
@@ -6622,7 +6624,9 @@ fn record_validate_does_not_persist() {
         let list = run_srs_in_dir(repo, &["record", "list"]);
         list["payload"]["records"].as_array().unwrap().len()
     };
-    assert_eq!(count_records(&repo), 0, "repo should start with no records");
+    // repo create always scaffolds a purpose record, so initial count is 1
+    let initial_count = count_records(&repo);
+    assert_eq!(initial_count, 1, "repo should start with exactly the purpose record");
 
     let input = serde_json::json!({
         "typeId": type_id, "typeVersion": 1,
@@ -6633,7 +6637,7 @@ fn record_validate_does_not_persist() {
 
     assert_eq!(
         count_records(&repo),
-        0,
+        initial_count,
         "record validate must not create any record"
     );
 }
