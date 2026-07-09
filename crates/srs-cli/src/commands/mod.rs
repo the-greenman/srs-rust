@@ -588,6 +588,10 @@ pub enum RepoCommand {
     /// Normalise instance file paths in-place to the canonical slug-id8 convention.
     /// Only valid for file-backed repositories. Idempotent — safe to run multiple times.
     Upgrade,
+    /// Graduate the Tier-0 identity note to a com.semanticops.core/purpose Tier-2 Record
+    /// and repoint manifest.container.identityInstanceId to the new record.
+    #[command(name = "migrate-identity")]
+    MigrateIdentity,
 }
 
 #[derive(Subcommand)]

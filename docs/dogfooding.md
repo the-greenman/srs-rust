@@ -817,6 +817,68 @@ $SRS_BIN repo navigation --repo "$SCRATCH" --pretty
 
 **Negative case (not applicable in isolation).** A Tier-2 record of the wrong type (e.g. `governance/article`) also emits an RFC-018 I-81 warning with the actual type in the message, and the repo still returns `ok: true`. The scaffold integration test `crates/srs-repository/tests/scaffold.rs` covers this path.
 
+**Note.** Once the RFC-018 I-81 warning appears, use `repo migrate-identity` (S21) to resolve it.
+
+---
+
+### S21 — Graduate a Tier-0 identity note to a purpose record (`repo migrate-identity`)
+
+**Intention.** *"My repository's identity is stored as a free-text note (Tier 0). I want to promote it to the formal `com.semanticops.core/purpose` record so the RFC-018 identity invariant is satisfied and repo validate is clean."*
+
+**Capabilities exercised.** `migrate_identity_service`: extracts statement + title from the existing Tier-0 note, writes a `com.semanticops.core/purpose` Tier-2 Record, updates `manifest.container.identityInstanceId`, adds the new record to the container's `memberInstanceIds`, all in a single ADR-021 batch. Old identity note is preserved (not deleted).
+
+**CLI surface.** `repo create`, `note create`, `container create`, `container members add`, `repo set-root-container`, `repo validate`, `repo migrate-identity`.
+
+**Steps.**
+
+```bash
+SRS_BIN=target/debug/srs
+SCRATCH=/tmp/dogfood-migrate-identity-s21
+rm -rf "$SCRATCH"
+
+$SRS_BIN repo create --repo "$SCRATCH" --namespace com.example.dogfood --pretty
+
+NOTE_ID=$($SRS_BIN note create --repo "$SCRATCH" <<'EOF' | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['note']['instanceId'])"
+{
+  "title": "I Build Better Knowledge Tools",
+  "sections": [{"name": "body", "content": "I build tools that help teams govern and share knowledge across time and context."}]
+}
+EOF
+)
+
+CONTAINER_ID=$($SRS_BIN container create --repo "$SCRATCH" <<'EOF' | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['container']['containerId'])"
+{"title": "My Repo", "namespace": "com.example.dogfood", "name": "root"}
+EOF
+)
+
+# Identity must be in the container's member list before set-root-container
+$SRS_BIN container members add --repo "$SCRATCH" "$CONTAINER_ID" "$NOTE_ID"
+$SRS_BIN repo set-root-container --repo "$SCRATCH" \
+  --container-id "$CONTAINER_ID" \
+  --identity-instance-id "$NOTE_ID" --pretty
+
+# Before migration: validate warns about Tier-0 identity (ok: true, warnings: 1)
+$SRS_BIN repo validate --repo "$SCRATCH" --pretty
+
+# Run migration
+$SRS_BIN repo migrate-identity --repo "$SCRATCH" --pretty
+
+# After migration: validate is clean (ok: true, warnings: 0)
+$SRS_BIN repo validate --repo "$SCRATCH" --pretty
+```
+
+**Negative case.** Running `repo migrate-identity` a second time on the same repo returns `ok: false` with `"already a com.semanticops.core/purpose record; no migration needed"` in `diagnostics`.
+
+```bash
+$SRS_BIN repo migrate-identity --repo "$SCRATCH" --pretty   # second call: must error
+```
+
+**Done when.**
+- First `repo validate`: `summary.warnings: 1`, message contains `"RFC-018 I-81"` and `"Tier-0 Note"`.
+- `repo migrate-identity` payload: `oldIdentityTier: 0`, `statement` matches the note body, `title` matches the note title, `newIdentityId` is a valid UUID.
+- Second `repo validate`: `summary.errors: 0`, `summary.warnings: 0`.
+- Second `repo migrate-identity` call: `ok: false`, `diagnostics[0]` contains `"already"`.
+
 ---
 
 ## Coverage matrix
@@ -865,7 +927,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `protocol` (create/list/get/stages/find-by-target-type) | S13 |
 | `theme` | S8 |
 | `extension` | _gap — no scenario yet_ |
-| `migrate` | _gap — no scenario yet_ |
+| `repo migrate-identity` (graduate Tier-0 identity note to purpose record, #426) | S21 |
 | `tag` (definition) | _gap — being deprecated; see open issues_ |
 | `package` | CLI: covered implicitly by field/type creation in S2; WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330) |
 
