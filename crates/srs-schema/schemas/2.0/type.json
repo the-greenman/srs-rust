@@ -83,6 +83,11 @@
       "items": { "$ref": "#/$defs/FieldAssignmentOverride" },
       "description": "ext:type-inheritance — per-field overrides applied to inherited FieldAssignments."
     },
+    "identityFieldId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "RFC-020 — names one fieldId from this Type's effective field set (own fields plus, under ext:type-inheritance, inherited fields) as the record's identity/display field. MUST reference a fieldId present in the effective field set (Rule [N+33]). Under ext:type-inheritance, a Type that declares no identityFieldId of its own inherits the effective identityFieldId of its base Type, resolved transitively up the ancestor chain (Rule [N+34]) — this cascading inheritance is specific to identityFieldId and is not shared with fieldOrder, which is single-level only."
+    },
     "validationRules": {
       "type": "array",
       "items": { "$ref": "#/$defs/CrossFieldRule" },
