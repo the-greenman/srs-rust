@@ -961,7 +961,10 @@ mod tests {
             .expect("should find record");
         assert_eq!(summary.instance_id, *record_id);
         // No title/name/label fields → falls back to type_name
-        assert!(!summary.display_label.is_empty(), "display_label must be non-empty");
+        assert!(
+            !summary.display_label.is_empty(),
+            "display_label must be non-empty"
+        );
         assert_eq!(summary.record.instance_id, *record_id);
     }
 }
