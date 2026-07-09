@@ -594,16 +594,21 @@ pub fn validate_repository(
         }
     }
 
-    // --- RFC-006 vocabulary invariants V2, V5, V7, V9 ---
+    // --- RFC-006 vocabulary invariants V2, V5, V7, V9; RFC-020 Rule [N+33] ---
     // Use the package already loaded for tier-2 validation if available; otherwise try a fresh
-    // load so that vocabulary/lifecycle invariants fire even in note-only repositories.
+    // load so that these invariants fire even in note-only / type-only repositories. Rule
+    // [N+33] runs independent of whether any Tier-2 Record of the type exists — a pure
+    // Type-level invariant, matching Inv 43's shape above (not Inv 41's lazily record-triggered
+    // shape) — so it shares this same resolution branch rather than the narrower Inv-43 guard.
     if let Some(Some(ref pkg)) = package_for_tier2 {
         validate_vocabulary_invariants(pkg, &mut diagnostics);
+        validate_identity_field_invariants(pkg, &mut diagnostics);
     } else if package_for_tier2.is_none() {
         // Only fresh-load when no tier-2 records were processed (note-only repo).
         // When package_for_tier2 is Some(None), the load already failed; don't retry.
         if let Ok(pkg) = store.load_package() {
             validate_vocabulary_invariants(&pkg, &mut diagnostics);
+            validate_identity_field_invariants(&pkg, &mut diagnostics);
         }
     }
 
@@ -913,6 +918,58 @@ pub fn validate_repository(
             warnings,
         },
     })
+}
+
+/// RFC-020 Rule [N+33] — every Type's effective `identityFieldId` (own or inherited) must
+/// reference a `fieldId` present in that Type's effective field set. Accumulates diagnostics
+/// (does not fail fast): a resolution error on one Type (e.g. an unrelated inheritance cycle)
+/// is reported for that Type only and does not prevent other Types from being checked.
+fn validate_identity_field_invariants(
+    pkg: &crate::package::Package,
+    diagnostics: &mut Vec<ValidationDiagnostic>,
+) {
+    for rt in pkg.record_types() {
+        match pkg.effective_identity_field_id(rt) {
+            Ok(Some(field_id)) => match pkg.effective_fields(rt) {
+                Ok(fields) => {
+                    if !fields.iter().any(|fa| fa.field_id == field_id) {
+                        diagnostics.push(ValidationDiagnostic {
+                            severity: DiagnosticSeverity::Error,
+                            relative_path: "package/package.json".to_string(),
+                            schema_id: None,
+                            message: format!(
+                                "RFC-020 (Rule [N+33]): type '{}/{}@{}' identityFieldId '{}' is not in the effective field set",
+                                rt.namespace, rt.name, rt.version, field_id
+                            ),
+                        });
+                    }
+                }
+                Err(e) => {
+                    diagnostics.push(ValidationDiagnostic {
+                        severity: DiagnosticSeverity::Error,
+                        relative_path: "package/package.json".to_string(),
+                        schema_id: None,
+                        message: format!(
+                            "RFC-020 (Rule [N+33]): type '{}/{}@{}' effective field set could not be resolved to validate identityFieldId: {}",
+                            rt.namespace, rt.name, rt.version, e
+                        ),
+                    });
+                }
+            },
+            Ok(None) => {}
+            Err(e) => {
+                diagnostics.push(ValidationDiagnostic {
+                    severity: DiagnosticSeverity::Error,
+                    relative_path: "package/package.json".to_string(),
+                    schema_id: None,
+                    message: format!(
+                        "RFC-020 (Rule [N+33]): type '{}/{}@{}' identityFieldId could not be resolved: {}",
+                        rt.namespace, rt.name, rt.version, e
+                    ),
+                });
+            }
+        }
+    }
 }
 
 fn validate_vocabulary_invariants(
@@ -1369,6 +1426,25 @@ mod tests {
             obj["vocabularyRef"] = json!(vr);
         }
         obj
+    }
+
+    fn minimal_type_json_with_identity_field_id(type_id: &str, identity_field_id: &str) -> Value {
+        json!({
+            "id": type_id,
+            "namespace": "com.test",
+            "name": "test-type",
+            "version": 1,
+            "description": "Test type",
+            "fields": [
+                {
+                    "fieldId": "00000000-0000-4000-8000-0000000000f1",
+                    "order": 0,
+                    "required": true
+                }
+            ],
+            "identityFieldId": identity_field_id,
+            "createdAt": "2026-01-01T00:00:00Z"
+        })
     }
 
     fn minimal_type_json_with_lifecycle_ref(type_id: &str, lifecycle_ref: &str) -> Value {
@@ -1950,6 +2026,131 @@ mod tests {
             v8_ref_errors.is_empty(),
             "expected no V8 lifecycleRef errors for resolved lifecycleRef, got: {:?}",
             v8_ref_errors
+        );
+    }
+
+    // --- RFC-020 Rule [N+33]: identityFieldId effective-field-set validation ---
+
+    #[test]
+    fn identity_field_id_dangling_reference_produces_diagnostic() {
+        let temp = TempDir::new().unwrap();
+        let type_id = "00000000-0000-4000-8000-000000000040";
+        let dangling_field_id = "ffffffff-0000-4000-8000-000000000099";
+
+        setup_package_only_repo(
+            &temp,
+            &minimal_package_json_full(&[], &["types/test-type.json"], &[], &[]),
+        );
+        write_json(
+            temp.path(),
+            "package/types/test-type.json",
+            &minimal_type_json_with_identity_field_id(type_id, dangling_field_id),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let n33_error = report.diagnostics.iter().find(|d| {
+            d.severity == DiagnosticSeverity::Error
+                && d.message.contains("N+33")
+                && d.message.contains("identityFieldId")
+        });
+        assert!(
+            n33_error.is_some(),
+            "expected Rule [N+33] error for dangling identityFieldId, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn identity_field_id_valid_reference_no_diagnostic() {
+        let temp = TempDir::new().unwrap();
+        let type_id = "00000000-0000-4000-8000-000000000040";
+        let valid_field_id = "00000000-0000-4000-8000-0000000000f1";
+
+        setup_package_only_repo(
+            &temp,
+            &minimal_package_json_full(&[], &["types/test-type.json"], &[], &[]),
+        );
+        write_json(
+            temp.path(),
+            "package/types/test-type.json",
+            &minimal_type_json_with_identity_field_id(type_id, valid_field_id),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let n33_errors: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("N+33"))
+            .collect();
+        assert!(
+            n33_errors.is_empty(),
+            "expected no Rule [N+33] errors for a valid identityFieldId, got: {:?}",
+            n33_errors
+        );
+    }
+
+    #[test]
+    fn identity_field_id_resolution_error_on_one_type_does_not_block_others() {
+        let temp = TempDir::new().unwrap();
+        let cyclic_type_id = "00000000-0000-4000-8000-000000000041";
+        let other_type_id = "00000000-0000-4000-8000-000000000042";
+        let dangling_field_id = "ffffffff-0000-4000-8000-000000000099";
+
+        // A type that extends itself — effective_identity_field_id will hit
+        // TypeInheritanceCycle when resolving this type's ancestor chain.
+        let cyclic_type = json!({
+            "id": cyclic_type_id,
+            "namespace": "com.test",
+            "name": "cyclic-type",
+            "version": 1,
+            "description": "Self-extending type",
+            "fields": [],
+            "extendsTypeId": cyclic_type_id,
+            "extendsTypeVersion": 1,
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+
+        setup_package_only_repo(
+            &temp,
+            &minimal_package_json_full(
+                &[],
+                &["types/cyclic-type.json", "types/other-type.json"],
+                &[],
+                &[],
+            ),
+        );
+        write_json(temp.path(), "package/types/cyclic-type.json", &cyclic_type);
+        // The other, unrelated type has its own (independent) dangling identityFieldId. If the
+        // cyclic type's Err aborted the whole validation loop instead of being accumulated, this
+        // type's diagnostic would never be produced.
+        write_json(
+            temp.path(),
+            "package/types/other-type.json",
+            &minimal_type_json_with_identity_field_id(other_type_id, dangling_field_id),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+
+        let n33_errors: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("N+33"))
+            .collect();
+        assert!(
+            n33_errors.iter().any(|d| d.message.contains(cyclic_type_id)),
+            "expected a Rule [N+33] diagnostic reporting the cyclic type's resolution error, got: {:?}",
+            report.diagnostics
+        );
+        // The "other" type's diagnostic uses namespace/name@version, not the raw UUID, so check
+        // its distinguishing content (the dangling field id) instead of `other_type_id` directly.
+        assert!(
+            n33_errors.iter().any(|d| d.message.contains(dangling_field_id)
+                && d.message.contains("effective field set")),
+            "the cyclic type's error must not suppress diagnostics collection for the unrelated type; diagnostics: {:?}",
+            report.diagnostics
         );
     }
 
