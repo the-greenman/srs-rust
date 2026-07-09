@@ -1104,9 +1104,11 @@ mod tests {
             "test-field",
         ));
         let fields = list_fields(&store).unwrap();
-        assert_eq!(fields.len(), 1);
-        assert_eq!(fields[0].name, "test-field");
-        assert_eq!(fields[0].namespace, "com.test");
+        // Core fields are always present; assert our field is among them.
+        assert!(
+            fields.iter().any(|f| f.name == "test-field" && f.namespace == "com.test"),
+            "test-field must be in the list"
+        );
     }
 
     #[test]
@@ -1158,9 +1160,9 @@ mod tests {
             "test-type",
         ));
         let types = list_types(&store).unwrap();
-        assert_eq!(types.len(), 1);
-        assert_eq!(types[0].name, "test-type");
-        assert_eq!(types[0].field_count, 0);
+        // Core types are always present; assert our type is among them.
+        let found = types.iter().find(|t| t.name == "test-type").unwrap();
+        assert_eq!(found.field_count, 0);
     }
 
     #[test]

@@ -1,0 +1,75 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/package-bundle.json",
+  "schemaVersion": "2.0",
+  "packageId": "3a000001-0000-4000-a000-000000000001",
+  "packageName": "core",
+  "packageVersion": "1.0.0",
+  "publishedAt": "2026-07-08T00:00:00Z",
+  "publisher": "SemanticOps",
+  "description": "The core base package for the SRS specification. Provides com.semanticops.core/purpose — a Tier-2 type for repository identity, always available in every conforming SRS repository without a packageRef declaration (RFC-018).",
+  "mode": "bundled",
+  "fields": [
+    {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "id": "3b000001-0000-4000-a000-000000000001",
+      "namespace": "com.semanticops.core",
+      "name": "statement",
+      "version": 1,
+      "description": "The purpose or mission statement of this repository. Must be non-empty.",
+      "aiGuidance": {
+        "purpose": "Concisely state what this repository exists to do or achieve. This is the primary machine-readable identity text for the repository. Write one or two sentences in plain language; avoid jargon. The value must be non-empty."
+      },
+      "valueType": "text",
+      "editorHint": "textarea",
+      "createdAt": "2026-07-08T00:00:00Z"
+    },
+    {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "id": "3b000002-0000-4000-a000-000000000002",
+      "namespace": "com.semanticops.core",
+      "name": "title",
+      "version": 1,
+      "description": "Short human-readable label for the identity record. Optional. Distinct from the repository manifest title.",
+      "aiGuidance": {
+        "purpose": "An optional short label for the purpose record, for use in constrained UI contexts such as sidebars. Prefer the repository manifest title for primary display; use this only when the identity record itself needs a narrow-context label."
+      },
+      "valueType": "string",
+      "editorHint": "singleline",
+      "createdAt": "2026-07-08T00:00:00Z"
+    }
+  ],
+  "types": [
+    {
+      "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+      "id": "3c000001-0000-4000-a000-000000000001",
+      "namespace": "com.semanticops.core",
+      "name": "purpose",
+      "version": 1,
+      "description": "A Tier-2 typed record capturing the purpose or mission of a repository. Always available in every conforming SRS repository via the implicit core base package (RFC-018). identityInstanceId on the root container MUST reference a record of this type.",
+      "aiGuidance": {
+        "purpose": "Use to express what a repository exists to do or achieve. The statement field is the primary, required field. The title field is optional and intended for constrained UI contexts."
+      },
+      "fields": [
+        {
+          "fieldId": "3b000001-0000-4000-a000-000000000001",
+          "order": 0,
+          "required": true,
+          "displayLabel": "Statement"
+        },
+        {
+          "fieldId": "3b000002-0000-4000-a000-000000000002",
+          "order": 1,
+          "required": false,
+          "displayLabel": "Title"
+        }
+      ],
+      "createdAt": "2026-07-08T00:00:00Z"
+    }
+  ],
+  "views": [],
+  "documentViews": [],
+  "vocabularies": [],
+  "lifecycles": [],
+  "relationTypes": [],
+  "dependencyRefs": []
+}
