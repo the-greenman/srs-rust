@@ -470,6 +470,8 @@ struct TypeJson {
     #[serde(default)]
     field_assignment_overrides: Option<Vec<FieldAssignmentOverrideJson>>,
     #[serde(default)]
+    identity_field_id: Option<String>,
+    #[serde(default)]
     lifecycle: Option<TypeLifecycle>,
     #[serde(default)]
     lifecycle_ref: Option<String>,
@@ -670,6 +672,7 @@ fn load_package_from_dir(
             extends_type_version: tj.extends_type_version,
             field_order: tj.field_order,
             field_assignment_overrides,
+            identity_field_id: tj.identity_field_id,
             lifecycle: tj.lifecycle,
             lifecycle_ref: tj.lifecycle_ref,
             validation_rules: tj.validation_rules,

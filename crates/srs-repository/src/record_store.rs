@@ -610,12 +610,16 @@ pub fn list_record_summaries(
     filter: RecordListFilter,
 ) -> Result<Vec<RecordSummary>, RepositoryError> {
     let records = list_records_filtered(store, filter)?;
-    let field_name_index = record_label::build_field_name_index(store)?;
+    let (field_name_index, identity_field_index) = record_label::build_label_indexes(store)?;
     Ok(records
         .into_iter()
         .map(|record| {
             let instance_id = record.instance_id.clone();
-            let display_label = record_label::record_display_label(&record, &field_name_index);
+            let display_label = record_label::record_display_label(
+                &record,
+                &identity_field_index,
+                &field_name_index,
+            );
             RecordSummary {
                 instance_id,
                 display_label,
@@ -1510,6 +1514,8 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+
+            identity_field_id: None,
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
@@ -1594,6 +1600,8 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+
+            identity_field_id: None,
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
@@ -2414,6 +2422,8 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+
+            identity_field_id: None,
             lifecycle: Some(TypeLifecycle {
                 states: vec![
                     LifecycleState {
@@ -3399,6 +3409,8 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+
+            identity_field_id: None,
             lifecycle: None,
             lifecycle_ref: Some("lc-ref-standalone-001".to_string()),
             validation_rules: None,
@@ -3546,6 +3558,8 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+
+            identity_field_id: None,
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
@@ -3564,6 +3578,8 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+
+            identity_field_id: None,
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,

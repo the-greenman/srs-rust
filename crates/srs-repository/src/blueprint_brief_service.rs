@@ -534,6 +534,8 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+
+            identity_field_id: None,
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
@@ -847,6 +849,8 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+
+            identity_field_id: None,
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
