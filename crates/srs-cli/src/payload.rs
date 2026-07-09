@@ -1467,8 +1467,10 @@ pub struct RepoUpgradePayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoMigrateIdentityPayload {
-    pub old_identity_id: String,
-    pub old_identity_tier: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_identity_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_identity_tier: Option<u8>,
     pub new_identity_id: String,
     pub statement: String,
     #[serde(skip_serializing_if = "Option::is_none")]
