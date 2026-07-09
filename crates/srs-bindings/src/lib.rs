@@ -522,6 +522,18 @@ impl SrsRepository {
         to_js(&types)
     }
 
+    /// List relation type definitions from the compiled package.
+    /// `filter_json` is `{}` or `{"status": "active"}` to filter by status.
+    /// Returns a JS array of `RelationTypeDefinition` objects.
+    pub fn list_relation_types(&self, filter_json: &str) -> Result<JsValue, JsValue> {
+        let filter: RelationTypeListBindingFilter = serde_json::from_str(filter_json)
+            .map_err(|e| js_err(format!("invalid filter: {e}")))?;
+        let relation_types =
+            package_service::list_relation_types_filtered(&self.store, filter.status)
+                .map_err(js_err)?;
+        to_js(&relation_types)
+    }
+
     /// Get a type definition by its id (latest version). Returns the full `RecordType` object,
     /// or `null` if not found.
     pub fn get_type(&self, id: &str) -> Result<JsValue, JsValue> {
@@ -699,6 +711,16 @@ struct TypeListBindingFilter {
     namespace: Option<String>,
     #[serde(default)]
     package: Option<String>,
+}
+
+/// Input shape for `list_relation_types` — parsed from caller-supplied JSON.
+/// `status`: `None` returns all relation type definitions; `Some(s)` returns only those
+/// whose serialized status string equals `s` (e.g. `"active"`).
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct RelationTypeListBindingFilter {
+    #[serde(default)]
+    status: Option<String>,
 }
 
 /// Input shape for `create_record` — parsed from caller-supplied JSON.
