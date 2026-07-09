@@ -321,7 +321,9 @@ impl SrsRepository {
     }
 
     /// Render a document view. `view_id` is the view's UUID; `format` is `"json"` or `"markdown"`;
-    /// `container_id` optionally scopes TypeQuery sections to a container's membership.
+    /// `container_id` optionally scopes TypeQuery sections to a container's membership;
+    /// `instance_id_filter` optionally scopes ContainerSubset sections to a single record,
+    /// producing a per-record export document.
     /// Returns `{ "rendered": <string>, "diagnostics": [...], "projection": <json|null> }`.
     /// When `format == "json"`, `projection` is a `DocumentViewProjection` object; otherwise `null`.
     pub fn render_document_view(
@@ -329,6 +331,7 @@ impl SrsRepository {
         view_id: &str,
         format: &str,
         container_id: Option<String>,
+        instance_id_filter: Option<String>,
     ) -> Result<JsValue, JsValue> {
         let result = render_service::render_document_view(RenderDocumentViewOptions {
             store: &self.store,
@@ -336,6 +339,7 @@ impl SrsRepository {
             format: Some(format),
             theme_variant: None,
             container_id: container_id.as_deref(),
+            instance_id_filter: instance_id_filter.as_deref(),
         })
         .map_err(js_err)?;
         to_js(&result)
@@ -522,6 +526,18 @@ impl SrsRepository {
         to_js(&types)
     }
 
+    /// List relation type definitions from the compiled package.
+    /// `filter_json` is `{}` or `{"status":"active"}` to filter by status.
+    /// Returns a JS array of `RelationTypeDefinition` objects.
+    pub fn list_relation_types(&self, filter_json: &str) -> Result<JsValue, JsValue> {
+        let filter: RelationTypeListBindingFilter = serde_json::from_str(filter_json)
+            .map_err(|e| js_err(format!("invalid filter: {e}")))?;
+        let relation_types =
+            package_service::list_relation_types_filtered(&self.store, filter.status)
+                .map_err(js_err)?;
+        to_js(&relation_types)
+    }
+
     /// Get a type definition by its id (latest version). Returns the full `RecordType` object,
     /// or `null` if not found.
     pub fn get_type(&self, id: &str) -> Result<JsValue, JsValue> {
@@ -699,6 +715,16 @@ struct TypeListBindingFilter {
     namespace: Option<String>,
     #[serde(default)]
     package: Option<String>,
+}
+
+/// Input shape for `list_relation_types` — parsed from caller-supplied JSON.
+/// `status`: None returns all relation type definitions; Some(s) returns only those
+/// whose serialized status string equals s (e.g. "active").
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct RelationTypeListBindingFilter {
+    #[serde(default)]
+    status: Option<String>,
 }
 
 /// Input shape for `create_record` — parsed from caller-supplied JSON.
