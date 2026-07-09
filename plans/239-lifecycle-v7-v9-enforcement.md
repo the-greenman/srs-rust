@@ -43,7 +43,7 @@ Verification: `cargo test --test payload_contracts` must pass.
 
 - Add V7 mutual-exclusion check in `validate_vocabulary_invariants` (`validation.rs`): if a `RecordType` has both `lifecycle` and `lifecycle_ref` set, emit a `DiagnosticSeverity::Error`.
 - Rename existing lifecycle-ref-resolution diagnostic label from "V7" to "V8" to match spec numbering (update code + test assertions — no test logic changes, only the string we assert against).
-- Add V9 inline-lifecycle validation in `validate_vocabulary_invariants`: for each `RecordType` whose `lifecycle` is `Some(TypeLifecycle{…})`, call `validate_type_lifecycle_v9` and also check that `TypeLifecycle.initial_state` matches the `isInitial` state key.
+- Add V9 inline-lifecycle validation in `validate_vocabulary_invariants`: for each `RecordType` whose `lifecycle` is `Some(TypeLifecycle{…})`, call `validate_type_lifecycle_v9` and also check that `TypeLifecycle.initial_state` matches the `isInitial` state key. The V7 and V9 inline checks are implemented in a **single loop** over `pkg.record_types`.
 - Add targeted unit tests (in `validation.rs` `#[cfg(test)]` module) for all three new / fixed paths.
 
 **Out of scope:**
@@ -54,26 +54,37 @@ Verification: `cargo test --test payload_contracts` must pass.
 
 ---
 
+## Notes on label numbering
+
+The existing codebase uses "V8" for two distinct check categories:
+- **Record-level** (`validation.rs:502`): `"V8: record '{}' lifecycleState '{}' is not a valid state key..."` — guards a record's `lifecycleState` field against its type's lifecycle states.
+- **Package-level** (added in Phase 1): `"V8: type '{}' lifecycleRef '{}' does not resolve..."` — guards a RecordType's `lifecycleRef` UUID against installed lifecycles.
+
+Both are legitimately "V8" per the spec invariant numbering (different check categories, different subjects). Test assertions must include a specific substring (`"lifecycleRef"` or `"lifecycleState"`) to be unambiguous.
+
+---
+
 ## Phases
 
 ### Phase 1: Rename "V7" → "V8" for the lifecycleRef-resolution check
 
-**Goal:** The existing lifecycleRef-resolution diagnostic message says "V7" but the spec numbers it V8; after this phase, it says "V8", and all test assertions match.
+**Goal:** The existing lifecycleRef-resolution diagnostic message says "V7" but the spec numbers it V8; after this phase, it says "V8", and all test assertions match. The cross-reference comment at `validation.rs:483` is also updated.
 
 **Agent:** Repository Service Worker
 
 #### Tasks
 
-- [ ] In `validation.rs` `validate_vocabulary_invariants`, change the message string in the `lifecycleRef` resolution check from `"V7: type '{}' lifecycleRef '{}' does not resolve..."` to `"V8: type '{}' lifecycleRef '{}' does not resolve..."`.
-- [ ] Update test `vocabulary_v7_missing_lifecycle_ref_produces_error` → rename test body's assertion to check `"V8"` instead of `"V7"`, and rename the test function to `lifecycle_v8_dangling_lifecycle_ref_produces_error`.
-- [ ] Update test `vocabulary_v7_resolved_lifecycle_ref_no_error` → rename to `lifecycle_v8_resolved_lifecycle_ref_no_error`; change assertion to filter on `"V8"`.
-- [ ] Update test `dangling_lifecycle_ref_produces_clear_v7_diagnostic` → rename to `dangling_lifecycle_ref_produces_clear_v8_diagnostic`; change assertion `d.message.contains("V7")` to `d.message.contains("V8")`.
+- [x] In `validation.rs` `validate_vocabulary_invariants` (~line 948), change `"V7: type '{}' lifecycleRef '{}' does not resolve..."` to `"V8: type '{}' lifecycleRef '{}' does not resolve..."`.
+- [x] Update `validation.rs:483` comment from `// V7 will report it` to `// V8 will report it`.
+- [x] Rename test `vocabulary_v7_missing_lifecycle_ref_produces_error` → `vocabulary_v8_missing_lifecycle_ref_produces_error`; update assertion to `d.message.contains("V8") && d.message.contains("lifecycleRef")`.
+- [x] Rename test `vocabulary_v7_resolved_lifecycle_ref_no_error` → `vocabulary_v8_resolved_lifecycle_ref_no_error`; update filter to `d.message.contains("V8") && d.message.contains("lifecycleRef")`.
+- [x] Rename test `dangling_lifecycle_ref_produces_clear_v7_diagnostic` → `dangling_lifecycle_ref_produces_clear_v8_diagnostic`; update assertion from `d.message.contains("V7")` to `d.message.contains("V8") && d.message.contains("lifecycleRef")`.
 
 #### Acceptance Criteria
 
-- [ ] `cargo test -p srs-repository 2>&1 | grep -E "FAILED|error"` — zero failures.
-- [ ] `grep -n '"V7.*lifecycleRef\|V7.*does not resolve' crates/srs-repository/src/validation.rs` — zero hits (old label gone).
-- [ ] `grep -n '"V8.*lifecycleRef\|V8.*does not resolve' crates/srs-repository/src/validation.rs` — one hit (new label present).
+- [x] `cargo test -p srs-repository 2>&1 | grep -E "FAILED|error"` — zero failures.
+- [x] `grep -n '"V7.*lifecycleRef\|V7.*does not resolve' crates/srs-repository/src/validation.rs` — zero hits (old label gone).
+- [x] `grep -n '"V8.*lifecycleRef\|V8.*does not resolve' crates/srs-repository/src/validation.rs` — one hit (new label present).
 
 #### Testing
 
@@ -83,9 +94,9 @@ cargo clippy -p srs-repository -- -D warnings
 ```
 
 Specific tests to verify:
-- `lifecycle_v8_dangling_lifecycle_ref_produces_error` — V8 error emitted for dangling lifecycleRef
-- `lifecycle_v8_resolved_lifecycle_ref_no_error` — no V8 error when ref resolves
-- `dangling_lifecycle_ref_produces_clear_v8_diagnostic` — error message contains "V8" and the dangling UUID
+- `vocabulary_v8_missing_lifecycle_ref_produces_error` — V8 error emitted for dangling lifecycleRef
+- `vocabulary_v8_resolved_lifecycle_ref_no_error` — no V8/lifecycleRef error when ref resolves
+- `dangling_lifecycle_ref_produces_clear_v8_diagnostic` — error message contains "V8" and "lifecycleRef" and the dangling UUID
 
 #### Milestone gate
 
@@ -102,79 +113,66 @@ cargo clippy -p srs-repository -- -D warnings
 
 ---
 
-### Phase 2: Add V7 mutual-exclusion check
+### Phase 2 & 3: Add V7 mutual-exclusion + V9 inline TypeLifecycle (single loop)
 
-**Goal:** `validate_repository` emits a `DiagnosticSeverity::Error` when a `RecordType` declares both `lifecycle` and `lifecycle_ref`.
-
-**Agent:** Repository Service Worker
-
-#### Tasks
-
-- [ ] In `validation.rs` `validate_vocabulary_invariants`, add a loop over `pkg.record_types()` after the existing `lifecycleRef` resolution check.
-- [ ] Inside that loop, for each `rt` where `rt.lifecycle.is_some() && rt.lifecycle_ref.is_some()`, push a `ValidationDiagnostic { severity: Error, relative_path: "package/package.json", message: format!("V7: type '{}' declares both 'lifecycle' and 'lifecycleRef'; exactly one is allowed", rt.name) }`.
-- [ ] Add test `lifecycle_v7_both_lifecycle_and_ref_produces_error` in `#[cfg(test)]` in `validation.rs`:
-  - Build a package-only repo with one type that has both an inline lifecycle AND a lifecycleRef set.
-  - Call `validate_repository` and assert a `DiagnosticSeverity::Error` with "V7" in the message is present.
-- [ ] Add test `lifecycle_v7_only_lifecycle_ref_no_v7_error` — type with only `lifecycleRef` set → no V7 error.
-- [ ] Add test `lifecycle_v7_only_inline_lifecycle_no_v7_error` — type with only inline `lifecycle` set → no V7 error.
-
-#### Acceptance Criteria
-
-- [ ] Test `lifecycle_v7_both_lifecycle_and_ref_produces_error` passes.
-- [ ] Tests `lifecycle_v7_only_lifecycle_ref_no_v7_error` and `lifecycle_v7_only_inline_lifecycle_no_v7_error` pass (no false positives).
-- [ ] `cargo test -p srs-repository` — zero failures.
-
-#### Testing
-
-```bash
-cargo test -p srs-repository lifecycle_v7
-cargo clippy -p srs-repository -- -D warnings
-```
-
-Specific tests:
-- `lifecycle_v7_both_lifecycle_and_ref_produces_error` — mutual-exclusion error fires
-- `lifecycle_v7_only_lifecycle_ref_no_v7_error` — no false positive when only ref set
-- `lifecycle_v7_only_inline_lifecycle_no_v7_error` — no false positive when only inline set
-
-#### Milestone gate
-
-1. All acceptance criteria checked.
-2. Run:
-
-```bash
-cargo test -p srs-repository
-cargo clippy -p srs-repository -- -D warnings
-```
-
-3. Update plan checkboxes `[x]`.
-4. Commit: `git commit -m "feat(validation): add V7 mutual-exclusion check for lifecycle/lifecycleRef (#239)"`
-
----
-
-### Phase 3: Add V9 for inline TypeLifecycle at validation time
-
-**Goal:** `validate_repository` runs full V9 structural integrity and `initialState`/`isInitial` key-match checks on every inline `TypeLifecycle` block, the same checks already applied to standalone `Lifecycle` definitions.
+**Goal:** `validate_repository` emits (a) a `DiagnosticSeverity::Error` when a `RecordType` declares both `lifecycle` and `lifecycle_ref` (V7), and (b) V9 structural + `initialState`/`isInitial` key-match errors for inline `TypeLifecycle` blocks. Both checks are implemented in a single loop over `pkg.record_types`.
 
 **Agent:** Repository Service Worker
 
 #### Tasks
 
-- [ ] In `validation.rs`, add `use srs_core::validation::lifecycle::validate_type_lifecycle_v9;` to imports (check if already imported; add only if missing).
-- [ ] In `validate_vocabulary_invariants`, after the existing standalone-lifecycle V9 loop, add a new loop over `pkg.record_types()`:
+- [x] In `validation.rs`, confirm `validate_type_lifecycle_v9` is already in scope via the existing `use srs_core::validation::lifecycle::{validate_lifecycle, LifecycleDiagnosticSeverity};` import. Add `validate_type_lifecycle_v9` to that import if not already present.
+- [x] In `validate_vocabulary_invariants`, replace the existing `// V7: every type.lifecycleRef` loop (lines 939–954) with a single expanded loop:
+
   ```rust
-  for rt in pkg.record_types() {
-      // Skip if lifecycle is None or if V7 already fired (both set)
-      if rt.lifecycle_ref.is_some() { continue; }
-      if let Some(inline_lc) = &rt.lifecycle {
-          // V9 structural checks (initial count, active initial, final states, transitions, duplicate IDs)
-          for diag in validate_type_lifecycle_v9(&inline_lc.states, &inline_lc.transitions, &rt.name) {
+  // V7: mutual exclusion (lifecycle and lifecycleRef both set)
+  // V8: every type.lifecycleRef must resolve to an installed Lifecycle UUID
+  // V9: structural integrity for inline TypeLifecycle
+  for rt in &pkg.record_types {
+      // V7: mutual exclusion
+      if rt.lifecycle.is_some() && rt.lifecycle_ref.is_some() {
+          diagnostics.push(ValidationDiagnostic {
+              severity: DiagnosticSeverity::Error,
+              relative_path: "package/package.json".to_string(),
+              schema_id: None,
+              message: format!(
+                  "V7: type '{}' declares both 'lifecycle' and 'lifecycleRef'; exactly one is allowed",
+                  rt.name
+              ),
+          });
+          // Skip V8 and V9 for this type — V7 already fired
+          continue;
+      }
+
+      // V8: lifecycleRef must resolve
+      if let Some(ref_id) = &rt.lifecycle_ref {
+          if !pkg.lifecycles.iter().any(|lc| &lc.id == ref_id) {
               diagnostics.push(ValidationDiagnostic {
                   severity: DiagnosticSeverity::Error,
+                  relative_path: "package/package.json".to_string(),
+                  schema_id: None,
+                  message: format!(
+                      "V8: type '{}' lifecycleRef '{}' does not resolve to an installed Lifecycle",
+                      rt.name, ref_id
+                  ),
+              });
+          }
+      }
+
+      // V9: structural checks on inline TypeLifecycle
+      if let Some(inline_lc) = &rt.lifecycle {
+          for diag in validate_type_lifecycle_v9(&inline_lc.states, &inline_lc.transitions, &rt.name) {
+              let severity = match diag.severity {
+                  LifecycleDiagnosticSeverity::Error => DiagnosticSeverity::Error,
+              };
+              diagnostics.push(ValidationDiagnostic {
+                  severity,
                   relative_path: "package/package.json".to_string(),
                   schema_id: None,
                   message: diag.message,
               });
           }
+
           // V9: initialState field must match the isInitial state's key
           let initial_states: Vec<_> = inline_lc.states.iter()
               .filter(|s| s.is_initial == Some(true))
@@ -195,46 +193,59 @@ cargo clippy -p srs-repository -- -D warnings
       }
   }
   ```
-  > Note: skip types where `lifecycle_ref.is_some()` to avoid double-reporting when both are set (V7 already fires in that case). The `pkg.record_types()` accessor is `&self.record_types` returning `&[RecordType]`.
 
-- [ ] Add test `lifecycle_v9_inline_no_initial_state_produces_error`:
+- [x] Add test `vocabulary_v7_both_lifecycle_and_ref_produces_error`:
+  - Package-only repo; type with both inline lifecycle AND lifecycleRef set.
+  - Assert `DiagnosticSeverity::Error` with `d.message.contains("V7")` and `d.message.contains("both")`.
+- [x] Add test `vocabulary_v7_only_lifecycle_ref_no_v7_error` — type with only `lifecycleRef` → no V7 error.
+- [x] Add test `vocabulary_v7_only_inline_lifecycle_no_v7_error` — type with only inline `lifecycle` → no V7 error.
+- [x] Add test `vocabulary_v7_both_set_no_v9_error` — type with both set produces V7 but NOT V9 error (skip guard works).
+- [x] Add test `vocabulary_v9_inline_no_initial_state_produces_error`:
   - Package-only repo; type with `lifecycle` inline that has no `isInitial: true` state.
   - Assert `DiagnosticSeverity::Error` with "no initial state" in message.
-- [ ] Add test `lifecycle_v9_inline_multiple_initial_states_produces_error`:
+- [x] Add test `vocabulary_v9_inline_multiple_initial_states_produces_error`:
   - Inline lifecycle with two `isInitial: true` states.
   - Assert error with "initial states" in message.
-- [ ] Add test `lifecycle_v9_inline_unknown_transition_state_produces_error`:
+- [x] Add test `vocabulary_v9_inline_unknown_transition_state_produces_error`:
   - Inline lifecycle where a transition references a state key not in `states[]`.
   - Assert error.
-- [ ] Add test `lifecycle_v9_inline_initial_state_mismatch_produces_error`:
+- [x] Add test `vocabulary_v9_inline_initial_state_mismatch_produces_error`:
   - Inline lifecycle where `initialState` field differs from the `isInitial` state's `key`.
   - Assert V9 error with "initialState" and "isInitial" in message.
-- [ ] Add test `lifecycle_v9_inline_valid_no_error`:
+- [x] Add test `vocabulary_v9_inline_valid_no_error`:
   - Valid inline lifecycle (one `isInitial`, `initialState` matches, valid transitions).
-  - Assert no lifecycle diagnostics.
+  - Assert no V7 or V9 lifecycle diagnostics.
 
 #### Acceptance Criteria
 
-- [ ] All five new inline-lifecycle tests pass.
-- [ ] Existing `record_v8_*` tests still pass (V8 record-level check unaffected).
-- [ ] Existing standalone-lifecycle V9 tests still pass.
-- [ ] `cargo test -p srs-repository` — zero failures.
-- [ ] `cargo test -p srs-core` — zero failures (no core changes expected).
+- [x] Test `vocabulary_v7_both_lifecycle_and_ref_produces_error` passes.
+- [x] Tests `vocabulary_v7_only_lifecycle_ref_no_v7_error` and `vocabulary_v7_only_inline_lifecycle_no_v7_error` pass (no false positives).
+- [x] Test `vocabulary_v7_both_set_no_v9_error` passes (V7 fires, V9 skipped).
+- [x] All five inline-lifecycle V9 tests pass.
+- [x] Existing `record_v8_*` tests still pass (V8 record-level check unaffected).
+- [x] Existing standalone-lifecycle V9 tests still pass.
+- [x] `cargo test -p srs-repository` — zero failures.
+- [x] `cargo test -p srs-core` — zero failures (no core changes expected).
 
 #### Testing
 
 ```bash
-cargo test -p srs-repository lifecycle_v9_inline
+cargo test -p srs-repository vocabulary_v7
+cargo test -p srs-repository vocabulary_v9
 cargo test -p srs-repository
 cargo clippy -p srs-repository -- -D warnings
 ```
 
 Specific tests:
-- `lifecycle_v9_inline_no_initial_state_produces_error`
-- `lifecycle_v9_inline_multiple_initial_states_produces_error`
-- `lifecycle_v9_inline_unknown_transition_state_produces_error`
-- `lifecycle_v9_inline_initial_state_mismatch_produces_error`
-- `lifecycle_v9_inline_valid_no_error`
+- `vocabulary_v7_both_lifecycle_and_ref_produces_error` — mutual-exclusion error fires
+- `vocabulary_v7_only_lifecycle_ref_no_v7_error` — no false positive when only ref set
+- `vocabulary_v7_only_inline_lifecycle_no_v7_error` — no false positive when only inline set
+- `vocabulary_v7_both_set_no_v9_error` — V7 fires but V9 is suppressed
+- `vocabulary_v9_inline_no_initial_state_produces_error`
+- `vocabulary_v9_inline_multiple_initial_states_produces_error`
+- `vocabulary_v9_inline_unknown_transition_state_produces_error`
+- `vocabulary_v9_inline_initial_state_mismatch_produces_error`
+- `vocabulary_v9_inline_valid_no_error`
 
 #### Milestone gate
 
@@ -248,7 +259,7 @@ cargo clippy -p srs-repository -- -D warnings
 ```
 
 3. Update plan checkboxes `[x]`.
-4. Commit: `git commit -m "feat(validation): add V9 structural enforcement for inline TypeLifecycle (#239)"`
+4. Commit: `git commit -m "feat(validation): add V7 mutual-exclusion and V9 inline TypeLifecycle checks (#239)"`
 
 ---
 
@@ -272,7 +283,7 @@ cargo clippy -p srs-repository -- -D warnings
 
 ## Assumptions
 
-- `pkg.record_types()` returns `&[RecordType]` — confirmed from `package.rs:171`.
-- `validate_type_lifecycle_v9` is already imported and available in `srs-core`; adding the use in `validation.rs` is sufficient.
+- `pkg.record_types()` returns `&[RecordType]` — confirmed from `package.rs:171`. The existing loop at `validation.rs:940` uses `&pkg.record_types` (direct field access) — match this style.
+- `validate_type_lifecycle_v9(states, transitions, lifecycle_name)` is available in `srs-core::validation::lifecycle` (used in `record_store.rs`). It creates a temporary `Lifecycle` with `initial_state: String::new()` and calls `validate_lifecycle`. It does NOT check the `initial_state` field against the `isInitial` state's key — that key-match check must be added explicitly in Phase 2/3 inline in `validate_vocabulary_invariants`.
 - `TypeLifecycle.initial_state` is the `initialState` field (confirmed from `record_type.rs:53`).
 - Inline lifecycle V9 is already enforced at **write time** in `record_store.rs`; this plan closes the **read/validate** path gap.
