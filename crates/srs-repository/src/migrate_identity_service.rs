@@ -9,9 +9,10 @@ use serde::Serialize;
 use srs_core::types::record::{FieldValue, Record};
 use std::collections::HashMap;
 
-// Hardcoded pending core-type registry (#423) and canonical spec authoring (#135).
-// These values must match what #423 registers. Once that issue lands, replace with
-// a registry lookup: core_package::resolve_type("com.semanticops.core", "purpose").
+// ADR-002 deviation: hardcoded type/field UUIDs pending core-type registry (#423).
+// com.semanticops.core/purpose is not yet registered in the package, so create_record()
+// would fail with TypeNotFound. These constants must match what #423 registers. Once
+// that issue lands, replace with: core_package::resolve_type("com.semanticops.core", "purpose").
 const CORE_PURPOSE_TYPE_ID: &str = "3c000001-0000-4000-a000-000000000001";
 const CORE_PURPOSE_TYPE_VERSION: u32 = 1;
 const CORE_PURPOSE_TYPE_NAMESPACE: &str = "com.semanticops.core";
@@ -57,23 +58,14 @@ fn extract_identity_text(
             }
             Ok((statement, title))
         }
-        2 => {
-            let raw = store.load_instance_json(entry.path())?;
-            let statement = ["body", "title", "name", "statement"]
-                .iter()
-                .find_map(|&key| {
-                    raw.get(key)
-                        .and_then(|v| v.as_str())
-                        .filter(|s| !s.is_empty())
-                        .map(|s| s.to_string())
-                })
-                .unwrap_or_else(|| entry.instance_id().to_string());
-            let title = raw
-                .get("title")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
-            Ok((statement, title))
-        }
+        2 => Err(RepositoryError::InvalidInput {
+            message: format!(
+                "identity instance '{}' is a Tier-2 record that is not a \
+                 com.semanticops.core/purpose record; manual migration is required \
+                 or the identity must first be changed to a Tier-0 note",
+                entry.instance_id()
+            ),
+        }),
         t => Err(RepositoryError::InvalidInput {
             message: format!(
                 "unsupported identity tier {t}: only Tier-0 and Tier-2 identities can be migrated"
@@ -153,6 +145,21 @@ pub fn migrate_identity(
         });
     }
 
+    // Inline validation: validate_record() cannot be called because the purpose type is not
+    // yet in the package registry (ADR-002 deviation, blocked on #423). Validate what we can.
+    for fv in &field_values {
+        if !fv.value.is_string() {
+            return Err(RepositoryError::InvalidInput {
+                message: format!("field '{}' value must be a non-null string", fv.field_id),
+            });
+        }
+        if fv.value.as_str().is_none_or(|s| s.is_empty()) {
+            return Err(RepositoryError::InvalidInput {
+                message: format!("field '{}' value must not be empty", fv.field_id),
+            });
+        }
+    }
+
     let record = Record {
         instance_id: new_id.clone(),
         type_id: CORE_PURPOSE_TYPE_ID.to_string(),
@@ -206,7 +213,12 @@ pub fn migrate_identity(
         Ok(())
     })();
     match batch_result {
-        Ok(()) => store.commit_batch()?,
+        Ok(()) => {
+            if let Err(e) = store.commit_batch() {
+                store.abort_batch();
+                return Err(e);
+            }
+        }
         Err(e) => {
             store.abort_batch();
             return Err(e);
@@ -309,7 +321,7 @@ mod tests {
             one_section("I build SRS."),
         );
         let result = migrate_identity(&store).unwrap();
-        let expected_path = format!("records/tier-2/purpose-{}.json", &result.new_identity_id[..8]);
+        let expected_path = format!("{}/purpose-{}.json", paths::DEFAULT_RECORD_DIR, &result.new_identity_id[..8]);
         let raw = store.load_instance_json(&expected_path).unwrap();
         assert_eq!(
             raw["typeNamespace"].as_str(),
@@ -420,6 +432,46 @@ mod tests {
         assert!(
             matches!(&err, RepositoryError::InvalidInput { message } if message.contains("already")),
             "expected already-migrated error, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn migrate_errors_if_tier2_non_purpose() {
+        // Set up a Tier-2 record that is NOT a purpose record as the identity.
+        let store = MemoryStore::default();
+        let container_id = "550e8400-e29b-41d4-a716-446655440000";
+        create_container(&store, bare_container(container_id)).unwrap();
+
+        let instance_id = "22222222-2222-4222-8222-222222222222";
+        let record_json = serde_json::json!({
+            "instanceId": instance_id,
+            "typeNamespace": "com.example",
+            "typeName": "some-other-type",
+            "typeId": "99999999-9999-4999-a999-999999999999",
+            "typeVersion": 1,
+            "fieldValues": []
+        });
+        store
+            .save_instance_json(&format!("records/tier-2/{instance_id}.json"), &record_json)
+            .unwrap();
+
+        let mut manifest = store.load_manifest().unwrap();
+        let mut root = bare_container(container_id);
+        root.identity_instance_id = Some(instance_id.to_string());
+        manifest.container = Some(root);
+        manifest.instance_index.push(InstanceIndexEntry {
+            instance_id: instance_id.to_string(),
+            tier: 2,
+            path: format!("records/tier-2/{instance_id}.json"),
+            title: None,
+            tags: None,
+        });
+        write_manifest(&store, &manifest).unwrap();
+
+        let err = migrate_identity(&store).unwrap_err();
+        assert!(
+            matches!(&err, RepositoryError::InvalidInput { message } if message.contains("manual migration")),
+            "expected non-purpose tier-2 error, got: {err:?}"
         );
     }
 

@@ -228,7 +228,10 @@ pub fn update_container(
                 store.abort_batch();
                 return Err(e);
             }
-            store.commit_batch()?;
+            if let Err(e) = store.commit_batch() {
+                store.abort_batch();
+                return Err(e);
+            }
             return Ok(container);
         }
     }
