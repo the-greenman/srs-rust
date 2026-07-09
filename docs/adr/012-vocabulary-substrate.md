@@ -36,7 +36,7 @@ RFC-006 unifies all four as specializations of the **vocabulary-entry substrate*
 - Tags (Terms) no longer pollute the instance index; the manifest is cleaner.
 - Lifecycles are shareable across Types — one definition, many references.
 - `srs tag list` now returns `terms` with a `key` field; `srs vocabulary list`, `srs lifecycle list` are new commands.
-- V3, V5, V7, V9 validation invariants are enforced.
+- V3, V5, V7 (mutual-exclusion of lifecycle/lifecycleRef), V8 (lifecycleRef UUID resolution), V9 validation invariants are enforced.
 
 **Negative / trade-offs:**
 - `tag create/update/delete` CLI subcommands are removed (issue #75). Existing workflows that created TagDefinitions via the CLI must switch to editing package vocabulary files directly.
