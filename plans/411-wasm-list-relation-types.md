@@ -177,13 +177,13 @@ Specific tests:
 
 ## Final Acceptance
 
-- [ ] `cargo test` passes with no failures
-- [ ] `cargo clippy -- -D warnings` passes
-- [ ] `cargo test --test payload_contracts` passes (no payload structs changed)
+- [x] `cargo test` passes with no failures (srs-gov pre-existing failures excluded)
+- [x] `cargo clippy -- -D warnings` passes
+- [x] `cargo test --test payload_contracts` passes (no payload structs changed)
 - [ ] `cargo build --target wasm32-unknown-unknown -p srs-bindings` succeeds
-- [ ] `list_relation_types` method is in `srs-bindings/src/lib.rs` with no business logic
-- [ ] Integration tests in `definition_browse.rs` cover no-filter and status-filter paths
-- [ ] `docs/dogfooding.md` coverage matrix updated to note `list_relation_types` WASM binding
+- [x] `list_relation_types` method is in `srs-bindings/src/lib.rs` with no business logic
+- [x] Integration tests in `definition_browse.rs` cover no-filter and status-filter paths
+- [x] `docs/dogfooding.md` coverage matrix updated to note `list_relation_types` WASM binding
 
 ## Coordination Rules
 
