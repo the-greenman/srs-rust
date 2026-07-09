@@ -2,6 +2,43 @@ pub use crate::types::lifecycle::{LifecycleState, LifecycleTransition};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// ext:cross-field-validation — rule kinds for CrossFieldRule.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CrossFieldRuleKind {
+    ConditionalRequired,
+    FieldOrdering,
+    MutualExclusion,
+}
+
+/// ext:cross-field-validation — ordering direction for field-ordering rules.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CrossFieldRuleEffect {
+    MustPrecede,
+    MustFollow,
+}
+
+/// ext:cross-field-validation — a single cross-field constraint on a Type.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CrossFieldRule {
+    #[serde(rename = "type")]
+    pub rule_type: CrossFieldRuleKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub predicate_field_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub predicate_value: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_field_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effect: Option<CrossFieldRuleEffect>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field_ids: Option<Vec<String>>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordType {
@@ -26,6 +63,9 @@ pub struct RecordType {
     pub lifecycle: Option<TypeLifecycle>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lifecycle_ref: Option<String>,
+    /// ext:cross-field-validation — cross-field constraints declared on this type.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validation_rules: Option<Vec<CrossFieldRule>>,
     pub created_at: String,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
@@ -155,6 +195,7 @@ mod tests {
             field_assignment_overrides: None,
             lifecycle: None,
             lifecycle_ref: None,
+            validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -220,6 +261,7 @@ mod tests {
             field_assignment_overrides: None,
             lifecycle: None,
             lifecycle_ref: None,
+            validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -228,6 +270,137 @@ mod tests {
             .find_field_assignment("00000000-0000-4000-8000-000000000010")
             .is_some());
         assert!(rt.find_field_assignment("unknown").is_none());
+    }
+
+    #[test]
+    fn cross_field_rule_conditional_required_roundtrip() {
+        let rule = CrossFieldRule {
+            rule_type: CrossFieldRuleKind::ConditionalRequired,
+            message: Some("target is required".to_string()),
+            predicate_field_id: Some("field-a".to_string()),
+            predicate_value: Some("yes".to_string()),
+            target_field_id: Some("field-b".to_string()),
+            effect: None,
+            field_ids: None,
+        };
+        let value = serde_json::to_value(&rule).unwrap();
+        assert_eq!(value["type"], "conditional-required");
+        assert_eq!(value["predicateFieldId"], "field-a");
+        assert_eq!(value["predicateValue"], "yes");
+        assert_eq!(value["targetFieldId"], "field-b");
+        assert!(value.get("effect").is_none());
+        assert!(value.get("fieldIds").is_none());
+        let parsed: CrossFieldRule = serde_json::from_value(value).unwrap();
+        assert_eq!(parsed.rule_type, CrossFieldRuleKind::ConditionalRequired);
+        assert_eq!(parsed.predicate_field_id.as_deref(), Some("field-a"));
+        assert_eq!(parsed.target_field_id.as_deref(), Some("field-b"));
+    }
+
+    #[test]
+    fn cross_field_rule_field_ordering_roundtrip() {
+        let rule = CrossFieldRule {
+            rule_type: CrossFieldRuleKind::FieldOrdering,
+            message: None,
+            predicate_field_id: Some("date-end".to_string()),
+            predicate_value: None,
+            target_field_id: Some("date-start".to_string()),
+            effect: Some(CrossFieldRuleEffect::MustPrecede),
+            field_ids: None,
+        };
+        let value = serde_json::to_value(&rule).unwrap();
+        assert_eq!(value["type"], "field-ordering");
+        assert_eq!(value["effect"], "must-precede");
+        assert!(value.get("message").is_none());
+        let parsed: CrossFieldRule = serde_json::from_value(value).unwrap();
+        assert_eq!(parsed.rule_type, CrossFieldRuleKind::FieldOrdering);
+        assert_eq!(parsed.effect, Some(CrossFieldRuleEffect::MustPrecede));
+    }
+
+    #[test]
+    fn cross_field_rule_mutual_exclusion_roundtrip() {
+        let rule = CrossFieldRule {
+            rule_type: CrossFieldRuleKind::MutualExclusion,
+            message: None,
+            predicate_field_id: None,
+            predicate_value: None,
+            target_field_id: None,
+            effect: None,
+            field_ids: Some(vec!["field-a".to_string(), "field-b".to_string()]),
+        };
+        let value = serde_json::to_value(&rule).unwrap();
+        assert_eq!(value["type"], "mutual-exclusion");
+        assert_eq!(value["fieldIds"][0], "field-a");
+        assert_eq!(value["fieldIds"][1], "field-b");
+        let parsed: CrossFieldRule = serde_json::from_value(value).unwrap();
+        assert_eq!(parsed.rule_type, CrossFieldRuleKind::MutualExclusion);
+        assert_eq!(parsed.field_ids.as_ref().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn record_type_with_validation_rules_roundtrip() {
+        let rt_json = serde_json::json!({
+            "id": "rt-1",
+            "namespace": "com.test",
+            "name": "my-type",
+            "version": 1,
+            "description": "a type with rules",
+            "fields": [],
+            "createdAt": "2026-01-01T00:00:00Z",
+            "validationRules": [
+                {
+                    "type": "conditional-required",
+                    "predicateFieldId": "f-a",
+                    "predicateValue": "yes",
+                    "targetFieldId": "f-b"
+                },
+                {
+                    "type": "mutual-exclusion",
+                    "fieldIds": ["f-c", "f-d"]
+                }
+            ]
+        });
+        let rt: RecordType = serde_json::from_value(rt_json).unwrap();
+        assert!(
+            rt.validation_rules.is_some(),
+            "validationRules must not fall into extra"
+        );
+        assert!(
+            !rt.extra.contains_key("validationRules"),
+            "validationRules must not appear in extra"
+        );
+        let rules = rt.validation_rules.as_ref().unwrap();
+        assert_eq!(rules.len(), 2);
+        assert_eq!(rules[0].rule_type, CrossFieldRuleKind::ConditionalRequired);
+        assert_eq!(rules[1].rule_type, CrossFieldRuleKind::MutualExclusion);
+        let serialized = serde_json::to_value(&rt).unwrap();
+        assert!(serialized.get("validationRules").is_some());
+    }
+
+    #[test]
+    fn record_type_no_validation_rules_no_key_in_json() {
+        let rt = RecordType {
+            id: "rt-1".to_string(),
+            namespace: "com.test".to_string(),
+            name: "my-type".to_string(),
+            version: 1,
+            description: "no rules".to_string(),
+            fields: vec![],
+            field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            validation_rules: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let value = serde_json::to_value(&rt).unwrap();
+        assert!(
+            value.get("validationRules").is_none(),
+            "validationRules must not appear when None"
+        );
     }
 
     #[test]
@@ -255,6 +428,7 @@ mod tests {
             field_assignment_overrides: None,
             lifecycle: None,
             lifecycle_ref: None,
+            validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -385,6 +559,7 @@ mod tests {
             field_assignment_overrides: None,
             lifecycle: None,
             lifecycle_ref: None,
+            validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -409,6 +584,7 @@ mod tests {
             field_assignment_overrides: None,
             lifecycle: None,
             lifecycle_ref: None,
+            validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -457,6 +633,7 @@ mod tests {
             extends_type_version: None,
             field_order: None,
             field_assignment_overrides: None,
+            validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -482,6 +659,7 @@ mod tests {
             field_assignment_overrides: None,
             lifecycle: None,
             lifecycle_ref: None,
+            validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -566,6 +744,7 @@ mod tests {
             field_assignment_overrides: None,
             lifecycle: None,
             lifecycle_ref: None,
+            validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };

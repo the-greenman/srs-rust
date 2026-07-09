@@ -204,6 +204,7 @@ mod tests {
                 name: "title".to_string(),
                 version: 1,
                 description: "Title".to_string(),
+                instructions: None,
                 ai_guidance: serde_json::json!({}),
                 value_type: ValueType::String,
                 allowed_values: None,

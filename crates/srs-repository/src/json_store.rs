@@ -11,7 +11,7 @@ use serde::de::Error as SerdeDeError;
 use srs_core::types::field::{Field, ValueType};
 use srs_core::types::lifecycle::Lifecycle;
 use srs_core::types::record_type::{
-    FieldAssignment, FieldAssignmentOverride, FieldGroup, RecordType, TypeLifecycle,
+    CrossFieldRule, FieldAssignment, FieldAssignmentOverride, FieldGroup, RecordType, TypeLifecycle,
 };
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::types::theme::Theme;
@@ -85,6 +85,8 @@ struct FieldJson {
     version: u32,
     value_type: String,
     description: Option<String>,
+    #[serde(default)]
+    instructions: Option<String>,
     ai_guidance: Option<serde_json::Value>,
     allowed_values: Option<Vec<String>>,
     #[serde(default)]
@@ -118,6 +120,8 @@ struct TypeJson {
     lifecycle: Option<TypeLifecycle>,
     #[serde(default)]
     lifecycle_ref: Option<String>,
+    #[serde(default)]
+    validation_rules: Option<Vec<CrossFieldRule>>,
     created_at: Option<String>,
     #[serde(flatten)]
     _extra: HashMap<String, serde_json::Value>,
@@ -387,6 +391,7 @@ impl JsonStore {
                 version: fj.version,
                 value_type: Self::parse_value_type(&fj.value_type, &PathBuf::from(&full))?,
                 description: fj.description.unwrap_or_default(),
+                instructions: fj.instructions,
                 ai_guidance: fj.ai_guidance.unwrap_or(serde_json::Value::Null),
                 allowed_values: fj.allowed_values,
                 vocabulary_ref: fj.vocabulary_ref,
@@ -472,6 +477,7 @@ impl JsonStore {
                 field_assignment_overrides,
                 lifecycle: tj.lifecycle,
                 lifecycle_ref: tj.lifecycle_ref,
+                validation_rules: tj.validation_rules,
                 created_at: tj.created_at.unwrap_or_default(),
                 extra: HashMap::new(),
             });
@@ -1694,6 +1700,49 @@ mod tests {
     }
 
     use crate::repository_lifecycle::{PrimaryPackageMetadata, RepositoryMetadata};
+
+    #[test]
+    fn json_store_field_instructions_roundtrip() {
+        use crate::package_service::create_field;
+        use srs_core::types::field::{Field, ValueType};
+
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("repo.srsj");
+        let store = JsonStore::create(&path).unwrap();
+        create_repository(&store, &init_input()).unwrap();
+
+        let field = Field {
+            id: "00000000-0000-0000-0000-aabbccddee03".to_string(),
+            namespace: "com.test".to_string(),
+            name: "help-field".to_string(),
+            version: 1,
+            value_type: ValueType::String,
+            description: "A help field".to_string(),
+            instructions: Some("Fill this in carefully.".to_string()),
+            ai_guidance: serde_json::Value::Null,
+            allowed_values: None,
+            vocabulary_ref: None,
+            default_value: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        create_field(&store, field.clone()).unwrap();
+        drop(store);
+
+        // Reopen from disk to prove the value survives an on-disk .srsj roundtrip,
+        // not just an in-process cache.
+        let reopened = JsonStore::open(&path).unwrap();
+        let package = reopened.load_package().unwrap();
+        let loaded_field = package
+            .fields
+            .iter()
+            .find(|f| f.id == field.id)
+            .expect("field must be present after reload");
+        assert_eq!(
+            loaded_field.instructions,
+            Some("Fill this in carefully.".to_string())
+        );
+    }
 
     #[test]
     fn json_store_create_then_open_roundtrips() {

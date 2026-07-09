@@ -103,6 +103,27 @@ pub enum CoreError {
         state: String,
         transition_name: String,
     },
+
+    // ── ext:cross-field-validation errors ─────────────────────────────────────
+    #[error("cross-field rule (conditional-required): field '{target_field_id}' is required when field '{predicate_field_id}' equals '{predicate_value}'")]
+    CrossFieldConditionalRequired {
+        predicate_field_id: String,
+        predicate_value: String,
+        target_field_id: String,
+    },
+
+    #[error("cross-field rule (field-ordering): field '{target_field_id}' must {effect} field '{predicate_field_id}'")]
+    CrossFieldOrdering {
+        target_field_id: String,
+        effect: String,
+        predicate_field_id: String,
+    },
+
+    #[error("cross-field rule (mutual-exclusion): at most one of [{field_ids}] may have a non-empty value")]
+    CrossFieldMutualExclusion { field_ids: String },
+
+    #[error("cross-field rule misconfigured: {reason}")]
+    CrossFieldRuleMisconfigured { reason: String },
 }
 
 impl PartialEq for CoreError {
@@ -237,6 +258,38 @@ impl PartialEq for CoreError {
             (CoreError::InvalidTagValue { tag: a }, CoreError::InvalidTagValue { tag: b }) => {
                 a == b
             }
+            (
+                CoreError::CrossFieldConditionalRequired {
+                    predicate_field_id: apf,
+                    predicate_value: apv,
+                    target_field_id: atf,
+                },
+                CoreError::CrossFieldConditionalRequired {
+                    predicate_field_id: bpf,
+                    predicate_value: bpv,
+                    target_field_id: btf,
+                },
+            ) => apf == bpf && apv == bpv && atf == btf,
+            (
+                CoreError::CrossFieldOrdering {
+                    target_field_id: at,
+                    effect: ae,
+                    predicate_field_id: ap,
+                },
+                CoreError::CrossFieldOrdering {
+                    target_field_id: bt,
+                    effect: be,
+                    predicate_field_id: bp,
+                },
+            ) => at == bt && ae == be && ap == bp,
+            (
+                CoreError::CrossFieldMutualExclusion { field_ids: a },
+                CoreError::CrossFieldMutualExclusion { field_ids: b },
+            ) => a == b,
+            (
+                CoreError::CrossFieldRuleMisconfigured { reason: a },
+                CoreError::CrossFieldRuleMisconfigured { reason: b },
+            ) => a == b,
             _ => false,
         }
     }

@@ -190,6 +190,7 @@ mod tests {
             name: name.to_string(),
             version: 1,
             description: String::new(),
+            instructions: None,
             ai_guidance: serde_json::json!({}),
             value_type: vt,
             allowed_values: None,

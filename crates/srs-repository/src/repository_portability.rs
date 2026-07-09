@@ -892,6 +892,7 @@ mod tests {
             version: 1,
             value_type: srs_core::types::field::ValueType::String,
             description: "".to_string(),
+            instructions: None,
             ai_guidance: serde_json::Value::Null,
             allowed_values: None,
             vocabulary_ref: None,

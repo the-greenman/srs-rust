@@ -493,6 +493,7 @@ mod tests {
             name: name.to_string(),
             version,
             description: String::new(),
+            instructions: None,
             ai_guidance: serde_json::Value::Null,
             value_type: srs_core::types::field::ValueType::String,
             allowed_values: None,

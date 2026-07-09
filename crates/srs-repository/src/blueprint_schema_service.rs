@@ -297,6 +297,7 @@ mod tests {
             name: name.to_string(),
             version: 1,
             description: format!("{name} description"),
+            instructions: None,
             ai_guidance: json!(null),
             value_type: ValueType::String,
             allowed_values: None,
@@ -334,6 +335,7 @@ mod tests {
             field_assignment_overrides: None,
             lifecycle: None,
             lifecycle_ref: None,
+            validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         }

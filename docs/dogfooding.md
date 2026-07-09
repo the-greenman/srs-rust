@@ -88,6 +88,7 @@ Each scenario uses a fixed template so the set stays comparable and updatable:
 7. Emit the contract: `srs type schema <typeId>` and confirm it matches the fields.
    - Flat fields carry `x-srs-field-id` and a 1-based `x-srs-order` reflecting their merged position.
    - If the type declares `fieldGroups`, each group appears as an array property with `x-srs-group-id`, `x-srs-repeatable`, and an `x-srs-order` drawn from the **same** positional sequence as the flat fields — not from the raw `group.order` integer. No two entries (fields or groups) share the same `x-srs-order` value. This is the invariant fixed in #148.
+   - A field created with both `description` and `instructions` carries `x-srs-description` and `x-srs-instructions` in its schema property; a field created without `instructions` omits `x-srs-instructions` entirely (not `null`) — confirmed live end-to-end (`field create` → `type create` → `type schema`, each a fresh process against the on-disk repo) in #415.
 
 **Negative case.** Send a `record validate` input that omits a **required** field *and* carries a `fieldId` not assigned to the type — confirm **both** problems come back in `diagnostics` from the single call (`validate` reports every violation at once, not just the first), with `ok: false` and `record list` count flat (no write). Confirm a `displayLabel` override does not change which field is resolved. *(Note: `validate` mirrors the write path exactly — it does **not** check enum `allowedValues` or `valueType` conformance, because the model's record validation does not validate those today; do not expect a value outside `select` options to be rejected here.)*
 
@@ -1007,6 +1008,87 @@ $SRS_BIN repo validate --repo "$SCRATCH" --pretty
 
 ---
 
+### S23 — Cross-field validation: governance decision must post-date deliberation
+
+**Intention.** *"I'm recording a governance decision. Our process requires that the decision date always comes after the deliberation period began — I want the system to enforce that automatically so no one can accidentally log a decision that pre-dates the deliberation."*
+
+**Capabilities exercised.** `ext:cross-field-validation` — `field-ordering` rule on a Type's `validationRules` enforced during `repo validate`; happy-path record with valid date ordering produces no diagnostic; out-of-order record produces a clear error naming the offending fields and the violated constraint.
+
+**CLI surface.** `field create`, `type create` (with `validationRules`), `record create`, `repo validate`.
+
+**Steps.**
+
+```bash
+SRS_BIN=target/debug/srs
+SCRATCH=/tmp/dogfood-cfr-s23
+rm -rf "$SCRATCH"
+$SRS_BIN repo create --repo "$SCRATCH" --namespace com.example.dogfood
+
+# Create the two date fields
+FIELD1_ID=$($SRS_BIN field create --repo "$SCRATCH" <<'EOF' | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['field']['id'])"
+{"name":"deliberation_date","namespace":"com.example.dogfood","fieldType":"date","description":"When deliberation began"}
+EOF
+)
+
+FIELD2_ID=$($SRS_BIN field create --repo "$SCRATCH" <<'EOF' | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['field']['id'])"
+{"name":"decision_date","namespace":"com.example.dogfood","fieldType":"date","description":"When the decision was made"}
+EOF
+)
+
+# Create the type with a field-ordering validationRule: decision_date must-follow deliberation_date
+TYPE_ID=$($SRS_BIN type create --repo "$SCRATCH" <<EOF | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['type']['id'])"
+{
+  "namespace": "com.example.dogfood",
+  "name": "governance_decision",
+  "version": 1,
+  "description": "A governance decision record with ordering constraint",
+  "fields": [
+    {"fieldId":"$FIELD1_ID","order":1,"required":true},
+    {"fieldId":"$FIELD2_ID","order":2,"required":true}
+  ],
+  "validationRules": [{
+    "type": "field-ordering",
+    "predicateFieldId": "$FIELD1_ID",
+    "targetFieldId": "$FIELD2_ID",
+    "effect": "must-follow",
+    "message": "decision_date must follow deliberation_date"
+  }],
+  "createdAt": "2026-07-09T00:00:00Z"
+}
+EOF
+)
+
+# Happy path: decision_date (2026-07-10) follows deliberation_date (2026-07-01) — no diagnostic
+echo '{
+  "fieldValues": [
+    {"fieldId":"'"$FIELD1_ID"'","value":"2026-07-01"},
+    {"fieldId":"'"$FIELD2_ID"'","value":"2026-07-10"}
+  ]
+}' | $SRS_BIN record create --repo "$SCRATCH" --type com.example.dogfood/governance_decision
+
+$SRS_BIN repo validate --repo "$SCRATCH" --pretty
+```
+
+**Negative case.** Create a second record where decision_date (2026-06-01) precedes deliberation_date (2026-07-01), then validate.
+
+```bash
+echo '{
+  "fieldValues": [
+    {"fieldId":"'"$FIELD1_ID"'","value":"2026-07-01"},
+    {"fieldId":"'"$FIELD2_ID"'","value":"2026-06-01"}
+  ]
+}' | $SRS_BIN record create --repo "$SCRATCH" --type com.example.dogfood/governance_decision
+
+$SRS_BIN repo validate --repo "$SCRATCH" --pretty   # must produce field-ordering error
+```
+
+**Done when.**
+- After happy-path record only: `repo validate` returns `ok: true`, `diagnostics` is empty.
+- After adding the out-of-order record: `repo validate` returns `ok: false`; `diagnostics[0]` contains `"field-ordering"` and references `decision_date`'s field ID.
+- The error is attributed to the specific record file, not the type or repo globally.
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -1053,8 +1135,10 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `blueprint` (list/get/validate/structure/schema/brief) | S7 |
 | `protocol` (create/list/get/stages/find-by-target-type) | S13 |
 | `theme` | S8 |
+| `extension` | _gap — no scenario yet_ |
 | `repo extensions` (list/enable/disable/conformance) | S22 |
 | `repo migrate-identity` (graduate Tier-0 identity note to purpose record, #426; bootstrap identity for pre-#424 repos with no `identityInstanceId`, #432) | S21 (Tier-0 note branch), S21b (None-branch: absent pointer) |
+| `type` `validationRules` (ext:cross-field-validation — conditional-required / field-ordering / mutual-exclusion, #242) | S23 |
 | `tag` (definition) | _gap — being deprecated; see open issues_ |
 | `package` | CLI: covered implicitly by field/type creation in S2; WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330) |
 

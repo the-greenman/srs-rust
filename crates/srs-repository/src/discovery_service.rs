@@ -229,6 +229,7 @@ mod tests {
             name: name.to_string(),
             version: 1,
             description: String::new(),
+            instructions: None,
             ai_guidance: serde_json::json!({}),
             value_type: ValueType::Text,
             allowed_values: None,
