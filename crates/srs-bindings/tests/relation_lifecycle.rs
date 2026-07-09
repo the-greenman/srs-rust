@@ -399,7 +399,7 @@ fn set_lifecycle_state_result_includes_warnings_field() {
     assert!(
         warnings.iter().any(|w| w
             .as_str()
-            .map_or(false, |s| s.contains("LIFECYCLE_FINAL_STATE"))),
+            .is_some_and(|s| s.contains("LIFECYCLE_FINAL_STATE"))),
         "warnings must contain LIFECYCLE_FINAL_STATE entry for final-state transition"
     );
 }
