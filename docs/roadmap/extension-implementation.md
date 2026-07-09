@@ -58,11 +58,10 @@ Inconsistencies between spec intent, the ADRs, and the current code. Each is tra
   `ext-blueprint.json`). The Rust implementation is correct (parallel to protocols, ADR-016);
   only the labelling is wrong. _Reconcile naming in docs/examples, or confirm intent in spec._
 
-- **D4 — `declaredExtensions` is tracked but never validated or gated.**
-  `manifest_service.rs` stores `declaredExtensions[]` in `manifest.extra` with add/remove/list,
-  but nothing checks that a declared extension is supported, and no feature is gated on a
-  declaration. A repo can declare `ext:federation` with zero enforcement. _Add a
-  conformance-report service (low priority)._
+- **D4 — ~~`declaredExtensions` is tracked but never validated or gated.~~** _Resolved by #237._
+  `manifest_service.rs` now exposes `declared_extensions_conformance()` which compares declared vs
+  supported vs content-detected extension usage. CLI: `srs repo extensions conformance`. WASM
+  binding deferred to #442.
 
 - **D5 — `AttentionState` is shared by `ext:protocol` (runs) and `ext:addressability`.**
   Both need the live cursor over container/record/field/stage; neither is implemented. Build
