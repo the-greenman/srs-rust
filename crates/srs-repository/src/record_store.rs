@@ -1351,15 +1351,11 @@ pub(crate) fn write_new_record(
     let relative_path = format!(
         "{}/{}-{}.json",
         dir,
-        record.type_name,
+        slugify_instance_name(&record.type_name),
         &record.instance_id[..8]
     );
     store.ensure_instance_dir(dir)?;
-    let value = serde_json::to_value(record).map_err(|e| RepositoryError::Serialize {
-        path: std::path::PathBuf::from(&relative_path),
-        source: e,
-    })?;
-    store.save_instance_json(&relative_path, &value)?;
+    write_record(store, record, &relative_path)?;
     Ok(relative_path)
 }
 

@@ -2,6 +2,7 @@ use crate::error::RepositoryError;
 use crate::paths::DEFAULT_RECORD_DIR;
 use crate::record_store::{upsert_record_index_entry, write_new_record};
 use crate::store::RepositoryStore;
+use crate::writer::new_instance_id;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -9,7 +10,6 @@ use srs_core::types::container::Container;
 use srs_core::types::record::{FieldValue, Record};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -105,10 +105,12 @@ pub fn create_repository(
 fn scaffold_purpose_record(
     store: &dyn RepositoryStore,
     repository_id: &str,
-    title: Option<&str>,
+    container_title: &str,
+    record_title: Option<&str>,
     description: Option<&str>,
 ) -> Result<String, RepositoryError> {
-    let instance_id = Uuid::new_v4().to_string();
+    let instance_id = new_instance_id();
+    let now = Utc::now().to_rfc3339();
 
     let mut field_values = vec![FieldValue {
         field_id: CORE_STATEMENT_FIELD_ID.to_string(),
@@ -117,7 +119,7 @@ fn scaffold_purpose_record(
         source: None,
         edited_at: None,
     }];
-    if let Some(t) = title {
+    if let Some(t) = record_title {
         field_values.push(FieldValue {
             field_id: CORE_TITLE_FIELD_ID.to_string(),
             value: Value::String(t.to_string()),
@@ -137,8 +139,8 @@ fn scaffold_purpose_record(
         group_values: None,
         lifecycle_state: None,
         tags: None,
-        created_at: None,
-        updated_at: None,
+        created_at: Some(now.clone()),
+        updated_at: Some(now),
         extra: HashMap::new(),
     };
 
@@ -149,7 +151,7 @@ fn scaffold_purpose_record(
 
     let container = manifest.container.get_or_insert_with(|| Container {
         container_id: repository_id.to_string(),
-        title: title.unwrap_or("").to_string(),
+        title: container_title.to_string(),
         namespace: None,
         name: None,
         description: None,
@@ -180,9 +182,16 @@ pub fn create_repository_with_intent(
 ) -> Result<CreateRepositoryResult, RepositoryError> {
     let mut result = create_repository(store, input)?;
 
+    // Effective title matches the normalization applied in create_repository.
+    let effective_title = input
+        .repository
+        .title
+        .as_deref()
+        .unwrap_or(input.repository.namespace.as_str());
     let identity_instance_id = scaffold_purpose_record(
         store,
         &result.repository_id,
+        effective_title,
         input.repository.title.as_deref(),
         input.repository.description.as_deref(),
     )?;
@@ -945,6 +954,48 @@ mod tests {
         assert!(
             path.contains(&id[..8]),
             "record path must include first 8 chars of instance_id, got: {path}"
+        );
+    }
+
+    #[test]
+    fn create_repository_with_intent_container_title_uses_namespace_fallback() {
+        // When no title is provided, the container title should be the namespace,
+        // not an empty string — consistent with what FileStore computes.
+        let store = MemoryStore::uninitialized();
+        let result = create_repository_with_intent(&store, &input()).unwrap();
+        assert!(result.identity_instance_id.is_some());
+
+        let manifest = store.load_manifest().unwrap();
+        let container = manifest.container.as_ref().expect("container must be set");
+        assert_eq!(
+            container.title,
+            "com.semanticops.test",
+            "container title must fall back to namespace when no title given"
+        );
+    }
+
+    #[test]
+    fn create_repository_with_intent_record_has_created_at() {
+        let store = MemoryStore::uninitialized();
+        let result = create_repository_with_intent(&store, &input()).unwrap();
+        let id = result.identity_instance_id.unwrap();
+
+        let manifest = store.load_manifest().unwrap();
+        let entry = manifest
+            .instance_index
+            .iter()
+            .find(|e| e.instance_id() == id)
+            .unwrap();
+        let record: srs_core::types::record::Record =
+            serde_json::from_value(store.load_instance_json(entry.path()).unwrap()).unwrap();
+
+        assert!(
+            record.created_at.is_some(),
+            "purpose record must have created_at timestamp"
+        );
+        assert!(
+            record.updated_at.is_some(),
+            "purpose record must have updated_at timestamp"
         );
     }
 
