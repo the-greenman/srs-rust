@@ -472,6 +472,8 @@ mod tests {
             packages: vec![],
             instances,
             containers: vec![],
+            root_container: None,
+            container_index: None,
             relations,
         }
     }
@@ -544,6 +546,8 @@ mod tests {
             packages,
             instances: vec![],
             containers: vec![],
+            root_container: None,
+            container_index: None,
             relations: vec![],
         }
     }

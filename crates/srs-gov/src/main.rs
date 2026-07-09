@@ -30,15 +30,15 @@ use srs::run_srs;
 #[command(name = "srs-gov", version, about)]
 struct Cli {
     /// Repository path (forwarded to srs as --repo)
-    #[arg(long, default_value = ".")]
+    #[arg(long, global = true, default_value = ".")]
     repo: String,
 
     /// Print the underlying srs command(s) instead of running them
-    #[arg(long)]
+    #[arg(long, global = true)]
     explain: bool,
 
     /// Print raw srs JSON envelopes instead of friendly output
-    #[arg(long)]
+    #[arg(long, global = true)]
     json: bool,
 
     #[command(subcommand)]
@@ -113,7 +113,10 @@ enum Commands {
 
 fn main() {
     if let Err(e) = run() {
-        eprintln!("error: {e}");
+        // {:#} prints the full anyhow context chain (not just the top-level
+        // .context() message) — the underlying srs diagnostics were previously
+        // swallowed, leaving only e.g. "error: load repository navigation".
+        eprintln!("error: {e:#}");
         std::process::exit(1);
     }
 }

@@ -11,7 +11,7 @@ use crate::repository_lifecycle::{
 use crate::store::RepositoryStore;
 use crate::writer::slugify_instance_name;
 use srs_core::types::blueprint::Blueprint;
-use srs_core::types::container::Container;
+use srs_core::types::container::{Container, ContainerIndexEntry};
 use srs_core::types::field::Field;
 use srs_core::types::lifecycle::Lifecycle;
 use srs_core::types::record_type::RecordType;
@@ -61,6 +61,13 @@ pub struct RepositorySnapshot {
     pub packages: Vec<PackageBoundarySnapshot>,
     pub instances: Vec<SnapshotInstance>,
     pub containers: Vec<Container>,
+    /// RFC-013 `manifest.container` root-container pointer, if the source declares one.
+    /// Distinct from `containers` (the container definitions themselves): this is the
+    /// manifest-level identity/navigation-root marker that `repo navigation` resolves.
+    #[serde(default)]
+    pub root_container: Option<Container>,
+    #[serde(default)]
+    pub container_index: Option<Vec<ContainerIndexEntry>>,
     pub relations: Vec<Relation>,
 }
 
@@ -193,6 +200,8 @@ pub fn export_repository_snapshot(
         packages,
         instances,
         containers,
+        root_container: manifest.container.clone(),
+        container_index: manifest.container_index.clone(),
         relations: load_relations(source)?,
     })
 }
@@ -287,6 +296,17 @@ fn do_import(
             title: instance.title.clone(),
             tags: instance.tags.clone(),
         });
+    }
+    // Only override the placeholder `initialize_repository` assigned when the source
+    // actually declared a root container — some in-memory test sources predate RFC-013
+    // and carry no `manifest.container` at all, in which case the target's freshly
+    // initialized default (which does satisfy the required-container invariant) should
+    // stand rather than being clobbered to `None`.
+    if let Some(root_container) = &snapshot.root_container {
+        manifest.container = Some(root_container.clone());
+    }
+    if let Some(container_index) = &snapshot.container_index {
+        manifest.container_index = Some(container_index.clone());
     }
     target.save_manifest(&manifest)?;
 
@@ -907,6 +927,90 @@ mod tests {
             result,
             Err(RepositoryError::InvalidSnapshotData { .. })
         ));
+    }
+
+    #[test]
+    fn copy_preserves_rfc013_root_container_pointer() {
+        // Source repo with a note (the future root container's identity/member) and
+        // manifest.container pointing at a real container — not the auto-generated
+        // placeholder that initialize_repository assigns (which keys off repositoryId).
+        let source = MemoryStore::uninitialized();
+        source.initialize_repository(&make_input()).unwrap();
+        let mut manifest = source.load_manifest().unwrap();
+        manifest.container = Some(Container {
+            container_id: "99999999-9999-4999-8999-999999999999".to_string(),
+            title: "Root".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            identity_instance_id: Some("11111111-1111-4111-8111-111111111111".to_string()),
+            member_instance_ids: Some(vec!["11111111-1111-4111-8111-111111111111".to_string()]),
+            root_instance_ids: Some(vec!["11111111-1111-4111-8111-111111111111".to_string()]),
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: HashMap::new(),
+        });
+        source.save_manifest(&manifest).unwrap();
+
+        let mut snapshot = export_repository_snapshot(&source).unwrap();
+        snapshot.instances.push(SnapshotInstance {
+            instance_id: "11111111-1111-4111-8111-111111111111".to_string(),
+            tier: 0,
+            title: Some(serde_json::Value::String("n".to_string())),
+            tags: None,
+            value: serde_json::json!({
+                "instanceId": "11111111-1111-4111-8111-111111111111",
+                "sections": [{"name":"body","content":"hello"}]
+            }),
+        });
+        snapshot.containers.push(Container {
+            container_id: "99999999-9999-4999-8999-999999999999".to_string(),
+            title: "Root".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            identity_instance_id: Some("11111111-1111-4111-8111-111111111111".to_string()),
+            member_instance_ids: Some(vec!["11111111-1111-4111-8111-111111111111".to_string()]),
+            root_instance_ids: Some(vec!["11111111-1111-4111-8111-111111111111".to_string()]),
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: HashMap::new(),
+        });
+
+        // Import into a .srsj JsonStore bundle — this is the exact `srs repo copy
+        // --to *.srsj` path used to regenerate single-file snapshots.
+        let tmp = TempDir::new().unwrap();
+        let target = JsonStore::create(tmp.path().join("repo.srsj")).unwrap();
+        import_repository_snapshot(&target, &snapshot).unwrap();
+
+        let copied = target.load_manifest().unwrap();
+        let container = copied
+            .container
+            .as_ref()
+            .expect("manifest.container must survive copy");
+        assert_eq!(
+            container.container_id, "99999999-9999-4999-8999-999999999999",
+            "manifest.container must point at the real root container, not the repositoryId placeholder"
+        );
+
+        // And `repo navigation` — what srs-gov and srs-web's GovernanceShell call —
+        // must resolve manifest.container's id instead of failing with
+        // "container not found: <repositoryId>" (the bug: the placeholder container
+        // initialize_repository assigns keys off repositoryId, and previously survived
+        // the copy uncontested since manifest.container/containerIndex weren't in the
+        // snapshot at all).
+        let container = get_container(&target, "99999999-9999-4999-8999-999999999999")
+            .expect("manifest.container's id must resolve to a real container post-copy");
+        assert_eq!(
+            container.container_id,
+            "99999999-9999-4999-8999-999999999999"
+        );
     }
 
     #[test]
