@@ -48,7 +48,7 @@ As of 2026-06-27. See `docs/roadmap/extension-implementation.md` for the full ex
 | Views L2 / Document Views (`ext:views-l2`) | Incorporated (RFC-001) | Implemented — `srs document-view list/get/create/update/delete` and `srs render document-view`; section sourcing via TypeQuery/RelationQuery/FixedInstances/ContainerSubset; repeatable fields and field groups rendered |
 | Repeatable field entries (`ext:repeatable-fields`) | In schema/spec | Implemented (typed model, validation constraints, rendering) |
 | Field groups (`ext:field-groups`) | In schema/spec | Implemented (typed model, required/group-count validation, rendering) |
-| Blueprints (`ext:blueprint`) | Defined | Implemented (CRUD, validate, structure listing) |
+| Blueprints (`blueprint`) | Defined | Implemented (CRUD, validate, structure listing) |
 | Lifecycle state machine (`ext:lifecycle`) | In progress | Implemented — transition validation (`transition_record_lifecycle`), initial-state injection at create, V7–V9 invariants enforced; verification pass tracked in roadmap Epic 1 |
 | Type inheritance (`ext:type-inheritance`) | In planning | Implemented — `extends_type_id`/`field_order` resolved via `effective_fields()`, cycle detection; note: no `ext-type-inheritance` spec record exists yet (roadmap D2) |
 | Themes (`ext:themes-l1`) | Incorporated (RFC-002) | Implemented — renderer resolves `themeRef`/`themeVariants` for matching output formats and supports CLI `--theme-variant` |
@@ -75,7 +75,7 @@ Top-level command groups currently available:
 - `protocol` — CRUD, validation, stages, import/export
 - `container` — CRUD, members, roots, validate, `resolve-view` (root + ordered members + DocumentView column spec)
 - `package` — list, create, import, update, slice (alias for create); enable/disable deprecated
-- `blueprint` — CRUD, validate, structure (`ext:blueprint`)
+- `blueprint` — CRUD, validate, structure
 - `view` — CRUD
 - `document-view` — CRUD
 - `render` — `document-view` (render to stdout or `--output <file>`)

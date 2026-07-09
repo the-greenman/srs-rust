@@ -278,7 +278,7 @@ pub enum Commands {
     /// Protocol definition commands
     #[command(subcommand)]
     Protocol(ProtocolCommand),
-    /// Blueprint definition commands (ext:blueprint)
+    /// Blueprint definition commands
     #[command(subcommand)]
     Blueprint(BlueprintCommand),
     /// Container grouping and membership commands
