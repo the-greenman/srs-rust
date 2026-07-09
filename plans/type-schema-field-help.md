@@ -284,12 +284,18 @@ Specific tests to write or verify:
 
 ## Final Acceptance
 
-- [ ] `cargo test` passes with no failures
-- [ ] `cargo clippy -- -D warnings` passes
-- [ ] CLI output format unchanged (integration tests pass)
-- [ ] `cargo test --test payload_contracts` passes (no payload structs changed, but run it to confirm)
-- [ ] `cargo run --bin generate-schemas` produces no diff under `schemas/payload/`
-- [ ] `bash scripts/check-schema-sync.sh` exits 0 (no entity schemas changed, but run to confirm)
+- [x] `cargo test` passes with no failures (748+ passing; two `srs-gov` flow tests fail only due to
+  this worktree's extra directory depth breaking a relative sibling-repo path lookup — verified
+  pre-existing/environment-only by running the same tests from the main `srs-rust` checkout, where
+  they pass; unrelated to this change)
+- [x] `cargo clippy -- -D warnings` passes
+- [x] CLI output format unchanged (integration tests pass)
+- [x] `cargo test --test payload_contracts` passes (no payload structs changed, but run it to confirm)
+- [x] `cargo run --bin generate-schemas` produces no diff under `schemas/payload/`
+- [x] `bash scripts/check-schema-sync.sh` — the script itself can't resolve `../srs` from this
+  worktree's depth (same class of path artifact); verified in sync directly by comparing
+  `crates/srs-schema/schemas/2.0/type.json`'s SHA-256 against `srs/docs/schema/2.0/type.json` — they
+  match (`00e97aec...`), and this branch made no entity schema changes.
 - [ ] `srs` type-schema output for a real repo/type with at least one field carrying both
   `description` and `instructions` carries `x-srs-description` and `x-srs-instructions` accordingly.
   No `com.mudemocracy.governance` fixture exists in this worktree — Stage 7.6 dogfooding will use a
