@@ -92,10 +92,11 @@ impl SrsRepository {
         to_js(&result)
     }
 
-    /// Get a single record by instance ID. Returns the `Record` as a JS value, or `null` if not found.
+    /// Get a single record by instance ID. Returns a `RecordSummary` (`{ instanceId, displayLabel, record }`)
+    /// as a JS value, or `null` if not found.
     pub fn get_record(&self, id: &str) -> Result<JsValue, JsValue> {
-        match record_store::get_record_by_id(&self.store, id).map_err(js_err)? {
-            Some(record) => to_js(&record),
+        match record_store::get_record_summary_by_id(&self.store, id).map_err(js_err)? {
+            Some(summary) => to_js(&summary),
             None => Ok(JsValue::NULL),
         }
     }
@@ -931,5 +932,36 @@ mod tests {
             json["diagnostics"].is_array(),
             "diagnostics field must be present as array"
         );
+    }
+
+    #[test]
+    fn get_record_summary_by_id_smoke() {
+        use srs_repository::record_store::{get_record_summary_by_id, CreateRecordInput};
+        let store = JsonStore::from_srsj(&srsj_with_note_and_type()).expect("load srsj");
+        // Graduate the note to get a typed record we can look up
+        let note_id = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+        let graduated = srs_repository::services::graduate_note(
+            &store,
+            srs_repository::services::GraduateNoteInput {
+                note_id: note_id.to_string(),
+                type_ref: "com.test/bind-type".to_string(),
+                type_version: None,
+                record_input: CreateRecordInput {
+                    field_values: vec![],
+                    group_values: None,
+                    tags: None,
+                },
+                container_id: None,
+            },
+        )
+        .expect("graduate should succeed");
+        let record_id = &graduated.record.instance_id;
+        let summary = get_record_summary_by_id(&store, record_id)
+            .expect("should not error")
+            .expect("should find record");
+        assert_eq!(summary.instance_id, *record_id);
+        // No title/name/label fields → falls back to type_name
+        assert!(!summary.display_label.is_empty(), "display_label must be non-empty");
+        assert_eq!(summary.record.instance_id, *record_id);
     }
 }
