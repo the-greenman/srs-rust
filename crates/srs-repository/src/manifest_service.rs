@@ -1,8 +1,133 @@
 use crate::error::RepositoryError;
+use crate::record_store::list_all_records;
+use crate::relation_service::{list_relations, ListRelationsFilter};
 use crate::store::RepositoryStore;
 use crate::writer::write_manifest;
 use serde_json::json;
 use std::collections::HashMap;
+
+/// Extension IDs actively implemented by this version of the SRS engine.
+/// This is the single authoritative list — do not add `ext:` literals elsewhere.
+pub const SUPPORTED_EXTENSIONS: &[&str] = &[
+    "ext:addressability",
+    "ext:discovery",
+    "ext:field-groups",
+    "ext:lifecycle",
+    "ext:relations",
+    "ext:repository",
+    "ext:type-inheritance",
+];
+
+/// Conformance report: declared vs supported vs content-detected extension usage.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeclaredExtensionsReport {
+    /// Extension IDs declared in `manifest.extra.declaredExtensions`.
+    pub declared: Vec<String>,
+    /// Extension IDs this implementation actively handles (from `SUPPORTED_EXTENSIONS`).
+    pub supported: Vec<String>,
+    /// Declared IDs that are not in the supported set.
+    pub declared_but_unsupported: Vec<String>,
+    /// Supported IDs detected in repo content but absent from the declared list.
+    pub used_but_undeclared: Vec<String>,
+}
+
+/// Return a conformance report comparing the manifest's `declaredExtensions` against the
+/// implementation's supported set and the repo's actual content usage.
+pub fn declared_extensions_conformance(
+    store: &dyn RepositoryStore,
+) -> Result<DeclaredExtensionsReport, RepositoryError> {
+    let declared = list_declared_extensions(store)?;
+    let supported: Vec<String> = SUPPORTED_EXTENSIONS.iter().map(|s| s.to_string()).collect();
+
+    let declared_but_unsupported: Vec<String> = declared
+        .iter()
+        .filter(|id| !supported.contains(id))
+        .cloned()
+        .collect();
+
+    let used_extensions = detect_used_extensions(store)?;
+    let used_but_undeclared: Vec<String> = used_extensions
+        .into_iter()
+        .filter(|id| !declared.contains(id))
+        .collect();
+
+    Ok(DeclaredExtensionsReport {
+        declared,
+        supported,
+        declared_but_unsupported,
+        used_but_undeclared,
+    })
+}
+
+/// Detect which supported extension IDs are actively in use by this repo's content.
+///
+/// Only extensions with a detectable content signal are checked. `ext:repository` and
+/// `ext:discovery` have no absence signal (they are structural/always-available) and are
+/// excluded from detection — they will never appear in `used_but_undeclared`.
+fn detect_used_extensions(
+    store: &dyn RepositoryStore,
+) -> Result<Vec<String>, RepositoryError> {
+    let mut used = Vec::new();
+
+    // ext:lifecycle — any Tier 2 record has lifecycleState set
+    match list_all_records(store) {
+        Ok(records) if records.iter().any(|r| r.lifecycle_state.is_some()) => {
+            used.push("ext:lifecycle".to_string());
+        }
+        _ => {}
+    }
+
+    // ext:relations — relations collection is non-empty
+    match list_relations(store, ListRelationsFilter::default()) {
+        Ok(relations) if !relations.is_empty() => {
+            used.push("ext:relations".to_string());
+        }
+        _ => {}
+    }
+
+    // ext:type-inheritance — any package type declares an extends base type
+    // ext:field-groups — any package type declares field groups
+    match store.load_package() {
+        Ok(package) => {
+            let mut has_inheritance = false;
+            let mut has_field_groups = false;
+            for record_type in &package.record_types {
+                if record_type.extends_type_id.is_some() {
+                    has_inheritance = true;
+                }
+                if record_type
+                    .field_groups
+                    .as_ref()
+                    .map(|g| !g.is_empty())
+                    .unwrap_or(false)
+                {
+                    has_field_groups = true;
+                }
+            }
+            if has_inheritance {
+                used.push("ext:type-inheritance".to_string());
+            }
+            if has_field_groups {
+                used.push("ext:field-groups".to_string());
+            }
+        }
+        Err(RepositoryError::Io { .. } | RepositoryError::PackageLoad { .. }) => {}
+        Err(e) => return Err(e),
+    }
+
+    // ext:addressability — any .revisions.json sidecar file exists
+    let revision_files = store.list_files_recursive("records");
+    if revision_files
+        .iter()
+        .any(|p| p.ends_with(".revisions.json"))
+    {
+        used.push("ext:addressability".to_string());
+    }
+
+    used.sort();
+    Ok(used)
+}
 
 /// List declared extension IDs from the manifest
 pub fn list_declared_extensions(
@@ -604,5 +729,228 @@ mod tests {
             Some(VALID_IDENTITY_ID)
         );
         assert_eq!(container.title, "");
+    }
+
+    // ── Conformance tests ─────────────────────────────────────────────────────
+
+    #[test]
+    fn conformance_empty_repo_reports_nothing_used_or_declared() {
+        let store = MemoryStore::default();
+        let report = declared_extensions_conformance(&store).unwrap();
+        assert!(report.declared.is_empty());
+        assert_eq!(report.supported.len(), SUPPORTED_EXTENSIONS.len());
+        assert!(report.declared_but_unsupported.is_empty());
+        assert!(report.used_but_undeclared.is_empty());
+    }
+
+    #[test]
+    fn conformance_declared_but_unsupported_extension_is_flagged() {
+        let store = MemoryStore::default();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest
+            .extra
+            .insert("declaredExtensions".to_string(), json!(["ext:nonexistent"]));
+        store.save_manifest(&manifest).unwrap();
+
+        let report = declared_extensions_conformance(&store).unwrap();
+        assert_eq!(report.declared, vec!["ext:nonexistent"]);
+        assert_eq!(report.declared_but_unsupported, vec!["ext:nonexistent"]);
+        assert!(report.used_but_undeclared.is_empty());
+    }
+
+    #[test]
+    fn conformance_supported_declared_extension_not_flagged() {
+        let store = MemoryStore::default();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.extra.insert(
+            "declaredExtensions".to_string(),
+            json!(["ext:lifecycle"]),
+        );
+        store.save_manifest(&manifest).unwrap();
+
+        let report = declared_extensions_conformance(&store).unwrap();
+        assert!(
+            report.declared_but_unsupported.is_empty(),
+            "ext:lifecycle is supported; should not appear in declared_but_unsupported"
+        );
+    }
+
+    #[test]
+    fn conformance_lifecycle_state_detected_as_used() {
+        use crate::index::InstanceIndexEntry;
+        use crate::manifest::Manifest;
+        use crate::store::memory::MemoryStore;
+        use std::path::PathBuf;
+
+        let record_path = "records/abc123.json";
+        let record_json = json!({
+            "instanceId": "abc123",
+            "typeId": "test-type-id",
+            "typeVersion": 1,
+            "typeNamespace": "com.test",
+            "typeName": "note",
+            "fieldValues": [],
+            "lifecycleState": "active"
+        });
+        let manifest = Manifest {
+            instance_index: vec![InstanceIndexEntry {
+                instance_id: "abc123".to_string(),
+                tier: 2,
+                path: record_path.to_string(),
+                title: None,
+                tags: None,
+            }],
+            container: None,
+            container_index: None,
+            extra: std::collections::HashMap::new(),
+            root: PathBuf::from("/memory"),
+        };
+        let store = MemoryStore::new(
+            manifest,
+            crate::package::Package {
+                id: "test-pkg".to_string(),
+                namespace: "com.test".to_string(),
+                name: "test".to_string(),
+                version: "1.0.0".to_string(),
+                fields: vec![],
+                record_types: vec![],
+                relation_type_definitions: vec![],
+                views: vec![],
+                document_views: vec![],
+                themes: vec![],
+                blueprints: vec![],
+                protocols: vec![],
+                root: PathBuf::from("/memory"),
+                dependency_refs: vec![],
+                vocabularies: vec![],
+                lifecycles: vec![],
+            },
+        )
+        .with_data(record_path, record_json);
+
+        let report = declared_extensions_conformance(&store).unwrap();
+        assert!(
+            report.used_but_undeclared.contains(&"ext:lifecycle".to_string()),
+            "ext:lifecycle should be detected as used: {:?}",
+            report.used_but_undeclared
+        );
+    }
+
+    #[test]
+    fn conformance_declared_lifecycle_not_in_undeclared() {
+        use crate::index::InstanceIndexEntry;
+        use crate::manifest::Manifest;
+        use crate::store::memory::MemoryStore;
+        use std::path::PathBuf;
+
+        let record_path = "records/abc123.json";
+        let record_json = json!({
+            "instanceId": "abc123",
+            "typeId": "test-type-id",
+            "typeVersion": 1,
+            "typeNamespace": "com.test",
+            "typeName": "note",
+            "fieldValues": [],
+            "lifecycleState": "active"
+        });
+        let mut extra = std::collections::HashMap::new();
+        extra.insert("declaredExtensions".to_string(), json!(["ext:lifecycle"]));
+        let manifest = Manifest {
+            instance_index: vec![InstanceIndexEntry {
+                instance_id: "abc123".to_string(),
+                tier: 2,
+                path: record_path.to_string(),
+                title: None,
+                tags: None,
+            }],
+            container: None,
+            container_index: None,
+            extra,
+            root: PathBuf::from("/memory"),
+        };
+        let store = MemoryStore::new(
+            manifest,
+            crate::package::Package {
+                id: "test-pkg".to_string(),
+                namespace: "com.test".to_string(),
+                name: "test".to_string(),
+                version: "1.0.0".to_string(),
+                fields: vec![],
+                record_types: vec![],
+                relation_type_definitions: vec![],
+                views: vec![],
+                document_views: vec![],
+                themes: vec![],
+                blueprints: vec![],
+                protocols: vec![],
+                root: PathBuf::from("/memory"),
+                dependency_refs: vec![],
+                vocabularies: vec![],
+                lifecycles: vec![],
+            },
+        )
+        .with_data(record_path, record_json);
+
+        let report = declared_extensions_conformance(&store).unwrap();
+        assert!(
+            !report.used_but_undeclared.contains(&"ext:lifecycle".to_string()),
+            "ext:lifecycle is declared; must not appear in used_but_undeclared"
+        );
+    }
+
+    #[test]
+    fn conformance_lifecycle_used_roundtrip_filestore() {
+        // Cross-store roundtrip: write a record with lifecycleState to FileStore,
+        // assert that conformance detects ext:lifecycle as used-but-undeclared.
+        let temp = TempDir::new().unwrap();
+        let repo = temp.path();
+
+        // Minimal manifest with one Tier 2 record entry
+        let manifest_json = json!({
+            "srsVersion": "2.0-draft",
+            "repositoryId": "test-repo",
+            "instanceIndex": [
+                {
+                    "instanceId": "rec001",
+                    "tier": 2,
+                    "path": "records/rec001.json"
+                }
+            ]
+        });
+        std::fs::write(
+            repo.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest_json).unwrap(),
+        )
+        .unwrap();
+
+        // Record with lifecycleState — implies ext:lifecycle is in use
+        std::fs::create_dir_all(repo.join("records")).unwrap();
+        let record_json = json!({
+            "instanceId": "rec001",
+            "typeId": "test-type-id",
+            "typeVersion": 1,
+            "typeNamespace": "com.test",
+            "typeName": "note",
+            "fieldValues": [],
+            "lifecycleState": "active"
+        });
+        std::fs::write(
+            repo.join("records/rec001.json"),
+            serde_json::to_string_pretty(&record_json).unwrap(),
+        )
+        .unwrap();
+
+        let store = crate::FileStore::new(repo);
+        let report = declared_extensions_conformance(&store).unwrap();
+
+        assert!(
+            report.used_but_undeclared.contains(&"ext:lifecycle".to_string()),
+            "FileStore: ext:lifecycle should be detected via record lifecycleState: {:?}",
+            report.used_but_undeclared
+        );
+        assert!(
+            report.declared.is_empty(),
+            "no extensions declared in manifest"
+        );
     }
 }

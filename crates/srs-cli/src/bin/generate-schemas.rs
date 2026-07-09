@@ -169,6 +169,7 @@ fn main() {
     write_schema!("repo-extensions-list", RepoExtensionsPayload);
     write_schema!("repo-extensions-enable", RepoExtensionsMutatePayload);
     write_schema!("repo-extensions-disable", RepoExtensionsMutatePayload);
+    write_schema!("repo-extensions-conformance", RepoExtensionsConformancePayload);
     write_schema!("repo-init-new", RepoInitNewPayload);
     write_schema!("repo-set-root-container", RepoSetRootContainerPayload);
     write_schema!("repo-upgrade", RepoUpgradePayload);

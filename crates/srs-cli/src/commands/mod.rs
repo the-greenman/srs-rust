@@ -618,6 +618,8 @@ pub enum RepoExtensionsCommand {
         #[arg(long, hide = true)]
         json: bool,
     },
+    /// Report declared vs supported vs content-detected extension conformance
+    Conformance,
 }
 
 #[derive(Subcommand)]
