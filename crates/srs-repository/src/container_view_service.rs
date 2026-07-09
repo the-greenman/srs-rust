@@ -43,9 +43,10 @@ pub struct ColumnSpec {
     /// `i32` to match `FieldView.order`.
     pub order: i32,
     pub required: bool,
-    /// True when this column's fieldId is the resolved View's Type's effective
-    /// `identityFieldId` (RFC-020), and that Type was unambiguously resolvable
-    /// (see ADR-023). Never affects column order.
+    /// True when this column's fieldId is the effective `identityFieldId` (RFC-020) of the
+    /// single Type named by the DocumentView's `root_type_refs` (only when it has exactly
+    /// one entry — see ADR-023). `false` whenever that resolution is ambiguous or absent,
+    /// which is a normal outcome, not an error. Never affects column order.
     pub is_identity_column: bool,
 }
 
@@ -123,10 +124,9 @@ pub fn resolve_container_view(
         .map(|e| (e.instance_id().to_string(), e.tier()))
         .collect();
 
-    // Build the field_id -> field_name index once.
-    let field_name_index = record_label::build_field_name_index(store)?;
-    // RFC-020 — build the (type_id, type_version) -> identityFieldId index once.
-    let identity_field_index = record_label::build_identity_field_index(store)?;
+    // Build the field_id -> field_name and (type_id, type_version) -> identityFieldId
+    // indexes together, from a single Package load.
+    let (field_name_index, identity_field_index) = record_label::build_label_indexes(store)?;
 
     // Resolve the DocumentView.
     let document_view: Option<DocumentView> = match &input.view_id {

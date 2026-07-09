@@ -67,8 +67,7 @@ pub fn repository_navigation(
             path: PathBuf::from("manifest.container.identityInstanceId"),
         })?;
 
-    let field_name_index = record_label::build_field_name_index(store)?;
-    let identity_field_index = record_label::build_identity_field_index(store)?;
+    let (field_name_index, identity_field_index) = record_label::build_label_indexes(store)?;
     let mut diagnostics = Vec::new();
 
     let identity =

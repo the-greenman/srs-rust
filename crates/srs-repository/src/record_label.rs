@@ -1,20 +1,15 @@
 use crate::error::RepositoryError;
-use crate::package_service;
 use crate::store::RepositoryStore;
 use srs_core::types::record::Record;
 use std::collections::HashMap;
 
-/// Build a `field_id → field_name` index from the repository package.
-/// Load once per batch operation; pass to `record_display_label`.
-pub(crate) fn build_field_name_index(
-    store: &dyn RepositoryStore,
-) -> Result<HashMap<String, String>, RepositoryError> {
-    let fields = package_service::list_fields(store)?;
-    Ok(fields.into_iter().map(|f| (f.id, f.name)).collect())
-}
+/// `field_id → field_name`.
+pub(crate) type FieldNameIndex = HashMap<String, String>;
+/// RFC-020 — `(type_id, type_version) → identityFieldId`.
+pub(crate) type IdentityFieldIndex = HashMap<(String, u32), String>;
 
-/// RFC-020 — build a `(type_id, type_version) → identityFieldId` index from the repository
-/// package. Load once per batch operation; pass to `record_display_label`.
+/// RFC-020 — derive a `(type_id, type_version) → identityFieldId` index from an
+/// already-loaded `Package`.
 ///
 /// Only Types with a resolved effective `identityFieldId` get an entry — absence (for any
 /// reason, including a resolution error) means "fall through to the name ladder." A Type whose
@@ -23,17 +18,34 @@ pub(crate) fn build_field_name_index(
 /// call site, so propagating would hard-fail record listing/display repository-wide whenever any
 /// single Type has a broken chain. Rule [N+33] validation (`validation.rs`) is the correct,
 /// non-silent surface for that failure — this index-builder's job is graceful degradation.
-pub(crate) fn build_identity_field_index(
-    store: &dyn RepositoryStore,
-) -> Result<HashMap<(String, u32), String>, RepositoryError> {
-    let package = store.load_package()?;
+pub(crate) fn identity_field_index_from_package(
+    package: &crate::package::Package,
+) -> IdentityFieldIndex {
     let mut index = HashMap::new();
     for rt in package.record_types() {
         if let Ok(Some(field_id)) = package.effective_identity_field_id(rt) {
             index.insert((rt.id.clone(), rt.version), field_id);
         }
     }
-    Ok(index)
+    index
+}
+
+/// Build both the `field_id → field_name` and `(type_id, type_version) → identityFieldId`
+/// indexes from a single `Package` load. Every `record_display_label` call site needs both
+/// indexes together, so this loads the package exactly once rather than twice
+/// (`store.load_package()` has no caching and re-reads/re-parses every package file on
+/// `FileStore`). Load once per batch operation; pass both maps to `record_display_label`.
+pub(crate) fn build_label_indexes(
+    store: &dyn RepositoryStore,
+) -> Result<(FieldNameIndex, IdentityFieldIndex), RepositoryError> {
+    let package = store.load_package()?;
+    let field_name_index = package
+        .fields
+        .iter()
+        .map(|f| (f.id.clone(), f.name.clone()))
+        .collect();
+    let identity_field_index = identity_field_index_from_package(&package);
+    Ok((field_name_index, identity_field_index))
 }
 
 /// Extract the best display label for a record using pre-built identity and field name indexes.
@@ -43,8 +55,8 @@ pub(crate) fn build_identity_field_index(
 /// `type_name` fallback.
 pub(crate) fn record_display_label(
     record: &Record,
-    identity_field_index: &HashMap<(String, u32), String>,
-    field_name_index: &HashMap<String, String>,
+    identity_field_index: &IdentityFieldIndex,
+    field_name_index: &FieldNameIndex,
 ) -> String {
     if let Some(field_id) = identity_field_index.get(&(record.type_id.clone(), record.type_version))
     {
@@ -283,9 +295,7 @@ mod tests {
     }
 
     #[test]
-    fn build_identity_field_index_skips_broken_type_without_erroring() {
-        use crate::manifest::Manifest;
-        use crate::store::memory::MemoryStore;
+    fn identity_field_index_from_package_skips_broken_type_without_erroring() {
         use srs_core::types::record_type::{FieldAssignment, RecordType};
         use std::path::PathBuf;
 
@@ -345,18 +355,8 @@ mod tests {
             vocabularies: vec![],
             lifecycles: vec![],
         };
-        let store = MemoryStore::new(
-            Manifest {
-                instance_index: vec![],
-                container: None,
-                container_index: None,
-                extra: HashMap::new(),
-                root: PathBuf::from("/memory"),
-            },
-            package,
-        );
 
-        let index = build_identity_field_index(&store).expect("index build must not error");
+        let index = identity_field_index_from_package(&package);
         assert_eq!(
             index.get(&("valid-type".to_string(), 1)),
             Some(&"f1".to_string()),

@@ -8,7 +8,6 @@
 //! the raw stored value so the stream is reproducible by any implementation.
 
 use crate::error::RepositoryError;
-use crate::package_service;
 use crate::record_label;
 use crate::store::RepositoryStore;
 use serde::{Deserialize, Serialize};
@@ -76,19 +75,26 @@ fn is_searchable(value_type: &str) -> bool {
 }
 
 /// Build the field text index from the repository package.
+///
+/// Loads the package once and derives `names`, `searchable`, and `identity_field_ids`
+/// from it directly, rather than calling `package_service::list_fields` (its own
+/// `store.load_package()`) and `record_label::build_identity_field_index` (a second
+/// `store.load_package()`) — `store.load_package()` has no caching and re-reads/re-parses
+/// every package file on `FileStore`.
 pub fn build_field_text_index(
     store: &dyn RepositoryStore,
 ) -> Result<FieldTextIndex, RepositoryError> {
-    let fields = package_service::list_fields(store)?;
+    let package = store.load_package()?;
     let mut names = HashMap::new();
     let mut searchable = HashSet::new();
-    for f in fields {
-        if is_searchable(&f.value_type) {
+    for f in &package.fields {
+        let value_type = format!("{:?}", f.value_type).to_lowercase();
+        if is_searchable(&value_type) {
             searchable.insert(f.id.clone());
         }
-        names.insert(f.id, f.name);
+        names.insert(f.id.clone(), f.name.clone());
     }
-    let identity_field_ids = record_label::build_identity_field_index(store)?;
+    let identity_field_ids = record_label::identity_field_index_from_package(&package);
     Ok(FieldTextIndex {
         names,
         searchable,
