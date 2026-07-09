@@ -62,6 +62,7 @@ mod tests {
             name: "test-field".to_string(),
             version: 1,
             description: "test".to_string(),
+            instructions: None,
             ai_guidance: serde_json::Value::Null,
             value_type,
             allowed_values: if allowed {

@@ -297,6 +297,7 @@ mod tests {
             name: name.to_string(),
             version: 1,
             description: format!("{name} description"),
+            instructions: None,
             ai_guidance: json!(null),
             value_type: ValueType::String,
             allowed_values: None,

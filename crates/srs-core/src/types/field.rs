@@ -10,6 +10,8 @@ pub struct Field {
     pub name: String,
     pub version: u32,
     pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
     pub ai_guidance: serde_json::Value,
     pub value_type: ValueType,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -49,6 +51,7 @@ mod tests {
             name: "test-field".to_string(),
             version: 1,
             description: "A test field".to_string(),
+            instructions: None,
             ai_guidance: json!({"purpose": "captures test data"}),
             value_type: ValueType::Select,
             allowed_values: Some(vec!["a".to_string(), "b".to_string()]),
@@ -117,6 +120,7 @@ mod tests {
             name: "summary".to_string(),
             version: 1,
             description: "A short summary".to_string(),
+            instructions: None,
             ai_guidance: json!({"purpose": "captures the summary"}),
             value_type: ValueType::Text,
             allowed_values: None,

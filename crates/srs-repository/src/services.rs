@@ -1207,6 +1207,7 @@ mod tests {
             version: 1,
             value_type: ValueType::String,
             description: "Body field".to_string(),
+            instructions: None,
             ai_guidance: serde_json::json!(null),
             allowed_values: None,
             vocabulary_ref: None,
