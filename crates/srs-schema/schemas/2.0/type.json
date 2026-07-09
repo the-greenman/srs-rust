@@ -280,7 +280,7 @@
         },
         "effect": {
           "$ref": "#/$defs/CrossFieldRuleEffect",
-          "description": "Temporal direction for a field-ordering rule."
+          "description": "Ordering direction for a field-ordering rule."
         },
         "fieldIds": {
           "type": "array",
@@ -293,7 +293,7 @@
     "CrossFieldRuleEffect": {
       "type": "string",
       "enum": ["must-precede", "must-follow"],
-      "description": "Temporal direction for a field-ordering rule: the predicate field must-precede or must-follow the target."
+      "description": "Ordering direction for a field-ordering rule: the predicate field must-precede or must-follow the target."
     }
   }
 }
