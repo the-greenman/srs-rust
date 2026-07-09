@@ -1161,8 +1161,7 @@ mod tests {
 
     #[test]
     fn container_patch_unknown_field_fails_deserialization() {
-        let result: Result<ContainerPatch, _> =
-            serde_json::from_str(r#"{"unknownField": "x"}"#);
+        let result: Result<ContainerPatch, _> = serde_json::from_str(r#"{"unknownField": "x"}"#);
         assert!(
             result.is_err(),
             "unknown fields in ContainerPatch must fail deserialization, not silently drop"

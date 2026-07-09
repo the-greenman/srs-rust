@@ -4002,7 +4002,11 @@ fn container_update_patches_root_instance_ids() {
     .to_string();
     let updated = run_srs_stdin_in_dir(
         temp.path(),
-        &["container", "update", "00000000-0000-4000-8000-000000000001"],
+        &[
+            "container",
+            "update",
+            "00000000-0000-4000-8000-000000000001",
+        ],
         &patch,
     );
     assert_eq!(updated["ok"], true);
@@ -4035,7 +4039,11 @@ fn container_update_patches_member_instance_ids() {
     .to_string();
     let updated = run_srs_stdin_in_dir(
         temp.path(),
-        &["container", "update", "00000000-0000-4000-8000-000000000001"],
+        &[
+            "container",
+            "update",
+            "00000000-0000-4000-8000-000000000001",
+        ],
         &patch,
     );
     assert_eq!(updated["ok"], true);
@@ -4057,7 +4065,11 @@ fn container_update_unknown_field_in_patch_returns_error() {
     let patch = serde_json::json!({"unknownField": "value"}).to_string();
     let result = run_srs_stdin_in_dir(
         temp.path(),
-        &["container", "update", "00000000-0000-4000-8000-000000000001"],
+        &[
+            "container",
+            "update",
+            "00000000-0000-4000-8000-000000000001",
+        ],
         &patch,
     );
     assert_eq!(
