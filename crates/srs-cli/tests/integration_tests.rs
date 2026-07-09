@@ -1021,10 +1021,24 @@ fn json_store_cli_schema_record_and_roundtrip_workflow() {
 
     let fields = run_srs_in_dir(temp.path(), &["--repo", json_repo_str, "field", "list"]);
     assert_eq!(fields["ok"], true);
-    assert_eq!(fields["payload"]["fields"].as_array().unwrap().len(), 2);
+    // Core fields are always present; count only user-defined (non-core) fields.
+    let user_fields: Vec<_> = fields["payload"]["fields"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|f| f["namespace"] != "com.semanticops.core")
+        .collect();
+    assert_eq!(user_fields.len(), 2);
     let types = run_srs_in_dir(temp.path(), &["--repo", json_repo_str, "type", "list"]);
     assert_eq!(types["ok"], true);
-    assert_eq!(types["payload"]["types"].as_array().unwrap().len(), 1);
+    // Core types are always present; count only user-defined (non-core) types.
+    let user_types: Vec<_> = types["payload"]["types"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|t| t["namespace"] != "com.semanticops.core")
+        .collect();
+    assert_eq!(user_types.len(), 1);
     let records = run_srs_in_dir(temp.path(), &["--repo", json_repo_str, "record", "list"]);
     assert_eq!(records["ok"], true);
     // 1 purpose record (from repo create) + 1 explicitly created decision record
@@ -1068,22 +1082,22 @@ fn json_store_cli_schema_record_and_roundtrip_workflow() {
         temp.path(),
         &["--repo", roundtrip_json_str, "field", "list"],
     );
-    assert_eq!(
-        roundtrip_fields["payload"]["fields"]
-            .as_array()
-            .unwrap()
-            .len(),
-        2
-    );
+    let rt_user_fields: Vec<_> = roundtrip_fields["payload"]["fields"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|f| f["namespace"] != "com.semanticops.core")
+        .collect();
+    assert_eq!(rt_user_fields.len(), 2);
     let roundtrip_types =
         run_srs_in_dir(temp.path(), &["--repo", roundtrip_json_str, "type", "list"]);
-    assert_eq!(
-        roundtrip_types["payload"]["types"]
-            .as_array()
-            .unwrap()
-            .len(),
-        1
-    );
+    let rt_user_types: Vec<_> = roundtrip_types["payload"]["types"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|t| t["namespace"] != "com.semanticops.core")
+        .collect();
+    assert_eq!(rt_user_types.len(), 1);
     let roundtrip_records = run_srs_in_dir(
         temp.path(),
         &["--repo", roundtrip_json_str, "record", "list"],
@@ -2396,8 +2410,11 @@ fn field_list_returns_fields() {
     let fields = result["payload"]["fields"]
         .as_array()
         .expect("fields should be array");
-    assert_eq!(fields.len(), 1);
-    assert_eq!(fields[0]["name"], "test-field");
+    // Core fields are always present; assert our field is among them.
+    assert!(
+        fields.iter().any(|f| f["name"] == "test-field"),
+        "test-field must appear in field list"
+    );
 }
 
 #[test]
@@ -2593,8 +2610,11 @@ fn type_list_returns_types() {
     let types = result["payload"]["types"]
         .as_array()
         .expect("types should be array");
-    assert_eq!(types.len(), 1);
-    assert_eq!(types[0]["name"], "test-type");
+    // Core types are always present; assert our type is among them.
+    assert!(
+        types.iter().any(|t| t["name"] == "test-type"),
+        "test-type must appear in type list"
+    );
 }
 
 #[test]
@@ -5678,7 +5698,15 @@ fn field_list_includes_source_package() {
     assert_eq!(result["ok"], true);
 
     let fields = result["payload"]["fields"].as_array().unwrap();
-    assert_eq!(fields.len(), 2, "should list both fields");
+    // Core fields are always present; find the two user-defined fields explicitly.
+    assert!(
+        fields.iter().any(|f| f["name"] == "p-field"),
+        "p-field must appear in field list"
+    );
+    assert!(
+        fields.iter().any(|f| f["name"] == "s-field"),
+        "s-field must appear in field list"
+    );
 
     // Primary field should have no sourcePackage (omitted when None)
     let primary = fields
