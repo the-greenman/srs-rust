@@ -24,7 +24,7 @@
 
 use crate::error::RepositoryError;
 use crate::store::RepositoryStore;
-use crate::writer::new_instance_id;
+use crate::writer::{new_instance_id, write_manifest};
 use serde::{Deserialize, Serialize};
 use srs_core::types::container::Container;
 use srs_core::validation::container::validate_container;
@@ -40,7 +40,7 @@ pub struct ContainerSummary {
     pub container_type: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ContainerPatch {
     pub title: Option<String>,
@@ -50,6 +50,7 @@ pub struct ContainerPatch {
     pub container_type: Option<String>,
     pub tags: Option<Vec<String>>,
     pub meta: Option<serde_json::Value>,
+    pub identity_instance_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -187,6 +188,9 @@ pub fn update_container(
     if let Some(v) = patch.meta {
         container.meta = Some(v);
     }
+    if let Some(ref v) = patch.identity_instance_id {
+        container.identity_instance_id = Some(v.clone());
+    }
 
     // Schema validation at service boundary (after patch application)
     let raw = serde_json::to_value(&container).map_err(|e| RepositoryError::Serialize {
@@ -202,6 +206,32 @@ pub fn update_container(
 
     validate_container(&container)
         .map_err(|source| RepositoryError::ContainerValidation { source })?;
+
+    // If repointing identityInstanceId on the root container, sync manifest too (ADR-021 batch).
+    if let Some(new_identity_id) = patch.identity_instance_id {
+        let mut manifest = store.load_manifest()?;
+        let is_root = manifest
+            .container
+            .as_ref()
+            .map(|mc| mc.container_id.as_str() == container_id)
+            .unwrap_or(false);
+        if is_root {
+            if let Some(ref mut mc) = manifest.container {
+                mc.identity_instance_id = Some(new_identity_id);
+            }
+            store.begin_batch();
+            if let Err(e) = store.save_container(&container) {
+                store.abort_batch();
+                return Err(e);
+            }
+            if let Err(e) = write_manifest(store, &manifest) {
+                store.abort_batch();
+                return Err(e);
+            }
+            store.commit_batch()?;
+            return Ok(container);
+        }
+    }
 
     store.save_container(&container)?;
     Ok(container)
@@ -486,12 +516,7 @@ mod tests {
         .unwrap();
         let patch = ContainerPatch {
             title: Some("New".to_string()),
-            namespace: None,
-            name: None,
-            description: None,
-            container_type: None,
-            tags: None,
-            meta: None,
+            ..ContainerPatch::default()
         };
         let updated = update_container(&store, &created.container_id, patch).unwrap();
         assert_eq!(updated.title, "New");
@@ -507,12 +532,7 @@ mod tests {
         .unwrap();
         let patch = ContainerPatch {
             title: Some("New".to_string()),
-            namespace: None,
-            name: None,
-            description: None,
-            container_type: None,
-            tags: None,
-            meta: None,
+            ..ContainerPatch::default()
         };
         update_container(&store, &created.container_id, patch).unwrap();
         let listed = list_containers(&store, &ContainerListFilter::default()).unwrap();
@@ -527,12 +547,7 @@ mod tests {
         let created = create_container(&store, c).unwrap();
         let patch = ContainerPatch {
             title: Some("New".to_string()),
-            namespace: None,
-            name: None,
-            description: None,
-            container_type: None,
-            tags: None,
-            meta: None,
+            ..ContainerPatch::default()
         };
         update_container(&store, &created.container_id, patch).unwrap();
         let got = get_container(&store, &created.container_id).unwrap();
@@ -901,12 +916,7 @@ mod tests {
         create_container(&store, minimal_container(id, "Original")).unwrap();
         let patch = ContainerPatch {
             title: Some("Updated".to_string()),
-            namespace: None,
-            name: None,
-            description: None,
-            container_type: None,
-            tags: None,
-            meta: None,
+            ..ContainerPatch::default()
         };
         // Path lookup is adapter-owned; service only needs the container ID
         let updated = update_container(&store, id, patch).unwrap();
@@ -937,5 +947,57 @@ mod tests {
         add_member(&store, id, id).unwrap();
         let report = validate_container_invariants(&store, id).unwrap();
         assert!(!report.ok);
+    }
+
+    #[test]
+    fn patch_identity_instance_id_on_root_container_syncs_manifest() {
+        let store = make_store();
+        let container_id = "550e8400-e29b-41d4-a716-446655440000";
+        create_container(&store, minimal_container(container_id, "Root")).unwrap();
+
+        // Point manifest.container at this container
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.container = Some(minimal_container(container_id, "Root"));
+        store.save_manifest(&manifest).unwrap();
+
+        let patch = ContainerPatch {
+            identity_instance_id: Some("new-identity-id".to_string()),
+            ..ContainerPatch::default()
+        };
+        let updated = update_container(&store, container_id, patch).unwrap();
+        assert_eq!(
+            updated.identity_instance_id,
+            Some("new-identity-id".to_string())
+        );
+
+        let manifest = store.load_manifest().unwrap();
+        assert_eq!(
+            manifest.container.unwrap().identity_instance_id,
+            Some("new-identity-id".to_string())
+        );
+    }
+
+    #[test]
+    fn patch_identity_instance_id_on_non_root_container_does_not_touch_manifest() {
+        let store = make_store();
+        let root_id = "550e8400-e29b-41d4-a716-446655440000";
+        let other_id = "550e8400-e29b-41d4-a716-446655440001";
+        create_container(&store, minimal_container(root_id, "Root")).unwrap();
+        create_container(&store, minimal_container(other_id, "Other")).unwrap();
+
+        // Set manifest.container to root_id with no identity pointer
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.container = Some(minimal_container(root_id, "Root"));
+        store.save_manifest(&manifest).unwrap();
+
+        // Patch OTHER container's identity_instance_id — manifest should not change
+        let patch = ContainerPatch {
+            identity_instance_id: Some("should-not-sync".to_string()),
+            ..ContainerPatch::default()
+        };
+        update_container(&store, other_id, patch).unwrap();
+
+        let manifest = store.load_manifest().unwrap();
+        assert_eq!(manifest.container.unwrap().identity_instance_id, None);
     }
 }
