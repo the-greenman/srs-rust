@@ -563,4 +563,25 @@ mod tests {
         assert_eq!(errs.len(), 1);
         assert!(matches!(errs[0], CoreError::CrossFieldRuleMisconfigured { .. }));
     }
+
+    #[test]
+    fn conditional_required_misconfigured_missing_predicate() {
+        // A conditional-required rule with all required fields absent → misconfigured
+        let record = make_record(vec![("f-x", serde_json::json!("some-value"))]);
+        let rule = CrossFieldRule {
+            rule_type: CrossFieldRuleKind::ConditionalRequired,
+            message: None,
+            predicate_field_id: None, // missing
+            predicate_value: None,    // missing
+            target_field_id: None,    // missing
+            effect: None,
+            field_ids: None,
+        };
+        let errs = validate_cross_field_rules(&record, &[rule], &HashMap::new());
+        assert_eq!(errs.len(), 1);
+        assert!(matches!(
+            &errs[0],
+            CoreError::CrossFieldRuleMisconfigured { reason } if reason.contains("conditional-required")
+        ));
+    }
 }

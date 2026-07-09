@@ -83,6 +83,11 @@
       "items": { "$ref": "#/$defs/FieldAssignmentOverride" },
       "description": "ext:type-inheritance — per-field overrides applied to inherited FieldAssignments."
     },
+    "validationRules": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/CrossFieldRule" },
+      "description": "ext:cross-field-validation — cross-field validation rules applied to Records of this Type."
+    },
     "createdAt": {
       "type": "string",
       "format": "date-time"
@@ -238,6 +243,52 @@
           "description": "ext:field-groups RFC-007 — dispatch rendering to a named composite renderer. Bare names (e.g. 'table') are SRS-reserved; vendor values use 'reverse-domain/name'. Unknown values fall back to per-field baseline with a diagnostic [FG-Cx1]."
         }
       }
+    },
+    "CrossFieldRule": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "description": "ext:cross-field-validation — a constraint that validates a relationship between fields in a Record.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["conditional-required", "field-ordering", "mutual-exclusion"],
+          "description": "The kind of cross-field constraint."
+        },
+        "message": {
+          "type": "string",
+          "description": "Optional human-readable description of the rule."
+        },
+        "predicateFieldId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Field whose value is tested (conditional-required, field-ordering)."
+        },
+        "predicateValue": {
+          "type": "string",
+          "description": "Value the predicate field must equal to activate the rule (conditional-required)."
+        },
+        "targetFieldId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Field that is constrained when the rule fires (conditional-required, field-ordering)."
+        },
+        "effect": {
+          "$ref": "#/$defs/CrossFieldRuleEffect",
+          "description": "Temporal direction for a field-ordering rule."
+        },
+        "fieldIds": {
+          "type": "array",
+          "items": { "type": "string", "format": "uuid" },
+          "minItems": 2,
+          "description": "Fields of which at most one may be non-empty (mutual-exclusion)."
+        }
+      }
+    },
+    "CrossFieldRuleEffect": {
+      "type": "string",
+      "enum": ["must-precede", "must-follow"],
+      "description": "Temporal direction for a field-ordering rule: the predicate field must-precede or must-follow the target."
     }
   }
 }

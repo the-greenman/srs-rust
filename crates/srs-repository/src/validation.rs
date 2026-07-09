@@ -419,9 +419,9 @@ pub fn validate_repository(
             match package_for_tier2.as_ref().and_then(|p| p.as_ref()) {
                 Some(package) => match serde_json::from_value::<Record>(value.clone()) {
                     Ok(record) => {
-                        if let Some(record_type) =
-                            package.resolve_type(&record.type_id, record.type_version)
-                        {
+                        let rt_opt = package.resolve_type(&record.type_id, record.type_version);
+
+                        if let Some(record_type) = rt_opt {
                             match package.effective_fields(record_type) {
                                 Ok(effective_fields) => {
                                     if let Err(err) =
@@ -484,9 +484,7 @@ pub fn validate_repository(
 
                         // V8: validate record's lifecycleState against its type's lifecycle
                         if let Some(state_value) = &record.lifecycle_state {
-                            if let Some(rt) =
-                                package.resolve_type(&record.type_id, record.type_version)
-                            {
+                            if let Some(rt) = rt_opt {
                                 let lc_states: Option<
                                     Vec<&srs_core::types::lifecycle::LifecycleState>,
                                 > = if let Some(ref_id) = &rt.lifecycle_ref {
@@ -519,14 +517,12 @@ pub fn validate_repository(
                         }
 
                         // ext:cross-field-validation — evaluate CrossFieldRule[] if present
-                        if let Some(rt) =
-                            package.resolve_type(&record.type_id, record.type_version)
-                        {
+                        if let Some(rt) = rt_opt {
                             if let Some(rules) = &rt.validation_rules {
                                 if !rules.is_empty() {
-                                    let empty_map = HashMap::new();
-                                    let ftype_map =
-                                        field_type_map.as_ref().unwrap_or(&empty_map);
+                                    let ftype_map = field_type_map
+                                        .as_ref()
+                                        .expect("field_type_map is populated in the same tier-2 lazy-load block");
                                     let cfr_errors = validate_cross_field_rules(
                                         &record,
                                         rules,
@@ -4781,6 +4777,70 @@ mod tests {
             cfr_errs.is_empty(),
             "expected no CFR errors for type without validationRules, got: {:?}",
             cfr_errs
+        );
+    }
+
+    #[test]
+    fn cfr_mutual_exclusion_violation_memory_store() {
+        // Cross-store variant: MemoryStore exercises the same CFR path as FileStore.
+        // mutual-exclusion is the simplest rule (no field-type lookup required).
+        use crate::manifest::Manifest;
+
+        let record_id = "00000000-0000-4000-8000-000000009200";
+        let type_id = "00000000-0000-4000-8000-000000009201";
+        let field_a = "00000000-0000-4000-8000-000000009210";
+        let field_b = "00000000-0000-4000-8000-000000009211";
+
+        let record_type: srs_core::types::record_type::RecordType =
+            serde_json::from_value(json!({
+                "id": type_id,
+                "namespace": "com.test",
+                "name": "me-type",
+                "version": 1,
+                "description": "Mutual exclusion MemoryStore test type",
+                "fields": [
+                    {"fieldId": field_a, "order": 1, "required": false},
+                    {"fieldId": field_b, "order": 2, "required": false}
+                ],
+                "validationRules": [{
+                    "type": "mutual-exclusion",
+                    "fieldIds": [field_a, field_b]
+                }],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }))
+            .unwrap();
+
+        let record_json = cfr_record_json(
+            record_id,
+            type_id,
+            "me-type",
+            &[
+                (field_a, json!("val-a")),
+                (field_b, json!("val-b")), // both set → mutual-exclusion violation
+            ],
+        );
+
+        let manifest_json = minimal_manifest(json!([{
+            "instanceId": record_id,
+            "tier": 2,
+            "path": "records/cfr-me-record.json"
+        }]));
+        let manifest_str = serde_json::to_string(&manifest_json).unwrap();
+        let manifest: Manifest = serde_json::from_value(manifest_json).unwrap();
+
+        let store = MemoryStore::with_type(record_type)
+            .with_data("records/cfr-me-record.json", record_json)
+            .with_data("manifest.json", serde_json::Value::String(manifest_str));
+        store.save_manifest(&manifest).unwrap();
+
+        let report = validate_repository(&store).unwrap();
+        let cfr_err = report.diagnostics.iter().find(|d| {
+            d.severity == DiagnosticSeverity::Error && d.message.contains("mutual-exclusion")
+        });
+        assert!(
+            cfr_err.is_some(),
+            "expected mutual-exclusion CFR error via MemoryStore, got: {:?}",
+            report.diagnostics
         );
     }
 }
