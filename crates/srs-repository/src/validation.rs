@@ -2,6 +2,7 @@ use crate::error::RepositoryError;
 use crate::store::RepositoryStore;
 use serde_json::Value;
 use srs_core::types::blueprint::{Blueprint, BlueprintDiagnosticSeverity};
+use srs_core::types::field::ValueType;
 use srs_core::types::protocol::{Protocol, ProtocolDiagnosticSeverity};
 use srs_core::types::record::Record;
 use srs_core::types::relation::RelationsCollection;
@@ -11,6 +12,7 @@ use srs_core::validation::lifecycle::{
 };
 use srs_core::validation::protocol::validate_protocol;
 use srs_core::validation::record::validate_record;
+use srs_core::validation::record_type::validate_cross_field_rules;
 use srs_core::validation::relation::{validate_relation, RelationValidationContext};
 use srs_schema::{SchemaRegistry, NOTE_SCHEMA_ID, RECORD_SCHEMA_ID};
 use std::collections::{HashMap, HashSet};
@@ -66,6 +68,7 @@ pub fn validate_repository(
     let mut diagnostics: Vec<ValidationDiagnostic> = Vec::new();
     let mut checked = 0usize;
     let mut package_for_tier2: Option<Option<crate::package::Package>> = None;
+    let mut field_type_map: Option<HashMap<String, ValueType>> = None;
 
     // --- Validate root manifest.json ---
     let manifest_raw = store.load_text_file("manifest.json").map_err(|e| match e {
@@ -406,14 +409,23 @@ pub fn validate_repository(
 
         if entry.tier() == 2 {
             if package_for_tier2.is_none() {
-                package_for_tier2 = Some(store.load_package().ok());
+                let pkg = store.load_package().ok();
+                field_type_map = Some(match &pkg {
+                    Some(p) => p
+                        .fields
+                        .iter()
+                        .map(|f| (f.id.clone(), f.value_type))
+                        .collect(),
+                    None => HashMap::new(),
+                });
+                package_for_tier2 = Some(pkg);
             }
             match package_for_tier2.as_ref().and_then(|p| p.as_ref()) {
                 Some(package) => match serde_json::from_value::<Record>(value.clone()) {
                     Ok(record) => {
-                        if let Some(record_type) =
-                            package.resolve_type(&record.type_id, record.type_version)
-                        {
+                        let rt_opt = package.resolve_type(&record.type_id, record.type_version);
+
+                        if let Some(record_type) = rt_opt {
                             match package.effective_fields(record_type) {
                                 Ok(effective_fields) => {
                                     if let Err(err) =
@@ -476,9 +488,7 @@ pub fn validate_repository(
 
                         // V8: validate record's lifecycleState against its type's lifecycle
                         if let Some(state_value) = &record.lifecycle_state {
-                            if let Some(rt) =
-                                package.resolve_type(&record.type_id, record.type_version)
-                            {
+                            if let Some(rt) = rt_opt {
                                 let lc_states: Option<
                                     Vec<&srs_core::types::lifecycle::LifecycleState>,
                                 > = if let Some(ref_id) = &rt.lifecycle_ref {
@@ -504,6 +514,27 @@ pub fn validate_repository(
                                                 "V8: record '{}' lifecycleState '{}' is not a valid state key in the resolved lifecycle",
                                                 record.instance_id, state_value
                                             ),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+
+                        // ext:cross-field-validation — evaluate CrossFieldRule[] if present
+                        if let Some(rt) = rt_opt {
+                            if let Some(rules) = &rt.validation_rules {
+                                if !rules.is_empty() {
+                                    let ftype_map = field_type_map
+                                        .as_ref()
+                                        .expect("field_type_map is populated in the same tier-2 lazy-load block");
+                                    let cfr_errors =
+                                        validate_cross_field_rules(&record, rules, ftype_map);
+                                    for err in cfr_errors {
+                                        diagnostics.push(ValidationDiagnostic {
+                                            severity: DiagnosticSeverity::Error,
+                                            relative_path: rel_path.clone(),
+                                            schema_id: None,
+                                            message: err.to_string(),
                                         });
                                     }
                                 }
@@ -4194,6 +4225,619 @@ mod tests {
             rfc018_diags.is_empty(),
             "expected no RFC-018 I-81 diagnostics for correct purpose-type identity, got: {:?}",
             rfc018_diags
+        );
+    }
+
+    // ── ext:cross-field-validation integration tests ─────────────────────────
+
+    fn cfr_pkg_json(field_paths: &[&str], type_path: &str) -> Value {
+        json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+            "id": "00000000-0000-4000-8000-000000009000",
+            "namespace": "com.test",
+            "name": "cfr-package",
+            "title": "CFR Test Package",
+            "description": "integration test package",
+            "status": "active",
+            "version": "1.0.0",
+            "createdAt": "2026-01-01T00:00:00Z",
+            "fields": field_paths,
+            "types": [type_path],
+            "views": [],
+            "documentViews": []
+        })
+    }
+
+    fn cfr_field_json(id: &str, name: &str, value_type: &str) -> Value {
+        json!({
+            "id": id,
+            "namespace": "com.test",
+            "name": name,
+            "version": 1,
+            "description": format!("{name} field"),
+            "aiGuidance": {},
+            "valueType": value_type,
+            "createdAt": "2026-01-01T00:00:00Z"
+        })
+    }
+
+    fn cfr_record_json(
+        record_id: &str,
+        type_id: &str,
+        type_name: &str,
+        field_values: &[(&str, Value)],
+    ) -> Value {
+        let fvs: Vec<Value> = field_values
+            .iter()
+            .map(|(fid, v)| json!({"fieldId": fid, "value": v}))
+            .collect();
+        json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+            "instanceId": record_id,
+            "typeId": type_id,
+            "typeVersion": 1,
+            "typeNamespace": "com.test",
+            "typeName": type_name,
+            "fieldValues": fvs,
+            "createdAt": "2026-01-01T00:00:00Z"
+        })
+    }
+
+    #[test]
+    fn cfr_conditional_required_violation_produces_error() {
+        let temp = TempDir::new().unwrap();
+        let record_id = "00000000-0000-4000-8000-000000009001";
+        let type_id = "00000000-0000-4000-8000-000000009002";
+        let pred_field_id = "00000000-0000-4000-8000-000000009010";
+        let target_field_id = "00000000-0000-4000-8000-000000009011";
+
+        write_json(
+            temp.path(),
+            "manifest.json",
+            &minimal_manifest(json!([{
+                "instanceId": record_id,
+                "tier": 2,
+                "path": "records/cfr-record.json"
+            }])),
+        );
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &cfr_pkg_json(
+                &["fields/pred.json", "fields/target.json"],
+                "types/cfr-type.json",
+            ),
+        );
+        write_json(
+            temp.path(),
+            "package/fields/pred.json",
+            &cfr_field_json(pred_field_id, "status", "text"),
+        );
+        write_json(
+            temp.path(),
+            "package/fields/target.json",
+            &cfr_field_json(target_field_id, "review-comment", "text"),
+        );
+        write_json(
+            temp.path(),
+            "package/types/cfr-type.json",
+            &json!({
+                "id": type_id,
+                "namespace": "com.test",
+                "name": "cfr-type",
+                "version": 1,
+                "description": "CFR test type",
+                "fields": [
+                    {"fieldId": pred_field_id, "order": 1, "required": false},
+                    {"fieldId": target_field_id, "order": 2, "required": false}
+                ],
+                "createdAt": "2026-01-01T00:00:00Z",
+                "validationRules": [{
+                    "type": "conditional-required",
+                    "predicateFieldId": pred_field_id,
+                    "predicateValue": "approved",
+                    "targetFieldId": target_field_id
+                }]
+            }),
+        );
+        // Record has predicate set to "approved" but target field absent → violation
+        write_json(
+            temp.path(),
+            "records/cfr-record.json",
+            &cfr_record_json(
+                record_id,
+                type_id,
+                "cfr-type",
+                &[(pred_field_id, json!("approved"))],
+            ),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let cfr_err = report.diagnostics.iter().find(|d| {
+            d.severity == DiagnosticSeverity::Error && d.message.contains("conditional-required")
+        });
+        assert!(
+            cfr_err.is_some(),
+            "expected conditional-required error, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn cfr_conditional_required_satisfied_no_error() {
+        let temp = TempDir::new().unwrap();
+        let record_id = "00000000-0000-4000-8000-000000009021";
+        let type_id = "00000000-0000-4000-8000-000000009022";
+        let pred_field_id = "00000000-0000-4000-8000-000000009030";
+        let target_field_id = "00000000-0000-4000-8000-000000009031";
+
+        write_json(
+            temp.path(),
+            "manifest.json",
+            &minimal_manifest(json!([{
+                "instanceId": record_id,
+                "tier": 2,
+                "path": "records/cfr-record.json"
+            }])),
+        );
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &cfr_pkg_json(
+                &["fields/pred.json", "fields/target.json"],
+                "types/cfr-type.json",
+            ),
+        );
+        write_json(
+            temp.path(),
+            "package/fields/pred.json",
+            &cfr_field_json(pred_field_id, "status", "text"),
+        );
+        write_json(
+            temp.path(),
+            "package/fields/target.json",
+            &cfr_field_json(target_field_id, "review-comment", "text"),
+        );
+        write_json(
+            temp.path(),
+            "package/types/cfr-type.json",
+            &json!({
+                "id": type_id,
+                "namespace": "com.test",
+                "name": "cfr-type",
+                "version": 1,
+                "description": "CFR test type",
+                "fields": [
+                    {"fieldId": pred_field_id, "order": 1, "required": false},
+                    {"fieldId": target_field_id, "order": 2, "required": false}
+                ],
+                "createdAt": "2026-01-01T00:00:00Z",
+                "validationRules": [{
+                    "type": "conditional-required",
+                    "predicateFieldId": pred_field_id,
+                    "predicateValue": "approved",
+                    "targetFieldId": target_field_id
+                }]
+            }),
+        );
+        // Record has predicate = "approved" AND target present → no violation
+        write_json(
+            temp.path(),
+            "records/cfr-record.json",
+            &cfr_record_json(
+                record_id,
+                type_id,
+                "cfr-type",
+                &[
+                    (pred_field_id, json!("approved")),
+                    (target_field_id, json!("LGTM")),
+                ],
+            ),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let cfr_errs: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("conditional-required"))
+            .collect();
+        assert!(
+            cfr_errs.is_empty(),
+            "expected no conditional-required errors when target is present, got: {:?}",
+            cfr_errs
+        );
+    }
+
+    #[test]
+    fn cfr_field_ordering_violation_produces_error() {
+        let temp = TempDir::new().unwrap();
+        let record_id = "00000000-0000-4000-8000-000000009041";
+        let type_id = "00000000-0000-4000-8000-000000009042";
+        let start_field_id = "00000000-0000-4000-8000-000000009050";
+        let end_field_id = "00000000-0000-4000-8000-000000009051";
+
+        write_json(
+            temp.path(),
+            "manifest.json",
+            &minimal_manifest(json!([{
+                "instanceId": record_id,
+                "tier": 2,
+                "path": "records/cfr-record.json"
+            }])),
+        );
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &cfr_pkg_json(
+                &["fields/start.json", "fields/end.json"],
+                "types/cfr-type.json",
+            ),
+        );
+        write_json(
+            temp.path(),
+            "package/fields/start.json",
+            &cfr_field_json(start_field_id, "start-date", "date"),
+        );
+        write_json(
+            temp.path(),
+            "package/fields/end.json",
+            &cfr_field_json(end_field_id, "end-date", "date"),
+        );
+        // end-date must-follow start-date: end > start
+        write_json(
+            temp.path(),
+            "package/types/cfr-type.json",
+            &json!({
+                "id": type_id,
+                "namespace": "com.test",
+                "name": "cfr-type",
+                "version": 1,
+                "description": "CFR ordering type",
+                "fields": [
+                    {"fieldId": start_field_id, "order": 1, "required": false},
+                    {"fieldId": end_field_id, "order": 2, "required": false}
+                ],
+                "createdAt": "2026-01-01T00:00:00Z",
+                "validationRules": [{
+                    "type": "field-ordering",
+                    "targetFieldId": end_field_id,
+                    "effect": "must-follow",
+                    "predicateFieldId": start_field_id
+                }]
+            }),
+        );
+        // end-date = "2026-01-01" < start-date = "2026-06-01" → violation
+        write_json(
+            temp.path(),
+            "records/cfr-record.json",
+            &cfr_record_json(
+                record_id,
+                type_id,
+                "cfr-type",
+                &[
+                    (start_field_id, json!("2026-06-01")),
+                    (end_field_id, json!("2026-01-01")),
+                ],
+            ),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let cfr_err = report.diagnostics.iter().find(|d| {
+            d.severity == DiagnosticSeverity::Error && d.message.contains("field-ordering")
+        });
+        assert!(
+            cfr_err.is_some(),
+            "expected field-ordering error when end < start, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn cfr_field_ordering_satisfied_no_error() {
+        let temp = TempDir::new().unwrap();
+        let record_id = "00000000-0000-4000-8000-000000009061";
+        let type_id = "00000000-0000-4000-8000-000000009062";
+        let start_field_id = "00000000-0000-4000-8000-000000009070";
+        let end_field_id = "00000000-0000-4000-8000-000000009071";
+
+        write_json(
+            temp.path(),
+            "manifest.json",
+            &minimal_manifest(json!([{
+                "instanceId": record_id,
+                "tier": 2,
+                "path": "records/cfr-record.json"
+            }])),
+        );
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &cfr_pkg_json(
+                &["fields/start.json", "fields/end.json"],
+                "types/cfr-type.json",
+            ),
+        );
+        write_json(
+            temp.path(),
+            "package/fields/start.json",
+            &cfr_field_json(start_field_id, "start-date", "date"),
+        );
+        write_json(
+            temp.path(),
+            "package/fields/end.json",
+            &cfr_field_json(end_field_id, "end-date", "date"),
+        );
+        write_json(
+            temp.path(),
+            "package/types/cfr-type.json",
+            &json!({
+                "id": type_id,
+                "namespace": "com.test",
+                "name": "cfr-type",
+                "version": 1,
+                "description": "CFR ordering type",
+                "fields": [
+                    {"fieldId": start_field_id, "order": 1, "required": false},
+                    {"fieldId": end_field_id, "order": 2, "required": false}
+                ],
+                "createdAt": "2026-01-01T00:00:00Z",
+                "validationRules": [{
+                    "type": "field-ordering",
+                    "targetFieldId": end_field_id,
+                    "effect": "must-follow",
+                    "predicateFieldId": start_field_id
+                }]
+            }),
+        );
+        // end-date = "2026-12-01" > start-date = "2026-01-01" → valid
+        write_json(
+            temp.path(),
+            "records/cfr-record.json",
+            &cfr_record_json(
+                record_id,
+                type_id,
+                "cfr-type",
+                &[
+                    (start_field_id, json!("2026-01-01")),
+                    (end_field_id, json!("2026-12-01")),
+                ],
+            ),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let cfr_errs: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("field-ordering"))
+            .collect();
+        assert!(
+            cfr_errs.is_empty(),
+            "expected no field-ordering errors for valid date range, got: {:?}",
+            cfr_errs
+        );
+    }
+
+    #[test]
+    fn cfr_mutual_exclusion_violation_produces_error() {
+        let temp = TempDir::new().unwrap();
+        let record_id = "00000000-0000-4000-8000-000000009081";
+        let type_id = "00000000-0000-4000-8000-000000009082";
+        let field_a_id = "00000000-0000-4000-8000-000000009090";
+        let field_b_id = "00000000-0000-4000-8000-000000009091";
+
+        write_json(
+            temp.path(),
+            "manifest.json",
+            &minimal_manifest(json!([{
+                "instanceId": record_id,
+                "tier": 2,
+                "path": "records/cfr-record.json"
+            }])),
+        );
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &cfr_pkg_json(
+                &["fields/tag-a.json", "fields/tag-b.json"],
+                "types/cfr-type.json",
+            ),
+        );
+        write_json(
+            temp.path(),
+            "package/fields/tag-a.json",
+            &cfr_field_json(field_a_id, "tag-a", "text"),
+        );
+        write_json(
+            temp.path(),
+            "package/fields/tag-b.json",
+            &cfr_field_json(field_b_id, "tag-b", "text"),
+        );
+        write_json(
+            temp.path(),
+            "package/types/cfr-type.json",
+            &json!({
+                "id": type_id,
+                "namespace": "com.test",
+                "name": "cfr-type",
+                "version": 1,
+                "description": "CFR mutex type",
+                "fields": [
+                    {"fieldId": field_a_id, "order": 1, "required": false},
+                    {"fieldId": field_b_id, "order": 2, "required": false}
+                ],
+                "createdAt": "2026-01-01T00:00:00Z",
+                "validationRules": [{
+                    "type": "mutual-exclusion",
+                    "fieldIds": [field_a_id, field_b_id]
+                }]
+            }),
+        );
+        // Both fields set → mutual exclusion violation
+        write_json(
+            temp.path(),
+            "records/cfr-record.json",
+            &cfr_record_json(
+                record_id,
+                type_id,
+                "cfr-type",
+                &[
+                    (field_a_id, json!("value-a")),
+                    (field_b_id, json!("value-b")),
+                ],
+            ),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let cfr_err = report.diagnostics.iter().find(|d| {
+            d.severity == DiagnosticSeverity::Error && d.message.contains("mutual-exclusion")
+        });
+        assert!(
+            cfr_err.is_some(),
+            "expected mutual-exclusion error when both fields set, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn cfr_no_validation_rules_no_cfr_errors() {
+        let temp = TempDir::new().unwrap();
+        let record_id = "00000000-0000-4000-8000-000000009101";
+        let type_id = "00000000-0000-4000-8000-000000009102";
+        let field_id = "00000000-0000-4000-8000-000000009110";
+
+        write_json(
+            temp.path(),
+            "manifest.json",
+            &minimal_manifest(json!([{
+                "instanceId": record_id,
+                "tier": 2,
+                "path": "records/cfr-record.json"
+            }])),
+        );
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &cfr_pkg_json(&["fields/status.json"], "types/cfr-type.json"),
+        );
+        write_json(
+            temp.path(),
+            "package/fields/status.json",
+            &cfr_field_json(field_id, "status", "text"),
+        );
+        // Type has no validationRules key
+        write_json(
+            temp.path(),
+            "package/types/cfr-type.json",
+            &json!({
+                "id": type_id,
+                "namespace": "com.test",
+                "name": "cfr-type",
+                "version": 1,
+                "description": "Type without validation rules",
+                "fields": [{"fieldId": field_id, "order": 1, "required": false}],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+        write_json(
+            temp.path(),
+            "records/cfr-record.json",
+            &cfr_record_json(
+                record_id,
+                type_id,
+                "cfr-type",
+                &[(field_id, json!("active"))],
+            ),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let cfr_errs: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.message.contains("conditional-required")
+                    || d.message.contains("field-ordering")
+                    || d.message.contains("mutual-exclusion")
+            })
+            .collect();
+        assert!(
+            cfr_errs.is_empty(),
+            "expected no CFR errors for type without validationRules, got: {:?}",
+            cfr_errs
+        );
+    }
+
+    #[test]
+    fn cfr_mutual_exclusion_violation_memory_store() {
+        // Cross-store variant: MemoryStore exercises the same CFR path as FileStore.
+        // mutual-exclusion is the simplest rule (no field-type lookup required).
+        use crate::manifest::Manifest;
+
+        let record_id = "00000000-0000-4000-8000-000000009200";
+        let type_id = "00000000-0000-4000-8000-000000009201";
+        let field_a = "00000000-0000-4000-8000-000000009210";
+        let field_b = "00000000-0000-4000-8000-000000009211";
+
+        let record_type: srs_core::types::record_type::RecordType = serde_json::from_value(json!({
+            "id": type_id,
+            "namespace": "com.test",
+            "name": "me-type",
+            "version": 1,
+            "description": "Mutual exclusion MemoryStore test type",
+            "fields": [
+                {"fieldId": field_a, "order": 1, "required": false},
+                {"fieldId": field_b, "order": 2, "required": false}
+            ],
+            "validationRules": [{
+                "type": "mutual-exclusion",
+                "fieldIds": [field_a, field_b]
+            }],
+            "createdAt": "2026-01-01T00:00:00Z"
+        }))
+        .unwrap();
+
+        let record_json = cfr_record_json(
+            record_id,
+            type_id,
+            "me-type",
+            &[
+                (field_a, json!("val-a")),
+                (field_b, json!("val-b")), // both set → mutual-exclusion violation
+            ],
+        );
+
+        let manifest_json = minimal_manifest(json!([{
+            "instanceId": record_id,
+            "tier": 2,
+            "path": "records/cfr-me-record.json"
+        }]));
+        let manifest_str = serde_json::to_string(&manifest_json).unwrap();
+        let manifest: Manifest = serde_json::from_value(manifest_json).unwrap();
+
+        let store = MemoryStore::with_type(record_type)
+            .with_data("records/cfr-me-record.json", record_json)
+            .with_data("manifest.json", serde_json::Value::String(manifest_str));
+        store.save_manifest(&manifest).unwrap();
+
+        let report = validate_repository(&store).unwrap();
+        let cfr_err = report.diagnostics.iter().find(|d| {
+            d.severity == DiagnosticSeverity::Error && d.message.contains("mutual-exclusion")
+        });
+        assert!(
+            cfr_err.is_some(),
+            "expected mutual-exclusion CFR error via MemoryStore, got: {:?}",
+            report.diagnostics
         );
     }
 }

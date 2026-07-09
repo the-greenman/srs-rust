@@ -1485,6 +1485,7 @@ mod tests {
             field_assignment_overrides: None,
             lifecycle: None,
             lifecycle_ref: None,
+            validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -1567,6 +1568,7 @@ mod tests {
             field_assignment_overrides: None,
             lifecycle: None,
             lifecycle_ref: None,
+            validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -2446,6 +2448,7 @@ mod tests {
                 initial_state: "draft".to_string(),
             }),
             lifecycle_ref: None,
+            validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -3368,6 +3371,7 @@ mod tests {
             field_assignment_overrides: None,
             lifecycle: None,
             lifecycle_ref: Some("lc-ref-standalone-001".to_string()),
+            validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -3513,6 +3517,7 @@ mod tests {
             field_assignment_overrides: None,
             lifecycle: None,
             lifecycle_ref: None,
+            validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -3530,6 +3535,7 @@ mod tests {
             field_assignment_overrides: None,
             lifecycle: None,
             lifecycle_ref: None,
+            validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };

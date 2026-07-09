@@ -3040,6 +3040,7 @@ mod tests {
             field_assignment_overrides: None,
             lifecycle: None,
             lifecycle_ref: None,
+            validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -3076,6 +3077,7 @@ mod tests {
             field_assignment_overrides: None,
             lifecycle: None,
             lifecycle_ref: None,
+            validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -3568,6 +3570,7 @@ mod tests {
             field_assignment_overrides: None,
             lifecycle: None,
             lifecycle_ref: None,
+            validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -3599,6 +3602,7 @@ mod tests {
             field_assignment_overrides: None,
             lifecycle: None,
             lifecycle_ref: None,
+            validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -3626,6 +3630,7 @@ mod tests {
             field_assignment_overrides: None,
             lifecycle: None,
             lifecycle_ref: None,
+            validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -3721,6 +3726,7 @@ mod tests {
             field_assignment_overrides: None,
             lifecycle: None,
             lifecycle_ref: None,
+            validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -4009,6 +4015,7 @@ mod tests {
             field_assignment_overrides: None,
             lifecycle: None,
             lifecycle_ref: None,
+            validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -4254,6 +4261,7 @@ mod tests {
             field_assignment_overrides: None,
             lifecycle: None,
             lifecycle_ref: None,
+            validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -4580,6 +4588,7 @@ mod tests {
             field_assignment_overrides: None,
             lifecycle: None,
             lifecycle_ref: None,
+            validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -5005,6 +5014,7 @@ mod tests {
             field_assignment_overrides: None,
             lifecycle: None,
             lifecycle_ref: None,
+            validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -5041,6 +5051,7 @@ mod tests {
             field_assignment_overrides: None,
             lifecycle: None,
             lifecycle_ref: None,
+            validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
