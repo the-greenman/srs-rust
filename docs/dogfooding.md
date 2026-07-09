@@ -881,6 +881,61 @@ $SRS_BIN repo migrate-identity --repo "$SCRATCH" --pretty   # second call: must 
 
 ---
 
+## S22 — Keeping declared extensions in sync with repo content (#237)
+
+**Intention.** I want to know whether my repo's `declaredExtensions` list accurately reflects which SRS extensions the content actually uses — so I can catch documentation gaps before sharing the repo with others.
+
+**Prepare.**
+
+```bash
+SCRATCH=$(mktemp -d)
+$SRS_BIN repo create --repo "$SCRATCH" --namespace com.example.dogfood
+```
+
+**Happy path — empty repo reports nothing used or declared.**
+
+```bash
+$SRS_BIN repo extensions conformance --repo "$SCRATCH" --pretty
+```
+
+`payload.declared`, `payload.usedButUndeclared`, and `payload.declaredButUnsupported` are all empty. `payload.supported` lists all 7 implemented extension IDs.
+
+**Scenario — declare a supported extension, confirm it is no longer a gap.**
+
+```bash
+$SRS_BIN repo extensions enable --repo "$SCRATCH" ext:lifecycle --pretty
+$SRS_BIN repo extensions conformance --repo "$SCRATCH" --pretty
+```
+
+`payload.declared` contains `"ext:lifecycle"`. `payload.usedButUndeclared` is empty (nothing detected in content yet). `payload.declaredButUnsupported` is empty.
+
+**Negative case — declare an unsupported extension.**
+
+```bash
+$SRS_BIN repo extensions enable --repo "$SCRATCH" ext:federation --pretty
+$SRS_BIN repo extensions conformance --repo "$SCRATCH" --pretty
+```
+
+`payload.declaredButUnsupported` contains `"ext:federation"`. This flags that the repo claims to rely on an extension the engine does not implement — a portability warning.
+
+**Validate repo is still healthy.**
+
+```bash
+$SRS_BIN repo validate --repo "$SCRATCH" --pretty
+```
+
+`ok: true`, `diagnostics: []` — conformance mismatches are informational, not validation errors.
+
+**Done when.**
+- Empty repo: `declared: []`, `usedButUndeclared: []`, `declaredButUnsupported: []`, `supported` has 7 entries.
+- After `extensions enable ext:lifecycle`: `declared` contains `"ext:lifecycle"`, `declaredButUnsupported` empty.
+- After `extensions enable ext:federation`: `declaredButUnsupported` contains `"ext:federation"`.
+- `repo validate` returns `ok: true` throughout.
+
+**Capabilities exercised.** `repo extensions list/enable/conformance`; `SUPPORTED_EXTENSIONS` constant; `detect_used_extensions`; `declaredButUnsupported` and `usedButUndeclared` computation.
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -926,7 +981,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `blueprint` (list/get/validate/structure/schema/brief) | S7 |
 | `protocol` (create/list/get/stages/find-by-target-type) | S13 |
 | `theme` | S8 |
-| `extension` | _gap — no scenario yet_ |
+| `repo extensions` (list/enable/disable/conformance) | S22 |
 | `repo migrate-identity` (graduate Tier-0 identity note to purpose record, #426) | S21 |
 | `tag` (definition) | _gap — being deprecated; see open issues_ |
 | `package` | CLI: covered implicitly by field/type creation in S2; WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330) |
