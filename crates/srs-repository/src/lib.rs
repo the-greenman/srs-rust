@@ -4,6 +4,7 @@ pub mod blueprint_schema_service;
 pub mod blueprint_service;
 pub mod container_service;
 pub mod container_view_service;
+pub(crate) mod core_purpose;
 pub mod detect;
 pub mod diff;
 pub mod discovery_service;
