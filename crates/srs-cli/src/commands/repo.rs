@@ -6,16 +6,16 @@ use crate::payload::{
     RepoDiffPackage, RepoDiffPackageCategory, RepoDiffPackageItemAdded,
     RepoDiffPackageItemModified, RepoDiffPackageItemRemoved, RepoDiffPayload,
     RepoDiffRelationAdded, RepoDiffRelationModified, RepoDiffRelationRemoved, RepoDiffRelations,
-    RepoDiffSummary, RepoExtensionsMutatePayload, RepoExtensionsPayload, RepoInitNewPayload,
-    RepoMapPayload, RepoMigrateIdentityPayload, RepoNavigationPayload, RepoSetRootContainerPayload,
-    RepoUpgradePayload, RepoValidatePayload,
+    RepoDiffSummary, RepoExtensionsConformancePayload, RepoExtensionsMutatePayload,
+    RepoExtensionsPayload, RepoInitNewPayload, RepoMapPayload, RepoMigrateIdentityPayload,
+    RepoNavigationPayload, RepoSetRootContainerPayload, RepoUpgradePayload, RepoValidatePayload,
 };
 use anyhow::{Context, Result};
 use srs_repository::analysis::build_repo_map;
 use srs_repository::diff::diff_repositories;
 use srs_repository::manifest_service::{
-    add_declared_extension, list_declared_extensions, remove_declared_extension,
-    set_manifest_root_container, SetManifestRootContainerInput,
+    add_declared_extension, declared_extensions_conformance, list_declared_extensions,
+    remove_declared_extension, set_manifest_root_container, SetManifestRootContainerInput,
 };
 use srs_repository::migrate_identity_service;
 use srs_repository::repository_lifecycle::{
@@ -187,7 +187,16 @@ fn cmd_repo_extensions_dispatch(ctx: CliContext, cmd: RepoExtensionsCommand) -> 
             extension_id,
             json: _,
         } => cmd_repo_extensions_disable(ctx, extension_id),
+        RepoExtensionsCommand::Conformance => cmd_repo_extensions_conformance(ctx),
     }
+}
+
+fn cmd_repo_extensions_conformance(ctx: CliContext) -> Result<String> {
+    let report = with_store(&ctx, |store| Ok(declared_extensions_conformance(store)?))?;
+    output::serialize(
+        "repo extensions conformance",
+        RepoExtensionsConformancePayload::from(report),
+    )
 }
 
 fn cmd_repo_extensions_list(ctx: CliContext) -> Result<String> {

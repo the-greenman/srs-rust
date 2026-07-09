@@ -365,7 +365,7 @@ mod tests {
             "validationRules must not fall into extra"
         );
         assert!(
-            rt.extra.get("validationRules").is_none(),
+            !rt.extra.contains_key("validationRules"),
             "validationRules must not appear in extra"
         );
         let rules = rt.validation_rules.as_ref().unwrap();

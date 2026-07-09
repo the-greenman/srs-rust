@@ -1,3 +1,4 @@
+use crate::core_purpose;
 use crate::error::RepositoryError;
 use crate::paths::DEFAULT_RECORD_DIR;
 use crate::record_store::{upsert_record_index_entry, write_new_record};
@@ -7,7 +8,6 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use srs_core::types::container::Container;
-use srs_core::types::record::{FieldValue, Record};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -52,14 +52,7 @@ pub struct RepositoryStatus {
     pub exists: bool,
 }
 
-// Hard-coded until #423 (create_record_in_context) lands.
-// Replace with create_record_in_context when package loading works post-init.
-const CORE_PURPOSE_TYPE_ID: &str = "3c000001-0000-4000-a000-000000000001";
-const CORE_PURPOSE_TYPE_VERSION: u32 = 1;
-const CORE_PURPOSE_TYPE_NAMESPACE: &str = "com.semanticops.core";
-const CORE_PURPOSE_TYPE_NAME: &str = "purpose";
-const CORE_STATEMENT_FIELD_ID: &str = "3b000001-0000-4000-a000-000000000001";
-const CORE_TITLE_FIELD_ID: &str = "3b000002-0000-4000-a000-000000000002";
+// Purpose-type constants are in crate::core_purpose (shared with migrate_identity_service).
 
 /// Build the initial container for a newly created repository.
 /// Business rule: containerId = repositoryId, title = the repository's effective title.
@@ -111,38 +104,12 @@ fn scaffold_purpose_record(
 ) -> Result<String, RepositoryError> {
     let instance_id = new_instance_id();
     let now = Utc::now().to_rfc3339();
-
-    let mut field_values = vec![FieldValue {
-        field_id: CORE_STATEMENT_FIELD_ID.to_string(),
-        value: Value::String(description.unwrap_or("").to_string()),
-        entries: None,
-        source: None,
-        edited_at: None,
-    }];
-    if let Some(t) = record_title {
-        field_values.push(FieldValue {
-            field_id: CORE_TITLE_FIELD_ID.to_string(),
-            value: Value::String(t.to_string()),
-            entries: None,
-            source: None,
-            edited_at: None,
-        });
-    }
-
-    let record = Record {
-        instance_id: instance_id.clone(),
-        type_id: CORE_PURPOSE_TYPE_ID.to_string(),
-        type_version: CORE_PURPOSE_TYPE_VERSION,
-        type_namespace: CORE_PURPOSE_TYPE_NAMESPACE.to_string(),
-        type_name: CORE_PURPOSE_TYPE_NAME.to_string(),
-        field_values,
-        group_values: None,
-        lifecycle_state: None,
-        tags: None,
-        created_at: Some(now.clone()),
-        updated_at: Some(now),
-        extra: HashMap::new(),
-    };
+    let record = core_purpose::build_purpose_record(
+        &instance_id,
+        description.unwrap_or(""),
+        record_title,
+        &now,
+    );
 
     let relative_path = write_new_record(store, &record, DEFAULT_RECORD_DIR)?;
 
@@ -355,6 +322,7 @@ fn validate_initialize_input(input: &InitializeRepositoryInput) -> Result<(), Re
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core_purpose;
     use crate::store::memory::MemoryStore;
     use crate::store::{FileStore, RepositoryStore};
     use tempfile::TempDir;
@@ -860,9 +828,9 @@ mod tests {
         let record: srs_core::types::record::Record =
             serde_json::from_value(store.load_instance_json(entry.path()).unwrap()).unwrap();
 
-        assert_eq!(record.type_id, CORE_PURPOSE_TYPE_ID);
-        assert_eq!(record.type_namespace, CORE_PURPOSE_TYPE_NAMESPACE);
-        assert_eq!(record.type_name, CORE_PURPOSE_TYPE_NAME);
+        assert_eq!(record.type_id, core_purpose::PURPOSE_TYPE_ID);
+        assert_eq!(record.type_namespace, core_purpose::PURPOSE_TYPE_NAMESPACE);
+        assert_eq!(record.type_name, core_purpose::PURPOSE_TYPE_NAME);
     }
 
     #[test]
@@ -883,7 +851,7 @@ mod tests {
         let has_statement = record
             .field_values
             .iter()
-            .any(|fv| fv.field_id == CORE_STATEMENT_FIELD_ID);
+            .any(|fv| fv.field_id == core_purpose::STATEMENT_FIELD_ID);
         assert!(has_statement, "purpose record must have statement field");
     }
 
@@ -907,7 +875,7 @@ mod tests {
         let title_fv = record
             .field_values
             .iter()
-            .find(|fv| fv.field_id == CORE_TITLE_FIELD_ID)
+            .find(|fv| fv.field_id == core_purpose::TITLE_FIELD_ID)
             .expect("title field must be present when title given");
         assert_eq!(title_fv.value.as_str(), Some("My Project"));
     }
@@ -930,7 +898,7 @@ mod tests {
         let has_title = record
             .field_values
             .iter()
-            .any(|fv| fv.field_id == CORE_TITLE_FIELD_ID);
+            .any(|fv| fv.field_id == core_purpose::TITLE_FIELD_ID);
         assert!(!has_title, "title field must be absent when no title given");
     }
 
@@ -1023,7 +991,7 @@ mod tests {
         let record: srs_core::types::record::Record =
             serde_json::from_value(store2.load_instance_json(entry.path()).unwrap()).unwrap();
         assert_eq!(record.instance_id, id);
-        assert_eq!(record.type_id, CORE_PURPOSE_TYPE_ID);
+        assert_eq!(record.type_id, core_purpose::PURPOSE_TYPE_ID);
 
         let container_id = manifest
             .container

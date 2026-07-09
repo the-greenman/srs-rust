@@ -1327,6 +1327,28 @@ pub struct RepoExtensionsMutatePayload {
 
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+pub struct RepoExtensionsConformancePayload {
+    pub declared: Vec<String>,
+    pub supported: Vec<String>,
+    pub declared_but_unsupported: Vec<String>,
+    pub used_but_undeclared: Vec<String>,
+}
+
+impl From<srs_repository::manifest_service::DeclaredExtensionsReport>
+    for RepoExtensionsConformancePayload
+{
+    fn from(r: srs_repository::manifest_service::DeclaredExtensionsReport) -> Self {
+        Self {
+            declared: r.declared,
+            supported: r.supported,
+            declared_but_unsupported: r.declared_but_unsupported,
+            used_but_undeclared: r.used_but_undeclared,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct RepoSetRootContainerPayload {
     pub container_id: String,
     pub identity_instance_id: String,
@@ -1445,8 +1467,10 @@ pub struct RepoUpgradePayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoMigrateIdentityPayload {
-    pub old_identity_id: String,
-    pub old_identity_tier: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_identity_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_identity_tier: Option<u8>,
     pub new_identity_id: String,
     pub statement: String,
     #[serde(skip_serializing_if = "Option::is_none")]

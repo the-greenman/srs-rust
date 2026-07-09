@@ -18,8 +18,9 @@ pub fn dispatch(ctx: CliContext, cmd: RenderCommand) -> Result<String> {
             view,
             view_format,
             theme_variant,
+            instance,
             output,
-        } => cmd_render_document_view(ctx, view, view_format, theme_variant, output),
+        } => cmd_render_document_view(ctx, view, view_format, theme_variant, instance, output),
     }
 }
 
@@ -80,6 +81,7 @@ fn cmd_render_document_view(
     view_id: String,
     format: Option<String>,
     theme_variant: Option<String>,
+    instance: Option<String>,
     output_path: Option<PathBuf>,
 ) -> Result<String> {
     match with_store(&ctx, |store| {
@@ -89,6 +91,7 @@ fn cmd_render_document_view(
             format: format.as_deref(),
             theme_variant: theme_variant.as_deref(),
             container_id: ctx.container_id.as_deref(),
+            instance_id_filter: instance.as_deref(),
         })?)
     }) {
         Ok(result) => {
