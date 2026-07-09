@@ -6626,7 +6626,10 @@ fn record_validate_does_not_persist() {
     };
     // repo create always scaffolds a purpose record, so initial count is 1
     let initial_count = count_records(&repo);
-    assert_eq!(initial_count, 1, "repo should start with exactly the purpose record");
+    assert_eq!(
+        initial_count, 1,
+        "repo should start with exactly the purpose record"
+    );
 
     let input = serde_json::json!({
         "typeId": type_id, "typeVersion": 1,

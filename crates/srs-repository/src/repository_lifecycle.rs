@@ -968,8 +968,7 @@ mod tests {
         let manifest = store.load_manifest().unwrap();
         let container = manifest.container.as_ref().expect("container must be set");
         assert_eq!(
-            container.title,
-            "com.semanticops.test",
+            container.title, "com.semanticops.test",
             "container title must fall back to namespace when no title given"
         );
     }
