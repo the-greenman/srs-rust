@@ -320,6 +320,27 @@ pub struct RecordPayload {
     pub record: Record,
 }
 
+/// Payload for `record get` — the full `Record` plus its core-resolved `displayLabel`.
+/// Shape mirrors `RecordSummary` from srs-repository.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordGetPayload {
+    pub instance_id: String,
+    pub display_label: String,
+    #[schemars(with = "serde_json::Value")]
+    pub record: Record,
+}
+
+impl From<RecordSummary> for RecordGetPayload {
+    fn from(s: RecordSummary) -> Self {
+        Self {
+            instance_id: s.instance_id,
+            display_label: s.display_label,
+            record: s.record,
+        }
+    }
+}
+
 /// Payload for `record successor` — the new Record and the Relation to the predecessor.
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]

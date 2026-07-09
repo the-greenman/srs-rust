@@ -629,6 +629,39 @@ pub fn list_record_summaries(
         .collect())
 }
 
+/// Get a single record by instance ID, paired with its core-resolved display label.
+///
+/// Returns `None` when no record with `id` exists (same semantics as [`get_record_by_id`]).
+/// Label resolution uses the same priority as [`list_record_summaries`]: the record's Type's
+/// effective `identityFieldId` > field named "title" > "name" > "label" > `type_name` fallback.
+///
+/// Builds the label indexes on every call — suitable for UI single-record fetches. Callers
+/// fetching multiple records should use [`list_record_summaries`] to amortise the index-build
+/// cost.
+pub fn get_record_summary_by_id(
+    store: &dyn RepositoryStore,
+    id: &str,
+) -> Result<Option<RecordSummary>, RepositoryError> {
+    match get_record_by_id(store, id)? {
+        None => Ok(None),
+        Some(record) => {
+            let (field_name_index, identity_field_index) =
+                record_label::build_label_indexes(store)?;
+            let instance_id = record.instance_id.clone();
+            let display_label = record_label::record_display_label(
+                &record,
+                &identity_field_index,
+                &field_name_index,
+            );
+            Ok(Some(RecordSummary {
+                instance_id,
+                display_label,
+                record,
+            }))
+        }
+    }
+}
+
 /// Best-effort rollback for a failed `add_member` step.
 ///
 /// Calls `delete_record` to remove the newly-written record from the manifest. Any error from
@@ -1784,6 +1817,63 @@ mod tests {
             serde_json::to_value(&from_file).unwrap(),
             "RecordSummary list must be identical across stores (memory -> file)"
         );
+    }
+
+    #[test]
+    fn get_record_summary_by_id_returns_summary_with_label() {
+        let store = make_store_with_title_field();
+        let record = create_record(
+            &store,
+            "type-labeled-0001",
+            1,
+            vec![fv("field-title-0001", "My Summary Title")],
+            None,
+            None,
+        )
+        .unwrap();
+        let summary = get_record_summary_by_id(&store, &record.instance_id)
+            .expect("should not error")
+            .expect("should find record");
+        assert_eq!(summary.instance_id, record.instance_id);
+        assert_eq!(summary.display_label, "My Summary Title");
+        assert_eq!(summary.record.instance_id, record.instance_id);
+    }
+
+    #[test]
+    fn get_record_summary_by_id_returns_none_for_unknown() {
+        let store = make_store_with_title_field();
+        let result = get_record_summary_by_id(&store, "00000000-0000-0000-0000-000000000000")
+            .expect("should not error");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn get_record_summary_by_id_roundtrip_stores() {
+        let store = make_store_with_title_field();
+        let record = create_record(
+            &store,
+            "type-labeled-0001",
+            1,
+            vec![fv("field-title-0001", "Roundtrip Title")],
+            None,
+            None,
+        )
+        .unwrap();
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let file_store = crate::store::FileStore::new(temp.path());
+        crate::repository_portability::copy_repository(&store, &file_store).unwrap();
+
+        let from_memory = get_record_summary_by_id(&store, &record.instance_id)
+            .expect("memory lookup ok")
+            .expect("should find in memory");
+        let from_file = get_record_summary_by_id(&file_store, &record.instance_id)
+            .expect("file lookup ok")
+            .expect("should find in file");
+
+        assert_eq!(from_memory.instance_id, from_file.instance_id);
+        assert_eq!(from_memory.display_label, from_file.display_label);
+        assert_eq!(from_memory.display_label, "Roundtrip Title");
     }
 
     // These tests mirror the existing tests that use TempDir — they still call
