@@ -6,7 +6,9 @@ use srs_core::types::protocol::{Protocol, ProtocolDiagnosticSeverity};
 use srs_core::types::record::Record;
 use srs_core::types::relation::RelationsCollection;
 use srs_core::validation::blueprint::validate_blueprint;
-use srs_core::validation::lifecycle::{validate_lifecycle, LifecycleDiagnosticSeverity};
+use srs_core::validation::lifecycle::{
+    validate_lifecycle, validate_type_lifecycle_v9, LifecycleDiagnosticSeverity,
+};
 use srs_core::validation::protocol::validate_protocol;
 use srs_core::validation::record::validate_record;
 use srs_core::validation::relation::{validate_relation, RelationValidationContext};
@@ -480,7 +482,7 @@ pub fn validate_repository(
                                 let lc_states: Option<
                                     Vec<&srs_core::types::lifecycle::LifecycleState>,
                                 > = if let Some(ref_id) = &rt.lifecycle_ref {
-                                    // If lifecycle_ref doesn't resolve, skip V8 — V7 will report it
+                                    // If lifecycle_ref doesn't resolve, skip V8 — V8 will report it
                                     package
                                         .resolve_lifecycle(ref_id)
                                         .map(|lc| lc.states.iter().collect())
@@ -936,8 +938,26 @@ fn validate_vocabulary_invariants(
         }
     }
 
-    // V7: every type.lifecycleRef must resolve to an installed Lifecycle UUID
+    // V7: mutual exclusion (lifecycle and lifecycleRef both set)
+    // V8: every type.lifecycleRef must resolve to an installed Lifecycle UUID
+    // V9: structural integrity for inline TypeLifecycle
     for rt in &pkg.record_types {
+        // V7: mutual exclusion
+        if rt.lifecycle.is_some() && rt.lifecycle_ref.is_some() {
+            diagnostics.push(ValidationDiagnostic {
+                severity: DiagnosticSeverity::Error,
+                relative_path: "package/package.json".to_string(),
+                schema_id: None,
+                message: format!(
+                    "V7: type '{}' declares both 'lifecycle' and 'lifecycleRef'; exactly one is allowed",
+                    rt.name
+                ),
+            });
+            // Skip V8 and V9 for this type — V7 already fired
+            continue;
+        }
+
+        // V8: lifecycleRef must resolve
         if let Some(ref_id) = &rt.lifecycle_ref {
             if !pkg.lifecycles.iter().any(|lc| &lc.id == ref_id) {
                 diagnostics.push(ValidationDiagnostic {
@@ -945,8 +965,41 @@ fn validate_vocabulary_invariants(
                     relative_path: "package/package.json".to_string(),
                     schema_id: None,
                     message: format!(
-                        "V7: type '{}' lifecycleRef '{}' does not resolve to an installed Lifecycle",
+                        "V8: type '{}' lifecycleRef '{}' does not resolve to an installed Lifecycle",
                         rt.name, ref_id
+                    ),
+                });
+            }
+        }
+
+        // V9: structural checks on inline TypeLifecycle
+        if let Some(inline_lc) = &rt.lifecycle {
+            for diag in validate_type_lifecycle_v9(&inline_lc.states, &inline_lc.transitions, &rt.name) {
+                let severity = match diag.severity {
+                    LifecycleDiagnosticSeverity::Error => DiagnosticSeverity::Error,
+                };
+                diagnostics.push(ValidationDiagnostic {
+                    severity,
+                    relative_path: "package/package.json".to_string(),
+                    schema_id: None,
+                    message: diag.message,
+                });
+            }
+
+            // V9: initialState field must match the isInitial state's key
+            let initial_states: Vec<_> = inline_lc
+                .states
+                .iter()
+                .filter(|s| s.is_initial == Some(true))
+                .collect();
+            if initial_states.len() == 1 && initial_states[0].key != inline_lc.initial_state {
+                diagnostics.push(ValidationDiagnostic {
+                    severity: DiagnosticSeverity::Error,
+                    relative_path: "package/package.json".to_string(),
+                    schema_id: None,
+                    message: format!(
+                        "V9: inline lifecycle on type '{}' initialState '{}' does not match isInitial state key '{}'",
+                        rt.name, inline_lc.initial_state, initial_states[0].key
                     ),
                 });
             }
@@ -1795,10 +1848,10 @@ mod tests {
         );
     }
 
-    // --- V7: type lifecycleRef UUID resolution ---
+    // --- V8: type lifecycleRef UUID resolution ---
 
     #[test]
-    fn vocabulary_v7_missing_lifecycle_ref_produces_error() {
+    fn vocabulary_v8_missing_lifecycle_ref_produces_error() {
         let temp = TempDir::new().unwrap();
         let type_id = "00000000-0000-4000-8000-000000000040";
         let nonexistent_lc_id = "ffffffff-0000-4000-8000-000000000099";
@@ -1815,19 +1868,20 @@ mod tests {
 
         let store = crate::store::FileStore::new(temp.path());
         let report = validate_repository(&store).unwrap();
-        let v7_error = report
-            .diagnostics
-            .iter()
-            .find(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("V7"));
+        let v8_error = report.diagnostics.iter().find(|d| {
+            d.severity == DiagnosticSeverity::Error
+                && d.message.contains("V8")
+                && d.message.contains("lifecycleRef")
+        });
         assert!(
-            v7_error.is_some(),
-            "expected V7 error for unresolved lifecycleRef, got: {:?}",
+            v8_error.is_some(),
+            "expected V8 lifecycleRef error for unresolved lifecycleRef, got: {:?}",
             report.diagnostics
         );
     }
 
     #[test]
-    fn vocabulary_v7_resolved_lifecycle_ref_no_error() {
+    fn vocabulary_v8_resolved_lifecycle_ref_no_error() {
         let temp = TempDir::new().unwrap();
         let type_id = "00000000-0000-4000-8000-000000000040";
         let lc_id = "00000000-0000-4000-8000-000000000050";
@@ -1854,15 +1908,15 @@ mod tests {
 
         let store = crate::store::FileStore::new(temp.path());
         let report = validate_repository(&store).unwrap();
-        let v7_errors: Vec<_> = report
+        let v8_ref_errors: Vec<_> = report
             .diagnostics
             .iter()
-            .filter(|d| d.message.contains("V7"))
+            .filter(|d| d.message.contains("V8") && d.message.contains("lifecycleRef"))
             .collect();
         assert!(
-            v7_errors.is_empty(),
-            "expected no V7 errors for resolved lifecycleRef, got: {:?}",
-            v7_errors
+            v8_ref_errors.is_empty(),
+            "expected no V8 lifecycleRef errors for resolved lifecycleRef, got: {:?}",
+            v8_ref_errors
         );
     }
 
@@ -2026,10 +2080,10 @@ mod tests {
         );
     }
 
-    // --- V7: dangling lifecycleRef produces a clear diagnostic (#136) ---
+    // --- V8: dangling lifecycleRef produces a clear diagnostic (#136) ---
 
     #[test]
-    fn dangling_lifecycle_ref_produces_clear_v7_diagnostic() {
+    fn dangling_lifecycle_ref_produces_clear_v8_diagnostic() {
         let temp = TempDir::new().unwrap();
         let type_id = "00000000-0000-4000-8000-000000000040";
         let missing_lc_id = "ffffffff-0000-4000-8000-000000000099";
@@ -2046,15 +2100,368 @@ mod tests {
 
         let store = crate::store::FileStore::new(temp.path());
         let report = validate_repository(&store).unwrap();
-        let v7 = report.diagnostics.iter().find(|d| {
+        let v8 = report.diagnostics.iter().find(|d| {
             d.severity == DiagnosticSeverity::Error
-                && d.message.contains("V7")
+                && d.message.contains("V8")
+                && d.message.contains("lifecycleRef")
                 && d.message.contains(missing_lc_id)
         });
         assert!(
-            v7.is_some(),
-            "expected V7 diagnostic naming the dangling UUID, got: {:?}",
+            v8.is_some(),
+            "expected V8 lifecycleRef diagnostic naming the dangling UUID, got: {:?}",
             report.diagnostics
+        );
+    }
+
+    // --- V7: mutual exclusion of lifecycle and lifecycleRef ---
+
+    fn minimal_type_json_with_both_lifecycle_fields(type_id: &str, lifecycle_ref: &str) -> Value {
+        json!({
+            "id": type_id,
+            "namespace": "com.test",
+            "name": "test-type",
+            "version": 1,
+            "description": "Test type",
+            "fields": [],
+            "lifecycle": {"states": [{"key": "draft", "isInitial": true}], "transitions": [], "initialState": "draft"},
+            "lifecycleRef": lifecycle_ref,
+            "createdAt": "2026-01-01T00:00:00Z"
+        })
+    }
+
+    #[test]
+    fn vocabulary_v7_both_lifecycle_and_ref_produces_error() {
+        let temp = TempDir::new().unwrap();
+        let type_id = "00000000-0000-4000-8000-000000000040";
+        let lc_id = "00000000-0000-4000-8000-000000000050";
+
+        setup_package_only_repo(
+            &temp,
+            &minimal_package_json_full(
+                &[],
+                &["types/test-type.json"],
+                &[],
+                &["lifecycles/test-lc.json"],
+            ),
+        );
+        write_json(
+            temp.path(),
+            "package/types/test-type.json",
+            &minimal_type_json_with_both_lifecycle_fields(type_id, lc_id),
+        );
+        write_json(
+            temp.path(),
+            "package/lifecycles/test-lc.json",
+            &minimal_lifecycle_json(lc_id, "draft", json!([{"key": "draft", "isInitial": true}])),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let v7_error = report.diagnostics.iter().find(|d| {
+            d.severity == DiagnosticSeverity::Error
+                && d.message.contains("V7")
+                && d.message.contains("both")
+        });
+        assert!(
+            v7_error.is_some(),
+            "expected V7 mutual-exclusion error, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn vocabulary_v7_only_lifecycle_ref_no_v7_error() {
+        let temp = TempDir::new().unwrap();
+        let type_id = "00000000-0000-4000-8000-000000000040";
+        let lc_id = "00000000-0000-4000-8000-000000000050";
+
+        setup_package_only_repo(
+            &temp,
+            &minimal_package_json_full(
+                &[],
+                &["types/test-type.json"],
+                &[],
+                &["lifecycles/test-lc.json"],
+            ),
+        );
+        write_json(
+            temp.path(),
+            "package/types/test-type.json",
+            &minimal_type_json_with_lifecycle_ref(type_id, lc_id),
+        );
+        write_json(
+            temp.path(),
+            "package/lifecycles/test-lc.json",
+            &minimal_lifecycle_json(lc_id, "draft", json!([{"key": "draft", "isInitial": true}])),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let v7_errors: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("V7"))
+            .collect();
+        assert!(
+            v7_errors.is_empty(),
+            "expected no V7 errors when only lifecycleRef is set, got: {:?}",
+            v7_errors
+        );
+    }
+
+    #[test]
+    fn vocabulary_v7_only_inline_lifecycle_no_v7_error() {
+        let temp = TempDir::new().unwrap();
+        let type_id = "00000000-0000-4000-8000-000000000040";
+
+        setup_package_only_repo(
+            &temp,
+            &minimal_package_json_full(&[], &["types/test-type.json"], &[], &[]),
+        );
+        write_json(
+            temp.path(),
+            "package/types/test-type.json",
+            &minimal_type_json_with_inline_lifecycle(
+                type_id,
+                json!({"states": [{"key": "draft", "isInitial": true}], "transitions": [], "initialState": "draft"}),
+            ),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let v7_errors: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("V7"))
+            .collect();
+        assert!(
+            v7_errors.is_empty(),
+            "expected no V7 errors when only inline lifecycle is set, got: {:?}",
+            v7_errors
+        );
+    }
+
+    #[test]
+    fn vocabulary_v7_both_set_no_v9_error() {
+        let temp = TempDir::new().unwrap();
+        let type_id = "00000000-0000-4000-8000-000000000040";
+        let lc_id = "00000000-0000-4000-8000-000000000050";
+
+        setup_package_only_repo(
+            &temp,
+            &minimal_package_json_full(
+                &[],
+                &["types/test-type.json"],
+                &[],
+                &["lifecycles/test-lc.json"],
+            ),
+        );
+        write_json(
+            temp.path(),
+            "package/types/test-type.json",
+            &minimal_type_json_with_both_lifecycle_fields(type_id, lc_id),
+        );
+        write_json(
+            temp.path(),
+            "package/lifecycles/test-lc.json",
+            &minimal_lifecycle_json(lc_id, "draft", json!([{"key": "draft", "isInitial": true}])),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let v9_errors: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("V9"))
+            .collect();
+        assert!(
+            v9_errors.is_empty(),
+            "expected no V9 errors when V7 already fired (both set), got: {:?}",
+            v9_errors
+        );
+        let v7_errors: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("V7"))
+            .collect();
+        assert_eq!(
+            v7_errors.len(),
+            1,
+            "expected exactly one V7 error, got: {:?}",
+            v7_errors
+        );
+    }
+
+    // --- V9: inline TypeLifecycle structural integrity ---
+
+    #[test]
+    fn vocabulary_v9_inline_no_initial_state_produces_error() {
+        let temp = TempDir::new().unwrap();
+        let type_id = "00000000-0000-4000-8000-000000000040";
+
+        setup_package_only_repo(
+            &temp,
+            &minimal_package_json_full(&[], &["types/test-type.json"], &[], &[]),
+        );
+        write_json(
+            temp.path(),
+            "package/types/test-type.json",
+            &minimal_type_json_with_inline_lifecycle(
+                type_id,
+                json!({"states": [{"key": "draft"}, {"key": "active"}], "transitions": [], "initialState": "draft"}),
+            ),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let err = report.diagnostics.iter().find(|d| {
+            d.severity == DiagnosticSeverity::Error && d.message.contains("no initial state")
+        });
+        assert!(
+            err.is_some(),
+            "expected V9 error for inline lifecycle with no isInitial state, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn vocabulary_v9_inline_multiple_initial_states_produces_error() {
+        let temp = TempDir::new().unwrap();
+        let type_id = "00000000-0000-4000-8000-000000000040";
+
+        setup_package_only_repo(
+            &temp,
+            &minimal_package_json_full(&[], &["types/test-type.json"], &[], &[]),
+        );
+        write_json(
+            temp.path(),
+            "package/types/test-type.json",
+            &minimal_type_json_with_inline_lifecycle(
+                type_id,
+                json!({"states": [{"key": "draft", "isInitial": true}, {"key": "active", "isInitial": true}], "transitions": [], "initialState": "draft"}),
+            ),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let err = report.diagnostics.iter().find(|d| {
+            d.severity == DiagnosticSeverity::Error && d.message.contains("initial state")
+        });
+        assert!(
+            err.is_some(),
+            "expected V9 error for inline lifecycle with multiple isInitial states, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn vocabulary_v9_inline_unknown_transition_state_produces_error() {
+        let temp = TempDir::new().unwrap();
+        let type_id = "00000000-0000-4000-8000-000000000040";
+
+        setup_package_only_repo(
+            &temp,
+            &minimal_package_json_full(&[], &["types/test-type.json"], &[], &[]),
+        );
+        write_json(
+            temp.path(),
+            "package/types/test-type.json",
+            &minimal_type_json_with_inline_lifecycle(
+                type_id,
+                json!({
+                    "states": [{"key": "draft", "isInitial": true}, {"key": "active"}],
+                    "transitions": [{"name": "promote", "from": "draft", "to": "ghost"}],
+                    "initialState": "draft"
+                }),
+            ),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let err = report
+            .diagnostics
+            .iter()
+            .find(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("ghost"));
+        assert!(
+            err.is_some(),
+            "expected V9 error for transition to undefined state 'ghost', got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn vocabulary_v9_inline_initial_state_mismatch_produces_error() {
+        let temp = TempDir::new().unwrap();
+        let type_id = "00000000-0000-4000-8000-000000000040";
+
+        setup_package_only_repo(
+            &temp,
+            &minimal_package_json_full(&[], &["types/test-type.json"], &[], &[]),
+        );
+        write_json(
+            temp.path(),
+            "package/types/test-type.json",
+            &minimal_type_json_with_inline_lifecycle(
+                type_id,
+                // initialState says "active" but the isInitial state is "draft"
+                json!({
+                    "states": [{"key": "draft", "isInitial": true}, {"key": "active"}],
+                    "transitions": [],
+                    "initialState": "active"
+                }),
+            ),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let err = report.diagnostics.iter().find(|d| {
+            d.severity == DiagnosticSeverity::Error
+                && d.message.contains("initialState")
+                && d.message.contains("isInitial")
+        });
+        assert!(
+            err.is_some(),
+            "expected V9 initialState/isInitial mismatch error, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn vocabulary_v9_inline_valid_no_error() {
+        let temp = TempDir::new().unwrap();
+        let type_id = "00000000-0000-4000-8000-000000000040";
+
+        setup_package_only_repo(
+            &temp,
+            &minimal_package_json_full(&[], &["types/test-type.json"], &[], &[]),
+        );
+        write_json(
+            temp.path(),
+            "package/types/test-type.json",
+            &minimal_type_json_with_inline_lifecycle(
+                type_id,
+                json!({
+                    "states": [{"key": "draft", "isInitial": true}, {"key": "active"}],
+                    "transitions": [{"name": "promote", "from": "draft", "to": "active"}],
+                    "initialState": "draft"
+                }),
+            ),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let lifecycle_errors: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Error
+                    && (d.message.contains("V7") || d.message.contains("V9"))
+            })
+            .collect();
+        assert!(
+            lifecycle_errors.is_empty(),
+            "expected no lifecycle errors for valid inline lifecycle, got: {:?}",
+            lifecycle_errors
         );
     }
 
