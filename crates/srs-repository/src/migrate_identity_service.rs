@@ -207,11 +207,16 @@ pub fn migrate_identity(
     store.ensure_instance_dir(paths::DEFAULT_RECORD_DIR)?;
 
     // ADR-021 batch: record file + manifest + container membership atomically.
+    // Also remove the old identity from container members: it was there only to satisfy
+    // RFC-013 I-81 (identity must be a member). After migration the new record takes
+    // that slot; leaving the old note would trigger RFC-013 I-82 (non-identity member
+    // not rooting a section container).
     store.begin_batch();
     let batch_result = (|| -> Result<(), RepositoryError> {
         store.save_instance_json(&relative_path, &record_json)?;
         writer::write_manifest(store, &manifest)?;
         container_service::add_container_member(store, &root_container_id, &new_id)?;
+        container_service::remove_container_member(store, &root_container_id, &old_id)?;
         Ok(())
     })();
     match batch_result {
@@ -390,9 +395,10 @@ mod tests {
     }
 
     #[test]
-    fn migrate_adds_record_to_container_members() {
+    fn migrate_adds_new_and_removes_old_from_container_members() {
+        let old_id = "11111111-1111-4111-8111-111111111115";
         let (store, container_id) = make_store_with_identity(
-            "11111111-1111-4111-8111-111111111115",
+            old_id,
             Some("Repo"),
             one_section("Content."),
         );
@@ -402,6 +408,10 @@ mod tests {
         assert!(
             members.contains(&result.new_identity_id),
             "expected new_identity_id in members, got: {members:?}"
+        );
+        assert!(
+            !members.contains(&old_id.to_string()),
+            "expected old_identity_id removed from members, got: {members:?}"
         );
     }
 
