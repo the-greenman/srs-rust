@@ -1442,6 +1442,31 @@ pub struct RepoUpgradePayload {
     pub already_canonical_count: usize,
 }
 
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoMigrateIdentityPayload {
+    pub old_identity_id: String,
+    pub old_identity_tier: u8,
+    pub new_identity_id: String,
+    pub statement: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+impl From<srs_repository::migrate_identity_service::MigrateIdentityResult>
+    for RepoMigrateIdentityPayload
+{
+    fn from(r: srs_repository::migrate_identity_service::MigrateIdentityResult) -> Self {
+        Self {
+            old_identity_id: r.old_identity_id,
+            old_identity_tier: r.old_identity_tier,
+            new_identity_id: r.new_identity_id,
+            statement: r.statement,
+            title: r.title,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

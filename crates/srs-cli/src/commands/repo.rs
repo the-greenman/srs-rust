@@ -7,8 +7,8 @@ use crate::payload::{
     RepoDiffPackageItemModified, RepoDiffPackageItemRemoved, RepoDiffPayload,
     RepoDiffRelationAdded, RepoDiffRelationModified, RepoDiffRelationRemoved, RepoDiffRelations,
     RepoDiffSummary, RepoExtensionsMutatePayload, RepoExtensionsPayload, RepoInitNewPayload,
-    RepoMapPayload, RepoNavigationPayload, RepoSetRootContainerPayload, RepoUpgradePayload,
-    RepoValidatePayload,
+    RepoMapPayload, RepoMigrateIdentityPayload, RepoNavigationPayload, RepoSetRootContainerPayload,
+    RepoUpgradePayload, RepoValidatePayload,
 };
 use anyhow::{Context, Result};
 use srs_repository::analysis::build_repo_map;
@@ -23,6 +23,7 @@ use srs_repository::repository_lifecycle::{
 };
 use srs_repository::repository_navigation_service::repository_navigation;
 use srs_repository::repository_portability::copy_repository;
+use srs_repository::migrate_identity_service;
 use srs_repository::upgrade_repository_paths;
 use srs_repository::validation::validate_repository;
 use srs_repository::{FileStore, JsonStore};
@@ -78,6 +79,7 @@ pub fn dispatch(ctx: CliContext, cmd: RepoCommand) -> Result<String> {
             description,
         } => cmd_repo_init_new(ctx, repository_id, namespace, title, description),
         RepoCommand::Upgrade => cmd_repo_upgrade(ctx),
+        RepoCommand::MigrateIdentity => cmd_repo_migrate_identity(ctx),
     }
 }
 
@@ -107,6 +109,13 @@ fn cmd_repo_upgrade(ctx: CliContext) -> Result<String> {
                 .collect(),
         },
     )
+}
+
+fn cmd_repo_migrate_identity(ctx: CliContext) -> Result<String> {
+    let result = with_store(&ctx, |store| {
+        migrate_identity_service::migrate_identity(store).map_err(anyhow::Error::from)
+    })?;
+    output::serialize("repo migrate-identity", RepoMigrateIdentityPayload::from(result))
 }
 
 #[allow(clippy::too_many_arguments)]
