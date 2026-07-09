@@ -381,9 +381,7 @@ impl Package {
         }
 
         let chain = self.ancestor_chain(record_type)?;
-        Ok(chain
-            .iter()
-            .find_map(|rt| rt.identity_field_id.clone()))
+        Ok(chain.iter().find_map(|rt| rt.identity_field_id.clone()))
     }
 
     /// Resolve the effective field list AND the merged position of each field group.
