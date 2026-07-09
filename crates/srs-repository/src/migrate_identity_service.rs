@@ -319,6 +319,22 @@ mod tests {
             raw["instanceId"].as_str(),
             Some(result.new_identity_id.as_str())
         );
+        // Regression guard for #441: migrate_identity's own purpose-record builds must
+        // use the same field IDs as the repo-create scaffold path (core_purpose module).
+        let field_ids: Vec<&str> = raw["fieldValues"]
+            .as_array()
+            .expect("fieldValues must be an array")
+            .iter()
+            .filter_map(|fv| fv["fieldId"].as_str())
+            .collect();
+        assert!(
+            field_ids.contains(&core_purpose::STATEMENT_FIELD_ID),
+            "migrated purpose record must use core_purpose::STATEMENT_FIELD_ID"
+        );
+        assert!(
+            field_ids.contains(&core_purpose::TITLE_FIELD_ID),
+            "migrated purpose record must use core_purpose::TITLE_FIELD_ID"
+        );
     }
 
     #[test]
