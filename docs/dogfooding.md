@@ -961,7 +961,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `record successor` | S3, S4 |
 | `record tag` | S6 |
 | `relation` (create/list/get/delete) | S1, S3, S5 |
-| `relation-type` | _gap — no scenario yet_ |
+| `relation-type` | CLI: _gap — no scenario yet_; WASM read binding (`list_relation_types`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#411) |
 | `container` (create/members/roots/validate/…) | S4 |
 | `container resolve-view` (structured container view, `--view-id`) | S14 |
 | `container resolve-view` authored `excludeLifecycleStates` (ADR-020) | S15 |

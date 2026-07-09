@@ -1,5 +1,6 @@
-//! Integration tests for the WASM definition-browse bindings (#330):
-//! list_fields, get_field, list_types, get_type, list_views, get_view, list_packages.
+//! Integration tests for the WASM definition-browse bindings (#330, #411):
+//! list_fields, get_field, list_types, get_type, list_views, get_view, list_packages,
+//! list_relation_types.
 //!
 //! Native Rust tests (not #[wasm_bindgen_test]) — run with `cargo test -p srs-bindings`.
 //! Exercises the underlying services via JsonStore::from_srsj; to_js() is not called
@@ -11,11 +12,13 @@
 //!   - 4 types (namespace "governance")
 //!   - 1 L1 view (id "faebd240-83c4-4bc8-a383-8335f841a234", namespace "governance", name "decision-log")
 //!   - 1 package (id "90677fae-16a7-49ec-8aee-1872cbf8e381", namespace "com.limoma", name "governance-core")
+//!   - 4 relation types (namespace "governance", no status set)
 
 use serde::Deserialize;
 use srs_repository::package_service::{
     get_field_by_id, get_type_by_id_latest, list_fields_filtered, list_packages,
-    list_types_filtered, FieldListFilter, GetFieldResult, GetTypeResult, TypeListFilter,
+    list_relation_types_filtered, list_types_filtered, FieldListFilter, GetFieldResult,
+    GetTypeResult, TypeListFilter,
 };
 use srs_repository::view_service::{get_view_by_id, list_views_summary, GetViewResult};
 use srs_repository::JsonStore;
@@ -250,5 +253,53 @@ fn type_filter_json_namespace_maps_to_service_filter() {
         types.len(),
         4,
         "namespace filter returns all 4 governance types"
+    );
+}
+
+// ── list_relation_types ───────────────────────────────────────────────────────
+
+/// Mirrors the private `RelationTypeListBindingFilter` in `lib.rs`.
+/// Duplicated here to test the JSON → binding filter struct → service mapping
+/// without requiring access to the private type or calling WASM methods.
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct TestRelationTypeListBindingFilter {
+    #[serde(default)]
+    status: Option<String>,
+}
+
+#[test]
+fn list_relation_types_returns_all_types() {
+    let store = gallery_store();
+    let relation_types =
+        list_relation_types_filtered(&store, None).expect("list_relation_types must succeed");
+    assert_eq!(relation_types.len(), 4, "gallery has 4 relation types");
+}
+
+#[test]
+fn list_relation_types_status_filter_none_match() {
+    let store = gallery_store();
+    // Gallery relation types have no `status` field set; their serialized status is "".
+    // A filter for "active" must return 0 results.
+    let relation_types = list_relation_types_filtered(&store, Some("active".to_string()))
+        .expect("list_relation_types must succeed");
+    assert!(
+        relation_types.is_empty(),
+        "no gallery relation types have status 'active'"
+    );
+}
+
+#[test]
+fn relation_type_filter_json_maps_to_service() {
+    let store = gallery_store();
+    let raw: TestRelationTypeListBindingFilter =
+        serde_json::from_str(r#"{"status":"active"}"#).expect("filter json must parse");
+    assert_eq!(raw.status, Some("active".to_string()));
+    // Call the service with the deserialized filter — proving the full JSON → filter → service chain.
+    let relation_types = list_relation_types_filtered(&store, raw.status)
+        .expect("list_relation_types must succeed");
+    assert!(
+        relation_types.is_empty(),
+        "no gallery relation types match status 'active'"
     );
 }
