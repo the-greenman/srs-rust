@@ -321,7 +321,9 @@ impl SrsRepository {
     }
 
     /// Render a document view. `view_id` is the view's UUID; `format` is `"json"` or `"markdown"`;
-    /// `container_id` optionally scopes TypeQuery sections to a container's membership.
+    /// `container_id` optionally scopes TypeQuery sections to a container's membership;
+    /// `instance_id_filter` optionally scopes ContainerSubset sections to a single record,
+    /// producing a per-record export document.
     /// Returns `{ "rendered": <string>, "diagnostics": [...], "projection": <json|null> }`.
     /// When `format == "json"`, `projection` is a `DocumentViewProjection` object; otherwise `null`.
     pub fn render_document_view(
@@ -329,6 +331,7 @@ impl SrsRepository {
         view_id: &str,
         format: &str,
         container_id: Option<String>,
+        instance_id_filter: Option<String>,
     ) -> Result<JsValue, JsValue> {
         let result = render_service::render_document_view(RenderDocumentViewOptions {
             store: &self.store,
@@ -336,6 +339,7 @@ impl SrsRepository {
             format: Some(format),
             theme_variant: None,
             container_id: container_id.as_deref(),
+            instance_id_filter: instance_id_filter.as_deref(),
         })
         .map_err(js_err)?;
         to_js(&result)

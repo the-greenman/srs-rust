@@ -24,6 +24,10 @@ pub struct RenderDocumentViewOptions<'a> {
     /// When set, TypeQuery sections are filtered to members of this container.
     /// Takes precedence over any container_ids declared in the view definition.
     pub container_id: Option<&'a str>,
+    /// When set, ContainerSubset sections are filtered to the single instance with this ID,
+    /// producing a per-record export document. Takes precedence over any instance-level
+    /// selection already in the view definition.
+    pub instance_id_filter: Option<&'a str>,
 }
 
 impl<'a> RenderDocumentViewOptions<'a> {
@@ -34,6 +38,7 @@ impl<'a> RenderDocumentViewOptions<'a> {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         }
     }
 }
@@ -157,6 +162,7 @@ pub fn render_document_view(
             &container_title,
             &relations,
             opts.container_id,
+            opts.instance_id_filter,
             &mut diagnostics,
         )?;
         return Ok(RenderResult {
@@ -196,6 +202,7 @@ pub fn render_document_view(
             section,
             &relations,
             opts.container_id,
+            opts.instance_id_filter,
             &mut diagnostics,
         )?);
     }
@@ -250,6 +257,7 @@ fn project_document_view_json(
     container_title: &str,
     relations: &[Relation],
     cli_container_id: Option<&str>,
+    instance_id_filter: Option<&str>,
     diagnostics: &mut Vec<String>,
 ) -> Result<DocumentViewProjection, RepositoryError> {
     let container_id = resolve_container_id_from_sections(&dv.sections);
@@ -289,6 +297,7 @@ fn project_document_view_json(
             section,
             relations,
             cli_container_id,
+            instance_id_filter,
             diagnostics,
         )?;
         projected_sections.push(projected);
@@ -344,10 +353,17 @@ fn project_section_json(
     section: &DocumentSection,
     relations: &[Relation],
     cli_container_id: Option<&str>,
+    instance_id_filter: Option<&str>,
     diagnostics: &mut Vec<String>,
 ) -> Result<ProjectedSection, RepositoryError> {
-    let mut records =
-        resolve_section_instances(store, section, relations, cli_container_id, diagnostics)?;
+    let mut records = resolve_section_instances(
+        store,
+        section,
+        relations,
+        cli_container_id,
+        instance_id_filter,
+        diagnostics,
+    )?;
 
     if let Some(ordering) = &section.ordering {
         if let Some(field_id) = &ordering.field_id {
@@ -1050,10 +1066,17 @@ fn render_section(
     section: &DocumentSection,
     relations: &[Relation],
     cli_container_id: Option<&str>,
+    instance_id_filter: Option<&str>,
     diagnostics: &mut Vec<String>,
 ) -> Result<String, RepositoryError> {
-    let mut records =
-        resolve_section_instances(store, section, relations, cli_container_id, diagnostics)?;
+    let mut records = resolve_section_instances(
+        store,
+        section,
+        relations,
+        cli_container_id,
+        instance_id_filter,
+        diagnostics,
+    )?;
 
     // Apply explicit field-based ordering first if declared.
     if let Some(ordering) = &section.ordering {
@@ -1158,6 +1181,7 @@ fn resolve_section_instances(
     section: &DocumentSection,
     relations: &[srs_core::types::relation::Relation],
     cli_container_id: Option<&str>,
+    instance_id_filter: Option<&str>,
     diagnostics: &mut Vec<String>,
 ) -> Result<Vec<Record>, RepositoryError> {
     match &section.source {
@@ -1326,6 +1350,9 @@ fn resolve_section_instances(
                 if let Some(record) = get_record_by_id(store, &id)? {
                     records.push(record);
                 }
+            }
+            if let Some(filter_id) = instance_id_filter {
+                records.retain(|r| r.instance_id == filter_id);
             }
             Ok(records)
         }
@@ -2315,6 +2342,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should work");
 
@@ -2339,6 +2367,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         });
         assert!(matches!(
             result,
@@ -2361,6 +2390,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
         // The valid record has entries ["first", "second"]; both must appear in output
@@ -2395,6 +2425,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
         assert!(
@@ -2414,6 +2445,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
         // titleFieldId points to the repeatable title field; first entry value is "first"
@@ -2436,6 +2468,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
         // Section title "Items" produces an H2; no H3 should appear between it and field rows
@@ -2456,6 +2489,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
 
@@ -2476,6 +2510,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
 
@@ -2506,6 +2541,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed without error");
         assert!(
@@ -2539,6 +2575,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
 
@@ -2583,6 +2620,7 @@ mod tests {
             format: None,
             theme_variant: Some("print"),
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
 
@@ -2608,6 +2646,7 @@ mod tests {
             format: None,
             theme_variant: Some("missing"),
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
 
@@ -2636,6 +2675,7 @@ mod tests {
             format: Some("text"),
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
 
@@ -2661,6 +2701,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
 
@@ -2694,6 +2735,7 @@ mod tests {
             format: Some("json"),
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
         assert!(
@@ -2716,6 +2758,7 @@ mod tests {
             format: Some("json"),
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
         let proj = result.projection.unwrap();
@@ -2740,6 +2783,7 @@ mod tests {
             format: Some("json"),
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
         let proj = result.projection.unwrap();
@@ -2760,6 +2804,7 @@ mod tests {
             format: Some("json"),
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
         let proj = result.projection.unwrap();
@@ -2788,6 +2833,7 @@ mod tests {
             format: Some("json"),
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
         let proj = result.projection.unwrap();
@@ -2808,6 +2854,7 @@ mod tests {
             format: Some("json"),
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
         let proj = result.projection.unwrap();
@@ -2831,6 +2878,7 @@ mod tests {
             format: Some("json"),
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
         let proj = result.projection.unwrap();
@@ -2865,6 +2913,7 @@ mod tests {
             format: Some("json"),
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
         assert!(
@@ -2887,6 +2936,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
 
@@ -3242,6 +3292,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
 
@@ -3262,6 +3313,58 @@ mod tests {
     }
 
     #[test]
+    fn container_subset_instance_id_filter_scopes_to_single_record() {
+        let (store, text_id, _table_id, view_id) = make_hetero_store();
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: &view_id,
+            format: None,
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: Some(&text_id),
+        })
+        .expect("render should succeed");
+
+        let rendered = &result.rendered;
+        assert!(
+            rendered.contains("Introduction"),
+            "filtered instance's heading should still render; got:\n{}",
+            rendered
+        );
+        assert!(
+            !rendered.contains("Summary Table"),
+            "instance_id_filter should exclude the other ContainerSubset member; got:\n{}",
+            rendered
+        );
+    }
+
+    #[test]
+    fn json_projection_container_subset_instance_id_filter_scopes_to_single_record() {
+        let (store, text_id, table_id, view_id) = make_hetero_store();
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: &view_id,
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: Some(&text_id),
+        })
+        .expect("render should succeed");
+
+        let ids = rfc011_instance_ids_in_result(&result);
+        assert!(
+            ids.contains(&text_id),
+            "expected filtered instance in projection; got: {:?}",
+            ids
+        );
+        assert!(
+            !ids.contains(&table_id),
+            "instance_id_filter should exclude the other ContainerSubset member; got: {:?}",
+            ids
+        );
+    }
+
+    #[test]
     fn view_dispatch_applies_view_to_matching_type_and_falls_back_for_non_matching() {
         let (store, _text_id, _table_id, view_id) = make_hetero_store();
         let result = render_document_view(RenderDocumentViewOptions {
@@ -3270,6 +3373,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
 
@@ -3309,6 +3413,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         });
         assert!(
             result.is_ok(),
@@ -3741,6 +3846,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
         let out = &result.rendered;
@@ -3781,6 +3887,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render");
         let out = &result.rendered;
@@ -3808,6 +3915,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should not hard-error on unknown renderer");
         assert!(
@@ -4047,6 +4155,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
         let out = &result.rendered;
@@ -4074,6 +4183,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should not hard-error");
         assert!(
@@ -4295,6 +4405,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
 
@@ -4324,6 +4435,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
 
@@ -4353,6 +4465,7 @@ mod tests {
             format: Some("json"),
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
 
@@ -4387,6 +4500,7 @@ mod tests {
             format: Some("json"),
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
 
@@ -4634,6 +4748,7 @@ mod tests {
             format: Some("html"),
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
 
@@ -4693,6 +4808,7 @@ mod tests {
             format: Some("html"),
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
 
@@ -4744,6 +4860,7 @@ mod tests {
             format: Some("html"),
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
 
@@ -4777,6 +4894,7 @@ mod tests {
             format: None,
             theme_variant: Some("print"),
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
 
@@ -5153,6 +5271,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
 
@@ -5178,6 +5297,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
 
@@ -5203,6 +5323,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
 
@@ -5235,6 +5356,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
 
@@ -5267,6 +5389,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
 
@@ -5297,6 +5420,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
 
@@ -5393,6 +5517,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
 
@@ -5428,6 +5553,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
         assert!(
@@ -5446,6 +5572,7 @@ mod tests {
             format: None,
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .expect("render should succeed");
         assert!(
@@ -5612,6 +5739,7 @@ mod tests {
             format: Some("json"),
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
@@ -5650,6 +5778,7 @@ mod tests {
             format: Some("json"),
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
@@ -5681,6 +5810,7 @@ mod tests {
             format: Some("json"),
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
@@ -5712,6 +5842,7 @@ mod tests {
             format: Some("json"),
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
@@ -5797,6 +5928,7 @@ mod tests {
             format: Some("json"),
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
@@ -5836,6 +5968,7 @@ mod tests {
             format: Some("json"),
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
@@ -5876,6 +6009,7 @@ mod tests {
             format: Some("json"),
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .unwrap();
         let mut mem_ids = rfc011_instance_ids_in_result(&mem_result);
@@ -5950,6 +6084,7 @@ mod tests {
             format: Some("json"),
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .unwrap();
         let mut file_ids = rfc011_instance_ids_in_result(&file_result);
@@ -5988,6 +6123,7 @@ mod tests {
             format: Some("json"),
             theme_variant: None,
             container_id: None,
+            instance_id_filter: None,
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
@@ -6070,6 +6206,7 @@ mod tests {
             format: Some("json"),
             theme_variant: None,
             container_id: Some(C1_ID),
+            instance_id_filter: None,
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
