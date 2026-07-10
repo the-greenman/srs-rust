@@ -6,6 +6,8 @@
 - **Superseded by:** —
 - **Extends:** [ADR-018](018-container-view-column-source-precedence.md) — orthogonal to section/View
   resolution; this ADR only adds a semantic marker to columns ADR-018 has already resolved.
+- **Extended by:** [ADR-027](027-identity-column-multi-type-extension.md) — adds common-identity
+  resolution for multi-entry `root_type_refs`; the single-entry and absent cases are unchanged.
 
 ## Context
 

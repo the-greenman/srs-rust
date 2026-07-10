@@ -1513,7 +1513,7 @@ mod tests {
                 type_version: 1,
             },
             ExactTypeRef {
-                type_id: "00000000-0000-4000-8000-00000000bbbb".to_string(),
+                type_id: TYPE_ID_2.to_string(),
                 type_version: 1,
             },
         ]);

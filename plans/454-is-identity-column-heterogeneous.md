@@ -23,7 +23,7 @@ See [agents.md](agents.md) for role definitions.
 | ADR | Decision | Status |
 |---|---|---|
 | [ADR-023](../docs/adr/023-columnspec-identity-column-marker.md) | `isIdentityColumn` scoped to single-entry `root_type_refs` — this plan extends it | accepted |
-| [ADR-027](../docs/adr/027-identity-column-multi-type-extension.md) | Common-identity extension: multi-entry `root_type_refs` can mark an identity column when all entries agree | proposed (this plan) |
+| [ADR-027](../docs/adr/027-identity-column-multi-type-extension.md) | Common-identity extension: multi-entry `root_type_refs` can mark an identity column when all entries agree | accepted |
 
 No new ADRs are needed beyond ADR-027 — this plan adds no new service boundaries, CLI commands, or payload changes.
 
@@ -64,13 +64,13 @@ No entity schemas change. `bash scripts/check-schema-sync.sh` must pass unmodifi
 
 #### Tasks
 
-- [ ] Verify `docs/adr/027-identity-column-multi-type-extension.md` exists and is consistent with the implementation below. It is pre-authored with `Status: proposed`; do not modify its content unless the implementation diverges from its Decision section.
+- [x] Verify `docs/adr/027-identity-column-multi-type-extension.md` exists and is consistent with the implementation below. It is pre-authored with `Status: proposed`; do not modify its content unless the implementation diverges from its Decision section.
 
-- [ ] Add test fixture infrastructure in `crates/srs-repository/src/container_view_service.rs` (test module):
+- [x] Add test fixture infrastructure in `crates/srs-repository/src/container_view_service.rs` (test module):
   - Add `const TYPE_ID_2: &str = "00000000-0000-4000-8000-00000000bbbb";`
   - Add a `record_type_with_identity_v2(identity_field_id: Option<&str>) -> RecordType` helper — same structure as the existing `record_type_with_identity` but uses `TYPE_ID_2` as the type id. This is needed for multi-type tests where two distinct types must both be installed in the store.
 
-- [ ] In `crates/srs-repository/src/container_view_service.rs`, extract the identity-field lookup (currently lines 312-315) into a private helper `common_identity_field`:
+- [x] In `crates/srs-repository/src/container_view_service.rs`, extract the identity-field lookup (currently lines 312-315) into a private helper `common_identity_field`:
 
   ```rust
   fn common_identity_field<'a>(
@@ -89,7 +89,7 @@ No entity schemas change. `bash scripts/check-schema-sync.sh` must pass unmodifi
   }
   ```
 
-- [ ] In `resolve_columns`, replace:
+- [x] In `resolve_columns`, replace:
   ```rust
   let identity_field_id: Option<&String> = match dv.root_type_refs.as_deref() {
       Some([single]) => identity_field_index.get(&(single.type_id.clone(), single.type_version)),
@@ -101,28 +101,28 @@ No entity schemas change. `bash scripts/check-schema-sync.sh` must pass unmodifi
   let identity_field_id = common_identity_field(dv, identity_field_index);
   ```
 
-- [ ] Update the `ColumnSpec.is_identity_column` field doc (approximately lines 46-50) to: "True when this column's `fieldId` is the effective `identityFieldId` shared by **all** Types in the DocumentView's `root_type_refs` — see ADR-023 (single-entry case) and ADR-027 (common-identity multi-entry extension). `false` whenever that resolution is absent, ambiguous, or any referenced Type disagrees. Never affects column order."
+- [x] Update the `ColumnSpec.is_identity_column` field doc (approximately lines 46-50) to: "True when this column's `fieldId` is the effective `identityFieldId` shared by **all** Types in the DocumentView's `root_type_refs` — see ADR-023 (single-entry case) and ADR-027 (common-identity multi-entry extension). `false` whenever that resolution is absent, ambiguous, or any referenced Type disagrees. Never affects column order."
 
-- [ ] Update the `resolve_columns` doc comment (approximately lines 272-281): remove the phrase "must have exactly one entry" and replace with a description of the common-identity rule — when all `root_type_refs` entries agree on the same field ID (via `common_identity_field`), that column is marked `true`; all other cases yield `false`. Cross-reference ADR-023 and ADR-027.
+- [x] Update the `resolve_columns` doc comment (approximately lines 272-281): remove the phrase "must have exactly one entry" and replace with a description of the common-identity rule — when all `root_type_refs` entries agree on the same field ID (via `common_identity_field`), that column is marked `true`; all other cases yield `false`. Cross-reference ADR-023 and ADR-027.
 
-- [ ] Rename the existing test `resolve_container_view_ambiguous_root_type_refs_all_columns_false` to `resolve_container_view_disagreeing_root_type_refs_all_columns_false`. Update its docstring to clarify: the scenario has two `root_type_refs` entries but one is absent from the identity index → still all `false`, no behavior change.
+- [x] Rename the existing test `resolve_container_view_ambiguous_root_type_refs_all_columns_false` to `resolve_container_view_disagreeing_root_type_refs_all_columns_false`. Update its docstring to clarify: the scenario has two `root_type_refs` entries but one is absent from the identity index → still all `false`, no behavior change.
 
-- [ ] Add a new test `resolve_container_view_marks_identity_column_when_all_types_agree`:
+- [x] Add a new test `resolve_container_view_marks_identity_column_when_all_types_agree`:
   - Two `root_type_refs` entries: `TYPE_ID` (version 1) with `identityFieldId: "f-title"` and `TYPE_ID_2` (version 1) with `identityFieldId: "f-title"`.
   - Both RecordTypes installed in the store via `build_store_with_types`.
   - Assert: `f-title` column has `is_identity_column: true`; `f-status` column has `is_identity_column: false`.
 
-- [ ] Add a new test `resolve_container_view_no_signal_when_types_disagree_on_identity`:
+- [x] Add a new test `resolve_container_view_no_signal_when_types_disagree_on_identity`:
   - Two `root_type_refs` entries: `TYPE_ID` with `identityFieldId: "f-title"`, `TYPE_ID_2` with `identityFieldId: "f-status"`.
   - Both RecordTypes installed in the store.
   - Assert: all columns `is_identity_column: false` (types disagree → no column-level signal).
 
-- [ ] Add a new test `resolve_container_view_no_signal_when_one_type_has_no_identity`:
+- [x] Add a new test `resolve_container_view_no_signal_when_one_type_has_no_identity`:
   - Two `root_type_refs` entries: `TYPE_ID` with `identityFieldId: "f-title"`, `TYPE_ID_2` with `identityFieldId: None`.
   - Both RecordTypes installed in the store.
   - Assert: all columns `is_identity_column: false` (one type has no identity → can't agree).
 
-- [ ] Add a cross-store roundtrip test `resolve_view_roundtrip_marks_identity_column_when_all_types_agree`:
+- [x] Add a cross-store roundtrip test `resolve_view_roundtrip_marks_identity_column_when_all_types_agree`:
   - Use `build_store_with_types` with two RecordTypes (TYPE_ID and TYPE_ID_2) both declaring `identityFieldId: "f-title"`.
   - Copy repository to a `FileStore` via `copy_repository`.
   - Call `resolve_container_view` on the FileStore.
@@ -130,15 +130,15 @@ No entity schemas change. `bash scripts/check-schema-sync.sh` must pass unmodifi
 
 #### Acceptance Criteria
 
-- [ ] `resolve_columns` calls `common_identity_field` — no inline `match dv.root_type_refs` remains.
-- [ ] `ColumnSpec.is_identity_column` field doc updated to reference ADR-023 and ADR-027; "single Type" / "exactly one entry" language removed.
-- [ ] `resolve_columns` doc comment updated to describe the common-identity rule; "exactly one entry" constraint replaced with ADR-027 reference.
-- [ ] All existing ADR-023 tests (single-entry, no identity, explicit `view_id`) still pass unmodified.
-- [ ] New "all agree" test passes: identity column marked correctly with two-type container.
-- [ ] New "disagree" test passes: all columns `false` when types differ.
-- [ ] New "one type has no identity" test passes: all columns `false`.
-- [ ] Cross-store roundtrip test passes: `is_identity_column: true` survives FileStore roundtrip.
-- [ ] ADR-027 status flipped from `proposed` to `accepted`.
+- [x] `resolve_columns` calls `common_identity_field` — no inline `match dv.root_type_refs` remains.
+- [x] `ColumnSpec.is_identity_column` field doc updated to reference ADR-023 and ADR-027; "single Type" / "exactly one entry" language removed.
+- [x] `resolve_columns` doc comment updated to describe the common-identity rule; "exactly one entry" constraint replaced with ADR-027 reference.
+- [x] All existing ADR-023 tests (single-entry, no identity, explicit `view_id`) still pass unmodified.
+- [x] New "all agree" test passes: identity column marked correctly with two-type container.
+- [x] New "disagree" test passes: all columns `false` when types differ.
+- [x] New "one type has no identity" test passes: all columns `false`.
+- [x] Cross-store roundtrip test passes: `is_identity_column: true` survives FileStore roundtrip.
+- [x] ADR-027 status flipped from `proposed` to `accepted`.
 
 #### Testing
 
@@ -178,19 +178,19 @@ Specific tests to write or verify:
 
 #### Tasks
 
-- [ ] Run full workspace tests and lint.
-- [ ] Confirm `cargo test --test payload_contracts` passes with no schema file changes.
-- [ ] Confirm `bash scripts/check-schema-sync.sh` exits 0.
-- [ ] Confirm `srs-bindings` has no duplicated `common_identity_field`/identity logic — it calls the same `container_view_service` via `resolve_container_view`.
-- [ ] File a follow-up issue for per-member `identity_field_id` on `ResolvedMember` (deferred from out-of-scope): title "feat: add identity_field_id to ResolvedMember for per-row identity marking in heterogeneous containers". Link the filed issue to the same parent epic as issue #454.
+- [x] Run full workspace tests and lint.
+- [x] Confirm `cargo test --test payload_contracts` passes with no schema file changes.
+- [x] Confirm `bash scripts/check-schema-sync.sh` exits 0.
+- [x] Confirm `srs-bindings` has no duplicated `common_identity_field`/identity logic — it calls the same `container_view_service` via `resolve_container_view`.
+- [x] File a follow-up issue for per-member `identity_field_id` on `ResolvedMember` (deferred from out-of-scope): title "feat: add identity_field_id to ResolvedMember for per-row identity marking in heterogeneous containers". Link the filed issue to the same parent epic as issue #454. (Filed as #498, linked to epic.)
 
 #### Acceptance Criteria
 
-- [ ] `cargo test` passes workspace-wide.
-- [ ] `cargo clippy -- -D warnings` passes.
-- [ ] `cargo test --test payload_contracts` passes, no schema changes.
-- [ ] `check-schema-sync.sh` exits 0.
-- [ ] Follow-up issue filed and linked to the parent epic.
+- [x] `cargo test` passes workspace-wide.
+- [x] `cargo clippy -- -D warnings` passes.
+- [x] `cargo test --test payload_contracts` passes, no schema changes.
+- [x] `check-schema-sync.sh` exits 0.
+- [x] Follow-up issue filed and linked to the parent epic.
 
 #### Testing
 
@@ -209,14 +209,14 @@ Report results to the issue thread. No commit required on a clean pass (this pha
 
 ## Final Acceptance
 
-- [ ] `cargo test` passes with no failures
-- [ ] `cargo clippy -- -D warnings` passes
-- [ ] `cargo test --test payload_contracts` passes (no schema regeneration)
-- [ ] `bash scripts/check-schema-sync.sh` exits 0
-- [ ] `ColumnSpec.is_identity_column: true` is marked when all `root_type_refs` types share the same identity field (new case)
-- [ ] `ColumnSpec.is_identity_column` remains `false` for all columns when any type in `root_type_refs` is absent from the index or disagrees (no regression)
-- [ ] Column order unchanged in all cases (ADR-023 / ADR-027)
-- [ ] ADR-027 status is `accepted`
+- [x] `cargo test` passes with no failures
+- [x] `cargo clippy -- -D warnings` passes
+- [x] `cargo test --test payload_contracts` passes (no schema regeneration)
+- [x] `bash scripts/check-schema-sync.sh` exits 0
+- [x] `ColumnSpec.is_identity_column: true` is marked when all `root_type_refs` types share the same identity field (new case)
+- [x] `ColumnSpec.is_identity_column` remains `false` for all columns when any type in `root_type_refs` is absent from the index or disagrees (no regression)
+- [x] Column order unchanged in all cases (ADR-023 / ADR-027)
+- [x] ADR-027 status is `accepted`
 
 ## Coordination Rules
 
