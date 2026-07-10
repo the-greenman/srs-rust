@@ -77,3 +77,12 @@ Apply it together with one clarification that resolves a recurring ambiguity:
   not in the service (e.g. #131).
 
 A service returns data; a client decides how to render it.
+
+## Validation error classification (addendum, #437)
+
+Write-time validation errors in service functions fall into two classes:
+
+- **Hard errors (reject the write):** Structural constraint violations — a required field is absent, a cross-field rule (`ext:cross-field-validation`) is violated. The service returns `Err(RepositoryError::RecordValidation { .. })` and no write is performed. This is the default for all validation enforced at write time today.
+- **Warning-capable diagnostics (deferred):** A separate, future design — any validation outcome that should allow the write to succeed while surfacing a diagnostic requires a distinct payload shape (e.g. a `warnings` field alongside the written record). No such shape exists today; warning semantics are explicitly deferred pending a concrete use-case.
+
+This classification ensures all consumers (CLI, WASM, future HTTP) get consistent, predictable enforcement with no hidden write-and-warn paths.
