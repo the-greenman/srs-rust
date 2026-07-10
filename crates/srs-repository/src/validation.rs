@@ -3,11 +3,11 @@ use crate::store::RepositoryStore;
 use serde_json::Value;
 use srs_core::types::blueprint::{Blueprint, BlueprintDiagnosticSeverity};
 use srs_core::types::field::ValueType;
+use srs_core::types::lifecycle::RelationDirection;
 use srs_core::types::protocol::{Protocol, ProtocolDiagnosticSeverity};
 use srs_core::types::record::Record;
 use srs_core::types::relation::RelationsCollection;
 use srs_core::validation::blueprint::validate_blueprint;
-use srs_core::types::lifecycle::RelationDirection;
 use srs_core::validation::lifecycle::{
     validate_lifecycle, validate_type_lifecycle_v9, LifecycleDiagnosticSeverity,
 };

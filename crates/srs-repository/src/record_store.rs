@@ -1086,8 +1086,12 @@ pub fn transition_record_lifecycle(
             });
         }
         (Some(req), fulfillment) => {
-            let declared: Vec<String> =
-                req.relation_type.types().iter().map(|t| t.to_string()).collect();
+            let declared: Vec<String> = req
+                .relation_type
+                .types()
+                .iter()
+                .map(|t| t.to_string())
+                .collect();
             let direction = req.effective_direction();
             match fulfillment {
                 None => {
@@ -1508,10 +1512,8 @@ pub fn create_record_successor(
                     &declared,
                     direction,
                 )? {
-                    let _ = relation_service::delete_relation(
-                        store,
-                        &rel_result.relation.relation_id,
-                    );
+                    let _ =
+                        relation_service::delete_relation(store, &rel_result.relation.relation_id);
                     attempt_rollback_delete(store, &successor.instance_id);
                     return Err(RepositoryError::LifecycleRelationRequired {
                         state: explicit_state,
@@ -4170,7 +4172,9 @@ mod tests {
         .unwrap();
     }
 
-    fn supersede_input(fulfillment: Option<TransitionFulfillmentInput>) -> TransitionLifecycleInput {
+    fn supersede_input(
+        fulfillment: Option<TransitionFulfillmentInput>,
+    ) -> TransitionLifecycleInput {
         TransitionLifecycleInput {
             to: None,
             by_transition: Some("supersede".to_string()),
@@ -4199,7 +4203,9 @@ mod tests {
             other => panic!("expected LifecycleRelationRequired, got: {other:?}"),
         }
         // The rejected flip must not have been committed.
-        let reloaded = get_record_by_id(&store, &record.instance_id).unwrap().unwrap();
+        let reloaded = get_record_by_id(&store, &record.instance_id)
+            .unwrap()
+            .unwrap();
         assert_eq!(reloaded.lifecycle_state.as_deref(), Some("ratified"));
     }
 
@@ -4264,9 +4270,13 @@ mod tests {
         .unwrap();
 
         assert_eq!(result.record.lifecycle_state.as_deref(), Some("superseded"));
-        let successor = result.successor.expect("fulfillment must return the successor");
+        let successor = result
+            .successor
+            .expect("fulfillment must return the successor");
         assert_eq!(successor.lifecycle_state.as_deref(), Some("draft"));
-        let relation = result.relation.expect("fulfillment must return the relation");
+        let relation = result
+            .relation
+            .expect("fulfillment must return the relation");
         assert_eq!(relation.relation_type, "supersedes");
         assert_eq!(relation.source_instance_id, successor.instance_id);
         assert_eq!(relation.target_instance_id, record.instance_id);
@@ -4376,7 +4386,10 @@ mod tests {
             })),
         )
         .unwrap_err();
-        assert!(matches!(err, RepositoryError::InvalidInput { .. }), "got: {err:?}");
+        assert!(
+            matches!(err, RepositoryError::InvalidInput { .. }),
+            "got: {err:?}"
+        );
     }
 
     #[test]
@@ -4528,7 +4541,10 @@ mod tests {
         let err =
             transition_record_lifecycle(&file_store, &record.instance_id, supersede_input(None))
                 .unwrap_err();
-        assert!(matches!(err, RepositoryError::LifecycleRelationRequired { .. }));
+        assert!(matches!(
+            err,
+            RepositoryError::LifecycleRelationRequired { .. }
+        ));
 
         // …and the fulfilled transition succeeds against the file store.
         let result = transition_record_lifecycle(
