@@ -199,7 +199,7 @@ fn field_to_property(
     // Field help text: `description` (short caption) and `instructions` (fuller
     // human guidance) each get a dedicated vendor key so neither collides with
     // `title` (label) or `description` (already occupied by string aiGuidance
-    // below). See ADR-023.
+    // below). See ADR-026.
     if !field.description.is_empty() {
         prop.insert("x-srs-description".into(), json!(field.description));
     }

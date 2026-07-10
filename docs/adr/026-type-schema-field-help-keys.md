@@ -1,4 +1,4 @@
-# ADR-023: Type-Schema Field Help Vendor Keys
+# ADR-026: Type-Schema Field Help Vendor Keys
 
 - **Status:** accepted
 - **Date:** 2026-07-09
