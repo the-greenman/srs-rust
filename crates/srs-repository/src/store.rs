@@ -23,6 +23,35 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 // ---------------------------------------------------------------------------
+// RecordTier — logical storage tier for instance records
+// ---------------------------------------------------------------------------
+
+/// Identifies the logical storage tier for instance records.
+/// Adapters map this to backend-specific paths or keys via `record_tier_dir`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecordTier {
+    /// Notes (Tier 0): free-text sections — maps to `records/notes`
+    Note,
+    /// Typed records (Tier 1): named fields, no Type binding — maps to `records/tier-1`
+    Tier1,
+    /// Records (Tier 2): instantiated Type — maps to `records/tier-2`
+    Tier2,
+    /// Extension/package records — maps to `package/records`
+    Extension,
+}
+
+impl RecordTier {
+    fn dir(self) -> &'static str {
+        match self {
+            RecordTier::Note => "records/notes",
+            RecordTier::Tier1 => "records/tier-1",
+            RecordTier::Tier2 => "records/tier-2",
+            RecordTier::Extension => "package/records",
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // RepositoryStore trait
 // ---------------------------------------------------------------------------
 
@@ -192,6 +221,11 @@ pub trait RepositoryStore {
     fn ensure_instance_dir(&self, relative_dir: &str) -> Result<(), RepositoryError>;
     /// Returns relative paths of all JSON files directly under `relative_dir`.
     fn list_instance_files(&self, relative_dir: &str) -> Result<Vec<String>, RepositoryError>;
+
+    /// Returns the relative directory for instance records of the given tier.
+    ///
+    /// Required — each adapter declares its own layout explicitly.
+    fn record_tier_dir(&self, tier: RecordTier) -> &'static str;
 
     // --- Relations ---
 
@@ -1490,6 +1524,10 @@ impl RepositoryStore for FileStore {
         Ok(paths)
     }
 
+    fn record_tier_dir(&self, tier: RecordTier) -> &'static str {
+        tier.dir()
+    }
+
     // --- Relations ---
 
     fn load_relations_json(
@@ -2687,6 +2725,10 @@ pub mod memory {
             Ok(paths)
         }
 
+        fn record_tier_dir(&self, tier: RecordTier) -> &'static str {
+            tier.dir()
+        }
+
         fn load_relations_json(
             &self,
             relative_path: &str,
@@ -3776,6 +3818,18 @@ mod tests {
             sub_loaded.source_package,
             Some("extensions/subpkg".to_string()),
             "sub-package blueprint must carry source_package = Some(rel_path)"
+        );
+    }
+
+    #[test]
+    fn record_tier_dir_values() {
+        let store = MemoryStore::empty();
+        assert_eq!(store.record_tier_dir(RecordTier::Note), "records/notes");
+        assert_eq!(store.record_tier_dir(RecordTier::Tier1), "records/tier-1");
+        assert_eq!(store.record_tier_dir(RecordTier::Tier2), "records/tier-2");
+        assert_eq!(
+            store.record_tier_dir(RecordTier::Extension),
+            "package/records"
         );
     }
 }

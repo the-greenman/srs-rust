@@ -577,7 +577,7 @@ mod tests {
         use crate::manifest::Manifest;
         use crate::package::Package;
         use crate::repository_lifecycle::{CreateRepositoryResult, InitializeRepositoryInput};
-        use crate::store::RepositoryStore;
+        use crate::store::{RecordTier, RepositoryStore};
 
         struct BrokenManifestStore;
 
@@ -763,6 +763,9 @@ mod tests {
             }
             fn list_instance_files(&self, _: &str) -> Result<Vec<String>, RepositoryError> {
                 unimplemented!()
+            }
+            fn record_tier_dir(&self, _tier: RecordTier) -> &'static str {
+                unreachable!("record_tier_dir not expected in BrokenManifestStore tests")
             }
             fn load_relations_json(&self, _: &str) -> Result<serde_json::Value, RepositoryError> {
                 unimplemented!()

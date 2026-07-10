@@ -5,7 +5,7 @@ use crate::package_types::PackageBoundary;
 use crate::repository_lifecycle::{
     default_repository_container, CreateRepositoryResult, InitializeRepositoryInput,
 };
-use crate::store::RepositoryStore;
+use crate::store::{RecordTier, RepositoryStore};
 use chrono::Utc;
 use serde::de::Error as SerdeDeError;
 use srs_core::types::container::ContainerIndexEntry;
@@ -1316,6 +1316,15 @@ impl RepositoryStore for JsonStore {
             .cloned()
             .collect();
         Ok(out)
+    }
+
+    fn record_tier_dir(&self, tier: RecordTier) -> &'static str {
+        match tier {
+            RecordTier::Note => "records/notes",
+            RecordTier::Tier1 => "records/tier-1",
+            RecordTier::Tier2 => "records/tier-2",
+            RecordTier::Extension => "package/records",
+        }
     }
 
     fn load_relations_json(
