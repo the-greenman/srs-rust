@@ -1167,7 +1167,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `repo copy` | S9, S10 |
 | `repo upgrade` (in-place path normalisation) | S9b |
 | `.srsj` write determinism (idempotent, minimal-diff) | S10 |
-| `note` (create/get/list/update/delete) | S1, S10 |
+| `note` (create/get/list/update/delete) | S1, S10; `note create --container` (best-effort rollback on `add_member` failure, #455) — happy path verified end-to-end; error-path trigger deferred (requires FailStore test double, see ADR-024) |
 | `note graduate` (atomic Note→Record promotion) | S18 |
 | `field` (create/list/get/update/delete) | S2 |
 | `type` (create/get/list/schema/update/delete) | S2 |
