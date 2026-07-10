@@ -1117,7 +1117,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `record tag` | S6 |
 | `relation` (create/list/get/delete) | S1, S3, S5 |
 | `relation-type` | CLI: _gap — no scenario yet_; WASM read binding (`list_relation_types`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#411) |
-| `container` (create/members/roots/validate/…) | S4 |
+| `container` (create/members/roots/validate/…) | S4; container CRUD on `.srsj` (create/list/delete) verified end-to-end on branch (#466); slug-named container path resolution (`.srsj` packed from FileStore with `manifest.containerIndex.path` entries) covered by `srs-repository` unit tests (`json_store_container_slug_path_resolution`, `json_store_save_container_writes_manifest_index`, etc.) |
 | `container update` (`rootInstanceIds`/`memberInstanceIds`/`identityInstanceId` patch fields, `deny_unknown_fields`) | S4 (extended — patch membership fields, unknown-field error); verified end-to-end in worktree dogfood (#422) |
 | `container resolve-view` (structured container view, `--view-id`; `ColumnSpec.isIdentityColumn`, ADR-023, #376) | S14 |
 | `container resolve-view` authored `excludeLifecycleStates` (ADR-020) | S15 |
