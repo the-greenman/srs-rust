@@ -12,11 +12,12 @@ pub fn load_from_srsj(srsj_str: &str) -> Result<crate::JsonStore, RepositoryErro
 
 /// Apply the RFC-014 manifest migration to a raw `.srsj` JSON string.
 ///
-/// Moves `manifest.meta.upstreamPackage` to the top-level `manifest.upstreamPackage`
-/// and strips `contentHash` if present (the field was removed from the spec schema).
+/// - Moves `manifest.meta.upstreamPackage` to `manifest.upstreamPackage` if it is
+///   still nested under `meta`.
+/// - Strips `contentHash` from `manifest.upstreamPackage` unconditionally (the field
+///   was removed from the spec schema in RFC-014 Rev 4; old migration code added it).
 ///
-/// Returns the migrated `.srsj` JSON string. If `meta.upstreamPackage` is absent
-/// the input is returned unchanged (idempotent on already-migrated bundles).
+/// Idempotent: running the migration twice produces the same result.
 pub fn migrate_rfc014(srsj_str: &str) -> Result<String, RepositoryError> {
     let mut seed: serde_json::Value =
         serde_json::from_str(srsj_str).map_err(|source| RepositoryError::Serialize {
@@ -32,6 +33,13 @@ pub fn migrate_rfc014(srsj_str: &str) -> Result<String, RepositoryError> {
         if let Some(meta_obj) = seed["manifest"]["meta"].as_object_mut() {
             meta_obj.remove("upstreamPackage");
         }
+    }
+
+    // Strip contentHash from the top-level field unconditionally: bundles migrated by
+    // old code that added contentHash during promotion are not re-entered by the guard
+    // above and must have contentHash removed here.
+    if let Some(up) = seed["manifest"]["upstreamPackage"].as_object_mut() {
+        up.remove("contentHash");
     }
 
     serde_json::to_string(&seed).map_err(|source| RepositoryError::Serialize {
@@ -100,6 +108,29 @@ mod tests {
         assert!(
             result.is_ok(),
             "migration must succeed without package data: {result:?}"
+        );
+    }
+
+    #[test]
+    fn migrate_rfc014_strips_content_hash_from_already_promoted_bundle() {
+        // Regression #428: bundles migrated by old code have upstreamPackage already
+        // at the top level but may still carry contentHash (old migration added it).
+        let input = serde_json::json!({
+            "manifest": {
+                "upstreamPackage": {
+                    "packageId": "com.example.pkg",
+                    "contentHash": "sha256:abc123"
+                },
+                "meta": {}
+            },
+            "data": {}
+        });
+        let result = migrate_rfc014(&serde_json::to_string(&input).unwrap())
+            .expect("migration succeeds on already-promoted bundle");
+        let migrated: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert!(
+            migrated["manifest"]["upstreamPackage"]["contentHash"].is_null(),
+            "contentHash must be absent from already-promoted upstreamPackage (regression #428)"
         );
     }
 
