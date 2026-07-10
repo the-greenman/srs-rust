@@ -426,9 +426,8 @@ fn project_record_json(
         .resolve_type(&record.type_id, record.type_version)
         .cloned();
 
-    let record_heading = section
-        .title_field_id
-        .as_ref()
+    let record_heading = resolve_heading_field_id(section, rt.as_ref(), package)
+        .as_deref()
         .and_then(|fid| record.get_field_value_str(fid).map(|v| v.to_string()));
 
     let mut fields_to_render: Vec<ResolvedFieldRender> = Vec::new();
@@ -1377,8 +1376,8 @@ fn render_record_at_level(
     let mut out = String::new();
     let mut record_heading_value = String::new();
 
-    if let Some(title_field_id) = &section.title_field_id {
-        if let Some(title) = record.get_field_value_str(title_field_id) {
+    if let Some(title_field_id) = resolve_heading_field_id(section, rt.as_ref(), ctx.package) {
+        if let Some(title) = record.get_field_value_str(&title_field_id) {
             record_heading_value = title.to_string();
             out.push_str(&format_heading(heading_level, ctx.format, title));
         }
@@ -2187,6 +2186,19 @@ fn escape_gfm_cell(s: &str) -> String {
 
 fn depth(base: u32, depth_offset: u32) -> u32 {
     base + depth_offset
+}
+
+/// RFC-020 Rule [N+37]: resolve the effective heading field ID for a section/record pair.
+/// Returns `section.title_field_id` when present (takes precedence), otherwise falls back
+/// to the Type's effective `identityFieldId` (when the Type is known).
+fn resolve_heading_field_id(
+    section: &DocumentSection,
+    rt: Option<&srs_core::types::record_type::RecordType>,
+    package: &Package,
+) -> Option<String> {
+    section.title_field_id.clone().or_else(|| {
+        rt.and_then(|t| package.effective_identity_field_id(t).ok().flatten())
+    })
 }
 
 #[cfg(test)]
@@ -6265,6 +6277,359 @@ mod tests {
             ids.len(),
             2,
             "both records must appear with repository scope: {ids:?}"
+        );
+    }
+
+    // ── Rule [N+37] identity field heading fallback tests ──────────────────────
+
+    /// Minimal store for Rule [N+37] tests. Returns (store, view_no_title_id,
+    /// view_with_title_id, view_no_identity_id, view_json_id).
+    fn make_identity_fallback_store() -> (
+        crate::store::memory::MemoryStore,
+        String,
+        String,
+        String,
+        String,
+    ) {
+        use crate::package::Package;
+        use crate::record_store::create_record;
+        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::record_type::{FieldAssignment, RecordType};
+        use srs_core::types::view::{DocumentSection, DocumentView, EmptyBehavior, SectionSource};
+
+        let heading_field = Field {
+            id: "f-head".to_string(),
+            namespace: "com.test".to_string(),
+            name: "heading".to_string(),
+            version: 1,
+            value_type: ValueType::String,
+            description: "Heading field".to_string(),
+            instructions: None,
+            ai_guidance: serde_json::json!(null),
+            allowed_values: None,
+            vocabulary_ref: None,
+            default_value: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let other_field = Field {
+            id: "f-other".to_string(),
+            namespace: "com.test".to_string(),
+            name: "other".to_string(),
+            version: 1,
+            value_type: ValueType::String,
+            description: "Other field (used as explicit titleFieldId in precedence test)".to_string(),
+            instructions: None,
+            ai_guidance: serde_json::json!(null),
+            allowed_values: None,
+            vocabulary_ref: None,
+            default_value: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let identity_type = RecordType {
+            id: "t-identity".to_string(),
+            namespace: "com.test".to_string(),
+            name: "identity-type".to_string(),
+            version: 1,
+            description: "Type with identityFieldId pointing to f-head".to_string(),
+            fields: vec![
+                FieldAssignment {
+                    field_id: "f-head".to_string(),
+                    order: 0,
+                    required: true,
+                    display_label: Some("Heading".to_string()),
+                    repeatable: false,
+                    min_items: None,
+                    max_items: None,
+                },
+                FieldAssignment {
+                    field_id: "f-other".to_string(),
+                    order: 1,
+                    required: false,
+                    display_label: Some("Other".to_string()),
+                    repeatable: false,
+                    min_items: None,
+                    max_items: None,
+                },
+            ],
+            field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            identity_field_id: Some("f-head".to_string()),
+            lifecycle: None,
+            lifecycle_ref: None,
+            validation_rules: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        // Type WITHOUT identityFieldId (for the no-heading regression test)
+        let plain_type = RecordType {
+            id: "t-plain".to_string(),
+            namespace: "com.test".to_string(),
+            name: "plain-type".to_string(),
+            version: 1,
+            description: "Type without identityFieldId".to_string(),
+            fields: vec![FieldAssignment {
+                field_id: "f-head".to_string(),
+                order: 0,
+                required: true,
+                display_label: Some("Heading".to_string()),
+                repeatable: false,
+                min_items: None,
+                max_items: None,
+            }],
+            field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            identity_field_id: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            validation_rules: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let make_type_query_section = |sot: &str, title_field_id: Option<String>| DocumentSection {
+            section_id: "items".to_string(),
+            title: Some("Items".to_string()),
+            description: None,
+            order: 0,
+            source: SectionSource::TypeQuery {
+                semantic_object_type: sot.to_string(),
+                lifecycle_state: None,
+                container_ids: None,
+                lifecycle_states: None,
+                exclude_lifecycle_states: None,
+                container_scope: None,
+            },
+            render_view_id: None,
+            type_dispatch: None,
+            title_field_id,
+            ordering: None,
+            required: None,
+            empty_behavior: Some(EmptyBehavior::Hide),
+        };
+
+        let make_dv = |id: &str, name: &str, section: DocumentSection, format: &str| DocumentView {
+            id: id.to_string(),
+            namespace: "com.test".to_string(),
+            name: name.to_string(),
+            version: 1,
+            description: name.to_string(),
+            container_type: None,
+            root_type_refs: None,
+            sections: vec![section],
+            navigation_links: None,
+            preamble: None,
+            format: Some(format.to_string()),
+            depth_offset: None,
+            theme_ref: None,
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let dv_no_title = make_dv(
+            "dv-identity-fallback",
+            "identity-fallback",
+            make_type_query_section("com.test/identity-type", None),
+            "markdown",
+        );
+        let dv_with_title = make_dv(
+            "dv-title-takes-precedence",
+            "title-takes-precedence",
+            make_type_query_section("com.test/identity-type", Some("f-other".to_string())),
+            "markdown",
+        );
+        let dv_no_identity = make_dv(
+            "dv-no-identity",
+            "no-identity",
+            make_type_query_section("com.test/plain-type", None),
+            "markdown",
+        );
+        let dv_json = make_dv(
+            "dv-identity-json",
+            "identity-json",
+            make_type_query_section("com.test/identity-type", None),
+            "json",
+        );
+
+        let manifest = crate::manifest::Manifest {
+            instance_index: vec![],
+            container: None,
+            container_index: None,
+            extra: HashMap::new(),
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "pkg-identity".to_string(),
+            namespace: "com.test".to_string(),
+            name: "identity-package".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![heading_field, other_field],
+            record_types: vec![identity_type, plain_type],
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![dv_no_title, dv_with_title, dv_no_identity, dv_json],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = crate::store::memory::MemoryStore::new(manifest, package);
+
+        let fv_identity = vec![
+            srs_core::types::record::FieldValue {
+                field_id: "f-head".to_string(),
+                value: serde_json::json!("My Identity Heading"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            },
+            srs_core::types::record::FieldValue {
+                field_id: "f-other".to_string(),
+                value: serde_json::json!("Other Title"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            },
+        ];
+        create_record(&store, "t-identity", 1, fv_identity, None, None).unwrap();
+
+        let fv_plain = vec![srs_core::types::record::FieldValue {
+            field_id: "f-head".to_string(),
+            value: serde_json::json!("Plain Record"),
+            entries: None,
+            source: None,
+            edited_at: None,
+        }];
+        create_record(&store, "t-plain", 1, fv_plain, None, None).unwrap();
+
+        (
+            store,
+            "dv-identity-fallback".to_string(),
+            "dv-title-takes-precedence".to_string(),
+            "dv-no-identity".to_string(),
+            "dv-identity-json".to_string(),
+        )
+    }
+
+    #[test]
+    fn identity_field_id_fallback_emits_heading_markdown() {
+        let (store, view_id, _, _, _) = make_identity_fallback_store();
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: &view_id,
+            format: None,
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect("render should succeed");
+        assert!(
+            result.rendered.contains("### My Identity Heading"),
+            "expected H3 heading from identityFieldId fallback (Rule [N+37]); got: {}",
+            result.rendered
+        );
+    }
+
+    #[test]
+    fn title_field_id_takes_precedence_over_identity_field_id() {
+        let (store, _, view_id, _, _) = make_identity_fallback_store();
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: &view_id,
+            format: None,
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect("render should succeed");
+        // titleFieldId=f-other → "Other Title"; identityFieldId (f-head) → "My Identity Heading"
+        assert!(
+            result.rendered.contains("### Other Title"),
+            "expected heading from titleFieldId, not identityFieldId; got: {}",
+            result.rendered
+        );
+        assert!(
+            !result.rendered.contains("### My Identity Heading"),
+            "identityFieldId heading must not appear when titleFieldId is set; got: {}",
+            result.rendered
+        );
+    }
+
+    #[test]
+    fn no_identity_field_id_no_title_field_id_no_heading() {
+        let (store, _, _, view_id, _) = make_identity_fallback_store();
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: &view_id,
+            format: None,
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect("render should succeed");
+        assert!(
+            !result.rendered.contains("### "),
+            "expected no H3 heading when both titleFieldId and identityFieldId are absent; got: {}",
+            result.rendered
+        );
+    }
+
+    #[test]
+    fn identity_field_id_fallback_filestore_roundtrip() {
+        let repo_root = repeatable_fixture_root();
+        let store = FileStore::new(&repo_root);
+        // identity-fallback-view: TypeQuery for fixture.repeatable/identity-item, no titleFieldId
+        // identity-item type has identityFieldId → Title field
+        // The identity record's Title = "identity heading value"
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "00000000-0000-4000-8000-000000000985",
+            format: None,
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect("render should succeed");
+        assert!(
+            result.rendered.contains("### identity heading value"),
+            "expected H3 heading from identityFieldId via FileStore (Rule [N+37]); got: {}",
+            result.rendered
+        );
+    }
+
+    #[test]
+    fn identity_field_id_fallback_record_heading_json() {
+        let (store, _, _, _, view_id) = make_identity_fallback_store();
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: &view_id,
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect("render should succeed");
+        let projection = result
+            .projection
+            .expect("json format should produce a projection");
+        assert_eq!(
+            projection.sections[0].records[0].record_heading.as_deref(),
+            Some("My Identity Heading"),
+            "record_heading should be populated from identityFieldId fallback in JSON projection"
         );
     }
 }

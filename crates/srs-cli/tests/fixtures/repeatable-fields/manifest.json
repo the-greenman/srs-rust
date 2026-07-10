@@ -17,6 +17,11 @@
       "instanceId": "00000000-0000-4000-8000-000000000992",
       "tier": 2,
       "path": "records/repeatable/too-many.json"
+    },
+    {
+      "instanceId": "00000000-0000-4000-8000-000000000993",
+      "tier": 2,
+      "path": "records/identity/main.json"
     }
   ],
   "createdAt": "2026-01-01T00:00:00Z"

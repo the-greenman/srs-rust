@@ -1,6 +1,7 @@
 # Plan: render_service — per-record heading falls back to identityFieldId (RFC-020 Rule [N+37])
 
 > **Issue:** srs-rust #453
+> **RFC:** srs#144 / srs#148 (RFC-020, accepted)
 
 ## Summary
 
@@ -25,7 +26,8 @@ See [agents.md](agents.md) for role definitions.
 
 | ADR | Decision | Status |
 |---|---|---|
-| [ADR-010](../docs/adr/010-service-boundary-contract.md) | All business logic (heading resolution) stays inside the `srs-repository` service function; no logic migrated to `srs-cli` | accepted |
+| [ADR-010](../docs/adr/010-service-boundary-contract.md) | All business logic (heading resolution) stays inside the `srs-repository` service function; no logic migrated to `srs-cli`. Note: the pre-existing deviation where `render_service` combines rendering and projection in one service module (rather than `srs-projection`) is out of scope for this plan. | accepted |
+| [ADR-023](../docs/adr/023-columnspec-identity-column-marker.md) | ADR-023 prohibits per-record calls to `effective_identity_field_id` that duplicate an already-computed index. This plan calls it once per record inside `render_service`, where no such index is built and the Package is already loaded. This is not a duplicate — there is no pre-existing index to reuse in the render path. The prohibition in ADR-023 targets `container_view_service` where an explicit index is built and reused for the whole call. We extract a private `resolve_heading_field_id` helper so the Rule [N+37] logic lives at a single named site and is shared between `render_record_at_level` and `project_record_json`. | accepted |
 
 No new ADRs are needed: this is a pure implementation of an already-accepted RFC rule within an existing service function. The existing `Package::effective_identity_field_id` method (added in #376) provides the resolution API. No new public boundary is introduced.
 
@@ -51,9 +53,10 @@ No JSON Schema files changed. `bash scripts/check-schema-sync.sh` will continue 
 
 ## Scope
 
-- Implement Rule [N+37] in `render_record_at_level` (Default Rendering Baseline and L1 View dispatch, markdown/HTML format): when `section.title_field_id` is `None`, resolve the record type's `effective_identity_field_id` via `ctx.package.effective_identity_field_id(rt)` and emit a per-record heading if that field has a value.
-- Implement Rule [N+37] in `project_record_json` (JSON projection path): when `section.title_field_id` is `None`, populate `record_heading` from `effective_identity_field_id`.
-- Add unit tests (MemoryStore-based, self-contained) covering the new fallback, the precedence rule, and the no-op case.
+- Extract a private `resolve_heading_field_id` helper (before the test module in `render_service.rs`) that encapsulates Rule [N+37]: returns `section.title_field_id` when present, otherwise the Type's `effective_identity_field_id` when the Type is known.
+- Implement Rule [N+37] in `render_record_at_level` (Default Rendering Baseline and L1 View dispatch, markdown/HTML format): call `resolve_heading_field_id` instead of inspecting `section.title_field_id` directly.
+- Implement Rule [N+37] in `project_record_json` (JSON projection path): call `resolve_heading_field_id` for the `record_heading` computation.
+- Add unit tests (MemoryStore-based) covering the new fallback, the precedence rule, the no-op case, and a FileStore-based roundtrip test per CLAUDE.md cross-store requirement.
 
 **Out of scope:**
 - `titleFieldId` skipping the field from the body when the fallback fires (structured mode stays tied to explicit `section.title_field_id`; the identity field still appears in the body field list). Deferred — this is not mandated by Rule [N+37].
@@ -64,69 +67,93 @@ No JSON Schema files changed. `bash scripts/check-schema-sync.sh` will continue 
 
 ## Phases
 
-### Phase 1: Implement Rule [N+37] in render_record_at_level
+### Phase 0: API verification
 
-**Goal:** Markdown/HTML rendering emits a per-record heading from `identityFieldId` when `titleFieldId` is absent.
+**Goal:** Confirm the exact API signatures before touching production code.
 
 **Agent:** Repository Service Worker
 
 #### Tasks
 
-- [ ] In `render_record_at_level` (file: `crates/srs-repository/src/render_service.rs`, around line 1376), after the line `let structured = section.title_field_id.is_some();`, compute the effective heading field ID:
+- [ ] Confirm `Package::effective_identity_field_id` signature: takes `&RecordType`, returns `Result<Option<String>, RepositoryError>` (defined in `crates/srs-repository/src/package.rs`).
+- [ ] Confirm `render_record_at_level` already has `rt: Option<Arc<RecordType>>` in scope (or equivalent) at the heading-emit site (~line 1376 in `render_service.rs`).
+- [ ] Confirm `project_record_json` already has `rt` and `package` in scope at the `record_heading` computation (~line 429).
+- [ ] Confirm `RecordType.identity_field_id: Option<String>` exists in `srs-core`.
+
+#### Milestone gate
+
+No code changes. Confirm findings match the plan's assumptions above. If any assumption is wrong, update the plan before proceeding.
+
+---
+
+### Phase 1: Extract helper + implement in render_record_at_level
+
+**Goal:** Extract `resolve_heading_field_id`, implement Rule [N+37] for markdown/HTML path, add MemoryStore tests and one FileStore roundtrip test.
+
+**Agent:** Repository Service Worker
+
+#### Tasks
+
+- [ ] Add `resolve_heading_field_id` private helper just before the `#[cfg(test)]` module in `render_service.rs`:
 
   ```rust
-  // RFC-020 Rule [N+37]: when titleFieldId is absent, fall back to the Type's
-  // effective identityFieldId for per-record heading emission.
-  let heading_field_id: Option<String> = if section.title_field_id.is_some() {
-      section.title_field_id.clone()
-  } else {
-      rt.as_ref().and_then(|t| {
-          ctx.package.effective_identity_field_id(t).ok().flatten()
+  /// RFC-020 Rule [N+37]: resolve the effective heading field ID for a section/record pair.
+  /// Returns `section.title_field_id` when present (takes precedence), otherwise falls back
+  /// to the Type's effective `identityFieldId` (when the Type is known).
+  fn resolve_heading_field_id(
+      section: &DocumentSection,
+      rt: Option<&srs_core::types::record_type::RecordType>,
+      package: &Package,
+  ) -> Option<String> {
+      section.title_field_id.clone().or_else(|| {
+          rt.and_then(|t| package.effective_identity_field_id(t).ok().flatten())
       })
-  };
+  }
   ```
 
-- [ ] Replace the heading-emit block (lines ~1380-1384) to use `heading_field_id` instead of `section.title_field_id`:
+- [ ] In `render_record_at_level` (~line 1376), replace the heading-emit block to use `resolve_heading_field_id`:
 
   ```rust
-  if let Some(title_field_id) = &heading_field_id {
-      if let Some(title) = record.get_field_value_str(title_field_id) {
+  if let Some(title_field_id) = resolve_heading_field_id(section, rt.as_deref(), ctx.package) {
+      if let Some(title) = record.get_field_value_str(&title_field_id) {
           record_heading_value = title.to_string();
-          out.push_str(&format_heading(heading_level, ctx.format, title));
+          out.push_str(&format_heading(heading_level, ctx.format, &title));
       }
   }
   ```
 
-  The `structured` variable remains unchanged (`section.title_field_id.is_some()`), so the field-skip in body and subsection recursion are only activated by an explicit `titleFieldId`.
+  The `structured` variable (`let structured = section.title_field_id.is_some();`) remains unchanged — field-skip in body and subsection recursion are only activated by an explicit `titleFieldId`.
+
+- [ ] Create fixture files for the FileStore roundtrip test:
+  - `crates/srs-cli/tests/fixtures/repeatable-fields/package/types/identity-item.json` — new Type with UUID `00000000-0000-4000-8000-000000000904`, namespace `fixture.repeatable`, name `identity-item`, version 1, `"identityFieldId": "00000000-0000-4000-8000-000000000901"` (reuses existing Title field)
+  - `crates/srs-cli/tests/fixtures/repeatable-fields/records/identity/main.json` — Record with UUID `00000000-0000-4000-8000-000000000993`, typeId `00000000-0000-4000-8000-000000000904`, typeVersion 1, fieldValues with Title field = `"identity heading value"`
+  - `crates/srs-cli/tests/fixtures/repeatable-fields/package/document-views/identity-fallback-view.json` — DocumentView UUID `00000000-0000-4000-8000-000000000985`, no `titleFieldId`, root_type_refs pointing to the identity-item type
+  - Update `crates/srs-cli/tests/fixtures/repeatable-fields/manifest.json` to add `00000000-0000-4000-8000-000000000993` to `instanceIndex`
 
 #### Acceptance Criteria
 
 - [ ] When a section has no `titleFieldId` but the record's Type has `identityFieldId`, a per-record heading at the correct heading level is emitted using that field's value.
-- [ ] When both `titleFieldId` and `identityFieldId` are present, `titleFieldId` wins (heading uses `titleFieldId` value).
-- [ ] When neither is present, no per-record heading is emitted (regression guard for existing behavior).
+- [ ] When both `titleFieldId` and `identityFieldId` are present, `titleFieldId` wins.
+- [ ] When neither is present, no per-record heading is emitted (regression guard).
 - [ ] The body field list for the identity-fallback case still includes the identity field (structured mode not activated by fallback).
 - [ ] `cargo test -p srs-repository` passes with no failures.
 
-#### Testing
+#### Testing (all in `render_service.rs` test module)
 
-```bash
-cargo test -p srs-repository render
-cargo clippy -p srs-repository -- -D warnings
-```
+Tests to add:
 
-Tests to add (all using `MemoryStore`, defined near the existing `make_hetero_store` helper around line 2952):
-
-- `identity_field_id_fallback_emits_heading_markdown` — a type with `identity_field_id: Some("f-heading".to_string())`, a doc view with no `titleFieldId`, a record with a heading field value → rendered markdown contains H3 with that value.
-- `title_field_id_takes_precedence_over_identity_field_id` — same type with `identityFieldId`, doc view WITH `titleFieldId` pointing to a different field → heading uses `titleFieldId` field value, not identity field value.
-- `no_identity_field_id_no_heading` — type with `identity_field_id: None`, no `titleFieldId` → no H3 heading emitted (regression guard; the existing `no_title_field_id_omits_structural_heading` file-based test already covers this with the fixture type, but add a MemoryStore variant for clarity).
+- `identity_field_id_fallback_emits_heading_markdown` (MemoryStore) — type with `identity_field_id: Some(...)`, doc view with no `titleFieldId`, record with heading field value → rendered markdown contains H3 with that value.
+- `title_field_id_takes_precedence_over_identity_field_id` (MemoryStore) — same type with `identityFieldId`, doc view WITH `titleFieldId` pointing to a different field → heading uses `titleFieldId` value, not identity field value.
+- `no_identity_field_id_no_heading` (MemoryStore) — type with `identity_field_id: None`, no `titleFieldId` → no H3 heading emitted.
+- `identity_field_id_fallback_filestore_roundtrip` (FileStore via `repeatable_fixture_root()`) — loads the new fixture records/identity-item/identity-fallback-view, renders as markdown → heading emitted from identity field.
 
 #### Milestone gate
 
 1. Verify all acceptance criteria above.
-2. Confirm the three new tests exist and pass.
+2. Confirm the four new tests exist and pass.
 3. Run `cargo test -p srs-repository` and `cargo clippy -p srs-repository -- -D warnings`.
 4. Update plan checkboxes.
-5. Commit.
+5. Commit: `feat(render): implement Rule [N+37] — identity field fallback for per-record heading (#453)`.
 
 ---
 
@@ -138,27 +165,15 @@ Tests to add (all using `MemoryStore`, defined near the existing `make_hetero_st
 
 #### Tasks
 
-- [ ] In `project_record_json` (file: `crates/srs-repository/src/render_service.rs`, around line 429), replace the `record_heading` computation:
+- [ ] In `project_record_json` (~line 429 in `render_service.rs`), replace the `record_heading` computation to use `resolve_heading_field_id`:
 
   ```rust
-  // Current:
-  let record_heading = section
-      .title_field_id
-      .as_ref()
-      .and_then(|fid| record.get_field_value_str(fid).map(|v| v.to_string()));
-
-  // New:
-  let json_heading_field_id: Option<String> = section.title_field_id.clone().or_else(|| {
-      // RFC-020 Rule [N+37]: fall back to Type's identityFieldId when titleFieldId absent
-      rt.as_ref()
-          .and_then(|t| package.effective_identity_field_id(t).ok().flatten())
-  });
-  let record_heading = json_heading_field_id
+  let record_heading = resolve_heading_field_id(section, rt.as_deref(), package)
       .as_deref()
       .and_then(|fid| record.get_field_value_str(fid).map(|v| v.to_string()));
   ```
 
-  Note: `rt` is already defined above as `package.resolve_type(&record.type_id, record.type_version).cloned()`.
+  Note: `rt` is already defined above as `package.resolve_type(...)` returning an `Option<&RecordType>` (or `Option<Arc<RecordType>>`; use `.as_deref()` accordingly). `package` is already in scope.
 
 #### Acceptance Criteria
 
@@ -166,16 +181,11 @@ Tests to add (all using `MemoryStore`, defined near the existing `make_hetero_st
 - [ ] When `titleFieldId` is set, it takes precedence over `identityFieldId`.
 - [ ] `cargo test -p srs-repository` passes with no failures.
 
-#### Testing
+#### Testing (in `render_service.rs` test module)
 
-```bash
-cargo test -p srs-repository render
-cargo clippy -p srs-repository -- -D warnings
-```
+Test to add:
 
-Test to add (MemoryStore-based):
-
-- `identity_field_id_fallback_record_heading_json` — builds a MemoryStore with a type declaring `identityFieldId`, a doc view with `title_field_id: None`, renders as `format: "json"` → `projection.sections[0].records[0].record_heading` equals the identity field value.
+- `identity_field_id_fallback_record_heading_json` (MemoryStore) — builds a store with a type declaring `identityFieldId`, a doc view with `title_field_id: None`, renders as `format: "json"` → `projection.sections[0].records[0].record_heading` equals the identity field value.
 
 #### Milestone gate
 
@@ -183,7 +193,7 @@ Test to add (MemoryStore-based):
 2. Confirm the new JSON test exists and passes.
 3. Run `cargo test -p srs-repository` and `cargo clippy -p srs-repository -- -D warnings`.
 4. Update plan checkboxes.
-5. Commit.
+5. Commit: `feat(render): apply Rule [N+37] to JSON projection path (#453)`.
 
 ---
 
@@ -196,6 +206,7 @@ Test to add (MemoryStore-based):
 - [ ] Existing `no_title_field_id_omits_structural_heading` test still passes (regression guard)
 - [ ] New heading-from-identityFieldId tests exist and pass for both markdown and JSON paths
 - [ ] `titleFieldId` precedence test passes
+- [ ] FileStore roundtrip test passes
 
 ## Coordination Rules
 
@@ -205,6 +216,7 @@ Test to add (MemoryStore-based):
 
 ## Assumptions
 
-- `Package::effective_identity_field_id` (added in #376) is the correct resolution API — it walks the type inheritance chain and returns the effective field ID.
-- `RecordType.identity_field_id` field exists in `srs-core` and is already deserialized from JSON.
+- `Package::effective_identity_field_id` (added in #376) takes `&RecordType` and returns `Result<Option<String>, RepositoryError>` — walks the type inheritance chain.
+- `RecordType.identity_field_id: Option<String>` exists in `srs-core` and is already deserialized from JSON.
+- `render_record_at_level` and `project_record_json` both have `rt: Option<_>` (Arc or ref) and `package: &Package` in scope at the heading-emit site.
 - Existing tests that use types without `identity_field_id` set will continue to pass unmodified.
