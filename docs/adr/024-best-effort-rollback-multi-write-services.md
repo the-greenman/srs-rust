@@ -49,3 +49,4 @@ Option D is rejected: `abort_batch` is a no-op for `FileStore` and `MemoryStore`
 - `srs repo repair` (identified in ADR-007 as future work) should handle residual orphaned entries from process kills or failed rollbacks.
 - Both `create_record_in_container` and `create_record_in_context` are updated consistently.
 - The limitation (best-effort, not crash-safe) is documented in each function's doc comment.
+- The same pattern was subsequently extended to `create_note_in_context` (issue #455), which has the identical two-write structure. The inline form (`let _ = delete_note(store, &id)`) is used there rather than a named helper, since the one-liner adds no clarity overhead.

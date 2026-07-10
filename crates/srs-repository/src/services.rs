@@ -237,6 +237,8 @@ pub fn list_note_tags(
 ///
 /// If `input.container_id` is Some, the container is verified to exist before
 /// creating the note. If creation succeeds, the note is added to the container.
+/// If the `add_member` step fails, best-effort rollback via `delete_note`. See
+/// ADR-024 for the accepted limitations of this approach.
 pub fn create_note_in_context(
     store: &dyn RepositoryStore,
     input: CreateNoteInput,
@@ -249,7 +251,11 @@ pub fn create_note_in_context(
     let result = create_note(store, input.note)?;
 
     if let Some(ref cid) = input.container_id {
-        container_service::add_member(store, cid, &result.note.instance_id)?;
+        if let Err(e) = container_service::add_member(store, cid, &result.note.instance_id) {
+            // Best-effort rollback — same caveats as ADR-024.
+            let _ = delete_note(store, &result.note.instance_id);
+            return Err(e);
+        }
     }
 
     Ok(result)
@@ -1448,6 +1454,128 @@ mod tests {
             }
             _ => panic!("Expected note to be found in file store after copy"),
         }
+    }
+
+    // ── rollback mechanism ─────────────────────────────────────────────────────
+
+    #[test]
+    fn rollback_mechanism_delete_note_cleans_manifest() {
+        // Verifies the building blocks used by the best-effort rollback in
+        // create_note_in_context: that create_note followed by delete_note returns
+        // the manifest instance index to its original length. This is the two-step
+        // sequence the rollback error arm executes when add_member fails.
+        //
+        // Note: the error-path trigger (that add_member failure invokes this
+        // sequence) is verified by code inspection of the error arm; fault-
+        // injection integration testing is deferred (see ADR-024).
+        use srs_core::types::note::NoteSection;
+        let store = MemoryStore::default();
+        let initial_len = store.load_manifest().unwrap().instance_index.len();
+
+        let note = Note {
+            instance_id: "".to_string(),
+            title: Some("Rollback Test Note".to_string()),
+            tags: None,
+            sections: vec![NoteSection {
+                name: "body".to_string(),
+                label: None,
+                content: "rollback content".to_string(),
+                content_hint: None,
+                tags: None,
+            }],
+            graduated_at: None,
+            source_refs: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+        };
+
+        let result = create_note(&store, note).expect("create_note should succeed");
+
+        let after_create_len = store.load_manifest().unwrap().instance_index.len();
+        assert_eq!(
+            after_create_len,
+            initial_len + 1,
+            "manifest must have one more entry after create_note"
+        );
+
+        delete_note(&store, &result.note.instance_id).expect("delete_note should succeed");
+
+        let after_delete_len = store.load_manifest().unwrap().instance_index.len();
+        assert_eq!(
+            after_delete_len, initial_len,
+            "manifest must return to its original length after rollback delete"
+        );
+    }
+
+    #[test]
+    fn create_note_in_context_container_branch_success() {
+        // Regression test: the container branch of create_note_in_context must
+        // continue to work after the rollback error arm was added. Note is created,
+        // manifest grows by one, and the note is a member of the container.
+        use srs_core::types::container::Container;
+        use srs_core::types::note::NoteSection;
+        let store = MemoryStore::default();
+
+        let container = Container {
+            container_id: "550e8400-e29b-41d4-a716-446655440099".to_string(),
+            title: "Test Container".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            identity_instance_id: None,
+            root_instance_ids: None,
+            member_instance_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: std::collections::HashMap::new(),
+        };
+        let container_id = container_service::create_container(&store, container)
+            .expect("container created")
+            .container_id;
+
+        let initial_len = store.load_manifest().unwrap().instance_index.len();
+
+        let input = CreateNoteInput {
+            note: Note {
+                instance_id: "".to_string(),
+                title: Some("Context Note".to_string()),
+                tags: None,
+                sections: vec![NoteSection {
+                    name: "body".to_string(),
+                    label: None,
+                    content: "context content".to_string(),
+                    content_hint: None,
+                    tags: None,
+                }],
+                graduated_at: None,
+                source_refs: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+            },
+            container_id: Some(container_id.clone()),
+        };
+
+        let result = create_note_in_context(&store, input)
+            .expect("create_note_in_context should succeed with valid container");
+
+        let after_len = store.load_manifest().unwrap().instance_index.len();
+        assert_eq!(
+            after_len,
+            initial_len + 1,
+            "manifest must have one more entry after successful create_note_in_context"
+        );
+
+        let members = container_service::list_members(&store, &container_id)
+            .expect("list_members should succeed");
+        assert!(
+            members.contains(&result.note.instance_id),
+            "note must be a member of the container after create_note_in_context"
+        );
     }
 
     #[test]
