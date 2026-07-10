@@ -4,7 +4,7 @@
   "title": "SRS Blueprint Definition (ext:blueprint)",
   "description": "Declares a document type for Record extraction and container instantiation. A Blueprint names the root Record Types it produces, the Relation structure between extracted Records, and which Record Types must be present for the Blueprint to be considered complete. Blueprint.rootTypes uses ExactTypeRef (typeVersion required) — the same shape as DocumentView.rootTypeRefs — completing the fully UUID-anchored chain: Blueprint.rootTypes → DocumentView.rootTypeRefs → Container.rootInstanceIds (RFC-009).",
   "type": "object",
-  "required": ["$schema", "id", "namespace", "name", "version", "description", "rootTypes", "createdAt"],
+  "required": ["id", "namespace", "name", "version", "description", "rootTypes", "createdAt"],
   "additionalProperties": false,
   "properties": {
     "$schema": {
