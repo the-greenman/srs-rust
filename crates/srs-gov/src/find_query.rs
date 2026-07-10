@@ -30,8 +30,20 @@ pub(crate) fn build_find_args(
     args
 }
 
+/// Return `true` when at least one runtime filter is active and a `srs find` query is needed.
+///
+/// Used by both `resolve_hit_set` (to short-circuit) and the `--explain` branch (to decide
+/// whether to print the find command). Keeping the predicate in one place ensures that adding
+/// a new filter axis to `resolve_hit_set` automatically updates the explain output too.
+pub(crate) fn needs_find_query(excludes: &[&str], search: Option<&str>, tags: &[String]) -> bool {
+    !excludes.is_empty() || search.is_some() || !tags.is_empty()
+}
+
 /// Run a scoped `srs find` query and return the matching instance IDs as a set,
 /// or `None` when no filter is active (caller should show all members verbatim).
+///
+/// `search` must be `None` to mean "no search" — callers must not wrap an empty string in
+/// `Some("")`. Use `.then_some(s)` or `(!s.is_empty()).then_some(s)` before calling.
 pub(crate) fn resolve_hit_set(
     repo: &str,
     container_id: &str,
@@ -39,8 +51,7 @@ pub(crate) fn resolve_hit_set(
     search: Option<&str>,
     tags: &[String],
 ) -> Result<Option<HashSet<String>>> {
-    let need_find = !excludes.is_empty() || search.is_some() || !tags.is_empty();
-    if !need_find {
+    if !needs_find_query(excludes, search, tags) {
         return Ok(None);
     }
     let args = build_find_args(container_id, excludes, search, tags);
@@ -121,7 +132,11 @@ mod tests {
 
     #[test]
     fn resolve_hit_set_returns_none_when_no_filter_active() {
-        // No excludes, no search, no tags → no `srs` process spawned; returns Ok(None).
+        // No excludes, no search, no tags → short-circuits without spawning `srs`.
+        // The active-filter code path (which does spawn `srs`) is regression-guarded by
+        // the integration tests in crates/srs-gov/tests/flow.rs
+        // (decision_log_list_renders_decisions, list_hides_superseded_and_closed_by_default,
+        // list_search_narrows_by_content, list_tag_narrows_by_tag, etc.).
         let result = resolve_hit_set(".", "c-1", &[], None, &[]);
         assert!(result.is_ok());
         assert!(result.unwrap().is_none());

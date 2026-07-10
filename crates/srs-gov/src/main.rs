@@ -273,7 +273,7 @@ fn cmd_list(
             true,
             false,
         )?;
-        if !effective_excludes.is_empty() || search.is_some() || !tags.is_empty() {
+        if find_query::needs_find_query(&effective_excludes, search, tags) {
             let find_args =
                 find_query::build_find_args(&container_id, &effective_excludes, search, tags);
             let refs: Vec<&str> = find_args.iter().map(String::as_str).collect();
