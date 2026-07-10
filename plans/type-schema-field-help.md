@@ -10,7 +10,7 @@ only uses a field's `description` as a `title` fallback and never emits `instruc
 This blocks the srs-web record editor from showing field help text. This plan models `instructions`
 as a typed `Option<String>` on `Field` and projects both `description` and `instructions` into the
 type-schema property object under dedicated `x-srs-*` vendor keys, so neither collides with the
-already-occupied `title`/`description` JSON Schema keywords (see ADR-023).
+already-occupied `title`/`description` JSON Schema keywords (see ADR-026).
 
 ## Agent Assignments
 
@@ -28,10 +28,10 @@ new agent role is required.
 
 | ADR | Decision | Status |
 |---|---|---|
-| [ADR-023](../docs/adr/023-type-schema-field-help-keys.md) | `x-srs-description` / `x-srs-instructions` vendor keys carry field help text in the type-schema projection | proposed |
-| [ADR-014](../docs/adr/014-composite-schema-property-naming.md) | Convention consistency (not governance): dedicated `x-srs-*` keys name a datum's semantic role rather than overloading a standard JSON Schema keyword | accepted (informs this plan's naming; ADR-014 itself governs only `blueprint_schema_service` property-key naming — none of `type_schema_service`'s existing vendor keys were ever governed by an ADR, so ADR-023 is the first ADR for *this* projection's vendor-key convention) |
+| [ADR-026](../docs/adr/026-type-schema-field-help-keys.md) | `x-srs-description` / `x-srs-instructions` vendor keys carry field help text in the type-schema projection | proposed |
+| [ADR-014](../docs/adr/014-composite-schema-property-naming.md) | Convention consistency (not governance): dedicated `x-srs-*` keys name a datum's semantic role rather than overloading a standard JSON Schema keyword | accepted (informs this plan's naming; ADR-014 itself governs only `blueprint_schema_service` property-key naming — none of `type_schema_service`'s existing vendor keys were ever governed by an ADR, so ADR-026 is the first ADR for *this* projection's vendor-key convention) |
 
-ADR-023 already exists as a draft in this worktree from prior work on this issue; this plan carries
+ADR-026 already exists as a draft in this worktree from prior work on this issue; this plan carries
 it forward with status `proposed` (per the standard ADR lifecycle — it flips to `accepted` in Stage
 7.5 once the change ships) and finalizes its wording.
 
