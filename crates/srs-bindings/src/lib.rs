@@ -10,7 +10,7 @@ use srs_repository::governance_scaffold_service::{self, CreateGovernanceReposito
 use srs_repository::manifest_service;
 use srs_repository::migrate_identity_service;
 use srs_repository::package_service::{
-    self, FieldListFilter, GetFieldResult, GetTypeResult, TypeListFilter,
+    self, FieldListFilter, GetFieldResult, GetTypeResult, RelationTypeListFilter, TypeListFilter,
 };
 use srs_repository::protocol_service::{self, GetProtocolResult};
 use srs_repository::record_store::{
@@ -546,7 +546,10 @@ impl SrsRepository {
         let filter: RelationTypeListBindingFilter = serde_json::from_str(filter_json)
             .map_err(|e| js_err(format!("invalid filter: {e}")))?;
         let relation_types =
-            package_service::list_relation_types_filtered(&self.store, filter.status)
+            package_service::list_relation_types_filtered(
+                &self.store,
+                RelationTypeListFilter { status: filter.status },
+            )
                 .map_err(js_err)?;
         to_js(&relation_types)
     }

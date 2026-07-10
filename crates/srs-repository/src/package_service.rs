@@ -312,6 +312,13 @@ pub struct TypeListFilter {
     pub package: Option<Option<String>>,
 }
 
+/// Filter options for listing relation types
+#[derive(Debug, Clone, Default)]
+pub struct RelationTypeListFilter {
+    /// If Some, only return relation types whose serialized status string matches.
+    pub status: Option<String>,
+}
+
 /// Unified field listing function combining namespace and package filtering.
 pub fn list_fields_filtered(
     store: &dyn RepositoryStore,
@@ -348,18 +355,18 @@ pub fn list_types_filtered(
     })
 }
 
-/// List relation type definitions with optional status filter.
+/// List relation type definitions, optionally filtered by status.
 ///
-/// If `status` is None, all definitions are returned. If Some, only definitions
+/// If `filter.status` is `None`, all definitions are returned. If `Some`, only definitions
 /// whose serialized status string matches are returned.
 pub fn list_relation_types_filtered(
     store: &dyn RepositoryStore,
-    status: Option<String>,
+    filter: RelationTypeListFilter,
 ) -> Result<Vec<RelationTypeDefinition>, RepositoryError> {
     let package = store.load_package()?;
     let defs = package.relation_type_definitions;
 
-    Ok(if let Some(ref status_filter) = status {
+    Ok(if let Some(ref status_filter) = filter.status {
         defs.into_iter()
             .filter(|rtd| {
                 let serialized = rtd
