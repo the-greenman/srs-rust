@@ -276,7 +276,7 @@ fn do_import(
     let mut used_paths: HashMap<String, String> = HashMap::with_capacity(snapshot.instances.len());
     manifest.instance_index = Vec::new();
     for instance in &snapshot.instances {
-        let rel_path = canonical_instance_path(instance, target);
+        let rel_path = canonical_instance_path(instance, target)?;
         if let Some(first_id) = used_paths.get(&rel_path) {
             return Err(RepositoryError::InvalidSnapshotData {
                 message: format!(
@@ -683,7 +683,7 @@ pub fn upgrade_repository_paths(
             tags: entry.tags.clone(),
             value: value.clone(),
         };
-        let canonical = canonical_instance_path(&instance, store);
+        let canonical = canonical_instance_path(&instance, store)?;
         if !canonical_paths.insert(canonical.clone()) {
             return Err(RepositoryError::InvalidSnapshotData {
                 message: format!("path collision: two instances would normalise to '{canonical}'"),
@@ -759,7 +759,10 @@ pub fn upgrade_repository_paths(
     })
 }
 
-pub(crate) fn canonical_instance_path(instance: &SnapshotInstance, store: &dyn RepositoryStore) -> String {
+pub(crate) fn canonical_instance_path(
+    instance: &SnapshotInstance,
+    store: &dyn RepositoryStore,
+) -> Result<String, RepositoryError> {
     let id = &instance.instance_id;
     assert!(
         id.len() >= 8,
@@ -786,14 +789,20 @@ pub(crate) fn canonical_instance_path(instance: &SnapshotInstance, store: &dyn R
     } else {
         format!("{slug}-{id8}.json")
     };
-    match instance.tier {
-        0 => format!("{}/{filename}", store.record_tier_dir(RecordTier::Note)),
-        1 => format!("{}/{filename}", store.record_tier_dir(RecordTier::Tier1)),
-        2 => format!("{}/{filename}", store.record_tier_dir(RecordTier::Tier2)),
-        // Defensive catch-all for unknown tier numbers in snapshot data.
-        // Cannot be expressed as a typed RecordTier variant.
-        tier => format!("records/tier-{tier}/{filename}"),
-    }
+    let dir = match instance.tier {
+        0 => store.record_tier_dir(RecordTier::Note),
+        1 => store.record_tier_dir(RecordTier::Tier1),
+        2 => store.record_tier_dir(RecordTier::Tier2),
+        tier => {
+            return Err(RepositoryError::InvalidSnapshotData {
+                message: format!(
+                    "instance '{}' has unknown tier {tier} — cannot map to a storage path",
+                    instance.instance_id
+                ),
+            })
+        }
+    };
+    Ok(format!("{dir}/{filename}"))
 }
 
 fn slugify(name: &str) -> String {

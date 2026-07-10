@@ -3097,4 +3097,18 @@ mod tests {
             "sub-package blueprint must carry source_package = Some(rel_path)"
         );
     }
+
+    #[test]
+    fn json_store_record_tier_dir_matches_canonical_values() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("repo.srsj");
+        let store = JsonStore::create(&path).unwrap();
+        assert_eq!(store.record_tier_dir(RecordTier::Note), "records/notes");
+        assert_eq!(store.record_tier_dir(RecordTier::Tier1), "records/tier-1");
+        assert_eq!(store.record_tier_dir(RecordTier::Tier2), "records/tier-2");
+        assert_eq!(
+            store.record_tier_dir(RecordTier::Extension),
+            "package/records"
+        );
+    }
 }
