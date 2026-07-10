@@ -110,17 +110,21 @@ pub fn scaffold_governance_repo(
         .unwrap_or("Add your group's purpose statement here.");
 
     let package = store.load_package()?;
+    // Namespace-qualified lookups: the bundle may also carry the implicit-core
+    // com.semanticops.core/title field (a repo-copy of a core-aware engine
+    // materializes it), and a bare-name match would pin the wrong field id
+    // onto the governance/article record.
     let title_field_id = package
-        .find_field_by_name("title")
+        .find_field("governance", "title")
         .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
-            message: "title field not found in package".to_string(),
+            message: "governance/title field not found in package".to_string(),
         })?
         .id
         .clone();
     let article_text_field_id = package
-        .find_field_by_name("article_text")
+        .find_field("governance", "article_text")
         .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
-            message: "article_text field not found in package".to_string(),
+            message: "governance/article_text field not found in package".to_string(),
         })?
         .id
         .clone();

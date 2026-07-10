@@ -162,6 +162,15 @@ impl Package {
         self.fields.iter().find(|f| f.name == name)
     }
 
+    /// Namespace-qualified field lookup. Prefer this over `find_field_by_name`
+    /// whenever the package may carry same-named fields in multiple namespaces
+    /// (e.g. `governance/title` vs the implicit-core `com.semanticops.core/title`).
+    pub fn find_field(&self, namespace: &str, name: &str) -> Option<&Field> {
+        self.fields
+            .iter()
+            .find(|f| f.namespace == namespace && f.name == name)
+    }
+
     /// Get all fields as a slice.
     pub fn fields(&self) -> &[Field] {
         &self.fields

@@ -570,6 +570,19 @@ fn transition(repo: &str, id: &str, to: &str) {
     );
 }
 
+/// RFC-022: the seed's `superseded` state declares `requiresRelation`, so a bare
+/// flip is rejected — fulfil the transition by adopting an existing record as the
+/// successor (keeps the fixture's record count stable for the list assertions).
+fn supersede(repo: &str, id: &str, successor_id: &str) {
+    srs_json(
+        repo,
+        &["record", "transition", "--id", id],
+        Some(&format!(
+            r#"{{"byTransition":"supersede","fulfillment":{{"existingInstanceId":"{successor_id}"}}}}"#
+        )),
+    );
+}
+
 /// Build a governance repo with one decision in each of draft/ratified/superseded/
 /// closed. The ratified decision is tagged `tooling`; its statement carries the
 /// unique non-title token `zephyrstore` for the content-search test.
@@ -631,7 +644,7 @@ fn setup_repo(suffix: &str) -> TempGovRepo {
     let superseded = create_decision(&path, &dl, "Old logo selection", "we picked logo alpha");
     transition(&path, &superseded, "proposed");
     transition(&path, &superseded, "ratified");
-    transition(&path, &superseded, "superseded");
+    supersede(&path, &superseded, &ratified);
 
     // closed (… -> ratified -> closed)
     let closed = create_decision(&path, &dl, "Close the first budget", "spending approved");
