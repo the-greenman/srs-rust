@@ -1,6 +1,6 @@
 # ADR-027: `isIdentityColumn` common-identity extension for multi-entry `root_type_refs`
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-07-10
 - **Supersedes:** —
 - **Superseded by:** —
