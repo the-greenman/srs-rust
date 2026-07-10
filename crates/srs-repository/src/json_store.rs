@@ -237,6 +237,26 @@ impl JsonStore {
                 }
             }
         }
+        // Open-time migration: if manifest.container_index is None (old JsonStore-native .srsj
+        // repos written before #466, which stored containerIndex only in data["manifest.json"]),
+        // populate the typed index from that shadow so all subsequent saves/deletes operate
+        // on the canonical index rather than leaving the shadow stale (#466).
+        if manifest.container_index.is_none() {
+            if let Some(shadow_manifest) = envelope.data.get("manifest.json") {
+                if let Some(arr) = shadow_manifest
+                    .get("containerIndex")
+                    .and_then(|v| v.as_array())
+                {
+                    let migrated: Vec<ContainerIndexEntry> = arr
+                        .iter()
+                        .filter_map(|e| serde_json::from_value(e.clone()).ok())
+                        .collect();
+                    if !migrated.is_empty() {
+                        manifest.container_index = Some(migrated);
+                    }
+                }
+            }
+        }
         Ok(Self {
             file_path: mem_path,
             state: RefCell::new(JsonStoreState {
@@ -1380,6 +1400,13 @@ impl RepositoryStore for JsonStore {
             state.data.insert(key.clone(), val);
             // Update canonical manifest.container_index so load_container can resolve via path.
             let mut entries = state.manifest.container_index.take().unwrap_or_default();
+            // Preserve any vendor-extended fields from the prior index entry so that
+            // round-tripping a .srsj with extra ContainerIndexEntry fields doesn't silently drop them.
+            let prior_extra = entries
+                .iter()
+                .find(|e| e.container_id == *id)
+                .map(|e| e.extra.clone())
+                .unwrap_or_default();
             entries.retain(|e| e.container_id != *id);
             entries.push(ContainerIndexEntry {
                 container_id: id.clone(),
@@ -1387,7 +1414,7 @@ impl RepositoryStore for JsonStore {
                 path: Some(key.clone()),
                 container_type: container.container_type.clone(),
                 tags: container.tags.clone(),
-                extra: HashMap::new(),
+                extra: prior_extra,
             });
             state.manifest.container_index = Some(entries);
         }
@@ -1415,12 +1442,14 @@ impl RepositoryStore for JsonStore {
 
         // ADR-007: remove from index FIRST (delete ordering). An interrupted delete leaves an
         // orphaned data entry rather than a dangling index entry.
+        // Keep Some([]) rather than collapsing to None — an explicitly-empty canonical index
+        // signals "we own this index" and prevents list_container_summaries from falling through
+        // to a stale shadow data["manifest.json"]["containerIndex"] entry.
         {
             let mut state = self.state.borrow_mut();
             let mut entries = state.manifest.container_index.take().unwrap_or_default();
             entries.retain(|e| e.container_id != container_id);
-            state.manifest.container_index =
-                if entries.is_empty() { None } else { Some(entries) };
+            state.manifest.container_index = Some(entries);
         }
         self.state.borrow_mut().data.remove(&key);
         self.flush()
@@ -2499,6 +2528,67 @@ mod tests {
         assert!(
             !has_entry,
             "manifest.container_index must not contain the deleted container"
+        );
+    }
+
+    // Regression test for legacy-repo delete regression (arch reviewer finding 1, #466).
+    // Old .srsj repos (pre-#466) stored containerIndex only in data["manifest.json"], not in
+    // the top-level manifest. After delete_container, the shadow must not cause the deleted
+    // container to reappear in list_container_summaries on the next load.
+    #[test]
+    fn json_store_legacy_shadow_delete_does_not_resurrect_container() {
+        use crate::store::RepositoryStore;
+
+        let srsj = serde_json::json!({
+            "srsj": "1",
+            "manifest": {
+                "repositoryId": "legacy-repo",
+                "srsVersion": "2.0-draft",
+                "namespace": "com.test.legacy",
+                "instanceIndex": [],
+                "packageRef": {"mode": "local", "path": "package"}
+                // No top-level containerIndex — old format
+            },
+            "data": {
+                "containers/aaaabbbb-cccc-dddd-eeee-ffffffffffff.json": {
+                    "containerId": "aaaabbbb-cccc-dddd-eeee-ffffffffffff",
+                    "title": "Legacy Container"
+                },
+                "manifest.json": {
+                    "containerIndex": [
+                        {
+                            "containerId": "aaaabbbb-cccc-dddd-eeee-ffffffffffff",
+                            "title": "Legacy Container"
+                        }
+                    ]
+                }
+            }
+        })
+        .to_string();
+
+        let store = JsonStore::from_srsj(&srsj).unwrap();
+
+        // Before delete: open-time migration must make the container visible.
+        let before = store.list_container_summaries().unwrap();
+        assert!(
+            before
+                .iter()
+                .any(|(id, _)| id == "aaaabbbb-cccc-dddd-eeee-ffffffffffff"),
+            "legacy container must be visible before delete"
+        );
+
+        // Delete it.
+        store
+            .delete_container("aaaabbbb-cccc-dddd-eeee-ffffffffffff")
+            .unwrap();
+
+        // After delete: must not reappear.
+        let after = store.list_container_summaries().unwrap();
+        assert!(
+            !after
+                .iter()
+                .any(|(id, _)| id == "aaaabbbb-cccc-dddd-eeee-ffffffffffff"),
+            "deleted container must not reappear in list after delete"
         );
     }
 
