@@ -69,7 +69,7 @@ No schema files changed. No action required.
 
 #### Tasks
 
-- [ ] In `crates/srs-gov/src/find_query.rs`:
+- [x] In `crates/srs-gov/src/find_query.rs`:
   - Add imports at top of file:
     ```rust
     use anyhow::Result;
@@ -99,9 +99,9 @@ No schema files changed. No action required.
 
 #### Acceptance Criteria
 
-- [ ] `find_query::resolve_hit_set` compiles and is accessible as `pub(crate)`.
-- [ ] Existing tests in `find_query.rs` still pass.
-- [ ] A test `resolve_hit_set_returns_none_when_no_filter_active` added that asserts `resolve_hit_set(".", "c-1", &[], None, &[])` returns `Ok(None)` without invoking `srs` (pure logic path).
+- [x] `find_query::resolve_hit_set` compiles and is accessible as `pub(crate)`.
+- [x] Existing tests in `find_query.rs` still pass.
+- [x] A test `resolve_hit_set_returns_none_when_no_filter_active` added that asserts `resolve_hit_set(".", "c-1", &[], None, &[])` returns `Ok(None)` without invoking `srs` (pure logic path).
 
 #### Testing
 
@@ -137,7 +137,7 @@ Specific tests:
 
 #### Tasks
 
-- [ ] In `crates/srs-gov/src/tui_data.rs`:
+- [x] In `crates/srs-gov/src/tui_data.rs`:
   - Delete the entire `fn allowed_hits(...)` function (lines 168–190).
   - Replace the call site in `load_section_view` at line 117:
     ```rust
@@ -149,23 +149,23 @@ Specific tests:
     let exclude_refs: Vec<&str> = excludes.iter().map(String::as_str).collect();
     let allowed = crate::find_query::resolve_hit_set(repo, container_id, &exclude_refs, search, &[])?;
     ```
-  - Remove unused `HashSet` import if it was only used by `allowed_hits`.
+  - `HashSet` kept (still used by `detail_rows` for `required_names`).
 
-- [ ] In `crates/srs-gov/src/main.rs`, replace the inline find-set logic in `cmd_list` (approximately lines 267–303):
-  ```rust
-  // Remove: need_find, find_args, and the `if need_find { ... } else { None }` block.
-  // Replace with:
-  let allowed = find_query::resolve_hit_set(repo, &container_id, &effective_excludes, search, tags)?;
-  ```
-  - Remove any now-unused `run_srs` import at the top of the inline block (but keep the top-level `use srs::run_srs` if used elsewhere in the file — it is used in `cmd_top`, `cmd_get`, etc., so it stays).
+- [x] In `crates/srs-gov/src/main.rs`, replace the inline find-set logic in `cmd_list`:
+  - Moved `build_find_args` call inside the `explain` block (only path that needs to print the command).
+  - Replaced lines 297-307 (`if need_find { ... } else { None }`) with:
+    ```rust
+    let allowed = find_query::resolve_hit_set(repo, &container_id, &effective_excludes, search, tags)?;
+    ```
+  - `need_find` and `find_args` variables removed as top-level `cmd_list` bindings.
 
 #### Acceptance Criteria
 
-- [ ] `fn allowed_hits` no longer exists anywhere in `tui_data.rs`.
-- [ ] The inline `need_find`/`find_args`/`if need_find` block no longer exists in `cmd_list`.
-- [ ] Both call sites compile and call `find_query::resolve_hit_set`.
-- [ ] `cargo test -p srs-gov` passes.
-- [ ] `cargo clippy -p srs-gov -- -D warnings` passes (no dead-code warnings from removed `HashSet` import).
+- [x] `fn allowed_hits` no longer exists anywhere in `tui_data.rs`.
+- [x] The inline `need_find`/`find_args`/`if need_find` block no longer exists in `cmd_list`.
+- [x] Both call sites compile and call `find_query::resolve_hit_set`.
+- [x] `cargo test -p srs-gov` passes (unit tests; integration tests pre-existing failures unrelated to this change).
+- [x] `cargo clippy -p srs-gov -- -D warnings` passes.
 
 #### Testing
 

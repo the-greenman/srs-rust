@@ -264,12 +264,6 @@ fn cmd_list(
         authored_excludes.iter().map(String::as_str).collect()
     };
 
-    // A find query is only needed when a runtime filter is active (exclusion, search, or
-    // tag). With none active the authored member list is shown verbatim — preserving the
-    // pre-#298 output (and keeping a container-subset view, which has no exclusion, identical).
-    let need_find = !effective_excludes.is_empty() || search.is_some() || !tags.is_empty();
-    let find_args = find_query::build_find_args(&container_id, &effective_excludes, search, tags);
-
     if explain {
         println!("# Underlying srs commands (resolve-view srs-rust#254, find #217):");
         run_srs(&["repo", "navigation"], repo, true, false)?;
@@ -279,7 +273,9 @@ fn cmd_list(
             true,
             false,
         )?;
-        if need_find {
+        if find_query::needs_find_query(&effective_excludes, search, tags) {
+            let find_args =
+                find_query::build_find_args(&container_id, &effective_excludes, search, tags);
             let refs: Vec<&str> = find_args.iter().map(String::as_str).collect();
             run_srs(&refs, repo, true, false)?;
         }
@@ -294,17 +290,11 @@ fn cmd_list(
     }
 
     // Resolve the runtime hit set (instanceIds surviving the find query), if any.
-    let allowed: Option<HashSet<String>> = if need_find {
-        let refs: Vec<&str> = find_args.iter().map(String::as_str).collect();
-        let find_payload = run_srs(&refs, repo, false, false)?;
-        Some(
-            find_query::parse_hit_ids(&find_payload)
-                .into_iter()
-                .collect(),
-        )
-    } else {
-        None
-    };
+    // A find query is only issued when a runtime filter is active (exclusion, search, or tag).
+    // With none active the authored member list is shown verbatim — preserving the
+    // pre-#298 output (and keeping a container-subset view, which has no exclusion, identical).
+    let allowed =
+        find_query::resolve_hit_set(repo, &container_id, &effective_excludes, search, tags)?;
 
     let root_label = cv["root"]["displayLabel"].as_str().unwrap_or("");
     let columns: Vec<(&str, &str)> = cv["columns"]
