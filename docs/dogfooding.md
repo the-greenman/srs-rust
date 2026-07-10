@@ -1014,7 +1014,7 @@ $SRS_BIN repo validate --repo "$SCRATCH" --pretty
 
 **Intention.** *"I'm recording a governance decision. Our process requires that the decision date always comes after the deliberation period began — I want the system to enforce that automatically so no one can accidentally log a decision that pre-dates the deliberation."*
 
-**Capabilities exercised.** `ext:cross-field-validation` — `field-ordering` rule on a Type's `validationRules` enforced during `repo validate`; happy-path record with valid date ordering produces no diagnostic; out-of-order record produces a clear error naming the offending fields and the violated constraint.
+**Capabilities exercised.** `ext:cross-field-validation` — `field-ordering` rule on a Type's `validationRules` enforced at **write time** (#437) and during `repo validate`; a valid record creates successfully and produces no diagnostic; a record that violates the ordering rule is rejected by `record create` before any file is written, and `repo validate` confirms the repository remains clean.
 
 **CLI surface.** `field create`, `type create` (with `validationRules`), `record create`, `repo validate`.
 
@@ -1071,7 +1071,7 @@ echo '{
 $SRS_BIN repo validate --repo "$SCRATCH" --pretty
 ```
 
-**Negative case.** Create a second record where decision_date (2026-06-01) precedes deliberation_date (2026-07-01), then validate.
+**Negative case.** Attempt to create a record where decision_date (2026-06-01) precedes deliberation_date (2026-07-01). Since #437 enforces CFR rules at write time, `record create` returns `ok: false` immediately — no file is written.
 
 ```bash
 echo '{
@@ -1081,13 +1081,14 @@ echo '{
   ]
 }' | $SRS_BIN record create --repo "$SCRATCH" --type com.example.dogfood/governance_decision
 
-$SRS_BIN repo validate --repo "$SCRATCH" --pretty   # must produce field-ordering error
+# Confirm repository is still clean — the bad record was never persisted.
+$SRS_BIN repo validate --repo "$SCRATCH"   # must return ok: true (one valid record only)
 ```
 
 **Done when.**
-- After happy-path record only: `repo validate` returns `ok: true`, `diagnostics` is empty.
-- After adding the out-of-order record: `repo validate` returns `ok: false`; `diagnostics[0]` contains `"field-ordering"` and references `decision_date`'s field ID.
-- The error is attributed to the specific record file, not the type or repo globally.
+- Happy-path `record create`: returns `ok: true`; `repo validate` shows `ok: true`, `diagnostics: []`.
+- CFR-violating `record create`: returns `ok: false`; `diagnostics` contains `"field-ordering"` referencing `decision_date`'s field ID; the write is rejected before any file is written.
+- `repo validate` after the rejected write: returns `ok: true` — the repository contains only the valid record.
 
 ### S24 — Resolve a core type in a fresh repo with no package config (implicit core merge, #423)
 
@@ -1196,7 +1197,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `extension` | _gap — no scenario yet_ |
 | `repo extensions` (list/enable/disable/conformance) | S22 |
 | `repo migrate-identity` (graduate Tier-0 identity note to purpose record, #426; bootstrap identity for pre-#424 repos with no `identityInstanceId`, #432) | S21 (Tier-0 note branch), S21b (None-branch: absent pointer); WASM binding (`migrate_identity`) verified via integration tests in `crates/srs-bindings/tests/migrate_identity.rs` (#434); `build_purpose_record` now uses `core_package::core_package()` lookups instead of hardcoded UUID constants (ADR-025, #434) |
-| `type` `validationRules` (ext:cross-field-validation — conditional-required / field-ordering / mutual-exclusion, #242) | S23 |
+| `type` `validationRules` (ext:cross-field-validation — conditional-required / field-ordering / mutual-exclusion, #242); CFR enforced at write time (record create / update) and in validate-input preflight (#437) | S23 |
 | `tag` (definition) | _gap — being deprecated; see open issues_ |
 | `package` | CLI: covered implicitly by field/type creation in S2; WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330) |
 
