@@ -18,7 +18,7 @@ use serde::Deserialize;
 use srs_repository::package_service::{
     get_field_by_id, get_type_by_id_latest, list_fields_filtered, list_packages,
     list_relation_types_filtered, list_types_filtered, FieldListFilter, GetFieldResult,
-    GetTypeResult, TypeListFilter,
+    GetTypeResult, RelationTypeListFilter, TypeListFilter,
 };
 use srs_repository::view_service::{get_view_by_id, list_views_summary, GetViewResult};
 use srs_repository::JsonStore;
@@ -279,8 +279,8 @@ struct TestRelationTypeListBindingFilter {
 #[test]
 fn list_relation_types_returns_all_types() {
     let store = gallery_store();
-    let relation_types =
-        list_relation_types_filtered(&store, None).expect("list_relation_types must succeed");
+    let relation_types = list_relation_types_filtered(&store, RelationTypeListFilter::default())
+        .expect("list_relation_types must succeed");
     assert_eq!(relation_types.len(), 4, "gallery has 4 relation types");
 }
 
@@ -289,8 +289,13 @@ fn list_relation_types_status_filter_none_match() {
     let store = gallery_store();
     // Gallery relation types have no `status` field set; their serialized status is "".
     // A filter for "active" must return 0 results.
-    let relation_types = list_relation_types_filtered(&store, Some("active".to_string()))
-        .expect("list_relation_types must succeed");
+    let relation_types = list_relation_types_filtered(
+        &store,
+        RelationTypeListFilter {
+            status: Some("active".to_string()),
+        },
+    )
+    .expect("list_relation_types must succeed");
     assert!(
         relation_types.is_empty(),
         "no gallery relation types have status 'active'"
@@ -305,7 +310,8 @@ fn relation_type_filter_json_maps_to_service() {
     assert_eq!(raw.status, Some("active".to_string()));
     // Call the service with the deserialized filter — proving the full JSON → filter → service chain.
     let relation_types =
-        list_relation_types_filtered(&store, raw.status).expect("list_relation_types must succeed");
+        list_relation_types_filtered(&store, RelationTypeListFilter { status: raw.status })
+            .expect("list_relation_types must succeed");
     assert!(
         relation_types.is_empty(),
         "no gallery relation types match status 'active'"

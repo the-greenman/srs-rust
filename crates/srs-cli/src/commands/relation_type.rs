@@ -5,6 +5,7 @@ use serde::Serialize;
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_repository::package_service::{
     create_relation_type, delete_relation_type, list_relation_types_filtered, update_relation_type,
+    RelationTypeListFilter,
 };
 use std::io;
 
@@ -50,7 +51,12 @@ pub fn dispatch(ctx: CliContext, cmd: RelationTypeCommand) -> Result<String> {
 
 fn cmd_relation_type_list(ctx: CliContext, status_filter: Option<String>) -> Result<String> {
     let relation_type_definitions = with_store(&ctx, |store| {
-        Ok(list_relation_types_filtered(store, status_filter)?)
+        Ok(list_relation_types_filtered(
+            store,
+            RelationTypeListFilter {
+                status: status_filter,
+            },
+        )?)
     })?;
     output::serialize(
         "relation-type list",
