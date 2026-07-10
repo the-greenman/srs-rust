@@ -265,6 +265,29 @@ pub enum RepositoryError {
     #[error("lifecycle state '{state}' is not defined in Type lifecycle")]
     LifecycleStateNotDefined { state: String },
 
+    // ── RFC-022 relational lifecycle states ──────────────────────────────────
+    #[error(
+        "LIFECYCLE_RELATION_REQUIRED: state '{state}' requires a satisfying '{direction}' relation of type {relation_types:?}; supply fulfillment.newRecord or fulfillment.existingInstanceId, or assert the relation first",
+    )]
+    LifecycleRelationRequired {
+        state: String,
+        relation_types: Vec<String>,
+        direction: String,
+    },
+
+    #[error("LIFECYCLE_FULFILLMENT_NOT_APPLICABLE: target state '{state}' declares no requiresRelation — fulfillment must be omitted")]
+    LifecycleFulfillmentNotApplicable { state: String },
+
+    #[error("LIFECYCLE_FULFILLMENT_RELATION_TYPE_MISMATCH: fulfillment.relationType '{relation_type}' is not among the declared types {declared:?} for state '{state}'")]
+    LifecycleFulfillmentRelationTypeMismatch {
+        state: String,
+        relation_type: String,
+        declared: Vec<String>,
+    },
+
+    #[error("LIFECYCLE_STATE_UNREACHABLE: state '{state}' is not reachable from initial state '{initial}' via declared transitions")]
+    LifecycleStateUnreachable { state: String, initial: String },
+
     #[error("type version {version} not found for type '{type_id}'")]
     TypeVersionNotFound { type_id: String, version: u32 },
 
@@ -627,6 +650,44 @@ impl PartialEq for RepositoryError {
                 RepositoryError::LifecycleStateNotDefined { state: a },
                 RepositoryError::LifecycleStateNotDefined { state: b },
             ) => a == b,
+            (
+                RepositoryError::LifecycleRelationRequired {
+                    state: sa,
+                    relation_types: ra,
+                    direction: da,
+                },
+                RepositoryError::LifecycleRelationRequired {
+                    state: sb,
+                    relation_types: rb,
+                    direction: db,
+                },
+            ) => sa == sb && ra == rb && da == db,
+            (
+                RepositoryError::LifecycleFulfillmentNotApplicable { state: a },
+                RepositoryError::LifecycleFulfillmentNotApplicable { state: b },
+            ) => a == b,
+            (
+                RepositoryError::LifecycleFulfillmentRelationTypeMismatch {
+                    state: sa,
+                    relation_type: ra,
+                    declared: da,
+                },
+                RepositoryError::LifecycleFulfillmentRelationTypeMismatch {
+                    state: sb,
+                    relation_type: rb,
+                    declared: db,
+                },
+            ) => sa == sb && ra == rb && da == db,
+            (
+                RepositoryError::LifecycleStateUnreachable {
+                    state: sa,
+                    initial: ia,
+                },
+                RepositoryError::LifecycleStateUnreachable {
+                    state: sb,
+                    initial: ib,
+                },
+            ) => sa == sb && ia == ib,
             (
                 RepositoryError::TypeVersionNotFound {
                     type_id: ia,

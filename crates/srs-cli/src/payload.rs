@@ -354,21 +354,32 @@ pub struct RecordSuccessorPayload {
 /// Payload for `record transition` — the updated record and any non-fatal warnings
 /// (e.g., LIFECYCLE_FINAL_STATE). Envelope `diagnostics` is reserved for `ok: false` errors;
 /// non-fatal operational signals on a successful response belong in the typed payload per ADR-011.
+/// When the transition was fulfilled (RFC-022), `successor` / `relation` carry the artifacts.
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordTransitionPayload {
     #[schemars(with = "serde_json::Value")]
     pub record: Record,
     pub warnings: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<serde_json::Value>")]
+    pub successor: Option<Record>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<serde_json::Value>")]
+    pub relation: Option<Relation>,
 }
 
 /// One allowed lifecycle transition for `record allowed-transitions`.
+/// `requiresRelation` (RFC-022) is the target state's relation obligation, when declared.
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AllowedTransitionEntry {
     pub name: String,
     pub to: String,
     pub to_is_final: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<serde_json::Value>")]
+    pub requires_relation: Option<srs_core::types::lifecycle::RequiresRelation>,
 }
 
 impl From<LifecycleTransitionOption> for AllowedTransitionEntry {
@@ -377,6 +388,7 @@ impl From<LifecycleTransitionOption> for AllowedTransitionEntry {
             name: t.name,
             to: t.to,
             to_is_final: t.to_is_final,
+            requires_relation: t.requires_relation,
         }
     }
 }

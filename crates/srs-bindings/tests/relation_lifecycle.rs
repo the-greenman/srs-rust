@@ -295,6 +295,7 @@ fn set_lifecycle_state_transitions_record() {
         TransitionLifecycleInput {
             to: Some("active".to_string()),
             by_transition: None,
+            fulfillment: None,
         },
     )
     .expect("draft→active should succeed");
@@ -324,6 +325,7 @@ fn set_lifecycle_state_full_chain_to_final() {
         TransitionLifecycleInput {
             to: Some("active".to_string()),
             by_transition: None,
+            fulfillment: None,
         },
     )
     .expect("draft→active should succeed");
@@ -335,6 +337,7 @@ fn set_lifecycle_state_full_chain_to_final() {
         TransitionLifecycleInput {
             to: Some("archived".to_string()),
             by_transition: None,
+            fulfillment: None,
         },
     )
     .expect("active→archived should succeed");
@@ -369,6 +372,7 @@ fn set_lifecycle_state_result_includes_warnings_field() {
         TransitionLifecycleInput {
             to: Some("active".to_string()),
             by_transition: None,
+            fulfillment: None,
         },
     )
     .expect("draft→active must succeed");
@@ -379,6 +383,7 @@ fn set_lifecycle_state_result_includes_warnings_field() {
         TransitionLifecycleInput {
             to: Some("archived".to_string()),
             by_transition: None,
+            fulfillment: None,
         },
     )
     .expect("active→archived must succeed");

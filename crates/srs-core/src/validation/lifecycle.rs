@@ -223,6 +223,7 @@ mod tests {
             is_initial: if initial { Some(true) } else { None },
             is_final: None,
             status: None,
+            requires_relation: None,
             properties: None,
         }
     }
@@ -239,6 +240,7 @@ mod tests {
             is_initial: None,
             is_final: if is_final { Some(true) } else { None },
             status: None,
+            requires_relation: None,
             properties: None,
         }
     }

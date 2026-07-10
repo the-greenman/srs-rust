@@ -3,6 +3,7 @@ use crate::store::RepositoryStore;
 use serde_json::Value;
 use srs_core::types::blueprint::{Blueprint, BlueprintDiagnosticSeverity};
 use srs_core::types::field::ValueType;
+use srs_core::types::lifecycle::RelationDirection;
 use srs_core::types::protocol::{Protocol, ProtocolDiagnosticSeverity};
 use srs_core::types::record::Record;
 use srs_core::types::relation::RelationsCollection;
@@ -69,6 +70,11 @@ pub fn validate_repository(
     let mut checked = 0usize;
     let mut package_for_tier2: Option<Option<crate::package::Package>> = None;
     let mut field_type_map: Option<HashMap<String, ValueType>> = None;
+    // RFC-022: relations loaded lazily for the at-rest requiresRelation check.
+    // Outer None = not loaded yet; inner None = load failed (check is skipped —
+    // a corrupt relations file is reported by relation validation, not here).
+    let mut relations_for_rfc022: Option<Option<Vec<crate::relation_service::RelationSummary>>> =
+        None;
 
     // --- Validate root manifest.json ---
     let manifest_raw = store.load_text_file("manifest.json").map_err(|e| match e {
@@ -515,6 +521,53 @@ pub fn validate_repository(
                                                 record.instance_id, state_value
                                             ),
                                         });
+                                    }
+
+                                    // RFC-022 R1/R10: a record at rest in a requiresRelation
+                                    // state with no satisfying relation is a warning.
+                                    if let Some(req) = states
+                                        .iter()
+                                        .find(|s| s.key == *state_value)
+                                        .and_then(|s| s.requires_relation.as_ref())
+                                    {
+                                        if relations_for_rfc022.is_none() {
+                                            relations_for_rfc022 = Some(
+                                                crate::relation_service::list_relations(
+                                                    store,
+                                                    Default::default(),
+                                                )
+                                                .ok(),
+                                            );
+                                        }
+                                        if let Some(Some(rels)) = &relations_for_rfc022 {
+                                            let declared = req.relation_type.types();
+                                            let direction = req.effective_direction();
+                                            let satisfied = rels.iter().any(|r| {
+                                                let anchored = match direction {
+                                                    RelationDirection::Incoming => {
+                                                        r.target_id == record.instance_id
+                                                    }
+                                                    RelationDirection::Outgoing => {
+                                                        r.source_id == record.instance_id
+                                                    }
+                                                };
+                                                anchored
+                                                    && declared
+                                                        .iter()
+                                                        .any(|t| r.relation_type == *t)
+                                            });
+                                            if !satisfied {
+                                                diagnostics.push(ValidationDiagnostic {
+                                                    severity: DiagnosticSeverity::Warning,
+                                                    relative_path: rel_path.clone(),
+                                                    schema_id: None,
+                                                    message: format!(
+                                                        "LIFECYCLE_RELATION_UNSATISFIED: record '{}' is in state '{}' which requires a '{}' relation of type {:?} and none satisfies it (RFC-022 R1)",
+                                                        record.instance_id, state_value, direction, declared
+                                                    ),
+                                                });
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -2793,6 +2846,70 @@ mod tests {
             v8_error.is_some(),
             "expected V8 error for invalid lifecycleState key, got: {:?}",
             report.diagnostics
+        );
+    }
+
+    // --- RFC-022: at-rest requiresRelation check ---
+
+    fn rfc022_lifecycle_json() -> Value {
+        json!({
+            "states": [
+                {"key": "draft", "isInitial": true},
+                {"key": "superseded", "isFinal": true,
+                 "requiresRelation": {"relationType": "supersedes"}}
+            ],
+            "transitions": [{"name": "supersede", "from": "draft", "to": "superseded"}],
+            "initialState": "draft"
+        })
+    }
+
+    #[test]
+    fn rfc022_relational_state_without_relation_produces_warning() {
+        let temp = TempDir::new().unwrap();
+        setup_repo_with_inline_lifecycle_record(&temp, "superseded", rfc022_lifecycle_json());
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let warn = report.diagnostics.iter().find(|d| {
+            d.severity == DiagnosticSeverity::Warning
+                && d.message.contains("LIFECYCLE_RELATION_UNSATISFIED")
+        });
+        assert!(
+            warn.is_some(),
+            "expected RFC-022 warning for orphan relational state, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn rfc022_relational_state_with_satisfying_relation_no_warning() {
+        let temp = TempDir::new().unwrap();
+        setup_repo_with_inline_lifecycle_record(&temp, "superseded", rfc022_lifecycle_json());
+        // Incoming supersedes edge: successor → this record.
+        write_json(
+            temp.path(),
+            "relations/relations-collection.json",
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
+                "relations": [{
+                    "relationId": "00000000-0000-4000-8000-0000000000aa",
+                    "relationType": "supersedes",
+                    "sourceInstanceId": "00000000-0000-4000-8000-000000000099",
+                    "targetInstanceId": "00000000-0000-4000-8000-000000000060"
+                }]
+            }),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let warn = report
+            .diagnostics
+            .iter()
+            .find(|d| d.message.contains("LIFECYCLE_RELATION_UNSATISFIED"));
+        assert!(
+            warn.is_none(),
+            "expected no RFC-022 warning when the obligation is satisfied, got: {:?}",
+            warn
         );
     }
 

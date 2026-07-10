@@ -24,7 +24,7 @@
   },
   "definitions": {
     "AllowedTransitionEntry": {
-      "description": "One allowed lifecycle transition for `record allowed-transitions`.",
+      "description": "One allowed lifecycle transition for `record allowed-transitions`. `requiresRelation` (RFC-022) is the target state's relation obligation, when declared.",
       "type": "object",
       "required": [
         "name",
@@ -35,6 +35,7 @@
         "name": {
           "type": "string"
         },
+        "requiresRelation": true,
         "to": {
           "type": "string"
         },
