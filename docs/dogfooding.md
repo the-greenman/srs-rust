@@ -1195,7 +1195,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `theme` | S8 |
 | `extension` | _gap — no scenario yet_ |
 | `repo extensions` (list/enable/disable/conformance) | S22 |
-| `repo migrate-identity` (graduate Tier-0 identity note to purpose record, #426; bootstrap identity for pre-#424 repos with no `identityInstanceId`, #432) | S21 (Tier-0 note branch), S21b (None-branch: absent pointer) |
+| `repo migrate-identity` (graduate Tier-0 identity note to purpose record, #426; bootstrap identity for pre-#424 repos with no `identityInstanceId`, #432) | S21 (Tier-0 note branch), S21b (None-branch: absent pointer); WASM binding (`migrate_identity`) verified via integration tests in `crates/srs-bindings/tests/migrate_identity.rs` (#434); `build_purpose_record` now uses `core_package::core_package()` lookups instead of hardcoded UUID constants (ADR-025, #434) |
 | `type` `validationRules` (ext:cross-field-validation — conditional-required / field-ordering / mutual-exclusion, #242) | S23 |
 | `tag` (definition) | _gap — being deprecated; see open issues_ |
 | `package` | CLI: covered implicitly by field/type creation in S2; WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330) |

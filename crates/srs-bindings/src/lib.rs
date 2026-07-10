@@ -7,6 +7,7 @@ use srs_repository::container_service::{self, ContainerListFilter};
 use srs_repository::container_view_service::{self, ResolveContainerViewInput};
 use srs_repository::discovery_service::{self, DiscoveryQuery};
 use srs_repository::governance_scaffold_service::{self, CreateGovernanceRepositoryInput};
+use srs_repository::migrate_identity_service;
 use srs_repository::package_service::{
     self, FieldListFilter, GetFieldResult, GetTypeResult, TypeListFilter,
 };
@@ -664,6 +665,17 @@ impl SrsRepository {
             serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
         let result =
             repository_lifecycle::init_new_repository(&self.store, input).map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Migrate the repository's identity instance to a `com.semanticops.core/purpose` record.
+    ///
+    /// Converts a Tier-0 note identity (or a container with no identity pointer) to a typed
+    /// purpose record. Returns a `MigrateIdentityResult` as a JS value. Errors if the identity
+    /// is already a purpose record or the container has no title/description to derive a
+    /// statement from. After this returns, call `export_srsj()` to get the updated bundle.
+    pub fn migrate_identity(&self) -> Result<JsValue, JsValue> {
+        let result = migrate_identity_service::migrate_identity(&self.store).map_err(js_err)?;
         to_js(&result)
     }
 }
