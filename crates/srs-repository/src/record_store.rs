@@ -4631,7 +4631,11 @@ mod tests {
             None,
             "records",
         );
-        assert!(result.is_ok(), "create must succeed when CFR is satisfied, got: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "create must succeed when CFR is satisfied, got: {:?}",
+            result
+        );
     }
 
     #[test]

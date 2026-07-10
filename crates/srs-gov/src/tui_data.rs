@@ -116,7 +116,8 @@ fn load_section_view(
     };
     let search = (!search_query.is_empty()).then_some(search_query);
     let exclude_refs: Vec<&str> = excludes.iter().map(String::as_str).collect();
-    let allowed = crate::find_query::resolve_hit_set(repo, container_id, &exclude_refs, search, &[])?;
+    let allowed =
+        crate::find_query::resolve_hit_set(repo, container_id, &exclude_refs, search, &[])?;
     let mut schemas = HashMap::new();
 
     let mut records: Vec<RecordItem> = view["members"]

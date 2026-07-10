@@ -293,7 +293,8 @@ fn cmd_list(
     // A find query is only issued when a runtime filter is active (exclusion, search, or tag).
     // With none active the authored member list is shown verbatim — preserving the
     // pre-#298 output (and keeping a container-subset view, which has no exclusion, identical).
-    let allowed = find_query::resolve_hit_set(repo, &container_id, &effective_excludes, search, tags)?;
+    let allowed =
+        find_query::resolve_hit_set(repo, &container_id, &effective_excludes, search, tags)?;
 
     let root_label = cv["root"]["displayLabel"].as_str().unwrap_or("");
     let columns: Vec<(&str, &str)> = cv["columns"]
