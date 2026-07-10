@@ -27,10 +27,8 @@ use crate::package_service::{get_type_by_name, GetTypeResult};
 use crate::record_label;
 use crate::relation_service;
 use crate::revision_service;
-use crate::store::RepositoryStore;
+use crate::store::{RecordTier, RepositoryStore};
 use crate::writer::{new_instance_id, slugify_instance_name, write_manifest};
-
-use crate::paths::DEFAULT_RECORD_DIR;
 use serde::{Deserialize, Serialize};
 use srs_core::types::record::{FieldValue, Record};
 use srs_core::types::relation::Relation;
@@ -97,7 +95,7 @@ pub fn get_record_by_id(
     }
 }
 
-/// Create a new Tier 2 record in the default directory (`DEFAULT_RECORD_DIR`).
+/// Create a new Tier 2 record in the default directory (`records/tier-2`).
 pub fn create_record(
     store: &dyn RepositoryStore,
     type_id: &str,
@@ -113,7 +111,7 @@ pub fn create_record(
         field_values,
         group_values,
         tags,
-        DEFAULT_RECORD_DIR,
+        store.record_tier_dir(RecordTier::Tier2),
     )
 }
 
@@ -690,7 +688,7 @@ fn attempt_rollback_delete(store: &dyn RepositoryStore, instance_id: &str) {
 /// See ADR-024 for the accepted limitations of this approach.
 ///
 /// `dir_override` lets CLI callers honour a user-supplied `--dir` flag. Pass `None`
-/// to use `DEFAULT_RECORD_DIR`. Raw path strings must not appear in binding code or
+/// to use `RecordTier::Tier2` (via `store.record_tier_dir`). Raw path strings must not appear in binding code or
 /// CLI handlers — bind the user flag value here and nowhere else.
 pub fn create_record_in_context(
     store: &dyn RepositoryStore,
@@ -700,7 +698,7 @@ pub fn create_record_in_context(
     container_id: Option<String>,
     dir_override: Option<&str>,
 ) -> Result<CreateRecordResult, RepositoryError> {
-    let dir = dir_override.unwrap_or(DEFAULT_RECORD_DIR);
+    let dir = dir_override.unwrap_or(store.record_tier_dir(RecordTier::Tier2));
 
     // Parse namespace/name
     let parts: Vec<&str> = type_filter.splitn(2, '/').collect();
@@ -807,7 +805,7 @@ pub struct CreateRecordInContainerInput {
 ///
 /// Steps (in order):
 ///   1. Validate the container exists — returns `ContainerNotFound` if absent (pre-write).
-///   2. Create the record via `create_record_at_dir` (uses `DEFAULT_RECORD_DIR`).
+///   2. Create the record via `create_record_at_dir` (uses `RecordTier::Tier2`).
 ///   3. Add the new record to the container's `memberInstanceIds` via `container_service::add_member`.
 ///
 /// If step 3 fails, best-effort rollback via `attempt_rollback_delete`. See ADR-024 for
@@ -825,7 +823,7 @@ pub fn create_record_in_container(
         input.field_values,
         input.group_values,
         input.tags,
-        DEFAULT_RECORD_DIR,
+        store.record_tier_dir(RecordTier::Tier2),
     )?;
 
     if let Err(e) = container_service::add_member(store, &input.container_id, &record.instance_id) {
@@ -1113,7 +1111,7 @@ fn find_latest_revision_id(
 ///
 /// Creates a new Record with the same typeId+typeVersion (or a specified version),
 /// then automatically adds a Relation from the successor to the predecessor.
-/// The successor record is written to `DEFAULT_RECORD_DIR`.
+/// The successor record is written to the `RecordTier::Tier2` directory.
 pub fn create_record_successor(
     store: &dyn RepositoryStore,
     predecessor_id: &str,
@@ -1145,7 +1143,7 @@ pub fn create_record_successor(
         input.field_values,
         None,
         None,
-        DEFAULT_RECORD_DIR,
+        store.record_tier_dir(RecordTier::Tier2),
     )?;
 
     // If caller supplied an explicit lifecycle_state, patch it.
@@ -1963,11 +1961,7 @@ mod tests {
         assert_eq!(record.type_id, "type-test-001");
 
         // Record stored under slug-id8 path in the default dir
-        let key = format!(
-            "{}/test-type-{}.json",
-            DEFAULT_RECORD_DIR,
-            &record.instance_id[..8]
-        );
+        let key = format!("records/tier-2/test-type-{}.json", &record.instance_id[..8]);
         store
             .load_instance_json(&key)
             .expect("should find stored record");
@@ -2008,8 +2002,8 @@ mod tests {
             .find(|e| e.instance_id() == record.instance_id)
             .expect("record must be indexed");
         assert!(
-            entry.path().starts_with(DEFAULT_RECORD_DIR),
-            "expected path under {DEFAULT_RECORD_DIR}, got {}",
+            entry.path().starts_with("records/tier-2"),
+            "expected path under records/tier-2, got {}",
             entry.path()
         );
     }
@@ -2299,11 +2293,7 @@ mod tests {
         assert_eq!(updated.field_values[0].value, json!("Updated Name"));
 
         // Verify stored value
-        let key = format!(
-            "{}/test-type-{}.json",
-            DEFAULT_RECORD_DIR,
-            &instance_id[..8]
-        );
+        let key = format!("records/tier-2/test-type-{}.json", &instance_id[..8]);
         let stored_val = store.load_instance_json(&key).unwrap();
         let stored: Record = serde_json::from_value(stored_val).unwrap();
         assert_eq!(stored.field_values[0].value, json!("Updated Name"));
@@ -2446,11 +2436,7 @@ mod tests {
 
         let record = create_record(&store, "type-test-001", 1, field_values, None, None).unwrap();
         let instance_id = record.instance_id.clone();
-        let key = format!(
-            "{}/test-type-{}.json",
-            DEFAULT_RECORD_DIR,
-            &instance_id[..8]
-        );
+        let key = format!("records/tier-2/test-type-{}.json", &instance_id[..8]);
 
         assert!(store.load_instance_json(&key).is_ok());
 
@@ -4300,7 +4286,7 @@ mod tests {
             }],
             None,
             None,
-            DEFAULT_RECORD_DIR,
+            "records/tier-2",
         )
         .expect("create should succeed");
 

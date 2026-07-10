@@ -22,12 +22,11 @@
 use srs_core::types::record::{FieldValue, Record};
 
 use crate::error::RepositoryError;
-use crate::paths::EXTENSION_RECORD_DIR;
 use crate::record_store::{
     create_record_at_dir, delete_record, get_record_by_id, list_records_by_type, update_record,
     UpdateRecordInput,
 };
-use crate::store::RepositoryStore;
+use crate::store::{RecordTier, RepositoryStore};
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -114,7 +113,7 @@ pub fn create_extension(
         field_values,
         None,
         None,
-        EXTENSION_RECORD_DIR,
+        store.record_tier_dir(RecordTier::Extension),
     )?;
     Ok(ExtensionResult { record })
 }
@@ -193,7 +192,7 @@ fn list_records_by_type_fallback(
     type_namespace: &str,
     type_name: &str,
 ) -> Result<Vec<Record>, RepositoryError> {
-    let paths = match store.list_instance_files(EXTENSION_RECORD_DIR) {
+    let paths = match store.list_instance_files(store.record_tier_dir(RecordTier::Extension)) {
         Ok(p) => p,
         Err(RepositoryError::Io { .. } | RepositoryError::NotFound { .. }) => return Ok(vec![]),
         Err(e) => return Err(e),
@@ -222,7 +221,7 @@ fn get_record_by_id_fallback(
     store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<Option<Record>, RepositoryError> {
-    let path = format!("{EXTENSION_RECORD_DIR}/{id}.json");
+    let path = format!("{}/{id}.json", store.record_tier_dir(RecordTier::Extension));
     match store.load_instance_json(&path) {
         Ok(value) => {
             let content = serde_json::to_string(&value).unwrap_or_default();

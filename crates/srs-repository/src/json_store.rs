@@ -5,7 +5,7 @@ use crate::package_types::PackageBoundary;
 use crate::repository_lifecycle::{
     default_repository_container, CreateRepositoryResult, InitializeRepositoryInput,
 };
-use crate::store::RepositoryStore;
+use crate::store::{RecordTier, RepositoryStore};
 use chrono::Utc;
 use serde::de::Error as SerdeDeError;
 use srs_core::types::container::ContainerIndexEntry;
@@ -1316,6 +1316,15 @@ impl RepositoryStore for JsonStore {
             .cloned()
             .collect();
         Ok(out)
+    }
+
+    fn record_tier_dir(&self, tier: RecordTier) -> &'static str {
+        match tier {
+            RecordTier::Note => "records/notes",
+            RecordTier::Tier1 => "records/tier-1",
+            RecordTier::Tier2 => "records/tier-2",
+            RecordTier::Extension => "package/records",
+        }
     }
 
     fn load_relations_json(
@@ -3086,6 +3095,20 @@ mod tests {
             sub_loaded.source_package,
             Some("extensions/subpkg".to_string()),
             "sub-package blueprint must carry source_package = Some(rel_path)"
+        );
+    }
+
+    #[test]
+    fn json_store_record_tier_dir_matches_canonical_values() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("repo.srsj");
+        let store = JsonStore::create(&path).unwrap();
+        assert_eq!(store.record_tier_dir(RecordTier::Note), "records/notes");
+        assert_eq!(store.record_tier_dir(RecordTier::Tier1), "records/tier-1");
+        assert_eq!(store.record_tier_dir(RecordTier::Tier2), "records/tier-2");
+        assert_eq!(
+            store.record_tier_dir(RecordTier::Extension),
+            "package/records"
         );
     }
 }

@@ -1,8 +1,7 @@
 use crate::core_purpose;
 use crate::error::RepositoryError;
-use crate::paths::DEFAULT_RECORD_DIR;
 use crate::record_store::{upsert_record_index_entry, write_new_record};
-use crate::store::RepositoryStore;
+use crate::store::{RecordTier, RepositoryStore};
 use crate::writer::new_instance_id;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -111,7 +110,7 @@ fn scaffold_purpose_record(
         &now,
     );
 
-    let relative_path = write_new_record(store, &record, DEFAULT_RECORD_DIR)?;
+    let relative_path = write_new_record(store, &record, store.record_tier_dir(RecordTier::Tier2))?;
 
     let mut manifest = store.load_manifest()?;
     upsert_record_index_entry(&mut manifest, &record, &relative_path);

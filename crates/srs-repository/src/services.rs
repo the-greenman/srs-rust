@@ -22,9 +22,8 @@
 use crate::container_service;
 use crate::error::RepositoryError;
 use crate::loader::load_note;
-use crate::paths::NOTES_RECORD_DIR;
 use crate::record_store::{create_record_in_context, CreateRecordInput};
-use crate::store::RepositoryStore;
+use crate::store::{RecordTier, RepositoryStore};
 use crate::writer::{
     new_instance_id, slugify_instance_name, upsert_index_entry, write_manifest, write_note,
 };
@@ -435,13 +434,14 @@ pub fn create_note(
         .map(|t| slugify_instance_name(t))
         .unwrap_or_default();
     let id8 = &note.instance_id[..8];
+    let notes_dir = store.record_tier_dir(RecordTier::Note);
     let relative_path = if slug.is_empty() {
-        format!("{NOTES_RECORD_DIR}/{id8}.json")
+        format!("{notes_dir}/{id8}.json")
     } else {
-        format!("{NOTES_RECORD_DIR}/{slug}-{id8}.json")
+        format!("{notes_dir}/{slug}-{id8}.json")
     };
 
-    store.ensure_instance_dir(NOTES_RECORD_DIR)?;
+    store.ensure_instance_dir(notes_dir)?;
     write_note(store, &note, &relative_path)?;
 
     let mut manifest = store.load_manifest()?;
@@ -547,7 +547,7 @@ pub fn update_note(
         .find(|e| e.instance_id() == note.instance_id)
         .cloned()
         .ok_or_else(|| RepositoryError::NoteNotFound {
-            path: std::path::PathBuf::from(NOTES_RECORD_DIR),
+            path: std::path::PathBuf::from(store.record_tier_dir(RecordTier::Note)),
             id: note.instance_id.clone(),
         })?;
 
@@ -587,7 +587,7 @@ pub fn delete_note(
         .iter()
         .position(|e| e.instance_id() == id && e.is_note())
         .ok_or_else(|| RepositoryError::NoteNotFound {
-            path: std::path::PathBuf::from(NOTES_RECORD_DIR),
+            path: std::path::PathBuf::from(store.record_tier_dir(RecordTier::Note)),
             id: id.to_string(),
         })?;
 

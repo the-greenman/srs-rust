@@ -3,9 +3,8 @@ use crate::core_purpose;
 use crate::error::RepositoryError;
 use crate::index::InstanceIndexEntry;
 use crate::loader;
-use crate::paths;
 use crate::record_store::{upsert_record_index_entry, write_new_record};
-use crate::store::RepositoryStore;
+use crate::store::{RecordTier, RepositoryStore};
 use crate::writer;
 use serde::Serialize;
 
@@ -100,7 +99,8 @@ pub fn migrate_identity(
 
         store.begin_batch();
         let batch_result = (|| -> Result<(), RepositoryError> {
-            let relative_path = write_new_record(store, &record, paths::DEFAULT_RECORD_DIR)?;
+            let relative_path =
+                write_new_record(store, &record, store.record_tier_dir(RecordTier::Tier2))?;
             upsert_record_index_entry(&mut manifest, &record, &relative_path);
             if let Some(ref mut container) = manifest.container {
                 container.identity_instance_id = Some(new_id.clone());
@@ -179,7 +179,8 @@ pub fn migrate_identity(
     // not rooting a section container).
     store.begin_batch();
     let batch_result = (|| -> Result<(), RepositoryError> {
-        let relative_path = write_new_record(store, &record, paths::DEFAULT_RECORD_DIR)?;
+        let relative_path =
+            write_new_record(store, &record, store.record_tier_dir(RecordTier::Tier2))?;
         upsert_record_index_entry(&mut manifest, &record, &relative_path);
         if let Some(ref mut mc) = manifest.container {
             mc.identity_instance_id = Some(new_id.clone());
@@ -303,7 +304,7 @@ mod tests {
         let result = migrate_identity(&store).unwrap();
         let expected_path = format!(
             "{}/purpose-{}.json",
-            paths::DEFAULT_RECORD_DIR,
+            store.record_tier_dir(RecordTier::Tier2),
             &result.new_identity_id[..8]
         );
         let raw = store.load_instance_json(&expected_path).unwrap();
@@ -606,7 +607,7 @@ mod tests {
         assert!(result.old_identity_tier.is_none());
         let expected_path = format!(
             "{}/purpose-{}.json",
-            paths::DEFAULT_RECORD_DIR,
+            store.record_tier_dir(RecordTier::Tier2),
             &result.new_identity_id[..8]
         );
         assert!(
