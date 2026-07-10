@@ -1465,12 +1465,7 @@ impl RepositoryStore for JsonStore {
             if let Some(entries) = state.manifest.container_index.as_deref() {
                 return Ok(entries
                     .iter()
-                    .map(|e| {
-                        (
-                            e.container_id.clone(),
-                            e.title.clone().unwrap_or_default(),
-                        )
-                    })
+                    .map(|e| (e.container_id.clone(), e.title.clone().unwrap_or_default()))
                     .collect());
             }
         }
