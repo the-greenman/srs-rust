@@ -1961,10 +1961,7 @@ mod tests {
         assert_eq!(record.type_id, "type-test-001");
 
         // Record stored under slug-id8 path in the default dir
-        let key = format!(
-            "records/tier-2/test-type-{}.json",
-            &record.instance_id[..8]
-        );
+        let key = format!("records/tier-2/test-type-{}.json", &record.instance_id[..8]);
         store
             .load_instance_json(&key)
             .expect("should find stored record");
@@ -2296,10 +2293,7 @@ mod tests {
         assert_eq!(updated.field_values[0].value, json!("Updated Name"));
 
         // Verify stored value
-        let key = format!(
-            "records/tier-2/test-type-{}.json",
-            &instance_id[..8]
-        );
+        let key = format!("records/tier-2/test-type-{}.json", &instance_id[..8]);
         let stored_val = store.load_instance_json(&key).unwrap();
         let stored: Record = serde_json::from_value(stored_val).unwrap();
         assert_eq!(stored.field_values[0].value, json!("Updated Name"));
@@ -2442,10 +2436,7 @@ mod tests {
 
         let record = create_record(&store, "type-test-001", 1, field_values, None, None).unwrap();
         let instance_id = record.instance_id.clone();
-        let key = format!(
-            "records/tier-2/test-type-{}.json",
-            &instance_id[..8]
-        );
+        let key = format!("records/tier-2/test-type-{}.json", &instance_id[..8]);
 
         assert!(store.load_instance_json(&key).is_ok());
 
