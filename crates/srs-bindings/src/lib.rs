@@ -1041,15 +1041,18 @@ mod tests {
         );
         // A minimal repo with no declaredExtensions has an empty declared list
         assert!(
-            json["declared"].as_array().unwrap().is_empty(),
+            json["declared"]
+                .as_array()
+                .expect("declared must be an array")
+                .is_empty(),
             "no extensions declared in a minimal srsj repo"
         );
         // The supported list must include the known extensions
         let supported: Vec<String> = json["supported"]
             .as_array()
-            .unwrap()
+            .expect("supported must be an array")
             .iter()
-            .map(|v| v.as_str().unwrap().to_string())
+            .map(|v| v.as_str().expect("supported entry must be a string").to_string())
             .collect();
         assert!(
             supported.contains(&"ext:lifecycle".to_string()),
