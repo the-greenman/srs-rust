@@ -1385,35 +1385,12 @@ impl RepositoryStore for JsonStore {
                 container_id: id.clone(),
                 title: Some(container.title.clone()),
                 path: Some(key.clone()),
-                container_type: None,
-                tags: None,
+                container_type: container.container_type.clone(),
+                tags: container.tags.clone(),
                 extra: HashMap::new(),
             });
             state.manifest.container_index = Some(entries);
         }
-        // Also update the shadow data["manifest.json"] index for backward compatibility
-        // with readers that inspect the data dict directly.
-        let mut manifest_val = self
-            .data_get("manifest.json")
-            .unwrap_or_else(|_| serde_json::json!({}));
-        let mut shadow_entries: Vec<serde_json::Value> = manifest_val["containerIndex"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default();
-        shadow_entries.retain(|e| e["containerId"].as_str() != Some(id));
-        shadow_entries.push(
-            serde_json::json!({ "containerId": id, "title": container.title, "path": key }),
-        );
-        if let Some(obj) = manifest_val.as_object_mut() {
-            obj.insert(
-                "containerIndex".to_string(),
-                serde_json::json!(shadow_entries),
-            );
-        }
-        self.state
-            .borrow_mut()
-            .data
-            .insert("manifest.json".to_string(), manifest_val);
         self.flush()
     }
 
@@ -1429,12 +1406,15 @@ impl RepositoryStore for JsonStore {
             .and_then(|e| e.path.clone());
         let key = indexed_path.unwrap_or_else(|| format!("containers/{container_id}.json"));
 
-        if self.state.borrow_mut().data.remove(&key).is_none() {
+        // Check existence before modifying state — return NotFound cleanly.
+        if !self.state.borrow().data.contains_key(&key) {
             return Err(RepositoryError::ContainerNotFound {
                 container_id: container_id.to_string(),
             });
         }
-        // Remove from canonical manifest.container_index.
+
+        // ADR-007: remove from index FIRST (delete ordering). An interrupted delete leaves an
+        // orphaned data entry rather than a dangling index entry.
         {
             let mut state = self.state.borrow_mut();
             let mut entries = state.manifest.container_index.take().unwrap_or_default();
@@ -1442,25 +1422,7 @@ impl RepositoryStore for JsonStore {
             state.manifest.container_index =
                 if entries.is_empty() { None } else { Some(entries) };
         }
-        // Also remove from shadow data["manifest.json"] for backward compatibility.
-        let mut manifest_val = self
-            .data_get("manifest.json")
-            .unwrap_or_else(|_| serde_json::json!({}));
-        let mut shadow_entries: Vec<serde_json::Value> = manifest_val["containerIndex"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default();
-        shadow_entries.retain(|e| e["containerId"].as_str() != Some(container_id));
-        if let Some(obj) = manifest_val.as_object_mut() {
-            obj.insert(
-                "containerIndex".to_string(),
-                serde_json::json!(shadow_entries),
-            );
-        }
-        self.state
-            .borrow_mut()
-            .data
-            .insert("manifest.json".to_string(), manifest_val);
+        self.state.borrow_mut().data.remove(&key);
         self.flush()
     }
 
@@ -1472,17 +1434,15 @@ impl RepositoryStore for JsonStore {
         {
             let state = self.state.borrow();
             if let Some(entries) = state.manifest.container_index.as_deref() {
-                if !entries.is_empty() {
-                    return Ok(entries
-                        .iter()
-                        .map(|e| {
-                            (
-                                e.container_id.clone(),
-                                e.title.clone().unwrap_or_default(),
-                            )
-                        })
-                        .collect());
-                }
+                return Ok(entries
+                    .iter()
+                    .map(|e| {
+                        (
+                            e.container_id.clone(),
+                            e.title.clone().unwrap_or_default(),
+                        )
+                    })
+                    .collect());
             }
         }
         // Fall back to the shadow data["manifest.json"] index (JsonStore-native repos written
