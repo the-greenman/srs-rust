@@ -114,7 +114,9 @@ fn load_section_view(
             })
             .unwrap_or_default()
     };
-    let allowed = allowed_hits(repo, container_id, search_query, &excludes)?;
+    let search = (!search_query.is_empty()).then_some(search_query);
+    let exclude_refs: Vec<&str> = excludes.iter().map(String::as_str).collect();
+    let allowed = crate::find_query::resolve_hit_set(repo, container_id, &exclude_refs, search, &[])?;
     let mut schemas = HashMap::new();
 
     let mut records: Vec<RecordItem> = view["members"]
@@ -163,30 +165,6 @@ fn column_items(view: &Value) -> Vec<ColumnItem> {
                 .collect()
         })
         .unwrap_or_default()
-}
-
-fn allowed_hits(
-    repo: &str,
-    container_id: &str,
-    search_query: &str,
-    excludes: &[String],
-) -> Result<Option<HashSet<String>>> {
-    let need_find = !search_query.is_empty() || !excludes.is_empty();
-    if !need_find {
-        return Ok(None);
-    }
-
-    let exclude_refs: Vec<&str> = excludes.iter().map(String::as_str).collect();
-    let search = (!search_query.is_empty()).then_some(search_query);
-    let args = crate::find_query::build_find_args(container_id, &exclude_refs, search, &[]);
-
-    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    let payload = run_srs(&arg_refs, repo, false, false)?;
-    Ok(Some(
-        crate::find_query::parse_hit_ids(&payload)
-            .into_iter()
-            .collect(),
-    ))
 }
 
 fn record_item(
