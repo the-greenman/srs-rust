@@ -282,18 +282,44 @@ impl SrsRepository {
     /// Returns `{ "record": <Record>, "warnings": ["LIFECYCLE_FINAL_STATE: ..."] }` as a JS value.
     /// `warnings` is empty for non-final transitions; contains a `LIFECYCLE_FINAL_STATE` entry
     /// when the target state has `isFinal: true`.
+    /// Note: a bare flip into a state declaring `requiresRelation` (RFC-022) is rejected unless
+    /// the obligation is already satisfied — use `transition_record` with a `fulfillment` input.
     pub fn set_lifecycle_state(&self, instance_id: &str, state: &str) -> Result<JsValue, JsValue> {
         let input = TransitionLifecycleInput {
             to: Some(state.to_string()),
             by_transition: None,
+            fulfillment: None,
         };
         let result = record_store::transition_record_lifecycle(&self.store, instance_id, input)
             .map_err(js_err)?;
         to_js(&result)
     }
 
+    /// Transition a record's lifecycle state with the full RFC-022 input surface.
+    /// `input_json` matches the CLI `record transition` stdin contract:
+    /// `{ "to"?: string, "byTransition"?: string, "fulfillment"?: {
+    ///    "newRecord"?: { "fieldValues": [...], "typeVersion"?: N },
+    ///    "existingInstanceId"?: "<uuid>", "relationType"?: "supersedes" } }`.
+    /// Returns `{ "record", "warnings", "successor"?, "relation"? }` as a JS value —
+    /// `successor`/`relation` are present when the transition was fulfilled.
+    pub fn transition_record(
+        &self,
+        instance_id: &str,
+        input_json: &str,
+    ) -> Result<JsValue, JsValue> {
+        let input: TransitionLifecycleInput = serde_json::from_str(input_json)
+            .map_err(|e| js_err(format!("invalid transition input: {e}")))?;
+        let result = record_store::transition_record_lifecycle(&self.store, instance_id, input)
+            .map_err(js_err)?;
+        to_js(&result)
+    }
+
     /// Query the allowed lifecycle transitions for a record (ext:lifecycle).
-    /// Returns `{ "currentState": string, "transitions": [{ "name": string, "to": string, "toIsFinal": bool }], "isImmutable": bool }` as a JS value.
+    /// Returns `{ "currentState": string, "transitions": [{ "name": string, "to": string,
+    /// "toIsFinal": bool, "requiresRelation"?: { "relationType": string|string[],
+    /// "direction"?: "incoming"|"outgoing" } }], "isImmutable": bool }` as a JS value.
+    /// `requiresRelation` (RFC-022) is the target state's relation obligation — clients route
+    /// successor-flow UX from it instead of string-matching state names.
     pub fn get_allowed_lifecycle_transitions(&self, instance_id: &str) -> Result<JsValue, JsValue> {
         let result = record_store::get_allowed_lifecycle_transitions(&self.store, instance_id)
             .map_err(js_err)?;

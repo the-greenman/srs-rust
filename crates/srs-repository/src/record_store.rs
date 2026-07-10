@@ -31,6 +31,7 @@ use crate::store::{RecordTier, RepositoryStore};
 use crate::writer::{new_instance_id, slugify_instance_name, write_manifest};
 use serde::{Deserialize, Serialize};
 use srs_core::types::field::ValueType;
+use srs_core::types::lifecycle::{RelationDirection, RequiresRelation};
 use srs_core::types::record::{FieldValue, Record};
 use srs_core::types::relation::Relation;
 use srs_core::types::revision::{Revision, RevisionAgent, RevisionProvenance};
@@ -901,15 +902,47 @@ pub struct TransitionLifecycleInput {
     pub to: Option<String>,
     /// Named transition (e.g., "promote") — resolved to its `to` state.
     pub by_transition: Option<String>,
+    /// RFC-022: how a transition into a `requiresRelation` state establishes
+    /// its relation obligation. Must be absent for other target states.
+    #[serde(default)]
+    pub fulfillment: Option<TransitionFulfillmentInput>,
+}
+
+/// RFC-022 fulfillment for a transition into a `requiresRelation` state.
+/// Exactly one of `new_record` / `existing_instance_id` when present.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransitionFulfillmentInput {
+    /// Spawn a successor of the record's type, relate it, then transition.
+    pub new_record: Option<FulfillmentNewRecord>,
+    /// Relate an already-existing instance, then transition.
+    pub existing_instance_id: Option<String>,
+    /// Selector when the state declares an any-of relationType array.
+    /// Must be one of the declared types; defaults to the first declared.
+    pub relation_type: Option<String>,
+}
+
+/// Successor seed for `fulfillment.newRecord`.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FulfillmentNewRecord {
+    pub field_values: Vec<FieldValue>,
+    /// Optional type version override (defaults to the predecessor's).
+    pub type_version: Option<u32>,
 }
 
 /// Result for transition_record_lifecycle — includes warnings for final-state transitions
-/// and any diagnostics from the best-effort revision append step.
+/// and any diagnostics from the best-effort revision append step. When the transition was
+/// fulfilled (RFC-022), `successor` / `relation` carry the fulfillment artifacts.
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TransitionLifecycleResult {
     pub record: Record,
     pub warnings: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub successor: Option<Record>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relation: Option<Relation>,
 }
 
 /// One legal next transition for a record in its current lifecycle state.
@@ -922,6 +955,10 @@ pub struct LifecycleTransitionOption {
     pub to: String,
     /// Whether the target state has `is_final: true`.
     pub to_is_final: bool,
+    /// RFC-022: the target state's relation obligation, when it declares one.
+    /// Clients route "this transition needs a successor" UX from this structure.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requires_relation: Option<RequiresRelation>,
 }
 
 /// Result of `get_allowed_lifecycle_transitions`.
@@ -1025,12 +1062,134 @@ pub fn transition_record_lifecycle(
 
     // Check if target state is final → emit warning
     let mut warnings = Vec::new();
-    if let Some(state_def) = lifecycle.states.iter().find(|s| s.key == target_state) {
+    let state_def = lifecycle.states.iter().find(|s| s.key == target_state);
+    if let Some(state_def) = state_def {
         if state_def.is_final == Some(true) {
             warnings.push(format!(
                 "LIFECYCLE_FINAL_STATE: Target state '{}' is a final state — no further transitions are expected",
                 target_state
             ));
+        }
+    }
+
+    // RFC-022: enforce the target state's relation obligation, performing any
+    // requested fulfillment (successor spawn / adoption) BEFORE the state flip
+    // so every committed prefix is a valid repository (R7).
+    let requires = state_def.and_then(|s| s.requires_relation.clone());
+    let mut successor_out: Option<Record> = None;
+    let mut relation_out: Option<Relation> = None;
+    match (&requires, &input.fulfillment) {
+        (None, None) => {}
+        (None, Some(_)) => {
+            return Err(RepositoryError::LifecycleFulfillmentNotApplicable {
+                state: target_state,
+            });
+        }
+        (Some(req), fulfillment) => {
+            let declared: Vec<String> =
+                req.relation_type.types().iter().map(|t| t.to_string()).collect();
+            let direction = req.effective_direction();
+            match fulfillment {
+                None => {
+                    // Bare transition: allowed iff the obligation is already satisfied (R2).
+                    if !relation_obligation_satisfied(store, instance_id, &declared, direction)? {
+                        return Err(RepositoryError::LifecycleRelationRequired {
+                            state: target_state,
+                            relation_types: declared,
+                            direction: direction.to_string(),
+                        });
+                    }
+                }
+                Some(f) => {
+                    let selected_type = match &f.relation_type {
+                        Some(rt) if declared.iter().any(|d| d == rt) => rt.clone(),
+                        Some(rt) => {
+                            return Err(
+                                RepositoryError::LifecycleFulfillmentRelationTypeMismatch {
+                                    state: target_state,
+                                    relation_type: rt.clone(),
+                                    declared,
+                                },
+                            );
+                        }
+                        None => declared[0].clone(),
+                    };
+                    let (successor, relation) = match (&f.new_record, &f.existing_instance_id) {
+                        (Some(nr), None) => {
+                            let type_version = nr.type_version.unwrap_or(record.type_version);
+                            package
+                                .resolve_type(&record.type_id, type_version)
+                                .ok_or_else(|| RepositoryError::TypeVersionNotFound {
+                                    type_id: record.type_id.clone(),
+                                    version: type_version,
+                                })?;
+                            let successor = create_record_at_dir(
+                                store,
+                                &record.type_id,
+                                type_version,
+                                nr.field_values.clone(),
+                                None,
+                                None,
+                                store.record_tier_dir(RecordTier::Tier2),
+                            )?;
+                            let (source_id, target_id) = match direction {
+                                RelationDirection::Incoming => {
+                                    (successor.instance_id.clone(), instance_id.to_string())
+                                }
+                                RelationDirection::Outgoing => {
+                                    (instance_id.to_string(), successor.instance_id.clone())
+                                }
+                            };
+                            match assert_fulfillment_relation(
+                                store,
+                                &selected_type,
+                                source_id,
+                                target_id,
+                            ) {
+                                Ok(rel) => (Some(successor), rel),
+                                Err(e) => {
+                                    attempt_rollback_delete(store, &successor.instance_id);
+                                    return Err(e);
+                                }
+                            }
+                        }
+                        (None, Some(existing_id)) => {
+                            if existing_id == instance_id {
+                                return Err(RepositoryError::InvalidInput {
+                                    message: "fulfillment.existingInstanceId must not be the record being transitioned".to_string(),
+                                });
+                            }
+                            get_record_by_id(store, existing_id)?.ok_or_else(|| {
+                                RepositoryError::NotFound {
+                                    path: std::path::PathBuf::from("records"),
+                                }
+                            })?;
+                            let (source_id, target_id) = match direction {
+                                RelationDirection::Incoming => {
+                                    (existing_id.clone(), instance_id.to_string())
+                                }
+                                RelationDirection::Outgoing => {
+                                    (instance_id.to_string(), existing_id.clone())
+                                }
+                            };
+                            let rel = assert_fulfillment_relation(
+                                store,
+                                &selected_type,
+                                source_id,
+                                target_id,
+                            )?;
+                            (None, rel)
+                        }
+                        _ => {
+                            return Err(RepositoryError::InvalidInput {
+                                message: "fulfillment requires exactly one of 'newRecord' or 'existingInstanceId'".to_string(),
+                            });
+                        }
+                    };
+                    successor_out = successor;
+                    relation_out = Some(relation);
+                }
+            }
         }
     }
 
@@ -1051,7 +1210,17 @@ pub fn transition_record_lifecycle(
         ..record
     };
 
-    write_record(store, &updated, entry.path())?;
+    // The flip is committed last (R7). If it fails after fulfillment writes,
+    // best-effort rollback of the fulfillment artifacts (every prefix stays valid).
+    if let Err(e) = write_record(store, &updated, entry.path()) {
+        if let Some(rel) = &relation_out {
+            let _ = relation_service::delete_relation(store, &rel.relation_id);
+        }
+        if let Some(succ) = &successor_out {
+            attempt_rollback_delete(store, &succ.instance_id);
+        }
+        return Err(e);
+    }
 
     // Best-effort: append one Revision per field value, tagged with the lifecycle transition.
     // Transition is already committed at this point — if append fails we emit a diagnostic
@@ -1093,7 +1262,63 @@ pub fn transition_record_lifecycle(
     Ok(TransitionLifecycleResult {
         record: updated,
         warnings,
+        successor: successor_out,
+        relation: relation_out,
     })
+}
+
+/// RFC-022: does any relation satisfy the obligation `declared`/`direction` for `instance_id`?
+fn relation_obligation_satisfied(
+    store: &dyn RepositoryStore,
+    instance_id: &str,
+    declared: &[String],
+    direction: RelationDirection,
+) -> Result<bool, RepositoryError> {
+    let filter = match direction {
+        RelationDirection::Incoming => relation_service::ListRelationsFilter {
+            target: Some(instance_id.to_string()),
+            ..Default::default()
+        },
+        RelationDirection::Outgoing => relation_service::ListRelationsFilter {
+            source: Some(instance_id.to_string()),
+            ..Default::default()
+        },
+    };
+    let relations = relation_service::list_relations(store, filter)?;
+    Ok(relations
+        .iter()
+        .any(|r| declared.iter().any(|t| t == &r.relation_type)))
+}
+
+/// RFC-022: assert the relation that fulfils a `requiresRelation` obligation.
+fn assert_fulfillment_relation(
+    store: &dyn RepositoryStore,
+    relation_type: &str,
+    source_instance_id: String,
+    target_instance_id: String,
+) -> Result<Relation, RepositoryError> {
+    let result = relation_service::create_relation_auto(
+        store,
+        Relation {
+            relation_id: String::new(),
+            relation_type: relation_type.to_string(),
+            source_instance_id,
+            target_instance_id,
+            asserted_by: None,
+            confidence: None,
+            created_at: Some(chrono::Utc::now().to_rfc3339()),
+            created_by: None,
+            status: None,
+            valid_from: None,
+            valid_until: None,
+            notes: None,
+            source_refs: None,
+            meta: None,
+            source_repository_id: None,
+            target_repository_id: None,
+        },
+    )?;
+    Ok(result.relation)
 }
 
 /// Query the allowed lifecycle transitions for a record in its current state.
@@ -1136,14 +1361,13 @@ pub fn get_allowed_lifecycle_transitions(
         .iter()
         .filter(|t| t.from == current_state)
         .map(|t| {
-            let to_is_final = lifecycle
-                .states
-                .iter()
-                .any(|s| s.key == t.to && s.is_final == Some(true));
+            let target_def = lifecycle.states.iter().find(|s| s.key == t.to);
+            let to_is_final = target_def.is_some_and(|s| s.is_final == Some(true));
             LifecycleTransitionOption {
                 name: t.name.clone(),
                 to: t.to.clone(),
                 to_is_final,
+                requires_relation: target_def.and_then(|s| s.requires_relation.clone()),
             }
         })
         .collect();
@@ -1183,15 +1407,46 @@ pub fn create_record_successor(
 
     let type_version = input.type_version.unwrap_or(predecessor.type_version);
 
-    // Validate the requested type version exists before writing anything.
+    // Validate the requested type version — and pre-validate any explicit
+    // lifecycle-state override against the effective lifecycle — before writing
+    // anything. The override must be a defined state, reachable from the initial
+    // state via declared transitions (it is not a back door around transition
+    // validation), and any RFC-022 relation obligation it carries is checked
+    // after the successor relation is asserted below.
+    let mut requires_for_explicit: Option<RequiresRelation> = None;
     {
         let package = store.load_package()?;
-        package
+        let record_type = package
             .resolve_type(&predecessor.type_id, type_version)
             .ok_or_else(|| RepositoryError::TypeVersionNotFound {
                 type_id: predecessor.type_id.clone(),
                 version: type_version,
             })?;
+        if let Some(explicit_state) = input.lifecycle_state.as_deref() {
+            let lifecycle = package.effective_lifecycle(record_type).ok_or_else(|| {
+                RepositoryError::LifecycleNotDefined {
+                    id: predecessor_id.to_string(),
+                }
+            })?;
+            let state_def = lifecycle
+                .states
+                .iter()
+                .find(|s| s.key == explicit_state)
+                .ok_or_else(|| RepositoryError::LifecycleStateNotDefined {
+                    state: explicit_state.to_string(),
+                })?;
+            if !state_reachable_from_initial(
+                lifecycle.initial_state,
+                lifecycle.transitions,
+                explicit_state,
+            ) {
+                return Err(RepositoryError::LifecycleStateUnreachable {
+                    state: explicit_state.to_string(),
+                    initial: lifecycle.initial_state.to_string(),
+                });
+            }
+            requires_for_explicit = state_def.requires_relation.clone();
+        }
     }
 
     // Create the successor record (lifecycle_state auto-set from Type.initialState).
@@ -1205,25 +1460,8 @@ pub fn create_record_successor(
         store.record_tier_dir(RecordTier::Tier2),
     )?;
 
-    // If caller supplied an explicit lifecycle_state, patch it.
-    if let Some(explicit_state) = input.lifecycle_state {
-        if successor.lifecycle_state.as_deref() != Some(explicit_state.as_str()) {
-            let manifest = store.load_manifest()?;
-            let entry = manifest
-                .instance_index
-                .iter()
-                .find(|e| e.instance_id() == successor.instance_id)
-                .cloned()
-                .ok_or_else(|| RepositoryError::NotFound {
-                    path: std::path::PathBuf::from("records"),
-                })?;
-            successor.lifecycle_state = Some(explicit_state);
-            write_record(store, &successor, entry.path())?;
-        }
-    }
-
     // Create the relation: successor → predecessor
-    let rel_result = relation_service::create_relation_auto(
+    let rel_result = match relation_service::create_relation_auto(
         store,
         Relation {
             relation_id: String::new(),
@@ -1243,12 +1481,88 @@ pub fn create_record_successor(
             source_repository_id: None,
             target_repository_id: None,
         },
-    )?;
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            attempt_rollback_delete(store, &successor.instance_id);
+            return Err(e);
+        }
+    };
+
+    // Apply the explicit lifecycle_state AFTER the relation exists, so an RFC-022
+    // obligation the successor relation itself satisfies (e.g. an outgoing
+    // `supersedes`) can hold; reject — rolling back — if it does not.
+    if let Some(explicit_state) = input.lifecycle_state {
+        if successor.lifecycle_state.as_deref() != Some(explicit_state.as_str()) {
+            if let Some(req) = &requires_for_explicit {
+                let declared: Vec<String> = req
+                    .relation_type
+                    .types()
+                    .iter()
+                    .map(|t| t.to_string())
+                    .collect();
+                let direction = req.effective_direction();
+                if !relation_obligation_satisfied(
+                    store,
+                    &successor.instance_id,
+                    &declared,
+                    direction,
+                )? {
+                    let _ = relation_service::delete_relation(
+                        store,
+                        &rel_result.relation.relation_id,
+                    );
+                    attempt_rollback_delete(store, &successor.instance_id);
+                    return Err(RepositoryError::LifecycleRelationRequired {
+                        state: explicit_state,
+                        relation_types: declared,
+                        direction: direction.to_string(),
+                    });
+                }
+            }
+            let manifest = store.load_manifest()?;
+            let entry = manifest
+                .instance_index
+                .iter()
+                .find(|e| e.instance_id() == successor.instance_id)
+                .cloned()
+                .ok_or_else(|| RepositoryError::NotFound {
+                    path: std::path::PathBuf::from("records"),
+                })?;
+            successor.lifecycle_state = Some(explicit_state);
+            write_record(store, &successor, entry.path())?;
+        }
+    }
 
     Ok(CreateRecordSuccessorResult {
         record: successor,
         relation: rel_result.relation,
     })
+}
+
+/// Is `target` reachable from `initial` via the declared transitions (BFS)?
+fn state_reachable_from_initial(
+    initial: &str,
+    transitions: &[srs_core::types::lifecycle::LifecycleTransition],
+    target: &str,
+) -> bool {
+    if initial == target {
+        return true;
+    }
+    let mut visited: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    visited.insert(initial);
+    let mut queue = vec![initial];
+    while let Some(current) = queue.pop() {
+        for t in transitions.iter().filter(|t| t.from == current) {
+            if t.to == target {
+                return true;
+            }
+            if visited.insert(t.to.as_str()) {
+                queue.push(t.to.as_str());
+            }
+        }
+    }
+    false
 }
 
 /// List revisions for a record, optionally filtered by field_id.
@@ -2572,6 +2886,7 @@ mod tests {
                         is_initial: Some(true),
                         is_final: None,
                         status: None,
+                        requires_relation: None,
                         properties: None,
                     },
                     LifecycleState {
@@ -2585,6 +2900,7 @@ mod tests {
                         is_initial: None,
                         is_final: None,
                         status: None,
+                        requires_relation: None,
                         properties: None,
                     },
                     LifecycleState {
@@ -2598,6 +2914,7 @@ mod tests {
                         is_initial: None,
                         is_final: Some(true),
                         status: None,
+                        requires_relation: None,
                         properties: None,
                     },
                 ],
@@ -2732,6 +3049,7 @@ mod tests {
             TransitionLifecycleInput {
                 to: Some("active".to_string()),
                 by_transition: None,
+                fulfillment: None,
             },
         )
         .unwrap();
@@ -2749,6 +3067,7 @@ mod tests {
             TransitionLifecycleInput {
                 to: None,
                 by_transition: Some("promote".to_string()),
+                fulfillment: None,
             },
         )
         .unwrap();
@@ -2766,6 +3085,7 @@ mod tests {
             TransitionLifecycleInput {
                 to: Some("active".to_string()),
                 by_transition: None,
+                fulfillment: None,
             },
         )
         .unwrap();
@@ -2776,6 +3096,7 @@ mod tests {
             TransitionLifecycleInput {
                 to: Some("archived".to_string()),
                 by_transition: None,
+                fulfillment: None,
             },
         )
         .unwrap();
@@ -2795,6 +3116,7 @@ mod tests {
             TransitionLifecycleInput {
                 to: Some("archived".to_string()),
                 by_transition: None,
+                fulfillment: None,
             },
         );
         assert!(matches!(
@@ -2852,6 +3174,7 @@ mod tests {
             TransitionLifecycleInput {
                 to: Some("active".to_string()),
                 by_transition: None,
+                fulfillment: None,
             },
         )
         .unwrap();
@@ -3468,6 +3791,7 @@ mod tests {
                     is_initial: Some(true),
                     is_final: None,
                     status: None,
+                    requires_relation: None,
                     properties: None,
                 },
                 LifecycleState {
@@ -3481,6 +3805,7 @@ mod tests {
                     is_initial: None,
                     is_final: None,
                     status: None,
+                    requires_relation: None,
                     properties: None,
                 },
                 LifecycleState {
@@ -3494,6 +3819,7 @@ mod tests {
                     is_initial: None,
                     is_final: Some(true),
                     status: None,
+                    requires_relation: None,
                     properties: None,
                 },
             ],
@@ -3637,10 +3963,609 @@ mod tests {
             TransitionLifecycleInput {
                 to: None,
                 by_transition: Some("promote".to_string()),
+                fulfillment: None,
             },
         )
         .unwrap();
         assert_eq!(result.record.lifecycle_state.as_deref(), Some("active"));
+    }
+
+    // ── RFC-022: relational states + transition fulfillment ────────────────────
+
+    /// Governance-style lifecycle: draft → ratified → {superseded | closed},
+    /// where `superseded` declares `requiresRelation: {relationType: "supersedes"}`
+    /// (incoming by default). `unreachable-state` is defined but has no path
+    /// from the initial state.
+    fn make_store_with_relational_state() -> MemoryStore {
+        use crate::package::Package;
+        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::lifecycle::{
+            Lifecycle, LifecycleState, LifecycleTransition, RelationTypeSpec, RequiresRelation,
+        };
+        use srs_core::types::record_type::{FieldAssignment, RecordType};
+        use srs_core::types::relation_type_definition::{
+            RelationTypeCategory, RelationTypeDefinition,
+        };
+
+        fn state(key: &str) -> LifecycleState {
+            LifecycleState {
+                id: None,
+                version: None,
+                namespace: None,
+                key: key.to_string(),
+                label: None,
+                description: None,
+                aliases: None,
+                is_initial: None,
+                is_final: None,
+                status: None,
+                requires_relation: None,
+                properties: None,
+            }
+        }
+        fn transition(name: &str, from: &str, to: &str) -> LifecycleTransition {
+            LifecycleTransition {
+                id: None,
+                name: name.to_string(),
+                from: from.to_string(),
+                to: to.to_string(),
+                description: None,
+                properties: None,
+            }
+        }
+
+        let title_field = Field {
+            id: "field-title-rfc022".to_string(),
+            namespace: "com.test".to_string(),
+            name: "title".to_string(),
+            version: 1,
+            value_type: ValueType::String,
+            description: "Title".to_string(),
+            instructions: None,
+            ai_guidance: json!(null),
+            allowed_values: None,
+            vocabulary_ref: None,
+            default_value: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let mut draft = state("draft");
+        draft.is_initial = Some(true);
+        let ratified = state("ratified");
+        let mut superseded = state("superseded");
+        superseded.is_final = Some(true);
+        superseded.requires_relation = Some(RequiresRelation {
+            relation_type: RelationTypeSpec::One("supersedes".to_string()),
+            direction: None, // incoming by default
+        });
+        let mut closed = state("closed");
+        closed.is_final = Some(true);
+        let unreachable = state("unreachable-state");
+
+        let gov_lc = Lifecycle {
+            id: "lc-rfc022-001".to_string(),
+            version: 1,
+            namespace: "com.test".to_string(),
+            name: "governance-lifecycle".to_string(),
+            states: vec![draft, ratified, superseded, closed, unreachable],
+            transitions: vec![
+                transition("propose", "draft", "ratified"),
+                transition("supersede", "ratified", "superseded"),
+                transition("close", "ratified", "closed"),
+            ],
+            initial_state: "draft".to_string(),
+            extends_lifecycle_id: None,
+            extends_lifecycle_version: None,
+            description: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: std::collections::HashMap::new(),
+        };
+
+        let gov_type = RecordType {
+            id: "type-rfc022-001".to_string(),
+            namespace: "com.test".to_string(),
+            name: "decision".to_string(),
+            version: 1,
+            description: "Type with relational superseded state".to_string(),
+            fields: vec![FieldAssignment {
+                field_id: "field-title-rfc022".to_string(),
+                order: 0,
+                required: true,
+                display_label: None,
+                repeatable: false,
+                min_items: None,
+                max_items: None,
+            }],
+            field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            identity_field_id: None,
+            lifecycle: None,
+            lifecycle_ref: Some("lc-rfc022-001".to_string()),
+            validation_rules: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let supersedes_def = RelationTypeDefinition {
+            schema: None,
+            id: "rtd-supersedes-rfc022".to_string(),
+            version: 1,
+            key: "supersedes".to_string(),
+            namespace: "com.semanticops.srs".to_string(),
+            label: "Supersedes".to_string(),
+            description: "The source record supersedes the target.".to_string(),
+            category: RelationTypeCategory::Refinement,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            canonical_direction: None,
+            inverse_type: None,
+            irreflexive: Some(true),
+            allowed_source_types: None,
+            allowed_target_types: None,
+            require_same_semantic_object_type: None,
+            status: None,
+            updated_at: None,
+            properties: None,
+        };
+
+        let manifest = Manifest {
+            instance_index: vec![],
+            container: None,
+            container_index: None,
+            extra: HashMap::new(),
+            root: PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "test-package-rfc022".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test-package-rfc022".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![title_field],
+            record_types: vec![gov_type],
+            relation_type_definitions: vec![supersedes_def],
+            views: vec![],
+            document_views: vec![],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![gov_lc],
+            root: PathBuf::from("/memory"),
+        };
+        MemoryStore::new(manifest, package)
+    }
+
+    fn create_rfc022_record(store: &dyn RepositoryStore, title: &str) -> Record {
+        create_record(
+            store,
+            "type-rfc022-001",
+            1,
+            vec![FieldValue {
+                field_id: "field-title-rfc022".to_string(),
+                value: json!(title),
+                entries: None,
+                source: None,
+                edited_at: None,
+            }],
+            None,
+            None,
+        )
+        .unwrap()
+    }
+
+    fn ratify(store: &dyn RepositoryStore, instance_id: &str) {
+        transition_record_lifecycle(
+            store,
+            instance_id,
+            TransitionLifecycleInput {
+                to: None,
+                by_transition: Some("propose".to_string()),
+                fulfillment: None,
+            },
+        )
+        .unwrap();
+    }
+
+    fn supersede_input(fulfillment: Option<TransitionFulfillmentInput>) -> TransitionLifecycleInput {
+        TransitionLifecycleInput {
+            to: None,
+            by_transition: Some("supersede".to_string()),
+            fulfillment,
+        }
+    }
+
+    #[test]
+    fn rfc022_bare_transition_into_relational_state_rejected() {
+        let store = make_store_with_relational_state();
+        let record = create_rfc022_record(&store, "Decision 1");
+        ratify(&store, &record.instance_id);
+
+        let err = transition_record_lifecycle(&store, &record.instance_id, supersede_input(None))
+            .unwrap_err();
+        match err {
+            RepositoryError::LifecycleRelationRequired {
+                state,
+                relation_types,
+                direction,
+            } => {
+                assert_eq!(state, "superseded");
+                assert_eq!(relation_types, vec!["supersedes".to_string()]);
+                assert_eq!(direction, "incoming");
+            }
+            other => panic!("expected LifecycleRelationRequired, got: {other:?}"),
+        }
+        // The rejected flip must not have been committed.
+        let reloaded = get_record_by_id(&store, &record.instance_id).unwrap().unwrap();
+        assert_eq!(reloaded.lifecycle_state.as_deref(), Some("ratified"));
+    }
+
+    #[test]
+    fn rfc022_bare_transition_allowed_when_obligation_satisfied() {
+        let store = make_store_with_relational_state();
+        let record = create_rfc022_record(&store, "Decision 1");
+        ratify(&store, &record.instance_id);
+
+        // Two-phase workflow: draft a successor first (asserts supersedes successor→predecessor)…
+        create_record_successor(
+            &store,
+            &record.instance_id,
+            CreateRecordSuccessorInput {
+                relation_type: "supersedes".to_string(),
+                field_values: vec![FieldValue {
+                    field_id: "field-title-rfc022".to_string(),
+                    value: json!("Decision 1 v2"),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                }],
+                lifecycle_state: None,
+                type_version: None,
+            },
+        )
+        .unwrap();
+
+        // …then the bare flip is legal because the obligation is already satisfied.
+        let result =
+            transition_record_lifecycle(&store, &record.instance_id, supersede_input(None))
+                .unwrap();
+        assert_eq!(result.record.lifecycle_state.as_deref(), Some("superseded"));
+        assert!(result.successor.is_none());
+        assert!(result.relation.is_none());
+    }
+
+    #[test]
+    fn rfc022_fulfillment_new_record_is_atomic_supersede() {
+        let store = make_store_with_relational_state();
+        let record = create_rfc022_record(&store, "Decision 1");
+        ratify(&store, &record.instance_id);
+
+        let result = transition_record_lifecycle(
+            &store,
+            &record.instance_id,
+            supersede_input(Some(TransitionFulfillmentInput {
+                new_record: Some(FulfillmentNewRecord {
+                    field_values: vec![FieldValue {
+                        field_id: "field-title-rfc022".to_string(),
+                        value: json!("Decision 1 v2"),
+                        entries: None,
+                        source: None,
+                        edited_at: None,
+                    }],
+                    type_version: None,
+                }),
+                existing_instance_id: None,
+                relation_type: None,
+            })),
+        )
+        .unwrap();
+
+        assert_eq!(result.record.lifecycle_state.as_deref(), Some("superseded"));
+        let successor = result.successor.expect("fulfillment must return the successor");
+        assert_eq!(successor.lifecycle_state.as_deref(), Some("draft"));
+        let relation = result.relation.expect("fulfillment must return the relation");
+        assert_eq!(relation.relation_type, "supersedes");
+        assert_eq!(relation.source_instance_id, successor.instance_id);
+        assert_eq!(relation.target_instance_id, record.instance_id);
+
+        // The relation is persisted, not just reported.
+        let rels = relation_service::list_relations(
+            &store,
+            relation_service::ListRelationsFilter {
+                target: Some(record.instance_id.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(rels.len(), 1);
+    }
+
+    #[test]
+    fn rfc022_fulfillment_existing_instance_adopts_drafted_successor() {
+        let store = make_store_with_relational_state();
+        let record = create_rfc022_record(&store, "Decision 1");
+        ratify(&store, &record.instance_id);
+        let drafted = create_rfc022_record(&store, "Decision 1 v2");
+
+        let result = transition_record_lifecycle(
+            &store,
+            &record.instance_id,
+            supersede_input(Some(TransitionFulfillmentInput {
+                new_record: None,
+                existing_instance_id: Some(drafted.instance_id.clone()),
+                relation_type: None,
+            })),
+        )
+        .unwrap();
+
+        assert_eq!(result.record.lifecycle_state.as_deref(), Some("superseded"));
+        assert!(result.successor.is_none(), "no new record was spawned");
+        let relation = result.relation.expect("relation must be returned");
+        assert_eq!(relation.source_instance_id, drafted.instance_id);
+        assert_eq!(relation.target_instance_id, record.instance_id);
+    }
+
+    #[test]
+    fn rfc022_fulfillment_rejected_on_non_relational_target() {
+        let store = make_store_with_relational_state();
+        let record = create_rfc022_record(&store, "Decision 1");
+        ratify(&store, &record.instance_id);
+
+        let err = transition_record_lifecycle(
+            &store,
+            &record.instance_id,
+            TransitionLifecycleInput {
+                to: None,
+                by_transition: Some("close".to_string()),
+                fulfillment: Some(TransitionFulfillmentInput {
+                    new_record: None,
+                    existing_instance_id: Some("whatever".to_string()),
+                    relation_type: None,
+                }),
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::LifecycleFulfillmentNotApplicable { ref state } if state == "closed"),
+            "got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn rfc022_fulfillment_relation_type_mismatch_rejected() {
+        let store = make_store_with_relational_state();
+        let record = create_rfc022_record(&store, "Decision 1");
+        ratify(&store, &record.instance_id);
+
+        let err = transition_record_lifecycle(
+            &store,
+            &record.instance_id,
+            supersede_input(Some(TransitionFulfillmentInput {
+                new_record: None,
+                existing_instance_id: Some("whatever".to_string()),
+                relation_type: Some("refines".to_string()),
+            })),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                RepositoryError::LifecycleFulfillmentRelationTypeMismatch { ref relation_type, .. }
+                    if relation_type == "refines"
+            ),
+            "got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn rfc022_fulfillment_requires_exactly_one_mode() {
+        let store = make_store_with_relational_state();
+        let record = create_rfc022_record(&store, "Decision 1");
+        ratify(&store, &record.instance_id);
+
+        let err = transition_record_lifecycle(
+            &store,
+            &record.instance_id,
+            supersede_input(Some(TransitionFulfillmentInput {
+                new_record: None,
+                existing_instance_id: None,
+                relation_type: None,
+            })),
+        )
+        .unwrap_err();
+        assert!(matches!(err, RepositoryError::InvalidInput { .. }), "got: {err:?}");
+    }
+
+    #[test]
+    fn rfc022_allowed_transitions_expose_requires_relation() {
+        let store = make_store_with_relational_state();
+        let record = create_rfc022_record(&store, "Decision 1");
+        ratify(&store, &record.instance_id);
+
+        let result = get_allowed_lifecycle_transitions(&store, &record.instance_id).unwrap();
+        let supersede = result
+            .transitions
+            .iter()
+            .find(|t| t.name == "supersede")
+            .expect("supersede option present");
+        let req = supersede
+            .requires_relation
+            .as_ref()
+            .expect("supersede target must expose requiresRelation");
+        assert_eq!(req.relation_type.types(), vec!["supersedes"]);
+        let close = result
+            .transitions
+            .iter()
+            .find(|t| t.name == "close")
+            .expect("close option present");
+        assert!(
+            close.requires_relation.is_none(),
+            "close target declares no obligation"
+        );
+    }
+
+    #[test]
+    fn rfc022_successor_explicit_state_undefined_rejected() {
+        let store = make_store_with_relational_state();
+        let record = create_rfc022_record(&store, "Decision 1");
+        let err = create_record_successor(
+            &store,
+            &record.instance_id,
+            CreateRecordSuccessorInput {
+                relation_type: "supersedes".to_string(),
+                field_values: vec![],
+                lifecycle_state: Some("ghost".to_string()),
+                type_version: None,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::LifecycleStateNotDefined { ref state } if state == "ghost"),
+            "got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn rfc022_successor_explicit_state_unreachable_rejected() {
+        let store = make_store_with_relational_state();
+        let record = create_rfc022_record(&store, "Decision 1");
+        let err = create_record_successor(
+            &store,
+            &record.instance_id,
+            CreateRecordSuccessorInput {
+                relation_type: "supersedes".to_string(),
+                field_values: vec![],
+                lifecycle_state: Some("unreachable-state".to_string()),
+                type_version: None,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::LifecycleStateUnreachable { ref state, .. } if state == "unreachable-state"),
+            "got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn rfc022_successor_explicit_reachable_state_ok() {
+        let store = make_store_with_relational_state();
+        let record = create_rfc022_record(&store, "Decision 1");
+        let result = create_record_successor(
+            &store,
+            &record.instance_id,
+            CreateRecordSuccessorInput {
+                relation_type: "supersedes".to_string(),
+                field_values: vec![FieldValue {
+                    field_id: "field-title-rfc022".to_string(),
+                    value: json!("Decision 1 v2"),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                }],
+                lifecycle_state: Some("ratified".to_string()),
+                type_version: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(result.record.lifecycle_state.as_deref(), Some("ratified"));
+    }
+
+    #[test]
+    fn rfc022_successor_explicit_relational_state_unsatisfied_rejected_and_rolled_back() {
+        let store = make_store_with_relational_state();
+        let record = create_rfc022_record(&store, "Decision 1");
+        // The successor's own relation is OUTGOING supersedes; the obligation on
+        // `superseded` is INCOMING — so planting the successor directly in
+        // `superseded` must be rejected (the pre-RFC-022 back door, srs-rust#502).
+        let err = create_record_successor(
+            &store,
+            &record.instance_id,
+            CreateRecordSuccessorInput {
+                relation_type: "supersedes".to_string(),
+                field_values: vec![FieldValue {
+                    field_id: "field-title-rfc022".to_string(),
+                    value: json!("Decision 1 v2"),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                }],
+                lifecycle_state: Some("superseded".to_string()),
+                type_version: None,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::LifecycleRelationRequired { .. }),
+            "got: {err:?}"
+        );
+        // Rolled back: no relation to the predecessor survives.
+        let rels = relation_service::list_relations(
+            &store,
+            relation_service::ListRelationsFilter {
+                target: Some(record.instance_id.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(rels.is_empty(), "fulfillment artifacts must be rolled back");
+    }
+
+    #[test]
+    fn rfc022_fulfillment_roundtrip_stores() {
+        // Cross-store roundtrip (memory -> file) per CLAUDE.md Storage Boundary Rules.
+        let store = make_store_with_relational_state();
+        let record = create_rfc022_record(&store, "Decision 1");
+        ratify(&store, &record.instance_id);
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let file_store = crate::store::FileStore::new(temp.path());
+        crate::repository_portability::copy_repository(&store, &file_store).unwrap();
+
+        // The bare flip is rejected identically on the file store…
+        let err =
+            transition_record_lifecycle(&file_store, &record.instance_id, supersede_input(None))
+                .unwrap_err();
+        assert!(matches!(err, RepositoryError::LifecycleRelationRequired { .. }));
+
+        // …and the fulfilled transition succeeds against the file store.
+        let result = transition_record_lifecycle(
+            &file_store,
+            &record.instance_id,
+            supersede_input(Some(TransitionFulfillmentInput {
+                new_record: Some(FulfillmentNewRecord {
+                    field_values: vec![FieldValue {
+                        field_id: "field-title-rfc022".to_string(),
+                        value: json!("Decision 1 v2"),
+                        entries: None,
+                        source: None,
+                        edited_at: None,
+                    }],
+                    type_version: None,
+                }),
+                existing_instance_id: None,
+                relation_type: None,
+            })),
+        )
+        .unwrap();
+        assert_eq!(result.record.lifecycle_state.as_deref(), Some("superseded"));
+        let successor = result.successor.unwrap();
+        let reloaded = get_record_by_id(&file_store, &successor.instance_id)
+            .unwrap()
+            .expect("successor persisted on file store");
+        assert_eq!(reloaded.lifecycle_state.as_deref(), Some("draft"));
+        let rels = relation_service::list_relations(
+            &file_store,
+            relation_service::ListRelationsFilter {
+                target: Some(record.instance_id.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(rels.len(), 1);
+        assert_eq!(rels[0].relation_type, "supersedes");
     }
 
     // -------------------------------------------------------------------------
@@ -3983,6 +4908,7 @@ mod tests {
             TransitionLifecycleInput {
                 to: Some("active".to_string()),
                 by_transition: None,
+                fulfillment: None,
             },
         )
         .unwrap();
@@ -3999,6 +4925,7 @@ mod tests {
             TransitionLifecycleInput {
                 to: Some("archived".to_string()),
                 by_transition: None,
+                fulfillment: None,
             },
         )
         .unwrap();
@@ -4040,6 +4967,7 @@ mod tests {
             TransitionLifecycleInput {
                 to: Some("archived".to_string()),
                 by_transition: None,
+                fulfillment: None,
             },
         );
         assert!(matches!(
@@ -4073,6 +5001,7 @@ mod tests {
             TransitionLifecycleInput {
                 to: Some("active".to_string()),
                 by_transition: None,
+                fulfillment: None,
             },
         )
         .unwrap();
@@ -4095,6 +5024,7 @@ mod tests {
             TransitionLifecycleInput {
                 to: Some("active".to_string()),
                 by_transition: None,
+                fulfillment: None,
             },
         )
         .unwrap();
@@ -4104,6 +5034,7 @@ mod tests {
             TransitionLifecycleInput {
                 to: Some("archived".to_string()),
                 by_transition: None,
+                fulfillment: None,
             },
         )
         .unwrap();

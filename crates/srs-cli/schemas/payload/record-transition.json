@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "RecordTransitionPayload",
-  "description": "Payload for `record transition` — the updated record and any non-fatal warnings (e.g., LIFECYCLE_FINAL_STATE). Envelope `diagnostics` is reserved for `ok: false` errors; non-fatal operational signals on a successful response belong in the typed payload per ADR-011.",
+  "description": "Payload for `record transition` — the updated record and any non-fatal warnings (e.g., LIFECYCLE_FINAL_STATE). Envelope `diagnostics` is reserved for `ok: false` errors; non-fatal operational signals on a successful response belong in the typed payload per ADR-011. When the transition was fulfilled (RFC-022), `successor` / `relation` carry the artifacts.",
   "type": "object",
   "required": [
     "record",
@@ -9,6 +9,8 @@
   ],
   "properties": {
     "record": true,
+    "relation": true,
+    "successor": true,
     "warnings": {
       "type": "array",
       "items": {

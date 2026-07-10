@@ -2,6 +2,62 @@ use super::term::VocabularyEntryStatus;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Which end of the relation the record in the state must occupy (RFC-022).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum RelationDirection {
+    /// An edge whose **target** is the record (e.g. successor → predecessor `supersedes`).
+    #[default]
+    Incoming,
+    /// An edge whose **source** is the record.
+    Outgoing,
+}
+
+impl std::fmt::Display for RelationDirection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RelationDirection::Incoming => write!(f, "incoming"),
+            RelationDirection::Outgoing => write!(f, "outgoing"),
+        }
+    }
+}
+
+/// One relation type or an any-of list (RFC-022 `requiresRelation.relationType`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RelationTypeSpec {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl RelationTypeSpec {
+    /// The declared type(s) in declaration order.
+    pub fn types(&self) -> Vec<&str> {
+        match self {
+            RelationTypeSpec::One(t) => vec![t.as_str()],
+            RelationTypeSpec::Many(ts) => ts.iter().map(String::as_str).collect(),
+        }
+    }
+}
+
+/// RFC-022 relational-state obligation: a record may only *be* in a state
+/// declaring this unless a satisfying relation exists (`state ⇒ relation`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequiresRelation {
+    /// Relation type(s) that satisfy the obligation (any-of). No implicit default.
+    pub relation_type: RelationTypeSpec,
+    /// Defaults to `incoming` when absent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub direction: Option<RelationDirection>,
+}
+
+impl RequiresRelation {
+    pub fn effective_direction(&self) -> RelationDirection {
+        self.direction.unwrap_or_default()
+    }
+}
+
 /// A single state in a lifecycle state machine (substrate specialization).
 /// `key` is the machine-readable identifier (was `name` in pre-RFC-006 data).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -30,6 +86,9 @@ pub struct LifecycleState {
     pub is_final: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<VocabularyEntryStatus>,
+    /// RFC-022: a record may only be in this state if a satisfying relation exists.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requires_relation: Option<RequiresRelation>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub properties: Option<HashMap<String, serde_json::Value>>,
 }
@@ -117,6 +176,7 @@ mod tests {
             is_initial: None,
             is_final: None,
             status: None,
+            requires_relation: None,
             properties: None,
         };
         let json = serde_json::to_string(&s).unwrap();
@@ -161,6 +221,7 @@ mod tests {
                     is_initial: Some(true),
                     is_final: None,
                     status: None,
+                    requires_relation: None,
                     properties: None,
                 },
                 LifecycleState {
@@ -174,6 +235,7 @@ mod tests {
                     is_initial: None,
                     is_final: Some(true),
                     status: None,
+                    requires_relation: None,
                     properties: None,
                 },
             ],

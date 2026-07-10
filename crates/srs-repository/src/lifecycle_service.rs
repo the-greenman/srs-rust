@@ -85,6 +85,7 @@ mod tests {
                     is_initial: Some(true),
                     is_final: None,
                     status: None,
+                    requires_relation: None,
                     properties: None,
                 },
                 LifecycleState {
@@ -98,6 +99,7 @@ mod tests {
                     is_initial: None,
                     is_final: Some(true),
                     status: None,
+                    requires_relation: None,
                     properties: None,
                 },
             ],

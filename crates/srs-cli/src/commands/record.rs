@@ -254,6 +254,8 @@ fn cmd_record_transition(ctx: CliContext, id: String) -> Result<String> {
             RecordTransitionPayload {
                 record: result.record,
                 warnings: result.warnings,
+                successor: result.successor,
+                relation: result.relation,
             },
         ),
         Err(e) => Ok(output::err("record transition", vec![e.to_string()])),
