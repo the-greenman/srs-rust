@@ -817,7 +817,7 @@ pub fn validate_repository(
         for boundary in &boundaries {
             let prefix = boundary.selector.as_deref().unwrap_or("package");
 
-            // Blueprint: semantic validation only (blueprint files do not include $schema)
+            // Blueprint: JSON Schema validation + semantic validation
             for bp_path in &boundary.blueprint_paths {
                 let full_path = format!("{prefix}/{bp_path}");
                 let bp_value = match store.load_instance_json(&full_path) {
@@ -832,6 +832,14 @@ pub fn validate_repository(
                         continue;
                     }
                 };
+                if let Some(schema_diags) = validate_value_against_schema(
+                    &bp_value,
+                    &full_path,
+                    srs_schema::BLUEPRINT_SCHEMA_ID,
+                    reg,
+                ) {
+                    diagnostics.extend(schema_diags);
+                }
                 match serde_json::from_value::<Blueprint>(bp_value) {
                     Ok(bp) => {
                         for diag in validate_blueprint(&bp).diagnostics {
@@ -4188,6 +4196,36 @@ mod tests {
         assert!(
             bp_diags.is_empty(),
             "expected no blueprint diagnostics on MemoryStore with valid blueprint, got: {bp_diags:?}"
+        );
+    }
+
+    #[test]
+    fn test_validate_blueprint_json_schema_applied_to_extra_property() {
+        use crate::package_types::DefinitionKind;
+        // JSON Schema (additionalProperties: false) must fire for a blueprint with an unknown field.
+        let store = manifest_store(minimal_manifest(json!([])));
+        let mut bp_json = minimal_blueprint_json("00000000-0000-4000-8000-000000000061", true);
+        bp_json["unknownField"] = json!("bad");
+        store
+            .save_instance_json("package/blueprints/extra-field-bp.json", &bp_json)
+            .unwrap();
+        store
+            .add_definition_to_boundary(
+                &None,
+                DefinitionKind::Blueprint,
+                "blueprints/extra-field-bp.json",
+            )
+            .unwrap();
+        let report = validate_repository(&store).unwrap();
+        let schema_diags: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.schema_id == Some(srs_schema::BLUEPRINT_SCHEMA_ID.to_string()))
+            .collect();
+        assert!(
+            !schema_diags.is_empty(),
+            "expected a JSON Schema diagnostic with blueprint schema_id, got: {:?}",
+            report.diagnostics
         );
     }
 
