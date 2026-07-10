@@ -253,6 +253,7 @@ pub fn create_note_in_context(
     if let Some(ref cid) = input.container_id {
         if let Err(e) = container_service::add_member(store, cid, &result.note.instance_id) {
             // Best-effort rollback — same caveats as ADR-024.
+            // TODO: fault-injection test for this error arm pending a FailStore test double (see ADR-024).
             let _ = delete_note(store, &result.note.instance_id);
             return Err(e);
         }
@@ -1459,7 +1460,7 @@ mod tests {
     // ── rollback mechanism ─────────────────────────────────────────────────────
 
     #[test]
-    fn rollback_mechanism_delete_note_cleans_manifest() {
+    fn create_then_delete_note_is_manifest_roundtrip() {
         // Verifies the building blocks used by the best-effort rollback in
         // create_note_in_context: that create_note followed by delete_note returns
         // the manifest instance index to its original length. This is the two-step
