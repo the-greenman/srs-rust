@@ -545,12 +545,13 @@ impl SrsRepository {
     pub fn list_relation_types(&self, filter_json: &str) -> Result<JsValue, JsValue> {
         let filter: RelationTypeListBindingFilter = serde_json::from_str(filter_json)
             .map_err(|e| js_err(format!("invalid filter: {e}")))?;
-        let relation_types =
-            package_service::list_relation_types_filtered(
-                &self.store,
-                RelationTypeListFilter { status: filter.status },
-            )
-                .map_err(js_err)?;
+        let relation_types = package_service::list_relation_types_filtered(
+            &self.store,
+            RelationTypeListFilter {
+                status: filter.status,
+            },
+        )
+        .map_err(js_err)?;
         to_js(&relation_types)
     }
 

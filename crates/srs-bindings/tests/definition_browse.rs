@@ -279,9 +279,8 @@ struct TestRelationTypeListBindingFilter {
 #[test]
 fn list_relation_types_returns_all_types() {
     let store = gallery_store();
-    let relation_types =
-        list_relation_types_filtered(&store, RelationTypeListFilter::default())
-            .expect("list_relation_types must succeed");
+    let relation_types = list_relation_types_filtered(&store, RelationTypeListFilter::default())
+        .expect("list_relation_types must succeed");
     assert_eq!(relation_types.len(), 4, "gallery has 4 relation types");
 }
 
@@ -292,7 +291,9 @@ fn list_relation_types_status_filter_none_match() {
     // A filter for "active" must return 0 results.
     let relation_types = list_relation_types_filtered(
         &store,
-        RelationTypeListFilter { status: Some("active".to_string()) },
+        RelationTypeListFilter {
+            status: Some("active".to_string()),
+        },
     )
     .expect("list_relation_types must succeed");
     assert!(
