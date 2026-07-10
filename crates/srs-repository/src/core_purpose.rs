@@ -1,16 +1,19 @@
-// Hardcoded UUIDs for com.semanticops.core purpose, statement, and title.
-// These match the embedded core-bundle (core_package.rs / assets/core-bundle.srsj, #423).
-// They will be retired in #434 (WASM binding plan) once callers switch to
-// core_package::core_package() lookups. Until then, keep them here — STATEMENT_FIELD_ID and
-// TITLE_FIELD_ID are shared by both repository_lifecycle and migrate_identity_service so the
-// two paths can't diverge again as they once did (#441).
-//
-// Canonical values from srs/packages/com.semanticops.core/1.0.0/core-bundle.srsj
-pub(crate) const PURPOSE_TYPE_ID: &str = "3c000001-0000-4000-a000-000000000001";
-pub(crate) const PURPOSE_TYPE_VERSION: u32 = 1;
+// Semantic names for com.semanticops.core/purpose — used to identify an existing record
+// as already-migrated in migrate_identity_service.
 pub(crate) const PURPOSE_TYPE_NAMESPACE: &str = "com.semanticops.core";
 pub(crate) const PURPOSE_TYPE_NAME: &str = "purpose";
+
+// Drift-guard constants — used only in tests to verify the embedded core-bundle has not drifted.
+// build_purpose_record (below) looks these up from core_package::core_package() at runtime
+// instead of reading the constants directly. Canonical values from
+// srs/packages/com.semanticops.core/1.0.0/core-bundle.srsj
+#[cfg(test)]
+pub(crate) const PURPOSE_TYPE_ID: &str = "3c000001-0000-4000-a000-000000000001";
+#[cfg(test)]
+pub(crate) const PURPOSE_TYPE_VERSION: u32 = 1;
+#[cfg(test)]
 pub(crate) const STATEMENT_FIELD_ID: &str = "3b000001-0000-4000-a000-000000000001";
+#[cfg(test)]
 pub(crate) const TITLE_FIELD_ID: &str = "3b000002-0000-4000-a000-000000000002";
 
 use srs_core::types::record::{FieldValue, Record};
@@ -58,16 +61,33 @@ pub(crate) fn build_purpose_record(
     title: Option<&str>,
     now: &str,
 ) -> Record {
+    let cp = crate::core_package::core_package();
+    let purpose_type = cp
+        .record_types
+        .iter()
+        .find(|rt| rt.namespace == PURPOSE_TYPE_NAMESPACE && rt.name == PURPOSE_TYPE_NAME)
+        .expect("embedded core bundle must contain com.semanticops.core/purpose type");
+    let statement_field = cp
+        .fields
+        .iter()
+        .find(|f| f.namespace == "com.semanticops.core" && f.name == "statement")
+        .expect("embedded core bundle must contain com.semanticops.core/statement field");
+
     let mut field_values = vec![FieldValue {
-        field_id: STATEMENT_FIELD_ID.to_string(),
+        field_id: statement_field.id.clone(),
         value: serde_json::Value::String(statement.to_string()),
         entries: None,
         source: None,
         edited_at: None,
     }];
     if let Some(t) = title {
+        let title_field = cp
+            .fields
+            .iter()
+            .find(|f| f.namespace == "com.semanticops.core" && f.name == "title")
+            .expect("embedded core bundle must contain com.semanticops.core/title field");
         field_values.push(FieldValue {
-            field_id: TITLE_FIELD_ID.to_string(),
+            field_id: title_field.id.clone(),
             value: serde_json::Value::String(t.to_string()),
             entries: None,
             source: None,
@@ -76,8 +96,8 @@ pub(crate) fn build_purpose_record(
     }
     Record {
         instance_id: instance_id.to_string(),
-        type_id: PURPOSE_TYPE_ID.to_string(),
-        type_version: PURPOSE_TYPE_VERSION,
+        type_id: purpose_type.id.clone(),
+        type_version: purpose_type.version,
         type_namespace: PURPOSE_TYPE_NAMESPACE.to_string(),
         type_name: PURPOSE_TYPE_NAME.to_string(),
         field_values,
