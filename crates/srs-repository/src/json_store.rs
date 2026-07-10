@@ -224,6 +224,15 @@ impl JsonStore {
                 }
             })?;
         manifest.root = PathBuf::from(".");
+        // --- Open-time migrations ---
+        // Invariants that every migration block here must observe:
+        //   1. Must not call flush() — from_srsj is pure / WASM-safe (no filesystem writes).
+        //   2. Malformed or unresolvable entries are silently discarded, not a load error.
+        //   3. Each migration is idempotent: running from_srsj on already-migrated input
+        //      produces the same result.
+        //   4. No diagnostic output is possible from a constructor; document skip reasons
+        //      with inline comments only.
+        //
         // Reconcile index entries: if an entry is missing tags but the bundled record
         // file has tags, fill them in. `list_records_filtered` trusts the index for
         // tag queries without loading the file, so a stale or absent `tags` field
@@ -249,7 +258,25 @@ impl JsonStore {
                 {
                     let migrated: Vec<ContainerIndexEntry> = arr
                         .iter()
-                        .filter_map(|e| serde_json::from_value(e.clone()).ok())
+                        .filter_map(|e| {
+                            let mut entry: ContainerIndexEntry =
+                                serde_json::from_value(e.clone()).ok()?;
+                            if entry.path.is_none() {
+                                // Pre-#466 shadow entries carry only {containerId, title}.
+                                // Derive the path from the data map using the pre-#466
+                                // JsonStore convention; skip entries with no matching key
+                                // rather than importing a pathless entry that would fail
+                                // schema validation ([/containerIndex/N] "path" is required).
+                                let derived =
+                                    Self::container_data_key(&entry.container_id);
+                                if envelope.data.contains_key(&derived) {
+                                    entry.path = Some(derived);
+                                } else {
+                                    return None;
+                                }
+                            }
+                            Some(entry)
+                        })
                         .collect();
                     if !migrated.is_empty() {
                         manifest.container_index = Some(migrated);
@@ -266,6 +293,13 @@ impl JsonStore {
                 batching: false,
             }),
         })
+    }
+
+    /// Returns the canonical data-map key for a container stored in JsonStore-native format.
+    /// Used in save_container, delete_container, and the open-time migration that derives
+    /// paths for pre-#466 shadow containerIndex entries.
+    fn container_data_key(container_id: &str) -> String {
+        format!("containers/{container_id}.json")
     }
 
     /// Extract the `tags` array from a record JSON value.
@@ -1371,7 +1405,7 @@ impl RepositoryStore for JsonStore {
             match self.data_get(&path) {
                 Ok(v) => (path, v),
                 Err(_) => {
-                    let fallback = format!("containers/{container_id}.json");
+                    let fallback = Self::container_data_key(container_id);
                     let v = self.data_get(&fallback).map_err(|_| {
                         RepositoryError::ContainerNotFound {
                             container_id: container_id.to_string(),
@@ -1381,7 +1415,7 @@ impl RepositoryStore for JsonStore {
                 }
             }
         } else {
-            let fallback = format!("containers/{container_id}.json");
+            let fallback = Self::container_data_key(container_id);
             let v = self
                 .data_get(&fallback)
                 .map_err(|_| RepositoryError::ContainerNotFound {
@@ -1401,7 +1435,7 @@ impl RepositoryStore for JsonStore {
         container: &srs_core::types::container::Container,
     ) -> Result<(), RepositoryError> {
         let id = &container.container_id;
-        let key = format!("containers/{id}.json");
+        let key = Self::container_data_key(id);
         let val = serde_json::to_value(container).map_err(|source| RepositoryError::Serialize {
             path: std::path::PathBuf::from(&key),
             source,
@@ -1442,7 +1476,8 @@ impl RepositoryStore for JsonStore {
             .as_deref()
             .and_then(|entries| entries.iter().find(|e| e.container_id == container_id))
             .and_then(|e| e.path.clone());
-        let key = indexed_path.unwrap_or_else(|| format!("containers/{container_id}.json"));
+        let key =
+            indexed_path.unwrap_or_else(|| Self::container_data_key(container_id));
 
         // Check existence before modifying state — return NotFound cleanly.
         if !self.state.borrow().data.contains_key(&key) {
@@ -2595,6 +2630,97 @@ mod tests {
                 .iter()
                 .any(|(id, _)| id == "aaaabbbb-cccc-dddd-eeee-ffffffffffff"),
             "deleted container must not reappear in list after delete"
+        );
+    }
+
+    // Regression test for #490: pathless shadow containerIndex entries must get a derived
+    // path during open-time migration, not be imported with path: None (which fails schema
+    // validation on the next load).
+    #[test]
+    fn from_srsj_shadow_migration_derives_path_for_pathless_entry() {
+        let srsj = serde_json::json!({
+            "srsj": "1",
+            "manifest": {
+                "repositoryId": "test-repo-490a",
+                "srsVersion": "2.0-draft",
+                "namespace": "com.test.490a",
+                "instanceIndex": [],
+                "packageRef": {"mode": "local", "path": "package"}
+                // No top-level containerIndex — pre-#466 format
+            },
+            "data": {
+                "containers/11111111-2222-3333-4444-555555555555.json": {
+                    "containerId": "11111111-2222-3333-4444-555555555555",
+                    "title": "Old Container"
+                },
+                "manifest.json": {
+                    "containerIndex": [
+                        {
+                            "containerId": "11111111-2222-3333-4444-555555555555",
+                            "title": "Old Container"
+                            // No "path" field — pre-#466 shadow format
+                        }
+                    ]
+                }
+            }
+        })
+        .to_string();
+
+        let store = JsonStore::from_srsj(&srsj).unwrap();
+        let state = store.state.borrow();
+        let index = state
+            .manifest
+            .container_index
+            .as_deref()
+            .expect("container_index must be populated after migration");
+        let entry = index
+            .iter()
+            .find(|e| e.container_id == "11111111-2222-3333-4444-555555555555")
+            .expect("migrated entry must be present in container_index");
+        assert_eq!(
+            entry.path,
+            Some("containers/11111111-2222-3333-4444-555555555555.json".to_string()),
+            "migration must derive path from data key using pre-#466 convention"
+        );
+    }
+
+    // Regression test for #490: pathless shadow entries with no matching data key must be
+    // silently skipped rather than imported with path: None.
+    #[test]
+    fn from_srsj_shadow_migration_skips_entry_with_no_matching_data_key() {
+        let srsj = serde_json::json!({
+            "srsj": "1",
+            "manifest": {
+                "repositoryId": "test-repo-490b",
+                "srsVersion": "2.0-draft",
+                "namespace": "com.test.490b",
+                "instanceIndex": [],
+                "packageRef": {"mode": "local", "path": "package"}
+                // No top-level containerIndex — pre-#466 format
+            },
+            "data": {
+                "manifest.json": {
+                    "containerIndex": [
+                        {
+                            "containerId": "aaaaaaaa-bbbb-cccc-dddd-000000000000",
+                            "title": "Ghost Container"
+                            // No "path" field AND no matching data key
+                        }
+                    ]
+                }
+                // No "containers/aaaaaaaa-bbbb-cccc-dddd-000000000000.json" key
+            }
+        })
+        .to_string();
+
+        let store = JsonStore::from_srsj(&srsj).unwrap();
+        let state = store.state.borrow();
+        let index = state.manifest.container_index.as_deref().unwrap_or(&[]);
+        assert!(
+            !index
+                .iter()
+                .any(|e| e.container_id == "aaaaaaaa-bbbb-cccc-dddd-000000000000"),
+            "pathless entry with no matching data key must be skipped, not imported"
         );
     }
 
