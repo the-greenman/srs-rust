@@ -296,8 +296,8 @@ impl JsonStore {
     }
 
     /// Returns the canonical data-map key for a container stored in JsonStore-native format.
-    /// Used in save_container, delete_container, and the open-time migration that derives
-    /// paths for pre-#466 shadow containerIndex entries.
+    /// Used in save_container, load_container (fallback), delete_container, and the open-time
+    /// migration that derives paths for pre-#466 shadow containerIndex entries (#490).
     fn container_data_key(container_id: &str) -> String {
         format!("containers/{container_id}.json")
     }
@@ -2667,9 +2667,8 @@ mod tests {
         .to_string();
 
         let store = JsonStore::from_srsj(&srsj).unwrap();
-        let state = store.state.borrow();
-        let index = state
-            .manifest
+        let manifest = store.load_manifest().unwrap();
+        let index = manifest
             .container_index
             .as_deref()
             .expect("container_index must be populated after migration");
@@ -2714,8 +2713,8 @@ mod tests {
         .to_string();
 
         let store = JsonStore::from_srsj(&srsj).unwrap();
-        let state = store.state.borrow();
-        let index = state.manifest.container_index.as_deref().unwrap_or(&[]);
+        let manifest = store.load_manifest().unwrap();
+        let index = manifest.container_index.as_deref().unwrap_or(&[]);
         assert!(
             !index
                 .iter()
