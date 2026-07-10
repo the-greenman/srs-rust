@@ -3,12 +3,11 @@ use crate::container_service::{
 };
 use crate::error::RepositoryError;
 use crate::index::InstanceIndexEntry;
-use crate::paths::{DEFAULT_RECORD_DIR, NOTES_RECORD_DIR, TIER1_RECORD_DIR};
 use crate::relation_service::load_relations;
 use crate::repository_lifecycle::{
     InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
 };
-use crate::store::RepositoryStore;
+use crate::store::{RecordTier, RepositoryStore};
 use crate::writer::slugify_instance_name;
 use srs_core::types::blueprint::Blueprint;
 use srs_core::types::container::{Container, ContainerIndexEntry};
@@ -277,7 +276,7 @@ fn do_import(
     let mut used_paths: HashMap<String, String> = HashMap::with_capacity(snapshot.instances.len());
     manifest.instance_index = Vec::new();
     for instance in &snapshot.instances {
-        let rel_path = canonical_instance_path(instance);
+        let rel_path = canonical_instance_path(instance, target);
         if let Some(first_id) = used_paths.get(&rel_path) {
             return Err(RepositoryError::InvalidSnapshotData {
                 message: format!(
@@ -684,7 +683,7 @@ pub fn upgrade_repository_paths(
             tags: entry.tags.clone(),
             value: value.clone(),
         };
-        let canonical = canonical_instance_path(&instance);
+        let canonical = canonical_instance_path(&instance, store);
         if !canonical_paths.insert(canonical.clone()) {
             return Err(RepositoryError::InvalidSnapshotData {
                 message: format!("path collision: two instances would normalise to '{canonical}'"),
@@ -760,7 +759,7 @@ pub fn upgrade_repository_paths(
     })
 }
 
-pub(crate) fn canonical_instance_path(instance: &SnapshotInstance) -> String {
+pub(crate) fn canonical_instance_path(instance: &SnapshotInstance, store: &dyn RepositoryStore) -> String {
     let id = &instance.instance_id;
     assert!(
         id.len() >= 8,
@@ -788,9 +787,11 @@ pub(crate) fn canonical_instance_path(instance: &SnapshotInstance) -> String {
         format!("{slug}-{id8}.json")
     };
     match instance.tier {
-        0 => format!("{NOTES_RECORD_DIR}/{filename}"),
-        1 => format!("{TIER1_RECORD_DIR}/{filename}"),
-        2 => format!("{DEFAULT_RECORD_DIR}/{filename}"),
+        0 => format!("{}/{filename}", store.record_tier_dir(RecordTier::Note)),
+        1 => format!("{}/{filename}", store.record_tier_dir(RecordTier::Tier1)),
+        2 => format!("{}/{filename}", store.record_tier_dir(RecordTier::Tier2)),
+        // Defensive catch-all for unknown tier numbers in snapshot data.
+        // Cannot be expressed as a typed RecordTier variant.
         tier => format!("records/tier-{tier}/{filename}"),
     }
 }
