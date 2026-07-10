@@ -1014,7 +1014,7 @@ $SRS_BIN repo validate --repo "$SCRATCH" --pretty
 
 **Intention.** *"I'm recording a governance decision. Our process requires that the decision date always comes after the deliberation period began — I want the system to enforce that automatically so no one can accidentally log a decision that pre-dates the deliberation."*
 
-**Capabilities exercised.** `ext:cross-field-validation` — `field-ordering` rule on a Type's `validationRules` enforced during `repo validate`; happy-path record with valid date ordering produces no diagnostic; out-of-order record produces a clear error naming the offending fields and the violated constraint.
+**Capabilities exercised.** `ext:cross-field-validation` — `field-ordering` rule on a Type's `validationRules` enforced **at write time** (`record create` / `record update`, #437) and during `repo validate`; happy-path record with valid date ordering is accepted and produces no diagnostic; out-of-order `record create` is **hard-rejected** with a `RecordValidation` error (no record is persisted). The same rule also surfaces in `repo validate` for any pre-#437 records already in the repository.
 
 **CLI surface.** `field create`, `type create` (with `validationRules`), `record create`, `repo validate`.
 
@@ -1028,12 +1028,12 @@ $SRS_BIN repo create --repo "$SCRATCH" --namespace com.example.dogfood
 
 # Create the two date fields
 FIELD1_ID=$($SRS_BIN field create --repo "$SCRATCH" <<'EOF' | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['field']['id'])"
-{"name":"deliberation_date","namespace":"com.example.dogfood","fieldType":"date","description":"When deliberation began"}
+{"name":"deliberation_date","namespace":"com.example.dogfood","version":1,"valueType":"date","description":"When deliberation began"}
 EOF
 )
 
 FIELD2_ID=$($SRS_BIN field create --repo "$SCRATCH" <<'EOF' | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['field']['id'])"
-{"name":"decision_date","namespace":"com.example.dogfood","fieldType":"date","description":"When the decision was made"}
+{"name":"decision_date","namespace":"com.example.dogfood","version":1,"valueType":"date","description":"When the decision was made"}
 EOF
 )
 
@@ -1044,6 +1044,7 @@ TYPE_ID=$($SRS_BIN type create --repo "$SCRATCH" <<EOF | python3 -c "import sys,
   "name": "governance_decision",
   "version": 1,
   "description": "A governance decision record with ordering constraint",
+  "createdAt": "2026-07-09T00:00:00Z",
   "fields": [
     {"fieldId":"$FIELD1_ID","order":1,"required":true},
     {"fieldId":"$FIELD2_ID","order":2,"required":true}
@@ -1054,40 +1055,45 @@ TYPE_ID=$($SRS_BIN type create --repo "$SCRATCH" <<EOF | python3 -c "import sys,
     "targetFieldId": "$FIELD2_ID",
     "effect": "must-follow",
     "message": "decision_date must follow deliberation_date"
-  }],
-  "createdAt": "2026-07-09T00:00:00Z"
+  }]
 }
 EOF
 )
 
-# Happy path: decision_date (2026-07-10) follows deliberation_date (2026-07-01) — no diagnostic
+# Happy path: decision_date (2026-07-10) follows deliberation_date (2026-07-01) — accepted
 echo '{
   "fieldValues": [
     {"fieldId":"'"$FIELD1_ID"'","value":"2026-07-01"},
     {"fieldId":"'"$FIELD2_ID"'","value":"2026-07-10"}
   ]
-}' | $SRS_BIN record create --repo "$SCRATCH" --type com.example.dogfood/governance_decision
+}' | $SRS_BIN record create --repo "$SCRATCH" --type com.example.dogfood/governance_decision --version 1 --pretty
 
 $SRS_BIN repo validate --repo "$SCRATCH" --pretty
 ```
 
-**Negative case.** Create a second record where decision_date (2026-06-01) precedes deliberation_date (2026-07-01), then validate.
+**Negative case.** Attempt to create a record where decision_date (2026-06-01) precedes deliberation_date (2026-07-01). As of #437, this is now rejected **at write time** — the command returns `ok: false` and no record is persisted.
 
 ```bash
+# This must fail at record create — not at repo validate — because CFR enforcement
+# now lives in the write path (create_record_at_dir). No record is written.
 echo '{
   "fieldValues": [
     {"fieldId":"'"$FIELD1_ID"'","value":"2026-07-01"},
     {"fieldId":"'"$FIELD2_ID"'","value":"2026-06-01"}
   ]
-}' | $SRS_BIN record create --repo "$SCRATCH" --type com.example.dogfood/governance_decision
+}' | $SRS_BIN record create --repo "$SCRATCH" --type com.example.dogfood/governance_decision --version 1 --pretty
+# → ok: false; diagnostics contains "field-ordering" and references decision_date field ID
 
-$SRS_BIN repo validate --repo "$SCRATCH" --pretty   # must produce field-ordering error
+# repo validate still returns ok: true because the violating record was never written
+$SRS_BIN repo validate --repo "$SCRATCH" --pretty
 ```
 
 **Done when.**
-- After happy-path record only: `repo validate` returns `ok: true`, `diagnostics` is empty.
-- After adding the out-of-order record: `repo validate` returns `ok: false`; `diagnostics[0]` contains `"field-ordering"` and references `decision_date`'s field ID.
-- The error is attributed to the specific record file, not the type or repo globally.
+- Happy-path `record create` returns `ok: true`; `repo validate` returns `ok: true`, `diagnostics` is empty.
+- Negative-case `record create` returns `ok: false`; `diagnostics[0]` contains `"field-ordering"` and references `decision_date`'s field ID; no new record appears in `record list`.
+- `repo validate` after the negative case still returns `ok: true` (violating record was never persisted).
+
+> **Write-boundary change (#437):** Before #437, a violating `record create` would succeed and only be caught by a subsequent `repo validate`. Now it is a hard error at write time, consistent with required-field violations.
 
 ### S24 — Resolve a core type in a fresh repo with no package config (implicit core merge, #423)
 
@@ -1196,7 +1202,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `extension` | _gap — no scenario yet_ |
 | `repo extensions` (list/enable/disable/conformance) | S22 |
 | `repo migrate-identity` (graduate Tier-0 identity note to purpose record, #426; bootstrap identity for pre-#424 repos with no `identityInstanceId`, #432) | S21 (Tier-0 note branch), S21b (None-branch: absent pointer); WASM binding (`migrate_identity`) verified via integration tests in `crates/srs-bindings/tests/migrate_identity.rs` (#434); `build_purpose_record` now uses `core_package::core_package()` lookups instead of hardcoded UUID constants (ADR-025, #434) |
-| `type` `validationRules` (ext:cross-field-validation — conditional-required / field-ordering / mutual-exclusion, #242) | S23 |
+| `type` `validationRules` (ext:cross-field-validation — conditional-required / field-ordering / mutual-exclusion, #242); **CFR violations are now hard errors at `record create`/`record update` write time (#437)** — `repo validate` still enforces for any pre-existing records | S23 |
 | `tag` (definition) | _gap — being deprecated; see open issues_ |
 | `package` | CLI: covered implicitly by field/type creation in S2; WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330) |
 
