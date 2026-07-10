@@ -43,7 +43,7 @@ A constructor `JsonStore::from_srsj(content: &str) -> Result<Self, RepositoryErr
 
 ### Wasm surface: `srs-bindings` with `wasm-bindgen`, read-only initial scope
 
-`srs-bindings` is the sole crate that depends on `wasm-bindgen`. It exposes a `#[wasm_bindgen] pub struct SrsRepository` with read-only methods (`load`, `validate`, `list_records`, `get_record`, `list_notes`). Each method is a thin wrapper: deserialize JS input → call one service function from `srs-repository` → serialize output to `JsValue`. No business logic lives in `srs-bindings`.
+`srs-bindings` is the sole crate that depends on `wasm-bindgen`. It exposes a `#[wasm_bindgen] pub struct SrsRepository` whose public methods are the canonical WASM surface (see `crates/srs-bindings/src/lib.rs` for the full list). The initial read-only set was `load`, `validate`, `list_records`, `get_record`, `list_notes`; the surface has since grown to include write operations (ADR-015) and additional read methods such as `declared_extensions_conformance` (extension conformance reporting, #442). Each method is a thin wrapper: deserialize JS input → call one service function from `srs-repository` → serialize output to `JsValue`. No business logic lives in `srs-bindings`.
 
 Write operations (create/update/delete) are deferred to a future plan. The `flush()` method on `JsonStore` requires a backing file; calling it from Wasm would fail. Read-only paths never call `flush()`.
 

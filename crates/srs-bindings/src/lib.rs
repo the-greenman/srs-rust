@@ -7,6 +7,7 @@ use srs_repository::container_service::{self, ContainerListFilter};
 use srs_repository::container_view_service::{self, ResolveContainerViewInput};
 use srs_repository::discovery_service::{self, DiscoveryQuery};
 use srs_repository::governance_scaffold_service::{self, CreateGovernanceRepositoryInput};
+use srs_repository::manifest_service;
 use srs_repository::migrate_identity_service;
 use srs_repository::package_service::{
     self, FieldListFilter, GetFieldResult, GetTypeResult, TypeListFilter,
@@ -66,6 +67,16 @@ impl SrsRepository {
     /// Validate the repository. Returns a `RepositoryValidationReport` as a JS value.
     pub fn validate(&self) -> Result<JsValue, JsValue> {
         let report = validation::validate_repository(&self.store).map_err(js_err)?;
+        to_js(&report)
+    }
+
+    /// Return a conformance report comparing the manifest's `declaredExtensions` against the
+    /// implementation's supported set and detected content usage.
+    /// Returns a `DeclaredExtensionsReport` as a JS value with four camelCase keys:
+    /// `declared`, `supported`, `declaredButUnsupported`, `usedButUndeclared`.
+    pub fn declared_extensions_conformance(&self) -> Result<JsValue, JsValue> {
+        let report =
+            manifest_service::declared_extensions_conformance(&self.store).map_err(js_err)?;
         to_js(&report)
     }
 
@@ -1004,5 +1015,49 @@ mod tests {
             "display_label must be non-empty"
         );
         assert_eq!(summary.record.instance_id, *record_id);
+    }
+
+    #[test]
+    fn declared_extensions_conformance_report_serialises() {
+        let store = JsonStore::from_srsj(&srsj_with_note_and_type()).expect("load srsj");
+        let report = srs_repository::manifest_service::declared_extensions_conformance(&store)
+            .expect("conformance report should succeed");
+        let json = serde_json::to_value(&report).expect("report must serialize");
+        assert!(json["declared"].is_array(), "declared must be a JSON array");
+        assert!(
+            json["supported"].is_array(),
+            "supported must be a JSON array"
+        );
+        assert!(
+            json["declaredButUnsupported"].is_array(),
+            "declaredButUnsupported must be a JSON array"
+        );
+        assert!(
+            json["usedButUndeclared"].is_array(),
+            "usedButUndeclared must be a JSON array"
+        );
+        // A minimal repo with no declaredExtensions has an empty declared list
+        assert!(
+            json["declared"]
+                .as_array()
+                .expect("declared must be an array")
+                .is_empty(),
+            "no extensions declared in a minimal srsj repo"
+        );
+        // The supported list must include the known extensions
+        let supported: Vec<String> = json["supported"]
+            .as_array()
+            .expect("supported must be an array")
+            .iter()
+            .map(|v| {
+                v.as_str()
+                    .expect("supported entry must be a string")
+                    .to_string()
+            })
+            .collect();
+        assert!(
+            supported.contains(&"ext:lifecycle".to_string()),
+            "supported must include ext:lifecycle"
+        );
     }
 }
