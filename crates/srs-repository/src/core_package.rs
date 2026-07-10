@@ -140,8 +140,12 @@ mod tests {
         let cp = core_package();
         assert_eq!(fields.len(), cp.fields.len());
         assert_eq!(types.len(), cp.record_types.len());
-        assert!(fields.iter().any(|f| f.namespace == "com.semanticops.core" && f.name == "statement"));
-        assert!(types.iter().any(|t| t.namespace == "com.semanticops.core" && t.name == "purpose"));
+        assert!(fields
+            .iter()
+            .any(|f| f.namespace == "com.semanticops.core" && f.name == "statement"));
+        assert!(types
+            .iter()
+            .any(|t| t.namespace == "com.semanticops.core" && t.name == "purpose"));
     }
 
     #[test]
@@ -155,8 +159,16 @@ mod tests {
 
         merge_core_into_package(&mut fields, &mut types).unwrap();
 
-        assert_eq!(fields.len(), field_count_before, "idempotent: fields must not be duplicated");
-        assert_eq!(types.len(), type_count_before, "idempotent: types must not be duplicated");
+        assert_eq!(
+            fields.len(),
+            field_count_before,
+            "idempotent: fields must not be duplicated"
+        );
+        assert_eq!(
+            types.len(),
+            type_count_before,
+            "idempotent: types must not be duplicated"
+        );
     }
 
     #[test]
@@ -178,7 +190,12 @@ mod tests {
     #[test]
     fn merge_core_errors_when_repo_shadows_core_type_id() {
         let cp = core_package();
-        let shadow = make_type(&cp.record_types[0].id, "com.shadow", "shadow-type", cp.record_types[0].version);
+        let shadow = make_type(
+            &cp.record_types[0].id,
+            "com.shadow",
+            "shadow-type",
+            cp.record_types[0].version,
+        );
         let mut fields = vec![];
         let mut types = vec![shadow];
 
@@ -224,6 +241,9 @@ mod tests {
     fn core_package_idempotent() {
         let a = core_package() as *const _;
         let b = core_package() as *const _;
-        assert_eq!(a, b, "core_package() must return the same pointer each call");
+        assert_eq!(
+            a, b,
+            "core_package() must return the same pointer each call"
+        );
     }
 }

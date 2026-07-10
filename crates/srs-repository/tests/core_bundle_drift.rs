@@ -21,10 +21,7 @@ fn core_bundle_matches_committed_sha256() {
     // Compute SHA256 of the embedded bytes using the sha2 crate is not available here,
     // so use a process call — this is an integration test so spawning sha256sum is fine.
     let output = std::process::Command::new("sha256sum")
-        .arg(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("assets/core-bundle.srsj"),
-        )
+        .arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/core-bundle.srsj"))
         .output()
         .expect("sha256sum must be available");
 

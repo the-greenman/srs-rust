@@ -2382,10 +2382,7 @@ pub mod memory {
                 }
             }
             drop(data);
-            crate::core_package::merge_core_into_package(
-                &mut pkg.fields,
-                &mut pkg.record_types,
-            )?;
+            crate::core_package::merge_core_into_package(&mut pkg.fields, &mut pkg.record_types)?;
             Ok(pkg)
         }
 
@@ -3276,7 +3273,10 @@ mod tests {
         let store = FileStore::new(temp.path());
         let package = store.load_package().unwrap();
         assert_eq!(package.namespace, "com.test");
-        assert!(package.fields.iter().any(|f| f.namespace == "com.semanticops.core"));
+        assert!(package
+            .fields
+            .iter()
+            .any(|f| f.namespace == "com.semanticops.core"));
     }
 
     #[test]

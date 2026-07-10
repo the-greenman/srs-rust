@@ -1106,7 +1106,9 @@ mod tests {
         let fields = list_fields(&store).unwrap();
         // Core fields are always present; assert our field is among them.
         assert!(
-            fields.iter().any(|f| f.name == "test-field" && f.namespace == "com.test"),
+            fields
+                .iter()
+                .any(|f| f.name == "test-field" && f.namespace == "com.test"),
             "test-field must be in the list"
         );
     }

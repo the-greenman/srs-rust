@@ -8,8 +8,8 @@
 //! #[wasm_bindgen] export compiles.
 //!
 //! Gallery fixture entity counts used in assertions:
-//!   - 24 fields (namespace "governance")
-//!   - 4 types (namespace "governance")
+//!   - 26 fields (24 namespace "governance" + 2 from implicit com.semanticops.core merge)
+//!   - 5 types (4 namespace "governance" + 1 from implicit com.semanticops.core merge)
 //!   - 1 L1 view (id "faebd240-83c4-4bc8-a383-8335f841a234", namespace "governance", name "decision-log")
 //!   - 1 package (id "90677fae-16a7-49ec-8aee-1872cbf8e381", namespace "com.limoma", name "governance-core")
 //!   - 4 relation types (namespace "governance", no status set)
@@ -47,7 +47,11 @@ fn list_fields_returns_all_fields() {
     let store = gallery_store();
     let fields =
         list_fields_filtered(&store, FieldListFilter::default()).expect("list_fields must succeed");
-    assert_eq!(fields.len(), 24, "gallery has 24 fields");
+    assert_eq!(
+        fields.len(),
+        26,
+        "gallery has 26 fields (24 governance + 2 core)"
+    );
 }
 
 #[test]
@@ -100,7 +104,11 @@ fn list_types_returns_all_types() {
     let store = gallery_store();
     let types =
         list_types_filtered(&store, TypeListFilter::default()).expect("list_types must succeed");
-    assert_eq!(types.len(), 4, "gallery has 4 types");
+    assert_eq!(
+        types.len(),
+        5,
+        "gallery has 5 types (4 governance + 1 core)"
+    );
 }
 
 #[test]
@@ -232,8 +240,8 @@ fn field_filter_empty_json_produces_default_filter() {
     let fields = list_fields_filtered(&store, filter).expect("list_fields must succeed");
     assert_eq!(
         fields.len(),
-        24,
-        "default filter returns all 24 gallery fields"
+        26,
+        "default filter returns all 26 gallery fields (24 governance + 2 core)"
     );
 }
 
