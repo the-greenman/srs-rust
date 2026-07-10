@@ -6542,6 +6542,19 @@ mod tests {
             "expected H3 heading from identityFieldId fallback (Rule [N+37]); got: {}",
             result.rendered
         );
+        // Structured mode must NOT be activated by the identity fallback: the identity field
+        // must still appear in the body field table (it is not skipped).
+        assert!(
+            result.rendered.contains("My Identity Heading")
+                && result
+                    .rendered
+                    .lines()
+                    .filter(|l| l.contains("My Identity Heading"))
+                    .count()
+                    >= 2,
+            "identity field value must appear in both the heading and the body (structured mode off); got: {}",
+            result.rendered
+        );
     }
 
     #[test]
