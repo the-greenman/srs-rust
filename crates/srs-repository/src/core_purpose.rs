@@ -18,39 +18,6 @@ pub(crate) const TITLE_FIELD_ID: &str = "3b000002-0000-4000-a000-000000000002";
 
 use srs_core::types::record::{FieldValue, Record};
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn core_purpose_constants_match_embedded_core_package() {
-        let cp = crate::core_package::core_package();
-
-        let purpose = cp
-            .record_types
-            .iter()
-            .find(|rt| rt.name == PURPOSE_TYPE_NAME && rt.namespace == PURPOSE_TYPE_NAMESPACE)
-            .expect("core package must contain the purpose type");
-        assert_eq!(purpose.id, PURPOSE_TYPE_ID);
-        assert_eq!(purpose.version, PURPOSE_TYPE_VERSION);
-
-        let statement = cp
-            .fields
-            .iter()
-            .find(|f| f.id == STATEMENT_FIELD_ID)
-            .expect("core package must contain the statement field");
-        assert_eq!(statement.namespace, "com.semanticops.core");
-        assert_eq!(statement.name, "statement");
-
-        let title = cp
-            .fields
-            .iter()
-            .find(|f| f.id == TITLE_FIELD_ID)
-            .expect("core package must contain the title field");
-        assert_eq!(title.namespace, "com.semanticops.core");
-        assert_eq!(title.name, "title");
-    }
-}
 use std::collections::HashMap;
 
 /// Build an in-memory `com.semanticops.core/purpose` Record.
@@ -107,5 +74,39 @@ pub(crate) fn build_purpose_record(
         created_at: Some(now.to_string()),
         updated_at: Some(now.to_string()),
         extra: HashMap::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn core_purpose_constants_match_embedded_core_package() {
+        let cp = crate::core_package::core_package();
+
+        let purpose = cp
+            .record_types
+            .iter()
+            .find(|rt| rt.name == PURPOSE_TYPE_NAME && rt.namespace == PURPOSE_TYPE_NAMESPACE)
+            .expect("core package must contain the purpose type");
+        assert_eq!(purpose.id, PURPOSE_TYPE_ID);
+        assert_eq!(purpose.version, PURPOSE_TYPE_VERSION);
+
+        let statement = cp
+            .fields
+            .iter()
+            .find(|f| f.id == STATEMENT_FIELD_ID)
+            .expect("core package must contain the statement field");
+        assert_eq!(statement.namespace, "com.semanticops.core");
+        assert_eq!(statement.name, "statement");
+
+        let title = cp
+            .fields
+            .iter()
+            .find(|f| f.id == TITLE_FIELD_ID)
+            .expect("core package must contain the title field");
+        assert_eq!(title.namespace, "com.semanticops.core");
+        assert_eq!(title.name, "title");
     }
 }

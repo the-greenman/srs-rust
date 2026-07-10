@@ -38,7 +38,14 @@ pub fn migrate_rfc014(srsj_str: &str) -> Result<String, RepositoryError> {
     // Strip contentHash from the top-level field unconditionally: bundles migrated by
     // old code that added contentHash during promotion are not re-entered by the guard
     // above and must have contentHash removed here.
-    if let Some(up) = seed["manifest"]["upstreamPackage"].as_object_mut() {
+    // get_mut, NOT `seed["manifest"]["upstreamPackage"]`: serde_json's IndexMut inserts
+    // Null for missing keys, which added `"upstreamPackage": null` to every manifest
+    // without provenance and failed schema validation on load (#487).
+    if let Some(up) = seed
+        .get_mut("manifest")
+        .and_then(|m| m.get_mut("upstreamPackage"))
+        .and_then(|v| v.as_object_mut())
+    {
         up.remove("contentHash");
     }
 
@@ -90,6 +97,37 @@ mod tests {
         assert_eq!(
             once_v["manifest"]["upstreamPackage"], twice_v["manifest"]["upstreamPackage"],
             "second migration must not change upstreamPackage"
+        );
+    }
+
+    #[test]
+    fn migrate_rfc014_does_not_add_upstream_package_when_absent() {
+        // Regression #487: `seed["manifest"]["upstreamPackage"].as_object_mut()` used
+        // IndexMut, which inserts Null for missing keys — every manifest without
+        // provenance gained `"upstreamPackage": null` and failed schema validation.
+        let input = serde_json::json!({
+            "manifest": {
+                "srsVersion": "2.0-draft",
+                "repositoryId": "00000000-0000-4000-8000-000000000000",
+                "instanceIndex": []
+            },
+            "data": {}
+        });
+        let migrated_str = migrate_rfc014(&serde_json::to_string(&input).unwrap()).unwrap();
+        let migrated: serde_json::Value = serde_json::from_str(&migrated_str).unwrap();
+        assert!(
+            !migrated["manifest"]
+                .as_object()
+                .unwrap()
+                .contains_key("upstreamPackage"),
+            "migration must not add an upstreamPackage key to a manifest without provenance"
+        );
+        assert!(
+            !migrated["manifest"]
+                .as_object()
+                .unwrap()
+                .contains_key("meta"),
+            "migration must not add a meta key either"
         );
     }
 
