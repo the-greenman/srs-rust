@@ -11,6 +11,7 @@ use srs_repository::JsonStore;
 
 const NOTE_ID: &str = "00000000-0000-4000-8000-00000000b001";
 const ROOT_CONTAINER_ID: &str = "00000000-0000-4000-8000-00000000c000";
+const NO_ID_CONTAINER_ID: &str = "00000000-0000-4000-8000-00000000d000";
 
 /// Minimal `.srsj` with a Tier-0 note as the `identityInstanceId`.
 fn tier0_fixture_srsj() -> String {
@@ -82,7 +83,10 @@ fn migrate_identity_tier0_to_purpose_record_succeeds() {
 
     assert_eq!(result.old_identity_id.as_deref(), Some(NOTE_ID));
     assert_eq!(result.old_identity_tier, Some(0));
-    assert!(!result.new_identity_id.is_empty(), "newIdentityId must not be empty");
+    assert!(
+        !result.new_identity_id.is_empty(),
+        "newIdentityId must not be empty"
+    );
     assert_eq!(result.statement, "We govern with SRS.");
     assert_eq!(result.title.as_deref(), Some("Test Repo"));
 
@@ -93,6 +97,77 @@ fn migrate_identity_tier0_to_purpose_record_succeeds() {
     assert!(json["newIdentityId"].is_string());
     assert_eq!(json["statement"].as_str(), Some("We govern with SRS."));
     assert_eq!(json["title"].as_str(), Some("Test Repo"));
+}
+
+/// None-branch: container has no `identityInstanceId` → purpose record derived from title/description.
+///
+/// Verifies the camelCase serialisation shape for this path: `oldIdentityId` and `oldIdentityTier`
+/// serialise as JSON `null` (not omitted), because `MigrateIdentityResult` has no
+/// `skip_serializing_if` on those fields.
+#[test]
+fn migrate_identity_no_prior_identity_succeeds() {
+    let fixture = serde_json::json!({
+        "srsj": "1",
+        "manifest": {
+            "repositoryId": "test-migrate-no-identity",
+            "srsVersion": "2.0-draft",
+            "namespace": "com.test",
+            "container": {
+                "containerId": NO_ID_CONTAINER_ID,
+                "title": "No Identity Repo",
+                "description": "Bootstrap from container metadata."
+            },
+            "instanceIndex": [],
+            "packageRef": {"mode": "local", "path": "package"}
+        },
+        "data": {
+            "package/package.json": {
+                "id": "pkg-no-id-test",
+                "namespace": "com.test",
+                "name": "test-package",
+                "version": "1.0.0",
+                "fields": [],
+                "types": [],
+                "relationTypes": [],
+                "views": [],
+                "documentViews": [],
+                "blueprints": []
+            }
+        }
+    })
+    .to_string();
+
+    let store = JsonStore::from_srsj(&fixture).expect("fixture srsj must load");
+
+    let result = migrate_identity_service::migrate_identity(&store)
+        .expect("none-branch migration must succeed");
+
+    assert!(result.old_identity_id.is_none());
+    assert!(result.old_identity_tier.is_none());
+    assert!(
+        !result.new_identity_id.is_empty(),
+        "newIdentityId must not be empty"
+    );
+    assert_eq!(result.statement, "Bootstrap from container metadata.");
+    assert_eq!(result.title.as_deref(), Some("No Identity Repo"));
+
+    // oldIdentityId and oldIdentityTier serialise as null (not omitted) because
+    // MigrateIdentityResult has no skip_serializing_if on those fields.
+    let json = serde_json::to_value(&result).expect("result must serialise");
+    assert!(
+        json["oldIdentityId"].is_null(),
+        "oldIdentityId must be null"
+    );
+    assert!(
+        json["oldIdentityTier"].is_null(),
+        "oldIdentityTier must be null"
+    );
+    assert!(json["newIdentityId"].is_string());
+    assert_eq!(
+        json["statement"].as_str(),
+        Some("Bootstrap from container metadata.")
+    );
+    assert_eq!(json["title"].as_str(), Some("No Identity Repo"));
 }
 
 /// Negative case: calling `migrate_identity` a second time on an already-migrated store

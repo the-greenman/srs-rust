@@ -7,6 +7,7 @@ use srs_repository::container_service::{self, ContainerListFilter};
 use srs_repository::container_view_service::{self, ResolveContainerViewInput};
 use srs_repository::discovery_service::{self, DiscoveryQuery};
 use srs_repository::governance_scaffold_service::{self, CreateGovernanceRepositoryInput};
+use srs_repository::migrate_identity_service;
 use srs_repository::package_service::{
     self, FieldListFilter, GetFieldResult, GetTypeResult, TypeListFilter,
 };
@@ -17,7 +18,6 @@ use srs_repository::record_store::{
 use srs_repository::relation_service::{self, ListRelationsFilter};
 use srs_repository::render_service::{self, RenderDocumentViewOptions};
 use srs_repository::repository_lifecycle::{self, InitNewRepositoryInput};
-use srs_repository::migrate_identity_service;
 use srs_repository::repository_navigation_service;
 use srs_repository::services::{
     self, graduate_note as graduate_note_service, GraduateNoteInput, ListNotesFilter,
