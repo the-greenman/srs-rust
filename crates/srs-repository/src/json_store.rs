@@ -267,8 +267,7 @@ impl JsonStore {
                                 // JsonStore convention; skip entries with no matching key
                                 // rather than importing a pathless entry that would fail
                                 // schema validation ([/containerIndex/N] "path" is required).
-                                let derived =
-                                    Self::container_data_key(&entry.container_id);
+                                let derived = Self::container_data_key(&entry.container_id);
                                 if envelope.data.contains_key(&derived) {
                                     entry.path = Some(derived);
                                 } else {
@@ -1476,8 +1475,7 @@ impl RepositoryStore for JsonStore {
             .as_deref()
             .and_then(|entries| entries.iter().find(|e| e.container_id == container_id))
             .and_then(|e| e.path.clone());
-        let key =
-            indexed_path.unwrap_or_else(|| Self::container_data_key(container_id));
+        let key = indexed_path.unwrap_or_else(|| Self::container_data_key(container_id));
 
         // Check existence before modifying state — return NotFound cleanly.
         if !self.state.borrow().data.contains_key(&key) {
