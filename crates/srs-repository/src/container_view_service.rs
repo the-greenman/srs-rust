@@ -286,7 +286,11 @@ fn common_identity_field<'a>(
     let all_agree = refs[1..]
         .iter()
         .all(|r| identity_field_index.get(&(r.type_id.clone(), r.type_version)) == Some(first));
-    if all_agree { Some(first) } else { None }
+    if all_agree {
+        Some(first)
+    } else {
+        None
+    }
 }
 
 /// Resolve the column spec from a DocumentView, per the ADR-018 precedence.
@@ -1655,8 +1659,16 @@ mod tests {
 
         let result = resolve_container_view(&store, input(None)).unwrap();
 
-        let title_col = result.columns.iter().find(|c| c.field_id == "f-title").unwrap();
-        let status_col = result.columns.iter().find(|c| c.field_id == "f-status").unwrap();
+        let title_col = result
+            .columns
+            .iter()
+            .find(|c| c.field_id == "f-title")
+            .unwrap();
+        let status_col = result
+            .columns
+            .iter()
+            .find(|c| c.field_id == "f-status")
+            .unwrap();
         assert!(
             title_col.is_identity_column,
             "all types agree on f-title → must be marked identity column, got: {:?}",
@@ -1757,8 +1769,14 @@ mod tests {
         let dv = DocumentView {
             id: DV.to_string(),
             root_type_refs: Some(vec![
-                ExactTypeRef { type_id: TYPE_A.to_string(), type_version: 1 },
-                ExactTypeRef { type_id: TYPE_B.to_string(), type_version: 1 },
+                ExactTypeRef {
+                    type_id: TYPE_A.to_string(),
+                    type_version: 1,
+                },
+                ExactTypeRef {
+                    type_id: TYPE_B.to_string(),
+                    type_version: 1,
+                },
             ]),
             sections: vec![section(
                 "section-0001",
@@ -1829,7 +1847,11 @@ mod tests {
         container_service::create_container(&store, make_container(vec![ROOT], vec![])).unwrap();
 
         let from_memory = resolve_container_view(&store, input(None)).unwrap();
-        let title_col_mem = from_memory.columns.iter().find(|c| c.field_id == F_TITLE).unwrap();
+        let title_col_mem = from_memory
+            .columns
+            .iter()
+            .find(|c| c.field_id == F_TITLE)
+            .unwrap();
         assert!(
             title_col_mem.is_identity_column,
             "memory: all types agree → f-title must be identity column"
@@ -1840,7 +1862,11 @@ mod tests {
         crate::repository_portability::copy_repository(&store, &file_store).unwrap();
         let from_file = resolve_container_view(&file_store, input(None)).unwrap();
 
-        let title_col_file = from_file.columns.iter().find(|c| c.field_id == F_TITLE).unwrap();
+        let title_col_file = from_file
+            .columns
+            .iter()
+            .find(|c| c.field_id == F_TITLE)
+            .unwrap();
         assert!(
             title_col_file.is_identity_column,
             "file: is_identity_column: true must survive memory → file roundtrip"
