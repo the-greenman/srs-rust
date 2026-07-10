@@ -30,11 +30,13 @@ use crate::revision_service;
 use crate::store::{RecordTier, RepositoryStore};
 use crate::writer::{new_instance_id, slugify_instance_name, write_manifest};
 use serde::{Deserialize, Serialize};
+use srs_core::types::field::ValueType;
 use srs_core::types::record::{FieldValue, Record};
 use srs_core::types::relation::Relation;
 use srs_core::types::revision::{Revision, RevisionAgent, RevisionProvenance};
 use srs_core::validation::lifecycle::validate_type_lifecycle_v9;
 use srs_core::validation::record::{validate_record, validate_record_all, validate_type_lifecycle};
+use srs_core::validation::record_type::validate_cross_field_rules;
 use std::collections::HashMap;
 
 /// List all Tier 2 records in the repository, regardless of type.
@@ -188,6 +190,27 @@ pub(crate) fn create_record_at_dir(
         }
     })?;
 
+    // ext:cross-field-validation — enforce CrossFieldRules at write time.
+    // Consistent with required-field enforcement above: first violation is a hard error.
+    if let Some(rules) = &record_type.validation_rules {
+        if !rules.is_empty() {
+            let field_type_map: HashMap<String, ValueType> = package
+                .fields
+                .iter()
+                .map(|f| (f.id.clone(), f.value_type))
+                .collect();
+            if let Some(err) = validate_cross_field_rules(&record, rules, &field_type_map)
+                .into_iter()
+                .next()
+            {
+                return Err(RepositoryError::RecordValidation {
+                    path: std::path::PathBuf::from(relative_dir),
+                    source: err,
+                });
+            }
+        }
+    }
+
     record.instance_id = new_instance_id();
 
     store.ensure_instance_dir(relative_dir)?;
@@ -299,6 +322,27 @@ pub fn update_record(
         }
     })?;
 
+    // ext:cross-field-validation — enforce CrossFieldRules at write time.
+    // Consistent with required-field enforcement above: first violation is a hard error.
+    if let Some(rules) = &record_type.validation_rules {
+        if !rules.is_empty() {
+            let field_type_map: HashMap<String, ValueType> = package
+                .fields
+                .iter()
+                .map(|f| (f.id.clone(), f.value_type))
+                .collect();
+            if let Some(err) = validate_cross_field_rules(&updated_record, rules, &field_type_map)
+                .into_iter()
+                .next()
+            {
+                return Err(RepositoryError::RecordValidation {
+                    path: std::path::PathBuf::from("records"),
+                    source: err,
+                });
+            }
+        }
+    }
+
     let mut manifest = store.load_manifest()?;
     let entry = manifest
         .instance_index
@@ -362,10 +406,25 @@ pub fn validate_record_input(
     let effective_fields = package.effective_fields(record_type)?;
     // Collect *all* diagnostics so a multi-record editor can show every problem
     // in one pass, not one-fix-revalidate at a time (#111).
-    let errors: Vec<String> = validate_record_all(&record, record_type, &effective_fields)
+    let mut errors: Vec<String> = validate_record_all(&record, record_type, &effective_fields)
         .iter()
         .map(|e| e.to_string())
         .collect();
+
+    // ext:cross-field-validation — also collect CFR diagnostics for preflight consistency.
+    // A passing preflight must guarantee a passing write.
+    if let Some(rules) = &record_type.validation_rules {
+        if !rules.is_empty() {
+            let field_type_map: HashMap<String, ValueType> = package
+                .fields
+                .iter()
+                .map(|f| (f.id.clone(), f.value_type))
+                .collect();
+            let cfr_errors = validate_cross_field_rules(&record, rules, &field_type_map);
+            errors.extend(cfr_errors.iter().map(|e| e.to_string()));
+        }
+    }
+
     Ok(RecordValidateReport {
         ok: errors.is_empty(),
         errors,
@@ -4392,6 +4451,275 @@ mod tests {
         assert!(
             members.contains(&result.record.instance_id),
             "record must be a member of the container in the file store copy"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // CFR (CrossFieldRule) write-boundary tests — ext:cross-field-validation
+    // These tests verify that validate_cross_field_rules is enforced at write time
+    // in both create_record_at_dir and update_record, and in validate_record_input.
+    // ---------------------------------------------------------------------------
+
+    /// Build a MemoryStore whose package contains:
+    ///   - field-trigger-001 (String) — predicate field
+    ///   - field-target-001  (String) — target field
+    ///   - cfr-test-type v1 with a ConditionalRequired rule:
+    ///       when field-trigger-001 == "active", field-target-001 is required
+    fn make_store_with_cfr_package() -> MemoryStore {
+        use crate::package::Package;
+        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::record_type::{
+            CrossFieldRule, CrossFieldRuleKind, FieldAssignment, RecordType,
+        };
+
+        let trigger_field = Field {
+            id: "field-trigger-001".to_string(),
+            namespace: "com.test".to_string(),
+            name: "trigger".to_string(),
+            version: 1,
+            value_type: ValueType::String,
+            description: "Trigger field".to_string(),
+            instructions: None,
+            ai_guidance: json!(null),
+            allowed_values: None,
+            vocabulary_ref: None,
+            default_value: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let target_field = Field {
+            id: "field-target-001".to_string(),
+            namespace: "com.test".to_string(),
+            name: "target".to_string(),
+            version: 1,
+            value_type: ValueType::String,
+            description: "Target field".to_string(),
+            instructions: None,
+            ai_guidance: json!(null),
+            allowed_values: None,
+            vocabulary_ref: None,
+            default_value: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let cfr_rule = CrossFieldRule {
+            rule_type: CrossFieldRuleKind::ConditionalRequired,
+            message: None,
+            predicate_field_id: Some("field-trigger-001".to_string()),
+            predicate_value: Some("active".to_string()),
+            target_field_id: Some("field-target-001".to_string()),
+            effect: None,
+            field_ids: None,
+        };
+        let cfr_type = RecordType {
+            id: "type-cfr-test-001".to_string(),
+            namespace: "com.test".to_string(),
+            name: "cfr-test-type".to_string(),
+            version: 1,
+            description: "Type with a ConditionalRequired CFR".to_string(),
+            fields: vec![
+                FieldAssignment {
+                    field_id: "field-trigger-001".to_string(),
+                    order: 0,
+                    required: false,
+                    display_label: None,
+                    repeatable: false,
+                    min_items: None,
+                    max_items: None,
+                },
+                FieldAssignment {
+                    field_id: "field-target-001".to_string(),
+                    order: 1,
+                    required: false,
+                    display_label: None,
+                    repeatable: false,
+                    min_items: None,
+                    max_items: None,
+                },
+            ],
+            field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            identity_field_id: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            validation_rules: Some(vec![cfr_rule]),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let manifest = Manifest {
+            instance_index: vec![],
+            container: None,
+            container_index: None,
+            extra: HashMap::new(),
+            root: PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "test-cfr-package-001".to_string(),
+            namespace: "com.test".to_string(),
+            name: "cfr-test-package".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![trigger_field, target_field],
+            record_types: vec![cfr_type],
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        MemoryStore::new(manifest, package)
+    }
+
+    #[test]
+    fn cfr_create_rejects_violating_record() {
+        // trigger="active" but target absent → ConditionalRequired is violated → Err
+        let store = make_store_with_cfr_package();
+        let result = create_record_at_dir(
+            &store,
+            "type-cfr-test-001",
+            1,
+            vec![FieldValue {
+                field_id: "field-trigger-001".to_string(),
+                value: json!("active"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            }],
+            None,
+            None,
+            "records",
+        );
+        assert!(
+            matches!(result, Err(RepositoryError::RecordValidation { .. })),
+            "create must be rejected when a CFR is violated, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn cfr_create_accepts_satisfying_record() {
+        // trigger="active" AND target present → rule satisfied → Ok
+        let store = make_store_with_cfr_package();
+        let result = create_record_at_dir(
+            &store,
+            "type-cfr-test-001",
+            1,
+            vec![
+                FieldValue {
+                    field_id: "field-trigger-001".to_string(),
+                    value: json!("active"),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                },
+                FieldValue {
+                    field_id: "field-target-001".to_string(),
+                    value: json!("x"),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                },
+            ],
+            None,
+            None,
+            "records",
+        );
+        assert!(result.is_ok(), "create must succeed when CFR is satisfied, got: {:?}", result);
+    }
+
+    #[test]
+    fn cfr_create_accepts_when_predicate_not_triggered() {
+        // trigger absent → ConditionalRequired predicate is not met → rule not triggered → Ok
+        let store = make_store_with_cfr_package();
+        let result = create_record_at_dir(
+            &store,
+            "type-cfr-test-001",
+            1,
+            vec![],
+            None,
+            None,
+            "records",
+        );
+        assert!(
+            result.is_ok(),
+            "create must succeed when CFR predicate is not triggered, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn cfr_update_rejects_violating_record() {
+        // Create a valid record (no trigger), then update to trigger=active without target → Err
+        let store = make_store_with_cfr_package();
+        let created = create_record_at_dir(
+            &store,
+            "type-cfr-test-001",
+            1,
+            vec![],
+            None,
+            None,
+            "records",
+        )
+        .expect("initial create should succeed");
+
+        let result = update_record(
+            &store,
+            &created.instance_id,
+            UpdateRecordInput {
+                type_version: None,
+                field_values: vec![FieldValue {
+                    field_id: "field-trigger-001".to_string(),
+                    value: json!("active"),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                }],
+                group_values: None,
+                tags: None,
+            },
+        );
+        assert!(
+            matches!(result, Err(RepositoryError::RecordValidation { .. })),
+            "update must be rejected when a CFR is violated, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn cfr_validate_input_reports_violation() {
+        // validate_record_input with trigger=active and no target → report.ok == false
+        let store = make_store_with_cfr_package();
+        let report = validate_record_input(
+            &store,
+            ValidateRecordInput {
+                type_id: "type-cfr-test-001".to_string(),
+                type_version: 1,
+                field_values: vec![FieldValue {
+                    field_id: "field-trigger-001".to_string(),
+                    value: json!("active"),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                }],
+                group_values: None,
+                tags: None,
+            },
+        )
+        .expect("validate_record_input must not return a service error");
+        assert!(
+            !report.ok,
+            "preflight report must be !ok when a CFR is violated"
+        );
+        assert!(
+            !report.errors.is_empty(),
+            "preflight report must include at least one error"
         );
     }
 }
