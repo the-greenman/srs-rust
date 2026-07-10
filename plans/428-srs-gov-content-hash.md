@@ -16,12 +16,13 @@ See [agents.md](agents.md) for role definitions.
 
 ## Architecture Decisions
 
-No new architectural decisions — this plan fixes a bug already resolved by the RFC-014 migration work. ADR-010 and ADR-011 govern the CLI/service boundary. No ADR exists specifically for the migration service pattern; that is convention, not a formal decision record.
+No new architectural decisions. ADR-013 has a stale description of the RFC-014 migration that this plan corrects in-place (the stale text says "adds `contentHash`"; the implementation strips it). ADR-010 and ADR-011 govern the CLI/service boundary.
 
 | ADR | Decision | Status |
 |---|---|---|
 | [ADR-010](../docs/adr/010-service-boundary-contract.md) | Service owns validation; CLI is thin | accepted |
 | [ADR-011](../docs/adr/011-cli-output-contract.md) | Every CLI output is a named struct in payload.rs | accepted |
+| [ADR-013](../docs/adr/013-wasm-binding-strategy.md) | `.srsj` bundle format; `srsj_migration_service::load_from_srsj` is the WASM entry point | accepted (stale description corrected by this plan) |
 
 ---
 
@@ -41,10 +42,11 @@ No changes to JSON Schema files under `srs/docs/schema/2.0/` — the RFC-014 Rev
 
 ## Scope
 
-- Add a regression test in `crates/srs-gov/tests/flow.rs` that specifically names issue #428 and asserts `contentHash` is absent from `upstreamPackage` in the output manifest.
-- Verify the existing `repo_create_produces_valid_srsj` test covers schema validation (`srs repo validate` returns 0 errors).
+- Add a `// Regression for #428` comment on the existing `contentHash` absence assertion in `repo_create_produces_valid_srsj` (`crates/srs-gov/tests/flow.rs` lines 329–332), making the regression traceability explicit without duplicating coverage.
+- Correct the stale description in `docs/adr/013-wasm-binding-strategy.md` (§ "No-filesystem entry point"): change "and adds `contentHash`" to "and strips `contentHash` if present (removed from the spec schema)."
 - Verify `cargo test -p srs-gov` passes.
-- Open a PR with `Closes #428`.
+
+Note: PR opening is handled by the delivery pipeline (Stage 8), not a plan phase. Phase 1 is the only implementation phase.
 
 **Out of scope:**
 - RFC-018 `identityInstanceId` type warning (intentional migration-period grace; tracked by #426).
@@ -63,23 +65,17 @@ No changes to JSON Schema files under `srs/docs/schema/2.0/` — the RFC-014 Rev
 
 #### Tasks
 
-- [ ] Read `crates/srs-gov/tests/flow.rs` to understand the existing test structure around `repo_create_produces_valid_srsj`.
-- [ ] Add a new test `repo_create_manifest_no_content_hash_regression_428` in `crates/srs-gov/tests/flow.rs` that:
-  - Creates a temp directory.
-  - Runs `srs-gov repo-create` (via the binary under test, matching the pattern of the existing flow tests).
-  - Reads the output `.srsj` file and deserializes the manifest.
-  - Asserts `upstreamPackage` is present at the top level of the manifest.
-  - Asserts `upstreamPackage.contentHash` is absent (is `null` or the key does not exist).
-  - Asserts schema validation passes: `srs repo validate` returns `errors == 0`.
-- [ ] Run `cargo test -p srs-gov` — all tests must pass (expect 18 passing, up from 17).
-- [ ] Run `cargo clippy -p srs-gov -- -D warnings` — no warnings.
+- [x] In `crates/srs-gov/tests/flow.rs` at lines 329–332, add `// Regression for #428: contentHash must be absent from upstreamPackage` above the existing `assert!(content["manifest"]["upstreamPackage"]["contentHash"].is_null(), ...)` assertion.
+- [x] In `docs/adr/013-wasm-binding-strategy.md` (§ "No-filesystem entry point"), change the description from "moves `manifest.meta.upstreamPackage` to top-level and adds `contentHash`" to "moves `manifest.meta.upstreamPackage` to top-level and strips `contentHash` if present (removed from the spec schema in RFC-014 Rev 4)."
+- [x] Run `cargo test -p srs-gov` — all tests must pass.
+- [x] Run `cargo clippy -p srs-gov -- -D warnings` — no warnings.
 
 #### Acceptance Criteria
 
-- [ ] `repo_create_manifest_no_content_hash_regression_428` test exists in `crates/srs-gov/tests/flow.rs`.
-- [ ] Test asserts both the absence of `contentHash` and the presence of schema-valid `upstreamPackage`.
-- [ ] `cargo test -p srs-gov` passes with 0 failures.
-- [ ] `cargo clippy -p srs-gov -- -D warnings` exits 0.
+- [x] `// Regression for #428` comment appears on the `contentHash.is_null()` assertion in `repo_create_produces_valid_srsj`.
+- [x] ADR-013 § "No-filesystem entry point" no longer says "adds `contentHash`".
+- [x] `cargo test -p srs-gov` passes with 0 failures.
+- [x] `cargo clippy -p srs-gov -- -D warnings` exits 0.
 
 #### Testing
 
@@ -88,15 +84,14 @@ cargo test -p srs-gov
 cargo clippy -p srs-gov -- -D warnings
 ```
 
-Specific tests to write or verify:
+Specific tests to verify:
 
-- `repo_create_manifest_no_content_hash_regression_428` — proves `contentHash` cannot re-appear in `upstreamPackage` silently
-- `repo_create_produces_valid_srsj` — existing test confirming `srs repo validate` passes; must still pass
+- `repo_create_produces_valid_srsj` — existing test asserting `contentHash` absent and `srs repo validate` returns 0 errors; must still pass
 
 #### Milestone gate
 
 1. Verify all acceptance criteria above are met — check each checkbox.
-2. Confirm both tests listed in Testing exist and pass.
+2. Confirm `repo_create_produces_valid_srsj` passes.
 3. Run:
 
 ```bash
@@ -108,7 +103,7 @@ cargo clippy -p srs-gov -- -D warnings
 5. Commit:
 
 ```bash
-git commit -m "test(srs-gov): add regression test for issue #428 contentHash in upstreamPackage (#428)"
+git commit -m "fix(srs-gov): annotate regression for #428 and correct stale ADR-013 description (#428)"
 ```
 
 ---
@@ -122,7 +117,8 @@ All of the following must be true before this plan is closed:
 - [ ] CLI output format unchanged (integration tests pass)
 - [ ] `cargo test --test payload_contracts` passes (no payload structs changed)
 - [ ] `bash scripts/check-schema-sync.sh` exits 0 (no entity schemas changed)
-- [ ] `repo_create_manifest_no_content_hash_regression_428` test exists and passes in `crates/srs-gov/tests/flow.rs`
+- [ ] `// Regression for #428` comment present on the `contentHash.is_null()` assertion in `repo_create_produces_valid_srsj`
+- [ ] ADR-013 stale description corrected
 - [ ] `srs-gov repo-create` + `srs repo validate` returns 0 errors in dogfood run
 
 ## Coordination Rules

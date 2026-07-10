@@ -37,7 +37,7 @@ A constructor `JsonStore::from_srsj(content: &str) -> Result<Self, RepositoryErr
 
 `open()` calls `read_to_string()` then delegates to `from_srsj()`, so both paths share the same deserialization logic.
 
-`SrsRepository::load` (the WASM entry point) calls `srsj_migration_service::load_from_srsj`, which applies the RFC-014 manifest migration (moves `manifest.meta.upstreamPackage` to top-level and adds `contentHash`) before delegating to `from_srsj`. This is idempotent on already-migrated bundles. Callers that need migration applied automatically should use `load_from_srsj`; `from_srsj` remains available as a lower-level primitive for contexts where the input is guaranteed to be already migrated.
+`SrsRepository::load` (the WASM entry point) calls `srsj_migration_service::load_from_srsj`, which applies the RFC-014 manifest migration (moves `manifest.meta.upstreamPackage` to top-level and strips `contentHash` if present, as it was removed from the spec schema in RFC-014 Rev 4) before delegating to `from_srsj`. This is idempotent on already-migrated bundles. Callers that need migration applied automatically should use `load_from_srsj`; `from_srsj` remains available as a lower-level primitive for contexts where the input is guaranteed to be already migrated.
 
 **Known limitation:** `manifest.root = "."` means any package-ref paths resolved relative to the manifest root will resolve relative to the process CWD. This is acceptable for the initial read-only scope because the `.srsj` format embeds all package definitions inline and no external path resolution occurs during read-only service calls.
 

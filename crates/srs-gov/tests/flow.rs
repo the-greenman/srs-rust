@@ -325,6 +325,7 @@ fn repo_create_produces_valid_srsj() {
         .as_str()
         .unwrap_or("");
     assert_eq!(ns, "com.mudemocracy.governance");
+    // Regression for #428: contentHash must be absent from upstreamPackage
     // contentHash was removed from the UpstreamPackage spec schema — must be absent
     assert!(
         content["manifest"]["upstreamPackage"]["contentHash"].is_null(),
