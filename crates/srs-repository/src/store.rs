@@ -1228,6 +1228,8 @@ impl RepositoryStore for FileStore {
             lifecycles.push(lc);
         }
 
+        crate::core_package::merge_core_into_package(&mut fields, &mut record_types)?;
+
         Ok(Package {
             id: metadata.id,
             namespace: metadata.namespace,
@@ -2417,6 +2419,8 @@ pub mod memory {
                     }
                 }
             }
+            drop(data);
+            crate::core_package::merge_core_into_package(&mut pkg.fields, &mut pkg.record_types)?;
             Ok(pkg)
         }
 
@@ -3311,7 +3315,88 @@ mod tests {
         let store = FileStore::new(temp.path());
         let package = store.load_package().unwrap();
         assert_eq!(package.namespace, "com.test");
-        assert!(package.fields.is_empty());
+        assert!(package
+            .fields
+            .iter()
+            .any(|f| f.namespace == "com.semanticops.core"));
+    }
+
+    #[test]
+    fn load_package_includes_core_types() {
+        let temp = TempDir::new().unwrap();
+        write_minimal_file_repo(&temp);
+        let store = FileStore::new(temp.path());
+        let package = store.load_package().unwrap();
+        assert!(
+            package
+                .resolve_type_by_name("com.semanticops.core", "purpose")
+                .is_some(),
+            "FileStore::load_package must include core purpose type"
+        );
+    }
+
+    #[test]
+    fn load_package_memory_store_includes_core_types() {
+        let root = std::path::PathBuf::from("/fake");
+        let store = memory::MemoryStore::new(minimal_manifest(&root), empty_package(&root));
+        let package = store.load_package().unwrap();
+        assert!(
+            package
+                .resolve_type_by_name("com.semanticops.core", "purpose")
+                .is_some(),
+            "MemoryStore::load_package must include core purpose type"
+        );
+    }
+
+    #[test]
+    fn load_package_repo_declaring_core_field_conflicts() {
+        let temp = TempDir::new().unwrap();
+        write_minimal_file_repo(&temp);
+
+        // Write a field file that reuses the core statement field's ID
+        let fields_dir = temp.path().join("package/fields");
+        std::fs::create_dir_all(&fields_dir).unwrap();
+        let conflict_field = serde_json::json!({
+            "id": "3b000001-0000-4000-a000-000000000001",
+            "namespace": "com.test",
+            "name": "shadow-field",
+            "version": 1,
+            "valueType": "string",
+            "description": "This conflicts with the core statement field.",
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        std::fs::write(
+            fields_dir.join("shadow-field.json"),
+            serde_json::to_string_pretty(&conflict_field).unwrap(),
+        )
+        .unwrap();
+
+        // Update package.json to reference the conflicting field
+        let package_json = serde_json::json!({
+            "id": "test-pkg",
+            "namespace": "com.test",
+            "name": "test",
+            "version": "1.0.0",
+            "fields": ["fields/shadow-field.json"],
+            "types": [],
+            "views": [],
+            "documentViews": []
+        });
+        std::fs::write(
+            temp.path().join("package/package.json"),
+            serde_json::to_string_pretty(&package_json).unwrap(),
+        )
+        .unwrap();
+
+        let store = FileStore::new(temp.path());
+        let result = store.load_package();
+        assert!(
+            matches!(
+                result,
+                Err(RepositoryError::CorePackageConflict { ref kind, .. }) if kind == "field"
+            ),
+            "expected CorePackageConflict(field), got: {result:?}"
+        );
     }
 
     // --- MemoryStore tests ---

@@ -986,6 +986,8 @@ impl RepositoryStore for JsonStore {
             rt_by_type.into_values().map(|(def, _)| def).collect();
         relation_type_definitions.sort_by(|a, b| a.key.cmp(&b.key).then(a.id.cmp(&b.id)));
 
+        crate::core_package::merge_core_into_package(&mut fields, &mut record_types)?;
+
         Ok(Package {
             id: root_meta.id,
             namespace: root_meta.namespace,

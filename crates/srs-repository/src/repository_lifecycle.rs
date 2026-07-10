@@ -366,7 +366,10 @@ mod tests {
 
         let package = store.load_package().unwrap();
         assert_eq!(package.id, "pkg-1");
-        assert!(package.fields.is_empty());
+        assert!(package
+            .fields
+            .iter()
+            .any(|f| f.namespace == "com.semanticops.core"));
     }
 
     #[test]

@@ -19,6 +19,18 @@ pub struct AnalysisProfile {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CorePackageSummary {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    /// Qualified names in "namespace/name" format, e.g. "com.semanticops.core/purpose".
+    pub types: Vec<String>,
+    /// Qualified names in "namespace/name" format, e.g. "com.semanticops.core/statement".
+    pub fields: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RepoMap {
     pub repository: RepositorySummary,
     pub counts: CountsSummary,
@@ -28,6 +40,7 @@ pub struct RepoMap {
     pub containers_summary: ContainersSummary,
     pub ai_guidance: Option<Value>,
     pub entry_points: Vec<String>,
+    pub core_package: CorePackageSummary,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -189,6 +202,23 @@ fn build_repo_map_from_manifest(
         })
         .unwrap_or_default();
 
+    let cp = crate::core_package::core_package();
+    let core_package = CorePackageSummary {
+        id: cp.package_id.clone(),
+        name: cp.package_name.clone(),
+        version: cp.package_version.clone(),
+        types: cp
+            .record_types
+            .iter()
+            .map(|rt| format!("{}/{}", rt.namespace, rt.name))
+            .collect(),
+        fields: cp
+            .fields
+            .iter()
+            .map(|f| format!("{}/{}", f.namespace, f.name))
+            .collect(),
+    };
+
     Ok(RepoMap {
         repository: summarize_repository(manifest),
         counts,
@@ -198,6 +228,7 @@ fn build_repo_map_from_manifest(
         containers_summary,
         ai_guidance,
         entry_points,
+        core_package,
     })
 }
 

@@ -279,6 +279,16 @@ pub enum RepositoryError {
 
     #[error("invalid input: {message}")]
     InvalidInput { message: String },
+
+    #[error(
+        "repository defines its own {kind} '{qualified_name}' (id: {id}) which conflicts with \
+         the reserved com.semanticops.core namespace"
+    )]
+    CorePackageConflict {
+        kind: String,
+        id: String,
+        qualified_name: String,
+    },
 }
 
 impl PartialEq for RepositoryError {
@@ -641,6 +651,18 @@ impl PartialEq for RepositoryError {
                 RepositoryError::InvalidInput { message: a },
                 RepositoryError::InvalidInput { message: b },
             ) => a == b,
+            (
+                RepositoryError::CorePackageConflict {
+                    kind: ka,
+                    id: ia,
+                    qualified_name: qa,
+                },
+                RepositoryError::CorePackageConflict {
+                    kind: kb,
+                    id: ib,
+                    qualified_name: qb,
+                },
+            ) => ka == kb && ia == ib && qa == qb,
             _ => false,
         }
     }
