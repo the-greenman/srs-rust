@@ -23,7 +23,6 @@ use crate::container_service;
 use crate::error::RepositoryError;
 use crate::index::InstanceIndexEntry;
 use crate::manifest::Manifest;
-use crate::package::Package;
 use crate::package_service::{get_type_by_name, GetTypeResult};
 use crate::record_label;
 use crate::relation_service;
@@ -31,7 +30,6 @@ use crate::revision_service;
 use crate::store::{RecordTier, RepositoryStore};
 use crate::writer::{new_instance_id, slugify_instance_name, write_manifest};
 use serde::{Deserialize, Serialize};
-use srs_core::types::field::ValueType;
 use srs_core::types::record::{FieldValue, Record};
 use srs_core::types::relation::Relation;
 use srs_core::types::revision::{Revision, RevisionAgent, RevisionProvenance};
@@ -39,16 +37,6 @@ use srs_core::validation::lifecycle::validate_type_lifecycle_v9;
 use srs_core::validation::record::{validate_record, validate_record_all, validate_type_lifecycle};
 use srs_core::validation::record_type::validate_cross_field_rules;
 use std::collections::HashMap;
-
-/// Build a `fieldId → ValueType` lookup from the package's field definitions.
-/// Used by CFR enforcement at write time and by `repo validate`.
-fn build_field_type_map(package: &Package) -> HashMap<String, ValueType> {
-    package
-        .fields
-        .iter()
-        .map(|f| (f.id.clone(), f.value_type))
-        .collect()
-}
 
 /// List all Tier 2 records in the repository, regardless of type.
 pub fn list_all_records(store: &dyn RepositoryStore) -> Result<Vec<Record>, RepositoryError> {
@@ -204,7 +192,7 @@ pub(crate) fn create_record_at_dir(
     // ext:cross-field-validation — enforce at write time (fail-fast, consistent with validate_record above).
     if let Some(rules) = &record_type.validation_rules {
         if !rules.is_empty() {
-            let field_type_map = build_field_type_map(&package);
+            let field_type_map = package.field_type_map();
             if let Some(err) = validate_cross_field_rules(&record, rules, &field_type_map)
                 .into_iter()
                 .next()
@@ -331,7 +319,7 @@ pub fn update_record(
     // ext:cross-field-validation — enforce at write time (fail-fast, consistent with validate_record above).
     if let Some(rules) = &record_type.validation_rules {
         if !rules.is_empty() {
-            let field_type_map = build_field_type_map(&package);
+            let field_type_map = package.field_type_map();
             if let Some(err) = validate_cross_field_rules(&updated_record, rules, &field_type_map)
                 .into_iter()
                 .next()
@@ -414,7 +402,7 @@ pub fn validate_record_input(
     // ext:cross-field-validation — include CFR diagnostics so the preflight mirrors write-path enforcement.
     if let Some(rules) = &record_type.validation_rules {
         if !rules.is_empty() {
-            let field_type_map = build_field_type_map(&package);
+            let field_type_map = package.field_type_map();
             errors.extend(
                 validate_cross_field_rules(&record, rules, &field_type_map)
                     .iter()

@@ -1,5 +1,6 @@
 use srs_core::types::blueprint::Blueprint;
-use srs_core::types::field::Field;
+use srs_core::types::field::{Field, ValueType};
+use std::collections::HashMap;
 use srs_core::types::lifecycle::{Lifecycle, LifecycleState, LifecycleTransition};
 use srs_core::types::protocol::Protocol;
 use srs_core::types::record_type::{FieldAssignment, FieldGroup, RecordType};
@@ -165,6 +166,11 @@ impl Package {
     /// Get all fields as a slice.
     pub fn fields(&self) -> &[Field] {
         &self.fields
+    }
+
+    /// Build a `fieldId → ValueType` lookup from this package's field definitions.
+    pub(crate) fn field_type_map(&self) -> HashMap<String, ValueType> {
+        self.fields.iter().map(|f| (f.id.clone(), f.value_type)).collect()
     }
 
     /// Get all record types as a slice.

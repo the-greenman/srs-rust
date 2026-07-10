@@ -411,11 +411,7 @@ pub fn validate_repository(
             if package_for_tier2.is_none() {
                 let pkg = store.load_package().ok();
                 field_type_map = Some(match &pkg {
-                    Some(p) => p
-                        .fields
-                        .iter()
-                        .map(|f| (f.id.clone(), f.value_type))
-                        .collect(),
+                    Some(p) => p.field_type_map(),
                     None => HashMap::new(),
                 });
                 package_for_tier2 = Some(pkg);
