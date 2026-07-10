@@ -2196,9 +2196,10 @@ fn resolve_heading_field_id(
     rt: Option<&srs_core::types::record_type::RecordType>,
     package: &Package,
 ) -> Option<String> {
-    section.title_field_id.clone().or_else(|| {
-        rt.and_then(|t| package.effective_identity_field_id(t).ok().flatten())
-    })
+    section
+        .title_field_id
+        .clone()
+        .or_else(|| rt.and_then(|t| package.effective_identity_field_id(t).ok().flatten()))
 }
 
 #[cfg(test)]
@@ -6318,7 +6319,8 @@ mod tests {
             name: "other".to_string(),
             version: 1,
             value_type: ValueType::String,
-            description: "Other field (used as explicit titleFieldId in precedence test)".to_string(),
+            description: "Other field (used as explicit titleFieldId in precedence test)"
+                .to_string(),
             instructions: None,
             ai_guidance: serde_json::json!(null),
             allowed_values: None,
