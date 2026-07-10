@@ -4229,6 +4229,27 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_validate_blueprint_json_schema_applied_to_extra_property_file_store() {
+        // Cross-store roundtrip: JSON Schema error must fire through the FileStore adapter.
+        let temp = TempDir::new().unwrap();
+        let mut bp_json = minimal_blueprint_json("00000000-0000-4000-8000-000000000062", true);
+        bp_json["unknownField"] = json!("bad");
+        setup_repo_with_blueprint(&temp, "blueprints/extra-field-bp.json", &bp_json);
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let schema_diags: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.schema_id == Some(srs_schema::BLUEPRINT_SCHEMA_ID.to_string()))
+            .collect();
+        assert!(
+            !schema_diags.is_empty(),
+            "expected a JSON Schema diagnostic with blueprint schema_id via FileStore, got: {:?}",
+            report.diagnostics
+        );
+    }
+
     // ── RFC-018 I-81 extension: identity type checks ────────────────────────
 
     fn manifest_with_identity(identity_id: &str, tier: u8, path: &str) -> Value {
