@@ -69,7 +69,7 @@ No schema files changed. No action required.
 
 #### Tasks
 
-- [ ] In `crates/srs-gov/src/find_query.rs`:
+- [x] In `crates/srs-gov/src/find_query.rs`:
   - Add imports at top of file:
     ```rust
     use anyhow::Result;
@@ -99,9 +99,9 @@ No schema files changed. No action required.
 
 #### Acceptance Criteria
 
-- [ ] `find_query::resolve_hit_set` compiles and is accessible as `pub(crate)`.
-- [ ] Existing tests in `find_query.rs` still pass.
-- [ ] A test `resolve_hit_set_returns_none_when_no_filter_active` added that asserts `resolve_hit_set(".", "c-1", &[], None, &[])` returns `Ok(None)` without invoking `srs` (pure logic path).
+- [x] `find_query::resolve_hit_set` compiles and is accessible as `pub(crate)`.
+- [x] Existing tests in `find_query.rs` still pass.
+- [x] A test `resolve_hit_set_returns_none_when_no_filter_active` added that asserts `resolve_hit_set(".", "c-1", &[], None, &[])` returns `Ok(None)` without invoking `srs` (pure logic path).
 
 #### Testing
 
