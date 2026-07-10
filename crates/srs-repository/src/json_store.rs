@@ -8,6 +8,7 @@ use crate::repository_lifecycle::{
 use crate::store::RepositoryStore;
 use chrono::Utc;
 use serde::de::Error as SerdeDeError;
+use srs_core::types::container::ContainerIndexEntry;
 use srs_core::types::field::{Field, ValueType};
 use srs_core::types::lifecycle::Lifecycle;
 use srs_core::types::record_type::{
@@ -1324,12 +1325,40 @@ impl RepositoryStore for JsonStore {
         &self,
         container_id: &str,
     ) -> Result<srs_core::types::container::Container, RepositoryError> {
-        let key = format!("containers/{container_id}.json");
-        let val = self
-            .data_get(&key)
-            .map_err(|_| RepositoryError::ContainerNotFound {
-                container_id: container_id.to_string(),
-            })?;
+        // Resolve via manifest.containerIndex.path first (covers .srsj packed from FileStore,
+        // where containers live at slug-id8 paths rather than uuid-keyed paths).
+        let indexed_path = self
+            .state
+            .borrow()
+            .manifest
+            .container_index
+            .as_deref()
+            .and_then(|entries| entries.iter().find(|e| e.container_id == container_id))
+            .and_then(|e| e.path.clone());
+
+        let (key, val) = if let Some(path) = indexed_path {
+            match self.data_get(&path) {
+                Ok(v) => (path, v),
+                Err(_) => {
+                    let fallback = format!("containers/{container_id}.json");
+                    let v = self.data_get(&fallback).map_err(|_| {
+                        RepositoryError::ContainerNotFound {
+                            container_id: container_id.to_string(),
+                        }
+                    })?;
+                    (fallback, v)
+                }
+            }
+        } else {
+            let fallback = format!("containers/{container_id}.json");
+            let v = self
+                .data_get(&fallback)
+                .map_err(|_| RepositoryError::ContainerNotFound {
+                    container_id: container_id.to_string(),
+                })?;
+            (fallback, v)
+        };
+
         serde_json::from_value(val).map_err(|source| RepositoryError::ManifestParse {
             path: std::path::PathBuf::from(&key),
             source,
@@ -1346,19 +1375,40 @@ impl RepositoryStore for JsonStore {
             path: std::path::PathBuf::from(&key),
             source,
         })?;
-        self.state.borrow_mut().data.insert(key, val);
-        // Update index in manifest data
+        {
+            let mut state = self.state.borrow_mut();
+            state.data.insert(key.clone(), val);
+            // Update canonical manifest.container_index so load_container can resolve via path.
+            let mut entries = state.manifest.container_index.take().unwrap_or_default();
+            entries.retain(|e| e.container_id != *id);
+            entries.push(ContainerIndexEntry {
+                container_id: id.clone(),
+                title: Some(container.title.clone()),
+                path: Some(key.clone()),
+                container_type: None,
+                tags: None,
+                extra: HashMap::new(),
+            });
+            state.manifest.container_index = Some(entries);
+        }
+        // Also update the shadow data["manifest.json"] index for backward compatibility
+        // with readers that inspect the data dict directly.
         let mut manifest_val = self
             .data_get("manifest.json")
             .unwrap_or_else(|_| serde_json::json!({}));
-        let mut entries: Vec<serde_json::Value> = manifest_val["containerIndex"]
+        let mut shadow_entries: Vec<serde_json::Value> = manifest_val["containerIndex"]
             .as_array()
             .cloned()
             .unwrap_or_default();
-        entries.retain(|e| e["containerId"].as_str() != Some(id));
-        entries.push(serde_json::json!({ "containerId": id, "title": container.title }));
+        shadow_entries.retain(|e| e["containerId"].as_str() != Some(id));
+        shadow_entries.push(
+            serde_json::json!({ "containerId": id, "title": container.title, "path": key }),
+        );
         if let Some(obj) = manifest_val.as_object_mut() {
-            obj.insert("containerIndex".to_string(), serde_json::json!(entries));
+            obj.insert(
+                "containerIndex".to_string(),
+                serde_json::json!(shadow_entries),
+            );
         }
         self.state
             .borrow_mut()
@@ -1368,23 +1418,44 @@ impl RepositoryStore for JsonStore {
     }
 
     fn delete_container(&self, container_id: &str) -> Result<(), RepositoryError> {
-        let key = format!("containers/{container_id}.json");
+        // Resolve the actual data key via index (covers slug-named containers from FileStore).
+        let indexed_path = self
+            .state
+            .borrow()
+            .manifest
+            .container_index
+            .as_deref()
+            .and_then(|entries| entries.iter().find(|e| e.container_id == container_id))
+            .and_then(|e| e.path.clone());
+        let key = indexed_path.unwrap_or_else(|| format!("containers/{container_id}.json"));
+
         if self.state.borrow_mut().data.remove(&key).is_none() {
             return Err(RepositoryError::ContainerNotFound {
                 container_id: container_id.to_string(),
             });
         }
-        // Remove from manifest index
+        // Remove from canonical manifest.container_index.
+        {
+            let mut state = self.state.borrow_mut();
+            let mut entries = state.manifest.container_index.take().unwrap_or_default();
+            entries.retain(|e| e.container_id != container_id);
+            state.manifest.container_index =
+                if entries.is_empty() { None } else { Some(entries) };
+        }
+        // Also remove from shadow data["manifest.json"] for backward compatibility.
         let mut manifest_val = self
             .data_get("manifest.json")
             .unwrap_or_else(|_| serde_json::json!({}));
-        let mut entries: Vec<serde_json::Value> = manifest_val["containerIndex"]
+        let mut shadow_entries: Vec<serde_json::Value> = manifest_val["containerIndex"]
             .as_array()
             .cloned()
             .unwrap_or_default();
-        entries.retain(|e| e["containerId"].as_str() != Some(container_id));
+        shadow_entries.retain(|e| e["containerId"].as_str() != Some(container_id));
         if let Some(obj) = manifest_val.as_object_mut() {
-            obj.insert("containerIndex".to_string(), serde_json::json!(entries));
+            obj.insert(
+                "containerIndex".to_string(),
+                serde_json::json!(shadow_entries),
+            );
         }
         self.state
             .borrow_mut()
@@ -1394,14 +1465,36 @@ impl RepositoryStore for JsonStore {
     }
 
     fn list_container_summaries(&self) -> Result<Vec<(String, String)>, RepositoryError> {
+        // Prefer manifest.container_index (canonical). It is populated for FileStore-packed .srsj
+        // repos (where no data["manifest.json"] shadow exists) and for JsonStore-native repos after
+        // any save_container call on this version. Fall through only for legacy repos that predate
+        // the canonical index path.
+        {
+            let state = self.state.borrow();
+            if let Some(entries) = state.manifest.container_index.as_deref() {
+                if !entries.is_empty() {
+                    return Ok(entries
+                        .iter()
+                        .map(|e| {
+                            (
+                                e.container_id.clone(),
+                                e.title.clone().unwrap_or_default(),
+                            )
+                        })
+                        .collect());
+                }
+            }
+        }
+        // Fall back to the shadow data["manifest.json"] index (JsonStore-native repos written
+        // before the canonical manifest index was populated by save_container).
         let manifest_val = self
             .data_get("manifest.json")
             .unwrap_or_else(|_| serde_json::json!({}));
-        let entries: Vec<serde_json::Value> = manifest_val["containerIndex"]
+        let shadow_entries: Vec<serde_json::Value> = manifest_val["containerIndex"]
             .as_array()
             .cloned()
             .unwrap_or_default();
-        Ok(entries
+        Ok(shadow_entries
             .into_iter()
             .filter_map(|e| {
                 let id = e["containerId"].as_str()?.to_string();
@@ -2263,6 +2356,190 @@ mod tests {
 
         let summaries = store.list_container_summaries().unwrap();
         assert!(summaries.iter().any(|(id, _)| id == "fs-c-001"));
+    }
+
+    // Regression test for: JsonStore container lookup ignoring containerIndex path (#466).
+    // When a .srsj is packed from FileStore, containers live at slug-id8 paths and the
+    // manifest's containerIndex has a path field pointing there. load_container must resolve
+    // via that path rather than always constructing containers/{uuid}.json.
+    #[test]
+    fn json_store_container_slug_path_resolution() {
+        use crate::store::RepositoryStore;
+
+        let srsj = serde_json::json!({
+            "srsj": "1",
+            "manifest": {
+                "repositoryId": "slug-test-repo",
+                "srsVersion": "2.0-draft",
+                "namespace": "com.test.slug",
+                "instanceIndex": [],
+                "packageRef": {"mode": "local", "path": "package"},
+                "containerIndex": [
+                    {
+                        "containerId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                        "title": "Root",
+                        "path": "containers/root-aaaabbbb.json"
+                    }
+                ]
+            },
+            "data": {
+                "containers/root-aaaabbbb.json": {
+                    "containerId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                    "title": "Root"
+                }
+            }
+        })
+        .to_string();
+
+        let store = JsonStore::from_srsj(&srsj).unwrap();
+
+        // load_container must resolve via the indexed slug path, not containers/{uuid}.json
+        let loaded = store
+            .load_container("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+            .expect("load_container must succeed for slug-named container data key");
+        assert_eq!(loaded.container_id, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        assert_eq!(loaded.title, "Root");
+
+        // list_container_summaries must also find the container via manifest.containerIndex
+        let summaries = store.list_container_summaries().unwrap();
+        assert!(
+            summaries
+                .iter()
+                .any(|(id, _)| id == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
+            "list_container_summaries must include slug-keyed container"
+        );
+    }
+
+    // Regression guard: JsonStore-native repos (UUID-keyed containers, no manifest.containerIndex)
+    // must continue to work after the containerIndex-path fix (#466).
+    #[test]
+    fn json_store_container_uuid_path_still_works_after_index_fix() {
+        use crate::repository_lifecycle::create_repository;
+        use crate::store::RepositoryStore;
+        use srs_core::types::container::Container;
+
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("repo.srsj");
+        let store = JsonStore::create(&path).unwrap();
+        create_repository(&store, &init_input()).unwrap();
+
+        store
+            .save_container(&Container {
+                container_id: "uuid-guard-001".to_string(),
+                title: "UUID Guard".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: None,
+                tags: None,
+                root_instance_ids: None,
+                member_instance_ids: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: std::collections::HashMap::new(),
+            })
+            .unwrap();
+
+        let loaded = store.load_container("uuid-guard-001").unwrap();
+        assert_eq!(loaded.title, "UUID Guard");
+        let summaries = store.list_container_summaries().unwrap();
+        assert!(summaries.iter().any(|(id, _)| id == "uuid-guard-001"));
+    }
+
+    // Regression test for save_container populating state.manifest.container_index (#466).
+    // After save_container, load_manifest().container_index must carry the path so a reloaded
+    // store can find the container via the canonical index.
+    #[test]
+    fn json_store_save_container_writes_manifest_index() {
+        use crate::repository_lifecycle::create_repository;
+        use crate::store::RepositoryStore;
+        use srs_core::types::container::Container;
+
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("repo.srsj");
+        let store = JsonStore::create(&path).unwrap();
+        create_repository(&store, &init_input()).unwrap();
+
+        store
+            .save_container(&Container {
+                container_id: "manifest-idx-c".to_string(),
+                title: "Index Test".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: None,
+                tags: None,
+                root_instance_ids: None,
+                member_instance_ids: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: std::collections::HashMap::new(),
+            })
+            .unwrap();
+
+        let manifest = store.load_manifest().unwrap();
+        let index = manifest
+            .container_index
+            .as_deref()
+            .expect("manifest.container_index must be Some after save_container");
+        let entry = index
+            .iter()
+            .find(|e| e.container_id == "manifest-idx-c")
+            .expect("index must contain the saved container");
+        assert_eq!(
+            entry.path.as_deref(),
+            Some("containers/manifest-idx-c.json"),
+            "index entry must carry the data key path"
+        );
+    }
+
+    // Regression test for delete_container cleaning up state.manifest.container_index (#466).
+    #[test]
+    fn json_store_save_delete_manifest_index_consistency() {
+        use crate::repository_lifecycle::create_repository;
+        use crate::store::RepositoryStore;
+        use srs_core::types::container::Container;
+
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("repo.srsj");
+        let store = JsonStore::create(&path).unwrap();
+        create_repository(&store, &init_input()).unwrap();
+
+        store
+            .save_container(&Container {
+                container_id: "del-idx-c".to_string(),
+                title: "Delete Index Test".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: None,
+                tags: None,
+                root_instance_ids: None,
+                member_instance_ids: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: std::collections::HashMap::new(),
+            })
+            .unwrap();
+        store.delete_container("del-idx-c").unwrap();
+
+        let manifest = store.load_manifest().unwrap();
+        let has_entry = manifest
+            .container_index
+            .as_deref()
+            .unwrap_or(&[])
+            .iter()
+            .any(|e| e.container_id == "del-idx-c");
+        assert!(
+            !has_entry,
+            "manifest.container_index must not contain the deleted container"
+        );
     }
 
     #[test]
