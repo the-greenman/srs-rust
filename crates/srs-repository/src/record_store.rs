@@ -4461,10 +4461,10 @@ mod tests {
     // ---------------------------------------------------------------------------
 
     /// Build a MemoryStore whose package contains:
-    ///   - field-trigger-001 (String) — predicate field
-    ///   - field-target-001  (String) — target field
-    ///   - cfr-test-type v1 with a ConditionalRequired rule:
-    ///       when field-trigger-001 == "active", field-target-001 is required
+    /// - field-trigger-001 (String) — predicate field
+    /// - field-target-001  (String) — target field
+    /// - cfr-test-type v1 with a ConditionalRequired rule:
+    ///   when field-trigger-001 == "active", field-target-001 is required
     fn make_store_with_cfr_package() -> MemoryStore {
         use crate::package::Package;
         use srs_core::types::field::{Field, ValueType};
