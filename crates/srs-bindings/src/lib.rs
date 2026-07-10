@@ -1023,10 +1023,7 @@ mod tests {
         let report = srs_repository::manifest_service::declared_extensions_conformance(&store)
             .expect("conformance report should succeed");
         let json = serde_json::to_value(&report).expect("report must serialize");
-        assert!(
-            json["declared"].is_array(),
-            "declared must be a JSON array"
-        );
+        assert!(json["declared"].is_array(), "declared must be a JSON array");
         assert!(
             json["supported"].is_array(),
             "supported must be a JSON array"
@@ -1052,7 +1049,11 @@ mod tests {
             .as_array()
             .expect("supported must be an array")
             .iter()
-            .map(|v| v.as_str().expect("supported entry must be a string").to_string())
+            .map(|v| {
+                v.as_str()
+                    .expect("supported entry must be a string")
+                    .to_string()
+            })
             .collect();
         assert!(
             supported.contains(&"ext:lifecycle".to_string()),
