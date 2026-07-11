@@ -12,7 +12,7 @@
 //! - Functions marked `pub(crate)` are internal helpers; do not promote them to `pub`.
 
 use crate::error::RepositoryError;
-use crate::package_types::{DefinitionKind, PackageSelector};
+use crate::package_types::{validate_package_selector, DefinitionKind, PackageSelector};
 use crate::store::RepositoryStore;
 use crate::writer::new_instance_id;
 use srs_core::types::theme::Theme;
@@ -166,7 +166,8 @@ pub fn create_theme(
     mut theme: Theme,
     selector: PackageSelector,
 ) -> Result<CreateThemeResult, RepositoryError> {
-    // Validate the boundary exists before touching the filesystem.
+    // Validate the selector form, then that the boundary exists, before touching the filesystem.
+    validate_package_selector(&selector)?;
     store.load_package_boundary(&selector)?;
 
     let boundary_path = selector.as_deref().unwrap_or("package");

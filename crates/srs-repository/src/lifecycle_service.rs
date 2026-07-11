@@ -1,5 +1,5 @@
 use crate::error::RepositoryError;
-use crate::package_types::DefinitionKind;
+use crate::package_types::{validate_package_selector, DefinitionKind, PackageSelector};
 use crate::store::RepositoryStore;
 use crate::writer::new_instance_id;
 use srs_core::types::lifecycle::Lifecycle;
@@ -28,17 +28,21 @@ pub struct CreateLifecycleResult {
     pub lifecycle: Lifecycle,
 }
 
-/// Create a new Lifecycle in the primary package.
+/// Create a new Lifecycle in a specific package boundary.
+/// Pass `selector = None` for the primary package; `Some(path)` for a sub-package.
 ///
-/// Writes `package/lifecycles/{slug}-{id}.json` and adds the path to
-/// `package/package.json` → `lifecycles[]`. If `lifecycle.id` is empty,
+/// Writes `<boundary>/lifecycles/{slug}-{id}.json` and adds the path to
+/// `<boundary>/package.json` → `lifecycles[]`. If `lifecycle.id` is empty,
 /// a new UUID is generated. If `lifecycle.created_at` is empty, the
 /// current timestamp is used.
 pub fn create_lifecycle(
     store: &dyn RepositoryStore,
     mut lifecycle: Lifecycle,
+    selector: PackageSelector,
 ) -> Result<CreateLifecycleResult, RepositoryError> {
-    store.load_package_boundary(&None)?;
+    // Validate the selector form, then that the boundary exists, before touching the filesystem.
+    validate_package_selector(&selector)?;
+    store.load_package_boundary(&selector)?;
 
     if lifecycle.id.trim().is_empty() {
         lifecycle.id = new_instance_id();
@@ -47,16 +51,17 @@ pub fn create_lifecycle(
         lifecycle.created_at = chrono::Utc::now().to_rfc3339();
     }
 
+    let boundary_path = selector.as_deref().unwrap_or("package");
     let slug = lifecycle
         .name
         .to_lowercase()
         .replace(|c: char| !c.is_alphanumeric() && c != '-', "-");
     let rel_filename = format!("lifecycles/{}-{}.json", slug, &lifecycle.id[..8]);
-    let full_path = format!("package/{rel_filename}");
+    let full_path = format!("{boundary_path}/{rel_filename}");
 
-    store.ensure_lifecycles_dir("package/lifecycles")?;
+    store.ensure_lifecycles_dir(&format!("{boundary_path}/lifecycles"))?;
     store.save_lifecycle(&full_path, &lifecycle)?;
-    store.add_definition_to_boundary(&None, DefinitionKind::Lifecycle, &rel_filename)?;
+    store.add_definition_to_boundary(&selector, DefinitionKind::Lifecycle, &rel_filename)?;
 
     Ok(CreateLifecycleResult { lifecycle })
 }
@@ -138,7 +143,7 @@ mod tests {
     fn create_lifecycle_assigns_id_and_is_retrievable() {
         let store = MemoryStore::default();
         let lc = make_lifecycle();
-        let result = create_lifecycle(&store, lc).unwrap();
+        let result = create_lifecycle(&store, lc, None).unwrap();
         assert_eq!(result.lifecycle.name, "test-lifecycle");
         assert!(!result.lifecycle.id.is_empty());
 
@@ -147,6 +152,105 @@ mod tests {
         assert_eq!(lifecycles[0].name, "test-lifecycle");
 
         let found = get_lifecycle_by_id(&store, &result.lifecycle.id).unwrap();
+        assert!(found.is_some());
+    }
+
+    #[test]
+    fn create_lifecycle_in_memory_sub_package_registers_in_boundary() {
+        let store = MemoryStore::default();
+        let selector = Some("packages/governance".to_string());
+        store.register_package_boundary(&selector).unwrap();
+
+        let result = create_lifecycle(&store, make_lifecycle(), selector).unwrap();
+
+        let data = store.all_data();
+        assert!(
+            data.keys()
+                .any(|k| k.starts_with("packages/governance/lifecycles/")),
+            "lifecycle file should be written under the boundary directory"
+        );
+        let pkg_json = data.get("packages/governance/package.json").unwrap();
+        assert!(
+            pkg_json["lifecycles"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v.as_str().unwrap_or("").starts_with("lifecycles/")),
+            "lifecycle should be registered in the boundary's package.json"
+        );
+        // Visible through the merged package view.
+        let lifecycles = list_lifecycles(&store).unwrap();
+        assert!(lifecycles.iter().any(|lc| lc.id == result.lifecycle.id));
+    }
+
+    #[test]
+    fn create_lifecycle_in_file_sub_package_registers_and_lists() {
+        // Cross-store coverage for the same behavior verified on MemoryStore above.
+        use crate::package_service::{create_package, CreatePackageInput};
+        use crate::store::FileStore;
+
+        let temp = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(temp.path().join(".srs")).unwrap();
+        std::fs::write(temp.path().join("manifest.json"), r#"{"instanceIndex":[]}"#).unwrap();
+        std::fs::create_dir_all(temp.path().join("package")).unwrap();
+        std::fs::write(
+            temp.path().join("package/package.json"),
+            serde_json::json!({
+                "id": "pkg",
+                "namespace": "com.test",
+                "name": "test",
+                "version": "1.0.0",
+                "fields": [],
+                "types": []
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let store = FileStore::new(temp.path());
+        create_package(
+            &store,
+            CreatePackageInput {
+                id: "gov-pkg".to_string(),
+                namespace: "com.gov".to_string(),
+                name: "governance".to_string(),
+                version: "1.0.0".to_string(),
+                boundary_path: Some("packages/governance".to_string()),
+            },
+        )
+        .unwrap();
+
+        let created = create_lifecycle(
+            &store,
+            make_lifecycle(),
+            Some("packages/governance".to_string()),
+        )
+        .unwrap();
+
+        // File written into the boundary's directory.
+        let lc_dir = temp.path().join("packages/governance/lifecycles");
+        assert!(lc_dir.is_dir(), "lifecycles dir should exist in boundary");
+
+        // Registered in the boundary's package.json lifecycles array.
+        let pkg_json: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(temp.path().join("packages/governance/package.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            pkg_json["lifecycles"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v.as_str().unwrap_or("").starts_with("lifecycles/")),
+            "lifecycle should be registered in the boundary's package.json"
+        );
+
+        // Merged into the package view: list sees the sub-package lifecycle.
+        let lifecycles = list_lifecycles(&store).unwrap();
+        assert!(
+            lifecycles.iter().any(|lc| lc.id == created.lifecycle.id),
+            "sub-package lifecycle should appear in list_lifecycles"
+        );
+        let found = get_lifecycle_by_id(&store, &created.lifecycle.id).unwrap();
         assert!(found.is_some());
     }
 

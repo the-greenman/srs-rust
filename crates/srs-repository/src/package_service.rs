@@ -20,7 +20,9 @@
 //! ```
 
 use crate::error::RepositoryError;
-use crate::package_types::{DefinitionKind, PackageBoundary, PackageSelector};
+use crate::package_types::{
+    validate_package_selector, DefinitionKind, PackageBoundary, PackageSelector,
+};
 use crate::relation_service;
 use crate::store::RepositoryStore;
 use crate::writer::new_instance_id;
@@ -494,7 +496,8 @@ pub fn create_field_in_package(
     field: Field,
     selector: PackageSelector,
 ) -> Result<CreateFieldResult, RepositoryError> {
-    // Validate the boundary exists before touching the filesystem.
+    // Validate the selector form, then that the boundary exists, before touching the filesystem.
+    validate_package_selector(&selector)?;
     store.load_package_boundary(&selector)?;
 
     let boundary_path = selector.as_deref().unwrap_or("package");
@@ -604,7 +607,8 @@ pub fn create_type_in_package(
     mut record_type: RecordType,
     selector: PackageSelector,
 ) -> Result<CreateTypeResult, RepositoryError> {
-    // Validate the boundary exists before touching the filesystem.
+    // Validate the selector form, then that the boundary exists, before touching the filesystem.
+    validate_package_selector(&selector)?;
     store.load_package_boundary(&selector)?;
 
     if record_type.id.trim().is_empty() {
@@ -709,13 +713,19 @@ pub struct DeleteRelationTypeResult {
 
 // ── Relation type CRUD ───────────────────────────────────────────────────────
 
-/// Create a new relation type definition in the primary package.
+/// Create a new relation type definition in a specific package boundary.
+/// Pass `selector = None` for the primary package; `Some(path)` for a sub-package.
 /// Writes the definition JSON file and updates the boundary index.
 /// Auto-generates `id` if empty.
 pub fn create_relation_type(
     store: &dyn RepositoryStore,
     mut def: RelationTypeDefinition,
+    selector: PackageSelector,
 ) -> Result<CreateRelationTypeResult, RepositoryError> {
+    // Validate the selector form, then that the boundary exists, before touching the filesystem.
+    validate_package_selector(&selector)?;
+    store.load_package_boundary(&selector)?;
+
     if def.id.trim().is_empty() {
         def.id = new_instance_id();
     }
@@ -723,14 +733,15 @@ pub fn create_relation_type(
         def.created_at = chrono::Utc::now().to_rfc3339();
     }
 
+    let boundary_path = selector.as_deref().unwrap_or("package");
     let slug = slugify(&def.key);
     let id_prefix = &def.id[..8.min(def.id.len())];
     let rel_filename = format!("relation-types/{slug}-{id_prefix}.json");
-    let full_path = format!("package/{rel_filename}");
+    let full_path = format!("{boundary_path}/{rel_filename}");
 
-    store.ensure_relation_types_dir("package/relation-types")?;
+    store.ensure_relation_types_dir(&format!("{boundary_path}/relation-types"))?;
     store.save_relation_type_definition(&full_path, &def)?;
-    store.add_definition_to_boundary(&None, DefinitionKind::RelationType, &rel_filename)?;
+    store.add_definition_to_boundary(&selector, DefinitionKind::RelationType, &rel_filename)?;
 
     Ok(CreateRelationTypeResult {
         relation_type_definition: def,
@@ -1718,7 +1729,7 @@ mod tests {
             updated_at: None,
             properties: None,
         };
-        create_relation_type(&store, def).unwrap();
+        create_relation_type(&store, def, None).unwrap();
 
         // Write a relation of this type directly, bypassing instance-existence validation
         let rel_json = serde_json::json!({
@@ -1780,9 +1791,149 @@ mod tests {
             updated_at: None,
             properties: None,
         };
-        create_relation_type(&store, def).unwrap();
+        create_relation_type(&store, def, None).unwrap();
 
         delete_relation_type(&store, "rt-002").unwrap();
+    }
+
+    #[test]
+    fn create_relation_type_in_memory_sub_package_registers_in_boundary() {
+        use srs_core::types::relation_type_definition::{
+            RelationTypeCategory, RelationTypeDefinition,
+        };
+
+        let store = MemoryStore::default();
+        let selector = Some("packages/governance".to_string());
+        store.register_package_boundary(&selector).unwrap();
+
+        let def = RelationTypeDefinition {
+            schema: None,
+            id: "rt-sub-001".to_string(),
+            version: 1,
+            key: "gov-link".to_string(),
+            namespace: "com.gov".to_string(),
+            label: "Gov Link".to_string(),
+            description: "A sub-package relation type".to_string(),
+            category: RelationTypeCategory::Dependency,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            status: None,
+            canonical_direction: None,
+            inverse_type: None,
+            irreflexive: None,
+            allowed_source_types: None,
+            allowed_target_types: None,
+            require_same_semantic_object_type: None,
+            updated_at: None,
+            properties: None,
+        };
+        create_relation_type(&store, def, selector).unwrap();
+
+        let data = store.all_data();
+        assert!(
+            data.keys()
+                .any(|k| k.starts_with("packages/governance/relation-types/")),
+            "relation type file should be written under the boundary directory"
+        );
+        let pkg_json = data.get("packages/governance/package.json").unwrap();
+        assert!(
+            pkg_json["relationTypes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v.as_str().unwrap_or("").starts_with("relation-types/")),
+            "relation type should be registered in the boundary's package.json"
+        );
+    }
+
+    #[test]
+    fn create_relation_type_in_file_sub_package_registers_and_lists() {
+        // Cross-store coverage for the same behavior verified on MemoryStore above.
+        use crate::store::FileStore;
+        use srs_core::types::relation_type_definition::{
+            RelationTypeCategory, RelationTypeDefinition,
+        };
+
+        let temp = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(temp.path().join(".srs")).unwrap();
+        std::fs::write(temp.path().join("manifest.json"), r#"{"instanceIndex":[]}"#).unwrap();
+        std::fs::create_dir_all(temp.path().join("package")).unwrap();
+        std::fs::write(
+            temp.path().join("package/package.json"),
+            serde_json::json!({
+                "id": "pkg",
+                "namespace": "com.test",
+                "name": "test",
+                "version": "1.0.0",
+                "fields": [],
+                "types": []
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let store = FileStore::new(temp.path());
+        create_package(
+            &store,
+            CreatePackageInput {
+                id: "gov-pkg".to_string(),
+                namespace: "com.gov".to_string(),
+                name: "governance".to_string(),
+                version: "1.0.0".to_string(),
+                boundary_path: Some("packages/governance".to_string()),
+            },
+        )
+        .unwrap();
+
+        let def = RelationTypeDefinition {
+            schema: None,
+            id: "rt-sub-002".to_string(),
+            version: 1,
+            key: "gov-file-link".to_string(),
+            namespace: "com.gov".to_string(),
+            label: "Gov File Link".to_string(),
+            description: "A sub-package relation type on FileStore".to_string(),
+            category: RelationTypeCategory::Dependency,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            status: None,
+            canonical_direction: None,
+            inverse_type: None,
+            irreflexive: None,
+            allowed_source_types: None,
+            allowed_target_types: None,
+            require_same_semantic_object_type: None,
+            updated_at: None,
+            properties: None,
+        };
+        create_relation_type(&store, def, Some("packages/governance".to_string())).unwrap();
+
+        // File written into the boundary's directory.
+        assert!(
+            temp.path()
+                .join("packages/governance/relation-types")
+                .is_dir(),
+            "relation-types dir should exist in boundary"
+        );
+
+        // Registered in the boundary's package.json relationTypes array.
+        let pkg_json: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(temp.path().join("packages/governance/package.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            pkg_json["relationTypes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v.as_str().unwrap_or("").starts_with("relation-types/")),
+            "relation type should be registered in the boundary's package.json"
+        );
+
+        // Merged into the package view: list sees the sub-package relation type.
+        let listed =
+            list_relation_types_filtered(&store, RelationTypeListFilter { status: None }).unwrap();
+        assert!(
+            listed.iter().any(|rt| rt.id == "rt-sub-002"),
+            "sub-package relation type should appear in relation-type list"
+        );
     }
 
     #[test]

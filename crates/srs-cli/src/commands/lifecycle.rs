@@ -10,7 +10,7 @@ pub fn dispatch(ctx: CliContext, cmd: LifecycleCommand) -> Result<String> {
     match cmd {
         LifecycleCommand::List { json: _ } => cmd_lifecycle_list(ctx),
         LifecycleCommand::Get { id, json: _ } => cmd_lifecycle_get(ctx, id),
-        LifecycleCommand::Create => cmd_lifecycle_create(ctx),
+        LifecycleCommand::Create { package } => cmd_lifecycle_create(ctx, package),
     }
 }
 
@@ -33,10 +33,14 @@ fn cmd_lifecycle_get(ctx: CliContext, id: String) -> Result<String> {
     }
 }
 
-fn cmd_lifecycle_create(ctx: CliContext) -> Result<String> {
+fn cmd_lifecycle_create(ctx: CliContext, package: Option<String>) -> Result<String> {
     let lifecycle: Lifecycle = serde_json::from_reader(io::stdin())?;
     let result = with_store(&ctx, |store| {
-        Ok(lifecycle_service::create_lifecycle(store, lifecycle)?)
+        Ok(lifecycle_service::create_lifecycle(
+            store,
+            lifecycle,
+            package.clone(),
+        )?)
     })?;
     output::serialize(
         "lifecycle create",

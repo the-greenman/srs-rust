@@ -13,7 +13,7 @@ pub fn dispatch(ctx: CliContext, cmd: RelationTypeCommand) -> Result<String> {
     match cmd {
         RelationTypeCommand::List { status, json: _ } => cmd_relation_type_list(ctx, status),
         RelationTypeCommand::Get { id, json: _ } => cmd_relation_type_get(ctx, id),
-        RelationTypeCommand::Create {} => cmd_relation_type_create(ctx),
+        RelationTypeCommand::Create { package } => cmd_relation_type_create(ctx, package),
         RelationTypeCommand::Update { id } => cmd_relation_type_update(ctx, id),
         RelationTypeCommand::Delete { id } => cmd_relation_type_delete(ctx, id),
     }
@@ -53,10 +53,12 @@ fn cmd_relation_type_get(ctx: CliContext, id: String) -> Result<String> {
     }
 }
 
-fn cmd_relation_type_create(ctx: CliContext) -> Result<String> {
+fn cmd_relation_type_create(ctx: CliContext, package: Option<String>) -> Result<String> {
     let def: RelationTypeDefinition = serde_json::from_reader(io::stdin().lock())
         .map_err(|e| anyhow::anyhow!("Failed to parse relation type JSON: {}", e))?;
-    let result = with_store(&ctx, |store| Ok(create_relation_type(store, def)?))?;
+    let result = with_store(&ctx, |store| {
+        Ok(create_relation_type(store, def, package.clone())?)
+    })?;
     output::serialize(
         "relation-type create",
         RelationTypePayload {

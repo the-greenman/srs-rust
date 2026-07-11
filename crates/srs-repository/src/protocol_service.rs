@@ -30,9 +30,8 @@
 use srs_core::types::protocol::{Protocol, ProtocolDiagnosticSeverity, ProtocolStage};
 use srs_core::validation::protocol::validate_protocol;
 
-use crate::blueprint_service::validate_package_selector;
 use crate::error::RepositoryError;
-use crate::package_types::{DefinitionKind, PackageSelector};
+use crate::package_types::{validate_package_selector, DefinitionKind, PackageSelector};
 use crate::store::RepositoryStore;
 
 const PROTOCOLS_DIR: &str = "protocols";

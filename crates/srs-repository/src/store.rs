@@ -585,6 +585,7 @@ fn load_package_from_dir(
         Vec<Theme>,
         Vec<crate::package::LoadedBlueprint>,
         Vec<crate::package::LoadedProtocol>,
+        Vec<Lifecycle>,
     ),
     RepositoryError,
 > {
@@ -844,6 +845,21 @@ fn load_package_from_dir(
         });
     }
 
+    let mut lifecycles: Vec<Lifecycle> = Vec::new();
+    for lc_path in &metadata.lifecycles {
+        let full_path = package_dir.join(lc_path);
+        let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
+            path: full_path.clone(),
+            source: e,
+        })?;
+        let lc: Lifecycle =
+            serde_json::from_str(&content).map_err(|e| RepositoryError::PackageLoad {
+                path: full_path,
+                source: e,
+            })?;
+        lifecycles.push(lc);
+    }
+
     Ok((
         fields,
         record_types,
@@ -852,6 +868,7 @@ fn load_package_from_dir(
         themes,
         blueprints,
         protocols,
+        lifecycles,
     ))
 }
 
@@ -991,6 +1008,7 @@ impl RepositoryStore for FileStore {
             mut themes,
             mut blueprints,
             mut protocols,
+            mut lifecycles,
         ) = load_package_from_dir(&package_dir, &mut rt_by_type)?;
 
         // Merge sub-packages from manifest packageRefs
@@ -1048,6 +1066,7 @@ impl RepositoryStore for FileStore {
                     sub_themes,
                     sub_blueprints,
                     sub_protocols,
+                    sub_lifecycles,
                 ) = load_package_from_dir(&sub_dir, &mut rt_by_type)?;
 
                 for field in sub_fields {
@@ -1187,6 +1206,12 @@ impl RepositoryStore for FileStore {
                         protocols.push(lp);
                     }
                 }
+                for lc in sub_lifecycles {
+                    // First occurrence wins (same policy as other definition kinds).
+                    if !lifecycles.iter().any(|existing| existing.id == lc.id) {
+                        lifecycles.push(lc);
+                    }
+                }
             }
         }
 
@@ -1211,21 +1236,6 @@ impl RepositoryStore for FileStore {
                     source: e,
                 })?;
             vocabularies.push(vocab);
-        }
-
-        let mut lifecycles: Vec<Lifecycle> = Vec::new();
-        for lc_path in &metadata.lifecycles {
-            let full_path = package_dir.join(lc_path);
-            let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
-                path: full_path.clone(),
-                source: e,
-            })?;
-            let lc: Lifecycle =
-                serde_json::from_str(&content).map_err(|e| RepositoryError::PackageLoad {
-                    path: full_path,
-                    source: e,
-                })?;
-            lifecycles.push(lc);
         }
 
         crate::core_package::merge_core_into_package(&mut fields, &mut record_types)?;
@@ -2502,6 +2512,17 @@ pub mod memory {
         ) -> Result<(), RepositoryError> {
             let v = serde_json::to_value(relation_type).unwrap();
             self.data.borrow_mut().insert(relative_path.to_string(), v);
+            // Keep self.package in sync so load_package() reflects writes.
+            let mut pkg = self.package.borrow_mut();
+            if let Some(existing) = pkg
+                .relation_type_definitions
+                .iter_mut()
+                .find(|rt| rt.id == relation_type.id)
+            {
+                *existing = relation_type.clone();
+            } else {
+                pkg.relation_type_definitions.push(relation_type.clone());
+            }
             Ok(())
         }
 

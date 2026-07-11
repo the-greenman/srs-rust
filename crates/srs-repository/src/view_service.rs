@@ -24,7 +24,7 @@
 
 use crate::container_service;
 use crate::error::RepositoryError;
-use crate::package_types::{DefinitionKind, PackageSelector};
+use crate::package_types::{validate_package_selector, DefinitionKind, PackageSelector};
 use crate::store::RepositoryStore;
 use crate::writer::new_instance_id;
 use srs_core::types::view::{DocumentView, ExactTypeRef, View};
@@ -428,7 +428,8 @@ pub fn create_view(
     mut view: View,
     selector: PackageSelector,
 ) -> Result<CreateViewResult, RepositoryError> {
-    // Validate the boundary exists before touching the filesystem.
+    // Validate the selector form, then that the boundary exists, before touching the filesystem.
+    validate_package_selector(&selector)?;
     store.load_package_boundary(&selector)?;
 
     let boundary_path = selector.as_deref().unwrap_or("package");
@@ -522,7 +523,8 @@ pub fn create_document_view(
     mut document_view: DocumentView,
     selector: PackageSelector,
 ) -> Result<CreateDocumentViewResult, RepositoryError> {
-    // Validate the boundary exists before touching the filesystem.
+    // Validate the selector form, then that the boundary exists, before touching the filesystem.
+    validate_package_selector(&selector)?;
     store.load_package_boundary(&selector)?;
 
     let boundary_path = selector.as_deref().unwrap_or("package");

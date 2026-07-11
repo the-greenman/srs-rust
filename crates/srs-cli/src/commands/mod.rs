@@ -655,7 +655,11 @@ pub enum RelationTypeCommand {
         json: bool,
     },
     /// Create a new relation type definition (reads JSON from stdin)
-    Create {},
+    Create {
+        /// Package boundary path (omit for primary package, pass path for sub-package)
+        #[arg(long)]
+        package: Option<String>,
+    },
     /// Update an existing relation type definition (reads JSON from stdin)
     Update {
         /// The UUID id of the relation type definition to update
@@ -735,7 +739,11 @@ pub enum LifecycleCommand {
         json: bool,
     },
     /// Create a lifecycle (reads full Lifecycle JSON from stdin)
-    Create,
+    Create {
+        /// Package boundary path (omit for primary package, pass path for sub-package)
+        #[arg(long)]
+        package: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
