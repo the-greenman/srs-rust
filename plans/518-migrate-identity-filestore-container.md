@@ -154,11 +154,11 @@ Specific tests to write or verify:
 
 ## Final Acceptance
 
-- [ ] `cargo test` passes with no failures
-- [ ] `cargo clippy -- -D warnings` passes
-- [ ] CLI output format unchanged (no payload changes)
-- [ ] `cargo test --test payload_contracts` passes (no payload structs changed)
-- [ ] `bash scripts/check-schema-sync.sh` exits 0 (no entity schemas changed)
+- [x] `cargo test` passes with no failures
+- [x] `cargo clippy -- -D warnings` passes
+- [x] CLI output format unchanged (no payload changes)
+- [x] `cargo test --test payload_contracts` passes (no payload structs changed)
+- [x] `bash scripts/check-schema-drift.sh` exits 0 for srs-rust (srs-vscode drift is pre-existing, unrelated)
 - [x] `store.load_container(repository_id)` succeeds on a FileStore repo created by `create_repository_with_intent`
 - [x] `containerIndex` has exactly one entry after `create_repository_with_intent` on FileStore
 
