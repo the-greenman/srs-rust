@@ -176,15 +176,12 @@ fn section_containers_by_root(
         .filter_map(|summary| {
             let container = container_service::get_container(store, &summary.container_id).ok()?;
             let roots = container.root_instance_ids?;
-            Some((summary.container_id, roots, container.member_instance_ids))
+            Some((summary.container_id, roots))
         })
-        .flat_map(|(container_id, roots, members)| {
-            roots.into_iter().filter_map(move |root_id| {
-                let root_is_member = members
-                    .as_ref()
-                    .is_some_and(|ids| ids.iter().any(|id| id == &root_id));
-                (!root_is_member).then(|| (root_id, container_id.clone()))
-            })
+        .flat_map(|(container_id, roots)| {
+            roots
+                .into_iter()
+                .map(move |root_id| (root_id, container_id.clone()))
         })
         .collect())
 }
@@ -616,5 +613,70 @@ mod tests {
             .diagnostics
             .iter()
             .any(|d| d.contains("does not resolve")));
+    }
+
+    #[test]
+    fn repository_navigation_root_is_member_of_its_own_sub_container() {
+        // Regression for: section_containers_by_root previously excluded root→container
+        // mappings when the root record also appeared in member_instance_ids, silently
+        // producing sectionContainerId: null for all sections in real governance repos.
+        let store = nav_store();
+
+        // Replace sub-containers b000 and c000 with variants where each root record
+        // is also listed as a member of its own container (the "root is also a member" shape).
+        container_service::create_container(
+            &store,
+            Container {
+                container_id: "00000000-0000-4000-8000-00000000b000".to_string(),
+                title: "Articles".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: None,
+                member_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000a200".to_string()]),
+                root_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000a200".to_string()]),
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: HashMap::new(),
+            },
+        )
+        .unwrap();
+
+        container_service::create_container(
+            &store,
+            Container {
+                container_id: "00000000-0000-4000-8000-00000000c000".to_string(),
+                title: "Decision Log".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: None,
+                member_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000a300".to_string()]),
+                root_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000a300".to_string()]),
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: HashMap::new(),
+            },
+        )
+        .unwrap();
+
+        let nav = super::repository_navigation(&store).unwrap();
+
+        assert_eq!(nav.sections.len(), 2);
+        assert_eq!(
+            nav.sections[0].section_container_id.as_deref(),
+            Some("00000000-0000-4000-8000-00000000b000")
+        );
+        assert_eq!(
+            nav.sections[1].section_container_id.as_deref(),
+            Some("00000000-0000-4000-8000-00000000c000")
+        );
+        assert!(nav.diagnostics.is_empty());
     }
 }
