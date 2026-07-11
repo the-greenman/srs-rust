@@ -2,7 +2,7 @@ use crate::core_purpose;
 use crate::error::RepositoryError;
 use crate::record_store::{delete_record, upsert_record_index_entry, write_new_record};
 use crate::store::{RecordTier, RepositoryStore};
-use crate::writer::new_instance_id;
+use crate::writer::{new_instance_id, write_manifest};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -97,8 +97,10 @@ pub fn create_repository(
 /// Writes the root purpose record and registers the root container in `containerIndex`.
 ///
 /// Two-write operation: `save_manifest` (step 1) then `save_container` (step 2).
-/// If step 2 fails, the written record is removed via best-effort `delete_record` rollback.
-/// Not crash-safe — a process kill between writes bypasses this handler. See ADR-024.
+/// If step 2 fails: the record is removed via `delete_record`, then `manifest.container` is
+/// cleared so the repo is left in a clean pre-scaffold state. Both cleanup steps are
+/// best-effort (errors are swallowed). Not crash-safe — a process kill between writes
+/// bypasses this handler. See ADR-024.
 fn scaffold_purpose_record(
     store: &dyn RepositoryStore,
     repository_id: &str,
@@ -149,6 +151,10 @@ fn scaffold_purpose_record(
         .expect("container always set by get_or_insert_with above");
     if let Err(e) = store.save_container(container) {
         let _ = delete_record(store, &instance_id);
+        if let Ok(mut m) = store.load_manifest() {
+            m.container = None;
+            let _ = write_manifest(store, &m);
+        }
         return Err(e);
     }
 
@@ -1076,7 +1082,7 @@ mod tests {
 
     #[test]
     fn create_repository_with_intent_container_loadable_from_memory_store() {
-        // Cross-store roundtrip: MemoryStore must also expose the container via load_container.
+        // Confirms MemoryStore exposes the root container via load_container after create_repository_with_intent.
         let store = MemoryStore::uninitialized();
         let result = create_repository_with_intent(&store, &input()).unwrap();
         let repo_id = result.repository_id;
