@@ -656,6 +656,23 @@ pub struct DeleteRecordResult {
     pub instance_id: String,
 }
 
+/// Input for [`get_field_value_by_name`].
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetFieldValueByNameInput {
+    pub instance_id: String,
+    pub field_name: String,
+}
+
+/// Result for [`get_field_value_by_name`].
+///
+/// Accessed structurally by callers (e.g. the WASM binding unpacks `.value` directly);
+/// never serialized as a whole struct, so no `Serialize` derive is needed.
+#[derive(Debug, Clone)]
+pub struct GetFieldValueByNameResult {
+    pub value: Option<serde_json::Value>,
+}
+
 /// List records using a unified filter (type and/or container).
 pub fn list_records_filtered(
     store: &dyn RepositoryStore,
@@ -1867,6 +1884,48 @@ pub fn list_record_tags(
     Ok(ListRecordTagsResult {
         total_records,
         tags,
+    })
+}
+
+/// Return the value of a named field on a record, by its exact package-defined name
+/// (the `name` field in the field definition JSON, e.g. `"title"` or `"decision-summary"`).
+/// No case normalization is performed — the caller must pass the exact name.
+///
+/// Returns `Ok(GetFieldValueByNameResult { value: None })` for all missing/not-found
+/// conditions: record not found, type not resolvable, field name absent from schema,
+/// or field has no value set on the record. Infrastructure errors (IO, JSON parse)
+/// propagate as `Err`.
+///
+/// Uses `effective_fields` so inherited fields are also resolved.
+pub fn get_field_value_by_name(
+    store: &dyn RepositoryStore,
+    input: GetFieldValueByNameInput,
+) -> Result<GetFieldValueByNameResult, RepositoryError> {
+    let record = match get_record_by_id(store, &input.instance_id)? {
+        Some(r) => r,
+        None => return Ok(GetFieldValueByNameResult { value: None }),
+    };
+    let package = store.load_package()?;
+    let record_type = match package.resolve_type(&record.type_id, record.type_version) {
+        Some(rt) => rt,
+        None => return Ok(GetFieldValueByNameResult { value: None }),
+    };
+    let effective = package.effective_fields(record_type)?;
+    // Exact name match against Field.name as stored in the package JSON (no case normalization).
+    let field_id: Option<String> = effective
+        .iter()
+        .find(|fa| {
+            package
+                .resolve_field(&fa.field_id)
+                .map(|f| f.name == input.field_name)
+                .unwrap_or(false)
+        })
+        .map(|fa| fa.field_id.clone());
+    Ok(GetFieldValueByNameResult {
+        value: field_id
+            .as_deref()
+            .and_then(|fid| record.find_field_value(fid))
+            .map(|fv| fv.value.clone()),
     })
 }
 
@@ -6307,6 +6366,163 @@ mod tests {
                 .iter()
                 .all(|e| e.instance_id() != &instance_id),
             "manifest entry must be removed even when file delete fails"
+        );
+    }
+
+    // ── get_field_value_by_name tests ─────────────────────────────────────────
+
+    #[test]
+    fn get_field_value_by_name_returns_value() {
+        let store = make_store_with_package();
+        let record = create_record(
+            &store,
+            "type-test-001",
+            1,
+            vec![fv("field-name-001", "Hello World")],
+            None,
+            None,
+        )
+        .expect("create record");
+
+        let result = get_field_value_by_name(
+            &store,
+            GetFieldValueByNameInput {
+                instance_id: record.instance_id.clone(),
+                field_name: "test-name".to_string(),
+            },
+        )
+        .expect("get_field_value_by_name should not error");
+
+        assert_eq!(
+            result.value,
+            Some(json!("Hello World")),
+            "value must match the stored field value"
+        );
+    }
+
+    #[test]
+    fn get_field_value_by_name_returns_none_for_unknown_field() {
+        let store = make_store_with_package();
+        let record = create_record(
+            &store,
+            "type-test-001",
+            1,
+            vec![fv("field-name-001", "Hello")],
+            None,
+            None,
+        )
+        .expect("create record");
+
+        let result = get_field_value_by_name(
+            &store,
+            GetFieldValueByNameInput {
+                instance_id: record.instance_id.clone(),
+                field_name: "nonexistent-field".to_string(),
+            },
+        )
+        .expect("get_field_value_by_name should not error");
+
+        assert!(
+            result.value.is_none(),
+            "unknown field name must return None, not an error"
+        );
+    }
+
+    #[test]
+    fn get_field_value_by_name_returns_none_for_unknown_record() {
+        let store = make_store_with_package();
+
+        let result = get_field_value_by_name(
+            &store,
+            GetFieldValueByNameInput {
+                instance_id: "00000000-0000-0000-0000-000000000000".to_string(),
+                field_name: "test-name".to_string(),
+            },
+        )
+        .expect("get_field_value_by_name should not error");
+
+        assert!(
+            result.value.is_none(),
+            "unknown instance_id must return None, not an error"
+        );
+    }
+
+    #[test]
+    fn get_field_value_by_name_returns_none_for_missing_field_value() {
+        // Create a record that only sets the required "test-name" field,
+        // leaving the optional "test-status" field unset.
+        let store = make_store_with_package();
+        let record = create_record(
+            &store,
+            "type-test-001",
+            1,
+            vec![fv("field-name-001", "Hello")],
+            None,
+            None,
+        )
+        .expect("create record");
+
+        let result = get_field_value_by_name(
+            &store,
+            GetFieldValueByNameInput {
+                instance_id: record.instance_id.clone(),
+                field_name: "test-status".to_string(),
+            },
+        )
+        .expect("get_field_value_by_name should not error");
+
+        assert!(
+            result.value.is_none(),
+            "field in schema but not set on record must return None"
+        );
+    }
+
+    #[test]
+    fn get_field_value_by_name_cross_store_roundtrip() {
+        // CLAUDE.md Storage Boundary Rules: new service features need at least one
+        // cross-store roundtrip test (memory → file).
+        let store = make_store_with_package();
+        let record = create_record(
+            &store,
+            "type-test-001",
+            1,
+            vec![fv("field-name-001", "Roundtrip Value")],
+            None,
+            None,
+        )
+        .expect("create record in MemoryStore");
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let file_store = crate::store::FileStore::new(temp.path());
+        crate::repository_portability::copy_repository(&store, &file_store)
+            .expect("copy to FileStore");
+
+        let from_memory = get_field_value_by_name(
+            &store,
+            GetFieldValueByNameInput {
+                instance_id: record.instance_id.clone(),
+                field_name: "test-name".to_string(),
+            },
+        )
+        .expect("memory store lookup");
+
+        let from_file = get_field_value_by_name(
+            &file_store,
+            GetFieldValueByNameInput {
+                instance_id: record.instance_id.clone(),
+                field_name: "test-name".to_string(),
+            },
+        )
+        .expect("file store lookup");
+
+        assert_eq!(
+            from_memory.value, from_file.value,
+            "get_field_value_by_name must return identical values across MemoryStore and FileStore"
+        );
+        assert_eq!(
+            from_file.value,
+            Some(json!("Roundtrip Value")),
+            "value must match what was written"
         );
     }
 }
