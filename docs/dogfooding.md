@@ -1183,6 +1183,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `record update` with `typeVersion` migration (srs-rust#42) | S2 negative case — pass `typeVersion: 2` when package has advanced past stored version; confirm `ok: true` and returned record carries `typeVersion: 2`; pass `typeVersion: 99` and confirm `ok: false` with `"type version 99 not found"` diagnostic; `repo validate` must be 0 errors throughout |
 | `record list`/`record get` core `displayLabel` (tree-parity, type_name fallback; RFC-020 `identityFieldId` priority + Rule [N+33] dangling-reference diagnostic, #376) | S1 (list), S18 (get — `payload.instanceId` + `payload.displayLabel` since #294) |
 | `record validate` (no-write preflight) | S2 |
+| `record get-field-value` (lookup by package-defined field name) | CLI: _gap — no command yet, deferred to #537_; WASM binding (`SrsRepository.get_field_value_by_name`) verified via unit tests in `crates/srs-repository/src/record_store.rs` (5 tests including cross-store roundtrip) and import-reachability tests in `crates/srs-bindings/src/lib.rs` (#536) |
 | `record transition` | S4, S6; WASM binding (`set_lifecycle_state`) now returns `{ record, warnings }` — verified via integration tests in `crates/srs-bindings/tests/relation_lifecycle.rs` (#367) |
 | `record allowed-transitions` (ext:lifecycle query path, ADR-022) | S19 |
 | `record successor` | S3, S4 |
