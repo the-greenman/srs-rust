@@ -256,7 +256,8 @@ mod tests {
     fn display_label_identity_field_wins_over_title_field() {
         // Record has both an identityFieldId-mapped field ("f-heading") and a "title"-named
         // field with a different value — the identity field must win (RFC-020 Rule [N+36]).
-        let record = make_two_field_record("f-title", "Ignored Title", "f-heading", "The Real Heading");
+        let record =
+            make_two_field_record("f-title", "Ignored Title", "f-heading", "The Real Heading");
         let identity_index = make_identity_index("t1", 1, "f-heading");
         let name_index = make_index(&[("f-title", "title")]);
         assert_eq!(
