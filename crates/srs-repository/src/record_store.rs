@@ -34,6 +34,7 @@ use srs_core::types::field::ValueType;
 use srs_core::types::lifecycle::{RelationDirection, RequiresRelation};
 use srs_core::types::record::{FieldValue, Record};
 use srs_core::types::relation::Relation;
+use srs_core::types::relation_type_definition::RelationTypeStatus;
 use srs_core::types::revision::{Revision, RevisionAgent, RevisionProvenance};
 use srs_core::validation::lifecycle::validate_type_lifecycle_v9;
 use srs_core::validation::record::{validate_record, validate_record_all, validate_type_lifecycle};
@@ -1504,6 +1505,66 @@ pub fn create_record_successor(
                 type_id: predecessor.type_id.clone(),
                 version: type_version,
             })?;
+        // Validate relation_type before writing anything (ADR-024: fail-fast preferred).
+        // Mirrors resolve_definition in srs-core: unknown / retired / write-rejected / conflict.
+        {
+            let matching: Vec<_> = package
+                .relation_type_definitions
+                .iter()
+                .filter(|d| d.key == input.relation_type)
+                .collect();
+            let e1_msg = match matching.len() {
+                0 => Some(format!(
+                    "E1: relation type '{}' is not installed in the package",
+                    input.relation_type
+                )),
+                1 => {
+                    let def = matching[0];
+                    if matches!(def.status, Some(RelationTypeStatus::Retired)) {
+                        Some(format!(
+                            "E1: relation type '{}' is retired and does not resolve",
+                            input.relation_type
+                        ))
+                    } else if matches!(
+                        def.status,
+                        Some(RelationTypeStatus::Deprecated) | Some(RelationTypeStatus::Tombstone)
+                    ) {
+                        let status_str = match &def.status {
+                            Some(RelationTypeStatus::Deprecated) => "deprecated",
+                            _ => "tombstone",
+                        };
+                        Some(format!(
+                            "E1: relation type '{}' is {} — new writes are rejected",
+                            input.relation_type, status_str
+                        ))
+                    } else {
+                        None
+                    }
+                }
+                _ => {
+                    let first = matching[0];
+                    let all_identical = matching.iter().all(|d| {
+                        d.id == first.id
+                            && d.version == first.version
+                            && d.namespace == first.namespace
+                    });
+                    if all_identical {
+                        None // coalesce: treated as a single canonical definition
+                    } else {
+                        Some(format!(
+                            "E1: relation type '{}' has conflicting definitions (different id/version/content)",
+                            input.relation_type
+                        ))
+                    }
+                }
+            };
+            if let Some(msg) = e1_msg {
+                return Err(RepositoryError::RelationValidation {
+                    relation_id: String::new(),
+                    message: msg,
+                });
+            }
+        }
         if let Some(explicit_state) = input.lifecycle_state.as_deref() {
             let lifecycle = package.effective_lifecycle(record_type).ok_or_else(|| {
                 RepositoryError::LifecycleNotDefined {
@@ -3237,6 +3298,42 @@ mod tests {
             result.record.instance_id
         );
         assert_eq!(result.relation.target_instance_id, predecessor.instance_id);
+    }
+
+    #[test]
+    fn create_record_successor_unknown_relation_type_rejected_no_write() {
+        let store = make_store_with_lifecycle();
+        let predecessor = create_lc_record(&store);
+        let before = store.load_manifest().unwrap().instance_index.len();
+
+        let result = create_record_successor(
+            &store,
+            &predecessor.instance_id,
+            CreateRecordSuccessorInput {
+                relation_type: "not-a-real-type".to_string(),
+                field_values: vec![FieldValue {
+                    field_id: "field-title-lc".to_string(),
+                    value: json!("Should Fail"),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                }],
+                lifecycle_state: None,
+                type_version: None,
+            },
+        );
+
+        assert!(
+            matches!(result, Err(RepositoryError::RelationValidation { .. })),
+            "expected RelationValidation error, got: {:?}",
+            result
+        );
+        // No orphaned record: instance index must not have grown.
+        let after = store.load_manifest().unwrap().instance_index.len();
+        assert_eq!(
+            after, before,
+            "instance index grew — successor record was written despite unknown relation type"
+        );
     }
 
     #[test]
