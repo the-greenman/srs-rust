@@ -35,11 +35,11 @@ use srs_core::types::lifecycle::{RelationDirection, RequiresRelation};
 use srs_core::types::record::{FieldValue, Record};
 use srs_core::types::relation::Relation;
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
-use srs_core::validation::relation::validate_relation_type_for_write;
 use srs_core::types::revision::{Revision, RevisionAgent, RevisionProvenance};
 use srs_core::validation::lifecycle::validate_type_lifecycle_v9;
 use srs_core::validation::record::{validate_record, validate_record_all, validate_type_lifecycle};
 use srs_core::validation::record_type::validate_cross_field_rules;
+use srs_core::validation::relation::validate_relation_type_for_write;
 use std::collections::HashMap;
 
 /// List all Tier 2 records in the repository, regardless of type.
@@ -3469,7 +3469,10 @@ mod tests {
             result
         );
         let after = store.load_manifest().unwrap().instance_index.len();
-        assert_eq!(after, before, "orphaned record written for retired relation type");
+        assert_eq!(
+            after, before,
+            "orphaned record written for retired relation type"
+        );
     }
 
     #[test]
@@ -3502,7 +3505,10 @@ mod tests {
             result
         );
         let after = store.load_manifest().unwrap().instance_index.len();
-        assert_eq!(after, before, "orphaned record written for deprecated relation type");
+        assert_eq!(
+            after, before,
+            "orphaned record written for deprecated relation type"
+        );
     }
 
     #[test]
@@ -3535,7 +3541,10 @@ mod tests {
             result
         );
         let after = store.load_manifest().unwrap().instance_index.len();
-        assert_eq!(after, before, "orphaned record written for tombstone relation type");
+        assert_eq!(
+            after, before,
+            "orphaned record written for tombstone relation type"
+        );
     }
 
     #[test]
@@ -3610,7 +3619,10 @@ mod tests {
             result
         );
         let after = store.load_manifest().unwrap().instance_index.len();
-        assert_eq!(after, before, "orphaned record written for conflicting RTDs");
+        assert_eq!(
+            after, before,
+            "orphaned record written for conflicting RTDs"
+        );
     }
 
     #[test]
