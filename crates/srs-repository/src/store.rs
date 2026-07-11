@@ -2866,8 +2866,7 @@ pub mod memory {
             self.data.borrow_mut().insert(key, val);
             // Fault injection point: after data write, before index update.
             // Simulates a crash between the file write and the index update (ADR-007).
-            let should_fail =
-                matches!(*self.fail_at.borrow(), Some(FailPoint::SaveContainerIndex));
+            let should_fail = matches!(*self.fail_at.borrow(), Some(FailPoint::SaveContainerIndex));
             if should_fail {
                 *self.fail_at.borrow_mut() = None;
                 return Err(RepositoryError::Io {
