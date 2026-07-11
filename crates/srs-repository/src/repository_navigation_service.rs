@@ -624,6 +624,7 @@ mod tests {
 
         // Replace sub-containers b000 and c000 with variants where each root record
         // is also listed as a member of its own container (the "root is also a member" shape).
+        // create_container overwrites an existing container when the container_id matches.
         container_service::create_container(
             &store,
             Container {
