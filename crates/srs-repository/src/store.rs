@@ -2005,6 +2005,16 @@ pub mod memory {
     use super::*;
     use std::cell::RefCell;
 
+    /// Fault-injection point for `MemoryStore`. When armed, the next call to the
+    /// named operation returns an `Io` error; subsequent calls proceed normally.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum FailPoint {
+        /// Fail the next `save_manifest` call.
+        SaveManifest,
+        /// Fail the next `delete_instance_file` call.
+        DeleteInstanceFile,
+    }
+
     /// In-memory implementation of [`RepositoryStore`] for unit tests.
     ///
     /// No filesystem access. All `ensure_*` methods are no-ops.
@@ -2016,6 +2026,7 @@ pub mod memory {
         /// Package boundary metadata keyed by `PackageSelector`.
         /// Always pre-populated with the primary boundary (`None`).
         boundaries: RefCell<HashMap<Option<String>, crate::package_types::PackageBoundary>>,
+        fail_at: RefCell<Option<FailPoint>>,
     }
 
     impl MemoryStore {
@@ -2040,6 +2051,7 @@ pub mod memory {
                 data: RefCell::new(HashMap::new()),
                 repository_initialized: RefCell::new(true),
                 boundaries: RefCell::new(boundaries),
+                fail_at: RefCell::new(None),
             };
             store
                 .data
@@ -2197,6 +2209,22 @@ pub mod memory {
             self
         }
 
+        /// Arm a fail point; the next call to the named operation will return an error.
+        pub fn with_fail_at(self, point: FailPoint) -> Self {
+            *self.fail_at.borrow_mut() = Some(point);
+            self
+        }
+
+        pub fn arm_fail_at(&self, point: FailPoint) {
+            *self.fail_at.borrow_mut() = Some(point);
+        }
+
+        /// Cancel a previously armed fail point without triggering it.
+        /// Useful in multi-step tests where a fault is armed conditionally.
+        pub fn disarm_fail_at(&self) {
+            *self.fail_at.borrow_mut() = None;
+        }
+
         pub fn uninitialized() -> Self {
             let manifest = Manifest {
                 instance_index: vec![],
@@ -2229,6 +2257,7 @@ pub mod memory {
                 data: RefCell::new(HashMap::new()),
                 repository_initialized: RefCell::new(false),
                 boundaries: RefCell::new(HashMap::new()),
+                fail_at: RefCell::new(None),
             }
         }
 
@@ -2389,6 +2418,17 @@ pub mod memory {
         }
 
         fn save_manifest(&self, manifest: &Manifest) -> Result<(), RepositoryError> {
+            let should_fail = matches!(*self.fail_at.borrow(), Some(FailPoint::SaveManifest));
+            if should_fail {
+                *self.fail_at.borrow_mut() = None;
+                return Err(RepositoryError::Io {
+                    path: std::path::PathBuf::from("manifest.json"),
+                    source: std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "injected fault: save_manifest",
+                    ),
+                });
+            }
             *self.manifest.borrow_mut() = manifest.clone();
             Ok(())
         }
@@ -2721,6 +2761,17 @@ pub mod memory {
         }
 
         fn delete_instance_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
+            let should_fail = matches!(*self.fail_at.borrow(), Some(FailPoint::DeleteInstanceFile));
+            if should_fail {
+                *self.fail_at.borrow_mut() = None;
+                return Err(RepositoryError::Io {
+                    path: std::path::PathBuf::from(relative_path),
+                    source: std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "injected fault: delete_instance_file",
+                    ),
+                });
+            }
             self.data.borrow_mut().remove(relative_path);
             Ok(())
         }
@@ -3936,6 +3987,85 @@ mod tests {
         assert_eq!(
             store.record_tier_dir(RecordTier::Extension),
             "package/records"
+        );
+    }
+
+    // --- FailPoint smoke tests ---
+
+    #[test]
+    fn memory_store_save_manifest_fail_point_triggers_error() {
+        use memory::FailPoint;
+        let store = MemoryStore::empty();
+        store.arm_fail_at(FailPoint::SaveManifest);
+        let manifest = store.load_manifest().unwrap();
+        let err = store.save_manifest(&manifest);
+        assert!(
+            matches!(err, Err(RepositoryError::Io { .. })),
+            "armed SaveManifest should return Io error"
+        );
+        // One-shot: second call succeeds
+        store
+            .save_manifest(&manifest)
+            .expect("fail point must be disarmed after first fire");
+    }
+
+    #[test]
+    fn memory_store_delete_instance_file_fail_point_triggers_error() {
+        use memory::FailPoint;
+        let store = MemoryStore::empty();
+        let path = "records/test.json";
+        store
+            .save_instance_json(path, &serde_json::json!({"x": 1}))
+            .unwrap();
+        store.arm_fail_at(FailPoint::DeleteInstanceFile);
+        let err = store.delete_instance_file(path);
+        assert!(
+            matches!(err, Err(RepositoryError::Io { .. })),
+            "armed DeleteInstanceFile should return Io error"
+        );
+        // One-shot: second call succeeds
+        store
+            .delete_instance_file(path)
+            .expect("fail point must be disarmed after first fire");
+    }
+
+    #[test]
+    fn memory_store_with_fail_at_builder_and_disarm() {
+        use memory::FailPoint;
+        // with_fail_at arms at construction time
+        let store = MemoryStore::empty().with_fail_at(FailPoint::SaveManifest);
+        let manifest = store.load_manifest().unwrap();
+        let err = store.save_manifest(&manifest);
+        assert!(
+            matches!(err, Err(RepositoryError::Io { .. })),
+            "with_fail_at should arm the point at construction"
+        );
+        // Re-arm then explicitly disarm — subsequent call must succeed
+        store.arm_fail_at(FailPoint::SaveManifest);
+        store.disarm_fail_at();
+        store
+            .save_manifest(&manifest)
+            .expect("disarmed point must not fire");
+    }
+
+    #[test]
+    fn memory_store_fail_point_does_not_cross_contaminate() {
+        use memory::FailPoint;
+        // Arming SaveManifest must not consume the point when delete_instance_file is called
+        let store = MemoryStore::empty();
+        let path = "records/cross.json";
+        store
+            .save_instance_json(path, &serde_json::json!({}))
+            .unwrap();
+        store.arm_fail_at(FailPoint::SaveManifest);
+        // delete_instance_file does not match — point must survive
+        store.delete_instance_file(path).unwrap();
+        // save_manifest now fires the armed point
+        let manifest = store.load_manifest().unwrap();
+        let err = store.save_manifest(&manifest);
+        assert!(
+            matches!(err, Err(RepositoryError::Io { .. })),
+            "SaveManifest point must still fire after a delete_instance_file call"
         );
     }
 }
