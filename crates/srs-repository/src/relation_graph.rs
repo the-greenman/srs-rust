@@ -34,7 +34,11 @@ impl PrecedesSortable for crate::record_store::LoadedInstance {
 ///
 /// Builds a linked-list ordering from `precedes` relations whose both endpoints
 /// are in the candidate set. Records not connected by any precedes relation fall
-/// back to `created_at` order. Handles cycles via a visited set.
+/// back to the canonical tiebreak order: `created_at` ascending, then
+/// `instance_id` ascending. The tiebreak is a total order, so output is
+/// byte-identical across runs even when timestamps collide or are absent
+/// (#532 — previously chain heads were emitted in `HashMap` iteration order).
+/// Handles cycles via a visited set.
 ///
 /// Extracted from `render_service` — shared by render and tree services.
 pub(crate) fn sort_by_precedes_chain<T: PrecedesSortable>(
@@ -66,29 +70,32 @@ pub(crate) fn sort_by_precedes_chain<T: PrecedesSortable>(
         }
     }
 
-    let mut heads: Vec<&str> = in_degree
-        .iter()
-        .filter(|(_, &deg)| deg == 0)
-        .map(|(&id, _)| id)
-        .collect();
-    heads.sort_by(|a, b| {
-        let ta = records
-            .iter()
-            .find(|r| r.precedes_instance_id() == *a)
-            .and_then(|r| r.precedes_created_at())
-            .unwrap_or("");
-        let tb = records
-            .iter()
-            .find(|r| r.precedes_instance_id() == *b)
-            .and_then(|r| r.precedes_created_at())
-            .unwrap_or("");
-        ta.cmp(tb)
-    });
-
     let record_map: HashMap<&str, &T> = records
         .iter()
         .map(|r| (r.precedes_instance_id(), r))
         .collect();
+
+    // Collect chain heads from the caller-supplied record order (NOT HashMap
+    // iteration, which is randomized per process), then sort by the canonical
+    // (created_at, instance_id) tiebreak. Without the instance_id component,
+    // heads with equal or missing timestamps would keep whatever transient
+    // order they arrived in — the #532 nondeterminism.
+    let mut heads: Vec<&str> = records
+        .iter()
+        .map(|r| r.precedes_instance_id())
+        .filter(|id| in_degree.get(id) == Some(&0))
+        .collect();
+    heads.sort_by(|a, b| {
+        let ta = record_map
+            .get(a)
+            .and_then(|r| r.precedes_created_at())
+            .unwrap_or("");
+        let tb = record_map
+            .get(b)
+            .and_then(|r| r.precedes_created_at())
+            .unwrap_or("");
+        ta.cmp(tb).then_with(|| a.cmp(b))
+    });
 
     let mut result: Vec<T> = Vec::with_capacity(records.len());
     let mut visited: HashSet<&str> = HashSet::new();
@@ -114,10 +121,12 @@ pub(crate) fn sort_by_precedes_chain<T: PrecedesSortable>(
         .iter()
         .filter(|r| !visited.contains(r.precedes_instance_id()))
         .collect();
+    // Same canonical (created_at, instance_id) tiebreak as chain heads.
     remaining.sort_by(|a, b| {
         a.precedes_created_at()
             .unwrap_or("")
             .cmp(b.precedes_created_at().unwrap_or(""))
+            .then_with(|| a.precedes_instance_id().cmp(b.precedes_instance_id()))
     });
     result.extend(remaining.into_iter().cloned());
 
@@ -224,5 +233,49 @@ mod tests {
         let sorted = sort_by_precedes_chain(authored, &[]);
         assert_eq!(sorted[0].instance_id, "a-earlier");
         assert_eq!(sorted[1].instance_id, "b-later");
+    }
+
+    /// #532: equal `created_at` timestamps must break ties by `instance_id`
+    /// ascending — a total order, so the result is identical however the
+    /// candidates arrive.
+    #[test]
+    fn sort_by_precedes_chain_created_at_ties_break_by_instance_id() {
+        let ts = "2026-01-01T00:00:00Z";
+        let records = vec![
+            make_record("c", ts),
+            make_record("a", ts),
+            make_record("b", ts),
+        ];
+        let sorted = sort_by_precedes_chain(records, &[]);
+        let ids: Vec<&str> = sorted.iter().map(|r| r.instance_id.as_str()).collect();
+        assert_eq!(ids, vec!["a", "b", "c"]);
+    }
+
+    /// #532: records with no `created_at` at all still get a deterministic
+    /// order (instance_id ascending), including chain heads.
+    #[test]
+    fn sort_by_precedes_chain_missing_created_at_orders_by_instance_id() {
+        let make_no_ts = |id: &str| {
+            let mut r = make_record(id, "");
+            r.created_at = None;
+            r
+        };
+        // Two singleton heads plus one two-element chain (m -> z); every
+        // permutation of the input must produce the same output.
+        let base = vec![
+            make_no_ts("z"),
+            make_no_ts("m"),
+            make_no_ts("b"),
+            make_no_ts("a"),
+        ];
+        let relations = vec![make_precedes("m", "z")];
+        let expected = vec!["a", "b", "m", "z"];
+        for rotation in 0..base.len() {
+            let mut input = base.clone();
+            input.rotate_left(rotation);
+            let sorted = sort_by_precedes_chain(input, &relations);
+            let ids: Vec<&str> = sorted.iter().map(|r| r.instance_id.as_str()).collect();
+            assert_eq!(ids, expected, "rotation {rotation} must not change order");
+        }
     }
 }
