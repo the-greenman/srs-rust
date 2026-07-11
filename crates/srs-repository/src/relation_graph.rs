@@ -5,6 +5,31 @@ use srs_core::types::record::Record;
 use srs_core::types::relation::Relation;
 use std::collections::{HashMap, HashSet};
 
+/// Anything that can participate in a `precedes`-chain sort: it has an instance
+/// ID and an optional creation timestamp for the fallback ordering.
+pub(crate) trait PrecedesSortable: Clone {
+    fn precedes_instance_id(&self) -> &str;
+    fn precedes_created_at(&self) -> Option<&str>;
+}
+
+impl PrecedesSortable for Record {
+    fn precedes_instance_id(&self) -> &str {
+        &self.instance_id
+    }
+    fn precedes_created_at(&self) -> Option<&str> {
+        self.created_at.as_deref()
+    }
+}
+
+impl PrecedesSortable for crate::record_store::LoadedInstance {
+    fn precedes_instance_id(&self) -> &str {
+        self.instance_id()
+    }
+    fn precedes_created_at(&self) -> Option<&str> {
+        self.created_at()
+    }
+}
+
 /// Sort records by following the `precedes` relation chain among them.
 ///
 /// Builds a linked-list ordering from `precedes` relations whose both endpoints
@@ -12,12 +37,15 @@ use std::collections::{HashMap, HashSet};
 /// back to `created_at` order. Handles cycles via a visited set.
 ///
 /// Extracted from `render_service` — shared by render and tree services.
-pub(crate) fn sort_by_precedes_chain(records: Vec<Record>, relations: &[Relation]) -> Vec<Record> {
+pub(crate) fn sort_by_precedes_chain<T: PrecedesSortable>(
+    records: Vec<T>,
+    relations: &[Relation],
+) -> Vec<T> {
     if records.len() <= 1 {
         return records;
     }
 
-    let id_set: HashSet<&str> = records.iter().map(|r| r.instance_id.as_str()).collect();
+    let id_set: HashSet<&str> = records.iter().map(|r| r.precedes_instance_id()).collect();
 
     let mut next: HashMap<&str, &str> = HashMap::new();
     let mut in_degree: HashMap<&str, usize> = id_set.iter().map(|id| (*id, 0)).collect();
@@ -46,23 +74,23 @@ pub(crate) fn sort_by_precedes_chain(records: Vec<Record>, relations: &[Relation
     heads.sort_by(|a, b| {
         let ta = records
             .iter()
-            .find(|r| r.instance_id == *a)
-            .and_then(|r| r.created_at.as_deref())
+            .find(|r| r.precedes_instance_id() == *a)
+            .and_then(|r| r.precedes_created_at())
             .unwrap_or("");
         let tb = records
             .iter()
-            .find(|r| r.instance_id == *b)
-            .and_then(|r| r.created_at.as_deref())
+            .find(|r| r.precedes_instance_id() == *b)
+            .and_then(|r| r.precedes_created_at())
             .unwrap_or("");
         ta.cmp(tb)
     });
 
-    let record_map: HashMap<&str, &Record> = records
+    let record_map: HashMap<&str, &T> = records
         .iter()
-        .map(|r| (r.instance_id.as_str(), r))
+        .map(|r| (r.precedes_instance_id(), r))
         .collect();
 
-    let mut result: Vec<Record> = Vec::with_capacity(records.len());
+    let mut result: Vec<T> = Vec::with_capacity(records.len());
     let mut visited: HashSet<&str> = HashSet::new();
 
     for head in heads {
@@ -82,15 +110,14 @@ pub(crate) fn sort_by_precedes_chain(records: Vec<Record>, relations: &[Relation
         }
     }
 
-    let mut remaining: Vec<&Record> = records
+    let mut remaining: Vec<&T> = records
         .iter()
-        .filter(|r| !visited.contains(r.instance_id.as_str()))
+        .filter(|r| !visited.contains(r.precedes_instance_id()))
         .collect();
     remaining.sort_by(|a, b| {
-        a.created_at
-            .as_deref()
+        a.precedes_created_at()
             .unwrap_or("")
-            .cmp(b.created_at.as_deref().unwrap_or(""))
+            .cmp(b.precedes_created_at().unwrap_or(""))
     });
     result.extend(remaining.into_iter().cloned());
 

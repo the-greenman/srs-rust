@@ -98,6 +98,76 @@ pub fn get_record_by_id(
     }
 }
 
+/// An instance loaded by tier. Tier-0 notes are legal container roots/members
+/// (RFC-013 models a Tier-0 identity note that can be graduated later), so code
+/// that resolves arbitrary container members must be prepared for both shapes.
+#[derive(Debug, Clone)]
+pub enum LoadedInstance {
+    /// Tier-2 (and legacy tier-1) instance loaded as a typed Record.
+    Record(Record),
+    /// Tier-0 instance loaded as a Note.
+    Note(srs_core::types::note::Note),
+}
+
+impl LoadedInstance {
+    pub fn instance_id(&self) -> &str {
+        match self {
+            LoadedInstance::Record(r) => &r.instance_id,
+            LoadedInstance::Note(n) => &n.instance_id,
+        }
+    }
+
+    pub fn created_at(&self) -> Option<&str> {
+        match self {
+            LoadedInstance::Record(r) => r.created_at.as_deref(),
+            LoadedInstance::Note(n) => n.created_at.as_deref(),
+        }
+    }
+
+    pub fn as_record(&self) -> Option<&Record> {
+        match self {
+            LoadedInstance::Record(r) => Some(r),
+            LoadedInstance::Note(_) => None,
+        }
+    }
+
+    /// Field value lookup by field ID. Notes have no field values.
+    pub fn get_field_value_str(&self, field_id: &str) -> Option<&str> {
+        match self {
+            LoadedInstance::Record(r) => r.get_field_value_str(field_id),
+            LoadedInstance::Note(_) => None,
+        }
+    }
+}
+
+/// Get an instance by ID, dispatching on its manifest tier: Tier-0 entries load
+/// through the Note shape, everything else loads as a Record. Use this instead of
+/// [`get_record_by_id`] wherever an ID may legally reference a note (e.g. container
+/// members and roots).
+pub fn get_instance_by_id(
+    store: &dyn RepositoryStore,
+    id: &str,
+) -> Result<Option<LoadedInstance>, RepositoryError> {
+    let manifest = store.load_manifest()?;
+
+    let entry = manifest
+        .instance_index
+        .iter()
+        .find(|e| e.instance_id() == id);
+
+    match entry {
+        Some(entry) if entry.is_note() => {
+            let note = crate::loader::load_note(store, entry.path())?;
+            Ok(Some(LoadedInstance::Note(note)))
+        }
+        Some(entry) => {
+            let record = load_record(store, entry.path())?;
+            Ok(Some(LoadedInstance::Record(record)))
+        }
+        None => Ok(None),
+    }
+}
+
 /// Create a new Tier 2 record in the default directory (`records/tier-2`).
 pub fn create_record(
     store: &dyn RepositoryStore,

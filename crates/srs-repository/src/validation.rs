@@ -812,6 +812,54 @@ pub fn validate_repository(
             }
         }
 
+        // Dangling document-view container references (#509): a section whose source
+        // names a containerId that does not resolve renders as empty at render time.
+        // Advisory (Warning) — the repository stays valid, but the broken reference
+        // should be visible before render time.
+        {
+            let mut checked_ids: HashMap<String, bool> = HashMap::new();
+            let mut resolves = |id: &str| -> bool {
+                if let Some(known) = checked_ids.get(id) {
+                    return *known;
+                }
+                let ok = store.load_container(id).is_ok();
+                checked_ids.insert(id.to_string(), ok);
+                ok
+            };
+            for dv in &pkg.document_views {
+                for section in &dv.sections {
+                    let referenced: Vec<&str> = match &section.source {
+                        srs_core::types::view::SectionSource::ContainerSubset {
+                            container_id,
+                            ..
+                        } => vec![container_id.as_str()],
+                        srs_core::types::view::SectionSource::TypeQuery {
+                            container_ids, ..
+                        } => container_ids
+                            .as_deref()
+                            .unwrap_or(&[])
+                            .iter()
+                            .map(|s| s.as_str())
+                            .collect(),
+                        _ => Vec::new(),
+                    };
+                    for cid in referenced {
+                        if !resolves(cid) {
+                            diagnostics.push(ValidationDiagnostic {
+                                severity: DiagnosticSeverity::Warning,
+                                relative_path: "package/package.json".to_string(),
+                                schema_id: None,
+                                message: format!(
+                                    "documentView '{}' section '{}' references containerId '{}' which does not resolve to a Container in this repository; the section will render as empty",
+                                    dv.id, section.section_id, cid
+                                ),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
         // I-64: when a Container has rootInstanceIds and a containerType, containerType SHOULD
         // equal the resolved root Type's bare `name`. A mismatch is a stale hint, not an error.
         // Edge cases (unloadable root Record, unresolved Type) skip the check — never error here.
@@ -3070,6 +3118,74 @@ mod tests {
                 .iter()
                 .any(|d| d.message.contains("I-63") && d.severity == DiagnosticSeverity::Warning),
             "expected an I-63 warning, got {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn validate_flags_dangling_document_view_container_ref() {
+        // #509: a document-view section whose containerId does not resolve to a
+        // Container produces a Warning; the repository stays valid (is_ok).
+        let temp = TempDir::new().unwrap();
+        write_json(temp.path(), "manifest.json", &minimal_manifest(json!([])));
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                "id": "00000000-0000-4000-8000-000000000010",
+                "namespace": "com.test",
+                "name": "test-package",
+                "title": "Test Package",
+                "description": "test package",
+                "status": "active",
+                "version": "1.0.0",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "fields": [],
+                "types": [],
+                "views": [],
+                "documentViews": ["document-views/dv.json"]
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/document-views/dv.json",
+            &json!({
+                "id": "00000000-0000-4000-8000-0000000000d2",
+                "namespace": "com.test",
+                "name": "dv-dangling",
+                "version": 1,
+                "description": "doc view with a dangling container reference",
+                "sections": [{
+                    "sectionId": "broken",
+                    "order": 0,
+                    "source": {
+                        "type": "container-subset",
+                        "containerId": "00000000-0000-4000-8000-0000000dead0"
+                    },
+                    "emptyBehavior": "hide"
+                }],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        assert!(
+            report.is_ok(),
+            "dangling container ref is advisory; repo must stay ok: {:?}",
+            report.diagnostics
+        );
+        assert!(
+            report.diagnostics.iter().any(|d| {
+                d.severity == DiagnosticSeverity::Warning
+                    && d.message.contains("00000000-0000-4000-8000-0000000000d2")
+                    && d.message.contains("broken")
+                    && d.message.contains("00000000-0000-4000-8000-0000000dead0")
+                    && d.message.contains("does not resolve to a Container")
+            }),
+            "expected a dangling document-view container warning, got {:?}",
             report.diagnostics
         );
     }
