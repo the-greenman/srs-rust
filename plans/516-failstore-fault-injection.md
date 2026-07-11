@@ -55,9 +55,10 @@ No schema files added or modified. No action required.
 ## Scope
 
 - Add `FailPoint` enum (`SaveManifest`, `DeleteInstanceFile`) to the `#[cfg(test)] pub mod memory` section of `crates/srs-repository/src/store.rs`.
-- Add `fail_at: RefCell<Option<FailPoint>>` to `MemoryStore`; update `new()`, `empty()`, `uninitialized()` constructors.
+- Add `fail_at: RefCell<Option<FailPoint>>` to `MemoryStore`; update `new()` and `uninitialized()` constructors (note: `empty()` delegates to `new()` so needs no separate change).
 - Add `with_fail_at(point: FailPoint) -> Self` builder and `arm_fail_at(&self, point: FailPoint)` / `disarm_fail_at(&self)` methods to `MemoryStore`.
 - Update `MemoryStore::save_manifest` and `MemoryStore::delete_instance_file` to check `fail_at` and return an `Io` error when armed.
+- Add two smoke tests in `store.rs` `#[cfg(test)] pub mod memory` verifying the FailPoint mechanism in isolation.
 - Add three fault-injection tests for `delete_record` in `crates/srs-repository/src/record_store.rs` tests.
 - Add three fault-injection tests for `delete_note` in `crates/srs-repository/src/services.rs` tests.
 
@@ -85,7 +86,7 @@ existing tests still pass.
   ```rust
   /// Fault-injection point for `MemoryStore`. When armed, the next call to the
   /// named operation returns an `Io` error; subsequent calls proceed normally.
-  #[derive(Debug, Clone, PartialEq, Eq)]
+  #[derive(Debug, Clone, Copy, PartialEq, Eq)]
   pub enum FailPoint {
       /// Fail the next `save_manifest` call.
       SaveManifest,
@@ -94,13 +95,13 @@ existing tests still pass.
   }
   ```
 - [ ] Add `fail_at: RefCell<Option<FailPoint>>` field to `MemoryStore`.
-- [ ] Update `MemoryStore::new(manifest, package)`, `MemoryStore::empty()`, and
-  `MemoryStore::uninitialized()` to initialise `fail_at: RefCell::new(None)`.
-- [ ] Add builder method:
+- [ ] Update `MemoryStore::new(manifest, package)` and `MemoryStore::uninitialized()` to
+  initialise `fail_at: RefCell::new(None)`. (`empty()` delegates to `new()` and needs no change.)
+- [ ] Add builder method (consistent with other `MemoryStore` builders that take `self`):
   ```rust
   /// Arm a fail point; the next call to the named operation will return an error.
-  pub fn with_fail_at(mut self, point: FailPoint) -> Self {
-      self.fail_at = RefCell::new(Some(point));
+  pub fn with_fail_at(self, point: FailPoint) -> Self {
+      *self.fail_at.borrow_mut() = Some(point);
       self
   }
   ```
@@ -113,18 +114,24 @@ existing tests still pass.
       *self.fail_at.borrow_mut() = None;
   }
   ```
-- [ ] In `MemoryStore::save_manifest`, add at the top:
+- [ ] In `MemoryStore::save_manifest`, add at the top (peek-then-conditional-clear to avoid
+  consuming a non-matching variant):
   ```rust
-  if let Some(FailPoint::SaveManifest) = self.fail_at.borrow_mut().take() {
+  let should_fail = matches!(*self.fail_at.borrow(), Some(FailPoint::SaveManifest));
+  if should_fail {
+      *self.fail_at.borrow_mut() = None;
       return Err(RepositoryError::Io {
-          path: std::path::PathBuf::from("manifest.json"),
+          path: std::path::PathBuf::from("injected"),
           source: std::io::Error::new(std::io::ErrorKind::Other, "injected fault: save_manifest"),
       });
   }
   ```
-- [ ] In `MemoryStore::delete_instance_file`, add at the top:
+- [ ] In `MemoryStore::delete_instance_file`, add at the top (same peek-then-conditional-clear
+  pattern):
   ```rust
-  if let Some(FailPoint::DeleteInstanceFile) = self.fail_at.borrow_mut().take() {
+  let should_fail = matches!(*self.fail_at.borrow(), Some(FailPoint::DeleteInstanceFile));
+  if should_fail {
+      *self.fail_at.borrow_mut() = None;
       return Err(RepositoryError::Io {
           path: std::path::PathBuf::from(relative_path),
           source: std::io::Error::new(std::io::ErrorKind::Other, "injected fault: delete_instance_file"),
@@ -132,13 +139,32 @@ existing tests still pass.
   }
   ```
 
-Note: `.take()` resets the fail point after a single trigger, making it one-shot.
+**Why peek-then-conditional-clear:** `Option::take()` removes the value unconditionally before
+the `if let` pattern check runs. If `SaveManifest` is armed and `delete_instance_file` is called,
+`.take()` would consume the fail point with no error fired, leaving the store permanently
+disarmed. The peek pattern (`matches!` read + explicit clear only when matching) avoids this.
+
+- [ ] Add two smoke tests inside `#[cfg(test)] pub mod memory { ... }` in `store.rs`:
+
+  **Smoke test 1:** `memory_store_save_manifest_fail_point_triggers_error`
+  - Create `MemoryStore::empty()`.
+  - Call `store.arm_fail_at(FailPoint::SaveManifest)`.
+  - Call `store.save_manifest(&Manifest::default())` — assert `Err(RepositoryError::Io)`.
+  - Call `store.save_manifest(&Manifest::default())` again — assert `Ok(())` (one-shot disarmed).
+
+  **Smoke test 2:** `memory_store_delete_instance_file_fail_point_triggers_error`
+  - Create `MemoryStore::empty()`.
+  - Pre-populate with a dummy data entry at path `"records/test.json"`.
+  - Call `store.arm_fail_at(FailPoint::DeleteInstanceFile)`.
+  - Call `store.delete_instance_file("records/test.json")` — assert `Err(RepositoryError::Io)`.
+  - Call `store.delete_instance_file("records/test.json")` again — assert `Ok(())` (disarmed).
 
 #### Acceptance Criteria
 
 - [ ] `MemoryStore::empty()` constructs without `fail_at` affecting any operation.
 - [ ] An armed `MemoryStore` returns an `Io` error on the targeted operation.
 - [ ] After the error fires, the fail point is automatically disarmed (one-shot).
+- [ ] Arming `SaveManifest` does NOT consume the fail point when `delete_instance_file` is called (and vice versa).
 - [ ] All existing `MemoryStore` tests continue to pass.
 
 #### Testing
@@ -182,12 +208,16 @@ index-first delete invariant and document the old file-first bug as a regression
   ```
   Steps:
   1. Call `make_store_with_package()` to get a `MemoryStore`.
-  2. Create a record via `create_record` and get its `path` from the manifest.
+  2. Create a record via `create_record` and retrieve its `path` from the manifest
+     (load the manifest, find the entry for the record's instance_id, read its path field).
   3. Call `store.arm_fail_at(FailPoint::SaveManifest)`.
-  4. Directly call `store.delete_instance_file(&path)` — succeeds.
-  5. Then call `store.save_manifest(&manifest_without_entry)` — returns `Io` error (fault injected).
-  6. Assert: `store.load_instance_json(&path)` returns `Err` (file gone).
-  7. Assert: manifest still contains the index entry (dangling entry — the bug).
+  4. Directly call `store.delete_instance_file(&path)` — succeeds (file deleted).
+  5. Build `manifest_without_entry`: load the current manifest, remove the record's entry
+     from `instance_index`, then call `store.save_manifest(&manifest_without_entry)` —
+     returns `Err(RepositoryError::Io)` (fault injected; manifest NOT updated).
+  6. Assert: `store.load_instance_json(&path)` returns `Err` (file is gone).
+  7. Assert: the manifest's `instance_index` still contains the entry for this record's
+     instance_id (dangling entry — this is the bug that file-first ordering causes).
 
   **Test B — new ordering, manifest-write failure: no data loss, no dangling entry**
   ```
@@ -207,8 +237,9 @@ index-first delete invariant and document the old file-first bug as a regression
   Steps:
   1. `make_store_with_package()`, create record, get path.
   2. Call `store.arm_fail_at(FailPoint::DeleteInstanceFile)`.
-  3. Call `delete_record(&store, &instance_id)` — returns `Ok` (manifest write succeeded; file delete failed but is swallowed).
-  4. Assert: `store.load_instance_json(&path)` succeeds (orphaned file).
+  3. Call `delete_record(&store, &instance_id)` — returns `Ok` (manifest write succeeded;
+     file delete failed but is swallowed per ADR-007).
+  4. Assert: `store.load_instance_json(&path)` succeeds (orphaned file still present).
   5. Assert: manifest index no longer contains the entry (safe — no dangling entry).
 
 #### Acceptance Criteria
@@ -246,29 +277,47 @@ cargo clippy -p srs-repository -- -D warnings
 
 #### Tasks
 
-- [ ] In `crates/srs-repository/src/services.rs` test module, add (following the same pattern
-  as Phase 2 but for notes, using `store_with_note`):
+- [ ] In `crates/srs-repository/src/services.rs` test module, add (using `store_with_note`
+  helper already defined there):
 
-  **Test A — old ordering baseline**
+  **Test A — old ordering (file-first) baseline: documents the bug**
   ```
   test name: delete_note_old_file_first_ordering_leaves_dangling_index_entry
   ```
+  Steps:
+  1. Build a note and a path string (e.g. `"notes/test-note.json"`).
+  2. Call `store_with_note(note.clone(), path.clone())` to get a `MemoryStore`.
+  3. Call `store.arm_fail_at(FailPoint::SaveManifest)`.
+  4. Directly call `store.delete_instance_file(&path)` — succeeds (file deleted).
+  5. Build `manifest_without_entry`: load the current manifest, remove the note's entry
+     from `instance_index`, then call `store.save_manifest(&manifest_without_entry)` —
+     returns `Err(RepositoryError::Io)` (fault injected; manifest NOT updated).
+  6. Assert: `store.load_instance_json(&path)` returns `Err` (file is gone).
+  7. Assert: the manifest's `instance_index` still contains the entry for this note's
+     instance_id (dangling entry).
 
-  **Test B — new ordering, manifest-write failure**
+  **Test B — new ordering, manifest-write failure: no data loss**
   ```
   test name: delete_note_index_first_manifest_fail_leaves_note_intact
   ```
+  Steps:
+  1. Build note + path; call `store_with_note(note.clone(), path.clone())`.
+  2. Call `store.arm_fail_at(FailPoint::SaveManifest)`.
+  3. Call `delete_note(&store, note_id)` — returns `Err(RepositoryError::Io)`.
+  4. Assert: `store.load_instance_json(&path)` succeeds (file still present).
+  5. Assert: manifest index still contains the note's entry.
 
-  **Test C — new ordering, file-delete failure**
+  **Test C — new ordering, file-delete failure: orphaned file, index cleared**
   ```
   test name: delete_note_index_first_file_fail_leaves_orphaned_file_safe
   ```
-
-  Implementation pattern mirrors Phase 2 tests; use `store_with_note(note, path)` helper
-  (already defined in `services.rs` test module).
-
-  For Test A, use `store_with_note`, arm `SaveManifest`, delete the note file directly, fail the
-  manifest write. For Tests B and C, call `delete_note(&store, id)` after arming.
+  Steps:
+  1. Build note + path; call `store_with_note(note.clone(), path.clone())`.
+  2. Call `store.arm_fail_at(FailPoint::DeleteInstanceFile)`.
+  3. Call `delete_note(&store, note_id)` — returns `Ok` (manifest write succeeded;
+     file delete failed but is swallowed per ADR-007).
+  4. Assert: `store.load_instance_json(&path)` succeeds (orphaned file still present).
+  5. Assert: manifest index no longer contains the note's entry (safe — no dangling entry).
 
 #### Acceptance Criteria
 
@@ -303,6 +352,7 @@ cargo clippy -p srs-repository -- -D warnings
 - [ ] `bash scripts/check-schema-sync.sh` exits 0 — no entity schemas changed
 - [ ] Six new fault-injection tests exist and pass (3 for `delete_record`, 3 for `delete_note`)
 - [ ] `MemoryStore` fault injection is one-shot: the fail point disarms after triggering
+- [ ] Arming one `FailPoint` variant does not consume or interfere with the other variant
 - [ ] No existing tests regress
 
 ## Coordination Rules
@@ -318,4 +368,4 @@ cargo clippy -p srs-repository -- -D warnings
 
 - `MemoryStore` is only used in `#[cfg(test)]` contexts; adding `fail_at` introduces no production risk.
 - The `MemoryStore::save_manifest` and `MemoryStore::delete_instance_file` implementations are the ones used by `delete_record` and `delete_note` (verified: both functions call `store.save_manifest()` and `store.delete_instance_file()` via the trait).
-- The `manifest_without_entry` in Phase 2 Test A is constructed by loading the manifest, removing the entry, then calling `save_manifest` directly — this is the store manipulation test pattern used elsewhere.
+- The `manifest_without_entry` in Test A for both phases is constructed by loading the manifest, removing the entry, then calling `save_manifest` directly — this is the store manipulation test pattern used elsewhere.
