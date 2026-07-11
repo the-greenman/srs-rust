@@ -1358,22 +1358,28 @@ fn resolve_section_instances(
             let effective_id = cli_container_id.unwrap_or(container_id.as_str());
             let members = list_members(store, effective_id)?;
             let manifest = store.load_manifest()?;
+            let note_ids: HashSet<&str> = manifest
+                .instance_index
+                .iter()
+                .filter(|e| e.is_note())
+                .map(|e| e.instance_id.as_str())
+                .collect();
             let mut records = Vec::new();
             for id in members {
-                if let Some(entry) = manifest.instance_index.iter().find(|e| e.instance_id == id) {
-                    if entry.is_note() {
-                        diagnostics.push(format!(
-                            "[container-subset] skipping Tier-0 note {} in container {}; \
-                             notes are not rendered in document-view sections",
-                            id, effective_id
-                        ));
-                        continue;
-                    }
+                if note_ids.contains(id.as_str()) {
+                    diagnostics.push(format!(
+                        "[container-subset] skipping Tier-0 note {} in container {}; \
+                         notes are not rendered in document-view sections",
+                        id, effective_id
+                    ));
+                    continue;
                 }
                 if let Some(record) = get_record_by_id(store, &id)? {
                     records.push(record);
                 }
             }
+            // Note guard runs before instance_id_filter: a note whose ID matches the filter
+            // still emits a diagnostic and is excluded (notes cannot render as records).
             if let Some(filter_id) = instance_id_filter {
                 records.retain(|r| r.instance_id == filter_id);
             }
