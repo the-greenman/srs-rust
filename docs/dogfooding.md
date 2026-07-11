@@ -830,7 +830,7 @@ $SRS_BIN repo navigation --repo "$SCRATCH" --pretty
 
 **Intention.** *"My repository's identity is stored as a free-text note (Tier 0). I want to promote it to the formal `com.semanticops.core/purpose` record so the RFC-018 identity invariant is satisfied and repo validate is clean."*
 
-**Capabilities exercised.** `migrate_identity_service`: extracts statement + title from the existing Tier-0 note, writes a `com.semanticops.core/purpose` Tier-2 Record, updates `manifest.container.identityInstanceId` and the persisted Container file's `identityInstanceId` in lockstep, adds the new record to the container's `memberInstanceIds`, all in a single ADR-021 batch. Old identity note is preserved (not deleted).
+**Capabilities exercised.** `migrate_identity_service`: extracts statement + title from the existing Tier-0 note, creates a `com.semanticops.core/purpose` Tier-2 Record via `create_record` (CFR validation runs at write time, ADR-002 #481), updates `manifest.container.identityInstanceId` and the persisted Container file's `identityInstanceId` in lockstep, adds the new record to the container's `memberInstanceIds`, all in a single ADR-021 batch. Old identity note is preserved (not deleted).
 
 **CLI surface.** `repo create`, `note create`, `container create`, `container members add`, `repo set-root-container`, `repo validate`, `repo migrate-identity`.
 

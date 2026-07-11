@@ -21,6 +21,7 @@ use srs_core::types::record::{FieldValue, Record};
 use std::collections::HashMap;
 
 /// Components needed to create a `com.semanticops.core/purpose` record via `create_record`.
+#[derive(Debug)]
 pub(crate) struct PurposeRecordSpec {
     pub(crate) type_id: String,
     pub(crate) type_version: u32,
