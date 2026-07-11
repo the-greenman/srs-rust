@@ -251,6 +251,7 @@ pub trait RepositoryStore {
 
     /// Persist a container by its logical `container_id`.
     /// Creates it if it does not exist; overwrites if it does.
+    /// Implementations must write entity data before updating any index (ADR-007).
     fn save_container(
         &self,
         container: &srs_core::types::container::Container,
@@ -1584,11 +1585,15 @@ impl RepositoryStore for FileStore {
             path: std::path::PathBuf::from("containers"),
             source,
         })?;
-        // Find existing path or derive a new one
-        let path = match file_store_find_container_path(self, id) {
-            Ok(p) => p,
+        self.ensure_dir(&self.repo_root.join("containers"))?;
+        match file_store_find_container_path(self, id) {
+            Ok(path) => {
+                // Existing container — overwrite file in place; index unchanged
+                self.write_json(&self.abs(&path), &val)
+            }
             Err(RepositoryError::ContainerNotFound { .. }) => {
-                // New container — derive path from title slug + id prefix
+                // New container — file-before-index (ADR-007: orphaned file is safe,
+                // dangling index entry causes read errors on every subsequent load)
                 let slug = container
                     .title
                     .to_lowercase()
@@ -1597,14 +1602,11 @@ impl RepositoryStore for FileStore {
                     .collect::<String>();
                 let prefix = &id[..id.len().min(8)];
                 let filename = format!("containers/{slug}-{prefix}.json");
-                // Register in index
-                file_store_upsert_container_index(self, id, &container.title, &filename)?;
-                filename
+                self.write_json(&self.abs(&filename), &val)?;
+                file_store_upsert_container_index(self, id, &container.title, &filename)
             }
-            Err(e) => return Err(e),
-        };
-        self.ensure_dir(&self.repo_root.join("containers"))?;
-        self.write_json(&self.abs(&path), &val)
+            Err(e) => Err(e),
+        }
     }
 
     fn delete_container(&self, container_id: &str) -> Result<(), RepositoryError> {
@@ -2013,6 +2015,9 @@ pub mod memory {
         SaveManifest,
         /// Fail the next `delete_instance_file` call.
         DeleteInstanceFile,
+        /// Fail the next container-index update in `save_container` (after data write).
+        /// Simulates a crash between the file write and the index update for ADR-007 testing.
+        SaveContainerIndex,
     }
 
     /// In-memory implementation of [`RepositoryStore`] for unit tests.
@@ -2859,6 +2864,19 @@ pub mod memory {
                     source,
                 })?;
             self.data.borrow_mut().insert(key, val);
+            // Fault injection point: after data write, before index update.
+            // Simulates a crash between the file write and the index update (ADR-007).
+            let should_fail = matches!(*self.fail_at.borrow(), Some(FailPoint::SaveContainerIndex));
+            if should_fail {
+                *self.fail_at.borrow_mut() = None;
+                return Err(RepositoryError::Io {
+                    path: std::path::PathBuf::from("injected"),
+                    source: std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "injected fault: save_container_index",
+                    ),
+                });
+            }
             // Update summary index in manifest
             let mut manifest = self.manifest.borrow_mut();
             let mut entries = manifest.container_index.take().unwrap_or_default();
@@ -3621,6 +3639,41 @@ mod tests {
         let store = MemoryStore::default();
         let err = store.delete_container("nonexistent").unwrap_err();
         assert!(matches!(err, RepositoryError::ContainerNotFound { .. }));
+    }
+
+    #[test]
+    fn save_container_file_first_failed_index_leaves_orphaned_data_safe() {
+        // ADR-007: with file-before-index ordering, a failed index update after a successful
+        // data write must leave the data in the backing store (orphaned, invisible to readers) but
+        // no dangling index entry. Proves the invariant: the index is always internally consistent.
+        use memory::FailPoint;
+
+        let store = MemoryStore::empty();
+        let container = minimal_container_for_store("c-test-adr007", "ADR-007 Test");
+
+        store.arm_fail_at(FailPoint::SaveContainerIndex);
+        let result = store.save_container(&container);
+
+        // The call must have failed (simulating a crash between file write and index update)
+        assert!(
+            matches!(result, Err(RepositoryError::Io { .. })),
+            "save_container should return Io error when SaveContainerIndex fail point is armed"
+        );
+
+        // Data was written before the injected failure — orphaned entry present in backing store (safe)
+        assert!(
+            store
+                .all_data()
+                .contains_key("containers/c-test-adr007.json"),
+            "container data should exist as an orphaned entry after failed index update"
+        );
+
+        // Index must NOT have an entry — no dangling index entry
+        let summaries = store.list_container_summaries().unwrap();
+        assert!(
+            summaries.is_empty(),
+            "container index must have no entry after failed index update (no dangling entry)"
+        );
     }
 
     // --- Package boundary tests ---
