@@ -5702,8 +5702,15 @@ mod tests {
         use crate::store::memory::FailPoint;
 
         let store = make_store_with_package();
-        let record = create_record(&store, "type-test-001", 1, minimal_field_values(), None, None)
-            .unwrap();
+        let record = create_record(
+            &store,
+            "type-test-001",
+            1,
+            minimal_field_values(),
+            None,
+            None,
+        )
+        .unwrap();
         let instance_id = &record.instance_id;
 
         let manifest = store.load_manifest().unwrap();
@@ -5753,8 +5760,15 @@ mod tests {
         use crate::store::memory::FailPoint;
 
         let store = make_store_with_package();
-        let record = create_record(&store, "type-test-001", 1, minimal_field_values(), None, None)
-            .unwrap();
+        let record = create_record(
+            &store,
+            "type-test-001",
+            1,
+            minimal_field_values(),
+            None,
+            None,
+        )
+        .unwrap();
         let instance_id = record.instance_id.clone();
 
         let manifest = store.load_manifest().unwrap();
@@ -5797,8 +5811,15 @@ mod tests {
         use crate::store::memory::FailPoint;
 
         let store = make_store_with_package();
-        let record = create_record(&store, "type-test-001", 1, minimal_field_values(), None, None)
-            .unwrap();
+        let record = create_record(
+            &store,
+            "type-test-001",
+            1,
+            minimal_field_values(),
+            None,
+            None,
+        )
+        .unwrap();
         let instance_id = record.instance_id.clone();
 
         let manifest = store.load_manifest().unwrap();

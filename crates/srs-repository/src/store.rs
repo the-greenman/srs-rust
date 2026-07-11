@@ -2740,8 +2740,7 @@ pub mod memory {
         }
 
         fn delete_instance_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-            let should_fail =
-                matches!(*self.fail_at.borrow(), Some(FailPoint::DeleteInstanceFile));
+            let should_fail = matches!(*self.fail_at.borrow(), Some(FailPoint::DeleteInstanceFile));
             if should_fail {
                 *self.fail_at.borrow_mut() = None;
                 return Err(RepositoryError::Io {
@@ -3984,7 +3983,9 @@ mod tests {
             "armed SaveManifest should return Io error"
         );
         // One-shot: second call succeeds
-        store.save_manifest(&manifest).expect("fail point must be disarmed after first fire");
+        store
+            .save_manifest(&manifest)
+            .expect("fail point must be disarmed after first fire");
     }
 
     #[test]
