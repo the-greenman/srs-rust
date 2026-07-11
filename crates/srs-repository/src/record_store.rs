@@ -446,6 +446,13 @@ fn find_relations_referencing_instance(
 }
 
 /// Delete a Tier 2 record by its instance ID.
+///
+/// Follows ADR-007 index-first ordering for deletes: removes the manifest entry and
+/// persists the manifest before touching the file. If the process is interrupted after
+/// the manifest write, the file is left as an orphan (invisible to readers, recoverable
+/// by `srs repo repair`) rather than as a dangling index entry. File and sidecar deletion
+/// are best-effort after the index is committed.
+///
 /// Returns `CannotDeleteInUse` if any Relation references this record as source or target.
 pub fn delete_record(
     store: &dyn RepositoryStore,
@@ -472,11 +479,12 @@ pub fn delete_record(
 
     let path = manifest.instance_index[entry_index].path().to_string();
 
-    store.delete_instance_file(&path)?;
-    // Best-effort: delete the revision sidecar co-located with this record.
-    let _ = revision_service::delete_sidecar(store, &path);
+    // ADR-007: index-first for deletes — commit the manifest before touching the file.
     manifest.instance_index.remove(entry_index);
     write_manifest(store, &manifest)?;
+    // Best-effort file cleanup after the index is committed (orphaned file, not dangling entry).
+    let _ = store.delete_instance_file(&path);
+    let _ = revision_service::delete_sidecar(store, &path);
 
     Ok(instance_id.to_string())
 }
