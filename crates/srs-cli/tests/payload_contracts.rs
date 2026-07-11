@@ -156,6 +156,33 @@ fn relation_delete() {
     check::<RelationDeletePayload>("relation-delete");
 }
 
+// ── Relation-type ─────────────────────────────────────────────────────────────
+
+#[test]
+fn relation_type_list() {
+    check::<RelationTypeListPayload>("relation-type-list");
+}
+
+#[test]
+fn relation_type_get() {
+    check::<RelationTypePayload>("relation-type-get");
+}
+
+#[test]
+fn relation_type_create() {
+    check::<RelationTypePayload>("relation-type-create");
+}
+
+#[test]
+fn relation_type_update() {
+    check::<RelationTypePayload>("relation-type-update");
+}
+
+#[test]
+fn relation_type_delete() {
+    check::<RelationTypeDeletePayload>("relation-type-delete");
+}
+
 // ── Container ─────────────────────────────────────────────────────────────────
 
 #[test]
