@@ -583,6 +583,11 @@ pub fn update_note(
 }
 
 /// Service: Delete a note by ID
+///
+/// Follows ADR-007 index-first ordering for deletes: removes the manifest entry and
+/// persists the manifest before touching the file. File deletion is best-effort after
+/// the index is committed (leaves an orphaned file rather than a dangling index entry
+/// if interrupted).
 pub fn delete_note(
     store: &dyn RepositoryStore,
     id: &str,
@@ -600,9 +605,11 @@ pub fn delete_note(
 
     let path = manifest.instance_index[entry_index].path().to_string();
 
-    store.delete_instance_file(&path)?;
+    // ADR-007: index-first for deletes — commit the manifest before touching the file.
     manifest.instance_index.remove(entry_index);
     write_manifest(store, &manifest)?;
+    // Best-effort file cleanup after the index is committed.
+    let _ = store.delete_instance_file(&path);
 
     Ok(DeleteNoteResult {
         instance_id: id.to_string(),
@@ -1162,6 +1169,26 @@ mod tests {
 
         let manifest = store.load_manifest().unwrap();
         assert!(manifest.instance_index.is_empty());
+    }
+
+    #[test]
+    fn delete_note_removes_file_and_manifest_entry() {
+        let note = make_note("11111111-1111-1111-8111-111111111111", "Test Note");
+        let store = store_with_note(&note, "records/notes/test-note.json");
+
+        delete_note(&store, "11111111-1111-1111-8111-111111111111").unwrap();
+
+        assert!(
+            store
+                .load_instance_json("records/notes/test-note.json")
+                .is_err(),
+            "file should be removed after delete"
+        );
+        let manifest = store.load_manifest().unwrap();
+        assert!(
+            manifest.instance_index.is_empty(),
+            "manifest entry should be removed after delete"
+        );
     }
 
     #[test]

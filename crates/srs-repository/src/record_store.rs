@@ -446,6 +446,13 @@ fn find_relations_referencing_instance(
 }
 
 /// Delete a Tier 2 record by its instance ID.
+///
+/// Follows ADR-007 index-first ordering for deletes: removes the manifest entry and
+/// persists the manifest before touching the file. If the process is interrupted after
+/// the manifest write, the file is left as an orphan (invisible to readers, recoverable
+/// by `srs repo repair`) rather than as a dangling index entry. File and sidecar deletion
+/// are best-effort after the index is committed.
+///
 /// Returns `CannotDeleteInUse` if any Relation references this record as source or target.
 pub fn delete_record(
     store: &dyn RepositoryStore,
@@ -472,11 +479,12 @@ pub fn delete_record(
 
     let path = manifest.instance_index[entry_index].path().to_string();
 
-    store.delete_instance_file(&path)?;
-    // Best-effort: delete the revision sidecar co-located with this record.
-    let _ = revision_service::delete_sidecar(store, &path);
+    // ADR-007: index-first for deletes — commit the manifest before touching the file.
     manifest.instance_index.remove(entry_index);
     write_manifest(store, &manifest)?;
+    // Best-effort file cleanup after the index is committed (orphaned file, not dangling entry).
+    let _ = store.delete_instance_file(&path);
+    let _ = revision_service::delete_sidecar(store, &path);
 
     Ok(instance_id.to_string())
 }
@@ -725,12 +733,12 @@ pub fn get_record_summary_by_id(
 /// Calls `delete_record` to remove the newly-written record from the manifest. Any error from
 /// the cleanup is silently discarded via `let _ = …`.
 ///
-/// **Failure mode:** `delete_record` deletes the file first, then rewrites the manifest (file-
-/// before-index ordering). This is the inverse of ADR-007's prescribed index-before-file
-/// ordering for deletes. If the file deletion succeeds but `write_manifest` fails, the result
-/// is a dangling index entry — strictly worse than the pre-rollback state (an orphaned entry
-/// that has no backing file). This is an accepted limitation; the common case (transient I/O
-/// error on `add_member`) cleans up correctly. See ADR-024.
+/// **Failure mode:** `delete_record` follows ADR-007 index-first ordering — the manifest entry
+/// is removed and written before the file is deleted. If the manifest write fails, neither the
+/// file nor the manifest is changed and the record remains intact. If the manifest write succeeds
+/// but the subsequent file deletion fails, the file is left as an orphan (invisible to readers,
+/// recoverable by `srs repo repair`) rather than as a dangling index entry. The common case
+/// (transient I/O error on `add_member`) therefore cleans up correctly. See ADR-024.
 ///
 /// TODO: fault-injection test for this error arm pending a FailStore test double (see ADR-024).
 fn attempt_rollback_delete(store: &dyn RepositoryStore, instance_id: &str) {
