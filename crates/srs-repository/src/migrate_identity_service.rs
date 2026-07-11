@@ -775,4 +775,45 @@ mod tests {
             "purpose record must be in container members after roundtrip"
         );
     }
+
+    /// Health-check for issue #518: migrate_identity on a FileStore repo created by
+    /// create_repository_with_intent must report "already migrated" (purpose-record identity),
+    /// not crash, panic, or produce an unexpected error variant.
+    #[test]
+    fn migrate_identity_on_file_store_repo_created_by_create_repository_with_intent() {
+        use crate::repository_lifecycle::{
+            create_repository_with_intent, InitializeRepositoryInput, PrimaryPackageMetadata,
+            RepositoryMetadata,
+        };
+        use crate::store::FileStore;
+        use tempfile::TempDir;
+
+        let tmp = TempDir::new().unwrap();
+        let store = FileStore::new(tmp.path());
+        let input = InitializeRepositoryInput {
+            repository: RepositoryMetadata {
+                repository_id: "a0000518-0000-4000-8000-000000000518".to_string(),
+                namespace: "com.semanticops.test".to_string(),
+                srs_version: "2.0-draft".to_string(),
+                title: Some("FileStore Repo".to_string()),
+                description: Some("Health check for #518.".to_string()),
+            },
+            primary_package: PrimaryPackageMetadata {
+                id: "pkg-1".to_string(),
+                namespace: "com.semanticops.test".to_string(),
+                name: "primary".to_string(),
+                version: "1.0.0".to_string(),
+            },
+        };
+
+        create_repository_with_intent(&store, &input).unwrap();
+
+        // Purpose-record identity → migrate_identity returns "no migration needed" early
+        // without reaching load_container. The test confirms no crash or unexpected error.
+        let err = migrate_identity(&store).unwrap_err();
+        assert!(
+            matches!(&err, RepositoryError::InvalidInput { message } if message.contains("no migration needed")),
+            "expected already-migrated error on FileStore repo, got: {err:?}"
+        );
+    }
 }
