@@ -983,6 +983,14 @@ fn resolve_container_title(
                 return container.title;
             }
         }
+        // Embed-only root container: the manifest.container embed is the canonical
+        // repository-identity source (RFC-013) and may carry the title when no
+        // container file exists for the root.
+        if let Some(embed) = &manifest.container {
+            if embed.container_id == cid && !embed.title.is_empty() {
+                return embed.title.clone();
+            }
+        }
     }
 
     if let Some(title) = manifest
@@ -5955,6 +5963,61 @@ mod tests {
             ids,
             vec!["r-active"],
             "only active record should be included: {ids:?}"
+        );
+    }
+
+    /// #532: rendering the same view twice from the same store must be
+    /// byte-identical, even when the section members are not linked by any
+    /// `precedes` chain and share (or lack) `created_at`. Previously chain
+    /// heads fell back to HashMap iteration order and shuffled across runs.
+    #[test]
+    fn render_document_view_ordering_is_deterministic() {
+        // Records deliberately have created_at: None and no precedes relations —
+        // the pure-tiebreak case.
+        let dv = rfc011_dv("dv-determinism", None, None, None, None, None);
+        let store = make_rfc011_store(
+            dv,
+            &[
+                ("r-echo", None),
+                ("r-alpha", None),
+                ("r-delta", None),
+                ("r-charlie", None),
+                ("r-bravo", None),
+            ],
+        );
+
+        let render = |format: &'static str| {
+            render_document_view(RenderDocumentViewOptions {
+                store: &store,
+                view_id: "dv-determinism",
+                format: Some(format),
+                theme_variant: None,
+                container_id: None,
+                instance_id_filter: None,
+            })
+            .expect("render should succeed")
+        };
+
+        // Markdown path and JSON projection path must both be stable across runs.
+        let md1 = render("markdown");
+        let md2 = render("markdown");
+        assert_eq!(
+            md1.rendered, md2.rendered,
+            "markdown render must be byte-identical across runs"
+        );
+
+        let json1 = render("json");
+        let json2 = render("json");
+        let ids1 = rfc011_instance_ids_in_result(&json1);
+        let ids2 = rfc011_instance_ids_in_result(&json2);
+        assert_eq!(ids1, ids2, "JSON projection order must be stable");
+
+        // Documented tiebreak: created_at ascending, then instance_id ascending.
+        // All created_at are absent here, so pure instance_id order applies.
+        assert_eq!(
+            ids1,
+            vec!["r-alpha", "r-bravo", "r-charlie", "r-delta", "r-echo"],
+            "records without precedes/created_at must order by instance_id"
         );
     }
 

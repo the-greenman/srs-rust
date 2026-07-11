@@ -838,7 +838,9 @@ mod tests {
     fn make_input() -> InitializeRepositoryInput {
         InitializeRepositoryInput {
             repository: RepositoryMetadata {
-                repository_id: "repo-copy".to_string(),
+                // Must be a UUID: the root-container embed inherits this id, and
+                // validation now checks the embed when no container file exists.
+                repository_id: "c0c0c0c0-0000-4000-8000-c0c0c0c0c0c0".to_string(),
                 namespace: "com.semanticops.copy".to_string(),
                 srs_version: "2.0-draft".to_string(),
                 title: Some("Copy Test".to_string()),

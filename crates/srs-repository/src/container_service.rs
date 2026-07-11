@@ -163,6 +163,32 @@ pub fn get_container(
     store.load_container(container_id)
 }
 
+/// Resolve the repository's root container declared by `manifest.container`.
+///
+/// Resolution order (RFC-013):
+/// 1. A materialised container in the container store (`containerIndex` / `containers/`)
+///    whose id matches the embed's `containerId` — richest source when present
+///    (e.g. repos scaffolded by srs-gov or `repo create`).
+/// 2. The `manifest.container` embed itself. The embed is documented as the canonical
+///    source of truth for the repository's identity, so an embed-only root (as written
+///    by `repo set-root-container`, or by migrations of pre-RFC-013 repos) must resolve
+///    without a container file existing.
+///
+/// Returns `Ok(None)` when the manifest declares no root container at all.
+pub fn resolve_root_container(
+    store: &dyn RepositoryStore,
+    manifest: &crate::manifest::Manifest,
+) -> Result<Option<Container>, RepositoryError> {
+    let Some(embed) = manifest.container.as_ref() else {
+        return Ok(None);
+    };
+    match store.load_container(&embed.container_id) {
+        Ok(container) => Ok(Some(container)),
+        Err(RepositoryError::ContainerNotFound { .. }) => Ok(Some(embed.clone())),
+        Err(e) => Err(e),
+    }
+}
+
 pub fn update_container(
     store: &dyn RepositoryStore,
     container_id: &str,

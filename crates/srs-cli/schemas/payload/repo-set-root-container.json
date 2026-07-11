@@ -4,13 +4,24 @@
   "type": "object",
   "required": [
     "containerId",
-    "identityInstanceId"
+    "identityInstanceId",
+    "memberInstanceIds",
+    "title"
   ],
   "properties": {
     "containerId": {
       "type": "string"
     },
     "identityInstanceId": {
+      "type": "string"
+    },
+    "memberInstanceIds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "title": {
       "type": "string"
     }
   }

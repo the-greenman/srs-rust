@@ -117,10 +117,12 @@ pub fn validate_repository(
             });
         }
         Some(root) => {
+            // Same resolution as the navigation service: prefer the materialised
+            // container, fall back to the manifest.container embed (embed-only roots
+            // are valid — the embed is the canonical repository-identity source).
             let full_container_opt: Option<srs_core::types::container::Container> =
-                match store.load_container(&root.container_id) {
-                    Ok(c) => Some(c),
-                    Err(RepositoryError::ContainerNotFound { .. }) => None,
+                match crate::container_service::resolve_root_container(store, &manifest) {
+                    Ok(c) => c,
                     Err(e) => {
                         diagnostics.push(ValidationDiagnostic {
                             severity: DiagnosticSeverity::Error,
@@ -3957,38 +3959,89 @@ mod tests {
     }
 
     #[test]
-    fn rfc013_container_not_found_graceful_no_i80_i81_i82() {
-        // manifest.container present but no container file → graceful ContainerNotFound path
-        // I-79 passes; I-80/I-81/I-82 are all skipped
+    fn rfc013_embed_only_root_container_broken_embed_trips_i81() {
+        // manifest.container present but no container file → the embed itself is the
+        // root container (canonical repository-identity source) and IS validated:
+        // an identity that is not a member trips I-81 instead of being silently skipped.
         let root_id = "00000000-0000-4000-8000-000000000800";
         let manifest = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
             "repositoryId": root_id,
-            "title": "Graceful",
+            "title": "Embed Only",
             "container": {"containerId": root_id, "title": "Root", "identityInstanceId": "99999999-9999-4999-8999-999999999999"},
             "instanceIndex": [],
             "createdAt": "2026-01-01T00:00:00Z"
         });
-        // No containerIndex → FileStore returns ContainerNotFound → graceful
         let temp = TempDir::new().unwrap();
         write_json(temp.path(), "manifest.json", &manifest);
         let store = crate::store::FileStore::new(temp.path());
         let report = validate_repository(&store).unwrap();
-        let rfc013_errors: Vec<_> = report
+        let i81_errors: Vec<_> = report
             .diagnostics
             .iter()
             .filter(|d| {
-                d.severity == DiagnosticSeverity::Error
-                    && (d.message.contains("I-79")
-                        || d.message.contains("I-80")
-                        || d.message.contains("I-81")
-                        || d.message.contains("I-82"))
+                d.severity == DiagnosticSeverity::Error && d.message.contains("RFC-013 I-81")
             })
             .collect();
         assert!(
-            rfc013_errors.is_empty(),
-            "expected no RFC-013 errors on graceful ContainerNotFound path, got: {:?}",
+            !i81_errors.is_empty(),
+            "expected I-81 error for embed-only root whose identity is not a member, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn rfc013_embed_only_root_container_canonical_embed_validates_clean() {
+        // Embed-only root in the canonical shape written by `repo set-root-container`
+        // ({containerId, identityInstanceId, memberInstanceIds: [identity], title}) —
+        // no container file — must produce no RFC-013 errors and no RFC-018 warnings.
+        let root_id = "00000000-0000-4000-8000-000000000800";
+        let identity_id = "00000000-0000-4000-8000-000000000801";
+        let manifest = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+            "srsVersion": "2.0",
+            "repositoryId": root_id,
+            "title": "Embed Only",
+            "container": {
+                "containerId": root_id,
+                "title": "Embed Only",
+                "identityInstanceId": identity_id,
+                "memberInstanceIds": [identity_id]
+            },
+            "instanceIndex": [rfc013_instance_entry(identity_id)],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        let temp = TempDir::new().unwrap();
+        write_json(temp.path(), "manifest.json", &manifest);
+        write_json(
+            temp.path(),
+            &format!("records/{identity_id}.json"),
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                "instanceId": identity_id,
+                "typeId": "t-purpose",
+                "typeVersion": 1,
+                "typeNamespace": "com.semanticops.core",
+                "typeName": "purpose",
+                "fieldValues": []
+            }),
+        );
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let rfc_diags: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.message.contains("I-79")
+                    || d.message.contains("I-80")
+                    || d.message.contains("I-81")
+                    || d.message.contains("I-82")
+            })
+            .collect();
+        assert!(
+            rfc_diags.is_empty(),
+            "expected canonical embed-only root to validate clean, got: {:?}",
             report.diagnostics
         );
     }

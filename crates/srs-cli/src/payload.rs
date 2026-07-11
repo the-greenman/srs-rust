@@ -1411,6 +1411,8 @@ impl From<srs_repository::manifest_service::DeclaredExtensionsReport>
 pub struct RepoSetRootContainerPayload {
     pub container_id: String,
     pub identity_instance_id: String,
+    pub title: String,
+    pub member_instance_ids: Vec<String>,
 }
 
 // ── Revision payloads ─────────────────────────────────────────────────────────

@@ -352,6 +352,9 @@ pub fn remove_package_ref(
 pub struct SetManifestRootContainerInput {
     pub container_id: String,
     pub identity_instance_id: String,
+    /// Root container title. When `None`, falls back to the manifest title, then the
+    /// existing embed's title, then the manifest namespace.
+    pub title: Option<String>,
 }
 
 /// Result of `set_manifest_root_container`
@@ -360,9 +363,17 @@ pub struct SetManifestRootContainerInput {
 pub struct SetManifestRootContainerResult {
     pub container_id: String,
     pub identity_instance_id: String,
+    pub title: String,
+    pub member_instance_ids: Vec<String>,
 }
 
 /// Write manifest.container — sets the root container embed used by the navigation service.
+///
+/// Writes the canonical RFC-013 embed shape (same as `repo create`):
+/// `{containerId, identityInstanceId, memberInstanceIds, title}` with a non-empty title
+/// and `identityInstanceId ∈ memberInstanceIds` (I-81). An existing embed's members and
+/// other fields are preserved — the identity is merged into the members rather than
+/// clobbering a richer list.
 pub fn set_manifest_root_container(
     store: &dyn RepositoryStore,
     input: SetManifestRootContainerInput,
@@ -377,33 +388,76 @@ pub fn set_manifest_root_container(
             message: "identity_instance_id must not be empty".to_string(),
         });
     }
+    if input.title.as_deref() == Some("") {
+        return Err(RepositoryError::InvalidInput {
+            message: "title must not be empty when provided".to_string(),
+        });
+    }
 
     let mut manifest = store.load_manifest()?;
 
-    manifest.container = Some(srs_core::types::container::Container {
-        container_id: input.container_id.clone(),
-        // title is intentionally empty — manifest.container is a navigation pointer;
-        // the display title is read from the container record by container_id.
-        title: String::new(),
-        identity_instance_id: Some(input.identity_instance_id.clone()),
-        namespace: None,
-        name: None,
-        description: None,
-        container_type: None,
-        root_instance_ids: None,
-        member_instance_ids: None,
-        tags: None,
-        created_at: None,
-        updated_at: None,
-        meta: None,
-        extra: HashMap::new(),
-    });
+    let manifest_str = |key: &str| -> Option<String> {
+        manifest
+            .extra
+            .get(key)
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+    };
+    let existing_title = manifest
+        .container
+        .as_ref()
+        .map(|c| c.title.clone())
+        .filter(|t| !t.is_empty());
+    let title = input
+        .title
+        .clone()
+        .or_else(|| manifest_str("title"))
+        .or(existing_title)
+        .or_else(|| manifest_str("namespace"))
+        .ok_or_else(|| RepositoryError::InvalidInput {
+            message: "no title available: pass a title or set a manifest title".to_string(),
+        })?;
+
+    // Preserve an existing embed's members (and all other fields) instead of clobbering
+    // them; guarantee the identity is a member (RFC-013 I-81).
+    let mut container =
+        manifest
+            .container
+            .take()
+            .unwrap_or_else(|| srs_core::types::container::Container {
+                container_id: String::new(),
+                title: String::new(),
+                identity_instance_id: None,
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                root_instance_ids: None,
+                member_instance_ids: None,
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: HashMap::new(),
+            });
+    container.container_id = input.container_id.clone();
+    container.identity_instance_id = Some(input.identity_instance_id.clone());
+    container.title = title.clone();
+    let members = container.member_instance_ids.get_or_insert_with(Vec::new);
+    if !members.iter().any(|m| m == &input.identity_instance_id) {
+        members.push(input.identity_instance_id.clone());
+    }
+    let member_instance_ids = members.clone();
+    manifest.container = Some(container);
 
     write_manifest(store, &manifest)?;
 
     Ok(SetManifestRootContainerResult {
         container_id: input.container_id,
         identity_instance_id: input.identity_instance_id,
+        title,
+        member_instance_ids,
     })
 }
 
@@ -648,20 +702,33 @@ mod tests {
     const VALID_CONTAINER_ID: &str = "550e8400-e29b-41d4-a716-446655440000";
     const VALID_IDENTITY_ID: &str = "aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa";
 
-    #[test]
-    fn set_manifest_root_container_writes_and_reads_back() {
+    fn store_with_manifest_title(title: &str) -> MemoryStore {
         let store = MemoryStore::default();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest
+            .extra
+            .insert("title".to_string(), json!(title.to_string()));
+        store.save_manifest(&manifest).unwrap();
+        store
+    }
+
+    #[test]
+    fn set_manifest_root_container_writes_canonical_embed() {
+        let store = store_with_manifest_title("My Repo");
         let result = set_manifest_root_container(
             &store,
             SetManifestRootContainerInput {
                 container_id: VALID_CONTAINER_ID.to_string(),
                 identity_instance_id: VALID_IDENTITY_ID.to_string(),
+                title: None,
             },
         )
         .unwrap();
 
         assert_eq!(result.container_id, VALID_CONTAINER_ID);
         assert_eq!(result.identity_instance_id, VALID_IDENTITY_ID);
+        assert_eq!(result.title, "My Repo");
+        assert_eq!(result.member_instance_ids, vec![VALID_IDENTITY_ID]);
 
         let manifest = store.load_manifest().unwrap();
         let container = manifest.container.as_ref().unwrap();
@@ -670,7 +737,140 @@ mod tests {
             container.identity_instance_id.as_deref(),
             Some(VALID_IDENTITY_ID)
         );
-        assert_eq!(container.title, "");
+        // Canonical shape: manifest title as fallback, identity in members (I-81).
+        assert_eq!(container.title, "My Repo");
+        assert_eq!(
+            container.member_instance_ids.as_deref(),
+            Some(&[VALID_IDENTITY_ID.to_string()][..])
+        );
+    }
+
+    #[test]
+    fn set_manifest_root_container_explicit_title_wins() {
+        let store = store_with_manifest_title("Manifest Title");
+        let result = set_manifest_root_container(
+            &store,
+            SetManifestRootContainerInput {
+                container_id: VALID_CONTAINER_ID.to_string(),
+                identity_instance_id: VALID_IDENTITY_ID.to_string(),
+                title: Some("Explicit Title".to_string()),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.title, "Explicit Title");
+        let manifest = store.load_manifest().unwrap();
+        assert_eq!(manifest.container.as_ref().unwrap().title, "Explicit Title");
+    }
+
+    #[test]
+    fn set_manifest_root_container_title_falls_back_to_namespace() {
+        // No manifest title, no existing embed — namespace is the last fallback.
+        let store = MemoryStore::default();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest
+            .extra
+            .insert("namespace".to_string(), json!("com.example.ns"));
+        store.save_manifest(&manifest).unwrap();
+
+        let result = set_manifest_root_container(
+            &store,
+            SetManifestRootContainerInput {
+                container_id: VALID_CONTAINER_ID.to_string(),
+                identity_instance_id: VALID_IDENTITY_ID.to_string(),
+                title: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(result.title, "com.example.ns");
+    }
+
+    #[test]
+    fn set_manifest_root_container_no_title_source_returns_error() {
+        let store = MemoryStore::default();
+        let err = set_manifest_root_container(
+            &store,
+            SetManifestRootContainerInput {
+                container_id: VALID_CONTAINER_ID.to_string(),
+                identity_instance_id: VALID_IDENTITY_ID.to_string(),
+                title: None,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::InvalidInput { .. }),
+            "expected InvalidInput when no title source exists, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn set_manifest_root_container_preserves_existing_members_and_merges_identity() {
+        let store = store_with_manifest_title("My Repo");
+        let other_member = "bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb";
+
+        // Seed a richer embed: existing members list that does not contain the identity.
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.container = Some(srs_core::types::container::Container {
+            container_id: VALID_CONTAINER_ID.to_string(),
+            title: "Old Title".to_string(),
+            identity_instance_id: None,
+            namespace: None,
+            name: None,
+            description: Some("kept".to_string()),
+            container_type: None,
+            root_instance_ids: Some(vec![other_member.to_string()]),
+            member_instance_ids: Some(vec![other_member.to_string()]),
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: HashMap::new(),
+        });
+        store.save_manifest(&manifest).unwrap();
+
+        let result = set_manifest_root_container(
+            &store,
+            SetManifestRootContainerInput {
+                container_id: VALID_CONTAINER_ID.to_string(),
+                identity_instance_id: VALID_IDENTITY_ID.to_string(),
+                title: None,
+            },
+        )
+        .unwrap();
+
+        // Identity merged into the existing members, not clobbered over them.
+        assert_eq!(
+            result.member_instance_ids,
+            vec![other_member.to_string(), VALID_IDENTITY_ID.to_string()]
+        );
+        let manifest = store.load_manifest().unwrap();
+        let container = manifest.container.as_ref().unwrap();
+        assert_eq!(
+            container.member_instance_ids.as_deref(),
+            Some(&[other_member.to_string(), VALID_IDENTITY_ID.to_string()][..])
+        );
+        // Other embed fields preserved.
+        assert_eq!(container.description.as_deref(), Some("kept"));
+        assert_eq!(
+            container.root_instance_ids.as_deref(),
+            Some(&[other_member.to_string()][..])
+        );
+        // Manifest title wins over the stale embed title.
+        assert_eq!(container.title, "My Repo");
+    }
+
+    #[test]
+    fn set_manifest_root_container_idempotent_members() {
+        // Running twice must not duplicate the identity in memberInstanceIds.
+        let store = store_with_manifest_title("My Repo");
+        let input = SetManifestRootContainerInput {
+            container_id: VALID_CONTAINER_ID.to_string(),
+            identity_instance_id: VALID_IDENTITY_ID.to_string(),
+            title: None,
+        };
+        set_manifest_root_container(&store, input.clone()).unwrap();
+        let result = set_manifest_root_container(&store, input).unwrap();
+        assert_eq!(result.member_instance_ids, vec![VALID_IDENTITY_ID]);
     }
 
     #[test]
@@ -681,6 +881,7 @@ mod tests {
             SetManifestRootContainerInput {
                 container_id: "".to_string(),
                 identity_instance_id: VALID_IDENTITY_ID.to_string(),
+                title: None,
             },
         )
         .unwrap_err();
@@ -699,6 +900,7 @@ mod tests {
             SetManifestRootContainerInput {
                 container_id: VALID_CONTAINER_ID.to_string(),
                 identity_instance_id: "".to_string(),
+                title: None,
             },
         )
         .unwrap_err();
@@ -710,14 +912,34 @@ mod tests {
     }
 
     #[test]
+    fn set_manifest_root_container_empty_explicit_title_returns_error() {
+        let store = store_with_manifest_title("My Repo");
+        let err = set_manifest_root_container(
+            &store,
+            SetManifestRootContainerInput {
+                container_id: VALID_CONTAINER_ID.to_string(),
+                identity_instance_id: VALID_IDENTITY_ID.to_string(),
+                title: Some("".to_string()),
+            },
+        )
+        .unwrap_err();
+
+        assert!(
+            matches!(err, RepositoryError::InvalidInput { .. }),
+            "expected InvalidInput for explicit empty title, got {err:?}"
+        );
+    }
+
+    #[test]
     fn set_manifest_root_container_roundtrips_through_json() {
         // Write via MemoryStore, serialise manifest to JSON, deserialise, assert fields survive.
-        let store = MemoryStore::default();
+        let store = store_with_manifest_title("Roundtrip Repo");
         set_manifest_root_container(
             &store,
             SetManifestRootContainerInput {
                 container_id: VALID_CONTAINER_ID.to_string(),
                 identity_instance_id: VALID_IDENTITY_ID.to_string(),
+                title: None,
             },
         )
         .unwrap();
@@ -732,7 +954,11 @@ mod tests {
             container.identity_instance_id.as_deref(),
             Some(VALID_IDENTITY_ID)
         );
-        assert_eq!(container.title, "");
+        assert_eq!(container.title, "Roundtrip Repo");
+        assert_eq!(
+            container.member_instance_ids.as_deref(),
+            Some(&[VALID_IDENTITY_ID.to_string()][..])
+        );
     }
 
     // ── Conformance tests ─────────────────────────────────────────────────────

@@ -564,6 +564,9 @@ pub enum RepoCommand {
         container_id: String,
         #[arg(long = "identity-instance-id")]
         identity_instance_id: String,
+        /// Root container title (defaults to the manifest title when omitted)
+        #[arg(long = "title")]
+        title: Option<String>,
     },
     /// Extension management commands
     #[command(subcommand)]

@@ -252,6 +252,7 @@ pub fn scaffold_governance_repo(
         SetManifestRootContainerInput {
             container_id: root_container_id.clone(),
             identity_instance_id: identity_id.clone(),
+            title: None,
         },
     )?;
 
