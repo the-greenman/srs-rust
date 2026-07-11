@@ -2209,6 +2209,8 @@ pub mod memory {
             *self.fail_at.borrow_mut() = Some(point);
         }
 
+        /// Cancel a previously armed fail point without triggering it.
+        /// Useful in multi-step tests where a fault is armed conditionally.
         pub fn disarm_fail_at(&self) {
             *self.fail_at.borrow_mut() = None;
         }
@@ -2410,7 +2412,7 @@ pub mod memory {
             if should_fail {
                 *self.fail_at.borrow_mut() = None;
                 return Err(RepositoryError::Io {
-                    path: std::path::PathBuf::from("injected"),
+                    path: std::path::PathBuf::from("manifest.json"),
                     source: std::io::Error::new(
                         std::io::ErrorKind::Other,
                         "injected fault: save_manifest",
@@ -4003,6 +4005,25 @@ mod tests {
         store
             .delete_instance_file(path)
             .expect("fail point must be disarmed after first fire");
+    }
+
+    #[test]
+    fn memory_store_with_fail_at_builder_and_disarm() {
+        use memory::FailPoint;
+        // with_fail_at arms at construction time
+        let store = MemoryStore::empty().with_fail_at(FailPoint::SaveManifest);
+        let manifest = store.load_manifest().unwrap();
+        let err = store.save_manifest(&manifest);
+        assert!(
+            matches!(err, Err(RepositoryError::Io { .. })),
+            "with_fail_at should arm the point at construction"
+        );
+        // Re-arm then explicitly disarm — subsequent call must succeed
+        store.arm_fail_at(FailPoint::SaveManifest);
+        store.disarm_fail_at();
+        store
+            .save_manifest(&manifest)
+            .expect("disarmed point must not fire");
     }
 
     #[test]
