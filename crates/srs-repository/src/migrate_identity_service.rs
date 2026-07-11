@@ -3,8 +3,8 @@ use crate::core_purpose;
 use crate::error::RepositoryError;
 use crate::index::InstanceIndexEntry;
 use crate::loader;
-use crate::record_store::{upsert_record_index_entry, write_new_record};
-use crate::store::{RecordTier, RepositoryStore};
+use crate::record_store::create_record;
+use crate::store::RepositoryStore;
 use crate::writer;
 use serde::Serialize;
 
@@ -64,7 +64,7 @@ fn extract_identity_text(
 pub fn migrate_identity(
     store: &dyn RepositoryStore,
 ) -> Result<MigrateIdentityResult, RepositoryError> {
-    let mut manifest = store.load_manifest()?;
+    let manifest = store.load_manifest()?;
 
     let mc = manifest
         .container
@@ -93,15 +93,21 @@ pub fn migrate_identity(
         } else {
             Some(mc.title.as_str())
         };
-        let now = chrono::Utc::now().to_rfc3339();
-        let new_id = writer::new_instance_id();
-        let record = core_purpose::build_purpose_record(&new_id, statement, record_title, &now);
+
+        let (type_id, type_version, field_values) =
+            core_purpose::purpose_record_spec(statement, record_title);
 
         store.begin_batch();
-        let batch_result = (|| -> Result<(), RepositoryError> {
-            let relative_path =
-                write_new_record(store, &record, store.record_tier_dir(RecordTier::Tier2))?;
-            upsert_record_index_entry(&mut manifest, &record, &relative_path);
+        let batch_result = (|| -> Result<String, RepositoryError> {
+            // Route through create_record so CFR validation runs at write time (ADR-002, #481).
+            // create_record writes the record file and updates the manifest index entry internally.
+            let record =
+                create_record(store, &type_id, type_version, field_values, None, None)?;
+            let new_id = record.instance_id.clone();
+
+            // Reload manifest to capture the index entry create_record just wrote, then add
+            // container metadata and write a second time (two manifest writes per ADR-021 batch).
+            let mut manifest = store.load_manifest()?;
             if let Some(ref mut container) = manifest.container {
                 container.identity_instance_id = Some(new_id.clone());
                 container
@@ -115,27 +121,27 @@ pub fn migrate_identity(
             if let Some(ref container) = manifest.container {
                 store.save_container(container)?;
             }
-            Ok(())
+            Ok(new_id)
         })();
         match batch_result {
-            Ok(()) => {
+            Ok(new_id) => {
                 if let Err(e) = store.commit_batch() {
                     store.abort_batch();
                     return Err(e);
                 }
+                return Ok(MigrateIdentityResult {
+                    old_identity_id: None,
+                    old_identity_tier: None,
+                    new_identity_id: new_id,
+                    statement: statement.to_string(),
+                    title: record_title.map(str::to_string),
+                });
             }
             Err(e) => {
                 store.abort_batch();
                 return Err(e);
             }
         }
-        return Ok(MigrateIdentityResult {
-            old_identity_id: None,
-            old_identity_tier: None,
-            new_identity_id: new_id,
-            statement: statement.to_string(),
-            title: record_title.map(str::to_string),
-        });
     }
 
     let old_id = mc.identity_instance_id.clone().unwrap();
@@ -167,10 +173,8 @@ pub fn migrate_identity(
     let old_tier = entry.tier();
     let (statement, title) = extract_identity_text(store, &entry)?;
 
-    let new_id = writer::new_instance_id();
-    let now = chrono::Utc::now().to_rfc3339();
-
-    let record = core_purpose::build_purpose_record(&new_id, &statement, title.as_deref(), &now);
+    let (type_id, type_version, field_values) =
+        core_purpose::purpose_record_spec(&statement, title.as_deref());
 
     // ADR-021 batch: record file + manifest + container membership atomically.
     // Also remove the old identity from container members: it was there only to satisfy
@@ -178,10 +182,15 @@ pub fn migrate_identity(
     // that slot; leaving the old note would trigger RFC-013 I-82 (non-identity member
     // not rooting a section container).
     store.begin_batch();
-    let batch_result = (|| -> Result<(), RepositoryError> {
-        let relative_path =
-            write_new_record(store, &record, store.record_tier_dir(RecordTier::Tier2))?;
-        upsert_record_index_entry(&mut manifest, &record, &relative_path);
+    let batch_result = (|| -> Result<String, RepositoryError> {
+        // Route through create_record so CFR validation runs at write time (ADR-002, #481).
+        // create_record writes the record file and updates the manifest index entry internally.
+        let record = create_record(store, &type_id, type_version, field_values, None, None)?;
+        let new_id = record.instance_id.clone();
+
+        // Reload manifest to capture the index entry create_record just wrote, then update
+        // identity pointer and write a second time (two manifest writes per ADR-021 batch).
+        let mut manifest = store.load_manifest()?;
         if let Some(ref mut mc) = manifest.container {
             mc.identity_instance_id = Some(new_id.clone());
         }
@@ -201,28 +210,27 @@ pub fn migrate_identity(
         let mut persisted_container = store.load_container(&root_container_id)?;
         persisted_container.identity_instance_id = Some(new_id.clone());
         store.save_container(&persisted_container)?;
-        Ok(())
+        Ok(new_id)
     })();
     match batch_result {
-        Ok(()) => {
+        Ok(new_id) => {
             if let Err(e) = store.commit_batch() {
                 store.abort_batch();
                 return Err(e);
             }
+            Ok(MigrateIdentityResult {
+                old_identity_id: Some(old_id),
+                old_identity_tier: Some(old_tier),
+                new_identity_id: new_id,
+                statement,
+                title,
+            })
         }
         Err(e) => {
             store.abort_batch();
-            return Err(e);
+            Err(e)
         }
     }
-
-    Ok(MigrateIdentityResult {
-        old_identity_id: Some(old_id),
-        old_identity_tier: Some(old_tier),
-        new_identity_id: new_id,
-        statement,
-        title,
-    })
 }
 
 #[cfg(test)]
@@ -233,6 +241,7 @@ mod tests {
     use crate::index::InstanceIndexEntry;
     use crate::repository_portability::copy_repository;
     use crate::store::memory::MemoryStore;
+    use crate::store::RecordTier;
     use crate::writer::{upsert_index_entry, write_manifest, write_note};
     use srs_core::types::container::Container;
     use srs_core::types::note::{Note, NoteSection};
