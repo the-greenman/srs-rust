@@ -12,7 +12,6 @@ use srs_repository::protocol_service::{
     import_protocol, list_protocol_stages, list_protocols, update_protocol,
     validate_protocol_definition, GetProtocolResult, ImportProtocolInput,
 };
-use std::io::{self, Read};
 
 pub fn dispatch(ctx: CliContext, cmd: ProtocolCommand) -> Result<String> {
     match cmd {
@@ -33,10 +32,7 @@ pub fn dispatch(ctx: CliContext, cmd: ProtocolCommand) -> Result<String> {
 
 /// Read a JSON object from stdin, accepting either a bare object or `{ "protocol": { ... } }`.
 fn read_protocol_value_from_stdin() -> Result<serde_json::Value> {
-    let mut buf = String::new();
-    io::stdin().read_to_string(&mut buf)?;
-    let raw: serde_json::Value = serde_json::from_str(&buf)
-        .map_err(|e| anyhow::anyhow!("Failed to parse protocol JSON: {}", e))?;
+    let raw = crate::input::value_from_stdin("protocol")?;
     Ok(raw.get("protocol").cloned().unwrap_or(raw))
 }
 
@@ -151,10 +147,7 @@ fn cmd_protocol_write(
     package: Option<String>,
     label: &'static str,
 ) -> Result<String> {
-    let mut stdin = String::new();
-    io::stdin().read_to_string(&mut stdin)?;
-    let raw: serde_json::Value = serde_json::from_str(&stdin)
-        .map_err(|e| anyhow::anyhow!("Failed to parse protocol JSON: {}", e))?;
+    let raw = crate::input::value_from_stdin("protocol")?;
     let result = with_store(&ctx, |store| {
         Ok(import_protocol(
             store,

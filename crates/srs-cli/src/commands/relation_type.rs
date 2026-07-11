@@ -4,10 +4,9 @@ use crate::payload::{RelationTypeDeletePayload, RelationTypeListPayload, Relatio
 use anyhow::Result;
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_repository::package_service::{
-    create_relation_type, delete_relation_type, list_relation_types_filtered, update_relation_type,
-    RelationTypeListFilter,
+    create_relation_type_normalized, delete_relation_type, list_relation_types_filtered,
+    update_relation_type, RelationTypeListFilter,
 };
-use std::io;
 
 pub fn dispatch(ctx: CliContext, cmd: RelationTypeCommand) -> Result<String> {
     match cmd {
@@ -54,10 +53,13 @@ fn cmd_relation_type_get(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_relation_type_create(ctx: CliContext, package: Option<String>) -> Result<String> {
-    let def: RelationTypeDefinition = serde_json::from_reader(io::stdin().lock())
-        .map_err(|e| anyhow::anyhow!("Failed to parse relation type JSON: {}", e))?;
+    let raw = crate::input::value_from_stdin("relation type")?;
     let result = with_store(&ctx, |store| {
-        Ok(create_relation_type(store, def, package.clone())?)
+        Ok(create_relation_type_normalized(
+            store,
+            raw,
+            package.clone(),
+        )?)
     })?;
     output::serialize(
         "relation-type create",
@@ -68,8 +70,7 @@ fn cmd_relation_type_create(ctx: CliContext, package: Option<String>) -> Result<
 }
 
 fn cmd_relation_type_update(ctx: CliContext, _id: String) -> Result<String> {
-    let def: RelationTypeDefinition = serde_json::from_reader(io::stdin().lock())
-        .map_err(|e| anyhow::anyhow!("Failed to parse relation type JSON: {}", e))?;
+    let def: RelationTypeDefinition = crate::input::from_stdin("relation type")?;
     let result = with_store(&ctx, |store| Ok(update_relation_type(store, def)?))?;
     output::serialize(
         "relation-type update",

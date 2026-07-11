@@ -159,6 +159,21 @@ pub fn list_themes_summary(
 
 // ── Theme CRUD ────────────────────────────────────────────────────────────────
 
+/// Create a Theme from a raw JSON value with normalized defaults (issue #511).
+///
+/// Boilerplate the caller may omit is defaulted before typed deserialization:
+/// `createdAt` (now) and `description` (empty string). Explicit values win.
+pub fn create_theme_normalized(
+    store: &dyn RepositoryStore,
+    mut raw: serde_json::Value,
+    selector: PackageSelector,
+) -> Result<CreateThemeResult, RepositoryError> {
+    crate::input_normalization::default_created_at(&mut raw, "createdAt");
+    crate::input_normalization::default_empty_string(&mut raw, "description");
+    let theme = crate::input_normalization::from_value_with_path(raw, "Theme")?;
+    create_theme(store, theme, selector)
+}
+
 /// Create a new Theme. Validates, writes file, registers in the boundary's `package.json` themes array.
 /// Pass `selector = None` for the primary package; `Some(path)` for a sub-package.
 pub fn create_theme(

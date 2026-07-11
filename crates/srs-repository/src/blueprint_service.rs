@@ -227,6 +227,21 @@ pub fn list_blueprint_structure(
 
 // ── Mutating service functions ────────────────────────────────────────────────
 
+/// Create a Blueprint from a raw JSON value with normalized defaults (issue #511).
+///
+/// Boilerplate the caller may omit is defaulted before typed deserialization:
+/// `createdAt` (now) and `description` (empty string). Explicit values win.
+pub fn create_blueprint_normalized(
+    store: &dyn RepositoryStore,
+    mut raw: serde_json::Value,
+    selector: PackageSelector,
+) -> Result<CreateBlueprintResult, RepositoryError> {
+    crate::input_normalization::default_created_at(&mut raw, "createdAt");
+    crate::input_normalization::default_empty_string(&mut raw, "description");
+    let blueprint = crate::input_normalization::from_value_with_path(raw, "Blueprint")?;
+    create_blueprint(store, blueprint, selector)
+}
+
 /// Create a new Blueprint definition.
 ///
 /// Validates the selector, validates the blueprint, assigns an ID if empty,

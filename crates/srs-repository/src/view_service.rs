@@ -421,6 +421,21 @@ pub fn document_views_for_container(
 
 // ── View CRUD ─────────────────────────────────────────────────────────────────
 
+/// Create a View from a raw JSON value with normalized defaults (issue #511).
+///
+/// Boilerplate the caller may omit is defaulted before typed deserialization:
+/// `createdAt` (now) and `description` (empty string). Explicit values win.
+pub fn create_view_normalized(
+    store: &dyn RepositoryStore,
+    mut raw: serde_json::Value,
+    selector: PackageSelector,
+) -> Result<CreateViewResult, RepositoryError> {
+    crate::input_normalization::default_created_at(&mut raw, "createdAt");
+    crate::input_normalization::default_empty_string(&mut raw, "description");
+    let view = crate::input_normalization::from_value_with_path(raw, "View")?;
+    create_view(store, view, selector)
+}
+
 /// Create a new View. Validates, writes file, registers in the boundary's `package.json` views array.
 /// Pass `selector = None` for the primary package; `Some(path)` for a sub-package.
 pub fn create_view(
@@ -515,6 +530,21 @@ pub fn delete_view(
 }
 
 // ── DocumentView CRUD ─────────────────────────────────────────────────────────
+
+/// Create a DocumentView from a raw JSON value with normalized defaults (issue #511).
+///
+/// Boilerplate the caller may omit is defaulted before typed deserialization:
+/// `createdAt` (now) and `description` (empty string). Explicit values win.
+pub fn create_document_view_normalized(
+    store: &dyn RepositoryStore,
+    mut raw: serde_json::Value,
+    selector: PackageSelector,
+) -> Result<CreateDocumentViewResult, RepositoryError> {
+    crate::input_normalization::default_created_at(&mut raw, "createdAt");
+    crate::input_normalization::default_empty_string(&mut raw, "description");
+    let document_view = crate::input_normalization::from_value_with_path(raw, "DocumentView")?;
+    create_document_view(store, document_view, selector)
+}
 
 /// Create a new DocumentView. Validates, writes file, registers in the boundary's `package.json` documentViews array.
 /// Pass `selector = None` for the primary package; `Some(path)` for a sub-package.

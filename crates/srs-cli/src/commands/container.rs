@@ -15,7 +15,6 @@ use srs_repository::container_service::{
     update_container, validate_container_invariants, ContainerListFilter, ContainerPatch,
 };
 use srs_repository::container_view_service::{resolve_container_view, ResolveContainerViewInput};
-use std::io;
 
 pub fn dispatch(ctx: CliContext, cmd: ContainerCommand) -> Result<String> {
     match cmd {
@@ -72,14 +71,9 @@ fn cmd_list(
 }
 
 fn cmd_create(ctx: CliContext) -> Result<String> {
-    let container: Container = match serde_json::from_reader(io::stdin()) {
+    let container: Container = match crate::input::from_stdin("container") {
         Ok(v) => v,
-        Err(e) => {
-            return Ok(output::err(
-                "container create",
-                vec![format!("Failed to parse JSON: {}", e)],
-            ))
-        }
+        Err(e) => return Ok(output::err("container create", vec![e.to_string()])),
     };
     match with_store(&ctx, |store| Ok(create_container(store, container)?)) {
         Ok(container) => output::serialize("container create", ContainerPayload { container }),
@@ -95,14 +89,9 @@ fn cmd_get(ctx: CliContext, container_id: String) -> Result<String> {
 }
 
 fn cmd_update(ctx: CliContext, container_id: String) -> Result<String> {
-    let patch: ContainerPatch = match serde_json::from_reader(io::stdin()) {
+    let patch: ContainerPatch = match crate::input::from_stdin("container patch") {
         Ok(v) => v,
-        Err(e) => {
-            return Ok(output::err(
-                "container update",
-                vec![format!("Failed to parse JSON: {}", e)],
-            ))
-        }
+        Err(e) => return Ok(output::err("container update", vec![e.to_string()])),
     };
     match with_store(&ctx, |store| {
         Ok(update_container(store, &container_id, patch)?)

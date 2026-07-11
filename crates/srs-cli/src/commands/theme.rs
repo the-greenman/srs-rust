@@ -4,10 +4,9 @@ use crate::payload::{ThemeDeletePayload, ThemeListPayload, ThemePayload};
 use anyhow::Result;
 use srs_core::types::theme::Theme;
 use srs_repository::theme_service::{
-    create_theme, delete_theme, get_theme_by_id, list_themes_summary, update_theme,
+    create_theme_normalized, delete_theme, get_theme_by_id, list_themes_summary, update_theme,
     CreateThemeResult, DeleteThemeResult, GetThemeResult,
 };
-use std::io::{self, Read};
 
 pub fn dispatch(ctx: CliContext, cmd: ThemeCommand) -> Result<String> {
     match cmd {
@@ -44,12 +43,9 @@ fn cmd_theme_get(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_theme_create(ctx: CliContext, package: Option<String>) -> Result<String> {
-    let mut stdin = String::new();
-    io::stdin().read_to_string(&mut stdin)?;
-    let theme: Theme = serde_json::from_str(&stdin)
-        .map_err(|e| anyhow::anyhow!("Failed to parse Theme JSON: {e}"))?;
+    let raw = crate::input::value_from_stdin("Theme")?;
     match with_store(&ctx, |store| {
-        Ok(create_theme(store, theme, package.clone())?)
+        Ok(create_theme_normalized(store, raw, package.clone())?)
     }) {
         Ok(CreateThemeResult { theme }) => {
             output::serialize("theme create", ThemePayload { theme })
@@ -59,10 +55,7 @@ fn cmd_theme_create(ctx: CliContext, package: Option<String>) -> Result<String> 
 }
 
 fn cmd_theme_update(ctx: CliContext, id: String) -> Result<String> {
-    let mut stdin = String::new();
-    io::stdin().read_to_string(&mut stdin)?;
-    let theme: Theme = serde_json::from_str(&stdin)
-        .map_err(|e| anyhow::anyhow!("Failed to parse Theme JSON: {e}"))?;
+    let theme: Theme = crate::input::from_stdin("Theme")?;
     match with_store(&ctx, |store| Ok(update_theme(store, &id, theme)?)) {
         Ok(result) => output::serialize(
             "theme update",

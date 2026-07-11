@@ -6,7 +6,6 @@ use srs_repository::extension_service::{
     create_extension, delete_extension, get_extension_by_id, list_extensions, update_extension,
     CreateExtensionInput,
 };
-use std::io::{self, Read};
 
 pub fn dispatch(ctx: CliContext, cmd: ExtensionCommand) -> Result<String> {
     match cmd {
@@ -34,11 +33,7 @@ fn cmd_extension_get(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_extension_create(ctx: CliContext) -> Result<String> {
-    let mut stdin = String::new();
-    io::stdin().read_to_string(&mut stdin)?;
-
-    let raw: serde_json::Value = serde_json::from_str(&stdin)
-        .map_err(|e| anyhow::anyhow!("Failed to parse extension JSON: {}", e))?;
+    let raw = crate::input::value_from_stdin("extension")?;
 
     let result = with_store(&ctx, |store| {
         Ok(create_extension(store, CreateExtensionInput { raw })?)
@@ -53,11 +48,7 @@ fn cmd_extension_create(ctx: CliContext) -> Result<String> {
 }
 
 fn cmd_extension_update(ctx: CliContext, id: String) -> Result<String> {
-    let mut stdin = String::new();
-    io::stdin().read_to_string(&mut stdin)?;
-
-    let raw: serde_json::Value = serde_json::from_str(&stdin)
-        .map_err(|e| anyhow::anyhow!("Failed to parse extension JSON: {}", e))?;
+    let raw = crate::input::value_from_stdin("extension")?;
 
     let result = with_store(&ctx, |store| {
         Ok(update_extension(store, &id, CreateExtensionInput { raw })?)

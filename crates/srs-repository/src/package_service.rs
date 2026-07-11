@@ -425,10 +425,7 @@ pub fn create_field_normalized(
             message: e.to_string(),
         })?;
 
-    let field: Field = serde_json::from_value(raw).map_err(|e| RepositoryError::Serialize {
-        path: std::path::PathBuf::from("fields"),
-        source: e,
-    })?;
+    let field: Field = crate::input_normalization::from_value_with_path(raw, "Field")?;
 
     create_field_in_package(store, field, package_selector)
 }
@@ -600,6 +597,21 @@ pub fn create_type(
     create_type_in_package(store, record_type, None)
 }
 
+/// Create a type from a raw JSON value with normalized defaults (issue #511).
+///
+/// Boilerplate the caller may omit is defaulted before typed deserialization:
+/// `createdAt` (now) and `description` (empty string). Explicit values win.
+pub fn create_type_normalized(
+    store: &dyn RepositoryStore,
+    mut raw: serde_json::Value,
+    selector: PackageSelector,
+) -> Result<CreateTypeResult, RepositoryError> {
+    crate::input_normalization::default_created_at(&mut raw, "createdAt");
+    crate::input_normalization::default_empty_string(&mut raw, "description");
+    let record_type = crate::input_normalization::from_value_with_path(raw, "Type")?;
+    create_type_in_package(store, record_type, selector)
+}
+
 /// Create a new type definition in a specific package boundary.
 /// Pass `selector = None` for the primary package; `Some(path)` for a sub-package.
 pub fn create_type_in_package(
@@ -712,6 +724,21 @@ pub struct DeleteRelationTypeResult {
 }
 
 // ── Relation type CRUD ───────────────────────────────────────────────────────
+
+/// Create a relation type from a raw JSON value with normalized defaults (issue #511).
+///
+/// Boilerplate the caller may omit is defaulted before typed deserialization:
+/// `createdAt` (now) and `description` (empty string). Explicit values win.
+pub fn create_relation_type_normalized(
+    store: &dyn RepositoryStore,
+    mut raw: serde_json::Value,
+    selector: PackageSelector,
+) -> Result<CreateRelationTypeResult, RepositoryError> {
+    crate::input_normalization::default_created_at(&mut raw, "createdAt");
+    crate::input_normalization::default_empty_string(&mut raw, "description");
+    let def = crate::input_normalization::from_value_with_path(raw, "RelationTypeDefinition")?;
+    create_relation_type(store, def, selector)
+}
 
 /// Create a new relation type definition in a specific package boundary.
 /// Pass `selector = None` for the primary package; `Some(path)` for a sub-package.

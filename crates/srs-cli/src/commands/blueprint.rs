@@ -16,11 +16,10 @@ use srs_repository::blueprint_schema_service::{
     self as blueprint_schema_svc, BlueprintSchemaInput,
 };
 use srs_repository::blueprint_service::{
-    create_blueprint, delete_blueprint, get_blueprint_by_id, list_blueprint_structure,
+    create_blueprint_normalized, delete_blueprint, get_blueprint_by_id, list_blueprint_structure,
     list_blueprints_summary, update_blueprint, validate_blueprint_by_id, GetBlueprintResult,
 };
 use srs_repository::error::RepositoryError;
-use std::io::{self, Read};
 
 pub fn dispatch(ctx: CliContext, cmd: BlueprintCommand) -> Result<String> {
     match cmd {
@@ -77,14 +76,10 @@ fn cmd_blueprint_get(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_blueprint_create(ctx: CliContext, package: Option<String>) -> Result<String> {
-    let mut stdin = String::new();
-    io::stdin().read_to_string(&mut stdin)?;
-
-    let blueprint: Blueprint = serde_json::from_str(&stdin)
-        .map_err(|e| anyhow::anyhow!("Failed to parse blueprint JSON: {e}"))?;
+    let raw = crate::input::value_from_stdin("blueprint")?;
 
     let result = with_store(&ctx, |store| {
-        Ok(create_blueprint(store, blueprint, package.clone())?)
+        Ok(create_blueprint_normalized(store, raw, package.clone())?)
     })?;
 
     let blueprint = serde_json::to_value(result.blueprint)
@@ -93,11 +88,7 @@ fn cmd_blueprint_create(ctx: CliContext, package: Option<String>) -> Result<Stri
 }
 
 fn cmd_blueprint_update(ctx: CliContext, id: String) -> Result<String> {
-    let mut stdin = String::new();
-    io::stdin().read_to_string(&mut stdin)?;
-
-    let blueprint: Blueprint = serde_json::from_str(&stdin)
-        .map_err(|e| anyhow::anyhow!("Failed to parse blueprint JSON: {e}"))?;
+    let blueprint: Blueprint = crate::input::from_stdin("blueprint")?;
 
     let result = match with_store(&ctx, |store| Ok(update_blueprint(store, &id, blueprint)?)) {
         Ok(r) => r,

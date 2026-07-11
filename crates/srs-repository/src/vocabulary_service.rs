@@ -59,6 +59,19 @@ pub struct CreateVocabularyResult {
     pub vocabulary: Vocabulary,
 }
 
+/// Create a Vocabulary from a raw JSON value with normalized defaults (issue #511).
+///
+/// Boilerplate the caller may omit is defaulted before typed deserialization:
+/// `createdAt` (now). Explicit values win.
+pub fn create_vocabulary_normalized(
+    store: &dyn RepositoryStore,
+    mut raw: serde_json::Value,
+) -> Result<CreateVocabularyResult, RepositoryError> {
+    crate::input_normalization::default_created_at(&mut raw, "createdAt");
+    let vocabulary = crate::input_normalization::from_value_with_path(raw, "Vocabulary")?;
+    create_vocabulary(store, vocabulary)
+}
+
 /// Create a new Vocabulary in the primary package.
 ///
 /// Writes `package/vocabularies/{slug}-{id}.json` and adds the path to

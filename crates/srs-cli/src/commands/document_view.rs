@@ -7,12 +7,11 @@ use crate::payload::{
 use anyhow::Result;
 use srs_core::types::view::DocumentView;
 use srs_repository::view_service::{
-    create_document_view, delete_document_view, document_views_for_container,
+    create_document_view_normalized, delete_document_view, document_views_for_container,
     get_document_view_by_id, list_document_views_summary, update_document_view,
     CreateDocumentViewResult, DeleteDocumentViewResult, DocumentViewListFilter,
     DocumentViewSummary, GetDocumentViewResult,
 };
-use std::io::{self, Read};
 
 pub fn dispatch(ctx: CliContext, cmd: DocumentViewCommand) -> Result<String> {
     match cmd {
@@ -70,12 +69,13 @@ fn cmd_document_view_get(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_document_view_create(ctx: CliContext, package: Option<String>) -> Result<String> {
-    let mut stdin = String::new();
-    io::stdin().read_to_string(&mut stdin)?;
-    let dv: DocumentView = serde_json::from_str(&stdin)
-        .map_err(|e| anyhow::anyhow!("Failed to parse DocumentView JSON: {e}"))?;
+    let raw = crate::input::value_from_stdin("DocumentView")?;
     match with_store(&ctx, |store| {
-        Ok(create_document_view(store, dv, package.clone())?)
+        Ok(create_document_view_normalized(
+            store,
+            raw,
+            package.clone(),
+        )?)
     }) {
         Ok(CreateDocumentViewResult { document_view }) => output::serialize(
             "document-view create",
@@ -86,10 +86,7 @@ fn cmd_document_view_create(ctx: CliContext, package: Option<String>) -> Result<
 }
 
 fn cmd_document_view_update(ctx: CliContext, id: String) -> Result<String> {
-    let mut stdin = String::new();
-    io::stdin().read_to_string(&mut stdin)?;
-    let dv: DocumentView = serde_json::from_str(&stdin)
-        .map_err(|e| anyhow::anyhow!("Failed to parse DocumentView JSON: {e}"))?;
+    let dv: DocumentView = crate::input::from_stdin("DocumentView")?;
     match with_store(&ctx, |store| Ok(update_document_view(store, &id, dv)?)) {
         Ok(result) => output::serialize(
             "document-view update",

@@ -7,7 +7,6 @@ use srs_repository::relation_service::{
     create_relation_auto, delete_relation, get_relation_by_id, list_relations, GetRelationResult,
     ListRelationsFilter,
 };
-use std::io::{self, Read};
 
 pub fn dispatch(ctx: CliContext, cmd: RelationCommand) -> Result<String> {
     match cmd {
@@ -55,17 +54,9 @@ fn cmd_relation_get(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_relation_create(ctx: CliContext) -> Result<String> {
-    let mut stdin = String::new();
-    io::stdin().read_to_string(&mut stdin)?;
-
-    let relation: Relation = match serde_json::from_str(&stdin) {
+    let relation: Relation = match crate::input::from_stdin("relation") {
         Ok(relation) => relation,
-        Err(e) => {
-            return Ok(output::err(
-                "relation create",
-                vec![format!("Failed to parse relation JSON: {}", e)],
-            ))
-        }
+        Err(e) => return Ok(output::err("relation create", vec![e.to_string()])),
     };
 
     match with_store(&ctx, |store| Ok(create_relation_auto(store, relation)?)) {
