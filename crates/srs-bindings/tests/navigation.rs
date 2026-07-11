@@ -318,6 +318,142 @@ fn repository_navigation_tier0_note_identity_no_title_uses_id_as_label() {
     assert_eq!(nav.diagnostics.len(), 1);
 }
 
+/// Regression (#460): sub-containers where the root record also appears in memberInstanceIds
+/// must still resolve sectionContainerId — the old root_is_member guard silently dropped them.
+#[test]
+fn repository_navigation_root_is_member_of_its_own_sub_container() {
+    let srsj = serde_json::json!({
+        "srsj": "1",
+        "manifest": {
+            "repositoryId": "test-repo-root-is-member",
+            "srsVersion": "2.0-draft",
+            "namespace": "com.test",
+            "container": {
+                "containerId": ROOT_CONTAINER_ID,
+                "title": "Governance Repo",
+                "identityInstanceId": IDENTITY_ID,
+                "memberInstanceIds": [IDENTITY_ID, ARTICLES_ID, DECISIONS_ID],
+                "rootInstanceIds": [IDENTITY_ID]
+            },
+            "instanceIndex": [
+                {"instanceId": IDENTITY_ID, "path": format!("records/tier-2/{IDENTITY_ID}.json"), "tier": 2},
+                {"instanceId": ARTICLES_ID, "path": format!("records/tier-2/{ARTICLES_ID}.json"), "tier": 2},
+                {"instanceId": DECISIONS_ID, "path": format!("records/tier-2/{DECISIONS_ID}.json"), "tier": 2}
+            ],
+            "packageRef": {"mode": "local", "path": "package"}
+        },
+        "data": {
+            "package/package.json": {
+                "id": "pkg-nav-rim",
+                "namespace": "com.test",
+                "name": "test-nav-root-is-member",
+                "version": "1.0.0",
+                "fields": ["fields/title.json"],
+                "types": [],
+                "relationTypes": [],
+                "views": [],
+                "documentViews": [],
+                "blueprints": []
+            },
+            "package/fields/title.json": {
+                "id": FIELD_TITLE_ID,
+                "namespace": "com.test",
+                "name": "title",
+                "version": 1,
+                "description": "Title",
+                "aiGuidance": {},
+                "valueType": "string",
+                "createdAt": "2026-01-01T00:00:00Z"
+            },
+            format!("records/tier-2/{IDENTITY_ID}.json"): {
+                "instanceId": IDENTITY_ID,
+                "typeId": "type-identity",
+                "typeVersion": 1,
+                "typeNamespace": "com.test",
+                "typeName": "governance-repo",
+                "fieldValues": [{"fieldId": FIELD_TITLE_ID, "value": "Governance Repo"}]
+            },
+            format!("records/tier-2/{ARTICLES_ID}.json"): {
+                "instanceId": ARTICLES_ID,
+                "typeId": "type-section",
+                "typeVersion": 1,
+                "typeNamespace": "com.test",
+                "typeName": "section",
+                "fieldValues": [{"fieldId": FIELD_TITLE_ID, "value": "Articles"}]
+            },
+            format!("records/tier-2/{DECISIONS_ID}.json"): {
+                "instanceId": DECISIONS_ID,
+                "typeId": "type-section",
+                "typeVersion": 1,
+                "typeNamespace": "com.test",
+                "typeName": "section",
+                "fieldValues": [{"fieldId": FIELD_TITLE_ID, "value": "Decision Log"}]
+            },
+            format!("containers/{ROOT_CONTAINER_ID}.json"): {
+                "containerId": ROOT_CONTAINER_ID,
+                "containerType": "root",
+                "title": "Governance Repo",
+                "rootInstanceIds": [IDENTITY_ID],
+                "memberInstanceIds": [IDENTITY_ID, ARTICLES_ID, DECISIONS_ID],
+                "createdAt": "2026-01-01T00:00:00Z"
+            },
+            // Both sub-containers have their root record also in memberInstanceIds —
+            // this is the "root is also a member" shape that triggered the bug.
+            format!("containers/{ARTICLES_CONTAINER_ID}.json"): {
+                "containerId": ARTICLES_CONTAINER_ID,
+                "containerType": "document",
+                "title": "Articles",
+                "rootInstanceIds": [ARTICLES_ID],
+                "memberInstanceIds": [ARTICLES_ID],
+                "createdAt": "2026-01-01T00:00:00Z"
+            },
+            format!("containers/{DECISIONS_CONTAINER_ID}.json"): {
+                "containerId": DECISIONS_CONTAINER_ID,
+                "containerType": "document",
+                "title": "Decision Log",
+                "rootInstanceIds": [DECISIONS_ID],
+                "memberInstanceIds": [DECISIONS_ID],
+                "createdAt": "2026-01-01T00:00:00Z"
+            },
+            "relations/relations.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
+                "relations": [{
+                    "relationId": "rel-articles-precedes-decisions",
+                    "relationType": "precedes",
+                    "sourceInstanceId": ARTICLES_ID,
+                    "targetInstanceId": DECISIONS_ID,
+                    "createdAt": "2026-01-01T00:00:00Z"
+                }]
+            },
+            "manifest.json": {
+                "containerIndex": [
+                    {"containerId": ARTICLES_CONTAINER_ID, "title": "Articles"},
+                    {"containerId": DECISIONS_CONTAINER_ID, "title": "Decision Log"}
+                ]
+            }
+        }
+    })
+    .to_string();
+
+    let store = JsonStore::from_srsj(&srsj).expect("fixture srsj must load");
+    let nav = repository_navigation(&store).expect("navigation must succeed");
+
+    assert_eq!(nav.sections.len(), 2);
+    assert_eq!(nav.sections[0].display_label, "Articles");
+    assert_eq!(
+        nav.sections[0].section_container_id.as_deref(),
+        Some(ARTICLES_CONTAINER_ID),
+        "articles section_container_id must resolve even when root is also a member"
+    );
+    assert_eq!(nav.sections[1].display_label, "Decision Log");
+    assert_eq!(
+        nav.sections[1].section_container_id.as_deref(),
+        Some(DECISIONS_CONTAINER_ID),
+        "decisions section_container_id must resolve even when root is also a member"
+    );
+    assert!(nav.diagnostics.is_empty());
+}
+
 /// Missing manifest.container (pre-RFC-013 repo): sections empty, one diagnostic entry.
 /// Uses the gallery fixture, which has no manifest.container field.
 #[test]
