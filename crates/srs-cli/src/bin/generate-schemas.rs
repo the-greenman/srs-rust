@@ -189,6 +189,7 @@ fn main() {
     write_schema!("package-list", PackageListPayload);
     write_schema!("package-create", PackageCreatePayload);
     write_schema!("package-import", PackageImportPayload);
+    write_schema!("package-install", PackageInstallPayload);
     write_schema!("package-update", PackageUpdatePayload);
     write_schema!("package-refs", PackageRefPayload);
 

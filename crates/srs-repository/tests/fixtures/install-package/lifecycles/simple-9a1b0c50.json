@@ -1,0 +1,31 @@
+{
+  "id": "9a1b0c50-0005-4aaa-8bbb-000000001001",
+  "version": 1,
+  "namespace": "com.example.install",
+  "name": "simple_lifecycle",
+  "description": "Two-state lifecycle for install fixture entries.",
+  "states": [
+    {
+      "id": "9a1b0c51-0005-4aaa-8bbb-000000005001",
+      "key": "draft",
+      "label": "Draft",
+      "isInitial": true
+    },
+    {
+      "id": "9a1b0c52-0005-4aaa-8bbb-000000005002",
+      "key": "final",
+      "label": "Final",
+      "isFinal": true
+    }
+  ],
+  "transitions": [
+    {
+      "id": "9a1b0c53-0005-4aaa-8bbb-000000006001",
+      "name": "finalize",
+      "from": "draft",
+      "to": "final"
+    }
+  ],
+  "initialState": "draft",
+  "createdAt": "2026-01-01T00:00:00Z"
+}

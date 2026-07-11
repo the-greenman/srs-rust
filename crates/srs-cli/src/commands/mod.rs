@@ -1349,6 +1349,18 @@ pub enum PackageCommand {
         #[arg(long = "path")]
         path: String,
     },
+    /// Install an external package directory into this repository (one-shot copy)
+    Install {
+        /// Filesystem path of the source package directory (contains package.json)
+        source_dir: String,
+        /// Target boundary path relative to repo root (default: packages/<package-name>)
+        #[arg(long)]
+        boundary: Option<String>,
+        /// Fail (before writing anything) on same-key/different-UUID conflicts
+        /// instead of skipping the conflicting definitions
+        #[arg(long)]
+        strict: bool,
+    },
     /// Update package boundary metadata (namespace, name, or version)
     Update {
         /// Boundary path (omit for primary package)

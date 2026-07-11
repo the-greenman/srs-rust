@@ -1,0 +1,11 @@
+{
+  "category": "sequence",
+  "createdAt": "2026-01-01T00:00:00Z",
+  "description": "Source comes before target in a sequence.",
+  "id": "9a1b0c40-0004-4aaa-8bbb-00000000e001",
+  "irreflexive": true,
+  "label": "Precedes",
+  "namespace": "com.example.install",
+  "relationType": "precedes",
+  "version": 1
+}

@@ -1,0 +1,15 @@
+{
+  "createdAt": "2026-01-01T00:00:00Z",
+  "description": "Blueprint extracting entries from source material.",
+  "id": "9a1b0c80-0008-4aaa-8bbb-000000009001",
+  "name": "entry-log",
+  "namespace": "com.example.install",
+  "rootTypes": [
+    {
+      "typeId": "9a1b0c30-0003-4aaa-8bbb-000000004001",
+      "typeVersion": 1
+    }
+  ],
+  "structure": [],
+  "version": 1
+}

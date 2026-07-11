@@ -1,0 +1,9 @@
+{
+  "createdAt": "2026-01-01T00:00:00Z",
+  "description": "Short label for this record.",
+  "id": "9a1b0c2d-0001-4aaa-8bbb-00000000f001",
+  "name": "title",
+  "namespace": "com.example.install",
+  "valueType": "string",
+  "version": 1
+}

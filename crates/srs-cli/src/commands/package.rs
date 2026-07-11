@@ -1,11 +1,13 @@
 use crate::commands::{with_store, CliContext, PackageCommand};
 use crate::output;
 use crate::payload::{
-    PackageCreatePayload, PackageImportPayload, PackageListEntry, PackageListPayload,
+    PackageCreatePayload, PackageImportPayload, PackageInstallConflictEntry,
+    PackageInstallKindEntry, PackageInstallPayload, PackageListEntry, PackageListPayload,
     PackageRefEntry, PackageRefPayload, PackageUpdatePayload,
 };
 use anyhow::Result;
 use srs_repository::manifest_service::{add_package_ref, remove_package_ref};
+use srs_repository::package_install_service::{install_package, InstallPackageInput};
 use srs_repository::package_service::{
     create_package, import_package_local, list_packages, update_package_metadata,
     CreatePackageInput, ImportPackageLocalInput, UpdatePackageMetadataInput,
@@ -22,6 +24,11 @@ pub fn dispatch(ctx: CliContext, cmd: PackageCommand) -> Result<String> {
             boundary_path,
         } => cmd_package_create(ctx, id, namespace, name, version, boundary_path),
         PackageCommand::Import { path } => cmd_package_import(ctx, path),
+        PackageCommand::Install {
+            source_dir,
+            boundary,
+            strict,
+        } => cmd_package_install(ctx, source_dir, boundary, strict),
         PackageCommand::Update {
             selector,
             namespace,
@@ -96,6 +103,53 @@ fn cmd_package_import(ctx: CliContext, path: String) -> Result<String> {
             id: result.id,
             namespace: result.namespace,
             name: result.name,
+        },
+    )
+}
+
+fn cmd_package_install(
+    ctx: CliContext,
+    source_dir: String,
+    boundary: Option<String>,
+    strict: bool,
+) -> Result<String> {
+    let input = InstallPackageInput {
+        source_dir,
+        boundary_path: boundary,
+        strict,
+    };
+    let result = with_store(&ctx, |store| Ok(install_package(store, input.clone())?))?;
+    output::serialize(
+        "package install",
+        PackageInstallPayload {
+            boundary_path: result.boundary_path,
+            package_id: result.package_id,
+            namespace: result.namespace,
+            name: result.name,
+            version: result.version,
+            installed_at: result.installed_at,
+            installed: result.installed,
+            skipped_identical: result.skipped_identical,
+            conflicts: result
+                .conflicts
+                .into_iter()
+                .map(|c| PackageInstallConflictEntry {
+                    kind: c.kind,
+                    key: c.key,
+                    source_id: c.source_id,
+                    existing_id: c.existing_id,
+                })
+                .collect(),
+            kinds: result
+                .kinds
+                .into_iter()
+                .map(|k| PackageInstallKindEntry {
+                    kind: k.kind,
+                    installed: k.installed,
+                    skipped_identical: k.skipped_identical,
+                    conflicts: k.conflicts,
+                })
+                .collect(),
         },
     )
 }

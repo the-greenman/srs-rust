@@ -1471,6 +1471,46 @@ pub struct PackageRefPayload {
     pub packages: Vec<PackageRefEntry>,
 }
 
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageInstallPayload {
+    /// Boundary the package was installed into (or already registered at).
+    pub boundary_path: String,
+    /// Upstream package identity (provenance echo).
+    pub package_id: String,
+    pub namespace: String,
+    pub name: String,
+    pub version: String,
+    /// Provenance stamp; preserved across idempotent re-runs.
+    pub installed_at: String,
+    /// Total definitions written by this run.
+    pub installed: usize,
+    /// Identical-UUID definitions skipped because they already exist in the repo.
+    pub skipped_identical: usize,
+    /// Same-key/different-UUID collisions (skipped, not silently duplicated).
+    pub conflicts: Vec<PackageInstallConflictEntry>,
+    /// Per-kind breakdown for kinds present in the source package.
+    pub kinds: Vec<PackageInstallKindEntry>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageInstallConflictEntry {
+    pub kind: String,
+    pub key: String,
+    pub source_id: String,
+    pub existing_id: String,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageInstallKindEntry {
+    pub kind: String,
+    pub installed: usize,
+    pub skipped_identical: usize,
+    pub conflicts: usize,
+}
+
 // ── Tree ──────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]

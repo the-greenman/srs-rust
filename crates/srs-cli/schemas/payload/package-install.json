@@ -1,0 +1,120 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PackageInstallPayload",
+  "type": "object",
+  "required": [
+    "boundaryPath",
+    "conflicts",
+    "installed",
+    "installedAt",
+    "kinds",
+    "name",
+    "namespace",
+    "packageId",
+    "skippedIdentical",
+    "version"
+  ],
+  "properties": {
+    "boundaryPath": {
+      "description": "Boundary the package was installed into (or already registered at).",
+      "type": "string"
+    },
+    "conflicts": {
+      "description": "Same-key/different-UUID collisions (skipped, not silently duplicated).",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PackageInstallConflictEntry"
+      }
+    },
+    "installed": {
+      "description": "Total definitions written by this run.",
+      "type": "integer",
+      "format": "uint",
+      "minimum": 0.0
+    },
+    "installedAt": {
+      "description": "Provenance stamp; preserved across idempotent re-runs.",
+      "type": "string"
+    },
+    "kinds": {
+      "description": "Per-kind breakdown for kinds present in the source package.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PackageInstallKindEntry"
+      }
+    },
+    "name": {
+      "type": "string"
+    },
+    "namespace": {
+      "type": "string"
+    },
+    "packageId": {
+      "description": "Upstream package identity (provenance echo).",
+      "type": "string"
+    },
+    "skippedIdentical": {
+      "description": "Identical-UUID definitions skipped because they already exist in the repo.",
+      "type": "integer",
+      "format": "uint",
+      "minimum": 0.0
+    },
+    "version": {
+      "type": "string"
+    }
+  },
+  "definitions": {
+    "PackageInstallConflictEntry": {
+      "type": "object",
+      "required": [
+        "existingId",
+        "key",
+        "kind",
+        "sourceId"
+      ],
+      "properties": {
+        "existingId": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "sourceId": {
+          "type": "string"
+        }
+      }
+    },
+    "PackageInstallKindEntry": {
+      "type": "object",
+      "required": [
+        "conflicts",
+        "installed",
+        "kind",
+        "skippedIdentical"
+      ],
+      "properties": {
+        "conflicts": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "installed": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "kind": {
+          "type": "string"
+        },
+        "skippedIdentical": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    }
+  }
+}
