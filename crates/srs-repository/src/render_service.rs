@@ -1257,8 +1257,15 @@ fn resolve_section_instances(
         SectionSource::FixedInstances { instance_ids } => {
             let mut records = Vec::new();
             for id in instance_ids {
-                if let Some(instance) = get_instance_by_id(store, id)? {
-                    records.push(instance);
+                match get_instance_by_id(store, id)? {
+                    Some(LoadedInstance::Note(_)) => {
+                        diagnostics.push(format!(
+                            "[section:{}] FixedInstances: skipping Tier-0 note {}; notes are not rendered in document-view sections",
+                            section.section_id, id
+                        ));
+                    }
+                    Some(instance) => records.push(instance),
+                    None => {}
                 }
             }
             Ok(records)
@@ -1403,8 +1410,15 @@ fn resolve_section_instances(
             }
             let mut records = Vec::new();
             for id in ids {
-                if let Some(instance) = get_instance_by_id(store, &id)? {
-                    records.push(instance);
+                match get_instance_by_id(store, &id)? {
+                    Some(LoadedInstance::Note(_)) => {
+                        diagnostics.push(format!(
+                            "[section:{}] RelationQuery: skipping Tier-0 note {}; notes are not rendered in document-view sections",
+                            section.section_id, id
+                        ));
+                    }
+                    Some(instance) => records.push(instance),
+                    None => {}
                 }
             }
             Ok(records)
@@ -7509,6 +7523,324 @@ mod tests {
                 .iter()
                 .any(|d| d.contains(&note_id) && d.contains("not representable")),
             "expected a note-skipped warning; got: {:?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn fixed_instances_arm_skips_tier0_note_with_diagnostic() {
+        // #527: a FixedInstances section referencing a Tier-0 note must skip it with a
+        // diagnostic rather than pushing it into the records Vec.
+        use crate::record_store::create_record;
+        use srs_core::types::note::{Note, NoteSection};
+        use srs_core::types::view::{DocumentSection, DocumentView, EmptyBehavior, SectionSource};
+
+        const NOTE_ID: &str = "00000000-0000-4000-8000-0000000f1001";
+
+        let (heading_field, item_type) = simple_field_and_type();
+        let doc_view = DocumentView {
+            id: "dv-fixed-note".to_string(),
+            namespace: "com.test".to_string(),
+            name: "fixed-note-view".to_string(),
+            version: 1,
+            description: "FixedInstances note guard regression test".to_string(),
+            container_type: None,
+            root_type_refs: None,
+            sections: vec![
+                // Section under test: FixedInstances references a Tier-0 note
+                DocumentSection {
+                    section_id: "fixed-sec".to_string(),
+                    title: Some("Fixed".to_string()),
+                    description: None,
+                    order: 0,
+                    source: SectionSource::FixedInstances {
+                        instance_ids: vec![NOTE_ID.to_string()],
+                    },
+                    render_view_id: None,
+                    type_dispatch: None,
+                    title_field_id: Some("f-heading".to_string()),
+                    ordering: None,
+                    required: None,
+                    empty_behavior: Some(EmptyBehavior::Hide),
+                },
+                // TypeQuery section: proves typed records still render (no regression)
+                DocumentSection {
+                    section_id: "typed-sec".to_string(),
+                    title: Some("Items".to_string()),
+                    description: None,
+                    order: 1,
+                    source: SectionSource::TypeQuery {
+                        semantic_object_type: "com.test/item".to_string(),
+                        lifecycle_state: None,
+                        container_ids: None,
+                        lifecycle_states: None,
+                        exclude_lifecycle_states: None,
+                        container_scope: None,
+                    },
+                    render_view_id: None,
+                    type_dispatch: None,
+                    title_field_id: Some("f-heading".to_string()),
+                    ordering: None,
+                    required: None,
+                    empty_behavior: Some(EmptyBehavior::Hide),
+                },
+            ],
+            navigation_links: None,
+            preamble: None,
+            format: Some("markdown".to_string()),
+            depth_offset: None,
+            theme_ref: None,
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let manifest = crate::manifest::Manifest {
+            instance_index: vec![],
+            container: None,
+            container_index: None,
+            extra: HashMap::new(),
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = crate::package::Package {
+            id: "pkg-fixed-note".to_string(),
+            namespace: "com.test".to_string(),
+            name: "fixed-note-package".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![heading_field],
+            record_types: vec![item_type],
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![doc_view],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = crate::store::memory::MemoryStore::new(manifest, package);
+
+        crate::services::create_note(
+            &store,
+            Note {
+                instance_id: NOTE_ID.to_string(),
+                title: Some("Skipped Note Title".to_string()),
+                tags: None,
+                sections: vec![NoteSection {
+                    name: "body".to_string(),
+                    label: None,
+                    content: "This note must not appear in FixedInstances output.".to_string(),
+                    content_hint: None,
+                    tags: None,
+                }],
+                graduated_at: None,
+                source_refs: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                updated_at: None,
+                meta: None,
+            },
+        )
+        .unwrap();
+
+        let fv = vec![srs_core::types::record::FieldValue {
+            field_id: "f-heading".to_string(),
+            value: serde_json::json!("Typed Item"),
+            entries: None,
+            source: None,
+            edited_at: None,
+        }];
+        create_record(&store, "t-item", 1, fv, None, None).unwrap();
+
+        let result = render_document_view(RenderDocumentViewOptions::new(&store, "dv-fixed-note"))
+            .expect("render must not fail when FixedInstances references a Tier-0 note");
+
+        assert!(
+            !result.rendered.contains("Skipped Note Title"),
+            "note title must NOT appear in FixedInstances output; got:\n{}",
+            result.rendered
+        );
+        assert!(
+            result.rendered.contains("Typed Item"),
+            "typed record must still render via TypeQuery section; got:\n{}",
+            result.rendered
+        );
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.contains("[section:fixed-sec]")
+                    && d.contains("FixedInstances:")
+                    && d.contains(NOTE_ID)
+                    && d.contains("notes are not rendered in document-view sections")),
+            "expected FixedInstances note-skip diagnostic; got: {:?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn relation_query_arm_skips_tier0_note_with_diagnostic() {
+        // #527: a RelationQuery section whose relations resolve to a Tier-0 note must skip
+        // it with a diagnostic rather than pushing it into the records Vec.
+        use crate::relation_service;
+        use srs_core::types::note::{Note, NoteSection};
+        use srs_core::types::relation::Relation;
+        use srs_core::types::relation_type_definition::{
+            RelationTypeCategory, RelationTypeDefinition,
+        };
+        use srs_core::types::view::{DocumentSection, DocumentView, EmptyBehavior, SectionSource};
+
+        // Pre-specified IDs so they are known before the DocumentView is built.
+        const SOURCE_ID: &str = "00000000-0000-4000-8000-000000009001";
+        const NOTE_ID: &str = "00000000-0000-4000-8000-000000009002";
+        const SECTION_ID: &str = "rq-sec";
+
+        let (heading_field, item_type) = simple_field_and_type();
+        let doc_view = DocumentView {
+            id: "dv-rq-note".to_string(),
+            namespace: "com.test".to_string(),
+            name: "rq-note-view".to_string(),
+            version: 1,
+            description: "RelationQuery note guard regression test".to_string(),
+            container_type: None,
+            root_type_refs: None,
+            sections: vec![DocumentSection {
+                section_id: SECTION_ID.to_string(),
+                title: Some("Related".to_string()),
+                description: None,
+                order: 0,
+                source: SectionSource::RelationQuery {
+                    from_instance_id: SOURCE_ID.to_string(),
+                    relation_type: "refers-to".to_string(),
+                    direction: None,
+                },
+                render_view_id: None,
+                type_dispatch: None,
+                title_field_id: Some("f-heading".to_string()),
+                ordering: None,
+                required: None,
+                empty_behavior: Some(EmptyBehavior::Hide),
+            }],
+            navigation_links: None,
+            preamble: None,
+            format: Some("markdown".to_string()),
+            depth_offset: None,
+            theme_ref: None,
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let manifest = crate::manifest::Manifest {
+            instance_index: vec![],
+            container: None,
+            container_index: None,
+            extra: HashMap::new(),
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = crate::package::Package {
+            id: "pkg-rq-note".to_string(),
+            namespace: "com.test".to_string(),
+            name: "rq-note-package".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![heading_field],
+            record_types: vec![item_type],
+            relation_type_definitions: vec![RelationTypeDefinition {
+                schema: None,
+                id: "00000000-0000-4000-8000-000000000rt3".to_string(),
+                namespace: "com.test".to_string(),
+                key: "refers-to".to_string(),
+                label: "Refers To".to_string(),
+                description: "Reference relation for tests".to_string(),
+                category: RelationTypeCategory::Association,
+                canonical_direction: None,
+                irreflexive: None,
+                inverse_type: None,
+                version: 1,
+                created_at: "2026-01-01T00:00:00Z".to_string(),
+                allowed_source_types: None,
+                allowed_target_types: None,
+                require_same_semantic_object_type: None,
+                status: None,
+                updated_at: None,
+                properties: None,
+            }],
+            views: vec![],
+            document_views: vec![doc_view],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = crate::store::memory::MemoryStore::new(manifest, package);
+
+        let make_note = |id: &str, title: &str| Note {
+            instance_id: id.to_string(),
+            title: Some(title.to_string()),
+            tags: None,
+            sections: vec![NoteSection {
+                name: "body".to_string(),
+                label: None,
+                content: format!("Content of {title}."),
+                content_hint: None,
+                tags: None,
+            }],
+            graduated_at: None,
+            source_refs: None,
+            created_at: Some("2026-01-01T00:00:00Z".to_string()),
+            updated_at: None,
+            meta: None,
+        };
+
+        crate::services::create_note(&store, make_note(SOURCE_ID, "Source Note")).unwrap();
+        crate::services::create_note(&store, make_note(NOTE_ID, "Skipped Target Note")).unwrap();
+
+        relation_service::create_relation_auto(
+            &store,
+            Relation {
+                relation_id: String::new(),
+                relation_type: "refers-to".to_string(),
+                source_instance_id: SOURCE_ID.to_string(),
+                target_instance_id: NOTE_ID.to_string(),
+                asserted_by: None,
+                confidence: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                created_by: None,
+                status: None,
+                valid_from: None,
+                valid_until: None,
+                notes: None,
+                source_refs: None,
+                meta: None,
+                source_repository_id: None,
+                target_repository_id: None,
+            },
+        )
+        .unwrap();
+
+        let result = render_document_view(RenderDocumentViewOptions::new(&store, "dv-rq-note"))
+            .expect("render must not fail when RelationQuery resolves to a Tier-0 note");
+
+        assert!(
+            !result.rendered.contains("Skipped Target Note"),
+            "note title must NOT appear in RelationQuery output; got:\n{}",
+            result.rendered
+        );
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.contains("[section:rq-sec]")
+                    && d.contains("RelationQuery:")
+                    && d.contains(NOTE_ID)
+                    && d.contains("notes are not rendered in document-view sections")),
+            "expected RelationQuery note-skip diagnostic; got: {:?}",
             result.diagnostics
         );
     }
