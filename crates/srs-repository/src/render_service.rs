@@ -983,6 +983,14 @@ fn resolve_container_title(
                 return container.title;
             }
         }
+        // Embed-only root container: the manifest.container embed is the canonical
+        // repository-identity source (RFC-013) and may carry the title when no
+        // container file exists for the root.
+        if let Some(embed) = &manifest.container {
+            if embed.container_id == cid && !embed.title.is_empty() {
+                return embed.title.clone();
+            }
+        }
     }
 
     if let Some(title) = manifest

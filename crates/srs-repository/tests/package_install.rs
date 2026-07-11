@@ -25,7 +25,9 @@ fn fixture_dir() -> PathBuf {
 fn init_input() -> InitializeRepositoryInput {
     InitializeRepositoryInput {
         repository: RepositoryMetadata {
-            repository_id: "install-test-repo".to_string(),
+            // Must be a UUID: the root-container embed inherits this id, and
+            // validation checks the embed when no container file exists.
+            repository_id: "17575e57-0000-4000-8000-175753e57000".to_string(),
             namespace: "com.test.install".to_string(),
             srs_version: "2.0-draft".to_string(),
             title: Some("Install Test".to_string()),

@@ -57,7 +57,8 @@ pub fn dispatch(ctx: CliContext, cmd: RepoCommand) -> Result<String> {
         RepoCommand::SetRootContainer {
             container_id,
             identity_instance_id,
-        } => cmd_repo_set_root_container(ctx, container_id, identity_instance_id),
+            title,
+        } => cmd_repo_set_root_container(ctx, container_id, identity_instance_id, title),
         RepoCommand::Copy {
             from,
             to,
@@ -244,10 +245,12 @@ fn cmd_repo_set_root_container(
     ctx: CliContext,
     container_id: String,
     identity_instance_id: String,
+    title: Option<String>,
 ) -> Result<String> {
     let input = SetManifestRootContainerInput {
         container_id,
         identity_instance_id,
+        title,
     };
     let result = with_store(&ctx, |store| Ok(set_manifest_root_container(store, input)?))?;
     output::serialize(
@@ -255,6 +258,8 @@ fn cmd_repo_set_root_container(
         RepoSetRootContainerPayload {
             container_id: result.container_id,
             identity_instance_id: result.identity_instance_id,
+            title: result.title,
+            member_instance_ids: result.member_instance_ids,
         },
     )
 }

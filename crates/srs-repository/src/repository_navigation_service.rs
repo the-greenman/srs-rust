@@ -53,7 +53,10 @@ pub fn repository_navigation(
         });
     };
 
-    let root_container = container_service::get_container(store, &container_ref.container_id)?;
+    // Prefer the materialised container; fall back to the manifest.container embed for
+    // embed-only roots (the embed is the canonical repository-identity source, RFC-013).
+    let root_container = container_service::resolve_root_container(store, &manifest)?
+        .expect("manifest.container presence checked above");
     let identity_id = container_ref
         .identity_instance_id
         .clone()
@@ -443,6 +446,82 @@ mod tests {
             Some("00000000-0000-4000-8000-00000000c000")
         );
         assert!(nav.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn repository_navigation_resolves_embed_only_root_container() {
+        // Root container exists ONLY as the manifest.container embed — no container file,
+        // no containerIndex entry. This is the shape written by `repo set-root-container`
+        // and by RFC-013 migrations of pre-container repos (e.g. the spec repo, srs#165).
+        let manifest = Manifest {
+            instance_index: vec![],
+            container: Some(Container {
+                container_id: "00000000-0000-4000-8000-00000000a000".to_string(),
+                title: "Embed Only".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: Some("00000000-0000-4000-8000-00000000a100".to_string()),
+                root_instance_ids: None,
+                member_instance_ids: Some(vec![
+                    "00000000-0000-4000-8000-00000000a100".to_string(),
+                    "00000000-0000-4000-8000-00000000a200".to_string(),
+                ]),
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: HashMap::new(),
+            }),
+            container_index: None,
+            extra: HashMap::new(),
+            root: PathBuf::from("/memory"),
+        };
+        let store = MemoryStore::new(manifest, empty_package());
+        let store = add_record(
+            store,
+            record(
+                "00000000-0000-4000-8000-00000000a100",
+                "Embed Governance",
+                "2026-01-01T00:00:00Z",
+            ),
+            "records/identity.json",
+        );
+        let store = add_record(
+            store,
+            record(
+                "00000000-0000-4000-8000-00000000a200",
+                "Articles",
+                "2026-01-02T00:00:00Z",
+            ),
+            "records/articles-root.json",
+        );
+
+        let nav = super::repository_navigation(&store).unwrap();
+
+        assert_eq!(
+            nav.root_container_id,
+            "00000000-0000-4000-8000-00000000a000"
+        );
+        assert_eq!(
+            nav.identity.instance_id,
+            "00000000-0000-4000-8000-00000000a100"
+        );
+        assert_eq!(nav.identity.display_label, "Embed Governance");
+        assert_eq!(nav.sections.len(), 1);
+        assert_eq!(nav.sections[0].display_label, "Articles");
+        assert!(nav.diagnostics.is_empty(), "{:?}", nav.diagnostics);
+    }
+
+    #[test]
+    fn repository_navigation_prefers_materialised_container_over_embed() {
+        // When both the embed and a container file exist, the file wins — it may carry a
+        // richer member list than the embed (e.g. srs-gov scaffolds).
+        let store = nav_store();
+        let nav = super::repository_navigation(&store).unwrap();
+        // nav_store's embed has no members; the container FILE provides the sections.
+        assert_eq!(nav.sections.len(), 2, "sections must come from the file");
     }
 
     #[test]
