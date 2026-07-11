@@ -117,8 +117,7 @@ fn tier0_note_container_srsj() -> &'static str {
 /// 3. Render the Tier-2 record member in the projection and exclude the note.
 #[test]
 fn render_document_view_container_subset_skips_tier0_note() {
-    let store = JsonStore::from_srsj(tier0_note_container_srsj())
-        .expect("fixture must load");
+    let store = JsonStore::from_srsj(tier0_note_container_srsj()).expect("fixture must load");
 
     let result = render_document_view(RenderDocumentViewOptions {
         store: &store,

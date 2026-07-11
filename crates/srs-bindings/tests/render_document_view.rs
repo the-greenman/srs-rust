@@ -208,15 +208,23 @@ fn render_document_view_container_subset_skips_tier0_note() {
         "diagnostic must reference the container id"
     );
 
-    let proj = result.projection.expect("json format must produce projection");
+    let proj = result
+        .projection
+        .expect("json format must produce projection");
     let all_ids: Vec<&str> = proj
         .sections
         .iter()
         .flat_map(|s| s.records.iter())
         .map(|r| r.instance_id.as_str())
         .collect();
-    assert!(!all_ids.contains(&NOTE_ID), "note must not appear in projection");
-    assert!(all_ids.contains(&RECORD_ID), "Tier-2 record must still render");
+    assert!(
+        !all_ids.contains(&NOTE_ID),
+        "note must not appear in projection"
+    );
+    assert!(
+        all_ids.contains(&RECORD_ID),
+        "Tier-2 record must still render"
+    );
 }
 
 /// Unknown view ID returns an error.
