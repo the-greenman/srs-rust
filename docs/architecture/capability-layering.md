@@ -171,7 +171,7 @@ for the complete residuals list including approved interim exceptions.
 | Symbol(s) | File | Violation | Correct layer | Tracking |
 |---|---|---|---|---|
 | `orderByPrecedes`, `rebuildPrecedesChain` | `src/lib/guides/GuidesShell.svelte` | Relation-chain graph traversal and chain rebuild in TypeScript | `srs-repository` service + `srs-bindings` ordered-relations binding | [srs-web#178](https://github.com/the-greenman/srs-web/issues/178) |
-| `findFieldId`, `getFieldValue`, `getStringField` | `src/lib/governance/field-utils.ts` | TS-side linear name-scan over WASM-derived `fieldMeta`; binding should return fields addressable by name | `srs-bindings` named-field query | [srs-web#179](https://github.com/the-greenman/srs-web/issues/179) |
+| `findFieldId`, `getFieldValue`, `getStringField` | `src/lib/governance/field-utils.ts` | TS-side linear name-scan over WASM-derived `fieldMeta`; binding should return fields addressable by name | `SrsRepository.get_field_value_by_name` (shipped in srs-rust#536) | [srs-web#179](https://github.com/the-greenman/srs-web/issues/179) — migration pending |
 | `LIFECYCLE_TRANSITIONS`, `IMMUTABLE_STATES` | `src/lib/governance/lifecycle.ts` | Hardcoded lifecycle vocabulary in TypeScript | `get_allowed_lifecycle_transitions` + `set_lifecycle_state` via `srs-bindings` (srs-rust plan #375, [ADR-022](../adr/022-governance-status-is-lifecycle-state.md)) | [srs-web#135](https://github.com/the-greenman/srs-web/issues/135) |
 
 **Approved interim exception (not a migration target):** `loadInstalledRelationTypes()`
