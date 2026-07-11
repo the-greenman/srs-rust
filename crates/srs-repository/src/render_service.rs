@@ -7194,8 +7194,11 @@ mod tests {
             result.rendered
         );
         assert!(
-            result.diagnostics.iter().any(|d| d.contains("[section:missing]")
-                && d.contains(&format!("container not found: {DANGLING_CONTAINER_ID}"))),
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.contains("[section:missing]")
+                    && d.contains(&format!("container not found: {DANGLING_CONTAINER_ID}"))),
             "expected a per-section container-not-found warning; got: {:?}",
             result.diagnostics
         );
@@ -7429,8 +7432,14 @@ mod tests {
             .iter()
             .flat_map(|s| s.records.iter().map(|r| r.instance_id.as_str()))
             .collect();
-        assert!(ids.contains(&record_id.as_str()), "record projected: {ids:?}");
-        assert!(!ids.contains(&note_id.as_str()), "note not projected: {ids:?}");
+        assert!(
+            ids.contains(&record_id.as_str()),
+            "record projected: {ids:?}"
+        );
+        assert!(
+            !ids.contains(&note_id.as_str()),
+            "note not projected: {ids:?}"
+        );
         assert!(
             result
                 .diagnostics

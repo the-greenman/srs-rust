@@ -568,7 +568,9 @@ mod tests {
         assert_eq!(gov_doc.sections[0].section_id, "decisions");
         match &gov_doc.sections[0].source {
             SectionSource::ContainerSubset { container_id, .. } => assert_eq!(container_id, dl),
-            other => panic!("gov-doc decisions section must stay a container-subset, got {other:?}"),
+            other => {
+                panic!("gov-doc decisions section must stay a container-subset, got {other:?}")
+            }
         }
 
         // Every surviving container reference resolves — no dangling refs remain.
