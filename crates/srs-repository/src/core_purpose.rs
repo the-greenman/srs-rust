@@ -20,15 +20,18 @@ use srs_core::types::record::{FieldValue, Record};
 
 use std::collections::HashMap;
 
-/// Return the type_id, type_version, and field_values needed to create a
-/// `com.semanticops.core/purpose` record via `create_record` / `create_record_at_dir`.
-///
-/// Use this over `build_purpose_record` when routing through `create_record` so that
-/// CFR validation runs at write time (ADR-002, #481).
-pub(crate) fn purpose_record_spec(
-    statement: &str,
-    title: Option<&str>,
-) -> (String, u32, Vec<FieldValue>) {
+/// Components needed to create a `com.semanticops.core/purpose` record via `create_record`.
+pub(crate) struct PurposeRecordSpec {
+    pub(crate) type_id: String,
+    pub(crate) type_version: u32,
+    pub(crate) field_values: Vec<FieldValue>,
+}
+
+/// Return the components needed to create a `com.semanticops.core/purpose` record via
+/// `create_record` / `create_record_at_dir` so that CFR validation runs at write time
+/// (ADR-002, #481). Reads from the embedded core bundle directly — ADR-025 guarantees
+/// the embedded bundle is canonical and present in every store's `load_package()` result.
+pub(crate) fn purpose_record_spec(statement: &str, title: Option<&str>) -> PurposeRecordSpec {
     let cp = crate::core_package::core_package();
     let purpose_type = cp
         .record_types
@@ -62,7 +65,11 @@ pub(crate) fn purpose_record_spec(
             edited_at: None,
         });
     }
-    (purpose_type.id.clone(), purpose_type.version, field_values)
+    PurposeRecordSpec {
+        type_id: purpose_type.id.clone(),
+        type_version: purpose_type.version,
+        field_values,
+    }
 }
 
 /// Build an in-memory `com.semanticops.core/purpose` Record.
@@ -73,46 +80,14 @@ pub(crate) fn build_purpose_record(
     title: Option<&str>,
     now: &str,
 ) -> Record {
-    let cp = crate::core_package::core_package();
-    let purpose_type = cp
-        .record_types
-        .iter()
-        .find(|rt| rt.namespace == PURPOSE_TYPE_NAMESPACE && rt.name == PURPOSE_TYPE_NAME)
-        .expect("embedded core bundle must contain com.semanticops.core/purpose type");
-    let statement_field = cp
-        .fields
-        .iter()
-        .find(|f| f.namespace == "com.semanticops.core" && f.name == "statement")
-        .expect("embedded core bundle must contain com.semanticops.core/statement field");
-
-    let mut field_values = vec![FieldValue {
-        field_id: statement_field.id.clone(),
-        value: serde_json::Value::String(statement.to_string()),
-        entries: None,
-        source: None,
-        edited_at: None,
-    }];
-    if let Some(t) = title {
-        let title_field = cp
-            .fields
-            .iter()
-            .find(|f| f.namespace == "com.semanticops.core" && f.name == "title")
-            .expect("embedded core bundle must contain com.semanticops.core/title field");
-        field_values.push(FieldValue {
-            field_id: title_field.id.clone(),
-            value: serde_json::Value::String(t.to_string()),
-            entries: None,
-            source: None,
-            edited_at: None,
-        });
-    }
+    let spec = purpose_record_spec(statement, title);
     Record {
         instance_id: instance_id.to_string(),
-        type_id: purpose_type.id.clone(),
-        type_version: purpose_type.version,
+        type_id: spec.type_id,
+        type_version: spec.type_version,
         type_namespace: PURPOSE_TYPE_NAMESPACE.to_string(),
         type_name: PURPOSE_TYPE_NAME.to_string(),
-        field_values,
+        field_values: spec.field_values,
         group_values: None,
         lifecycle_state: None,
         tags: None,

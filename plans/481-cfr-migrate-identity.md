@@ -62,46 +62,20 @@ No JSON Schema files change.
 
 #### Tasks
 
-- [ ] In `crates/srs-repository/src/core_purpose.rs`: add `pub(crate) fn purpose_record_spec(statement: &str, title: Option<&str>) -> (String, u32, Vec<FieldValue>)` that returns `(purpose_type.id.clone(), purpose_type.version, field_values)` by looking up the core bundle — same lookup logic as `build_purpose_record` but returns the components needed for `create_record`, not a full `Record`.
-- [ ] In `crates/srs-repository/src/migrate_identity_service.rs`:
+- [x] In `crates/srs-repository/src/core_purpose.rs`: add `pub(crate) struct PurposeRecordSpec` and `pub(crate) fn purpose_record_spec(statement: &str, title: Option<&str>) -> PurposeRecordSpec` that returns type_id, type_version, and field_values by looking up the embedded core bundle (ADR-025). `build_purpose_record` now delegates to `purpose_record_spec`, eliminating the duplicate lookup.
+- [x] In `crates/srs-repository/src/migrate_identity_service.rs`:
   - Remove imports: `write_new_record`, `upsert_record_index_entry` from `crate::record_store`
   - Add import: `crate::record_store::create_record`
-  - Signature of `crate::record_store::create_record`: `create_record(store, type_id: &str, type_version: u32, field_values: Vec<FieldValue>, group_values: Option<Vec<FieldGroupValue>>, tags: Option<Vec<String>>) -> Result<Record, RepositoryError>` — pass `None` for both `group_values` and `tags` since purpose records have neither.
-  - **None-branch** (identity_instance_id is None, ~lines 78-139):
-    - Delete: `let now = ...; let new_id = ...; let record = core_purpose::build_purpose_record(...);`
-    - Before `store.begin_batch()`, call `let (type_id, type_version, field_values) = core_purpose::purpose_record_spec(statement, record_title);`
-    - Inside the batch closure, change return type to `Result<String, RepositoryError>` (returns the new instance_id)
-    - Replace `write_new_record` + `upsert_record_index_entry` + `write_manifest` block with this sequence:
-      1. `let record = create_record(store, &type_id, type_version, field_values, None, None)?;`
-      2. `let new_id = record.instance_id.clone();`
-      3. `let mut manifest = store.load_manifest()?;` — reload to capture the record index entry that `create_record` already wrote internally (per ADR-021, `create_record` updates the manifest as part of its own write; we reload to base our container update on that state, then write manifest a second time with container changes)
-      4. `if let Some(ref mut container) = manifest.container { container.identity_instance_id = Some(new_id.clone()); container.member_instance_ids.get_or_insert_with(Vec::new).push(new_id.clone()); }`
-      5. `writer::write_manifest(store, &manifest)?;`
-      6. `if let Some(ref container) = manifest.container { store.save_container(container)?; }` (unchanged)
-      7. `Ok(new_id)`
-    - In the batch match arm, extract `new_id` from `Ok(new_id)` and use it in `MigrateIdentityResult`
-  - **Main-branch** (~lines 141-226):
-    - Delete: `let new_id = ...; let now = ...; let record = core_purpose::build_purpose_record(...);`
-    - Before `store.begin_batch()`, call `let (type_id, type_version, field_values) = core_purpose::purpose_record_spec(&statement, title.as_deref());`
-    - Batch closure returns `Result<String, RepositoryError>` (the new_id)
-    - Replace `write_new_record` + `upsert_record_index_entry` block with this sequence inside the closure:
-      1. `let record = create_record(store, &type_id, type_version, field_values, None, None)?;`
-      2. `let new_id = record.instance_id.clone();`
-      3. `let mut manifest = store.load_manifest()?;` (reload — same ADR-021 rationale as None-branch)
-      4. `if let Some(ref mut mc) = manifest.container { mc.identity_instance_id = Some(new_id.clone()); }`
-      5. `writer::write_manifest(store, &manifest)?;`
-      6. `container_service::add_container_member(store, &root_container_id, &new_id)?;` (unchanged)
-      7. `container_service::remove_container_member(store, &root_container_id, &old_id)?;` (unchanged)
-      8. Load persisted container, update its `identity_instance_id`, save container — retain the WASM nesting caveat comment from current lines 195-200 (do NOT use `container_service::update_container`; use `store.load_container` + `store.save_container` directly)
-      9. `Ok(new_id)`
-    - In the batch match arm, extract `new_id` from `Ok(new_id)` and use it in `MigrateIdentityResult`
-- [ ] In `crates/srs-repository/src/docs/adr/002-tier2-generic-record-operations.md`: update Known Deviations to note the `migrate_identity_service` deviation is resolved by this commit; `repository_lifecycle.rs#scaffold_purpose_record` remains as the only open deviation.
+  - Both None-branch and main-branch call `core_purpose::purpose_record_spec(...)` to obtain a `PurposeRecordSpec`, then pass `spec.type_id`, `spec.type_version`, `spec.field_values` to `create_record`
+  - Batch closures return `Result<String, RepositoryError>` (the new instance_id)
+  - After `create_record`, manifest is reloaded to capture the index entry it wrote, then written a second time with container changes (two manifest writes per ADR-021 batch; atomic for JsonStore, sequential-best-effort for FileStore/MemoryStore per ADR-024)
+- [x] In `docs/adr/002-tier2-generic-record-operations.md`: update Known Deviations to note the `migrate_identity_service` deviation is resolved by this commit; `repository_lifecycle.rs#scaffold_purpose_record` remains as the only open deviation.
 
 #### Acceptance Criteria
 
-- [ ] `migrate_identity_service.rs` has no `write_new_record` or `upsert_record_index_entry` imports or calls
-- [ ] `migrate_identity_service.rs` imports and calls `crate::record_store::create_record`
-- [ ] All existing tests in `migrate_identity_service.rs#tests` pass unchanged
+- [x] `migrate_identity_service.rs` has no `write_new_record` or `upsert_record_index_entry` imports or calls
+- [x] `migrate_identity_service.rs` imports and calls `crate::record_store::create_record`
+- [x] All existing tests in `migrate_identity_service.rs#tests` pass unchanged
 - [ ] `cargo test -p srs-repository` passes
 - [ ] `cargo clippy -p srs-repository -- -D warnings` passes
 

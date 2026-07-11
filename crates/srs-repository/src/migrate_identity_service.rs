@@ -94,15 +94,20 @@ pub fn migrate_identity(
             Some(mc.title.as_str())
         };
 
-        let (type_id, type_version, field_values) =
-            core_purpose::purpose_record_spec(statement, record_title);
+        let spec = core_purpose::purpose_record_spec(statement, record_title);
 
         store.begin_batch();
         let batch_result = (|| -> Result<String, RepositoryError> {
             // Route through create_record so CFR validation runs at write time (ADR-002, #481).
             // create_record writes the record file and updates the manifest index entry internally.
-            let record =
-                create_record(store, &type_id, type_version, field_values, None, None)?;
+            let record = create_record(
+                store,
+                &spec.type_id,
+                spec.type_version,
+                spec.field_values,
+                None,
+                None,
+            )?;
             let new_id = record.instance_id.clone();
 
             // Reload manifest to capture the index entry create_record just wrote, then add
@@ -173,8 +178,7 @@ pub fn migrate_identity(
     let old_tier = entry.tier();
     let (statement, title) = extract_identity_text(store, &entry)?;
 
-    let (type_id, type_version, field_values) =
-        core_purpose::purpose_record_spec(&statement, title.as_deref());
+    let spec = core_purpose::purpose_record_spec(&statement, title.as_deref());
 
     // ADR-021 batch: record file + manifest + container membership atomically.
     // Also remove the old identity from container members: it was there only to satisfy
@@ -185,7 +189,14 @@ pub fn migrate_identity(
     let batch_result = (|| -> Result<String, RepositoryError> {
         // Route through create_record so CFR validation runs at write time (ADR-002, #481).
         // create_record writes the record file and updates the manifest index entry internally.
-        let record = create_record(store, &type_id, type_version, field_values, None, None)?;
+        let record = create_record(
+            store,
+            &spec.type_id,
+            spec.type_version,
+            spec.field_values,
+            None,
+            None,
+        )?;
         let new_id = record.instance_id.clone();
 
         // Reload manifest to capture the index entry create_record just wrote, then update
