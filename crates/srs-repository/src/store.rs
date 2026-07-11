@@ -251,6 +251,7 @@ pub trait RepositoryStore {
 
     /// Persist a container by its logical `container_id`.
     /// Creates it if it does not exist; overwrites if it does.
+    /// Implementations must write entity data before updating any index (ADR-007).
     fn save_container(
         &self,
         container: &srs_core::types::container::Container,
@@ -3644,8 +3645,8 @@ mod tests {
     #[test]
     fn save_container_file_first_failed_index_leaves_orphaned_data_safe() {
         // ADR-007: with file-before-index ordering, a failed index update after a successful
-        // data write must leave the data on disk (orphaned, invisible to readers) but no
-        // dangling index entry. This proves the invariant: index is always internally consistent.
+        // data write must leave the data in the backing store (orphaned, invisible to readers) but
+        // no dangling index entry. Proves the invariant: the index is always internally consistent.
         use memory::FailPoint;
 
         let store = MemoryStore::empty();
@@ -3660,10 +3661,13 @@ mod tests {
             "save_container should return Io error when SaveContainerIndex fail point is armed"
         );
 
-        // Data was written before the injected failure — orphaned data present on disk (safe)
-        store
-            .load_instance_json("containers/c-test-adr007.json")
-            .expect("container data should exist as an orphaned file after failed index update");
+        // Data was written before the injected failure — orphaned entry present in backing store (safe)
+        assert!(
+            store
+                .all_data()
+                .contains_key("containers/c-test-adr007.json"),
+            "container data should exist as an orphaned entry after failed index update"
+        );
 
         // Index must NOT have an entry — no dangling index entry
         let summaries = store.list_container_summaries().unwrap();
