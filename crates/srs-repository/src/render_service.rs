@@ -1196,6 +1196,7 @@ fn resolve_section_instances(
 ) -> Result<Vec<Record>, RepositoryError> {
     match &section.source {
         SectionSource::FixedInstances { instance_ids } => {
+            // TODO(#527): note guard needed — same crash as #510
             let mut records = Vec::new();
             for id in instance_ids {
                 if let Some(record) = get_record_by_id(store, id)? {
@@ -1338,6 +1339,7 @@ fn resolve_section_instances(
                     }
                 }
             }
+            // TODO(#527): note guard needed — same crash as #510
             let mut records = Vec::new();
             for id in ids {
                 if let Some(record) = get_record_by_id(store, &id)? {
@@ -1355,8 +1357,19 @@ fn resolve_section_instances(
             // ContainerSubset document-view to render any guide by switching at render time.
             let effective_id = cli_container_id.unwrap_or(container_id.as_str());
             let members = list_members(store, effective_id)?;
+            let manifest = store.load_manifest()?;
             let mut records = Vec::new();
             for id in members {
+                if let Some(entry) = manifest.instance_index.iter().find(|e| e.instance_id == id) {
+                    if entry.is_note() {
+                        diagnostics.push(format!(
+                            "[container-subset] skipping Tier-0 note {} in container {}; \
+                             notes are not rendered in document-view sections",
+                            id, effective_id
+                        ));
+                        continue;
+                    }
+                }
                 if let Some(record) = get_record_by_id(store, &id)? {
                     records.push(record);
                 }
