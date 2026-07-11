@@ -34,7 +34,8 @@ use srs_core::types::field::ValueType;
 use srs_core::types::lifecycle::{RelationDirection, RequiresRelation};
 use srs_core::types::record::{FieldValue, Record};
 use srs_core::types::relation::Relation;
-use srs_core::types::relation_type_definition::RelationTypeStatus;
+use srs_core::types::relation_type_definition::RelationTypeDefinition;
+use srs_core::validation::relation::validate_relation_type_for_write;
 use srs_core::types::revision::{Revision, RevisionAgent, RevisionProvenance};
 use srs_core::validation::lifecycle::validate_type_lifecycle_v9;
 use srs_core::validation::record::{validate_record, validate_record_all, validate_type_lifecycle};
@@ -1497,6 +1498,9 @@ pub fn create_record_successor(
     // validation), and any RFC-022 relation obligation it carries is checked
     // after the successor relation is asserted below.
     let mut requires_for_explicit: Option<RequiresRelation> = None;
+    // Thread definitions out of the package block so the second write (create_relation) can
+    // use them directly, avoiding a second load_package() call inside create_relation_auto.
+    let definitions: Vec<RelationTypeDefinition>;
     {
         let package = store.load_package()?;
         let record_type = package
@@ -1505,66 +1509,15 @@ pub fn create_record_successor(
                 type_id: predecessor.type_id.clone(),
                 version: type_version,
             })?;
-        // Validate relation_type before writing anything (ADR-024: fail-fast preferred).
-        // Mirrors resolve_definition in srs-core: unknown / retired / write-rejected / conflict.
-        {
-            let matching: Vec<_> = package
-                .relation_type_definitions
-                .iter()
-                .filter(|d| d.key == input.relation_type)
-                .collect();
-            let e1_msg = match matching.len() {
-                0 => Some(format!(
-                    "E1: relation type '{}' is not installed in the package",
-                    input.relation_type
-                )),
-                1 => {
-                    let def = matching[0];
-                    if matches!(def.status, Some(RelationTypeStatus::Retired)) {
-                        Some(format!(
-                            "E1: relation type '{}' is retired and does not resolve",
-                            input.relation_type
-                        ))
-                    } else if matches!(
-                        def.status,
-                        Some(RelationTypeStatus::Deprecated) | Some(RelationTypeStatus::Tombstone)
-                    ) {
-                        let status_str = match &def.status {
-                            Some(RelationTypeStatus::Deprecated) => "deprecated",
-                            _ => "tombstone",
-                        };
-                        Some(format!(
-                            "E1: relation type '{}' is {} — new writes are rejected",
-                            input.relation_type, status_str
-                        ))
-                    } else {
-                        None
-                    }
-                }
-                _ => {
-                    let first = matching[0];
-                    let all_identical = matching.iter().all(|d| {
-                        d.id == first.id
-                            && d.version == first.version
-                            && d.namespace == first.namespace
-                    });
-                    if all_identical {
-                        None // coalesce: treated as a single canonical definition
-                    } else {
-                        Some(format!(
-                            "E1: relation type '{}' has conflicting definitions (different id/version/content)",
-                            input.relation_type
-                        ))
-                    }
-                }
-            };
-            if let Some(msg) = e1_msg {
-                return Err(RepositoryError::RelationValidation {
-                    relation_id: String::new(),
-                    message: msg,
-                });
-            }
-        }
+        // Validate relation_type before writing the record, so an E1 failure avoids
+        // the ADR-024 best-effort rollback path (delete_record after failed create_relation).
+        // relation_id is empty in the error — no relation has been created yet.
+        validate_relation_type_for_write(&package.relation_type_definitions, &input.relation_type)
+            .map_err(|e| RepositoryError::RelationValidation {
+                relation_id: String::new(),
+                message: e.message,
+            })?;
+        definitions = package.relation_type_definitions.clone();
         if let Some(explicit_state) = input.lifecycle_state.as_deref() {
             let lifecycle = package.effective_lifecycle(record_type).ok_or_else(|| {
                 RepositoryError::LifecycleNotDefined {
@@ -1603,8 +1556,10 @@ pub fn create_record_successor(
         store.record_tier_dir(RecordTier::Tier2),
     )?;
 
-    // Create the relation: successor → predecessor
-    let rel_result = match relation_service::create_relation_auto(
+    // Create the relation: successor → predecessor.
+    // Use create_relation directly with the definitions already loaded above — avoids a
+    // second load_package() call inside create_relation_auto.
+    let rel_result = match relation_service::create_relation(
         store,
         Relation {
             relation_id: String::new(),
@@ -1624,6 +1579,7 @@ pub fn create_record_successor(
             source_repository_id: None,
             target_repository_id: None,
         },
+        &definitions,
     ) {
         Ok(r) => r,
         Err(e) => {
@@ -3334,6 +3290,327 @@ mod tests {
             after, before,
             "instance index grew — successor record was written despite unknown relation type"
         );
+    }
+
+    /// Creates a store identical to `make_store_with_lifecycle` but replaces the `supersedes`
+    /// relation type definition with one carrying the given status override.
+    fn make_store_with_supersedes_status(
+        status: Option<srs_core::types::relation_type_definition::RelationTypeStatus>,
+    ) -> MemoryStore {
+        use crate::package::Package;
+        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::record_type::{
+            FieldAssignment, LifecycleState, LifecycleTransition, RecordType, TypeLifecycle,
+        };
+        use srs_core::types::relation_type_definition::{
+            RelationTypeCategory, RelationTypeDefinition,
+        };
+
+        let title_field = Field {
+            id: "field-title-lc".to_string(),
+            namespace: "com.test".to_string(),
+            name: "title".to_string(),
+            version: 1,
+            value_type: ValueType::String,
+            description: "Title".to_string(),
+            instructions: None,
+            ai_guidance: json!(null),
+            allowed_values: None,
+            vocabulary_ref: None,
+            default_value: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let lc_type = RecordType {
+            id: "type-lc-001".to_string(),
+            namespace: "com.test".to_string(),
+            name: "lifecycle-type".to_string(),
+            version: 1,
+            description: "Type with lifecycle".to_string(),
+            fields: vec![FieldAssignment {
+                field_id: "field-title-lc".to_string(),
+                order: 0,
+                required: true,
+                display_label: None,
+                repeatable: false,
+                min_items: None,
+                max_items: None,
+            }],
+            field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            identity_field_id: None,
+            lifecycle: Some(TypeLifecycle {
+                states: vec![
+                    LifecycleState {
+                        id: None,
+                        version: None,
+                        namespace: None,
+                        key: "draft".to_string(),
+                        label: None,
+                        description: None,
+                        aliases: None,
+                        is_initial: Some(true),
+                        is_final: None,
+                        status: None,
+                        requires_relation: None,
+                        properties: None,
+                    },
+                    LifecycleState {
+                        id: None,
+                        version: None,
+                        namespace: None,
+                        key: "active".to_string(),
+                        label: None,
+                        description: None,
+                        aliases: None,
+                        is_initial: None,
+                        is_final: None,
+                        status: None,
+                        requires_relation: None,
+                        properties: None,
+                    },
+                ],
+                transitions: vec![LifecycleTransition {
+                    id: None,
+                    name: "promote".to_string(),
+                    from: "draft".to_string(),
+                    to: "active".to_string(),
+                    description: None,
+                    properties: None,
+                }],
+                initial_state: "draft".to_string(),
+            }),
+            lifecycle_ref: None,
+            validation_rules: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let supersedes_def = RelationTypeDefinition {
+            schema: None,
+            id: "rtd-supersedes-001".to_string(),
+            version: 1,
+            key: "supersedes".to_string(),
+            namespace: "com.semanticops.srs".to_string(),
+            label: "Supersedes".to_string(),
+            description: "The source record supersedes the target.".to_string(),
+            category: RelationTypeCategory::Refinement,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            canonical_direction: None,
+            inverse_type: None,
+            irreflexive: Some(true),
+            allowed_source_types: None,
+            allowed_target_types: None,
+            require_same_semantic_object_type: None,
+            status,
+            updated_at: None,
+            properties: None,
+        };
+
+        let manifest = crate::manifest::Manifest {
+            instance_index: vec![],
+            container: None,
+            container_index: None,
+            extra: HashMap::new(),
+            root: PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "test-package-lc".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test-package-lc".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![title_field],
+            record_types: vec![lc_type],
+            relation_type_definitions: vec![supersedes_def],
+            views: vec![],
+            document_views: vec![],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+            root: PathBuf::from("/memory"),
+        };
+        MemoryStore::new(manifest, package)
+    }
+
+    #[test]
+    fn create_record_successor_retired_relation_type_rejected_no_write() {
+        use srs_core::types::relation_type_definition::RelationTypeStatus;
+        let store = make_store_with_supersedes_status(Some(RelationTypeStatus::Retired));
+        let predecessor = create_lc_record(&store);
+        let before = store.load_manifest().unwrap().instance_index.len();
+
+        let result = create_record_successor(
+            &store,
+            &predecessor.instance_id,
+            CreateRecordSuccessorInput {
+                relation_type: "supersedes".to_string(),
+                field_values: vec![FieldValue {
+                    field_id: "field-title-lc".to_string(),
+                    value: json!("Retired Type"),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                }],
+                lifecycle_state: None,
+                type_version: None,
+            },
+        );
+
+        assert!(
+            matches!(result, Err(RepositoryError::RelationValidation { .. })),
+            "expected RelationValidation error for retired type, got: {:?}",
+            result
+        );
+        let after = store.load_manifest().unwrap().instance_index.len();
+        assert_eq!(after, before, "orphaned record written for retired relation type");
+    }
+
+    #[test]
+    fn create_record_successor_deprecated_relation_type_rejected_no_write() {
+        use srs_core::types::relation_type_definition::RelationTypeStatus;
+        let store = make_store_with_supersedes_status(Some(RelationTypeStatus::Deprecated));
+        let predecessor = create_lc_record(&store);
+        let before = store.load_manifest().unwrap().instance_index.len();
+
+        let result = create_record_successor(
+            &store,
+            &predecessor.instance_id,
+            CreateRecordSuccessorInput {
+                relation_type: "supersedes".to_string(),
+                field_values: vec![FieldValue {
+                    field_id: "field-title-lc".to_string(),
+                    value: json!("Deprecated Type"),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                }],
+                lifecycle_state: None,
+                type_version: None,
+            },
+        );
+
+        assert!(
+            matches!(result, Err(RepositoryError::RelationValidation { .. })),
+            "expected RelationValidation error for deprecated type, got: {:?}",
+            result
+        );
+        let after = store.load_manifest().unwrap().instance_index.len();
+        assert_eq!(after, before, "orphaned record written for deprecated relation type");
+    }
+
+    #[test]
+    fn create_record_successor_tombstone_relation_type_rejected_no_write() {
+        use srs_core::types::relation_type_definition::RelationTypeStatus;
+        let store = make_store_with_supersedes_status(Some(RelationTypeStatus::Tombstone));
+        let predecessor = create_lc_record(&store);
+        let before = store.load_manifest().unwrap().instance_index.len();
+
+        let result = create_record_successor(
+            &store,
+            &predecessor.instance_id,
+            CreateRecordSuccessorInput {
+                relation_type: "supersedes".to_string(),
+                field_values: vec![FieldValue {
+                    field_id: "field-title-lc".to_string(),
+                    value: json!("Tombstone Type"),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                }],
+                lifecycle_state: None,
+                type_version: None,
+            },
+        );
+
+        assert!(
+            matches!(result, Err(RepositoryError::RelationValidation { .. })),
+            "expected RelationValidation error for tombstone type, got: {:?}",
+            result
+        );
+        let after = store.load_manifest().unwrap().instance_index.len();
+        assert_eq!(after, before, "orphaned record written for tombstone relation type");
+    }
+
+    #[test]
+    fn create_record_successor_conflicting_rtds_rejected_no_write() {
+        use srs_core::types::relation_type_definition::{
+            RelationTypeCategory, RelationTypeDefinition,
+        };
+
+        // Two `supersedes` definitions with different UUIDs → E1Conflict
+        let def_a = RelationTypeDefinition {
+            schema: None,
+            id: "rtd-supersedes-aaa".to_string(),
+            version: 1,
+            key: "supersedes".to_string(),
+            namespace: "com.semanticops.srs".to_string(),
+            label: "Supersedes A".to_string(),
+            description: "First definition".to_string(),
+            category: RelationTypeCategory::Refinement,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            canonical_direction: None,
+            inverse_type: None,
+            irreflexive: Some(true),
+            allowed_source_types: None,
+            allowed_target_types: None,
+            require_same_semantic_object_type: None,
+            status: None,
+            updated_at: None,
+            properties: None,
+        };
+        let def_b = RelationTypeDefinition {
+            id: "rtd-supersedes-bbb".to_string(),
+            ..def_a.clone()
+        };
+
+        let manifest = crate::manifest::Manifest {
+            instance_index: vec![],
+            container: None,
+            container_index: None,
+            extra: HashMap::new(),
+            root: PathBuf::from("/memory"),
+        };
+        // Reuse lc_type from make_store_with_lifecycle via a fresh MemoryStore from the helper
+        // then swap the package — easiest: build package inline with two conflicting defs.
+        let base = make_store_with_lifecycle();
+        let mut base_pkg = base.load_package().unwrap();
+        base_pkg.relation_type_definitions = vec![def_a, def_b];
+        let store = MemoryStore::new(manifest, base_pkg);
+
+        let predecessor = create_lc_record(&store);
+        let before = store.load_manifest().unwrap().instance_index.len();
+
+        let result = create_record_successor(
+            &store,
+            &predecessor.instance_id,
+            CreateRecordSuccessorInput {
+                relation_type: "supersedes".to_string(),
+                field_values: vec![FieldValue {
+                    field_id: "field-title-lc".to_string(),
+                    value: json!("Conflict Type"),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                }],
+                lifecycle_state: None,
+                type_version: None,
+            },
+        );
+
+        assert!(
+            matches!(result, Err(RepositoryError::RelationValidation { .. })),
+            "expected RelationValidation error for conflicting RTDs, got: {:?}",
+            result
+        );
+        let after = store.load_manifest().unwrap().instance_index.len();
+        assert_eq!(after, before, "orphaned record written for conflicting RTDs");
     }
 
     #[test]

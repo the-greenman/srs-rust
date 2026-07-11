@@ -197,6 +197,84 @@ fn resolve_definition<'a>(
     }
 }
 
+/// Validates that `relation_type` can be used for a new write given the installed `definitions`.
+///
+/// This is the E1-only fast-path for services that need to reject a bad relation type *before*
+/// writing any record. Returns `Ok(())` when the type is installed and accepts new writes.
+/// The `relation_id` in the returned error is always empty — no relation has been created yet.
+pub fn validate_relation_type_for_write(
+    definitions: &[RelationTypeDefinition],
+    relation_type: &str,
+) -> Result<(), RelationValidationError> {
+    let matching: Vec<&RelationTypeDefinition> = definitions
+        .iter()
+        .filter(|d| d.key == relation_type)
+        .collect();
+
+    let mk_err = |code: RelationValidationCode, message: String| RelationValidationError {
+        relation_id: String::new(),
+        code,
+        message,
+    };
+
+    match matching.len() {
+        0 => Err(mk_err(
+            RelationValidationCode::E1UnknownRelationType,
+            format!(
+                "E1: relation type '{}' is not installed in the package",
+                relation_type
+            ),
+        )),
+        1 => {
+            let def = matching[0];
+            if matches!(def.status, Some(RelationTypeStatus::Retired)) {
+                return Err(mk_err(
+                    RelationValidationCode::E1RetiredRelationType,
+                    format!(
+                        "E1: relation type '{}' is retired and does not resolve",
+                        relation_type
+                    ),
+                ));
+            }
+            if matches!(
+                def.status,
+                Some(RelationTypeStatus::Deprecated) | Some(RelationTypeStatus::Tombstone)
+            ) {
+                let status_str = match &def.status {
+                    Some(RelationTypeStatus::Deprecated) => "deprecated",
+                    Some(RelationTypeStatus::Tombstone) => "tombstone",
+                    _ => "unknown",
+                };
+                return Err(mk_err(
+                    RelationValidationCode::E1WriteRejected,
+                    format!(
+                        "E1: relation type '{}' is {} — new writes are rejected",
+                        relation_type, status_str
+                    ),
+                ));
+            }
+            Ok(())
+        }
+        _ => {
+            let first = matching[0];
+            let all_identical = matching.iter().all(|d| {
+                d.id == first.id && d.version == first.version && d.namespace == first.namespace
+            });
+            if all_identical {
+                Ok(())
+            } else {
+                Err(mk_err(
+                    RelationValidationCode::E1Conflict,
+                    format!(
+                        "E1: relation type '{}' has conflicting definitions (different id/version/content)",
+                        relation_type
+                    ),
+                ))
+            }
+        }
+    }
+}
+
 fn validate_e4(
     relation: &Relation,
     def: &RelationTypeDefinition,
