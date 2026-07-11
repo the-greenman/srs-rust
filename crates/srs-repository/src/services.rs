@@ -1632,4 +1632,118 @@ mod tests {
             err
         );
     }
+
+    // --- Fault-injection tests: ADR-007 delete-ordering invariant for delete_note ---
+
+    #[test]
+    fn delete_note_old_file_first_ordering_leaves_dangling_index_entry() {
+        // Documents the bug: when the file is deleted before the manifest is
+        // committed, an interrupted write leaves a dangling manifest entry rather
+        // than a safe orphaned file.
+        use crate::store::memory::FailPoint;
+
+        let note = make_note("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "Fault Note A");
+        let path = "records/notes/fault-note-a.json";
+        let store = store_with_note(&note, path);
+        let instance_id = &note.instance_id;
+
+        // Simulate old file-first ordering: delete the file, then fail the manifest write.
+        store.arm_fail_at(FailPoint::SaveManifest);
+        store.delete_instance_file(path).unwrap();
+
+        // Build and attempt to save manifest without the entry — the armed fault fires.
+        let mut manifest_without = store.load_manifest().unwrap();
+        manifest_without
+            .instance_index
+            .retain(|e| e.instance_id() != instance_id);
+        let err = store.save_manifest(&manifest_without);
+        assert!(
+            matches!(err, Err(RepositoryError::Io { .. })),
+            "expected manifest write to fail (injected fault)"
+        );
+
+        // File is gone (already deleted above).
+        assert!(
+            store.load_instance_json(path).is_err(),
+            "file must be gone after explicit delete"
+        );
+        // Manifest still has the entry — dangling index entry (the bug).
+        let manifest_after = store.load_manifest().unwrap();
+        assert!(
+            manifest_after
+                .instance_index
+                .iter()
+                .any(|e| e.instance_id() == instance_id),
+            "dangling manifest entry must remain when file-first ordering is interrupted"
+        );
+    }
+
+    #[test]
+    fn delete_note_index_first_manifest_fail_leaves_note_intact() {
+        // New (ADR-007) ordering: manifest is written first. If the manifest write
+        // fails, neither the index entry nor the file is touched — no data loss.
+        use crate::store::memory::FailPoint;
+
+        let note = make_note("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "Fault Note B");
+        let path = "records/notes/fault-note-b.json";
+        let store = store_with_note(&note, path);
+        let instance_id = &note.instance_id;
+
+        store.arm_fail_at(FailPoint::SaveManifest);
+        let result = delete_note(&store, instance_id);
+        assert!(
+            matches!(result, Err(RepositoryError::Io { .. })),
+            "delete_note must surface the manifest Io error"
+        );
+
+        // File must still be present — manifest write failed before any file deletion.
+        assert!(
+            store.load_instance_json(path).is_ok(),
+            "file must be intact when manifest write fails first"
+        );
+        // Index entry must still be present — no data loss.
+        let manifest_after = store.load_manifest().unwrap();
+        assert!(
+            manifest_after
+                .instance_index
+                .iter()
+                .any(|e| e.instance_id() == instance_id),
+            "manifest entry must remain when manifest write fails"
+        );
+    }
+
+    #[test]
+    fn delete_note_index_first_file_fail_leaves_orphaned_file_safe() {
+        // New (ADR-007) ordering: manifest is written first and succeeds; the
+        // subsequent best-effort file delete fails. The result is a safe orphaned
+        // file rather than a dangling index entry.
+        use crate::store::memory::FailPoint;
+
+        let note = make_note("cccccccc-cccc-4ccc-8ccc-cccccccccccc", "Fault Note C");
+        let path = "records/notes/fault-note-c.json";
+        let store = store_with_note(&note, path);
+        let instance_id = &note.instance_id;
+
+        store.arm_fail_at(FailPoint::DeleteInstanceFile);
+        let result = delete_note(&store, instance_id);
+        assert!(
+            result.is_ok(),
+            "delete_note must succeed even when file delete fails (best-effort)"
+        );
+
+        // File is still present — orphaned but invisible (not in the index).
+        assert!(
+            store.load_instance_json(path).is_ok(),
+            "orphaned file must remain when file delete fails"
+        );
+        // Index entry is gone — no dangling entry, safe state.
+        let manifest_after = store.load_manifest().unwrap();
+        assert!(
+            manifest_after
+                .instance_index
+                .iter()
+                .all(|e| e.instance_id() != instance_id),
+            "manifest entry must be removed even when file delete fails"
+        );
+    }
 }
