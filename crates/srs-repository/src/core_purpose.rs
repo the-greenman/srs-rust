@@ -20,14 +20,19 @@ use srs_core::types::record::{FieldValue, Record};
 
 use std::collections::HashMap;
 
-/// Build an in-memory `com.semanticops.core/purpose` Record.
-/// Does not perform any I/O — the caller writes and batches as appropriate.
-pub(crate) fn build_purpose_record(
-    instance_id: &str,
-    statement: &str,
-    title: Option<&str>,
-    now: &str,
-) -> Record {
+/// Components needed to create a `com.semanticops.core/purpose` record via `create_record`.
+#[derive(Debug)]
+pub(crate) struct PurposeRecordSpec {
+    pub(crate) type_id: String,
+    pub(crate) type_version: u32,
+    pub(crate) field_values: Vec<FieldValue>,
+}
+
+/// Return the components needed to create a `com.semanticops.core/purpose` record via
+/// `create_record` / `create_record_at_dir` so that CFR validation runs at write time
+/// (ADR-002, #481). Reads from the embedded core bundle directly — ADR-025 guarantees
+/// the embedded bundle is canonical and present in every store's `load_package()` result.
+pub(crate) fn purpose_record_spec(statement: &str, title: Option<&str>) -> PurposeRecordSpec {
     let cp = crate::core_package::core_package();
     let purpose_type = cp
         .record_types
@@ -61,13 +66,29 @@ pub(crate) fn build_purpose_record(
             edited_at: None,
         });
     }
-    Record {
-        instance_id: instance_id.to_string(),
+    PurposeRecordSpec {
         type_id: purpose_type.id.clone(),
         type_version: purpose_type.version,
+        field_values,
+    }
+}
+
+/// Build an in-memory `com.semanticops.core/purpose` Record.
+/// Does not perform any I/O — the caller writes and batches as appropriate.
+pub(crate) fn build_purpose_record(
+    instance_id: &str,
+    statement: &str,
+    title: Option<&str>,
+    now: &str,
+) -> Record {
+    let spec = purpose_record_spec(statement, title);
+    Record {
+        instance_id: instance_id.to_string(),
+        type_id: spec.type_id,
+        type_version: spec.type_version,
         type_namespace: PURPOSE_TYPE_NAMESPACE.to_string(),
         type_name: PURPOSE_TYPE_NAME.to_string(),
-        field_values,
+        field_values: spec.field_values,
         group_values: None,
         lifecycle_state: None,
         tags: None,

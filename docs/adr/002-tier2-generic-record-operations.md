@@ -63,4 +63,6 @@ No new Rust library code is required per type.
 
 ## Known Deviations
 
-**`migrate_identity_service` (#426):** `migrate_identity` constructs a `com.semanticops.core/purpose` Tier-2 Record without going through `create_record()`, because the `com.semanticops.core` package is not yet registered in the repository (#423). It uses hardcoded type/field UUID constants and performs manual inline validation instead of relying on the generic validation path. Once #423 lands and the purpose type is registered, these constants must be replaced with `core_package::resolve_type("com.semanticops.core", "purpose")` and the call should be routed through `create_record()`.
+**`scaffold_purpose_record` in `repository_lifecycle.rs`:** `scaffold_purpose_record` still uses `write_new_record` directly (bypassing CFR enforcement). Migration to `create_record()` is deferred until a follow-up issue.
+
+**Resolved:** `migrate_identity_service` (#426, fixed in #481): `migrate_identity` previously bypassed `create_record()` because the `com.semanticops.core` package was not resolvable via `store.load_package()`. ADR-025 (implicit core package merge) made the purpose type resolvable in every store implementation; #481 replaced the `write_new_record` call with `create_record()`, closing this deviation.

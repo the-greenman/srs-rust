@@ -1,6 +1,6 @@
 # ADR-021: Opt-in batch write mode for RepositoryStore (deferred flush)
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-07-04
 - **Supersedes:** —
 - **Superseded by:** —
