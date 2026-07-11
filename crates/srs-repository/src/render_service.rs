@@ -6717,7 +6717,9 @@ mod tests {
             meta: None,
             extra: HashMap::new(),
         };
-        store.save_container(&container).expect("save_container must succeed");
+        store
+            .save_container(&container)
+            .expect("save_container must succeed");
 
         // Build a manifest with no containerIndex to simulate the bug scenario.
         // Note: save_container updates the store's internal manifest, but we own
@@ -6761,7 +6763,9 @@ mod tests {
             meta: None,
             extra: HashMap::new(),
         };
-        store.save_container(&container).expect("save_container must succeed");
+        store
+            .save_container(&container)
+            .expect("save_container must succeed");
 
         let manifest = crate::manifest::Manifest {
             instance_index: vec![],
@@ -6875,8 +6879,7 @@ mod tests {
         let dv = minimal_document_view();
         let title = resolve_container_title(&store, &dv, &manifest, Some(cid));
         assert_eq!(
-            title,
-            "FileStore Fallback Title",
+            title, "FileStore Fallback Title",
             "FileStore should return the container file title when index entry has no title"
         );
     }
