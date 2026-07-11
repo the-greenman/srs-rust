@@ -52,7 +52,8 @@ pub(crate) fn build_label_indexes(
 ///
 /// Priority (RFC-020 Rule [N+36]): the record's Type's effective `identityFieldId`, when
 /// present and its value is a non-empty string > field named "title" > "heading" > "name" >
-/// "label" > `type_name` fallback.
+/// "label" > `type_name` fallback. The name ladder is an implementation-specific heuristic
+/// (per Rule [N+36] — the spec leaves the specific field names to the implementation).
 pub(crate) fn record_display_label(
     record: &Record,
     identity_field_index: &IdentityFieldIndex,
@@ -72,6 +73,7 @@ pub(crate) fn record_display_label(
             }
         }
     }
+    // "heading" ranks before "name": muDemocracy guide package uses it as section-title field (#463).
     for priority in &["title", "heading", "name", "label"] {
         for fv in &record.field_values {
             if field_name_index.get(&fv.field_id).map(|n| n.as_str()) == Some(priority) {
