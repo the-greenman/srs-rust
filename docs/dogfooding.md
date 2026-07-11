@@ -114,7 +114,14 @@ Also confirm `srs type schema <nonexistent-uuid>` → `ok: false` with a diagnos
 
 **Negative case.** Create a relation whose `sourceInstanceId` or `targetInstanceId` is not in the `instanceIndex` — confirm it is rejected. Confirm a Container's `containerId` cannot be used as a relation endpoint.
 
-**Done when.** Relations appear/disappear in `relation list`; `record successor` produces both a successor record and the supersession edge; neither endpoint's lifecycle state changed as a side effect of any relation operation.
+**Negative case (fix #459).** Pass an unknown `relationType` to `record successor`:
+```bash
+echo '{"relationType":"not-a-real-type","fieldValues":[]}' | \
+  srs record successor --repo <repo> --id <predecessor-id> --pretty
+```
+Confirm `ok: false` and `diagnostics` contains `"E1: relation type 'not-a-real-type' is not installed in the package"`. Confirm the record count from `srs record list` did not increase — no orphaned record was written. (Before #459, the record was written and then best-effort-deleted; now the error fires before any write.)
+
+**Done when.** Relations appear/disappear in `relation list`; `record successor` produces both a successor record and the supersession edge; neither endpoint's lifecycle state changed as a side effect of any relation operation; `record successor` with an unknown `relationType` fails before writing any record.
 
 ### S4 — Deliberate, ratify, and supersede a decision (governance lifecycle)
 
