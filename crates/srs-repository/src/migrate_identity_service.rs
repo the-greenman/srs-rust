@@ -195,8 +195,8 @@ pub fn migrate_identity(
         // IMPORTANT: Do NOT replace this with container_service::update_container.
         // For root containers, update_container calls begin_batch/commit_batch internally
         // (container_service.rs ~line 234). Nesting that inside this outer batch causes
-        // JsonStore to commit_batch prematurely — before all batch writes are in memory —
-        // violating ADR-021 atomicity on the WASM/srsj path. MemoryStore tests would not
+        // JsonStore to flush prematurely and disable batch protection for subsequent writes
+        // — violating ADR-021 atomicity on the WASM/srsj path. MemoryStore tests would not
         // catch this regression.
         let mut persisted_container = store.load_container(&root_container_id)?;
         persisted_container.identity_instance_id = Some(new_id.clone());
@@ -599,12 +599,18 @@ mod tests {
             .expect("purpose record must be in instanceIndex after roundtrip");
         assert_eq!(entry.tier(), 2);
 
-        // Verify the container in the target still has the purpose record as a member.
+        // Verify the container in the target still has the purpose record as a member,
+        // and that identityInstanceId was carried across (regression for #462).
         let container = get_container(&target, &container_id).unwrap();
         let members = container.member_instance_ids.unwrap_or_default();
         assert!(
             members.contains(&result.new_identity_id),
             "purpose record must remain in container members after roundtrip"
+        );
+        assert_eq!(
+            container.identity_instance_id,
+            Some(result.new_identity_id),
+            "container identityInstanceId must be preserved after copy_repository roundtrip"
         );
     }
 
