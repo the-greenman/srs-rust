@@ -719,6 +719,33 @@ impl SrsRepository {
         let result = migrate_identity_service::migrate_identity(&self.store).map_err(js_err)?;
         to_js(&result)
     }
+
+    /// Return the value of a named field on a record, by its exact package-defined name
+    /// (the `name` field in the field definition JSON, e.g. `"title"` or `"decision-summary"`).
+    /// No case normalization is performed — the caller must pass the exact name.
+    ///
+    /// Returns the field value as a JS value, or `null` if the field is absent from
+    /// the record, the field name is not part of the type schema, or the record is
+    /// not found. Never errors on a missing/unknown field — callers treat `null` as
+    /// a graceful no-op.
+    pub fn get_field_value_by_name(
+        &self,
+        instance_id: &str,
+        field_name: &str,
+    ) -> Result<JsValue, JsValue> {
+        let result = record_store::get_field_value_by_name(
+            &self.store,
+            record_store::GetFieldValueByNameInput {
+                instance_id: instance_id.to_string(),
+                field_name: field_name.to_string(),
+            },
+        )
+        .map_err(js_err)?;
+        match result.value {
+            Some(v) => to_js(&v),
+            None => Ok(JsValue::NULL),
+        }
+    }
 }
 
 /// Input shape for `list_document_views` — parsed from caller-supplied JSON.
@@ -1088,6 +1115,123 @@ mod tests {
         assert!(
             supported.contains(&"ext:lifecycle".to_string()),
             "supported must include ext:lifecycle"
+        );
+    }
+
+    // ── get_field_value_by_name service integration tests ────────────────────
+    //
+    // These tests call `record_store::get_field_value_by_name` directly because
+    // `JsValue` is not available in a native target. Their purpose is to confirm
+    // the service function is reachable from the srs-bindings crate imports.
+    // The binding's `to_js`/`JsValue::NULL` branches are validated exclusively
+    // by the `cargo build --target wasm32-unknown-unknown -p srs-bindings` gate.
+
+    /// Minimal `.srsj` with one Tier-2 record whose `"title"` field is set to `"My Title"`.
+    fn srsj_with_titled_record() -> String {
+        serde_json::json!({
+            "srsj": "1",
+            "manifest": {
+                "repositoryId": "test-repo-get-field-value",
+                "srsVersion": "2.0-draft",
+                "namespace": "com.test",
+                "instanceIndex": [{
+                    "instanceId": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+                    "tier": 2,
+                    "path": "records/titled-record.json"
+                }],
+                "packageRef": {"mode": "local", "path": "package"}
+            },
+            "data": {
+                "package/package.json": {
+                    "id": "pkg-gfvbn-001",
+                    "namespace": "com.test",
+                    "name": "gfvbn-package",
+                    "version": "1.0.0",
+                    "fields": ["fields/title.json"],
+                    "types": ["types/titled-type.json"],
+                    "relationTypes": [],
+                    "views": [],
+                    "documentViews": []
+                },
+                "package/fields/title.json": {
+                    "id": "field-gfvbn-title",
+                    "namespace": "com.test",
+                    "name": "title",
+                    "version": 1,
+                    "valueType": "string",
+                    "description": "Title",
+                    "aiGuidance": null,
+                    "createdAt": "2026-01-01T00:00:00Z"
+                },
+                "package/types/titled-type.json": {
+                    "id": "type-gfvbn-001",
+                    "namespace": "com.test",
+                    "name": "titled-type",
+                    "version": 1,
+                    "description": "Type with a title field",
+                    "fields": [{
+                        "fieldId": "field-gfvbn-title",
+                        "order": 0,
+                        "required": true,
+                        "repeatable": false
+                    }],
+                    "createdAt": "2026-01-01T00:00:00Z"
+                },
+                "records/titled-record.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                    "instanceId": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+                    "typeId": "type-gfvbn-001",
+                    "typeVersion": 1,
+                    "typeNamespace": "com.test",
+                    "typeName": "titled-type",
+                    "fieldValues": [{
+                        "fieldId": "field-gfvbn-title",
+                        "value": "My Title"
+                    }]
+                }
+            }
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn get_field_value_by_name_returns_value_for_known_field() {
+        use srs_repository::record_store;
+        let store = JsonStore::from_srsj(&srsj_with_titled_record()).expect("load srsj");
+
+        let result = record_store::get_field_value_by_name(
+            &store,
+            record_store::GetFieldValueByNameInput {
+                instance_id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee".to_string(),
+                field_name: "title".to_string(),
+            },
+        )
+        .expect("get_field_value_by_name should not error");
+
+        assert_eq!(
+            result.value,
+            Some(serde_json::json!("My Title")),
+            "value must match the stored field value"
+        );
+    }
+
+    #[test]
+    fn get_field_value_by_name_returns_none_for_unknown_field() {
+        use srs_repository::record_store;
+        let store = JsonStore::from_srsj(&srsj_with_titled_record()).expect("load srsj");
+
+        let result = record_store::get_field_value_by_name(
+            &store,
+            record_store::GetFieldValueByNameInput {
+                instance_id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee".to_string(),
+                field_name: "nonexistent".to_string(),
+            },
+        )
+        .expect("get_field_value_by_name should not error");
+
+        assert!(
+            result.value.is_none(),
+            "unknown field name must return None, not an error"
         );
     }
 }
