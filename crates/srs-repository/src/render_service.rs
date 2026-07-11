@@ -7671,7 +7671,9 @@ mod tests {
             result
                 .diagnostics
                 .iter()
-                .any(|d| d.contains(NOTE_ID)
+                .any(|d| d.contains("[section:fixed-sec]")
+                    && d.contains("FixedInstances:")
+                    && d.contains(NOTE_ID)
                     && d.contains("notes are not rendered in document-view sections")),
             "expected FixedInstances note-skip diagnostic; got: {:?}",
             result.diagnostics
@@ -7691,8 +7693,8 @@ mod tests {
         use srs_core::types::view::{DocumentSection, DocumentView, EmptyBehavior, SectionSource};
 
         // Pre-specified IDs so they are known before the DocumentView is built.
-        const SOURCE_ID: &str = "00000000-0000-4000-8000-0000000rq001";
-        const NOTE_ID: &str = "00000000-0000-4000-8000-0000000rq002";
+        const SOURCE_ID: &str = "00000000-0000-4000-8000-000000009001";
+        const NOTE_ID: &str = "00000000-0000-4000-8000-000000009002";
         const SECTION_ID: &str = "rq-sec";
 
         let (heading_field, item_type) = simple_field_and_type();
@@ -7834,7 +7836,9 @@ mod tests {
             result
                 .diagnostics
                 .iter()
-                .any(|d| d.contains(NOTE_ID)
+                .any(|d| d.contains("[section:rq-sec]")
+                    && d.contains("RelationQuery:")
+                    && d.contains(NOTE_ID)
                     && d.contains("notes are not rendered in document-view sections")),
             "expected RelationQuery note-skip diagnostic; got: {:?}",
             result.diagnostics
