@@ -657,8 +657,7 @@ pub struct DeleteRecordResult {
 }
 
 /// Input for [`get_field_value_by_name`].
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 pub struct GetFieldValueByNameInput {
     pub instance_id: String,
     pub field_name: String,
