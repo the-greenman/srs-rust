@@ -6,11 +6,10 @@ use crate::payload::{
 use anyhow::Result;
 use srs_core::types::record_type::RecordType;
 use srs_repository::package_service::{
-    create_type_in_package, delete_type, get_type_by_id_latest, list_types_filtered, update_type,
+    create_type_normalized, delete_type, get_type_by_id_latest, list_types_filtered, update_type,
     GetTypeResult, TypeListFilter,
 };
 use srs_repository::type_schema_service::{type_schema, TypeSchemaInput};
-use std::io::{self, Read};
 
 pub fn dispatch(ctx: CliContext, cmd: TypeCommand) -> Result<String> {
     match cmd {
@@ -70,14 +69,10 @@ fn cmd_type_get(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_type_create(ctx: CliContext, package: Option<String>) -> Result<String> {
-    let mut stdin = String::new();
-    io::stdin().read_to_string(&mut stdin)?;
-
-    let record_type: RecordType = serde_json::from_str(&stdin)
-        .map_err(|e| anyhow::anyhow!("Failed to parse type JSON: {}", e))?;
+    let raw = crate::input::value_from_stdin("type")?;
 
     let result = with_store(&ctx, |store| {
-        Ok(create_type_in_package(store, record_type, package.clone())?)
+        Ok(create_type_normalized(store, raw, package.clone())?)
     })?;
 
     output::serialize(
@@ -89,11 +84,7 @@ fn cmd_type_create(ctx: CliContext, package: Option<String>) -> Result<String> {
 }
 
 fn cmd_type_update(ctx: CliContext, id: String) -> Result<String> {
-    let mut stdin = String::new();
-    io::stdin().read_to_string(&mut stdin)?;
-
-    let record_type: RecordType = serde_json::from_str(&stdin)
-        .map_err(|e| anyhow::anyhow!("Failed to parse type JSON: {}", e))?;
+    let record_type: RecordType = crate::input::from_stdin("type")?;
 
     if record_type.id != id {
         return Ok(output::err(

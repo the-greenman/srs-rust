@@ -13,6 +13,7 @@ pub mod error;
 pub mod extension_service;
 pub mod governance_scaffold_service;
 pub mod index;
+pub mod input_normalization;
 pub mod json_store;
 pub mod lifecycle_service;
 pub mod loader;
@@ -20,6 +21,7 @@ pub mod manifest;
 pub mod manifest_service;
 pub mod migrate_identity_service;
 pub mod package;
+pub mod package_install_service;
 pub mod package_service;
 pub mod package_types;
 pub mod protocol_service;
@@ -33,6 +35,8 @@ pub mod repository_navigation_service;
 pub mod repository_portability;
 pub mod resolver;
 pub mod revision_service;
+#[cfg(test)]
+mod selector_parity_tests;
 pub mod services;
 pub mod srsj_migration_service;
 pub mod store;
@@ -48,7 +52,10 @@ pub mod writer;
 
 pub use json_store::JsonStore;
 pub use package::EffectiveLifecycle;
-pub use package_types::{DefinitionKind, OwnedField, OwnedType, PackageBoundary, PackageSelector};
+pub use package_types::{
+    validate_package_selector, DefinitionKind, OwnedField, OwnedType, PackageBoundary,
+    PackageSelector,
+};
 pub use repository_portability::{
     upgrade_repository_paths, InstancePathRename, UpgradeRepositoryPathsResult,
 };

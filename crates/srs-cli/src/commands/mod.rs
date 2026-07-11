@@ -655,7 +655,11 @@ pub enum RelationTypeCommand {
         json: bool,
     },
     /// Create a new relation type definition (reads JSON from stdin)
-    Create {},
+    Create {
+        /// Package boundary path (omit for primary package, pass path for sub-package)
+        #[arg(long)]
+        package: Option<String>,
+    },
     /// Update an existing relation type definition (reads JSON from stdin)
     Update {
         /// The UUID id of the relation type definition to update
@@ -735,7 +739,11 @@ pub enum LifecycleCommand {
         json: bool,
     },
     /// Create a lifecycle (reads full Lifecycle JSON from stdin)
-    Create,
+    Create {
+        /// Package boundary path (omit for primary package, pass path for sub-package)
+        #[arg(long)]
+        package: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1340,6 +1348,18 @@ pub enum PackageCommand {
         /// Path relative to repo root of a directory containing a package.json
         #[arg(long = "path")]
         path: String,
+    },
+    /// Install an external package directory into this repository (one-shot copy)
+    Install {
+        /// Filesystem path of the source package directory (contains package.json)
+        source_dir: String,
+        /// Target boundary path relative to repo root (default: packages/<package-name>)
+        #[arg(long)]
+        boundary: Option<String>,
+        /// Fail (before writing anything) on same-key/different-UUID conflicts
+        /// instead of skipping the conflicting definitions
+        #[arg(long)]
+        strict: bool,
     },
     /// Update package boundary metadata (namespace, name, or version)
     Update {

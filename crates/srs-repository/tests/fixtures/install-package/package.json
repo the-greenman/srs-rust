@@ -1,0 +1,36 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+  "id": "9a1b0c2d-1111-4aaa-8bbb-000000000001",
+  "namespace": "com.example.install",
+  "name": "install-fixture",
+  "version": "1.0.0",
+  "title": "Install Fixture Package",
+  "description": "Minimal synthetic package modeled on the canonical governance package, for install_package tests.",
+  "status": "active",
+  "createdAt": "2026-01-01T00:00:00Z",
+  "fields": [
+    "fields/title-9a1b0c2d.json",
+    "fields/body-9a1b0c2e.json"
+  ],
+  "types": [
+    "types/entry-9a1b0c30.json"
+  ],
+  "relationTypes": [
+    "relation-types/precedes-9a1b0c40.json"
+  ],
+  "lifecycles": [
+    "lifecycles/simple-9a1b0c50.json"
+  ],
+  "views": [
+    "views/entry-view-9a1b0c60.json"
+  ],
+  "documentViews": [
+    "document-views/entry-log-9a1b0c70.json"
+  ],
+  "blueprints": [
+    "blueprints/entry-log-9a1b0c80.json"
+  ],
+  "protocols": [
+    "protocols/entry-9a1b0c90.json"
+  ]
+}

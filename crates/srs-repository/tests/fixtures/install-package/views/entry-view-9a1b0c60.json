@@ -1,0 +1,24 @@
+{
+  "createdAt": "2026-01-01T00:00:00Z",
+  "description": "Compact entry view showing title and body.",
+  "fieldViews": [
+    {
+      "displayLabel": "Title",
+      "fieldId": "9a1b0c2d-0001-4aaa-8bbb-00000000f001",
+      "order": 0,
+      "required": true,
+      "visible": true
+    },
+    {
+      "displayLabel": "Body",
+      "fieldId": "9a1b0c2e-0002-4aaa-8bbb-00000000f002",
+      "order": 1,
+      "required": false,
+      "visible": true
+    }
+  ],
+  "id": "9a1b0c60-0006-4aaa-8bbb-000000007001",
+  "name": "entry-view",
+  "namespace": "com.example.install",
+  "version": 1
+}

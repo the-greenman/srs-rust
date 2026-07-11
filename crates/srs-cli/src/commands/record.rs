@@ -16,7 +16,6 @@ use srs_repository::record_store::{
     CreateRecordInput, CreateRecordSuccessorInput, RecordListFilter, RemoveRecordTagResult,
     TransitionLifecycleInput, UpdateRecordInput, ValidateRecordInput,
 };
-use std::io::{self, Read};
 
 pub fn dispatch(ctx: CliContext, cmd: RecordCommand) -> Result<String> {
     match cmd {
@@ -150,16 +149,9 @@ fn cmd_record_create(
     version: Option<u32>,
     dir: Option<String>,
 ) -> Result<String> {
-    let mut stdin = String::new();
-    io::stdin().read_to_string(&mut stdin)?;
-    let input: CreateRecordInput = match serde_json::from_str(&stdin) {
+    let input: CreateRecordInput = match crate::input::from_stdin("record") {
         Ok(v) => v,
-        Err(e) => {
-            return Ok(output::err(
-                "record create",
-                vec![format!("Failed to parse record JSON from stdin: {}", e)],
-            ))
-        }
+        Err(e) => return Ok(output::err("record create", vec![e.to_string()])),
     };
 
     let container_id = ctx.container_id.clone();
@@ -184,16 +176,9 @@ fn cmd_record_create(
 }
 
 fn cmd_record_validate(ctx: CliContext) -> Result<String> {
-    let mut stdin = String::new();
-    io::stdin().read_to_string(&mut stdin)?;
-    let input: ValidateRecordInput = match serde_json::from_str(&stdin) {
+    let input: ValidateRecordInput = match crate::input::from_stdin("record") {
         Ok(v) => v,
-        Err(e) => {
-            return Ok(output::err(
-                "record validate",
-                vec![format!("Failed to parse record JSON from stdin: {}", e)],
-            ))
-        }
+        Err(e) => return Ok(output::err("record validate", vec![e.to_string()])),
     };
 
     let report = with_store(&ctx, |store| Ok(validate_record_input(store, input)?))?;
@@ -211,8 +196,7 @@ fn cmd_record_validate(ctx: CliContext) -> Result<String> {
 }
 
 fn cmd_record_update(ctx: CliContext, id: String) -> Result<String> {
-    let input: UpdateRecordInput = serde_json::from_reader(io::stdin())
-        .map_err(|e| anyhow::anyhow!("Failed to parse record JSON from stdin: {}", e))?;
+    let input: UpdateRecordInput = crate::input::from_stdin("record")?;
     match with_store(&ctx, |store| Ok(update_record(store, &id, input)?)) {
         Ok(record) => output::serialize("record update", RecordPayload { record }),
         Err(e) => Ok(output::err("record update", vec![e.to_string()])),
@@ -235,16 +219,9 @@ fn cmd_record_delete(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_record_transition(ctx: CliContext, id: String) -> Result<String> {
-    let mut stdin = String::new();
-    io::stdin().read_to_string(&mut stdin)?;
-    let input: TransitionLifecycleInput = match serde_json::from_str(&stdin) {
+    let input: TransitionLifecycleInput = match crate::input::from_stdin("transition") {
         Ok(v) => v,
-        Err(e) => {
-            return Ok(output::err(
-                "record transition",
-                vec![format!("Failed to parse transition JSON from stdin: {}", e)],
-            ))
-        }
+        Err(e) => return Ok(output::err("record transition", vec![e.to_string()])),
     };
     match with_store(&ctx, |store| {
         Ok(transition_record_lifecycle(store, &id, input)?)
@@ -263,16 +240,9 @@ fn cmd_record_transition(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_record_successor(ctx: CliContext, id: String) -> Result<String> {
-    let mut stdin = String::new();
-    io::stdin().read_to_string(&mut stdin)?;
-    let input: CreateRecordSuccessorInput = match serde_json::from_str(&stdin) {
+    let input: CreateRecordSuccessorInput = match crate::input::from_stdin("successor") {
         Ok(v) => v,
-        Err(e) => {
-            return Ok(output::err(
-                "record successor",
-                vec![format!("Failed to parse successor JSON from stdin: {}", e)],
-            ))
-        }
+        Err(e) => return Ok(output::err("record successor", vec![e.to_string()])),
     };
 
     match with_store(&ctx, |store| {

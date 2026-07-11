@@ -6,6 +6,49 @@
 /// that must be available in production code.
 pub type PackageSelector = Option<String>;
 
+/// Validate that a package boundary selector is safe to use as a path prefix.
+///
+/// This is the **single canonical validation** for `--package` boundary selectors,
+/// shared by every definition-create service (fields, types, views, document views,
+/// themes, blueprints, protocols, relation types, lifecycles). Do not add per-service
+/// selector rules — extend this function instead (#507).
+///
+/// The canonical selector form is the boundary's repo-root-relative directory path,
+/// exactly as registered by `package create --path <path>` (e.g. `packages/governance`
+/// or `package/ext`). `None` selects the primary package (`package/`). No particular
+/// path prefix is required — whether the boundary actually exists is checked separately
+/// via `RepositoryStore::load_package_boundary`.
+///
+/// Rules:
+/// - `None` (primary package) is always valid.
+/// - Must not be empty or whitespace-only.
+/// - Must not be an absolute path.
+/// - Must not contain `".."` path components.
+pub fn validate_package_selector(
+    selector: &PackageSelector,
+) -> Result<(), crate::error::RepositoryError> {
+    use crate::error::RepositoryError;
+    let Some(path) = selector.as_deref() else {
+        return Ok(());
+    };
+    if path.trim().is_empty() {
+        return Err(RepositoryError::InvalidPackageSelector {
+            message: "selector must not be empty".to_string(),
+        });
+    }
+    if path.starts_with('/') {
+        return Err(RepositoryError::InvalidPackageSelector {
+            message: format!("selector '{path}' must not be an absolute path"),
+        });
+    }
+    if path.split('/').any(|c| c == "..") {
+        return Err(RepositoryError::InvalidPackageSelector {
+            message: format!("selector '{path}' must not contain '..' components"),
+        });
+    }
+    Ok(())
+}
+
 /// Metadata describing one package boundary.
 #[derive(Debug, Clone)]
 pub struct PackageBoundary {
@@ -99,6 +142,55 @@ mod tests {
         assert!(b.type_paths.is_empty());
         assert!(b.blueprint_paths.is_empty());
         assert!(b.protocol_paths.is_empty());
+    }
+
+    #[test]
+    fn validate_package_selector_accepts_primary() {
+        assert!(validate_package_selector(&None).is_ok());
+    }
+
+    #[test]
+    fn validate_package_selector_accepts_package_prefixed_path() {
+        assert!(validate_package_selector(&Some("package/ext".to_string())).is_ok());
+    }
+
+    #[test]
+    fn validate_package_selector_accepts_packages_prefixed_path() {
+        // Regression for #507: the boundary form created by
+        // `package create --path packages/governance` must be accepted everywhere.
+        assert!(validate_package_selector(&Some("packages/governance".to_string())).is_ok());
+    }
+
+    #[test]
+    fn validate_package_selector_accepts_arbitrary_relative_path() {
+        // The convention is "any repo-root-relative registered boundary path" —
+        // existence is checked by load_package_boundary, not the selector parser.
+        assert!(validate_package_selector(&Some("pkg/sub".to_string())).is_ok());
+    }
+
+    #[test]
+    fn validate_package_selector_rejects_absolute_path() {
+        let result = validate_package_selector(&Some("/abs/path".to_string()));
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("absolute path"),
+            "expected 'absolute path' in: {msg}"
+        );
+    }
+
+    #[test]
+    fn validate_package_selector_rejects_path_traversal() {
+        let result = validate_package_selector(&Some("package/../evil".to_string()));
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains(".."), "expected '..' in: {msg}");
+    }
+
+    #[test]
+    fn validate_package_selector_rejects_empty() {
+        assert!(validate_package_selector(&Some(String::new())).is_err());
+        assert!(validate_package_selector(&Some("   ".to_string())).is_err());
     }
 
     #[test]

@@ -16,7 +16,6 @@ use srs_repository::services::{
     CreateNoteInput, DeleteNoteInput, DeleteNoteResult, GetNoteResult, GraduateNoteInput,
     ListNotesFilter, RemoveTagResult,
 };
-use std::io::{self, Read};
 
 pub fn dispatch(ctx: CliContext, cmd: NoteCommand) -> Result<String> {
     match cmd {
@@ -60,11 +59,7 @@ fn cmd_note_get(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_note_create(ctx: CliContext) -> Result<String> {
-    let mut stdin = String::new();
-    io::stdin().read_to_string(&mut stdin)?;
-
-    let note: Note = serde_json::from_str(&stdin)
-        .map_err(|e| anyhow::anyhow!("Failed to parse note JSON: {}", e))?;
+    let note: Note = crate::input::from_stdin("note")?;
 
     let container_id = ctx.container_id.clone();
     match with_store(&ctx, |store| {
@@ -125,11 +120,7 @@ fn cmd_note_tag_remove(ctx: CliContext, id: String, tag: String) -> Result<Strin
 }
 
 fn cmd_note_update(ctx: CliContext, id: String) -> Result<String> {
-    let mut stdin = String::new();
-    io::stdin().read_to_string(&mut stdin)?;
-
-    let note: Note = serde_json::from_str(&stdin)
-        .map_err(|e| anyhow::anyhow!("Failed to parse note JSON: {}", e))?;
+    let note: Note = crate::input::from_stdin("note")?;
 
     match with_store(&ctx, |store| Ok(update_note_validated(store, &id, note)?)) {
         Ok(result) => output::serialize("note update", NotePayload { note: result.note }),
@@ -188,10 +179,7 @@ fn cmd_note_graduate(
     type_ref: String,
     type_version: Option<u32>,
 ) -> Result<String> {
-    let mut stdin = String::new();
-    io::stdin().read_to_string(&mut stdin)?;
-    let record_input: CreateRecordInput = serde_json::from_str(&stdin)
-        .map_err(|e| anyhow::anyhow!("Failed to parse record input JSON: {}", e))?;
+    let record_input: CreateRecordInput = crate::input::from_stdin("record input")?;
     let container_id = ctx.container_id.clone();
     match with_store(&ctx, |store| {
         Ok(graduate_note(

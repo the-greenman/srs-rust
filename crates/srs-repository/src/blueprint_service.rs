@@ -21,42 +21,11 @@
 //!   orphan. The error includes the orphaned path.
 
 use crate::error::RepositoryError;
-use crate::package_types::{DefinitionKind, PackageSelector};
+use crate::package_types::{validate_package_selector, DefinitionKind, PackageSelector};
 use crate::store::RepositoryStore;
 use crate::writer::new_instance_id;
 use srs_core::types::blueprint::Blueprint;
 use srs_core::validation::blueprint::validate_blueprint;
-
-// ── Selector validation ───────────────────────────────────────────────────────
-
-/// Validate that a sub-package selector is safe to use as a path prefix.
-///
-/// Rules:
-/// - `None` (primary package) is always valid.
-/// - Must start with `"package/"`.
-/// - Must not contain `".."` path components.
-/// - Must not start with `"/"` (absolute path).
-pub fn validate_package_selector(selector: &PackageSelector) -> Result<(), RepositoryError> {
-    let Some(path) = selector.as_deref() else {
-        return Ok(());
-    };
-    if path.starts_with('/') {
-        return Err(RepositoryError::InvalidPackageSelector {
-            message: format!("selector '{path}' must not be an absolute path"),
-        });
-    }
-    if path.split('/').any(|c| c == "..") {
-        return Err(RepositoryError::InvalidPackageSelector {
-            message: format!("selector '{path}' must not contain '..' components"),
-        });
-    }
-    if !path.starts_with("package/") && path != "package" {
-        return Err(RepositoryError::InvalidPackageSelector {
-            message: format!("selector '{path}' must start with 'package/'"),
-        });
-    }
-    Ok(())
-}
 
 // ── Summary types ─────────────────────────────────────────────────────────────
 
@@ -258,6 +227,21 @@ pub fn list_blueprint_structure(
 
 // ── Mutating service functions ────────────────────────────────────────────────
 
+/// Create a Blueprint from a raw JSON value with normalized defaults (issue #511).
+///
+/// Boilerplate the caller may omit is defaulted before typed deserialization:
+/// `createdAt` (now) and `description` (empty string). Explicit values win.
+pub fn create_blueprint_normalized(
+    store: &dyn RepositoryStore,
+    mut raw: serde_json::Value,
+    selector: PackageSelector,
+) -> Result<CreateBlueprintResult, RepositoryError> {
+    crate::input_normalization::default_created_at(&mut raw, "createdAt");
+    crate::input_normalization::default_empty_string(&mut raw, "description");
+    let blueprint = crate::input_normalization::from_value_with_path(raw, "Blueprint")?;
+    create_blueprint(store, blueprint, selector)
+}
+
 /// Create a new Blueprint definition.
 ///
 /// Validates the selector, validates the blueprint, assigns an ID if empty,
@@ -450,41 +434,6 @@ mod tests {
     }
 
     #[test]
-    fn validate_package_selector_rejects_absolute_path() {
-        let result = validate_package_selector(&Some("/abs/path".to_string()));
-        assert!(result.is_err());
-        let msg = result.unwrap_err().to_string();
-        assert!(
-            msg.contains("absolute path"),
-            "expected 'absolute path' in: {msg}"
-        );
-    }
-
-    #[test]
-    fn validate_package_selector_rejects_path_traversal() {
-        let result = validate_package_selector(&Some("package/../evil".to_string()));
-        assert!(result.is_err());
-        let msg = result.unwrap_err().to_string();
-        assert!(msg.contains(".."), "expected '..' in: {msg}");
-    }
-
-    #[test]
-    fn validate_package_selector_rejects_outside_package() {
-        let result = validate_package_selector(&Some("other/sub".to_string()));
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn validate_package_selector_accepts_primary() {
-        assert!(validate_package_selector(&None).is_ok());
-    }
-
-    #[test]
-    fn validate_package_selector_accepts_sub_package() {
-        assert!(validate_package_selector(&Some("package/ext".to_string())).is_ok());
-    }
-
-    #[test]
     fn create_blueprint_in_primary_package() {
         let store = MemoryStore::default();
         store.register_package_boundary(&None).unwrap();
@@ -520,6 +469,38 @@ mod tests {
         assert!(
             has_sub_path,
             "blueprint file not found under package/ext/blueprints/"
+        );
+    }
+
+    #[test]
+    fn create_blueprint_accepts_packages_prefixed_boundary() {
+        // Regression for #507: `blueprint create --package packages/governance` must
+        // accept the same boundary selector form as every other definition create.
+        let store = MemoryStore::default();
+        let selector = Some("packages/governance".to_string());
+        store.register_package_boundary(&None).unwrap();
+        store.register_package_boundary(&selector).unwrap();
+
+        let result =
+            create_blueprint(&store, minimal_blueprint("gov-bp"), selector.clone()).unwrap();
+        assert!(!result.blueprint.id.is_empty());
+
+        let data = store.all_data();
+        let has_sub_path = data
+            .keys()
+            .any(|k| k.starts_with("packages/governance/blueprints/") && k.ends_with(".json"));
+        assert!(
+            has_sub_path,
+            "blueprint file not found under packages/governance/blueprints/"
+        );
+        let pkg_json = data.get("packages/governance/package.json").unwrap();
+        assert!(
+            pkg_json["blueprints"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v.as_str().unwrap_or("").starts_with("blueprints/gov-bp")),
+            "blueprint should be registered in the boundary's package.json"
         );
     }
 

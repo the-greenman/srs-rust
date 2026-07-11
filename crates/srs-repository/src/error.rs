@@ -216,6 +216,11 @@ pub enum RepositoryError {
     #[error("package already registered: id '{id}'")]
     PackageAlreadyRegistered { id: String },
 
+    #[error(
+        "package install aborted (strict): {count} same-key/different-UUID conflict(s): {keys}"
+    )]
+    PackageInstallConflicts { count: usize, keys: String },
+
     #[error("definition not found: {id}")]
     DefinitionNotFound { id: String },
 

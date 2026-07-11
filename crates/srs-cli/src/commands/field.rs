@@ -7,7 +7,6 @@ use srs_repository::package_service::{
     create_field_normalized, delete_field, get_field_by_id, list_fields_filtered, update_field,
     FieldListFilter, GetFieldResult,
 };
-use std::io::{self, Read};
 
 pub fn dispatch(ctx: CliContext, cmd: FieldCommand) -> Result<String> {
     match cmd {
@@ -65,11 +64,7 @@ fn cmd_field_get(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_field_create(ctx: CliContext, package: Option<String>) -> Result<String> {
-    let mut stdin = String::new();
-    io::stdin().read_to_string(&mut stdin)?;
-
-    let raw_value: serde_json::Value = serde_json::from_str(&stdin)
-        .map_err(|e| anyhow::anyhow!("Failed to parse field JSON: {}", e))?;
+    let raw_value = crate::input::value_from_stdin("field")?;
 
     let result = with_store(&ctx, |store| {
         Ok(create_field_normalized(store, raw_value, package.clone())?)
@@ -84,11 +79,7 @@ fn cmd_field_create(ctx: CliContext, package: Option<String>) -> Result<String> 
 }
 
 fn cmd_field_update(ctx: CliContext, id: String) -> Result<String> {
-    let mut stdin = String::new();
-    io::stdin().read_to_string(&mut stdin)?;
-
-    let field: Field = serde_json::from_str(&stdin)
-        .map_err(|e| anyhow::anyhow!("Failed to parse field JSON: {}", e))?;
+    let field: Field = crate::input::from_stdin("field")?;
 
     if field.id != id {
         return Ok(output::err(

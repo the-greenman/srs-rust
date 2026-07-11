@@ -1,0 +1,9 @@
+{
+  "createdAt": "2026-01-01T00:00:00Z",
+  "description": "Main free-text body of the entry.",
+  "id": "9a1b0c2e-0002-4aaa-8bbb-00000000f002",
+  "name": "body",
+  "namespace": "com.example.install",
+  "valueType": "text",
+  "version": 1
+}

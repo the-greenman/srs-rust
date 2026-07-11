@@ -1,0 +1,25 @@
+{
+  "createdAt": "2026-01-01T00:00:00Z",
+  "description": "A log entry with a title and a body.",
+  "fields": [
+    {
+      "displayLabel": "Title",
+      "fieldId": "9a1b0c2d-0001-4aaa-8bbb-00000000f001",
+      "order": 0,
+      "repeatable": false,
+      "required": true
+    },
+    {
+      "displayLabel": "Body",
+      "fieldId": "9a1b0c2e-0002-4aaa-8bbb-00000000f002",
+      "order": 1,
+      "repeatable": false,
+      "required": false
+    }
+  ],
+  "id": "9a1b0c30-0003-4aaa-8bbb-000000004001",
+  "lifecycleRef": "9a1b0c50-0005-4aaa-8bbb-000000001001",
+  "name": "entry",
+  "namespace": "com.example.install",
+  "version": 1
+}

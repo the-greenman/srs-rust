@@ -24,7 +24,7 @@
 
 use crate::container_service;
 use crate::error::RepositoryError;
-use crate::package_types::{DefinitionKind, PackageSelector};
+use crate::package_types::{validate_package_selector, DefinitionKind, PackageSelector};
 use crate::store::RepositoryStore;
 use crate::writer::new_instance_id;
 use srs_core::types::view::{DocumentView, ExactTypeRef, View};
@@ -421,6 +421,21 @@ pub fn document_views_for_container(
 
 // ── View CRUD ─────────────────────────────────────────────────────────────────
 
+/// Create a View from a raw JSON value with normalized defaults (issue #511).
+///
+/// Boilerplate the caller may omit is defaulted before typed deserialization:
+/// `createdAt` (now) and `description` (empty string). Explicit values win.
+pub fn create_view_normalized(
+    store: &dyn RepositoryStore,
+    mut raw: serde_json::Value,
+    selector: PackageSelector,
+) -> Result<CreateViewResult, RepositoryError> {
+    crate::input_normalization::default_created_at(&mut raw, "createdAt");
+    crate::input_normalization::default_empty_string(&mut raw, "description");
+    let view = crate::input_normalization::from_value_with_path(raw, "View")?;
+    create_view(store, view, selector)
+}
+
 /// Create a new View. Validates, writes file, registers in the boundary's `package.json` views array.
 /// Pass `selector = None` for the primary package; `Some(path)` for a sub-package.
 pub fn create_view(
@@ -428,7 +443,8 @@ pub fn create_view(
     mut view: View,
     selector: PackageSelector,
 ) -> Result<CreateViewResult, RepositoryError> {
-    // Validate the boundary exists before touching the filesystem.
+    // Validate the selector form, then that the boundary exists, before touching the filesystem.
+    validate_package_selector(&selector)?;
     store.load_package_boundary(&selector)?;
 
     let boundary_path = selector.as_deref().unwrap_or("package");
@@ -515,6 +531,21 @@ pub fn delete_view(
 
 // ── DocumentView CRUD ─────────────────────────────────────────────────────────
 
+/// Create a DocumentView from a raw JSON value with normalized defaults (issue #511).
+///
+/// Boilerplate the caller may omit is defaulted before typed deserialization:
+/// `createdAt` (now) and `description` (empty string). Explicit values win.
+pub fn create_document_view_normalized(
+    store: &dyn RepositoryStore,
+    mut raw: serde_json::Value,
+    selector: PackageSelector,
+) -> Result<CreateDocumentViewResult, RepositoryError> {
+    crate::input_normalization::default_created_at(&mut raw, "createdAt");
+    crate::input_normalization::default_empty_string(&mut raw, "description");
+    let document_view = crate::input_normalization::from_value_with_path(raw, "DocumentView")?;
+    create_document_view(store, document_view, selector)
+}
+
 /// Create a new DocumentView. Validates, writes file, registers in the boundary's `package.json` documentViews array.
 /// Pass `selector = None` for the primary package; `Some(path)` for a sub-package.
 pub fn create_document_view(
@@ -522,7 +553,8 @@ pub fn create_document_view(
     mut document_view: DocumentView,
     selector: PackageSelector,
 ) -> Result<CreateDocumentViewResult, RepositoryError> {
-    // Validate the boundary exists before touching the filesystem.
+    // Validate the selector form, then that the boundary exists, before touching the filesystem.
+    validate_package_selector(&selector)?;
     store.load_package_boundary(&selector)?;
 
     let boundary_path = selector.as_deref().unwrap_or("package");

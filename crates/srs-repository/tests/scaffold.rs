@@ -42,4 +42,17 @@ fn scaffold_from_raw_seed_produces_valid_repository() {
         "expected scaffold to produce a valid repository (no errors), got: {:?}",
         report.diagnostics
     );
+
+    // srs#163: the scaffold re-binds the installed document views to the containers it
+    // created, so a fresh repo must not ship dangling container references (which the
+    // #509 validate check reports as warnings).
+    let dangling: Vec<_> = report
+        .diagnostics
+        .iter()
+        .filter(|d| d.message.contains("references containerId"))
+        .collect();
+    assert!(
+        dangling.is_empty(),
+        "fresh scaffold must not ship dangling document-view container refs: {dangling:?}"
+    );
 }

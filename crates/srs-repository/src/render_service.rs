@@ -1,7 +1,7 @@
 use crate::container_service::list_members;
 use crate::error::RepositoryError;
 use crate::package::Package;
-use crate::record_store::{get_record_by_id, list_records_by_type};
+use crate::record_store::{get_instance_by_id, list_records_by_type, LoadedInstance};
 use crate::relation_graph;
 use crate::relation_service::load_relations;
 use crate::store::RepositoryStore;
@@ -386,13 +386,17 @@ fn project_section_json(
 
     // RFC-008 typeFilter: applied after sort (same invariant as render_section).
     // Sort sees the full container; filter projects onto the sorted survivor set.
+    // Tier-0 notes have no type and never match an explicit typeFilter.
     if let SectionSource::ContainerSubset {
         type_filter: Some(filter),
         ..
     } = &section.source
     {
         if !filter.is_empty() {
-            records.retain(|r| {
+            records.retain(|inst| {
+                let Some(r) = inst.as_record() else {
+                    return false;
+                };
                 if let Some(rt) = package.resolve_type(&r.type_id, r.type_version) {
                     let key = format!("{}/{}", rt.namespace, rt.name);
                     filter.iter().any(|f| f == &key)
@@ -403,10 +407,22 @@ fn project_section_json(
         }
     }
 
-    let projected_records = records
-        .iter()
-        .map(|record| project_record_json(package, section, record, diagnostics))
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut projected_records = Vec::new();
+    for instance in &records {
+        match instance {
+            LoadedInstance::Record(record) => {
+                projected_records.push(project_record_json(package, section, record, diagnostics)?);
+            }
+            LoadedInstance::Note(note) => {
+                // The document-view JSON output schema models typed records only;
+                // Tier-0 notes are skipped from the projection with a warning (#510).
+                diagnostics.push(format!(
+                    "[section:{}] tier-0 note {} is not representable in the JSON projection; skipped",
+                    section.section_id, note.instance_id
+                ));
+            }
+        }
+    }
 
     Ok(ProjectedSection {
         section_id: section.section_id.clone(),
@@ -1112,13 +1128,17 @@ fn render_section(
     // Applied AFTER sort so sort_by_precedes_chain sees the full container (including
     // cross-type edges). The filter is a projection step: full ordering established first,
     // non-matching types dropped while preserving the relative order of survivors.
+    // Tier-0 notes have no type and never match an explicit typeFilter.
     if let SectionSource::ContainerSubset {
         type_filter: Some(filter),
         ..
     } = &section.source
     {
         if !filter.is_empty() {
-            records.retain(|r| {
+            records.retain(|inst| {
+                let Some(r) = inst.as_record() else {
+                    return false;
+                };
                 if let Some(rt) = ctx.package.resolve_type(&r.type_id, r.type_version) {
                     let key = format!("{}/{}", rt.namespace, rt.name);
                     filter.iter().any(|f| f == &key)
@@ -1152,16 +1172,25 @@ fn render_section(
     }
 
     let record_heading_level = depth(2, ctx.depth_offset) + 1;
-    for record in &records {
-        out.push_str(&render_record_at_level(
-            store,
-            ctx,
-            section,
-            record,
-            record_heading_level,
-            relations,
-            diagnostics,
-        )?);
+    for instance in &records {
+        match instance {
+            LoadedInstance::Record(record) => {
+                out.push_str(&render_record_at_level(
+                    store,
+                    ctx,
+                    section,
+                    record,
+                    record_heading_level,
+                    relations,
+                    diagnostics,
+                )?);
+            }
+            LoadedInstance::Note(note) => {
+                // Tier-0 note members render through their note shape: title as the
+                // heading, free-text section content as body text (#510).
+                out.push_str(&render_note_at_level(ctx, note, record_heading_level));
+            }
+        }
     }
 
     let section_wrapper = ctx
@@ -1186,6 +1215,28 @@ fn render_section(
     Ok(out)
 }
 
+/// Resolve container members, degrading per-section on a dangling containerId:
+/// a container that does not exist yields an empty member list plus a warning
+/// diagnostic instead of failing the whole render (#509). All other errors
+/// still propagate.
+fn list_members_degraded(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+    section_id: &str,
+    diagnostics: &mut Vec<String>,
+) -> Result<Vec<String>, RepositoryError> {
+    match list_members(store, container_id) {
+        Ok(members) => Ok(members),
+        Err(RepositoryError::ContainerNotFound { container_id }) => {
+            diagnostics.push(format!(
+                "[section:{section_id}] container not found: {container_id}; rendering section as empty"
+            ));
+            Ok(Vec::new())
+        }
+        Err(e) => Err(e),
+    }
+}
+
 fn resolve_section_instances(
     store: &dyn RepositoryStore,
     section: &DocumentSection,
@@ -1193,13 +1244,13 @@ fn resolve_section_instances(
     cli_container_id: Option<&str>,
     instance_id_filter: Option<&str>,
     diagnostics: &mut Vec<String>,
-) -> Result<Vec<Record>, RepositoryError> {
+) -> Result<Vec<LoadedInstance>, RepositoryError> {
     match &section.source {
         SectionSource::FixedInstances { instance_ids } => {
             let mut records = Vec::new();
             for id in instance_ids {
-                if let Some(record) = get_record_by_id(store, id)? {
-                    records.push(record);
+                if let Some(instance) = get_instance_by_id(store, id)? {
+                    records.push(instance);
                 }
             }
             Ok(records)
@@ -1243,7 +1294,9 @@ fn resolve_section_instances(
                     if let Some(ids) = effective_ids {
                         let mut member_set = HashSet::new();
                         for id in &ids {
-                            for m in list_members(store, id)? {
+                            for m in
+                                list_members_degraded(store, id, &section.section_id, diagnostics)?
+                            {
                                 member_set.insert(m);
                             }
                         }
@@ -1263,7 +1316,9 @@ fn resolve_section_instances(
                     if let Some(ids) = effective_ids {
                         let mut member_set = HashSet::new();
                         for id in &ids {
-                            for m in list_members(store, id)? {
+                            for m in
+                                list_members_degraded(store, id, &section.section_id, diagnostics)?
+                            {
                                 member_set.insert(m);
                             }
                         }
@@ -1312,7 +1367,7 @@ fn resolve_section_instances(
                 }
             }
 
-            Ok(records)
+            Ok(records.into_iter().map(LoadedInstance::Record).collect())
         }
         SectionSource::RelationQuery {
             from_instance_id,
@@ -1340,8 +1395,8 @@ fn resolve_section_instances(
             }
             let mut records = Vec::new();
             for id in ids {
-                if let Some(record) = get_record_by_id(store, &id)? {
-                    records.push(record);
+                if let Some(instance) = get_instance_by_id(store, &id)? {
+                    records.push(instance);
                 }
             }
             Ok(records)
@@ -1354,19 +1409,66 @@ fn resolve_section_instances(
             // CLI --container overrides the view-declared container_id, allowing one
             // ContainerSubset document-view to render any guide by switching at render time.
             let effective_id = cli_container_id.unwrap_or(container_id.as_str());
-            let members = list_members(store, effective_id)?;
+            let members =
+                list_members_degraded(store, effective_id, &section.section_id, diagnostics)?;
             let mut records = Vec::new();
             for id in members {
-                if let Some(record) = get_record_by_id(store, &id)? {
-                    records.push(record);
+                if let Some(instance) = get_instance_by_id(store, &id)? {
+                    records.push(instance);
                 }
             }
             if let Some(filter_id) = instance_id_filter {
-                records.retain(|r| r.instance_id == filter_id);
+                records.retain(|r| r.instance_id() == filter_id);
             }
             Ok(records)
         }
     }
+}
+
+/// Render a Tier-0 note as a document-view entry: the note title becomes the
+/// heading and each note section's free-text content is emitted as body text
+/// (with the section label, when present, as a sub-heading). Notes are legal
+/// container roots/members (RFC-013), so ContainerSubset sections must be able
+/// to render them (#510).
+fn render_note_at_level(
+    ctx: &RenderContext<'_>,
+    note: &srs_core::types::note::Note,
+    heading_level: u32,
+) -> String {
+    let mut out = String::new();
+
+    if let Some(title) = note.title.as_deref().filter(|t| !t.is_empty()) {
+        out.push_str(&format_heading(heading_level, ctx.format, title));
+    }
+
+    for note_section in &note.sections {
+        if let Some(label) = note_section.label.as_deref().filter(|l| !l.is_empty()) {
+            out.push_str(&format_heading(heading_level + 1, ctx.format, label));
+        }
+        if note_section.content.is_empty() {
+            continue;
+        }
+        match ctx.format {
+            "html" => {
+                let name_class = normalise_css_class(&note_section.name);
+                out.push_str(&format!(
+                    "<div class=\"srs-note-section srs-note-section-{name_class}\">{}</div>\n",
+                    html_escape(&note_section.content)
+                ));
+            }
+            _ => {
+                out.push_str(&note_section.content);
+                out.push_str("\n\n");
+            }
+        }
+    }
+
+    if ctx.format == "html" {
+        out = format!("<div class=\"srs-record srs-note\">{out}</div>\n");
+    }
+
+    out.push('\n');
+    out
 }
 
 fn render_record_at_level(
@@ -6881,6 +6983,470 @@ mod tests {
         assert_eq!(
             title, "FileStore Fallback Title",
             "FileStore should return the container file title when index entry has no title"
+        );
+    }
+
+    // ── #509 / #510: per-section degradation + Tier-0 note members ───────────
+
+    const GOOD_CONTAINER_ID: &str = "00000000-0000-4000-8000-00000000c0de";
+    const DANGLING_CONTAINER_ID: &str = "00000000-0000-4000-8000-0000000dead0";
+
+    fn simple_field_and_type() -> (
+        srs_core::types::field::Field,
+        srs_core::types::record_type::RecordType,
+    ) {
+        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::record_type::{FieldAssignment, RecordType};
+
+        let heading_field = Field {
+            id: "f-heading".to_string(),
+            namespace: "com.test".to_string(),
+            name: "heading".to_string(),
+            version: 1,
+            value_type: ValueType::String,
+            description: "Heading".to_string(),
+            instructions: None,
+            ai_guidance: serde_json::json!(null),
+            allowed_values: None,
+            vocabulary_ref: None,
+            default_value: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let item_type = RecordType {
+            id: "t-item".to_string(),
+            namespace: "com.test".to_string(),
+            name: "item".to_string(),
+            version: 1,
+            description: "Item".to_string(),
+            fields: vec![FieldAssignment {
+                field_id: "f-heading".to_string(),
+                order: 0,
+                required: true,
+                display_label: Some("Heading".to_string()),
+                repeatable: false,
+                min_items: None,
+                max_items: None,
+            }],
+            field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            identity_field_id: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            validation_rules: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        (heading_field, item_type)
+    }
+
+    fn container_subset_section(
+        section_id: &str,
+        title: &str,
+        order: i32,
+        container_id: &str,
+        required: Option<bool>,
+    ) -> srs_core::types::view::DocumentSection {
+        use srs_core::types::view::{DocumentSection, EmptyBehavior, SectionSource};
+        DocumentSection {
+            section_id: section_id.to_string(),
+            title: Some(title.to_string()),
+            description: None,
+            order,
+            source: SectionSource::ContainerSubset {
+                container_id: container_id.to_string(),
+                container_type: None,
+                type_filter: None,
+            },
+            render_view_id: None,
+            type_dispatch: None,
+            title_field_id: Some("f-heading".to_string()),
+            ordering: None,
+            required,
+            empty_behavior: Some(EmptyBehavior::Hide),
+        }
+    }
+
+    /// MemoryStore with one container holding one record, and a document view with
+    /// two ContainerSubset sections: "good" (resolvable) and "missing" (dangling).
+    fn make_degradation_store(missing_required: Option<bool>) -> crate::store::memory::MemoryStore {
+        use crate::container_service;
+        use crate::package::Package;
+        use crate::record_store::create_record;
+        use srs_core::types::view::DocumentView;
+
+        let (heading_field, item_type) = simple_field_and_type();
+        let doc_view = DocumentView {
+            id: "dv-degrade".to_string(),
+            namespace: "com.test".to_string(),
+            name: "degrade-view".to_string(),
+            version: 1,
+            description: "Degradation test view".to_string(),
+            container_type: None,
+            root_type_refs: None,
+            sections: vec![
+                container_subset_section("good", "Good Section", 0, GOOD_CONTAINER_ID, None),
+                container_subset_section(
+                    "missing",
+                    "Missing Section",
+                    1,
+                    DANGLING_CONTAINER_ID,
+                    missing_required,
+                ),
+            ],
+            navigation_links: None,
+            preamble: None,
+            format: Some("markdown".to_string()),
+            depth_offset: None,
+            theme_ref: None,
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let manifest = crate::manifest::Manifest {
+            instance_index: vec![],
+            container: None,
+            container_index: None,
+            extra: HashMap::new(),
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "pkg-degrade".to_string(),
+            namespace: "com.test".to_string(),
+            name: "degrade-package".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![heading_field],
+            record_types: vec![item_type],
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![doc_view],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = crate::store::memory::MemoryStore::new(manifest, package);
+
+        container_service::create_container(
+            &store,
+            srs_core::types::container::Container {
+                container_id: GOOD_CONTAINER_ID.to_string(),
+                title: "Good Container".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: None,
+                root_instance_ids: None,
+                member_instance_ids: None,
+                tags: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                updated_at: None,
+                meta: None,
+                extra: HashMap::new(),
+            },
+        )
+        .unwrap();
+
+        let fv = vec![srs_core::types::record::FieldValue {
+            field_id: "f-heading".to_string(),
+            value: serde_json::json!("Alpha Record"),
+            entries: None,
+            source: None,
+            edited_at: None,
+        }];
+        let record = create_record(&store, "t-item", 1, fv, None, None).unwrap();
+        container_service::add_member(&store, GOOD_CONTAINER_ID, &record.instance_id).unwrap();
+
+        store
+    }
+
+    #[test]
+    fn dangling_container_section_degrades_to_empty_with_warning() {
+        // #509: a section whose containerId does not resolve renders as empty
+        // (emptyBehavior hide → the section is omitted) with a warning diagnostic,
+        // while the resolvable section still renders.
+        let store = make_degradation_store(None);
+        let result = render_document_view(RenderDocumentViewOptions::new(&store, "dv-degrade"))
+            .expect("render must not fail on a dangling section containerId");
+
+        assert!(
+            result.rendered.contains("Good Section"),
+            "resolvable section must render; got:\n{}",
+            result.rendered
+        );
+        assert!(
+            result.rendered.contains("Alpha Record"),
+            "resolvable section's record must render; got:\n{}",
+            result.rendered
+        );
+        assert!(
+            !result.rendered.contains("Missing Section"),
+            "emptyBehavior hide: dangling section must be omitted; got:\n{}",
+            result.rendered
+        );
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.contains("[section:missing]")
+                    && d.contains(&format!("container not found: {DANGLING_CONTAINER_ID}"))),
+            "expected a per-section container-not-found warning; got: {:?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn dangling_container_required_section_renders_no_records_placeholder() {
+        // #509: a required section over a dangling container degrades to the same
+        // output as a genuinely empty required section ("No records.").
+        let store = make_degradation_store(Some(true));
+        let result = render_document_view(RenderDocumentViewOptions::new(&store, "dv-degrade"))
+            .expect("render must not fail on a dangling section containerId");
+
+        assert!(
+            result.rendered.contains("Missing Section"),
+            "required section title must render even when the container is dangling; got:\n{}",
+            result.rendered
+        );
+        assert!(
+            result.rendered.contains("No records."),
+            "required empty section renders its placeholder; got:\n{}",
+            result.rendered
+        );
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.contains("container not found")),
+            "expected container-not-found warning; got: {:?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn json_projection_degrades_dangling_container_section() {
+        // #509: the JSON projection path shares resolve_section_instances — a dangling
+        // containerId yields an empty section plus a warning, not a failed render.
+        let store = make_degradation_store(None);
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-degrade",
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect("json projection must not fail on a dangling section containerId");
+
+        let projection = result.projection.expect("json format returns a projection");
+        let missing = projection
+            .sections
+            .iter()
+            .find(|s| s.section_id == "missing")
+            .expect("dangling section still present in projection");
+        assert!(missing.records.is_empty());
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.contains("container not found")),
+            "expected container-not-found warning; got: {:?}",
+            result.diagnostics
+        );
+    }
+
+    /// MemoryStore whose container has a Tier-0 note as root and a typed record
+    /// as member — the RFC-013 shape that `repo create` scaffolds.
+    fn make_note_member_store() -> (crate::store::memory::MemoryStore, String, String) {
+        use crate::container_service;
+        use crate::package::Package;
+        use crate::record_store::create_record;
+        use srs_core::types::note::{Note, NoteSection};
+        use srs_core::types::view::DocumentView;
+
+        let (heading_field, item_type) = simple_field_and_type();
+        let doc_view = DocumentView {
+            id: "dv-notes".to_string(),
+            namespace: "com.test".to_string(),
+            name: "notes-view".to_string(),
+            version: 1,
+            description: "Note-member test view".to_string(),
+            container_type: None,
+            root_type_refs: None,
+            sections: vec![container_subset_section(
+                "body",
+                "Guide Body",
+                0,
+                GOOD_CONTAINER_ID,
+                None,
+            )],
+            navigation_links: None,
+            preamble: None,
+            format: Some("markdown".to_string()),
+            depth_offset: None,
+            theme_ref: None,
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let manifest = crate::manifest::Manifest {
+            instance_index: vec![],
+            container: None,
+            container_index: None,
+            extra: HashMap::new(),
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "pkg-notes".to_string(),
+            namespace: "com.test".to_string(),
+            name: "notes-package".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![heading_field],
+            record_types: vec![item_type],
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![doc_view],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = crate::store::memory::MemoryStore::new(manifest, package);
+
+        container_service::create_container(
+            &store,
+            srs_core::types::container::Container {
+                container_id: GOOD_CONTAINER_ID.to_string(),
+                title: "Guides".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: Some("guide".to_string()),
+                identity_instance_id: None,
+                root_instance_ids: None,
+                member_instance_ids: None,
+                tags: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                updated_at: None,
+                meta: None,
+                extra: HashMap::new(),
+            },
+        )
+        .unwrap();
+
+        // Tier-0 identity note as container root (RFC-013 shape).
+        let note = crate::services::create_note(
+            &store,
+            Note {
+                instance_id: String::new(),
+                title: Some("Guides".to_string()),
+                tags: None,
+                sections: vec![NoteSection {
+                    name: "overview".to_string(),
+                    label: Some("Overview".to_string()),
+                    content: "Guide overview text.".to_string(),
+                    content_hint: None,
+                    tags: None,
+                }],
+                graduated_at: None,
+                source_refs: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                updated_at: None,
+                meta: None,
+            },
+        )
+        .unwrap()
+        .note;
+        container_service::add_root(&store, GOOD_CONTAINER_ID, &note.instance_id).unwrap();
+
+        let fv = vec![srs_core::types::record::FieldValue {
+            field_id: "f-heading".to_string(),
+            value: serde_json::json!("Typed Member"),
+            entries: None,
+            source: None,
+            edited_at: None,
+        }];
+        let record = create_record(&store, "t-item", 1, fv, None, None).unwrap();
+        container_service::add_member(&store, GOOD_CONTAINER_ID, &record.instance_id).unwrap();
+
+        (store, note.instance_id.clone(), record.instance_id.clone())
+    }
+
+    #[test]
+    fn container_subset_with_tier0_note_root_renders_note_and_records() {
+        // #510: a Tier-0 note root/member renders through its note shape (title as
+        // heading, section content as body) instead of failing the render.
+        let (store, _note_id, _record_id) = make_note_member_store();
+        let result = render_document_view(RenderDocumentViewOptions::new(&store, "dv-notes"))
+            .expect("render must not fail on a tier-0 note container member");
+
+        assert!(
+            result.rendered.contains("Guides"),
+            "note title must render as a heading; got:\n{}",
+            result.rendered
+        );
+        assert!(
+            result.rendered.contains("Guide overview text."),
+            "note section content must render as body text; got:\n{}",
+            result.rendered
+        );
+        assert!(
+            result.rendered.contains("Typed Member"),
+            "typed record member must still render; got:\n{}",
+            result.rendered
+        );
+    }
+
+    #[test]
+    fn json_projection_skips_tier0_note_with_warning() {
+        // #510 (JSON path): the document-view JSON output schema models typed records
+        // only, so tier-0 notes are skipped with a warning instead of failing.
+        let (store, note_id, record_id) = make_note_member_store();
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-notes",
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect("json projection must not fail on a tier-0 note container member");
+
+        let projection = result.projection.expect("json format returns a projection");
+        let ids: Vec<&str> = projection
+            .sections
+            .iter()
+            .flat_map(|s| s.records.iter().map(|r| r.instance_id.as_str()))
+            .collect();
+        assert!(
+            ids.contains(&record_id.as_str()),
+            "record projected: {ids:?}"
+        );
+        assert!(
+            !ids.contains(&note_id.as_str()),
+            "note not projected: {ids:?}"
+        );
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.contains(&note_id) && d.contains("not representable")),
+            "expected a note-skipped warning; got: {:?}",
+            result.diagnostics
         );
     }
 }

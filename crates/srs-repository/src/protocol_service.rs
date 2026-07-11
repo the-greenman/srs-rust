@@ -30,9 +30,8 @@
 use srs_core::types::protocol::{Protocol, ProtocolDiagnosticSeverity, ProtocolStage};
 use srs_core::validation::protocol::validate_protocol;
 
-use crate::blueprint_service::validate_package_selector;
 use crate::error::RepositoryError;
-use crate::package_types::{DefinitionKind, PackageSelector};
+use crate::package_types::{validate_package_selector, DefinitionKind, PackageSelector};
 use crate::store::RepositoryStore;
 
 const PROTOCOLS_DIR: &str = "protocols";
@@ -113,11 +112,7 @@ fn slugify(name: &str) -> String {
 
 /// Parse and structurally validate a protocol definition JSON into a typed [`Protocol`].
 fn protocol_from_value(value: &serde_json::Value) -> Result<Protocol, RepositoryError> {
-    serde_json::from_value(value.clone()).map_err(|e| {
-        RepositoryError::InvalidRepositoryInitialization {
-            message: format!("invalid protocol definition: {e}"),
-        }
-    })
+    crate::input_normalization::from_value_with_path(value.clone(), "Protocol")
 }
 
 /// Run semantic validation, returning the joined error messages when invalid.
@@ -326,11 +321,15 @@ pub fn find_protocol_by_target_type(
 /// `package/protocols/`, then registers it in the boundary's `package.json` `protocols[]`.
 pub fn create_protocol(
     store: &dyn RepositoryStore,
-    value: serde_json::Value,
+    mut value: serde_json::Value,
     selector: PackageSelector,
 ) -> Result<CreateProtocolResult, RepositoryError> {
     validate_package_selector(&selector)?;
     store.load_package_boundary(&selector)?;
+
+    // Normalize server-stampable boilerplate (issue #511): default the creation
+    // timestamp when the caller omits it. Explicit values win.
+    crate::input_normalization::default_created_at(&mut value, "protocolCreatedAt");
 
     let protocol = protocol_from_value(&value)?;
     check_protocol(&protocol)?;
