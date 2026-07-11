@@ -1,43 +1,13 @@
 use crate::commands::{with_store, CliContext, RelationTypeCommand};
 use crate::output;
+use crate::payload::{RelationTypeDeletePayload, RelationTypeListPayload, RelationTypePayload};
 use anyhow::Result;
-use serde::Serialize;
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_repository::package_service::{
     create_relation_type, delete_relation_type, list_relation_types_filtered, update_relation_type,
     RelationTypeListFilter,
 };
 use std::io;
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RelationTypeListPayload {
-    relation_type_definitions: Vec<RelationTypeDefinition>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RelationTypeGetPayload {
-    relation_type_definition: RelationTypeDefinition,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RelationTypeCreatePayload {
-    relation_type_definition: RelationTypeDefinition,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RelationTypeUpdatePayload {
-    relation_type_definition: RelationTypeDefinition,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RelationTypeDeletePayload {
-    id: String,
-}
 
 pub fn dispatch(ctx: CliContext, cmd: RelationTypeCommand) -> Result<String> {
     match cmd {
@@ -72,7 +42,7 @@ fn cmd_relation_type_get(ctx: CliContext, id: String) -> Result<String> {
     match package.resolve_relation_type_by_id(&id) {
         Some(relation_type_definition) => output::serialize(
             "relation-type get",
-            RelationTypeGetPayload {
+            RelationTypePayload {
                 relation_type_definition: relation_type_definition.clone(),
             },
         ),
@@ -89,7 +59,7 @@ fn cmd_relation_type_create(ctx: CliContext) -> Result<String> {
     let result = with_store(&ctx, |store| Ok(create_relation_type(store, def)?))?;
     output::serialize(
         "relation-type create",
-        RelationTypeCreatePayload {
+        RelationTypePayload {
             relation_type_definition: result.relation_type_definition,
         },
     )
@@ -101,7 +71,7 @@ fn cmd_relation_type_update(ctx: CliContext, _id: String) -> Result<String> {
     let result = with_store(&ctx, |store| Ok(update_relation_type(store, def)?))?;
     output::serialize(
         "relation-type update",
-        RelationTypeUpdatePayload {
+        RelationTypePayload {
             relation_type_definition: result.relation_type_definition,
         },
     )

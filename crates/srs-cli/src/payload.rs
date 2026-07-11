@@ -27,6 +27,7 @@ use srs_core::types::{
     record::Record,
     record_type::RecordType,
     relation::Relation,
+    relation_type_definition::RelationTypeDefinition,
     term::Term,
     theme::Theme,
     view::{DocumentView, View},
@@ -484,6 +485,31 @@ pub struct RelationPayload {
 pub struct RelationDeletePayload {
     pub relation_id: String,
     pub path: String,
+}
+
+// ── Relation-type payloads ────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RelationTypeListPayload {
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub relation_type_definitions: Vec<RelationTypeDefinition>,
+}
+
+/// Shared by relation-type get, create, and update (identical shapes).
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RelationTypePayload {
+    #[schemars(with = "serde_json::Value")]
+    pub relation_type_definition: RelationTypeDefinition,
+}
+
+/// Uses `id` (not `instanceId`) — relation-type definitions are package definitions,
+/// not instance-index members (ADR-009).
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RelationTypeDeletePayload {
+    pub id: String,
 }
 
 // ── Container payloads ────────────────────────────────────────────────────────
