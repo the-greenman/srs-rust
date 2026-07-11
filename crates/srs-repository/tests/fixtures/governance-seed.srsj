@@ -95,7 +95,7 @@
     },
     "package/document-views/decision-deliberation-5a3ce87e.json": {
       "createdAt": "2026-05-31T00:00:00Z",
-      "description": "Full deliberation view \u2014 shows all fields including question, context, friction, alternatives, requirements, statement, rationale, next steps, owner, revisit, and status.",
+      "description": "Full deliberation view — shows all fields including question, context, friction, alternatives, requirements, statement, rationale, next steps, owner, revisit, and status.",
       "format": "markdown",
       "id": "5a3ce87e-8340-4d91-a140-ab56b57f704f",
       "name": "decision-deliberation",
@@ -117,7 +117,7 @@
     },
     "package/document-views/decision-log-b5c8d124.json": {
       "createdAt": "2026-05-31T00:00:00Z",
-      "description": "Decision log view \u2014 compact summary showing only decision statement, alternatives considered, rationale, and revisit trigger.",
+      "description": "Decision log view — compact summary showing only decision statement, alternatives considered, rationale, and revisit trigger.",
       "format": "markdown",
       "id": "b5c8d124-2084-4a6b-a231-425e800e1e55",
       "name": "decision-log",
@@ -152,6 +152,55 @@
       ],
       "version": 1
     },
+    "package/document-views/governance-document-732a982b.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json",
+      "createdAt": "2026-07-06T00:00:00Z",
+      "description": "Renders the complete governance corpus — articles of association, roles, and decision log — as a single whole-document export.",
+      "format": "markdown",
+      "id": "732a982b-3765-4f22-90e0-e456463bac54",
+      "name": "governance-document",
+      "namespace": "governance",
+      "sections": [
+        {
+          "emptyBehavior": "hide",
+          "order": 0,
+          "ordering": {
+            "direction": "asc",
+            "fieldId": "60be1468-01bc-5d12-9eea-628f02801893"
+          },
+          "sectionId": "articles",
+          "source": {
+            "containerId": "f7562aa3-98c7-44be-b4c5-5474df6441f2",
+            "type": "container-subset"
+          },
+          "title": "Articles of Association",
+          "titleFieldId": "d7e82557-9045-5e92-a494-d99112bbec4a"
+        },
+        {
+          "emptyBehavior": "hide",
+          "order": 1,
+          "sectionId": "roles",
+          "source": {
+            "containerId": "b30db206-e9a7-4588-a9aa-53451aacd243",
+            "type": "container-subset"
+          },
+          "title": "Roles",
+          "titleFieldId": "d7e82557-9045-5e92-a494-d99112bbec4a"
+        },
+        {
+          "emptyBehavior": "hide",
+          "order": 2,
+          "sectionId": "decisions",
+          "source": {
+            "containerId": "138e2fac-6a8a-4a06-9511-5aefd99ceae9",
+            "type": "container-subset"
+          },
+          "title": "Decision Log",
+          "titleFieldId": "d7e82557-9045-5e92-a494-d99112bbec4a"
+        }
+      ],
+      "version": 1
+    },
     "package/fields/alternativesconsidered-636ce948.json": {
       "aiGuidance": {
         "examples": [
@@ -161,12 +210,13 @@
           }
         ],
         "extraction": "Look for options mentioned, proposals floated, or alternatives explicitly compared. Include any option that received real consideration, even if dismissed quickly. Include doing nothing or no change if the group acknowledged it.",
-        "negativeGuidance": "Do not write none unless truly no alternatives were discussed \u2014 that is almost never accurate. Do not merge distinct alternatives into a single blended option.",
-        "purpose": "Records the genuine options the group weighed before settling on a direction \u2014 including doing nothing. Alternatives show the decision was a real choice, not a foregone conclusion."
+        "negativeGuidance": "Do not write none unless truly no alternatives were discussed — that is almost never accurate. Do not merge distinct alternatives into a single blended option.",
+        "purpose": "Records the genuine options the group weighed before settling on a direction — including doing nothing. Alternatives show the decision was a real choice, not a foregone conclusion."
       },
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "Genuine options the group considered, including doing nothing.",
       "id": "636ce948-2110-57b4-a3ed-04354ec17843",
+      "instructions": "List the options that had genuine support, including doing nothing. Do not write “none” or leave it blank — if there was no competing proposal, the real alternative was leaving things as they are, so state what would have happened if you had not decided. Keep distinct options distinct rather than blending them into one.",
       "name": "alternatives_considered",
       "namespace": "governance",
       "valueType": "text",
@@ -225,7 +275,7 @@
         "purpose": ""
       },
       "createdAt": "2026-05-26T00:00:00Z",
-      "description": "The limits of this role \u2014 where the role's authority ends or must be shared.",
+      "description": "The limits of this role — where the role's authority ends or must be shared.",
       "id": "3c39ee1f-6fe0-5da7-a0b6-928aa3a63211",
       "name": "boundary",
       "namespace": "governance",
@@ -236,17 +286,18 @@
       "aiGuidance": {
         "examples": [
           {
-            "description": "Meeting-frequency decision \u2014 LiMoMa founding session",
+            "description": "Meeting-frequency decision — LiMoMa founding session",
             "output": "The group formed in March 2026 and agreed to trial a flat structure for six months. That trial period ends in December, and the group now needs to decide how to structure ongoing work."
           }
         ],
         "extraction": "Look for background information stated before the decision point: prior agreements, historical context, changes in circumstances, or what happened to prompt this discussion. Extract the scene, not the problem.",
-        "negativeGuidance": "Do not include the friction or problem itself \u2014 that belongs in the Friction field. Context sets the stage; it does not name the pain.",
-        "purpose": "Captures the history, constraints, and trigger event that make this decision matter \u2014 the scene-setting before the problem itself is named."
+        "negativeGuidance": "Do not include the friction or problem itself — that belongs in the Friction field. Context sets the stage; it does not name the pain.",
+        "purpose": "Captures the history, constraints, and trigger event that make this decision matter — the scene-setting before the problem itself is named."
       },
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "Background that makes the matter meaningful.",
       "id": "9889052c-9313-5e2f-a2ac-15baa3c6983e",
+      "instructions": "Set the scene: what happened before, and the limits you are working within — prior agreements, history, or constraints like budget, law, or deadlines. Explain the environment the group is in now. Do not name the problem itself here — that goes in Friction; context is the backdrop, not the pain.",
       "name": "context",
       "namespace": "governance",
       "valueType": "text",
@@ -266,6 +317,7 @@
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "The single concrete question this decision answers.",
       "id": "73cd845a-3623-5bc6-8ade-42a7cd64740c",
+      "instructions": "State the single concrete question this decision settles — specific enough that the decision statement is a direct answer to it. Try phrasing it as “Should we…?” or “How should we…?”. If you find you are only deciding the next task, step up to the higher-level question underneath it.",
       "name": "decision_question",
       "namespace": "governance",
       "valueType": "string",
@@ -279,12 +331,13 @@
             "output": "We will meet fortnightly, on Tuesdays at 18:00 UTC, starting from the first Tuesday in July."
           }
         ],
-        "extraction": "Look for the moment agreement is reached \u2014 signalled by so we are agreed, let us go with, or a direct statement of resolution. Extract the commitment itself, not the discussion around it. One sentence.",
+        "extraction": "Look for the moment agreement is reached — signalled by so we are agreed, let us go with, or a direct statement of resolution. Extract the commitment itself, not the discussion around it. One sentence.",
         "purpose": "States the settled commitment in one concise, active-voice sentence. This is the record of what was decided, not why."
       },
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "The settled commitment in one active-voice sentence.",
       "id": "de1296e0-e083-58d9-97a0-cb2b91fec02e",
+      "instructions": "Write the settled commitment as one clear sentence in the active voice — start with “We will…” or “We have decided to…” so the outcome is unmistakable. Capture what was agreed, not the discussion around it, and make it specific enough to act on: name the who, what, and when where they were agreed.",
       "name": "decision_statement",
       "namespace": "governance",
       "valueType": "text",
@@ -299,12 +352,13 @@
           }
         ],
         "extraction": "Look for expressions of frustration, tension, or a named gap in current practice. The friction answers why this needs to be decided today. Extract it as a concrete condition, not a wish.",
-        "negativeGuidance": "Do not describe what the group wants to do about the friction \u2014 that belongs in Alternatives or the Decision Statement. Friction is the forcing function, not the solution direction.",
-        "purpose": "Names the specific pain, conflict, or gap that is forcing a decision right now \u2014 the concrete thing that cannot be left unresolved."
+        "negativeGuidance": "Do not describe what the group wants to do about the friction — that belongs in Alternatives or the Decision Statement. Friction is the forcing function, not the solution direction.",
+        "purpose": "Names the specific pain, conflict, or gap that is forcing a decision right now — the concrete thing that cannot be left unresolved."
       },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "The specific pain, conflict, or gap that makes a decision necessary now.",
       "id": "1a1c0a5d-a1df-5d03-95f2-32af73bb71da",
+      "instructions": "Name the specific tension, conflict, or gap that makes a decision necessary now — the concrete pain, not a wish. A good test: if you do nothing, what happens next? Describe the gap between where you are and where you want to be. Do not describe what you want to do about it yet — that comes later.",
       "name": "friction",
       "namespace": "governance",
       "valueType": "text",
@@ -324,6 +378,7 @@
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "The standards, values, constraints, and trade-offs used to evaluate options.",
       "id": "a952604c-d150-5315-bfc1-7229ddc1d636",
+      "instructions": "Record the standards you used to judge the options — the non-negotiables (cost, deadlines, legal limits), how the choice sits against your values, and what you would be giving up. Note any trade-offs weighed and any disagreement in the room. This is what “a good decision” looks like for this problem.",
       "name": "key_requirements",
       "namespace": "governance",
       "valueType": "text",
@@ -343,6 +398,7 @@
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "Actions or tasks that emerge from the decision.",
       "id": "4181f210-f4be-5587-950e-890eda2a5590",
+      "instructions": "List the concrete tasks that follow from the decision, with an owner and a deadline where they were named — who is taking this on, and by when. There may be none, and that is fine; only record follow-up that was actually agreed.",
       "name": "next_steps",
       "namespace": "governance",
       "valueType": "text",
@@ -357,11 +413,12 @@
           }
         ],
         "extraction": "Look for explicit ownership statements: X owns this, this sits with the coordination lead, or an implicit assignment when a role is described as responsible. May be a person name or a role title.",
-        "purpose": "Identifies the person or role who holds accountability for this decision \u2014 who can revisit it, who is responsible for its implementation."
+        "purpose": "Identifies the person or role who holds accountability for this decision — who can revisit it, who is responsible for its implementation."
       },
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "Person, role, group, or function responsible for stewardship of this record.",
       "id": "4b34847c-26d1-56be-bc10-844aeb704df7",
+      "instructions": "Name the person or role who holds this decision — who is accountable for carrying it out and who can revisit it. A role title (“Coordination lead”) is often more durable than a person’s name, since it survives people coming and going.",
       "name": "owner",
       "namespace": "governance",
       "valueType": "string",
@@ -389,11 +446,12 @@
         ],
         "extraction": "Look for statements about why the group chose what they chose: the reasoning given for the final decision, what made this option preferable to the others. Capture the outcome logic, not the deliberation process.",
         "negativeGuidance": "Do not write a blow-by-blow account of the discussion. Do not include objections that were not ultimately deciding factors. The rationale is the deciding logic, not a summary of the meeting.",
-        "purpose": "Explains the deciding factor \u2014 why this option was chosen over the alternatives. One to three sentences capturing the core reasoning."
+        "purpose": "Explains the deciding factor — why this option was chosen over the alternatives. One to three sentences capturing the core reasoning."
       },
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "Why this option over the alternatives.",
       "id": "3340532b-d845-5e54-92b3-819ed05365c5",
+      "instructions": "Say what made this the right choice — the deciding factor, in two to four sentences. Focus on the outcome logic, not a blow-by-blow of the debate: this is here to remind your future selves, and anyone not in the room, why the choice made sense. Include the key evidence that tipped it.",
       "name": "rationale",
       "namespace": "governance",
       "valueType": "text",
@@ -408,12 +466,13 @@
           }
         ],
         "extraction": "Look for statements about when to revisit, what would change the decision, or what review conditions were set. Prefer condition-based triggers, which may reference a date as an anchor.",
-        "negativeGuidance": "Avoid bare dates without a condition \u2014 revisit in December is weaker than revisit if attendance consistently drops or at the end of the pilot period. Dates can anchor a condition but should not replace one.",
-        "purpose": "Names the condition or event that should trigger a review of this decision \u2014 tied to the underlying reasoning so the review moment is meaningful."
+        "negativeGuidance": "Avoid bare dates without a condition — revisit in December is weaker than revisit if attendance consistently drops or at the end of the pilot period. Dates can anchor a condition but should not replace one.",
+        "purpose": "Names the condition or event that should trigger a review of this decision — tied to the underlying reasoning so the review moment is meaningful."
       },
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "The condition or event that would prompt a review of this decision.",
       "id": "c04b7f84-9a55-5353-8c9f-2b62f6a1e34e",
+      "instructions": "Describe how you will know this decision may no longer be working — the conditions or events that should trigger a review, tied to your “why”. Avoid setting only a date: a bare “review in December” is weaker than a condition like “if attendance drops below three for two meetings running”. A date can anchor a condition, but should not replace one.",
       "name": "revisit_when",
       "namespace": "governance",
       "valueType": "text",
@@ -443,6 +502,34 @@
       "valueType": "string",
       "version": 1
     },
+    "package/fields/statement-3b000001.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "Concisely state what this repository exists to do or achieve. This is the primary machine-readable identity text for the repository. Write one or two sentences in plain language; avoid jargon. The value must be non-empty."
+      },
+      "createdAt": "2026-07-08T00:00:00Z",
+      "description": "The purpose or mission statement of this repository. Must be non-empty.",
+      "editorHint": "textarea",
+      "id": "3b000001-0000-4000-a000-000000000001",
+      "name": "statement",
+      "namespace": "com.semanticops.core",
+      "valueType": "text",
+      "version": 1
+    },
+    "package/fields/title-3b000002.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "An optional short label for the purpose record, for use in constrained UI contexts such as sidebars. Prefer the repository manifest title for primary display; use this only when the identity record itself needs a narrow-context label."
+      },
+      "createdAt": "2026-07-08T00:00:00Z",
+      "description": "Short human-readable label for the identity record. Optional. Distinct from the repository manifest title.",
+      "editorHint": "singleline",
+      "id": "3b000002-0000-4000-a000-000000000002",
+      "name": "title",
+      "namespace": "com.semanticops.core",
+      "valueType": "string",
+      "version": 1
+    },
     "package/fields/title-d7e82557.json": {
       "aiGuidance": {
         "examples": [
@@ -451,12 +538,13 @@
             "output": "Meeting frequency for pilot"
           }
         ],
-        "extraction": "Infer from the decision question or statement: compress to a short noun phrase identifying the topic. Do not start with We will \u2014 use the subject of the decision instead.",
-        "purpose": "A short, scannable label (3\u20138 words) that identifies this decision at a glance in a list or document view."
+        "extraction": "Infer from the decision question or statement: compress to a short noun phrase identifying the topic. Do not start with We will — use the subject of the decision instead.",
+        "purpose": "A short, scannable label (3–8 words) that identifies this decision at a glance in a list or document view."
       },
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "Short label for this record.",
       "id": "d7e82557-9045-5e92-a494-d99112bbec4a",
+      "instructions": "Give the decision a short, scannable label — a few words naming the topic, not a full sentence. Write it as the subject of the decision (e.g. “Meeting frequency for pilot”), not as “We will…”. It is what people see first in a list, so make it recognisable at a glance.",
       "name": "title",
       "namespace": "governance",
       "valueType": "string",
@@ -501,7 +589,10 @@
           "id": "ec97cea2-9d19-4940-b101-75282f37fa50",
           "isFinal": true,
           "key": "superseded",
-          "label": "Superseded"
+          "label": "Superseded",
+          "requiresRelation": {
+            "relationType": "supersedes"
+          }
         }
       ],
       "transitions": [
@@ -553,7 +644,8 @@
       "documentViews": [
         "document-views/articles-and-roles-78b11038.json",
         "document-views/decision-deliberation-5a3ce87e.json",
-        "document-views/decision-log-b5c8d124.json"
+        "document-views/decision-log-b5c8d124.json",
+        "document-views/governance-document-732a982b.json"
       ],
       "fields": [
         "fields/alternativesconsidered-636ce948.json",
@@ -574,6 +666,8 @@
         "fields/revisitwhen-c04b7f84.json",
         "fields/roleholder-a6c19b95.json",
         "fields/sourceofauthority-9a32dc01.json",
+        "fields/statement-3b000001.json",
+        "fields/title-3b000002.json",
         "fields/title-d7e82557.json"
       ],
       "id": "1cd9622e-3d05-4214-a683-4cb81d0c44d9",
@@ -586,7 +680,8 @@
         "relation-types/delegates-31c82363.json",
         "relation-types/derived-from-36b78f14.json",
         "relation-types/evidences-35c7aba2.json",
-        "relation-types/precedes-b24aaf29.json"
+        "relation-types/precedes-b24aaf29.json",
+        "relation-types/supersedes-6e86ebd3.json"
       ],
       "status": "active",
       "themes": [],
@@ -595,6 +690,7 @@
         "types/article-a1142ac3.json",
         "types/decision-1fcad6a2.json",
         "types/decisionlog-5a061505.json",
+        "types/purpose-3c000001.json",
         "types/role-e53dce11.json"
       ],
       "version": "1.0.0",
@@ -641,6 +737,18 @@
       "irreflexive": true,
       "key": "precedes",
       "label": "Precedes",
+      "namespace": "governance",
+      "version": 1
+    },
+    "package/relation-types/supersedes-6e86ebd3.json": {
+      "canonicalDirection": "source is the newer record; target is the older record being superseded",
+      "category": "governance",
+      "createdAt": "2026-05-31T00:00:00Z",
+      "description": "Source record replaces or invalidates target record. Source is newer; target is the older record being superseded.",
+      "id": "6e86ebd3-0f46-4d13-93e8-ecb195f4ecd4",
+      "irreflexive": true,
+      "key": "supersedes",
+      "label": "Supersedes",
       "namespace": "governance",
       "version": 1
     },
@@ -810,6 +918,34 @@
       "namespace": "governance",
       "version": 1
     },
+    "package/types/purpose-3c000001.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+      "aiGuidance": {
+        "purpose": "Use to express what a repository exists to do or achieve. The statement field is the primary, required field. The title field is optional and intended for constrained UI contexts."
+      },
+      "createdAt": "2026-07-08T00:00:00Z",
+      "description": "A Tier-2 typed record capturing the purpose or mission of a repository. Always available in every conforming SRS repository via the implicit core base package (RFC-018). identityInstanceId on the root container MUST reference a record of this type.",
+      "fields": [
+        {
+          "displayLabel": "Statement",
+          "fieldId": "3b000001-0000-4000-a000-000000000001",
+          "order": 0,
+          "repeatable": false,
+          "required": true
+        },
+        {
+          "displayLabel": "Title",
+          "fieldId": "3b000002-0000-4000-a000-000000000002",
+          "order": 1,
+          "repeatable": false,
+          "required": false
+        }
+      ],
+      "id": "3c000001-0000-4000-a000-000000000001",
+      "name": "purpose",
+      "namespace": "com.semanticops.core",
+      "version": 1
+    },
     "package/types/role-e53dce11.json": {
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "An authority boundary. Defines who may decide or act on what, without requiring group agreement.",
@@ -903,6 +1039,12 @@
     }
   },
   "manifest": {
+    "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+    "container": {
+      "containerId": "395ebea2-d8f6-497b-b18c-04c9eacafc94",
+      "title": "Empty Governance Document"
+    },
+    "createdAt": "2026-01-01T00:00:00Z",
     "description": "An empty governance document: the canonical MuDemocracy governance package installed with zero records, ready for a clerk to capture their first decision.",
     "instanceIndex": [],
     "meta": {
@@ -917,9 +1059,7 @@
     "namespace": "com.mudemocracy.governance",
     "repositoryId": "395ebea2-d8f6-497b-b18c-04c9eacafc94",
     "srsVersion": "2.0-draft",
-    "title": "Empty Governance Document",
-    "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
-    "createdAt": "2024-01-01T00:00:00Z"
+    "title": "Empty Governance Document"
   },
   "srsj": "1"
 }

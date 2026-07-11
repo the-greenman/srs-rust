@@ -4,9 +4,11 @@ use crate::manifest_service::{set_manifest_root_container, SetManifestRootContai
 use crate::record_store::{create_record_in_context, CreateRecordInput};
 use crate::repository_lifecycle::{init_new_repository, InitNewRepositoryInput};
 use crate::store::RepositoryStore;
+use crate::view_service::{delete_document_view, list_document_views, update_document_view};
 use serde::{Deserialize, Serialize};
 use srs_core::types::container::Container;
 use srs_core::types::record::FieldValue;
+use srs_core::types::view::SectionSource;
 use std::collections::HashMap;
 
 /// Input for `scaffold_governance_repo`.
@@ -29,6 +31,12 @@ pub struct ScaffoldGovernanceRepoResult {
     pub decision_log_container_id: String,
     pub decision_log_root_id: String,
     pub root_container_id: String,
+    /// DocumentViews whose sections were rewritten to reference the containers this
+    /// scaffold created (srs#163 — the package ships gallery container UUIDs).
+    pub rebound_document_view_ids: Vec<String>,
+    /// DocumentViews removed because none of their sections can bind to a
+    /// scaffold-created container in the release-1 (decision-log-only) shape.
+    pub removed_document_view_ids: Vec<String>,
 }
 
 /// Combined input for `create_governance_repository`.
@@ -59,6 +67,10 @@ pub struct CreateGovernanceRepositoryResult {
     pub decision_log_container_id: String,
     pub decision_log_root_id: String,
     pub root_container_id: String,
+    /// See [`ScaffoldGovernanceRepoResult::rebound_document_view_ids`].
+    pub rebound_document_view_ids: Vec<String>,
+    /// See [`ScaffoldGovernanceRepoResult::removed_document_view_ids`].
+    pub removed_document_view_ids: Vec<String>,
 }
 
 /// Derive a default namespace from a repository title.
@@ -94,6 +106,10 @@ fn derive_namespace_from_title(title: &str) -> String {
 ///
 /// The store's `manifest.container` navigation pointer is set to the root container
 /// via `set_manifest_root_container`.
+///
+/// Finally, the installed document views are re-bound to the containers created above
+/// (srs#163): the canonical package ships gallery-example container UUIDs, which are
+/// meaningless in a fresh install. See [`rebind_document_views_to_scaffold`].
 pub fn scaffold_governance_repo(
     store: &dyn RepositoryStore,
     input: ScaffoldGovernanceRepoInput,
@@ -239,12 +255,133 @@ pub fn scaffold_governance_repo(
         },
     )?;
 
+    // 4. Re-bind the installed DocumentViews to the containers this scaffold created
+    //    (srs#163): the canonical package ships document views whose sections reference
+    //    the gallery example's container UUIDs, which do not exist in any fresh install.
+    let (rebound_document_view_ids, removed_document_view_ids) =
+        rebind_document_views_to_scaffold(store, &dl_container_id)?;
+
     Ok(ScaffoldGovernanceRepoResult {
         identity_record_id: identity_id,
         decision_log_container_id: dl_container_id,
         decision_log_root_id: dl_root_id,
         root_container_id,
+        rebound_document_view_ids,
+        removed_document_view_ids,
     })
+}
+
+/// The `namespace/name` key of the record type held by the Decision Log container.
+/// A TypeQuery section over this type re-binds to the scaffold's decision-log container.
+const DECISION_TYPE_KEY: &str = "governance/decision";
+
+/// The stable `sectionId` the canonical governance package uses for decision-log
+/// sections across all of its document views (`decision-log`, `decision-deliberation`,
+/// `governance-document`).
+const DECISIONS_SECTION_ID: &str = "decisions";
+
+/// Does `id` resolve to a Container in this repository?
+fn container_exists(store: &dyn RepositoryStore, id: &str) -> bool {
+    store.load_container(id).is_ok()
+}
+
+/// Rewrite the installed document views so their sections reference the containers the
+/// scaffold actually created, instead of the gallery-example container UUIDs shipped in
+/// the canonical package (srs#163).
+///
+/// Matching is by role, not by UUID:
+/// - a section is a *decision* section when its TypeQuery targets
+///   [`DECISION_TYPE_KEY`] or its `sectionId` is [`DECISIONS_SECTION_ID`]; dangling
+///   container references in such sections are re-bound to the freshly created
+///   Decision Log container;
+/// - sections whose dangling references have no scaffold-time counterpart (Articles /
+///   Roles — those types are deliberately dormant in the release-1, decision-log-only
+///   shape) are trimmed from the installed view, so a fresh repo validates with zero
+///   dangling-reference warnings (#509's validate check) rather than hiding broken
+///   sections behind `emptyBehavior`;
+/// - a view left with no bindable sections at all (`articles-and-roles`) is removed
+///   from the install. Package upgrade (muDemocracy.org#37) is the path that will
+///   reintroduce Articles/Roles views once those containers exist.
+///
+/// Sections whose references all resolve are left untouched. Returns
+/// `(rebound_view_ids, removed_view_ids)`.
+fn rebind_document_views_to_scaffold(
+    store: &dyn RepositoryStore,
+    decision_log_container_id: &str,
+) -> Result<(Vec<String>, Vec<String>), RepositoryError> {
+    let mut rebound = Vec::new();
+    let mut removed = Vec::new();
+
+    for view in list_document_views(store)? {
+        let mut changed = false;
+        let mut kept_sections = Vec::with_capacity(view.sections.len());
+
+        for mut section in view.sections.iter().cloned() {
+            let is_decision_section = section.section_id == DECISIONS_SECTION_ID
+                || matches!(
+                    &section.source,
+                    SectionSource::TypeQuery { semantic_object_type, .. }
+                        if semantic_object_type == DECISION_TYPE_KEY
+                );
+
+            let keep = match &mut section.source {
+                SectionSource::ContainerSubset { container_id, .. } => {
+                    if container_exists(store, container_id) {
+                        true
+                    } else if is_decision_section {
+                        *container_id = decision_log_container_id.to_string();
+                        changed = true;
+                        true
+                    } else {
+                        changed = true;
+                        false
+                    }
+                }
+                SectionSource::TypeQuery { container_ids, .. } => match container_ids {
+                    Some(ids) if ids.iter().any(|id| !container_exists(store, id)) => {
+                        let mut resolved: Vec<String> = ids
+                            .iter()
+                            .filter(|id| container_exists(store, id))
+                            .cloned()
+                            .collect();
+                        changed = true;
+                        if is_decision_section
+                            && !resolved.iter().any(|id| id == decision_log_container_id)
+                        {
+                            resolved.push(decision_log_container_id.to_string());
+                        }
+                        if resolved.is_empty() {
+                            false
+                        } else {
+                            *ids = resolved;
+                            true
+                        }
+                    }
+                    _ => true,
+                },
+                _ => true,
+            };
+
+            if keep {
+                kept_sections.push(section);
+            }
+        }
+
+        if !changed {
+            continue;
+        }
+        if kept_sections.is_empty() {
+            delete_document_view(store, &view.id)?;
+            removed.push(view.id);
+        } else {
+            let mut updated = view.clone();
+            updated.sections = kept_sections;
+            update_document_view(store, &view.id, updated)?;
+            rebound.push(view.id);
+        }
+    }
+
+    Ok((rebound, removed))
 }
 
 /// Stamp manifest identity and scaffold all governance records in a single call.
@@ -305,6 +442,8 @@ pub fn create_governance_repository(
         decision_log_container_id: scaffold.decision_log_container_id,
         decision_log_root_id: scaffold.decision_log_root_id,
         root_container_id: scaffold.root_container_id,
+        rebound_document_view_ids: scaffold.rebound_document_view_ids,
+        removed_document_view_ids: scaffold.removed_document_view_ids,
     })
 }
 
@@ -358,6 +497,147 @@ mod tests {
         ];
         let unique: std::collections::HashSet<_> = ids.iter().collect();
         assert_eq!(unique.len(), 4, "all result IDs must be distinct");
+    }
+
+    #[test]
+    fn scaffold_rebinds_document_views_to_created_containers() {
+        // srs#163: the canonical package ships document views referencing gallery
+        // container UUIDs. After scaffold, every remaining container reference must
+        // resolve, decision sections must point at the scaffold's decision-log
+        // container, and views with no bindable section are removed.
+        let store = load_seed_store();
+        let result = scaffold_governance_repo(
+            &store,
+            ScaffoldGovernanceRepoInput {
+                title: "Rebind Org".to_string(),
+                purpose: None,
+            },
+        )
+        .expect("scaffold succeeds");
+
+        let views = crate::view_service::list_document_views(&store).unwrap();
+        let dl = &result.decision_log_container_id;
+
+        // articles-and-roles has no bindable section in the release-1 shape → removed.
+        assert!(
+            !views.iter().any(|v| v.name == "articles-and-roles"),
+            "articles-and-roles view must be removed from a fresh install"
+        );
+        assert_eq!(
+            result.removed_document_view_ids,
+            vec!["78b11038-e5d8-4269-9982-fe5c459802b2".to_string()],
+            "removed set is exactly the articles-and-roles view"
+        );
+
+        // decision-log (type-query): explicit containerIds re-bound to the created container.
+        let decision_log = views
+            .iter()
+            .find(|v| v.name == "decision-log")
+            .expect("decision-log view present");
+        match &decision_log.sections[0].source {
+            SectionSource::TypeQuery { container_ids, .. } => {
+                assert_eq!(
+                    container_ids.as_deref(),
+                    Some(std::slice::from_ref(dl)),
+                    "decision-log type-query must target the scaffold's decision-log container"
+                );
+            }
+            other => panic!("decision-log section must stay a type-query, got {other:?}"),
+        }
+
+        // decision-deliberation (container-subset): re-bound to the created container.
+        let deliberation = views
+            .iter()
+            .find(|v| v.name == "decision-deliberation")
+            .expect("decision-deliberation view present");
+        match &deliberation.sections[0].source {
+            SectionSource::ContainerSubset { container_id, .. } => assert_eq!(container_id, dl),
+            other => panic!("deliberation section must stay a container-subset, got {other:?}"),
+        }
+
+        // governance-document: articles + roles sections trimmed, decisions re-bound.
+        let gov_doc = views
+            .iter()
+            .find(|v| v.name == "governance-document")
+            .expect("governance-document view present");
+        assert_eq!(
+            gov_doc.sections.len(),
+            1,
+            "articles/roles sections must be trimmed in the release-1 shape"
+        );
+        assert_eq!(gov_doc.sections[0].section_id, "decisions");
+        match &gov_doc.sections[0].source {
+            SectionSource::ContainerSubset { container_id, .. } => assert_eq!(container_id, dl),
+            other => panic!("gov-doc decisions section must stay a container-subset, got {other:?}"),
+        }
+
+        // Every surviving container reference resolves — no dangling refs remain.
+        for view in &views {
+            for section in &view.sections {
+                let refs: Vec<&str> = match &section.source {
+                    SectionSource::ContainerSubset { container_id, .. } => {
+                        vec![container_id.as_str()]
+                    }
+                    SectionSource::TypeQuery { container_ids, .. } => container_ids
+                        .as_deref()
+                        .unwrap_or(&[])
+                        .iter()
+                        .map(String::as_str)
+                        .collect(),
+                    _ => Vec::new(),
+                };
+                for id in refs {
+                    assert!(
+                        store.load_container(id).is_ok(),
+                        "view '{}' section '{}' still references dangling container '{}'",
+                        view.name,
+                        section.section_id,
+                        id
+                    );
+                }
+            }
+        }
+
+        // The three surviving views are reported as rebound.
+        let mut rebound = result.rebound_document_view_ids.clone();
+        rebound.sort();
+        let mut expected = vec![
+            "5a3ce87e-8340-4d91-a140-ab56b57f704f".to_string(), // decision-deliberation
+            "732a982b-3765-4f22-90e0-e456463bac54".to_string(), // governance-document
+            "b5c8d124-2084-4a6b-a231-425e800e1e55".to_string(), // decision-log
+        ];
+        expected.sort();
+        assert_eq!(rebound, expected);
+    }
+
+    #[test]
+    fn scaffold_rebinding_survives_srsj_roundtrip_and_validates_clean() {
+        // The rewritten views must survive serialisation, and a fresh scaffold must
+        // produce zero dangling document-view container warnings (#509 validate check).
+        let store = load_seed_store();
+        create_governance_repository(
+            &store,
+            CreateGovernanceRepositoryInput {
+                namespace: Some("com.example.rebind".to_string()),
+                title: "Rebind Roundtrip".to_string(),
+                purpose: None,
+                repository_id: Some("rebind-roundtrip-id".to_string()),
+            },
+        )
+        .expect("create succeeds");
+
+        let srsj = store.to_srsj_string().expect("to_srsj_string");
+        let store2 = JsonStore::from_srsj(&srsj).expect("re-parse");
+        let report = crate::validation::validate_repository(&store2).expect("validate runs");
+        let dangling: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("references containerId"))
+            .collect();
+        assert!(
+            dangling.is_empty(),
+            "fresh repo-create must not ship dangling document-view container refs: {dangling:?}"
+        );
     }
 
     #[test]
