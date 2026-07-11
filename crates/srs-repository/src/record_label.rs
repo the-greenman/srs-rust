@@ -79,7 +79,9 @@ pub(crate) fn record_display_label(
         for fv in &record.field_values {
             if field_name_index.get(&fv.field_id).map(|n| n.as_str()) == Some(priority) {
                 if let Some(s) = fv.value.as_str() {
-                    return s.to_string();
+                    if !s.is_empty() {
+                        return s.to_string();
+                    }
                 }
             }
         }
@@ -216,6 +218,17 @@ mod tests {
         assert_eq!(
             record_display_label(&record, &empty_identity_index(), &index),
             "Heading Value"
+        );
+    }
+
+    #[test]
+    fn display_label_name_ladder_skips_empty_string() {
+        // Empty heading must fall through to name, not return "".
+        let record = make_two_field_record("f-heading", "", "f-name", "Fallback Name");
+        let index = make_index(&[("f-heading", "heading"), ("f-name", "name")]);
+        assert_eq!(
+            record_display_label(&record, &empty_identity_index(), &index),
+            "Fallback Name"
         );
     }
 
