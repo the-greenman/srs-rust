@@ -188,6 +188,19 @@ pub fn migrate_identity(
         writer::write_manifest(store, &manifest)?;
         container_service::add_container_member(store, &root_container_id, &new_id)?;
         container_service::remove_container_member(store, &root_container_id, &old_id)?;
+        // Update the persisted Container record's identityInstanceId in lockstep with the
+        // manifest embed. Without this the container file disagrees with manifest.container
+        // (issue #462).
+        //
+        // IMPORTANT: Do NOT replace this with container_service::update_container.
+        // For root containers, update_container calls begin_batch/commit_batch internally
+        // (container_service.rs ~line 234). Nesting that inside this outer batch causes
+        // JsonStore to flush prematurely and disable batch protection for subsequent writes
+        // — violating ADR-021 atomicity on the WASM/srsj path. MemoryStore tests would not
+        // catch this regression.
+        let mut persisted_container = store.load_container(&root_container_id)?;
+        persisted_container.identity_instance_id = Some(new_id.clone());
+        store.save_container(&persisted_container)?;
         Ok(())
     })();
     match batch_result {
@@ -476,6 +489,22 @@ mod tests {
     }
 
     #[test]
+    fn migrate_updates_persisted_container_identity_pointer() {
+        let (store, container_id) = make_store_with_identity(
+            "11111111-1111-4111-8111-111111111118",
+            Some("Repo"),
+            one_section("Content."),
+        );
+        let result = migrate_identity(&store).unwrap();
+        let container = get_container(&store, &container_id).unwrap();
+        assert_eq!(
+            container.identity_instance_id,
+            Some(result.new_identity_id),
+            "persisted Container record must have identityInstanceId updated after migration"
+        );
+    }
+
+    #[test]
     fn migrate_index_entry_has_tier_2() {
         let (store, _) = make_store_with_identity(
             "11111111-1111-4111-8111-111111111116",
@@ -570,12 +599,18 @@ mod tests {
             .expect("purpose record must be in instanceIndex after roundtrip");
         assert_eq!(entry.tier(), 2);
 
-        // Verify the container in the target still has the purpose record as a member.
+        // Verify the container in the target still has the purpose record as a member,
+        // and that identityInstanceId was carried across (regression for #462).
         let container = get_container(&target, &container_id).unwrap();
         let members = container.member_instance_ids.unwrap_or_default();
         assert!(
             members.contains(&result.new_identity_id),
             "purpose record must remain in container members after roundtrip"
+        );
+        assert_eq!(
+            container.identity_instance_id,
+            Some(result.new_identity_id),
+            "container identityInstanceId must be preserved after copy_repository roundtrip"
         );
     }
 
