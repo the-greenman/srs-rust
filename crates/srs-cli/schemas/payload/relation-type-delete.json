@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RelationTypeDeletePayload",
+  "description": "Uses `id` (not `instanceId`) — relation-type definitions are package definitions, not instance-index members (ADR-009).",
+  "type": "object",
+  "required": [
+    "id"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RelationTypePayload",
+  "description": "Shared by relation-type get, create, and update (identical shapes).",
+  "type": "object",
+  "required": [
+    "relationTypeDefinition"
+  ],
+  "properties": {
+    "relationTypeDefinition": true
+  }
+}

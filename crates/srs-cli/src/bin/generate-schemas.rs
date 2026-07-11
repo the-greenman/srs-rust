@@ -63,6 +63,13 @@ fn main() {
     write_schema!("relation-create", RelationPayload);
     write_schema!("relation-delete", RelationDeletePayload);
 
+    // Relation-type payloads
+    write_schema!("relation-type-list", RelationTypeListPayload);
+    write_schema!("relation-type-get", RelationTypePayload);
+    write_schema!("relation-type-create", RelationTypePayload);
+    write_schema!("relation-type-update", RelationTypePayload);
+    write_schema!("relation-type-delete", RelationTypeDeletePayload);
+
     // Container payloads
     write_schema!("container-list", ContainerListPayload);
     write_schema!("container-get", ContainerPayload);
