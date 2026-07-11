@@ -39,13 +39,14 @@ No entity schema files change.
 
 ## Scope
 
-- Add `"heading"` to the name-ladder priority list in `record_display_label` (position: after `"title"`, before `"name"`).
-- Add unit tests for the `heading` case and its priority relative to `title`.
+- Add `"heading"` to the name-ladder priority list in `record_display_label` at `crates/srs-repository/src/record_label.rs` ~line 78 (position: after `"title"`, before `"name"`).
+- Add unit test `display_label_finds_heading_field` — record with string-valued field named `heading` and no `identityFieldId` entry returns the heading value.
+- Add unit test `display_label_title_takes_priority_over_heading` — record with both `title` and `heading` fields returns the title value.
 
 **Out of scope:**
-- Adding other potential title-synonyms (`subject`, `caption`, etc.) — those can be evaluated in a follow-up if a concrete package need arises.
-- Updating the muDemocracy package to set `identityFieldId` — that is the correct long-term fix and is tracked separately; this bug fix provides immediate relief.
-- Any change to the RFC-020 identity-field path.
+- Other title-synonyms (`subject`, `caption`) — deferred until a concrete package need arises; no data that any in-use package requires them.
+- Updating the muDemocracy package to set `identityFieldId` — that is the correct long-term fix and is tracked separately; this PR provides immediate relief.
+- Any change to the RFC-020 identity-field path (which already takes priority over the whole name ladder and is unaffected).
 
 ---
 
@@ -53,13 +54,13 @@ No entity schema files change.
 
 ### Phase 1: Extend name ladder + unit tests
 
-**Goal:** `record_display_label` returns the value of a `heading` field when no `identityFieldId` is set and no `title` field is present; all existing tests continue to pass.
+**Goal:** `record_display_label` returns the value of a string-valued `heading` field when no `identityFieldId` is set and no `title` field is present; all existing tests continue to pass.
 
 **Agent:** Repository Service Worker
 
 #### Tasks
 
-- [x] In `crates/srs-repository/src/record_label.rs`, change line:
+- [x] In `crates/srs-repository/src/record_label.rs` ~line 78, change:
   ```rust
   for priority in &["title", "name", "label"] {
   ```
@@ -67,13 +68,14 @@ No entity schema files change.
   ```rust
   for priority in &["title", "heading", "name", "label"] {
   ```
-- [x] Add test `display_label_finds_heading_field` — record with field named `heading` and no identity index entry returns the heading value.
-- [x] Add test `display_label_title_takes_priority_over_heading` — record with both `title` and `heading` fields returns the title value.
+- [x] Update doc comment on `record_display_label` to reflect `"heading"` in the priority ladder description.
+- [x] Add test `display_label_finds_heading_field` — record with string-valued field named `heading` (no identity index entry) returns heading value.
+- [x] Add test `display_label_title_takes_priority_over_heading` — record with both `title` and `heading` string-valued fields returns title value.
 
 #### Acceptance Criteria
 
 - [x] A record whose only string-valued field is named `heading` (and whose Type has no `identityFieldId` entry) returns that field's value from `record_display_label`.
-- [x] A record with both `title` and `heading` fields returns the `title` value.
+- [x] A record with both `title` and `heading` string-valued fields returns the `title` value.
 - [x] A record with an `identityFieldId`-mapped field still returns that field's value (existing test `display_label_identity_field_wins_over_title_field` passes unchanged).
 - [x] All existing `record_label` unit tests pass.
 - [x] `cargo test -p srs-repository` passes.
@@ -87,31 +89,31 @@ cargo clippy -p srs-repository -- -D warnings
 ```
 
 Specific tests:
-- `display_label_finds_heading_field` — proves `heading` is recognized.
-- `display_label_title_takes_priority_over_heading` — proves `title` still wins.
+- `display_label_finds_heading_field` — proves `heading` is recognized as a string-valued title synonym.
+- `display_label_title_takes_priority_over_heading` — proves `title` still wins over `heading`.
 
 #### Milestone gate
 
-1. All acceptance criteria above are met.
+1. All acceptance criteria above are met — each checkbox marked `[x]`.
 2. Both new tests exist and pass.
 3. Run:
    ```bash
    cargo test -p srs-repository
    cargo clippy -p srs-repository -- -D warnings
    ```
-4. Update plan checkboxes to `[x]`.
-5. Commit with `fix: add "heading" to record_display_label name ladder (#463)`.
+4. Commit with `fix: add "heading" to record_display_label name ladder (#463)`.
 
 ---
 
 ## Final Acceptance
 
-- [ ] `cargo test` passes with no failures
-- [ ] `cargo clippy -- -D warnings` passes
-- [ ] CLI output format unchanged (integration tests pass)
-- [ ] `cargo test --test payload_contracts` passes
-- [ ] `bash scripts/check-schema-sync.sh` exits 0
-- [ ] A record with a `heading`-named field and no `identityFieldId` returns the heading value from `record_display_label`.
+- [x] `cargo test` passes with no failures (subsumes `cargo test -p srs-repository`)
+- [x] `cargo clippy -- -D warnings` passes
+- [x] CLI output format unchanged (integration tests pass)
+- [x] `cargo test --test payload_contracts` passes (no payload structs changed)
+- [x] `bash scripts/check-schema-sync.sh` exits 0 (no entity schemas changed)
+- [x] A record with a string-valued `heading`-named field and no `identityFieldId` returns the heading value from `record_display_label`.
+- [x] PR body contains `Closes #463`
 
 ## Coordination Rules
 

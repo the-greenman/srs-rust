@@ -51,8 +51,8 @@ pub(crate) fn build_label_indexes(
 /// Extract the best display label for a record using pre-built identity and field name indexes.
 ///
 /// Priority (RFC-020 Rule [N+36]): the record's Type's effective `identityFieldId`, when
-/// present and its value is a non-empty string > field named "title" > "name" > "label" >
-/// `type_name` fallback.
+/// present and its value is a non-empty string > field named "title" > "heading" > "name" >
+/// "label" > `type_name` fallback.
 pub(crate) fn record_display_label(
     record: &Record,
     identity_field_index: &IdentityFieldIndex,
@@ -72,7 +72,7 @@ pub(crate) fn record_display_label(
             }
         }
     }
-    for priority in &["title", "name", "label"] {
+    for priority in &["title", "heading", "name", "label"] {
         for fv in &record.field_values {
             if field_name_index.get(&fv.field_id).map(|n| n.as_str()) == Some(priority) {
                 if let Some(s) = fv.value.as_str() {
@@ -151,6 +151,54 @@ mod tests {
         assert_eq!(
             record_display_label(&record, &empty_identity_index(), &index),
             "My Name"
+        );
+    }
+
+    #[test]
+    fn display_label_finds_heading_field() {
+        let record = make_record_with_field("f-heading", "Section Alpha");
+        let index = make_index(&[("f-heading", "heading")]);
+        assert_eq!(
+            record_display_label(&record, &empty_identity_index(), &index),
+            "Section Alpha"
+        );
+    }
+
+    #[test]
+    fn display_label_title_takes_priority_over_heading() {
+        let record = Record {
+            instance_id: "r1".to_string(),
+            type_id: "t1".to_string(),
+            type_version: 1,
+            type_namespace: "com.test".to_string(),
+            type_name: "my-type".to_string(),
+            field_values: vec![
+                FieldValue {
+                    field_id: "f-heading".to_string(),
+                    value: serde_json::json!("A Heading"),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                },
+                FieldValue {
+                    field_id: "f-title".to_string(),
+                    value: serde_json::json!("A Title"),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                },
+            ],
+            group_values: None,
+            lifecycle_state: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            extra: HashMap::new(),
+        };
+        let index = make_index(&[("f-heading", "heading"), ("f-title", "title")]);
+        assert_eq!(
+            record_display_label(&record, &empty_identity_index(), &index),
+            "A Title"
         );
     }
 
