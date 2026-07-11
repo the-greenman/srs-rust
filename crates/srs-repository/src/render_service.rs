@@ -959,8 +959,8 @@ fn resolve_container_title(
         }
     }
 
-    // When a specific container_id was requested but not found in containerIndex
-    // (or the index is absent), fall back to reading the container file directly.
+    // When a specific container_id was requested but not resolved with a non-empty title
+    // from the index (or the index is absent), fall back to reading the container file directly.
     if let Some(cid) = container_id {
         if let Ok(container) = store.load_container(cid) {
             if !container.title.is_empty() {
@@ -6659,7 +6659,7 @@ mod tests {
         );
     }
 
-    // --- resolve_container_title unit tests ---
+    // --- resolve_container_title unit tests (Phase 1 milestone) ---
 
     fn minimal_document_view() -> srs_core::types::view::DocumentView {
         srs_core::types::view::DocumentView {
@@ -6802,6 +6802,82 @@ mod tests {
         assert_eq!(
             title, "My Repo",
             "should fall through to manifest title when no container_id is given"
+        );
+    }
+
+    #[test]
+    fn resolve_container_title_filestore_falls_back_to_container_file() {
+        // Cross-store test: containerIndex entry exists with a path but no title.
+        // FileStore.load_container finds the file via the indexed path; the fix returns
+        // the container file's title rather than falling through to the manifest title.
+        use crate::store::FileStore;
+        use srs_core::types::container::{Container, ContainerIndexEntry};
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let repo_root = tmp.path();
+
+        let cid = "fs-test-cid-0001";
+        let container_path = "containers/fs-test-cid-0001.json";
+
+        std::fs::create_dir_all(repo_root.join("containers")).unwrap();
+        let container = Container {
+            container_id: cid.to_string(),
+            title: "FileStore Fallback Title".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            identity_instance_id: None,
+            root_instance_ids: None,
+            member_instance_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: HashMap::new(),
+        };
+        std::fs::write(
+            repo_root.join(container_path),
+            serde_json::to_string_pretty(&container).unwrap(),
+        )
+        .unwrap();
+
+        // Index entry has path (so FileStore can locate the file) but NO title —
+        // the index scan in resolve_container_title finds no usable title and
+        // triggers the store.load_container fallback.
+        std::fs::write(
+            repo_root.join("manifest.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "instanceIndex": [],
+                "containerIndex": [{"containerId": cid, "path": container_path}]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let store = FileStore::new(repo_root);
+
+        let manifest = crate::manifest::Manifest {
+            instance_index: vec![],
+            container: None,
+            container_index: Some(vec![ContainerIndexEntry {
+                container_id: cid.to_string(),
+                title: None,
+                path: Some(container_path.to_string()),
+                container_type: None,
+                tags: None,
+                extra: HashMap::new(),
+            }]),
+            extra: HashMap::new(),
+            root: repo_root.to_path_buf(),
+        };
+
+        let dv = minimal_document_view();
+        let title = resolve_container_title(&store, &dv, &manifest, Some(cid));
+        assert_eq!(
+            title,
+            "FileStore Fallback Title",
+            "FileStore should return the container file title when index entry has no title"
         );
     }
 }
