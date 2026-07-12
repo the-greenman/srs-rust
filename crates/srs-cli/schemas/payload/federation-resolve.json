@@ -1,0 +1,66 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FederationResolvePayload",
+  "description": "Returned by `srs federation resolve`; `found: false` when the ID is absent (graceful degradation — not an error).",
+  "type": "object",
+  "required": [
+    "found",
+    "registryId"
+  ],
+  "properties": {
+    "entry": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/FederationRegistryEntryPayload"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "found": {
+      "type": "boolean"
+    },
+    "registryId": {
+      "type": "string"
+    }
+  },
+  "definitions": {
+    "FederationRegistryEntryPayload": {
+      "type": "object",
+      "required": [
+        "repositoryId",
+        "title"
+      ],
+      "properties": {
+        "lastSeen": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "location": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "repositoryId": {
+          "type": "string"
+        },
+        "tags": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "title": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
