@@ -99,7 +99,10 @@ mod tests {
         assert_eq!(parsed.description, Some("A governance package".to_string()));
         assert_eq!(parsed.field_count, 15);
         assert_eq!(parsed.view_count, Some(2));
-        assert_eq!(parsed.tags, Some(vec!["governance".to_string(), "official".to_string()]));
+        assert_eq!(
+            parsed.tags,
+            Some(vec!["governance".to_string(), "official".to_string()])
+        );
         assert_eq!(parsed.checksum, entry.checksum);
     }
 
@@ -138,7 +141,10 @@ mod tests {
         assert_eq!(parsed.catalog_version, "2.1.0");
         assert_eq!(parsed.entries.len(), 2);
         assert_eq!(parsed.entries[0].package_name, "com.example.governance");
-        assert_eq!(parsed.homepage, Some("https://registry.example.com".to_string()));
+        assert_eq!(
+            parsed.homepage,
+            Some("https://registry.example.com".to_string())
+        );
     }
 
     #[test]
