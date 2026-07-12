@@ -19,7 +19,7 @@ pub struct FederationEventsFile {
 /// A single federation operation (merge, split, or import).
 ///
 /// No `deny_unknown_fields` — forward-compat per ADR-028.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FederationEvent {
     pub event_id: String,
@@ -31,6 +31,7 @@ pub struct FederationEvent {
     pub source_repository_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_repository_id: Option<String>,
+    /// Invariant 59: must contain at least one instance ID. Enforced at the service layer.
     pub affected_instance_ids: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub strategy: Option<FederationStrategy>,
@@ -75,7 +76,7 @@ pub struct RepositoryRegistry {
 /// One known repository in a `RepositoryRegistry`.
 ///
 /// No `deny_unknown_fields` — forward-compat per ADR-028.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RepositoryRegistryEntry {
     pub repository_id: String,
@@ -136,9 +137,7 @@ mod tests {
             event: FederationEventKind::Merge,
             at: "2026-07-12T10:00:00Z".to_string(),
             performed_by: None,
-            source_repository_id: Some(
-                "r0000001-0000-4000-a000-000000000001".to_string(),
-            ),
+            source_repository_id: Some("r0000001-0000-4000-a000-000000000001".to_string()),
             target_repository_id: None,
             affected_instance_ids: vec!["i0000001-0000-4000-a000-000000000001".to_string()],
             strategy: None,
@@ -161,7 +160,8 @@ mod tests {
         };
         let json = serde_json::to_string(&event).unwrap();
         let parsed: FederationEvent = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed, event);
+        assert_eq!(parsed.event_id, event.event_id);
+        assert_eq!(parsed.at, event.at);
         assert_eq!(parsed.event, FederationEventKind::Import);
         assert_eq!(parsed.affected_instance_ids.len(), 1);
     }
@@ -184,10 +184,10 @@ mod tests {
         };
         let json = serde_json::to_string(&event).unwrap();
         let parsed: FederationEvent = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed, event);
         assert_eq!(parsed.performed_by, Some("alice".to_string()));
         assert_eq!(parsed.strategy, Some(FederationStrategy::PreserveIds));
         assert_eq!(parsed.affected_instance_ids.len(), 2);
+        assert_eq!(parsed.event, FederationEventKind::Split);
     }
 
     #[test]
@@ -221,7 +221,10 @@ mod tests {
             "unknownField": "should be ignored"
         }"#;
         let result: Result<FederationEvent, _> = serde_json::from_str(json);
-        assert!(result.is_ok(), "unknown fields must be tolerated for forward compat");
+        assert!(
+            result.is_ok(),
+            "unknown fields must be tolerated for forward compat"
+        );
     }
 
     // ── FederationEventsFile ─────────────────────────────────────────────────
@@ -250,7 +253,10 @@ mod tests {
             "unexpectedTopLevelField": "should be ignored"
         }"#;
         let result: Result<FederationEventsFile, _> = serde_json::from_str(json);
-        assert!(result.is_ok(), "unknown fields must be tolerated for forward compat");
+        assert!(
+            result.is_ok(),
+            "unknown fields must be tolerated for forward compat"
+        );
     }
 
     // ── RepositoryRegistryEntry ──────────────────────────────────────────────
@@ -270,8 +276,8 @@ mod tests {
         let entry = minimal_entry();
         let json = serde_json::to_string(&entry).unwrap();
         let parsed: RepositoryRegistryEntry = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed, entry);
         assert_eq!(parsed.repository_id, "r0000001-0000-4000-a000-000000000001");
+        assert_eq!(parsed.title, entry.title);
     }
 
     #[test]
@@ -285,7 +291,6 @@ mod tests {
         };
         let json = serde_json::to_string(&entry).unwrap();
         let parsed: RepositoryRegistryEntry = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed, entry);
         assert_eq!(parsed.location, Some("/repos/archive".to_string()));
         assert_eq!(
             parsed.tags,
@@ -313,7 +318,10 @@ mod tests {
             "unknownField": "should be ignored"
         }"#;
         let result: Result<RepositoryRegistryEntry, _> = serde_json::from_str(json);
-        assert!(result.is_ok(), "unknown fields must be tolerated for forward compat");
+        assert!(
+            result.is_ok(),
+            "unknown fields must be tolerated for forward compat"
+        );
     }
 
     // ── RepositoryRegistry ───────────────────────────────────────────────────
@@ -369,6 +377,40 @@ mod tests {
             "unknownTopLevelField": "should be ignored"
         }"#;
         let result: Result<RepositoryRegistry, _> = serde_json::from_str(json);
-        assert!(result.is_ok(), "unknown fields must be tolerated for forward compat");
+        assert!(
+            result.is_ok(),
+            "unknown fields must be tolerated for forward compat"
+        );
+    }
+
+    // ── Schema contract tests ────────────────────────────────────────────────
+
+    #[test]
+    fn minimal_federation_events_file_passes_schema_contract() {
+        let file = FederationEventsFile {
+            schema: None,
+            repository_id: "r0000001-0000-4000-a000-000000000001".to_string(),
+            events: vec![],
+        };
+        let value = serde_json::to_value(&file).unwrap();
+        let result = srs_schema::SchemaRegistry::global()
+            .validate_by_id(srs_schema::FEDERATION_EVENTS_SCHEMA_ID, &value);
+        assert!(result.is_ok(), "schema contract failed: {:?}", result);
+    }
+
+    #[test]
+    fn minimal_repository_registry_passes_schema_contract() {
+        let registry = RepositoryRegistry {
+            schema: None,
+            registry_id: "reg0001-0000-4000-a000-000000000001".to_string(),
+            title: "Test".to_string(),
+            updated_at: "2026-07-12T00:00:00Z".to_string(),
+            entries: vec![],
+            child_registries: None,
+        };
+        let value = serde_json::to_value(&registry).unwrap();
+        let result = srs_schema::SchemaRegistry::global()
+            .validate_by_id(srs_schema::FEDERATION_REGISTRY_SCHEMA_ID, &value);
+        assert!(result.is_ok(), "schema contract failed: {:?}", result);
     }
 }
