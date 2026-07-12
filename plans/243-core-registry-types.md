@@ -92,20 +92,20 @@ No JSON Schema files in `srs/docs/schema/2.0/` are added or changed. The types l
     - `entries: Vec<RegistryEntry>`
   - Both structs: `#[derive(Debug, Clone, Serialize, Deserialize)]`, `#[serde(rename_all = "camelCase")]`. No `PartialEq` (large document-level structs omit it per `Blueprint`/`Protocol`/`Record` pattern). No `deny_unknown_fields` — external files may carry future fields.
 - [ ] Update `crates/srs-core/src/extensions/mod.rs`:
-  - Add `pub mod registry;`
-  - Add `pub use registry::{Registry, RegistryEntry};`
+  - Add `pub mod registry;` (no `pub use` re-export — matches `types/mod.rs` pattern; callers import as `srs_core::extensions::registry::{Registry, RegistryEntry}`)
 - [ ] Update `crates/srs-core/src/lib.rs`:
   - Confirm `pub mod extensions;` is present (add if missing)
 - [ ] Add unit tests in `registry.rs` (`#[cfg(test)]` block):
   - `registry_entry_roundtrips_json` — full entry with all fields, serialize → deserialize, check key fields
   - `registry_entry_omits_optional_fields` — minimal entry (required fields only), verify `description`, `homepage`, `tags`, `viewCount` etc. absent in JSON output
   - `registry_roundtrips_json` — full Registry with two entries
-  - `registry_tolerates_unknown_fields` — deserialize JSON with an extra `"future_field": "x"`, confirm no error (forward compat)
+  - `registry_tolerates_unknown_fields` — deserialize JSON with an extra `"future_field": "x"`, confirm no error (forward compat for `Registry`)
+  - `registry_entry_tolerates_unknown_fields` — parallel test for `RegistryEntry` (extra field in entry object), confirm no error (forward compat for entry rows)
 
 #### Acceptance Criteria
 
-- [ ] `Registry` and `RegistryEntry` importable as `srs_core::extensions::{Registry, RegistryEntry}`
-- [ ] All four unit tests exist and pass
+- [ ] `Registry` and `RegistryEntry` importable as `srs_core::extensions::registry::{Registry, RegistryEntry}`
+- [ ] All five unit tests exist and pass
 - [ ] No other tests in `srs-core` regress
 
 #### Testing

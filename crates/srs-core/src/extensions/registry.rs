@@ -89,7 +89,7 @@ mod tests {
             relation_type_count: Some(3),
             download_url: Some("https://example.com/governance-1.2.3.srsj".to_string()),
             checksum: Some(
-                "abc123def456abc123def456abc123def456abc123def456abc123def456abc123de".to_string(),
+                "abc123def456abc123def456abc123def456abc123def456abc123def456abc12345".to_string(),
             ),
         };
         let json = serde_json::to_string(&entry).unwrap();
@@ -155,5 +155,22 @@ mod tests {
         let parsed: Registry = serde_json::from_str(json).unwrap();
         assert_eq!(parsed.registry_name, "Example Registry");
         assert!(parsed.entries.is_empty());
+    }
+
+    #[test]
+    fn registry_entry_tolerates_unknown_fields() {
+        let json = r#"{
+            "packageId": "00000001-0000-4000-a000-000000000001",
+            "packageName": "com.example.governance",
+            "packageVersion": "1.0.0",
+            "publisher": "example.com",
+            "publishedAt": "2026-01-01T00:00:00Z",
+            "fieldCount": 5,
+            "typeCount": 2,
+            "futureEntryField": "should be ignored"
+        }"#;
+        let parsed: RegistryEntry = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.package_name, "com.example.governance");
+        assert_eq!(parsed.field_count, 5);
     }
 }
