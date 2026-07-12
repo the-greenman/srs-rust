@@ -1276,6 +1276,160 @@ srs registry list --path /tmp/nonexistent-registry.json --pretty
 
 ---
 
+## S26 — Resolve cross-repository references and record federation events (`srs federation`, ext:federation, #248)
+
+**Intention.** I want to know whether a repository ID I've encountered in a relation or document belongs to a known peer — so I can locate it, and I want to record that this repository recently merged content from another repository so the provenance is auditable.
+
+**Preparation.** Create a repo with `ext:federation` declared, then write a federation registry manually (no CLI command creates one; that's out of scope).
+
+```bash
+SRS_BIN=$(which srs)   # or path to the built binary
+SCRATCH=/tmp/dogfood-federation-s26
+
+$SRS_BIN repo create --repo "$SCRATCH" --namespace com.example.dogfood --pretty
+$SRS_BIN repo extensions enable --repo "$SCRATCH" ext:federation --pretty
+
+REPO_ID=$(cat "$SCRATCH/.srs/manifest.json" | python3 -c "import sys,json; print(json.load(sys.stdin)['repositoryId'])")
+
+mkdir -p "$SCRATCH/federation"
+
+cat > "$SCRATCH/federation/registry.json" <<'EOF'
+{
+  "registryId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "title": "Example Root Registry",
+  "updatedAt": "2026-07-12T00:00:00Z",
+  "entries": [
+    {
+      "repositoryId": "repo-alpha-0000-0000-0000-000000000001",
+      "title": "Alpha Repository",
+      "location": "https://alpha.example.com/repo"
+    }
+  ],
+  "childRegistries": ["child-registry.json"]
+}
+EOF
+
+cat > "$SCRATCH/federation/child-registry.json" <<'EOF'
+{
+  "registryId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+  "title": "Example Child Registry",
+  "updatedAt": "2026-07-12T00:00:00Z",
+  "entries": [
+    {
+      "repositoryId": "repo-beta-0000-0000-0000-000000000002",
+      "title": "Beta Repository",
+      "location": "https://beta.example.com/repo"
+    }
+  ],
+  "childRegistries": []
+}
+EOF
+```
+
+1. **Resolve a known repository ID (root registry).** Confirm `ok: true`, `found: true`, `entry.title` is `"Alpha Repository"`, `registryId` matches the root registry.
+
+```bash
+$SRS_BIN federation resolve \
+  --repository-id repo-alpha-0000-0000-0000-000000000001 \
+  --repo "$SCRATCH" --pretty
+```
+
+2. **Resolve a known repository ID (child registry — DFS).** Confirm `found: true`, `registryId` is the child registry's ID (`bbbb…`).
+
+```bash
+$SRS_BIN federation resolve \
+  --repository-id repo-beta-0000-0000-0000-000000000002 \
+  --repo "$SCRATCH" --pretty
+```
+
+3. **Negative case — unknown repository ID (graceful degradation).** Confirm `ok: true` (not an error), `found: false`, `entry` absent from payload.
+
+```bash
+$SRS_BIN federation resolve \
+  --repository-id repo-unknown-does-not-exist \
+  --repo "$SCRATCH" --pretty
+```
+
+4. **List events (empty on a fresh repo).** Confirm `ok: true`, `events: []`, `totalCount: 0`.
+
+```bash
+$SRS_BIN federation events-list --repo "$SCRATCH" --pretty
+```
+
+5. **Append a merge event.** Confirm `ok: true`, `totalEvents: 1`.
+
+```bash
+echo '{
+  "repositoryId": "'"$REPO_ID"'",
+  "event": {
+    "eventId": "ev00000000000000000000000000001",
+    "event": "merge",
+    "at": "2026-07-12T10:00:00Z",
+    "sourceRepositoryId": "repo-alpha-0000-0000-0000-000000000001",
+    "targetRepositoryId": "'"$REPO_ID"'",
+    "affectedInstanceIds": ["00000000-0000-4000-8000-000000000001"]
+  }
+}' | $SRS_BIN federation events-append --repo "$SCRATCH" --pretty
+```
+
+6. **Append an import event.** Confirm `ok: true`, `totalEvents: 2`.
+
+```bash
+echo '{
+  "repositoryId": "'"$REPO_ID"'",
+  "event": {
+    "eventId": "ev00000000000000000000000000002",
+    "event": "import",
+    "at": "2026-07-12T11:00:00Z",
+    "sourceRepositoryId": "repo-beta-0000-0000-0000-000000000002",
+    "targetRepositoryId": "'"$REPO_ID"'",
+    "affectedInstanceIds": ["00000000-0000-4000-8000-000000000001"]
+  }
+}' | $SRS_BIN federation events-append --repo "$SCRATCH" --pretty
+```
+
+7. **List all events.** Confirm `totalCount: 2`, `filteredCount: 2`, both events appear.
+
+```bash
+$SRS_BIN federation events-list --repo "$SCRATCH" --pretty
+```
+
+8. **Filter by kind.** Confirm `filteredCount: 1`, only the merge event appears.
+
+```bash
+$SRS_BIN federation events-list --repo "$SCRATCH" --kind merge --pretty
+```
+
+9. **Filter by source.** Confirm `filteredCount: 1`, only the import event (from beta) appears.
+
+```bash
+$SRS_BIN federation events-list --repo "$SCRATCH" --source repo-beta-0000-0000-0000-000000000002 --pretty
+```
+
+10. **Negative filter — no matches.** Confirm `ok: true`, `filteredCount: 0`, `events: []`, `totalCount: 2` (not 0 — total is unchanged).
+
+```bash
+$SRS_BIN federation events-list --repo "$SCRATCH" --kind split --pretty
+```
+
+11. **Validate the repo.** Confirm `diagnostics: []`, `errors: 0`.
+
+```bash
+$SRS_BIN repo validate --repo "$SCRATCH" --pretty
+```
+
+**Done when:**
+- Step 3 returns `ok: true`, `found: false` — not an error, not a crash.
+- Steps 5–6 return `ok: true` and `totalEvents` increments correctly.
+- Step 7 `totalCount` equals `filteredCount` when no filter is applied.
+- Steps 8–9 `filteredCount` < `totalCount` — AND semantics hold.
+- Step 10 `totalCount: 2` even when `filteredCount: 0` — total reflects all stored events.
+- Step 11 `diagnostics: []`.
+
+**Verified 2026-07-12 (#248):** All eleven steps passed. Graceful degradation confirmed — unknown repository ID returns `ok: true, found: false` (not an error envelope). DFS traversal confirmed — child registry entry resolves via the `childRegistries` pointer without manual path specification. Filter AND semantics correct across all combinations. `totalCount` vs `filteredCount` distinction correct.
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -1331,6 +1485,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `type` `validationRules` (ext:cross-field-validation — conditional-required / field-ordering / mutual-exclusion, #242); **CFR violations are now hard errors at `record create`/`record update` write time (#437)** — `repo validate` still enforces for any pre-existing records | S23 |
 | `tag` (definition) | _gap — being deprecated; see open issues_ |
 | `registry` (ext:registry — `registry list`, `registry get`) | S25; WASM free functions (`parse_registry`, `list_registry_entries`) verified via `cargo build --target wasm32-unknown-unknown -p srs-bindings` (#244) |
+| `federation` (ext:federation — `federation resolve`, `federation events-list`, `federation events-append`) | S26; WASM free functions (`parse_federation_registry`, `filter_federation_events_json`) verified via `cargo build --target wasm32-unknown-unknown -p srs-bindings` (#248) |
 | `package` | CLI: covered implicitly by field/type creation in S2; WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330) |
 
 Gaps are intentional and visible: they are the backlog of surfaces that need a meaningful scenario. Do not delete a gap row — fill it when a feature gives the surface a real workflow to demonstrate.
