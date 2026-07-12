@@ -27,6 +27,7 @@ pub mod package_types;
 pub mod protocol_service;
 pub mod record_label;
 pub mod record_store;
+pub mod federation_service;
 pub mod registry_service;
 pub mod relation_graph;
 pub mod relation_service;

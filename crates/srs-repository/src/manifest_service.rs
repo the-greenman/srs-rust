@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 const EXT_ADDRESSABILITY: &str = "ext:addressability";
 const EXT_DISCOVERY: &str = "ext:discovery";
+const EXT_FEDERATION: &str = "ext:federation";
 const EXT_FIELD_GROUPS: &str = "ext:field-groups";
 const EXT_LIFECYCLE: &str = "ext:lifecycle";
 const EXT_RELATIONS: &str = "ext:relations";
@@ -19,6 +20,7 @@ const EXT_TYPE_INHERITANCE: &str = "ext:type-inheritance";
 pub const SUPPORTED_EXTENSIONS: &[&str] = &[
     EXT_ADDRESSABILITY,
     EXT_DISCOVERY,
+    EXT_FEDERATION,
     EXT_FIELD_GROUPS,
     EXT_LIFECYCLE,
     EXT_RELATIONS,

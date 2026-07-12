@@ -337,6 +337,37 @@ pub enum RepositoryError {
 
     #[error("failed to read registry at {path:?}: {message}")]
     RegistryIo { path: PathBuf, message: String },
+
+    // ── ext:federation errors ─────────────────────────────────────────────────
+    #[error("failed to load federation registry at {path:?}: {source}")]
+    FederationRegistryLoad {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+
+    #[error("federation registry parse error: {source}")]
+    FederationRegistryParse {
+        #[source]
+        source: serde_json::Error,
+    },
+
+    #[error("federation registry cycle detected at registry '{registry_id}'")]
+    FederationRegistryCycle { registry_id: String },
+
+    #[error("failed to load federation events at {path:?}: {source}")]
+    FederationEventsLoad {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+
+    #[error("failed to write federation events at {path:?}: {source}")]
+    FederationEventsWrite {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
 }
 
 impl PartialEq for RepositoryError {
@@ -768,6 +799,26 @@ impl PartialEq for RepositoryError {
                     message: mb,
                 },
             ) => a == b && ma == mb,
+            (
+                RepositoryError::FederationRegistryLoad { path: a, .. },
+                RepositoryError::FederationRegistryLoad { path: b, .. },
+            ) => a == b,
+            (
+                RepositoryError::FederationRegistryParse { .. },
+                RepositoryError::FederationRegistryParse { .. },
+            ) => true,
+            (
+                RepositoryError::FederationRegistryCycle { registry_id: a },
+                RepositoryError::FederationRegistryCycle { registry_id: b },
+            ) => a == b,
+            (
+                RepositoryError::FederationEventsLoad { path: a, .. },
+                RepositoryError::FederationEventsLoad { path: b, .. },
+            ) => a == b,
+            (
+                RepositoryError::FederationEventsWrite { path: a, .. },
+                RepositoryError::FederationEventsWrite { path: b, .. },
+            ) => a == b,
             _ => false,
         }
     }
