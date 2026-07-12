@@ -65,6 +65,16 @@ pub struct AppendFederationEventResult {
 
 // ── Pure helpers ──────────────────────────────────────────────────────────
 
+/// Canonical kebab-case string for a `FederationEventKind`, matching the serde serialization.
+/// Use this instead of inline match arms to avoid divergence if new variants are added.
+pub fn federation_event_kind_str(kind: &FederationEventKind) -> &'static str {
+    match kind {
+        FederationEventKind::Merge => "merge",
+        FederationEventKind::Split => "split",
+        FederationEventKind::Import => "import",
+    }
+}
+
 /// Parse a federation registry JSON string into a `RepositoryRegistry`.
 /// Returns `RepositoryError::FederationRegistryParse` on deserialization failure.
 pub fn parse_federation_registry_json(json: &str) -> Result<RepositoryRegistry, RepositoryError> {
@@ -90,12 +100,7 @@ pub fn filter_federation_events(
             }
         }
         if let Some(kind_str) = &filter.kind {
-            let event_kind_str = match &e.event {
-                FederationEventKind::Merge => "merge",
-                FederationEventKind::Split => "split",
-                FederationEventKind::Import => "import",
-            };
-            if event_kind_str != kind_str {
+            if federation_event_kind_str(&e.event) != kind_str {
                 return false;
             }
         }
@@ -306,14 +311,15 @@ pub fn append_federation_event(
     let total_events = events_file.events.len();
 
     if let Some(parent) = events_abs_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|source| RepositoryError::FederationEventsWrite {
-            path: events_abs_path.clone(),
+        std::fs::create_dir_all(parent).map_err(|source| RepositoryError::Io {
+            path: parent.to_path_buf(),
             source,
         })?;
     }
 
-    let json =
-        serde_json::to_vec_pretty(&events_file).expect("FederationEventsFile is always serializable");
+    let json = serde_json::to_vec_pretty(&events_file).map_err(|source| {
+        RepositoryError::Serialize { path: events_abs_path.clone(), source }
+    })?;
     std::fs::write(&events_abs_path, json).map_err(|source| RepositoryError::FederationEventsWrite {
         path: events_abs_path,
         source,
