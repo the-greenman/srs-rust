@@ -317,6 +317,23 @@ pub enum RepositoryError {
         id: String,
         qualified_name: String,
     },
+
+    // ── ext:registry errors ───────────────────────────────────────────────────
+    #[error("failed to load registry at {path:?}: {source}")]
+    RegistryLoad {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+
+    #[error("registry parse error: {source}")]
+    RegistryParse {
+        #[source]
+        source: serde_json::Error,
+    },
+
+    #[error("registry entry not found: {package_name}")]
+    RegistryEntryNotFound { package_name: String },
 }
 
 impl PartialEq for RepositoryError {
@@ -729,6 +746,18 @@ impl PartialEq for RepositoryError {
                     qualified_name: qb,
                 },
             ) => ka == kb && ia == ib && qa == qb,
+            (
+                RepositoryError::RegistryLoad { path: a, .. },
+                RepositoryError::RegistryLoad { path: b, .. },
+            ) => a == b,
+            (
+                RepositoryError::RegistryParse { .. },
+                RepositoryError::RegistryParse { .. },
+            ) => true,
+            (
+                RepositoryError::RegistryEntryNotFound { package_name: a },
+                RepositoryError::RegistryEntryNotFound { package_name: b },
+            ) => a == b,
             _ => false,
         }
     }
