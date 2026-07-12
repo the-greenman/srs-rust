@@ -38,7 +38,7 @@ The `srs repo extensions enable/disable` commands operate only on the `declaredE
 - No maintenance burden of keeping a Rust struct in sync with the `meta.extension` type JSON.
 - `srs extension list` immediately works against any repo that has the `com.semanticops.srs` package.
 - Consistent with ADR-002: generic record operations for spec-defined types that are not universally queried primitives.
-- `srs-core/src/extensions/mod.rs` can be removed, eliminating a misleading empty stub.
+- `srs-core/src/extensions/mod.rs` can be removed, eliminating a misleading empty stub. **Update (ADR-028, 2026-07-12):** The "may be removed" note no longer applies — `extensions/mod.rs` is now the module root for extension data-file types. See [ADR-028](028-extension-catalog-types-in-srs-core.md).
 
 **Negative / trade-offs:**
 - Extension field access is via `fieldValues` lookup, not typed struct fields. Code that needs extension data must know field IDs or resolve by field name from the package.

@@ -26,7 +26,7 @@ When an extension's status changes, update the table here and the linked issues 
 | 10 | `ext:lifecycle` | — | 🟢 Substantially done | Transitions, initialState injection, V7–V9 enforced; needs a verification pass to close any remaining V-gaps |
 | 11 | `ext:cross-field-validation` | — | ✅ Implemented | `CrossFieldRule` (conditional-required / field-ordering / mutual-exclusion), `Type.validationRules`; schema mirror synced (#242) |
 | 12 | `ext:import-tracking` | — | ❌ Not implemented | `package import` registers a boundary only; no `ImportMode`/`ImportRecord`/`ImportSummary` |
-| 13 | `ext:registry` | — | ❌ Not implemented | No `Registry`/`RegistryEntry` catalog |
+| 13 | `ext:registry` | — | 🟡 Core types only | `Registry`+`RegistryEntry` in `srs-core/extensions/registry.rs` (#243); service/CLI/binding pending (#244) |
 | 14 | `ext:federation` | — | ❌ Not implemented | No cross-repo relation qualifiers, `RepositoryRegistry`, `FederationEvent` |
 | 15 | `ext:addressability` | — | ❌ Not implemented | No `Address`/`AttentionState`/`Revision`; no context-query patterns |
 
