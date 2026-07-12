@@ -1505,9 +1505,9 @@ pub fn dispatch(cli: Cli) -> Result<String> {
             }
         }
         // registry commands operate on standalone JSON files, not SRS repositories;
-        // a placeholder location is provided so ctx.repo is populated but never used.
+        // a placeholder location is needed to satisfy CliContext but is never used.
         Commands::Registry(_) => RepositoryLocation {
-            path: std::env::current_dir()?,
+            path: std::path::PathBuf::from("."),
             store: StoreBackend::File,
         },
         _ => resolve_repo(cli.repo.clone(), cli.store)?,

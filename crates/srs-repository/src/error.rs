@@ -334,6 +334,9 @@ pub enum RepositoryError {
 
     #[error("registry entry not found: {package_name}")]
     RegistryEntryNotFound { package_name: String },
+
+    #[error("failed to read registry at {path:?}: {message}")]
+    RegistryIo { path: PathBuf, message: String },
 }
 
 impl PartialEq for RepositoryError {
@@ -758,6 +761,10 @@ impl PartialEq for RepositoryError {
                 RepositoryError::RegistryEntryNotFound { package_name: a },
                 RepositoryError::RegistryEntryNotFound { package_name: b },
             ) => a == b,
+            (
+                RepositoryError::RegistryIo { path: a, message: ma },
+                RepositoryError::RegistryIo { path: b, message: mb },
+            ) => a == b && ma == mb,
             _ => false,
         }
     }

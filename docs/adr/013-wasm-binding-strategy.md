@@ -84,7 +84,7 @@ Registry catalog parsing (the `ext:registry` extension) is a repo-independent op
 
 Repo-independent operations may be exposed as **free `#[wasm_bindgen]` functions** rather than methods on `SrsRepository`. The canonical `SrsRepository`-methods surface defined above continues to govern all operations that require a loaded repository.
 
-Registry parsing is the first application: `parse_registry(catalog_json: &str)` and `list_registry_entries(catalog_json: &str, filter_json: &str)` are free functions in `srs-bindings`. They call the same service functions from `srs-repository` that the CLI uses — no business logic is duplicated.
+Registry parsing is the first application: `parse_registry(catalog_json: &str)` and `list_registry_entries(catalog_json: &str, filter_json: &str)` are free functions in `srs-bindings`. They call the same lower-level primitives (`parse_registry_json`, `filter_registry_entries`) from `srs-repository` that the CLI's `list_registry` service function calls internally — no business logic is duplicated. (The CLI-facing service also accepts a `PathBuf` and performs file I/O directly, since there is no `RepositoryStore` to delegate to for repo-independent operations; the WASM caller supplies content as a string and uses the lower-level primitives instead.)
 
 ### Criteria for a free function (not a `SrsRepository` method)
 
