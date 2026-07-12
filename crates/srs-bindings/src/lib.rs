@@ -6,6 +6,9 @@ use srs_repository::blueprint_service;
 use srs_repository::container_service::{self, ContainerListFilter};
 use srs_repository::container_view_service::{self, ResolveContainerViewInput};
 use srs_repository::discovery_service::{self, DiscoveryQuery};
+use srs_repository::federation_service::{
+    filter_federation_events, parse_federation_registry_json, ListFederationEventsFilter,
+};
 use srs_repository::governance_scaffold_service::{self, CreateGovernanceRepositoryInput};
 use srs_repository::manifest_service;
 use srs_repository::migrate_identity_service;
@@ -15,9 +18,6 @@ use srs_repository::package_service::{
 use srs_repository::protocol_service::{self, GetProtocolResult};
 use srs_repository::record_store::{
     self, CreateRecordInput, RecordListFilter, TransitionLifecycleInput,
-};
-use srs_repository::federation_service::{
-    filter_federation_events, ListFederationEventsFilter, parse_federation_registry_json,
 };
 use srs_repository::registry_service::{
     filter_registry_entries, parse_registry_json, RegistryListFilter,
@@ -752,7 +752,6 @@ impl SrsRepository {
             None => Ok(JsValue::NULL),
         }
     }
-
 }
 
 // ── Repo-independent free functions (ADR-013 addendum) ───────────────────────
@@ -820,8 +819,8 @@ pub fn filter_federation_events_json(
     use srs_core::extensions::federation::FederationEventsFile;
     let events_file: FederationEventsFile = serde_json::from_str(events_file_json)
         .map_err(|e| js_err(format!("invalid events file: {e}")))?;
-    let filter: ListFederationEventsFilter = serde_json::from_str(filter_json)
-        .map_err(|e| js_err(format!("invalid filter: {e}")))?;
+    let filter: ListFederationEventsFilter =
+        serde_json::from_str(filter_json).map_err(|e| js_err(format!("invalid filter: {e}")))?;
     let filtered = filter_federation_events(events_file, &filter);
     to_js(&filtered)
 }

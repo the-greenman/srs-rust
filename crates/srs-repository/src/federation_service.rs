@@ -78,8 +78,7 @@ pub fn federation_event_kind_str(kind: &FederationEventKind) -> &'static str {
 /// Parse a federation registry JSON string into a `RepositoryRegistry`.
 /// Returns `RepositoryError::FederationRegistryParse` on deserialization failure.
 pub fn parse_federation_registry_json(json: &str) -> Result<RepositoryRegistry, RepositoryError> {
-    serde_json::from_str(json)
-        .map_err(|source| RepositoryError::FederationRegistryParse { source })
+    serde_json::from_str(json).map_err(|source| RepositoryError::FederationRegistryParse { source })
 }
 
 /// Apply a `ListFederationEventsFilter` to a `FederationEventsFile`, retaining
@@ -160,8 +159,7 @@ fn dfs_search_registry(
         for child_location in children {
             let child_path = parent_dir.join(&child_location);
             let child_registry = load_registry_at(&child_path)?;
-            if let Some(result) =
-                dfs_search_registry(child_registry, &child_path, target_id, seen)?
+            if let Some(result) = dfs_search_registry(child_registry, &child_path, target_id, seen)?
             {
                 return Ok(Some(result));
             }
@@ -194,7 +192,12 @@ pub fn resolve_repository(
     let root_registry_id = root_registry.registry_id.clone();
 
     let mut seen = HashSet::new();
-    match dfs_search_registry(root_registry, &registry_path, &input.repository_id, &mut seen)? {
+    match dfs_search_registry(
+        root_registry,
+        &registry_path,
+        &input.repository_id,
+        &mut seen,
+    )? {
         Some((registry_id, entry)) => Ok(ResolveRepositoryResult {
             found: true,
             registry_id,
@@ -250,12 +253,11 @@ pub fn list_federation_events(
         }
     };
 
-    let events_file: FederationEventsFile = serde_json::from_str(&content).map_err(|source| {
-        RepositoryError::FederationEventsLoad {
+    let events_file: FederationEventsFile =
+        serde_json::from_str(&content).map_err(|source| RepositoryError::FederationEventsLoad {
             path: events_abs_path.clone(),
             source,
-        }
-    })?;
+        })?;
 
     let total_count = events_file.events.len();
     let filtered = filter_federation_events(events_file, &input.filter);
@@ -317,12 +319,16 @@ pub fn append_federation_event(
         })?;
     }
 
-    let json = serde_json::to_vec_pretty(&events_file).map_err(|source| {
-        RepositoryError::Serialize { path: events_abs_path.clone(), source }
-    })?;
-    std::fs::write(&events_abs_path, json).map_err(|source| RepositoryError::FederationEventsWrite {
-        path: events_abs_path,
-        source,
+    let json =
+        serde_json::to_vec_pretty(&events_file).map_err(|source| RepositoryError::Serialize {
+            path: events_abs_path.clone(),
+            source,
+        })?;
+    std::fs::write(&events_abs_path, json).map_err(|source| {
+        RepositoryError::FederationEventsWrite {
+            path: events_abs_path,
+            source,
+        }
     })?;
 
     Ok(AppendFederationEventResult {
@@ -370,7 +376,11 @@ mod tests {
         }
     }
 
-    fn make_registry(registry_id: &str, entries: Vec<RepositoryRegistryEntry>, children: Option<Vec<&str>>) -> RepositoryRegistry {
+    fn make_registry(
+        registry_id: &str,
+        entries: Vec<RepositoryRegistryEntry>,
+        children: Option<Vec<&str>>,
+    ) -> RepositoryRegistry {
         RepositoryRegistry {
             schema: None,
             registry_id: registry_id.to_string(),
@@ -409,17 +419,15 @@ mod tests {
     fn resolve_repository_finds_entry_in_root() {
         let tmp = TempDir::new().unwrap();
         write_manifest(&tmp, &serde_json::json!({}));
-        let registry = make_registry(
-            "reg-root",
-            vec![minimal_entry("repo-aaa", "Repo A")],
-            None,
-        );
+        let registry = make_registry("reg-root", vec![minimal_entry("repo-aaa", "Repo A")], None);
         write_json(&tmp.path().join("federation/registry.json"), &registry);
 
         let store = FileStore::new(tmp.path());
         let result = resolve_repository(
             &store,
-            ResolveRepositoryInput { repository_id: "repo-aaa".to_string() },
+            ResolveRepositoryInput {
+                repository_id: "repo-aaa".to_string(),
+            },
         )
         .unwrap();
 
@@ -434,17 +442,27 @@ mod tests {
         write_manifest(&tmp, &serde_json::json!({}));
 
         // Root registry has no matching entry, references a child
-        let root = make_registry("reg-root", vec![minimal_entry("repo-root-only", "Root Only")], Some(vec!["child-registry.json"]));
+        let root = make_registry(
+            "reg-root",
+            vec![minimal_entry("repo-root-only", "Root Only")],
+            Some(vec!["child-registry.json"]),
+        );
         write_json(&tmp.path().join("federation/registry.json"), &root);
 
         // Child registry has the target entry
-        let child = make_registry("reg-child", vec![minimal_entry("repo-child-only", "Child Only")], None);
+        let child = make_registry(
+            "reg-child",
+            vec![minimal_entry("repo-child-only", "Child Only")],
+            None,
+        );
         write_json(&tmp.path().join("federation/child-registry.json"), &child);
 
         let store = FileStore::new(tmp.path());
         let result = resolve_repository(
             &store,
-            ResolveRepositoryInput { repository_id: "repo-child-only".to_string() },
+            ResolveRepositoryInput {
+                repository_id: "repo-child-only".to_string(),
+            },
         )
         .unwrap();
 
@@ -463,7 +481,9 @@ mod tests {
         let store = FileStore::new(tmp.path());
         let result = resolve_repository(
             &store,
-            ResolveRepositoryInput { repository_id: "repo-does-not-exist".to_string() },
+            ResolveRepositoryInput {
+                repository_id: "repo-does-not-exist".to_string(),
+            },
         )
         .unwrap();
 
@@ -483,12 +503,17 @@ mod tests {
 
         // Child has same registry_id as root → cycle
         let cycle_child = make_registry("reg-root", vec![], None);
-        write_json(&tmp.path().join("federation/cycle-child.json"), &cycle_child);
+        write_json(
+            &tmp.path().join("federation/cycle-child.json"),
+            &cycle_child,
+        );
 
         let store = FileStore::new(tmp.path());
         let err = resolve_repository(
             &store,
-            ResolveRepositoryInput { repository_id: "repo-x".to_string() },
+            ResolveRepositoryInput {
+                repository_id: "repo-x".to_string(),
+            },
         )
         .unwrap_err();
 
@@ -508,7 +533,9 @@ mod tests {
         let store = FileStore::new(tmp.path());
         let err = resolve_repository(
             &store,
-            ResolveRepositoryInput { repository_id: "repo-x".to_string() },
+            ResolveRepositoryInput {
+                repository_id: "repo-x".to_string(),
+            },
         )
         .unwrap_err();
 
@@ -539,7 +566,9 @@ mod tests {
         let store = FileStore::new(tmp.path());
         let result = list_federation_events(
             &store,
-            ListFederationEventsInput { filter: ListFederationEventsFilter::default() },
+            ListFederationEventsInput {
+                filter: ListFederationEventsFilter::default(),
+            },
         )
         .unwrap();
 
@@ -552,16 +581,21 @@ mod tests {
     fn list_events_no_filter_returns_all() {
         let tmp = TempDir::new().unwrap();
         write_manifest(&tmp, &serde_json::json!({"repositoryId": "repo-aaa"}));
-        write_events_file(&tmp, vec![
-            minimal_event("e-001", FederationEventKind::Merge),
-            minimal_event("e-002", FederationEventKind::Split),
-            minimal_event("e-003", FederationEventKind::Import),
-        ]);
+        write_events_file(
+            &tmp,
+            vec![
+                minimal_event("e-001", FederationEventKind::Merge),
+                minimal_event("e-002", FederationEventKind::Split),
+                minimal_event("e-003", FederationEventKind::Import),
+            ],
+        );
 
         let store = FileStore::new(tmp.path());
         let result = list_federation_events(
             &store,
-            ListFederationEventsInput { filter: ListFederationEventsFilter::default() },
+            ListFederationEventsInput {
+                filter: ListFederationEventsFilter::default(),
+            },
         )
         .unwrap();
 
@@ -575,11 +609,14 @@ mod tests {
     fn list_events_filter_by_kind() {
         let tmp = TempDir::new().unwrap();
         write_manifest(&tmp, &serde_json::json!({}));
-        write_events_file(&tmp, vec![
-            minimal_event("e-001", FederationEventKind::Merge),
-            minimal_event("e-002", FederationEventKind::Split),
-            minimal_event("e-003", FederationEventKind::Merge),
-        ]);
+        write_events_file(
+            &tmp,
+            vec![
+                minimal_event("e-001", FederationEventKind::Merge),
+                minimal_event("e-002", FederationEventKind::Split),
+                minimal_event("e-003", FederationEventKind::Merge),
+            ],
+        );
 
         let store = FileStore::new(tmp.path());
         let result = list_federation_events(
@@ -595,7 +632,10 @@ mod tests {
 
         assert_eq!(result.total_count, 3);
         assert_eq!(result.filtered_count, 2);
-        assert!(result.events.iter().all(|e| matches!(e.event, FederationEventKind::Merge)));
+        assert!(result
+            .events
+            .iter()
+            .all(|e| matches!(e.event, FederationEventKind::Merge)));
     }
 
     #[test]
@@ -665,7 +705,10 @@ mod tests {
     fn append_event_appends_to_existing() {
         let tmp = TempDir::new().unwrap();
         write_manifest(&tmp, &serde_json::json!({}));
-        write_events_file(&tmp, vec![minimal_event("e-001", FederationEventKind::Merge)]);
+        write_events_file(
+            &tmp,
+            vec![minimal_event("e-001", FederationEventKind::Merge)],
+        );
 
         let store = FileStore::new(tmp.path());
         let result = append_federation_event(
@@ -785,7 +828,9 @@ mod tests {
 
         let err = resolve_repository(
             &store,
-            ResolveRepositoryInput { repository_id: "any".to_string() },
+            ResolveRepositoryInput {
+                repository_id: "any".to_string(),
+            },
         )
         .unwrap_err();
 
@@ -809,7 +854,9 @@ mod tests {
         let store = MemoryStore::default();
         let result = list_federation_events(
             &store,
-            ListFederationEventsInput { filter: ListFederationEventsFilter::default() },
+            ListFederationEventsInput {
+                filter: ListFederationEventsFilter::default(),
+            },
         )
         .unwrap();
         assert_eq!(result.total_count, 0);
