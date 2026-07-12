@@ -16,6 +16,9 @@ use srs_repository::protocol_service::{self, GetProtocolResult};
 use srs_repository::record_store::{
     self, CreateRecordInput, RecordListFilter, TransitionLifecycleInput,
 };
+use srs_repository::registry_service::{
+    filter_registry_entries, parse_registry_json, RegistryListFilter,
+};
 use srs_repository::relation_service::{self, ListRelationsFilter};
 use srs_repository::render_service::{self, RenderDocumentViewOptions};
 use srs_repository::repository_lifecycle::{self, InitNewRepositoryInput};
@@ -26,7 +29,6 @@ use srs_repository::services::{
 use srs_repository::tag_service;
 use srs_repository::type_schema_service::{self, TypeSchemaInput};
 use srs_repository::validation;
-use srs_repository::registry_service::{filter_registry_entries, parse_registry_json, RegistryListFilter};
 use srs_repository::view_service::{self, DocumentViewListFilter, GetViewResult};
 use srs_repository::JsonStore;
 use wasm_bindgen::prelude::*;
@@ -778,8 +780,8 @@ pub fn parse_registry(catalog_json: &str) -> Result<JsValue, JsValue> {
 #[wasm_bindgen]
 pub fn list_registry_entries(catalog_json: &str, filter_json: &str) -> Result<JsValue, JsValue> {
     let registry = parse_registry_json(catalog_json).map_err(js_err)?;
-    let filter: RegistryListFilter = serde_json::from_str(filter_json)
-        .map_err(|e| js_err(format!("invalid filter: {e}")))?;
+    let filter: RegistryListFilter =
+        serde_json::from_str(filter_json).map_err(|e| js_err(format!("invalid filter: {e}")))?;
     let filtered = filter_registry_entries(registry, &filter);
     to_js(&filtered)
 }

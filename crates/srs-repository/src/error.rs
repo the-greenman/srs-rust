@@ -753,17 +753,20 @@ impl PartialEq for RepositoryError {
                 RepositoryError::RegistryLoad { path: a, .. },
                 RepositoryError::RegistryLoad { path: b, .. },
             ) => a == b,
-            (
-                RepositoryError::RegistryParse { .. },
-                RepositoryError::RegistryParse { .. },
-            ) => true,
+            (RepositoryError::RegistryParse { .. }, RepositoryError::RegistryParse { .. }) => true,
             (
                 RepositoryError::RegistryEntryNotFound { package_name: a },
                 RepositoryError::RegistryEntryNotFound { package_name: b },
             ) => a == b,
             (
-                RepositoryError::RegistryIo { path: a, message: ma },
-                RepositoryError::RegistryIo { path: b, message: mb },
+                RepositoryError::RegistryIo {
+                    path: a,
+                    message: ma,
+                },
+                RepositoryError::RegistryIo {
+                    path: b,
+                    message: mb,
+                },
             ) => a == b && ma == mb,
             _ => false,
         }

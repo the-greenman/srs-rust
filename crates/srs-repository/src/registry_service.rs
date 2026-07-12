@@ -13,9 +13,14 @@ pub struct RegistryListFilter {
 fn read_registry_file(path: &std::path::Path) -> Result<Registry, RepositoryError> {
     let content = std::fs::read_to_string(path).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
-            RepositoryError::NotFound { path: path.to_path_buf() }
+            RepositoryError::NotFound {
+                path: path.to_path_buf(),
+            }
         } else {
-            RepositoryError::RegistryIo { path: path.to_path_buf(), message: e.to_string() }
+            RepositoryError::RegistryIo {
+                path: path.to_path_buf(),
+                message: e.to_string(),
+            }
         }
     })?;
     serde_json::from_str(&content).map_err(|source| RepositoryError::RegistryLoad {
@@ -212,10 +217,7 @@ mod tests {
         .unwrap();
         assert_eq!(result.total_count, 3);
         assert_eq!(result.filtered_count, 2);
-        assert!(result
-            .entries
-            .iter()
-            .all(|e| e.publisher == "a.com"));
+        assert!(result.entries.iter().all(|e| e.publisher == "a.com"));
     }
 
     #[test]
@@ -278,7 +280,10 @@ mod tests {
             filter: RegistryListFilter::default(),
         });
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), RepositoryError::NotFound { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            RepositoryError::NotFound { .. }
+        ));
     }
 
     #[test]
