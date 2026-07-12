@@ -1,6 +1,6 @@
 # ADR-013: WebAssembly Binding Strategy
 
-- **Status:** accepted
+- **Status:** accepted — see Addendum (Repo-Independent Free Functions, 2026-07-12, #244)
 - **Date:** 2026-06-06
 - **Supersedes:** —
 - **Superseded by:** —
@@ -71,3 +71,26 @@ Write operations (create/update/delete) are deferred to a future plan. The `flus
 - The `wasm-pack` tool is required to build the Wasm package. It is not part of the standard Cargo build.
 - The `pkg/` output directory produced by `wasm-pack` is gitignored.
 - **CI enforcement:** CI type-safety verification for `srs-bindings` uses `cargo build --target wasm32-unknown-unknown -p srs-bindings` rather than `wasm-pack build` or `cargo check`. Rationale: (1) `wasm-pack` is not in the standard Rust toolchain and requires a separate install step; (2) `cargo check` is insufficient because it does not perform codegen or linking — link-time errors from missing `__wbindgen_*` descriptor symbols are only caught by `cargo build`; (3) JS binding and package generation are distribution concerns, not CI type-safety concerns. The `wasm-build` job must be listed as a Required Status Check on the `master` branch protection rule to enforce this gate on every PR.
+
+---
+
+## Addendum — Repo-Independent Free Functions (2026-07-12, issue #244)
+
+### Context
+
+Registry catalog parsing (the `ext:registry` extension) is a repo-independent operation: a caller supplies a raw JSON string or file path, not a loaded SRS repository. Loading a full `SrsRepository` just to parse a registry file would be wasteful and architecturally misleading — the `SrsRepository` struct is specifically for operations over a loaded repository.
+
+### Decision
+
+Repo-independent operations may be exposed as **free `#[wasm_bindgen]` functions** rather than methods on `SrsRepository`. The canonical `SrsRepository`-methods surface defined above continues to govern all operations that require a loaded repository.
+
+Registry parsing is the first application: `parse_registry(catalog_json: &str)` and `list_registry_entries(catalog_json: &str, filter_json: &str)` are free functions in `srs-bindings`. They call the same service functions from `srs-repository` that the CLI uses — no business logic is duplicated.
+
+### Criteria for a free function (not a `SrsRepository` method)
+
+An operation qualifies as a free function when **all** of the following hold:
+- It does not require a loaded SRS repository (`JsonStore`/`RepositoryStore`).
+- It operates on a caller-supplied payload (raw JSON string, file path, or primitive type).
+- It would also make sense in a context where no repository has been opened (e.g. a standalone registry browser).
+
+If any of these conditions fails, the binding belongs on `SrsRepository`.

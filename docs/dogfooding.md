@@ -1162,6 +1162,120 @@ $SRS_BIN repo validate --repo "$SCRATCH" --pretty
 
 ---
 
+## S25 — Browse a package registry catalog (`srs registry`, ext:registry, #244)
+
+**Intention.** I want to discover which packages are available from a registry catalog, filter by publisher and topic tag, and look up a specific package — so I can decide which one to install into my repository.
+
+**Preparation.** Create a catalog file with several entries spanning two publishers and multiple tags.
+
+```bash
+cat > /tmp/catalog.json <<'EOF'
+{
+  "schemaVersion": "1.0",
+  "registryId": "11111111-1111-4111-8111-111111111111",
+  "registryName": "SemanticOps Public Registry",
+  "catalogVersion": "2.0.0",
+  "updatedAt": "2026-07-12T00:00:00Z",
+  "homepage": "https://registry.semanticops.com",
+  "entries": [
+    {
+      "packageId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "packageName": "com.semanticops.governance",
+      "packageVersion": "3.1.0",
+      "publisher": "com.semanticops",
+      "description": "Core governance types: decisions, risks, and deliberation workflows",
+      "publishedAt": "2026-06-01T00:00:00Z",
+      "tags": ["governance", "decisions", "risk"],
+      "fieldCount": 18,
+      "typeCount": 6,
+      "viewCount": 3,
+      "protocolCount": 2,
+      "downloadUrl": "https://registry.semanticops.com/packages/governance-3.1.0.tar.gz",
+      "checksum": "sha256:abc123def456"
+    },
+    {
+      "packageId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "packageName": "com.semanticops.research",
+      "packageVersion": "1.0.0",
+      "publisher": "com.semanticops",
+      "description": "Research and evidence tracking types",
+      "publishedAt": "2026-05-15T00:00:00Z",
+      "tags": ["research", "evidence"],
+      "fieldCount": 9,
+      "typeCount": 3,
+      "downloadUrl": "https://registry.semanticops.com/packages/research-1.0.0.tar.gz",
+      "checksum": "sha256:def789ghi012"
+    },
+    {
+      "packageId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      "packageName": "com.example.hrpolicies",
+      "packageVersion": "2.3.0",
+      "publisher": "com.example",
+      "description": "HR policy record types for enterprise compliance",
+      "publishedAt": "2026-04-01T00:00:00Z",
+      "tags": ["hr", "compliance", "policies"],
+      "fieldCount": 22,
+      "typeCount": 8,
+      "downloadUrl": "https://example.com/packages/hrpolicies-2.3.0.tar.gz",
+      "checksum": "sha256:ghi345jkl678"
+    }
+  ]
+}
+EOF
+```
+
+1. **List all entries.** Confirm `totalCount` and `filteredCount` are both 3; all three entries appear.
+
+```bash
+srs registry list --path /tmp/catalog.json --pretty
+```
+
+2. **Filter by publisher.** Confirm only `com.semanticops.*` entries appear; `totalCount` stays 3 and `filteredCount` is 2.
+
+```bash
+srs registry list --path /tmp/catalog.json --publisher com.semanticops --pretty
+```
+
+3. **Filter by tag.** Confirm only the governance entry appears; `filteredCount` is 1.
+
+```bash
+srs registry list --path /tmp/catalog.json --tag governance --pretty
+```
+
+4. **Combined filter (AND semantics).** Filter by `publisher com.semanticops` AND `tag risk`. Only the governance package carries both; `filteredCount` is 1.
+
+```bash
+srs registry list --path /tmp/catalog.json --publisher com.semanticops --tag risk --pretty
+```
+
+5. **Get a specific entry.** Confirm `ok: true` and the returned `entry.packageName` matches.
+
+```bash
+srs registry get --path /tmp/catalog.json --package-name com.semanticops.governance --pretty
+```
+
+6. **Negative case — package not found.** Confirm `ok: false` with diagnostic `"registry entry not found: com.missing.package"`. Exit code must be 1.
+
+```bash
+srs registry get --path /tmp/catalog.json --package-name com.missing.package --pretty
+```
+
+7. **Negative case — missing file.** Confirm `ok: false` with a "not found" diagnostic. Exit code must be 1.
+
+```bash
+srs registry list --path /tmp/nonexistent-registry.json --pretty
+```
+
+**Done when:**
+- `filteredCount` ≤ `totalCount` in all list responses
+- Optional fields (`homepage`, `tags`, `viewCount`, `protocolCount`, etc.) appear only when populated in the catalog
+- Steps 6 and 7 return `ok: false` with a descriptive diagnostic — no crash, no null entry
+- Combined filter (step 4) is strictly AND — only entries matching both criteria appear
+
+**Verified 2026-07-12 (#244):** All seven steps passed. Optional fields omitted correctly (`schemaCount`, `relationTypeCount` absent from entries that don't specify them; `homepage` present at top level but absent per-entry when not set). Not-found and missing-file negative cases both produce correct `ok: false` envelopes with exit code 1. WASM free functions (`parse_registry`, `list_registry_entries`) cover the browser-side path; CLI covers the agentic path.
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -1216,6 +1330,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `repo migrate-identity` (graduate Tier-0 identity note to purpose record, #426; bootstrap identity for pre-#424 repos with no `identityInstanceId`, #432) | S21 (Tier-0 note branch), S21b (None-branch: absent pointer); WASM binding (`migrate_identity`) verified via integration tests in `crates/srs-bindings/tests/migrate_identity.rs` (#434); `build_purpose_record` now uses `core_package::core_package()` lookups instead of hardcoded UUID constants (ADR-025, #434) |
 | `type` `validationRules` (ext:cross-field-validation — conditional-required / field-ordering / mutual-exclusion, #242); **CFR violations are now hard errors at `record create`/`record update` write time (#437)** — `repo validate` still enforces for any pre-existing records | S23 |
 | `tag` (definition) | _gap — being deprecated; see open issues_ |
+| `registry` (ext:registry — `registry list`, `registry get`) | S25; WASM free functions (`parse_registry`, `list_registry_entries`) verified via `cargo build --target wasm32-unknown-unknown -p srs-bindings` (#244) |
 | `package` | CLI: covered implicitly by field/type creation in S2; WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330) |
 
 Gaps are intentional and visible: they are the backlog of surfaces that need a meaningful scenario. Do not delete a gap row — fill it when a feature gives the surface a real workflow to demonstrate.
