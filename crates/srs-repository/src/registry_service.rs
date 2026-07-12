@@ -14,7 +14,10 @@ fn read_registry_file(path: &std::path::Path) -> Result<Registry, RepositoryErro
     let content = std::fs::read_to_string(path).map_err(|_| RepositoryError::NotFound {
         path: path.to_path_buf(),
     })?;
-    parse_registry_json(&content)
+    serde_json::from_str(&content).map_err(|source| RepositoryError::RegistryLoad {
+        path: path.to_path_buf(),
+        source,
+    })
 }
 
 /// Parse a registry JSON string into a `Registry`.
@@ -68,12 +71,7 @@ pub struct ListRegistryResult {
 /// Load a registry from a file path, apply an optional filter, and return
 /// summary metadata alongside the matching entries and counts.
 pub fn list_registry(input: ListRegistryInput) -> Result<ListRegistryResult, RepositoryError> {
-    let registry = read_registry_file(&input.path).map_err(|e| match e {
-        RepositoryError::NotFound { path } | RepositoryError::RegistryLoad { path, .. } => {
-            RepositoryError::NotFound { path }
-        }
-        other => other,
-    })?;
+    let registry = read_registry_file(&input.path)?;
     let total_count = registry.entries.len();
     let registry_id = registry.registry_id.clone();
     let registry_name = registry.registry_name.clone();
