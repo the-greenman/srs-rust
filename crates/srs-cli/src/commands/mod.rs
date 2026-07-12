@@ -11,6 +11,7 @@ pub mod package;
 pub mod protocol;
 pub mod record;
 pub mod record_type;
+pub mod registry;
 pub mod relation;
 pub mod relation_type;
 pub mod render;
@@ -312,6 +313,9 @@ pub enum Commands {
     Tree(TreeArgs),
     /// Discover instances by structured filters + content search (ext:discovery)
     Find(FindArgs),
+    /// Registry catalog commands (ext:registry)
+    #[command(subcommand)]
+    Registry(RegistryCommand),
 }
 
 #[derive(Subcommand)]
@@ -1457,6 +1461,31 @@ pub struct FindArgs {
     pub tier: Option<u8>,
 }
 
+#[derive(Subcommand)]
+pub enum RegistryCommand {
+    /// List entries from a registry catalog JSON file, with optional filtering
+    List {
+        /// Path to the registry catalog JSON file
+        #[arg(long)]
+        path: std::path::PathBuf,
+        /// Filter by publisher domain (exact match)
+        #[arg(long)]
+        publisher: Option<String>,
+        /// Filter by tag (entry must carry this tag)
+        #[arg(long)]
+        tag: Option<String>,
+    },
+    /// Get a single registry entry by package name
+    Get {
+        /// Path to the registry catalog JSON file
+        #[arg(long)]
+        path: std::path::PathBuf,
+        /// Package name to look up (e.g. com.example.governance)
+        #[arg(long = "package-name")]
+        package_name: String,
+    },
+}
+
 pub fn dispatch(cli: Cli) -> Result<String> {
     // repo create targets explicit --repo or current dir; it must not require existing .srs.
     let location = match &cli.command {
@@ -1475,6 +1504,12 @@ pub fn dispatch(cli: Cli) -> Result<String> {
                 },
             }
         }
+        // registry commands operate on standalone JSON files, not SRS repositories;
+        // a placeholder location is provided so ctx.repo is populated but never used.
+        Commands::Registry(_) => RepositoryLocation {
+            path: std::env::current_dir()?,
+            store: StoreBackend::File,
+        },
         _ => resolve_repo(cli.repo.clone(), cli.store)?,
     };
 
@@ -1511,5 +1546,6 @@ pub fn dispatch(cli: Cli) -> Result<String> {
         Commands::Term(term_cmd) => term::dispatch(ctx, term_cmd),
         Commands::Tree(args) => tree::dispatch(ctx, args),
         Commands::Find(args) => find::dispatch(ctx, args),
+        Commands::Registry(registry_cmd) => registry::dispatch(ctx, registry_cmd),
     }
 }

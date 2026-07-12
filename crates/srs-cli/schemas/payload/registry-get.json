@@ -1,0 +1,124 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RegistryGetPayload",
+  "description": "Returned by `srs registry get`; `entry` is non-optional because the service returns `RegistryEntryNotFound` (propagated as an error envelope) when absent.",
+  "type": "object",
+  "required": [
+    "entry",
+    "registryId"
+  ],
+  "properties": {
+    "entry": {
+      "$ref": "#/definitions/RegistryEntryPayload"
+    },
+    "registryId": {
+      "type": "string"
+    }
+  },
+  "definitions": {
+    "RegistryEntryPayload": {
+      "type": "object",
+      "required": [
+        "fieldCount",
+        "packageId",
+        "packageName",
+        "packageVersion",
+        "publishedAt",
+        "publisher",
+        "typeCount"
+      ],
+      "properties": {
+        "checksum": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "downloadUrl": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fieldCount": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "homepage": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "packageId": {
+          "type": "string"
+        },
+        "packageName": {
+          "type": "string"
+        },
+        "packageVersion": {
+          "type": "string"
+        },
+        "protocolCount": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "publishedAt": {
+          "type": "string"
+        },
+        "publisher": {
+          "type": "string"
+        },
+        "relationTypeCount": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "schemaCount": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "tags": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "typeCount": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "viewCount": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      }
+    }
+  }
+}
