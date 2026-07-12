@@ -14,11 +14,16 @@ use srs_repository::federation_service::{
 pub fn dispatch(ctx: CliContext, cmd: FederationCommand) -> Result<String> {
     match cmd {
         FederationCommand::Resolve { repository_id } => cmd_federation_resolve(ctx, repository_id),
-        FederationCommand::EventsList {
-            source,
-            target,
-            kind,
-        } => cmd_federation_events_list(ctx, source, target, kind),
+        FederationCommand::EventsList { source, target, kind } => {
+            let input = ListFederationEventsInput {
+                filter: ListFederationEventsFilter {
+                    source_repository_id: source,
+                    target_repository_id: target,
+                    kind,
+                },
+            };
+            cmd_federation_events_list(ctx, input)
+        }
         FederationCommand::EventsAppend => cmd_federation_events_append(ctx),
     }
 }
@@ -37,24 +42,8 @@ fn cmd_federation_resolve(ctx: CliContext, repository_id: String) -> Result<Stri
     )
 }
 
-fn cmd_federation_events_list(
-    ctx: CliContext,
-    source: Option<String>,
-    target: Option<String>,
-    kind: Option<String>,
-) -> Result<String> {
-    let result = with_store(&ctx, |store| {
-        Ok(list_federation_events(
-            store,
-            ListFederationEventsInput {
-                filter: ListFederationEventsFilter {
-                    source_repository_id: source,
-                    target_repository_id: target,
-                    kind,
-                },
-            },
-        )?)
-    })?;
+fn cmd_federation_events_list(ctx: CliContext, input: ListFederationEventsInput) -> Result<String> {
+    let result = with_store(&ctx, |store| Ok(list_federation_events(store, input)?))?;
     output::serialize(
         "federation events list",
         FederationEventsListPayload {

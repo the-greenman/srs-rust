@@ -17,9 +17,7 @@ use srs_repository::record_store::{
     self, CreateRecordInput, RecordListFilter, TransitionLifecycleInput,
 };
 use srs_repository::federation_service::{
-    filter_federation_events, list_federation_events,
-    ListFederationEventsFilter, ListFederationEventsInput,
-    parse_federation_registry_json,
+    filter_federation_events, ListFederationEventsFilter, parse_federation_registry_json,
 };
 use srs_repository::registry_service::{
     filter_registry_entries, parse_registry_json, RegistryListFilter,
@@ -755,23 +753,6 @@ impl SrsRepository {
         }
     }
 
-    /// List federation events for this repository, with optional filtering.
-    ///
-    /// `filter_json` is a JSON object with optional `sourceRepositoryId`, `targetRepositoryId`,
-    /// and `kind` ("merge"|"split"|"import") fields; pass `"{}"` for all events.
-    ///
-    /// Returns a `ListFederationEventsResult` as a JS value, or an empty result when no
-    /// events file is present (graceful degradation — not an error).
-    pub fn list_federation_events(&self, filter_json: &str) -> Result<JsValue, JsValue> {
-        let filter: ListFederationEventsFilter = serde_json::from_str(filter_json)
-            .map_err(|e| js_err(format!("invalid filter: {e}")))?;
-        let result = list_federation_events(
-            &self.store,
-            ListFederationEventsInput { filter },
-        )
-        .map_err(js_err)?;
-        to_js(&result)
-    }
 }
 
 // ── Repo-independent free functions (ADR-013 addendum) ───────────────────────

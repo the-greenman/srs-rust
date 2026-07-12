@@ -576,3 +576,32 @@ fn tree() {
 fn find() {
     check::<FindPayload>("find");
 }
+
+// ── Registry (ext:registry) ──────────────────────────────────────────────────
+
+#[test]
+fn registry_list() {
+    check::<RegistryListPayload>("registry-list");
+}
+
+#[test]
+fn registry_get() {
+    check::<RegistryGetPayload>("registry-get");
+}
+
+// ── Federation (ext:federation) ──────────────────────────────────────────────
+
+#[test]
+fn federation_resolve() {
+    check::<FederationResolvePayload>("federation-resolve");
+}
+
+#[test]
+fn federation_events_list() {
+    check::<FederationEventsListPayload>("federation-events-list");
+}
+
+#[test]
+fn federation_events_append() {
+    check::<FederationAppendEventPayload>("federation-events-append");
+}

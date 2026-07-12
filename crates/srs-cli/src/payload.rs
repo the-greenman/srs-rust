@@ -1731,14 +1731,11 @@ pub struct FederationEventPayload {
 
 impl From<srs_core::extensions::federation::FederationEvent> for FederationEventPayload {
     fn from(e: srs_core::extensions::federation::FederationEvent) -> Self {
-        use srs_core::extensions::federation::{FederationEventKind, FederationStrategy};
+        use srs_core::extensions::federation::FederationStrategy;
+        use srs_repository::federation_service::federation_event_kind_str;
         Self {
             event_id: e.event_id,
-            event: match e.event {
-                FederationEventKind::Merge => "merge".to_string(),
-                FederationEventKind::Split => "split".to_string(),
-                FederationEventKind::Import => "import".to_string(),
-            },
+            event: federation_event_kind_str(&e.event).to_string(),
             at: e.at,
             performed_by: e.performed_by,
             source_repository_id: e.source_repository_id,
