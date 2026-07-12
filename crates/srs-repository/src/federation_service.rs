@@ -49,7 +49,8 @@ pub struct ListFederationEventsResult {
     pub filtered_count: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppendFederationEventInput {
     pub repository_id: String,
     pub event: FederationEvent,

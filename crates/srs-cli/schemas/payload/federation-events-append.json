@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FederationAppendEventPayload",
+  "type": "object",
+  "required": [
+    "eventId",
+    "totalEvents"
+  ],
+  "properties": {
+    "eventId": {
+      "type": "string"
+    },
+    "totalEvents": {
+      "type": "integer",
+      "format": "uint",
+      "minimum": 0.0
+    }
+  }
+}
