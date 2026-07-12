@@ -16,6 +16,11 @@ use srs_repository::protocol_service::{self, GetProtocolResult};
 use srs_repository::record_store::{
     self, CreateRecordInput, RecordListFilter, TransitionLifecycleInput,
 };
+use srs_repository::federation_service::{
+    filter_federation_events, list_federation_events,
+    ListFederationEventsFilter, ListFederationEventsInput,
+    parse_federation_registry_json,
+};
 use srs_repository::registry_service::{
     filter_registry_entries, parse_registry_json, RegistryListFilter,
 };
@@ -749,6 +754,24 @@ impl SrsRepository {
             None => Ok(JsValue::NULL),
         }
     }
+
+    /// List federation events for this repository, with optional filtering.
+    ///
+    /// `filter_json` is a JSON object with optional `sourceRepositoryId`, `targetRepositoryId`,
+    /// and `kind` ("merge"|"split"|"import") fields; pass `"{}"` for all events.
+    ///
+    /// Returns a `ListFederationEventsResult` as a JS value, or an empty result when no
+    /// events file is present (graceful degradation — not an error).
+    pub fn list_federation_events(&self, filter_json: &str) -> Result<JsValue, JsValue> {
+        let filter: ListFederationEventsFilter = serde_json::from_str(filter_json)
+            .map_err(|e| js_err(format!("invalid filter: {e}")))?;
+        let result = list_federation_events(
+            &self.store,
+            ListFederationEventsInput { filter },
+        )
+        .map_err(js_err)?;
+        to_js(&result)
+    }
 }
 
 // ── Repo-independent free functions (ADR-013 addendum) ───────────────────────
@@ -783,6 +806,42 @@ pub fn list_registry_entries(catalog_json: &str, filter_json: &str) -> Result<Js
     let filter: RegistryListFilter =
         serde_json::from_str(filter_json).map_err(|e| js_err(format!("invalid filter: {e}")))?;
     let filtered = filter_registry_entries(registry, &filter);
+    to_js(&filtered)
+}
+
+/// Parse a federation registry JSON string into a `RepositoryRegistry` object.
+///
+/// `registry_json` is the raw text of a `federation/registry.json` file.
+/// Returns the parsed `RepositoryRegistry` as a JS value, or a JS error on parse failure.
+///
+/// This is a repo-independent free function (ADR-013 addendum).
+#[wasm_bindgen]
+pub fn parse_federation_registry(registry_json: &str) -> Result<JsValue, JsValue> {
+    let registry = parse_federation_registry_json(registry_json).map_err(js_err)?;
+    to_js(&registry)
+}
+
+/// Parse a federation registry JSON string and apply an optional filter.
+///
+/// `registry_json` is the raw `federation/registry.json` text. `filter_json` is a JSON
+/// object with optional `sourceRepositoryId`, `targetRepositoryId`, and `kind` keys;
+/// pass `"{}"` to return all events.
+///
+/// Returns a `FederationEventsFile` JS value whose `events` array contains only the
+/// matching events (all events if no filter criteria are set).
+///
+/// This is a repo-independent free function (ADR-013 addendum).
+#[wasm_bindgen]
+pub fn filter_federation_events_json(
+    events_file_json: &str,
+    filter_json: &str,
+) -> Result<JsValue, JsValue> {
+    use srs_core::extensions::federation::FederationEventsFile;
+    let events_file: FederationEventsFile = serde_json::from_str(events_file_json)
+        .map_err(|e| js_err(format!("invalid events file: {e}")))?;
+    let filter: ListFederationEventsFilter = serde_json::from_str(filter_json)
+        .map_err(|e| js_err(format!("invalid filter: {e}")))?;
+    let filtered = filter_federation_events(events_file, &filter);
     to_js(&filtered)
 }
 

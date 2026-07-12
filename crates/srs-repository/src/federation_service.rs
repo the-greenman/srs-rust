@@ -1,6 +1,6 @@
 use crate::error::RepositoryError;
 use crate::store::RepositoryStore;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use srs_core::extensions::federation::{
     FederationEvent, FederationEventKind, FederationEventsFile, RepositoryRegistry,
     RepositoryRegistryEntry,
@@ -41,7 +41,8 @@ pub struct ListFederationEventsInput {
     pub filter: ListFederationEventsFilter,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ListFederationEventsResult {
     pub repository_id: String,
     pub events: Vec<FederationEvent>,
