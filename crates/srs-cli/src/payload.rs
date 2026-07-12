@@ -1592,6 +1592,84 @@ impl From<srs_repository::migrate_identity_service::MigrateIdentityResult>
     }
 }
 
+// ── ext:registry payloads ─────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RegistryEntryPayload {
+    pub package_id: String,
+    pub package_name: String,
+    pub package_version: String,
+    pub publisher: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub published_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub homepage: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
+    pub field_count: u32,
+    pub type_count: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub view_count: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schema_count: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub protocol_count: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relation_type_count: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub download_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checksum: Option<String>,
+}
+
+impl From<srs_core::extensions::registry::RegistryEntry> for RegistryEntryPayload {
+    fn from(e: srs_core::extensions::registry::RegistryEntry) -> Self {
+        Self {
+            package_id: e.package_id,
+            package_name: e.package_name,
+            package_version: e.package_version,
+            publisher: e.publisher,
+            description: e.description,
+            published_at: e.published_at,
+            homepage: e.homepage,
+            tags: e.tags,
+            field_count: e.field_count,
+            type_count: e.type_count,
+            view_count: e.view_count,
+            schema_count: e.schema_count,
+            protocol_count: e.protocol_count,
+            relation_type_count: e.relation_type_count,
+            download_url: e.download_url,
+            checksum: e.checksum,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RegistryListPayload {
+    pub registry_id: String,
+    pub registry_name: String,
+    pub catalog_version: String,
+    pub updated_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub homepage: Option<String>,
+    pub entries: Vec<RegistryEntryPayload>,
+    pub total_count: usize,
+    pub filtered_count: usize,
+}
+
+/// Returned by `srs registry get`; `entry` is non-optional because the service
+/// returns `RegistryEntryNotFound` (propagated as an error envelope) when absent.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RegistryGetPayload {
+    pub registry_id: String,
+    pub entry: RegistryEntryPayload,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

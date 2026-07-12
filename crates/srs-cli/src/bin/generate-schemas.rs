@@ -222,5 +222,9 @@ fn main() {
     // Discovery payloads (ext:discovery)
     write_schema!("find", FindPayload);
 
+    // Registry payloads (ext:registry)
+    write_schema!("registry-list", RegistryListPayload);
+    write_schema!("registry-get", RegistryGetPayload);
+
     println!("done.");
 }
