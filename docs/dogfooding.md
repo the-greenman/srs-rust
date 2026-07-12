@@ -1211,6 +1211,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `protocol` (create/list/get/stages/find-by-target-type) | S13 |
 | `theme` | S8 |
 | `extension` | _gap — no scenario yet_ |
+| `ext:import-tracking` (`ImportRecord`, `ImportSummary`, `UpstreamPackage`) | CLI: _gap — no CLI commands yet (service layer deferred to #246)_; core types (`ImportMode`, `DefinitionType`, `ConflictState`, `ImportRecord`, `ImportSummary`, `UpstreamPackage`) verified via 10 unit tests in `crates/srs-core/src/extensions/import_tracking.rs` (#245) |
 | `repo extensions` (list/enable/disable/conformance) | S22; WASM read binding (`declared_extensions_conformance`) verified via smoke test `declared_extensions_conformance_report_serialises` in `crates/srs-bindings/src/lib.rs` (#442) |
 | `repo migrate-identity` (graduate Tier-0 identity note to purpose record, #426; bootstrap identity for pre-#424 repos with no `identityInstanceId`, #432) | S21 (Tier-0 note branch), S21b (None-branch: absent pointer); WASM binding (`migrate_identity`) verified via integration tests in `crates/srs-bindings/tests/migrate_identity.rs` (#434); `build_purpose_record` now uses `core_package::core_package()` lookups instead of hardcoded UUID constants (ADR-025, #434) |
 | `type` `validationRules` (ext:cross-field-validation — conditional-required / field-ordering / mutual-exclusion, #242); **CFR violations are now hard errors at `record create`/`record update` write time (#437)** — `repo validate` still enforces for any pre-existing records | S23 |
