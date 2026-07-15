@@ -51,6 +51,22 @@ srs-cli         srs-bindings        ← two thin adapters over the SAME service
 If two clients could ever disagree about the answer, the logic is in the wrong place:
 move it down into the `srs-repository` service so there is one answer for everyone.
 
+### Corollary — semantic markers are structural, not nominal
+
+A capability must never key behaviour off a **name** — a relation-type string, a
+lifecycle-state key, a namespace literal. Meaning comes from *structure*: a definition
+property (`RelationTypeDefinition.category`, `canonicalDirection`, constraint fields), a
+schema marker (`requiresRelation`, `spawnsSuccessor`), or an explicit typed field.
+String-matching a name is the same mistake as putting semantics in a leaf client — it
+scatters an implicit contract that drifts the moment the vocabulary grows. Presentation
+may *render* a name; nothing may *branch* on one.
+
+This is principle **R5** of the ratified relation design principles
+([the-greenman/srs#171](https://github.com/the-greenman/srs/issues/171)); the recurring
+offenders it exists to catch are ordering keyed off the `"precedes"` literal and
+lifecycle routed off `to === "superseded"`. Every canonical relation-type string that
+still appears as a behavioural literal in this codebase is tracked debt, not licence.
+
 ## The three-layer model (generalised from #212)
 
 The same capability can exist at three layers. Higher layers may accelerate lower
@@ -171,7 +187,7 @@ for the complete residuals list including approved interim exceptions.
 | Symbol(s) | File | Violation | Correct layer | Tracking |
 |---|---|---|---|---|
 | `orderByPrecedes`, `rebuildPrecedesChain` | `src/lib/guides/GuidesShell.svelte` | Relation-chain graph traversal and chain rebuild in TypeScript | `srs-repository` service + `srs-bindings` ordered-relations binding | [srs-web#178](https://github.com/the-greenman/srs-web/issues/178) |
-| `findFieldId`, `getFieldValue`, `getStringField` | `src/lib/governance/field-utils.ts` | TS-side linear name-scan over WASM-derived `fieldMeta`; binding should return fields addressable by name | `SrsRepository.get_field_value_by_name` (shipped in srs-rust#536) | [srs-web#179](https://github.com/the-greenman/srs-web/issues/179) — migration pending |
+| `findFieldId`, `getFieldValue`, `getStringField` | `src/lib/governance/field-utils.ts` | TS-side linear name-scan over WASM-derived `fieldMeta`; binding should return fields addressable by name | `srs-bindings` named-field query | [srs-web#179](https://github.com/the-greenman/srs-web/issues/179) |
 | `LIFECYCLE_TRANSITIONS`, `IMMUTABLE_STATES` | `src/lib/governance/lifecycle.ts` | Hardcoded lifecycle vocabulary in TypeScript | `get_allowed_lifecycle_transitions` + `set_lifecycle_state` via `srs-bindings` (srs-rust plan #375, [ADR-022](../adr/022-governance-status-is-lifecycle-state.md)) | [srs-web#135](https://github.com/the-greenman/srs-web/issues/135) |
 
 **Approved interim exception (not a migration target):** `loadInstalledRelationTypes()`
