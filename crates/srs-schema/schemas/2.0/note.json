@@ -68,6 +68,7 @@
       "type": "object",
       "required": ["sourceType", "sourceId"],
       "additionalProperties": false,
+      "not": { "required": ["sourceRole", "relationType"] },
       "properties": {
         "sourceType": {
           "type": "string",
@@ -77,9 +78,15 @@
         "sourceId": { "type": "string" },
         "sourceStandard": { "type": "string" },
         "streamId": { "type": "string", "format": "uuid" },
+        "sourceRole": {
+          "type": "string",
+          "enum": ["evidence", "extracted-from", "quoted-from", "inspired-by"],
+          "description": "The role the source material plays for this instance (RFC-023). Replaces relationType."
+        },
         "relationType": {
           "type": "string",
-          "enum": ["evidence", "derived-from", "quoted-from", "inspired-by", "supersedes-context"]
+          "enum": ["evidence", "derived-from", "quoted-from", "inspired-by", "supersedes-context"],
+          "description": "DEPRECATED (RFC-023): legacy name for sourceRole. Readers accept it during the migration window (SOURCEREF_LEGACY_RELATIONTYPE warning) using the RFC-023 Change B value mapping; writers must not emit it. Removed by a scheduled follow-up schema revision."
         },
         "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
         "note": { "type": "string" }
