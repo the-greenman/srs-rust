@@ -680,14 +680,19 @@ pub fn validate_repository(
         }
     }
 
-    // --- Validate relations/relations.json against E1-E4 ---
-    // relations.json is infrastructure, not an instance — not counted in `checked`.
-    if let Ok(relations_raw) = store.load_text_file("relations/relations.json") {
+    // --- Validate the authoritative relations file against E1-E4 ---
+    // The relations file is infrastructure, not an instance — not counted in `checked`.
+    // Resolve it through the same candidate order the relation service writes through
+    // (manifest relationsPath → relations-collection.json → relations.json) so at-rest
+    // validation covers whichever file is authoritative for this repo (#548).
+    if let Some((relations_path, relations_raw)) =
+        crate::relation_service::resolve_relations_source(store)?
+    {
         // Schema-validate the file first
         if let Ok(relations_value) = serde_json::from_str::<Value>(&relations_raw) {
             if let Some(schema_diags) = validate_value_against_schema(
                 &relations_value,
-                "relations/relations.json",
+                &relations_path,
                 srs_schema::RELATIONS_COLLECTION_SCHEMA_ID,
                 reg,
             ) {
@@ -739,7 +744,7 @@ pub fn validate_repository(
             Err(e) => {
                 diagnostics.push(ValidationDiagnostic {
                     severity: DiagnosticSeverity::Error,
-                    relative_path: "relations/relations.json".to_string(),
+                    relative_path: relations_path.clone(),
                     schema_id: None,
                     message: format!("JSON parse error: {e}"),
                 });
@@ -772,7 +777,7 @@ pub fn validate_repository(
                 for e in errs {
                     diagnostics.push(ValidationDiagnostic {
                         severity: DiagnosticSeverity::Error,
-                        relative_path: "relations/relations.json".to_string(),
+                        relative_path: relations_path.clone(),
                         schema_id: None,
                         message: e.message,
                     });
@@ -5378,5 +5383,182 @@ mod tests {
             "expected mutual-exclusion CFR error via MemoryStore, got: {:?}",
             report.diagnostics
         );
+    }
+
+    // --- #548: validate reads the authoritative relations file (not just relations.json) ---
+
+    /// Minimal repo with two indexed notes and a loadable package. Each test writes the
+    /// relations file at whichever path it is exercising. Returns the two note UUIDs.
+    fn setup_repo_for_relation_validation(temp: &TempDir) -> (String, String) {
+        let a = "00000000-0000-4000-8000-00000000000a".to_string();
+        let b = "00000000-0000-4000-8000-00000000000b".to_string();
+        write_json(
+            temp.path(),
+            "manifest.json",
+            &minimal_manifest(json!([
+                {"instanceId": a, "tier": 0, "path": "records/notes/a.json"},
+                {"instanceId": b, "tier": 0, "path": "records/notes/b.json"},
+            ])),
+        );
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &minimal_package_json(None, None),
+        );
+        write_json(temp.path(), "records/notes/a.json", &valid_note(&a));
+        write_json(temp.path(), "records/notes/b.json", &valid_note(&b));
+        (a, b)
+    }
+
+    fn bad_type_relation(rel_id: &str, src: &str, tgt: &str) -> Value {
+        json!({
+            "relationId": rel_id,
+            "relationType": "totally-bogus-type",
+            "sourceInstanceId": src,
+            "targetInstanceId": tgt,
+            "createdAt": "2026-01-01T00:00:00Z"
+        })
+    }
+
+    fn relations_collection(relations: Vec<Value>) -> Value {
+        json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
+            "relations": relations
+        })
+    }
+
+    #[test]
+    fn validate_reads_relations_collection_json_for_e1() {
+        // #548: relations live at relations-collection.json (the default write path), not
+        // relations.json. Before the fix, validate read only relations.json and reported
+        // zero relation diagnostics — a bogus relation type slipped through at rest.
+        let temp = TempDir::new().unwrap();
+        let (a, b) = setup_repo_for_relation_validation(&temp);
+        write_json(
+            temp.path(),
+            "relations/relations-collection.json",
+            &relations_collection(vec![bad_type_relation(
+                "00000000-0000-4000-8000-000000000101",
+                &a,
+                &b,
+            )]),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let e1 = report
+            .diagnostics
+            .iter()
+            .find(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("E1"));
+        assert!(
+            e1.is_some(),
+            "expected an E1 diagnostic for a bogus relation type in relations-collection.json, got: {:?}",
+            report.diagnostics
+        );
+        assert_eq!(
+            e1.unwrap().relative_path,
+            "relations/relations-collection.json",
+            "diagnostic should point at the authoritative relations file"
+        );
+    }
+
+    #[test]
+    fn validate_reads_relations_collection_json_for_e2() {
+        // #548: a dangling endpoint in relations-collection.json must be caught (E2).
+        let temp = TempDir::new().unwrap();
+        let (a, _b) = setup_repo_for_relation_validation(&temp);
+        let ghost = "00000000-0000-4000-8000-0000000000ff";
+        write_json(
+            temp.path(),
+            "relations/relations-collection.json",
+            &relations_collection(vec![bad_type_relation(
+                "00000000-0000-4000-8000-000000000102",
+                &a,
+                ghost,
+            )]),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        assert!(
+            report.diagnostics.iter().any(|d| d.message.contains("E2")),
+            "expected an E2 dangling-endpoint diagnostic, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn validate_honours_manifest_relations_path() {
+        // #548: a custom manifest relationsPath must be the file validate reads, and the
+        // diagnostic must be attributed to it.
+        let temp = TempDir::new().unwrap();
+        let a = "00000000-0000-4000-8000-00000000000a";
+        let b = "00000000-0000-4000-8000-00000000000b";
+        let mut manifest = minimal_manifest(json!([
+            {"instanceId": a, "tier": 0, "path": "records/notes/a.json"},
+            {"instanceId": b, "tier": 0, "path": "records/notes/b.json"},
+        ]));
+        manifest
+            .as_object_mut()
+            .unwrap()
+            .insert("relationsPath".to_string(), json!("relations/custom.json"));
+        write_json(temp.path(), "manifest.json", &manifest);
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &minimal_package_json(None, None),
+        );
+        write_json(temp.path(), "records/notes/a.json", &valid_note(a));
+        write_json(temp.path(), "records/notes/b.json", &valid_note(b));
+        write_json(
+            temp.path(),
+            "relations/custom.json",
+            &relations_collection(vec![bad_type_relation(
+                "00000000-0000-4000-8000-000000000103",
+                a,
+                b,
+            )]),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let diag = report
+            .diagnostics
+            .iter()
+            .find(|d| d.message.contains("E1") && d.relative_path == "relations/custom.json");
+        assert!(
+            diag.is_some(),
+            "expected an E1 diagnostic attributed to relations/custom.json, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn validate_still_reads_legacy_relations_json() {
+        // Back-compat: repos whose relations live only at the legacy relations/relations.json
+        // path are still validated exactly as before.
+        let temp = TempDir::new().unwrap();
+        let (a, b) = setup_repo_for_relation_validation(&temp);
+        write_json(
+            temp.path(),
+            "relations/relations.json",
+            &relations_collection(vec![bad_type_relation(
+                "00000000-0000-4000-8000-000000000104",
+                &a,
+                &b,
+            )]),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let e1 = report.diagnostics.iter().find(|d| d.message.contains("E1"));
+        assert!(
+            e1.is_some(),
+            "expected E1 from legacy relations/relations.json, got: {:?}",
+            report.diagnostics
+        );
+        assert_eq!(e1.unwrap().relative_path, "relations/relations.json");
     }
 }

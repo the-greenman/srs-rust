@@ -256,27 +256,22 @@ pub(crate) fn load_relations(
     Ok(collection.relations)
 }
 
-/// Load the relations collection, returning (relative_path, collection).
-///
-/// Path resolution order:
+/// Ordered, de-duplicated list of relative paths to try when locating the
+/// repository's relations file:
 /// 1. `relationsPath` declared in `manifest.json`
-/// 2. `relations/relations-collection.json` (legacy default)
+/// 2. `relations/relations-collection.json` (default write path)
 /// 3. `relations/relations.json` (alternate convention)
 ///
-/// Returns an empty collection (at the default write path) if no file is found.
-fn load_relations_collection(
+/// This is the single source of truth for the relations-file resolution order.
+/// `load_relations_collection`, `resolve_relations_source`, and
+/// `analysis::summarize_relations` all consume it, so the write path and every
+/// read path (including `repo validate`) agree on which file is authoritative (#548).
+///
+/// A missing/unreadable manifest yields no `relationsPath` (the two defaults are
+/// still returned); any other manifest error propagates.
+pub(crate) fn relations_candidate_paths(
     store: &dyn RepositoryStore,
-) -> Result<(String, RelationsCollection), RepositoryError> {
-    let default_write_path = "relations/relations-collection.json".to_string();
-    let empty = || RelationsCollection {
-        schema: Some(
-            "https://srs.semanticops.com/schema/2.0/relations-collection.json".to_string(),
-        ),
-        relations: Vec::new(),
-    };
-
-    // Determine the path to try first from the manifest's relationsPath field.
-    // Only suppress NotFound/Io errors (no manifest yet); propagate all other errors.
+) -> Result<Vec<String>, RepositoryError> {
     let manifest_path = match store.load_manifest() {
         Ok(m) => m
             .extra
@@ -290,7 +285,7 @@ fn load_relations_collection(
         Err(e) => return Err(e),
     };
 
-    // Build candidate list: manifest path first, then the two defaults.
+    let mut seen = HashSet::new();
     let candidates: Vec<String> = [
         manifest_path,
         Some("relations/relations-collection.json".to_string()),
@@ -298,17 +293,54 @@ fn load_relations_collection(
     ]
     .into_iter()
     .flatten()
+    .filter(|p| seen.insert(p.clone()))
     .collect();
+    Ok(candidates)
+}
 
-    for relative_path in &candidates {
-        match store.load_relations_json(relative_path) {
+/// Resolve the authoritative relations file and return `(relative_path, raw_text)`,
+/// or `None` when no relations file exists.
+///
+/// Uses the same candidate order as [`load_relations_collection`] but returns the
+/// raw, unparsed file text so callers such as `repo validate` can emit a JSON-parse
+/// diagnostic on a malformed file instead of hard-erroring (#548).
+pub(crate) fn resolve_relations_source(
+    store: &dyn RepositoryStore,
+) -> Result<Option<(String, String)>, RepositoryError> {
+    for relative_path in relations_candidate_paths(store)? {
+        match store.load_text_file(&relative_path) {
+            Ok(raw) => return Ok(Some((relative_path, raw))),
+            Err(RepositoryError::Io { .. } | RepositoryError::NotFound { .. }) => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(None)
+}
+
+/// Load the relations collection, returning (relative_path, collection).
+///
+/// Resolution order per [`relations_candidate_paths`]. Returns an empty collection
+/// (at the default write path) if no file is found.
+fn load_relations_collection(
+    store: &dyn RepositoryStore,
+) -> Result<(String, RelationsCollection), RepositoryError> {
+    let default_write_path = "relations/relations-collection.json".to_string();
+    let empty = || RelationsCollection {
+        schema: Some(
+            "https://srs.semanticops.com/schema/2.0/relations-collection.json".to_string(),
+        ),
+        relations: Vec::new(),
+    };
+
+    for relative_path in relations_candidate_paths(store)? {
+        match store.load_relations_json(&relative_path) {
             Ok(value) => {
                 let collection: RelationsCollection =
                     serde_json::from_value(value).map_err(|e| RepositoryError::RecordLoad {
-                        path: std::path::PathBuf::from(relative_path),
+                        path: std::path::PathBuf::from(&relative_path),
                         source: e,
                     })?;
-                return Ok((relative_path.clone(), collection));
+                return Ok((relative_path, collection));
             }
             Err(RepositoryError::Io { .. } | RepositoryError::NotFound { .. }) => continue,
             Err(e) => return Err(e),

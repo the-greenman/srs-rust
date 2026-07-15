@@ -112,19 +112,19 @@ Specific tests to write (in `relation_service.rs` `#[cfg(test)]`, MemoryStore):
 
 #### Tasks
 
-- [ ] In `relation_service.rs`, extract the candidate-path list into `pub(crate) fn relations_candidate_paths(store: &dyn RepositoryStore) -> Result<Vec<String>, RepositoryError>` (manifest `relationsPath` first, then `relations/relations-collection.json`, then `relations/relations.json`; NotFound/Io while reading the manifest → treat as no `relationsPath`, matching the current logic). Refactor `load_relations_collection` to consume it.
-- [ ] Add `pub(crate) fn resolve_relations_source(store: &dyn RepositoryStore) -> Result<Option<(String, String)>, RepositoryError>` (document the tuple as `(relative_path, raw_text)`): iterate `relations_candidate_paths`; for each, `store.load_text_file(path)` — first `Ok(raw)` returns `Some((path, raw))`; `Err(NotFound|Io)` continues; any other error propagates; exhausted → `Ok(None)`. (Raw text, not parsed, so validate can still report a JSON-parse diagnostic on a malformed file — matching current behaviour.)
-- [ ] In `crates/srs-repository/src/analysis.rs` (`summarize_relations`, ~L556–581), replace its inline relations-candidate-path array with a call to `relation_service::relations_candidate_paths(store)?`, keeping its own `try_load_relations_json` error-swallowing wrapper and local dedup. This removes the **third** copy of the resolution order so the Final-Acceptance "exactly one candidate-path list" holds honestly (arch-review finding #1).
-- [ ] In `validation.rs`, replace `if let Ok(relations_raw) = store.load_text_file("relations/relations.json")` with `if let Some((relations_path, relations_raw)) = crate::relation_service::resolve_relations_source(store)?`. Use `relations_path` (a binding) in place of every hardcoded `"relations/relations.json"` in that block: the schema-validate `relative_path` arg (~L635), the JSON-parse-error diagnostic (~L694), and the per-relation diagnostic (~L727).
-- [ ] Confirm the outer `validate_repository` signature already returns `Result<_, RepositoryError>` so the `?` on `resolve_relations_source` compiles (it does — see the early `return Ok(...)` blocks); the previous swallow-on-error behaviour is preserved because the resolver maps NotFound/Io → `None`.
+- [x] In `relation_service.rs`, extract the candidate-path list into `pub(crate) fn relations_candidate_paths(store: &dyn RepositoryStore) -> Result<Vec<String>, RepositoryError>` (manifest `relationsPath` first, then `relations/relations-collection.json`, then `relations/relations.json`; NotFound/Io while reading the manifest → treat as no `relationsPath`, matching the current logic). Refactor `load_relations_collection` to consume it.
+- [x] Add `pub(crate) fn resolve_relations_source(store: &dyn RepositoryStore) -> Result<Option<(String, String)>, RepositoryError>` (document the tuple as `(relative_path, raw_text)`): iterate `relations_candidate_paths`; for each, `store.load_text_file(path)` — first `Ok(raw)` returns `Some((path, raw))`; `Err(NotFound|Io)` continues; any other error propagates; exhausted → `Ok(None)`. (Raw text, not parsed, so validate can still report a JSON-parse diagnostic on a malformed file — matching current behaviour.)
+- [x] In `crates/srs-repository/src/analysis.rs` (`summarize_relations`, ~L556–581), replace its inline relations-candidate-path array with a call to `relation_service::relations_candidate_paths(store)?`, keeping its own `try_load_relations_json` error-swallowing wrapper and local dedup. This removes the **third** copy of the resolution order so the Final-Acceptance "exactly one candidate-path list" holds honestly (arch-review finding #1).
+- [x] In `validation.rs`, replace `if let Ok(relations_raw) = store.load_text_file("relations/relations.json")` with `if let Some((relations_path, relations_raw)) = crate::relation_service::resolve_relations_source(store)?`. Use `relations_path` (a binding) in place of every hardcoded `"relations/relations.json"` in that block: the schema-validate `relative_path` arg (~L635), the JSON-parse-error diagnostic (~L694), and the per-relation diagnostic (~L727).
+- [x] Confirm the outer `validate_repository` signature already returns `Result<_, RepositoryError>` so the `?` on `resolve_relations_source` compiles (it does — see the early `return Ok(...)` blocks); the previous swallow-on-error behaviour is preserved because the resolver maps NotFound/Io → `None`.
 
 #### Acceptance Criteria
 
-- [ ] With relations stored at `relations/relations-collection.json` (no `relations.json`), `repo validate` surfaces an E1 (unresolvable type) and an E2 (dangling endpoint) diagnostic that it previously missed.
-- [ ] With a manifest `relationsPath` pointing at a custom file, `repo validate` reads that file.
-- [ ] Relation diagnostics carry `relative_path` equal to the resolved file, not the hardcoded default.
-- [ ] A repo with relations only at the legacy `relations/relations.json` still validates exactly as before (back-compat).
-- [ ] A repo with no relations file at all still skips the relations block cleanly (no new error).
+- [x] With relations stored at `relations/relations-collection.json` (no `relations.json`), `repo validate` surfaces an E1 (unresolvable type) and an E2 (dangling endpoint) diagnostic that it previously missed.
+- [x] With a manifest `relationsPath` pointing at a custom file, `repo validate` reads that file.
+- [x] Relation diagnostics carry `relative_path` equal to the resolved file, not the hardcoded default.
+- [x] A repo with relations only at the legacy `relations/relations.json` still validates exactly as before (back-compat).
+- [x] A repo with no relations file at all still skips the relations block cleanly (no new error).
 
 #### Testing
 
