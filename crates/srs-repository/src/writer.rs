@@ -3,50 +3,29 @@ use crate::index::InstanceIndexEntry;
 use crate::manifest::Manifest;
 use crate::store::RepositoryStore;
 use srs_core::types::note::Note;
-use srs_core::types::relation::Relation;
-use srs_core::validation::relation::{validate_relation, RelationValidationContext};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
-/// Validates a relation against the installed package definitions before writing.
-pub fn validate_relation_before_write(
-    relation: &Relation,
+/// Build the `instanceId → semanticObjectType` map used by E4 relation validation.
+///
+/// Reads each instance file listed in the manifest index and records its
+/// top-level `semanticObjectType` when present (instances without the field are
+/// simply absent from the map, so E4 is a no-op for them). This is the single
+/// source of truth for the map: `relation_service::create_relation` and
+/// `repo validate` both consume it, so the write path and the at-rest path
+/// enforce E4 over identical inputs (#556).
+pub(crate) fn build_instance_semantic_types(
     store: &dyn RepositoryStore,
-) -> Result<(), RepositoryError> {
-    let pkg = store.load_package()?;
-    let manifest = store.load_manifest()?;
-
-    let known_instance_ids: HashSet<String> = manifest
-        .instance_index
-        .iter()
-        .map(|e| e.instance_id().to_string())
-        .collect();
-
-    let mut instance_semantic_types: HashMap<String, String> = HashMap::new();
+    manifest: &Manifest,
+) -> HashMap<String, String> {
+    let mut map: HashMap<String, String> = HashMap::new();
     for entry in &manifest.instance_index {
         if let Ok(val) = store.load_instance_json(entry.path()) {
             if let Some(sot) = val.get("semanticObjectType").and_then(|v| v.as_str()) {
-                instance_semantic_types.insert(entry.instance_id().to_string(), sot.to_string());
+                map.insert(entry.instance_id().to_string(), sot.to_string());
             }
         }
     }
-
-    let ctx = RelationValidationContext {
-        definitions: &pkg.relation_type_definitions,
-        known_instance_ids: &known_instance_ids,
-        instance_semantic_types: &instance_semantic_types,
-    };
-
-    validate_relation(relation, &ctx, true).map_err(|errs| {
-        let msg = errs
-            .into_iter()
-            .map(|e| e.message)
-            .collect::<Vec<_>>()
-            .join("; ");
-        RepositoryError::RelationValidation {
-            relation_id: relation.relation_id.clone(),
-            message: msg,
-        }
-    })
+    map
 }
 
 /// Generate a new UUID v4 as a string. Only this function generates UUIDs.

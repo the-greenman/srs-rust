@@ -730,16 +730,9 @@ pub fn validate_repository(
             .map(|e| e.instance_id().to_string())
             .collect();
 
-        // Build semanticObjectType map: parse each indexed instance file for the field
-        let mut instance_semantic_types: HashMap<String, String> = HashMap::new();
-        for entry in &manifest.instance_index {
-            if let Ok(val) = store.load_instance_json(entry.path()) {
-                if let Some(sot) = val.get("semanticObjectType").and_then(|v| v.as_str()) {
-                    instance_semantic_types
-                        .insert(entry.instance_id().to_string(), sot.to_string());
-                }
-            }
-        }
+        // Build the semanticObjectType map via the shared helper so `repo validate`
+        // and `create_relation` enforce E4 over identical inputs (#556).
+        let instance_semantic_types = crate::writer::build_instance_semantic_types(store, &manifest);
 
         let coll: RelationsCollection = match serde_json::from_str(&relations_raw) {
             Ok(c) => c,

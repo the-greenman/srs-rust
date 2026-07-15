@@ -73,17 +73,17 @@ Verification: `cargo test --test payload_contracts` must still pass (expected: u
 
 #### Tasks
 
-- [ ] **Confirm `validate_relation_before_write` is dead and remove it.** It has **zero callers** (`grep -rn "validate_relation_before_write" crates/` returns only its own definition at `writer.rs:11`; no `lib.rs` / `pub use` re-export). Deleting it removes one of the three copies of the semantic-type loop outright. _Fallback only if an unexpected reference appears:_ keep it, route it through the new helper, **and** downgrade `pub fn` → `pub(crate) fn` so it cannot become a second relation-write entry point. Record which path was taken in the commit message.
-- [ ] In `crates/srs-repository/src/writer.rs`, add `pub(crate) fn build_instance_semantic_types(store: &dyn RepositoryStore, manifest: &Manifest) -> HashMap<String, String>` containing the semantic-type loop (read each `manifest.instance_index` entry's file, insert `instance_id → semanticObjectType` when the top-level field is a string).
-- [ ] In `crates/srs-repository/src/relation_service.rs`, replace the empty-map construction at line 166 with `let instance_semantic_types = crate::writer::build_instance_semantic_types(store, &manifest);` (the `manifest` is already loaded at line 160 — do not double-load it, per Repository Service Worker constraints).
-- [ ] In `crates/srs-repository/src/validation.rs`, replace the inline map-build loop (~lines 679–687) with a call to the shared helper.
+- [x] **Confirm `validate_relation_before_write` is dead and remove it.** It has **zero callers** (`grep -rn "validate_relation_before_write" crates/` returns only its own definition at `writer.rs:11`; no `lib.rs` / `pub use` re-export). Deleting it removes one of the three copies of the semantic-type loop outright. _Fallback only if an unexpected reference appears:_ keep it, route it through the new helper, **and** downgrade `pub fn` → `pub(crate) fn` so it cannot become a second relation-write entry point. Record which path was taken in the commit message.
+- [x] In `crates/srs-repository/src/writer.rs`, add `pub(crate) fn build_instance_semantic_types(store: &dyn RepositoryStore, manifest: &Manifest) -> HashMap<String, String>` containing the semantic-type loop (read each `manifest.instance_index` entry's file, insert `instance_id → semanticObjectType` when the top-level field is a string).
+- [x] In `crates/srs-repository/src/relation_service.rs`, replace the empty-map construction at line 166 with `let instance_semantic_types = crate::writer::build_instance_semantic_types(store, &manifest);` (the `manifest` is already loaded at line 160 — do not double-load it, per Repository Service Worker constraints).
+- [x] In `crates/srs-repository/src/validation.rs`, replace the inline map-build loop (~lines 679–687) with a call to the shared helper.
 
 #### Acceptance Criteria
 
-- [ ] `create_relation` rejects a relation whose source/target `semanticObjectType` violates the resolved `RelationTypeDefinition`'s `allowedSourceTypes`/`allowedTargetTypes`/`requireSameSemanticObjectType`, returning `RepositoryError::RelationValidation` with an `E4`-coded message.
-- [ ] `create_relation` still accepts a relation whose endpoints carry no `semanticObjectType` or whose type has no E4 constraint (no regression — E4 only fires when both a constraint and a typed endpoint are present).
-- [ ] Exactly one function builds the instance→semanticObjectType map; no inline duplicate loop remains in `relation_service.rs` or `validation.rs`.
-- [ ] `validate_relation_before_write` is either removed (dead) or delegates to the helper — no third copy of the loop survives.
+- [x] `create_relation` rejects a relation whose source/target `semanticObjectType` violates the resolved `RelationTypeDefinition`'s `allowedSourceTypes`/`allowedTargetTypes`/`requireSameSemanticObjectType`, returning `RepositoryError::RelationValidation` with an `E4`-coded message.
+- [x] `create_relation` still accepts a relation whose endpoints carry no `semanticObjectType` or whose type has no E4 constraint (no regression — E4 only fires when both a constraint and a typed endpoint are present).
+- [x] Exactly one function builds the instance→semanticObjectType map; no inline duplicate loop remains in `relation_service.rs` or `validation.rs`.
+- [x] `validate_relation_before_write` is either removed (dead) or delegates to the helper — no third copy of the loop survives.
 
 #### Testing
 

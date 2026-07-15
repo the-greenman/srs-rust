@@ -27,7 +27,7 @@ use srs_core::types::relation::{Relation, RelationsCollection};
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::validation::relation::{validate_relation, RelationValidationContext};
 use srs_schema::{SchemaRegistry, RELATIONS_COLLECTION_SCHEMA_ID};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 /// Summary for relation list operations
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -163,7 +163,10 @@ pub fn create_relation(
         .iter()
         .map(|e| e.instance_id().to_string())
         .collect();
-    let instance_semantic_types: HashMap<String, String> = HashMap::new();
+    // Populate the semantic-type map so E4 (allowedSourceTypes / allowedTargetTypes /
+    // requireSameSemanticObjectType) fires on the write path exactly as it does in
+    // `repo validate` — previously this was an empty map, so E4 was dead on create (#556).
+    let instance_semantic_types = crate::writer::build_instance_semantic_types(store, &manifest);
     let ctx = RelationValidationContext {
         definitions,
         known_instance_ids: &known_instance_ids,
@@ -518,6 +521,123 @@ mod tests {
 
         let all = list_relations(&store, ListRelationsFilter::default()).unwrap();
         assert_eq!(all.len(), 4);
+    }
+
+    /// A store with two Tier-2 instances carrying `semanticObjectType`, for E4-on-create tests (#556).
+    fn make_store_with_typed_instances(src_type: &str, tgt_type: &str) -> MemoryStore {
+        let store = MemoryStore::default();
+        let mut manifest = store.load_manifest().unwrap();
+        for id in ["src", "tgt"] {
+            manifest
+                .instance_index
+                .push(crate::index::InstanceIndexEntry {
+                    instance_id: id.to_string(),
+                    tier: 2,
+                    path: format!("records/{}.json", id),
+                    title: None,
+                    tags: None,
+                });
+        }
+        store.save_manifest(&manifest).unwrap();
+        store
+            .save_instance_json(
+                "records/src.json",
+                &json!({ "instanceId": "src", "semanticObjectType": src_type }),
+            )
+            .unwrap();
+        store
+            .save_instance_json(
+                "records/tgt.json",
+                &json!({ "instanceId": "tgt", "semanticObjectType": tgt_type }),
+            )
+            .unwrap();
+        store
+    }
+
+    /// A relation type definition keyed `com.test/links` with the given E4 constraints.
+    fn links_def(
+        allowed_source: Option<Vec<&str>>,
+        allowed_target: Option<Vec<&str>>,
+        require_same: Option<bool>,
+    ) -> RelationTypeDefinition {
+        use srs_core::types::relation_type_definition::RelationTypeCategory;
+        RelationTypeDefinition {
+            schema: None,
+            id: "11111111-1111-4111-8111-111111111111".to_string(),
+            version: 1,
+            key: "com.test/links".to_string(),
+            namespace: "com.test".to_string(),
+            label: "Links".to_string(),
+            description: "source links to target".to_string(),
+            category: RelationTypeCategory::Association,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            canonical_direction: None,
+            inverse_type: None,
+            irreflexive: None,
+            allowed_source_types: allowed_source
+                .map(|v| v.into_iter().map(|s| s.to_string()).collect()),
+            allowed_target_types: allowed_target
+                .map(|v| v.into_iter().map(|s| s.to_string()).collect()),
+            require_same_semantic_object_type: require_same,
+            status: None,
+            updated_at: None,
+            properties: None,
+        }
+    }
+
+    #[test]
+    fn create_relation_enforces_e4_allowed_source_types() {
+        // Regression for #556: E4 was dead on create because the semantic-type map was empty,
+        // so a source whose semanticObjectType is not in allowedSourceTypes was accepted.
+        let store = make_store_with_typed_instances("com.x/forbidden", "com.x/anything");
+        let def = links_def(Some(vec!["com.x/allowed"]), None, None);
+        let rel = make_relation("r-e4", "src", "tgt", "com.test/links");
+        let err = create_relation(&store, rel, &[def]).unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(msg.contains("E4"), "expected an E4 type-constraint error, got: {msg}");
+        // The offending relation must NOT have been persisted.
+        let all = list_relations(&store, ListRelationsFilter::default()).unwrap();
+        assert!(all.is_empty(), "relation must not be written on E4 failure");
+    }
+
+    #[test]
+    fn create_relation_enforces_require_same_semantic_object_type() {
+        let store = make_store_with_typed_instances("com.x/one", "com.x/two");
+        let def = links_def(None, None, Some(true));
+        let rel = make_relation("r-same", "src", "tgt", "com.test/links");
+        let err = create_relation(&store, rel, &[def]).unwrap_err();
+        assert!(format!("{err:?}").contains("E4"));
+    }
+
+    #[test]
+    fn create_relation_allows_untyped_endpoints_under_constrained_type() {
+        // Endpoints carry NO semanticObjectType, so E4 must stay a no-op even under a
+        // constrained type — proves the fix doesn't over-reject (the `if let Some` guard holds).
+        let store = MemoryStore::default();
+        let mut manifest = store.load_manifest().unwrap();
+        for id in ["src", "tgt"] {
+            manifest
+                .instance_index
+                .push(crate::index::InstanceIndexEntry {
+                    instance_id: id.to_string(),
+                    tier: 0,
+                    path: format!("records/{}.json", id),
+                    title: None,
+                    tags: None,
+                });
+        }
+        store.save_manifest(&manifest).unwrap();
+        store
+            .save_instance_json("records/src.json", &json!({ "instanceId": "src" }))
+            .unwrap();
+        store
+            .save_instance_json("records/tgt.json", &json!({ "instanceId": "tgt" }))
+            .unwrap();
+
+        let def = links_def(Some(vec!["com.x/allowed"]), None, None);
+        let rel = make_relation("r-untyped", "src", "tgt", "com.test/links");
+        let result = create_relation(&store, rel, &[def]);
+        assert!(result.is_ok(), "untyped endpoints must not trip E4: {result:?}");
     }
 
     #[test]
