@@ -3,7 +3,9 @@ use crate::output;
 use crate::payload::{ContextFieldPayload, ContextRecordPayload, ContextRevisionTracePayload};
 use anyhow::Result;
 use clap::Subcommand;
-use srs_repository::context_query_service::{self, FieldContextQuery, RecordContextQuery, RevisionTraceQuery};
+use srs_repository::context_query_service::{
+    self, FieldContextQuery, RecordContextQuery, RevisionTraceQuery,
+};
 
 #[derive(Subcommand)]
 pub enum ContextCommand {
@@ -32,19 +34,28 @@ pub enum ContextCommand {
 
 pub fn dispatch(ctx: CliContext, cmd: ContextCommand) -> Result<String> {
     match cmd {
-        ContextCommand::Field { record_id, field_id } => cmd_context_field(ctx, record_id, field_id),
+        ContextCommand::Field {
+            record_id,
+            field_id,
+        } => cmd_context_field(ctx, record_id, field_id),
         ContextCommand::Record { record_id } => cmd_context_record(ctx, record_id),
-        ContextCommand::Revision { record_id, field_id, revision_id } => {
-            cmd_context_revision(ctx, record_id, field_id, revision_id)
-        }
+        ContextCommand::Revision {
+            record_id,
+            field_id,
+            revision_id,
+        } => cmd_context_revision(ctx, record_id, field_id, revision_id),
     }
 }
 
 fn cmd_context_field(ctx: CliContext, record_id: String, field_id: String) -> Result<String> {
-    with_store(&ctx, |store| {
-        match context_query_service::get_field_context(
+    with_store(
+        &ctx,
+        |store| match context_query_service::get_field_context(
             store,
-            FieldContextQuery { record_id: record_id.clone(), field_id: field_id.clone() },
+            FieldContextQuery {
+                record_id: record_id.clone(),
+                field_id: field_id.clone(),
+            },
         ) {
             Ok(result) => output::serialize(
                 "context field",
@@ -60,15 +71,18 @@ fn cmd_context_field(ctx: CliContext, record_id: String, field_id: String) -> Re
                 },
             ),
             Err(e) => Ok(output::err("context field", vec![e.to_string()])),
-        }
-    })
+        },
+    )
 }
 
 fn cmd_context_record(ctx: CliContext, record_id: String) -> Result<String> {
-    with_store(&ctx, |store| {
-        match context_query_service::get_record_context(
+    with_store(
+        &ctx,
+        |store| match context_query_service::get_record_context(
             store,
-            RecordContextQuery { record_id: record_id.clone() },
+            RecordContextQuery {
+                record_id: record_id.clone(),
+            },
         ) {
             Ok(result) => output::serialize(
                 "context record",
@@ -85,8 +99,8 @@ fn cmd_context_record(ctx: CliContext, record_id: String) -> Result<String> {
                 },
             ),
             Err(e) => Ok(output::err("context record", vec![e.to_string()])),
-        }
-    })
+        },
+    )
 }
 
 fn cmd_context_revision(
@@ -95,8 +109,9 @@ fn cmd_context_revision(
     field_id: String,
     revision_id: String,
 ) -> Result<String> {
-    with_store(&ctx, |store| {
-        match context_query_service::get_revision_trace(
+    with_store(
+        &ctx,
+        |store| match context_query_service::get_revision_trace(
             store,
             RevisionTraceQuery {
                 record_id: record_id.clone(),
@@ -114,6 +129,6 @@ fn cmd_context_revision(
                 },
             ),
             Err(e) => Ok(output::err("context revision", vec![e.to_string()])),
-        }
-    })
+        },
+    )
 }

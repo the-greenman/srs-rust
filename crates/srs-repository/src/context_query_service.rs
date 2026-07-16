@@ -103,7 +103,11 @@ pub fn get_field_context(
                 } else {
                     Some(field.ai_guidance.clone())
                 };
-                (Some(field.name.clone()), Some(field.namespace.clone()), guidance)
+                (
+                    Some(field.name.clone()),
+                    Some(field.namespace.clone()),
+                    guidance,
+                )
             }
             package_service::GetFieldResult::NotFound => (None, None, None),
         };
@@ -180,8 +184,10 @@ pub fn get_revision_trace(
             path: std::path::PathBuf::from(&query.revision_id),
         })?;
 
-    let index: HashMap<&str, &srs_core::types::revision::Revision> =
-        all_revisions.iter().map(|r| (r.revision_id.as_str(), r)).collect();
+    let index: HashMap<&str, &srs_core::types::revision::Revision> = all_revisions
+        .iter()
+        .map(|r| (r.revision_id.as_str(), r))
+        .collect();
 
     let mut chain = vec![];
     let mut seen: HashSet<String> = HashSet::new();
@@ -298,7 +304,13 @@ mod tests {
     }
 
     fn make_field_value(field_id: &str, value: serde_json::Value) -> FieldValue {
-        FieldValue { field_id: field_id.to_string(), value, entries: None, source: None, edited_at: None }
+        FieldValue {
+            field_id: field_id.to_string(),
+            value,
+            entries: None,
+            source: None,
+            edited_at: None,
+        }
     }
 
     fn make_revision(id: &str, record_id: &str, field_id: &str, prior: Option<&str>) -> Revision {
@@ -510,7 +522,9 @@ mod tests {
 
         let result = get_record_context(
             &store,
-            RecordContextQuery { record_id: rec.instance_id.clone() },
+            RecordContextQuery {
+                record_id: rec.instance_id.clone(),
+            },
         )
         .unwrap();
 
@@ -528,7 +542,9 @@ mod tests {
     fn record_context_relations() {
         use crate::relation_service::create_relation;
         use srs_core::types::relation::Relation;
-        use srs_core::types::relation_type_definition::{RelationTypeCategory, RelationTypeDefinition};
+        use srs_core::types::relation_type_definition::{
+            RelationTypeCategory, RelationTypeDefinition,
+        };
         let store = make_store();
         let depends_on_def = RelationTypeDefinition {
             schema: None,
@@ -615,7 +631,9 @@ mod tests {
 
         let result = get_record_context(
             &store,
-            RecordContextQuery { record_id: src.instance_id.clone() },
+            RecordContextQuery {
+                record_id: src.instance_id.clone(),
+            },
         )
         .unwrap();
 

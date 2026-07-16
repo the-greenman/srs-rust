@@ -97,7 +97,10 @@ fn context_field_returns_value_and_revision() {
     let store = fixture_store();
     let result = get_field_context(
         &store,
-        FieldContextQuery { record_id: RECORD_ID.to_string(), field_id: FIELD_TITLE.to_string() },
+        FieldContextQuery {
+            record_id: RECORD_ID.to_string(),
+            field_id: FIELD_TITLE.to_string(),
+        },
     )
     .expect("get_field_context must succeed");
 
@@ -113,7 +116,9 @@ fn context_record_returns_type_and_fields() {
     let store = fixture_store();
     let result = get_record_context(
         &store,
-        RecordContextQuery { record_id: RECORD_ID.to_string() },
+        RecordContextQuery {
+            record_id: RECORD_ID.to_string(),
+        },
     )
     .expect("get_record_context must succeed");
 
@@ -138,7 +143,10 @@ fn context_revision_traces_single_revision() {
     .expect("get_revision_trace must succeed");
 
     assert_eq!(result.revision.revision_id, REVISION_ID);
-    assert!(result.prior_chain.is_empty(), "no prior revisions for the root");
+    assert!(
+        result.prior_chain.is_empty(),
+        "no prior revisions for the root"
+    );
 }
 
 #[test]
