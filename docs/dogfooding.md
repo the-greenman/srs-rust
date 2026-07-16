@@ -576,7 +576,7 @@ This is issue #298 (parent plan §4): `srs-gov list` composes `container resolve
 
 **Steps.**
 1. `srs-gov repo-create --output /tmp/dogfood-srs-gov-list.srsj --title "Acme Co-op"` → a fresh governance `.srsj`. Confirm the stamped seed's decision-log DocumentView is a `type-query` (regenerated asset): `srs container resolve-view <decisionLogId> --repo <repo>` → `payload.containerView.excludeLifecycleStates: ["superseded","closed"]`.
-2. **Navigation** — `srs repo navigation --repo <repo>` → `payload.navigation.identity.instanceId` is non-empty (a `governance/article` record carrying the title); `payload.navigation.sections` has exactly 1 entry (the decision-log root container); `payload.navigation.diagnostics` is empty. This confirms the RFC-013 root container is correctly scaffolded with `memberInstanceIds` in the store.
+2. **Navigation** — `srs repo navigation --repo <repo>` → `payload.navigation.identity.instanceId` is non-empty (a `com.semanticops.core/purpose` record carrying the title and purpose statement); `payload.navigation.sections` has exactly 1 entry (the decision-log root container); `payload.navigation.diagnostics` is empty. This confirms the RFC-013 root container is correctly scaffolded with `memberInstanceIds` in the store.
 3. Add four decisions in the decision-log container via `srs record create --type governance/decision --container <decisionLogId>` and drive their states with `srs record transition` (`{"to":"proposed"}` → `{"to":"ratified"}` → `{"to":"superseded"|"closed"}`): one left `draft`, one `ratified` (tag it `tooling`, statement contains a unique word like `budget` only in a non-title field), one `superseded`, one `closed`.
 4. **Default** — `srs-gov list decision_log --repo <repo>` shows only the `draft` and `ratified` decisions; the `superseded` and `closed` ones are hidden.
 5. **Show-all** — `srs-gov list decision_log --all` shows all four.
@@ -841,7 +841,7 @@ $SRS_BIN repo navigation --repo "$SCRATCH" --pretty
 
 `repo navigation` also returns `ok: true` (not an error), `payload.navigation.identity.instanceId == $NOTE_ID`, `payload.navigation.identity.displayLabel == "Placeholder identity"` (the note title from the index), and `payload.navigation.diagnostics` contains exactly one entry whose message contains `"Tier-0"`. This confirms the graceful branch lands in the navigation payload rather than propagating a hard error (#427).
 
-**Negative case (not applicable in isolation).** A Tier-2 record of the wrong type (e.g. `governance/article`) also emits an RFC-018 I-81 warning with the actual type in the message, and the repo still returns `ok: true`. The scaffold integration test `crates/srs-repository/tests/scaffold.rs` covers this path.
+**Negative case (not applicable in isolation).** A Tier-2 record of the wrong type (e.g. `governance/article`) also emits an RFC-018 I-81 warning with the actual type in the message, and the repo still returns `ok: true`. The unit test `create_governance_repository_validates_with_zero_i81_warnings` in `crates/srs-repository/src/governance_scaffold_service.rs` confirms the scaffold no longer produces this case.
 
 **Note.** Once the RFC-018 I-81 warning appears, use `repo migrate-identity` (S21) to resolve it.
 
