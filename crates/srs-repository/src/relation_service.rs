@@ -21,6 +21,8 @@
 
 use crate::container_service;
 use crate::error::RepositoryError;
+use crate::record_store;
+use crate::relation_graph;
 use crate::store::RepositoryStore;
 use crate::writer::new_instance_id;
 use srs_core::types::relation::{Relation, RelationsCollection};
@@ -378,6 +380,76 @@ fn write_relations_collection(
         source: e,
     })?;
     store.save_relations_json(relative_path, &value)
+}
+
+/// Input for ordering a set of instance IDs by their `precedes` relation chain.
+#[derive(Debug, Clone)]
+pub struct OrderByPrecedesInput {
+    pub instance_ids: Vec<String>,
+}
+
+/// Result of ordering instance IDs by their `precedes` relation chain.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrderByPrecedesResult {
+    pub ordered_ids: Vec<String>,
+}
+
+/// Order a set of instance IDs by following the `precedes` relation chain.
+///
+/// Loads all relations from the store, resolves each ID to a record for
+/// `created_at` fallback ordering, then delegates to
+/// `relation_graph::sort_by_precedes_chain`. IDs that do not resolve to
+/// a known record are still included — they sort last by instance ID.
+///
+/// Returns `OrderByPrecedesResult { ordered_ids }` in chain order.
+pub fn order_by_precedes(
+    store: &dyn RepositoryStore,
+    input: OrderByPrecedesInput,
+) -> Result<OrderByPrecedesResult, RepositoryError> {
+    if input.instance_ids.len() <= 1 {
+        return Ok(OrderByPrecedesResult {
+            ordered_ids: input.instance_ids,
+        });
+    }
+
+    let relations = load_relations(store)?;
+
+    let entries: Vec<PrecedesEntry> = input
+        .instance_ids
+        .iter()
+        .map(|id| {
+            let created_at = record_store::get_record_by_id(store, id)
+                .ok()
+                .flatten()
+                .and_then(|r| r.created_at);
+            PrecedesEntry {
+                instance_id: id.clone(),
+                created_at,
+            }
+        })
+        .collect();
+
+    let sorted = relation_graph::sort_by_precedes_chain(entries, &relations);
+
+    Ok(OrderByPrecedesResult {
+        ordered_ids: sorted.into_iter().map(|e| e.instance_id).collect(),
+    })
+}
+
+#[derive(Clone)]
+struct PrecedesEntry {
+    instance_id: String,
+    created_at: Option<String>,
+}
+
+impl relation_graph::PrecedesSortable for PrecedesEntry {
+    fn precedes_instance_id(&self) -> &str {
+        &self.instance_id
+    }
+    fn precedes_created_at(&self) -> Option<&str> {
+        self.created_at.as_deref()
+    }
 }
 
 #[cfg(test)]
@@ -1073,5 +1145,92 @@ mod tests {
             "expected ManifestParse to propagate, got {:?}",
             result
         );
+    }
+
+    fn make_store_with_precedes() -> MemoryStore {
+        let store = MemoryStore::default();
+        let relations = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
+            "relations": [
+                {
+                    "relationId": "rp1",
+                    "relationType": "precedes",
+                    "sourceInstanceId": "sec-a",
+                    "targetInstanceId": "sec-b",
+                    "createdAt": "2026-01-01T00:00:00Z"
+                },
+                {
+                    "relationId": "rp2",
+                    "relationType": "precedes",
+                    "sourceInstanceId": "sec-b",
+                    "targetInstanceId": "sec-c",
+                    "createdAt": "2026-01-01T00:00:00Z"
+                }
+            ]
+        });
+        store
+            .save_relations_json("relations/relations-collection.json", &relations)
+            .unwrap();
+        store
+    }
+
+    #[test]
+    fn order_by_precedes_follows_chain() {
+        let store = make_store_with_precedes();
+        // Input is deliberately out of chain order
+        let input = OrderByPrecedesInput {
+            instance_ids: vec!["sec-c".into(), "sec-a".into(), "sec-b".into()],
+        };
+        let result = order_by_precedes(&store, input).unwrap();
+        assert_eq!(result.ordered_ids, vec!["sec-a", "sec-b", "sec-c"]);
+    }
+
+    #[test]
+    fn order_by_precedes_singleton_returns_unchanged() {
+        let store = make_store_with_precedes();
+        let input = OrderByPrecedesInput {
+            instance_ids: vec!["sec-a".into()],
+        };
+        let result = order_by_precedes(&store, input).unwrap();
+        assert_eq!(result.ordered_ids, vec!["sec-a"]);
+    }
+
+    #[test]
+    fn order_by_precedes_empty_returns_empty() {
+        let store = make_store_with_precedes();
+        let input = OrderByPrecedesInput {
+            instance_ids: vec![],
+        };
+        let result = order_by_precedes(&store, input).unwrap();
+        assert!(result.ordered_ids.is_empty());
+    }
+
+    #[test]
+    fn order_by_precedes_unknown_ids_included_not_dropped() {
+        let store = make_store_with_precedes();
+        // "orphan" has no precedes relations but must not be dropped.
+        // No records in the store → created_at = None for all. Tiebreak is
+        // instance_id ascending: "orphan" < "sec-a" < "sec-b", so orphan is
+        // the first head, then sec-a starts the chain.
+        let input = OrderByPrecedesInput {
+            instance_ids: vec!["sec-b".into(), "sec-a".into(), "orphan".into()],
+        };
+        let result = order_by_precedes(&store, input).unwrap();
+        assert_eq!(result.ordered_ids.len(), 3, "all IDs must be in output");
+        // sec-a → sec-b is a chain; orphan is a standalone head
+        assert!(result.ordered_ids.contains(&"sec-a".to_string()));
+        assert!(result.ordered_ids.contains(&"sec-b".to_string()));
+        assert!(result.ordered_ids.contains(&"orphan".to_string()));
+        let a = result
+            .ordered_ids
+            .iter()
+            .position(|x| x == "sec-a")
+            .unwrap();
+        let b = result
+            .ordered_ids
+            .iter()
+            .position(|x| x == "sec-b")
+            .unwrap();
+        assert!(a < b, "sec-a must precede sec-b in the output");
     }
 }
