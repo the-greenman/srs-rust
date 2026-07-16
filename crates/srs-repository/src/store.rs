@@ -2016,6 +2016,10 @@ pub mod memory {
                 type_paths: vec![],
                 blueprint_paths: vec![],
                 protocol_paths: vec![],
+                view_paths: vec![],
+                relation_type_paths: vec![],
+                lifecycle_paths: vec![],
+                document_view_paths: vec![],
             };
             let mut boundaries = HashMap::new();
             boundaries.insert(None, primary_boundary);
@@ -3029,6 +3033,10 @@ pub mod memory {
                     type_paths: vec![],
                     blueprint_paths: vec![],
                     protocol_paths: vec![],
+                    view_paths: vec![],
+                    relation_type_paths: vec![],
+                    lifecycle_paths: vec![],
+                    document_view_paths: vec![],
                 }
             });
             drop(boundaries);

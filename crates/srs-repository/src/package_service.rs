@@ -981,6 +981,10 @@ pub fn create_package(
         type_paths: vec![],
         blueprint_paths: vec![],
         protocol_paths: vec![],
+        view_paths: vec![],
+        relation_type_paths: vec![],
+        lifecycle_paths: vec![],
+        document_view_paths: vec![],
     };
     store.save_package_boundary_metadata(&boundary)?;
     store.register_package_boundary(&selector)?;
@@ -1229,6 +1233,10 @@ pub fn list_package_imports(
             .chain(&boundary.type_paths)
             .chain(&boundary.blueprint_paths)
             .chain(&boundary.protocol_paths)
+            .chain(&boundary.view_paths)
+            .chain(&boundary.relation_type_paths)
+            .chain(&boundary.lifecycle_paths)
+            .chain(&boundary.document_view_paths)
             .map(String::as_str)
             .collect();
 
@@ -1246,12 +1254,18 @@ pub fn list_package_imports(
                 if record.mode != ImportMode::UpstreamTracked {
                     continue;
                 }
+                // Protocols store their id under "protocolId"; all others use "id".
+                let id_field = if record.definition_type == DefinitionType::Protocol {
+                    "protocolId"
+                } else {
+                    "id"
+                };
                 // Find the relative path whose JSON id matches this record.
                 let def_path = tracked_paths.iter().find(|path| {
                     store
                         .load_instance_json(&format!("{boundary_path}/{path}"))
                         .ok()
-                        .and_then(|v| v["id"].as_str().map(str::to_string))
+                        .and_then(|v| v[id_field].as_str().map(str::to_string))
                         .as_deref()
                         == Some(record.definition_id.as_str())
                 });
