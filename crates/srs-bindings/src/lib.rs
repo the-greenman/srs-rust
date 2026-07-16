@@ -297,8 +297,8 @@ impl SrsRepository {
         struct Input {
             instance_ids: Vec<String>,
         }
-        let parsed: Input = serde_json::from_str(input_json)
-            .map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let parsed: Input =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
         let result = relation_service::order_by_precedes(
             &self.store,
             OrderByPrecedesInput {

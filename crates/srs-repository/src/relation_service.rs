@@ -1169,10 +1169,7 @@ mod tests {
             ]
         });
         store
-            .save_relations_json(
-                "relations/relations-collection.json",
-                &relations,
-            )
+            .save_relations_json("relations/relations-collection.json", &relations)
             .unwrap();
         store
     }
@@ -1224,8 +1221,16 @@ mod tests {
         assert!(result.ordered_ids.contains(&"sec-a".to_string()));
         assert!(result.ordered_ids.contains(&"sec-b".to_string()));
         assert!(result.ordered_ids.contains(&"orphan".to_string()));
-        let a = result.ordered_ids.iter().position(|x| x == "sec-a").unwrap();
-        let b = result.ordered_ids.iter().position(|x| x == "sec-b").unwrap();
+        let a = result
+            .ordered_ids
+            .iter()
+            .position(|x| x == "sec-a")
+            .unwrap();
+        let b = result
+            .ordered_ids
+            .iter()
+            .position(|x| x == "sec-b")
+            .unwrap();
         assert!(a < b, "sec-a must precede sec-b in the output");
     }
 }
