@@ -12,6 +12,9 @@ pub mod discovery_service;
 pub mod error;
 pub mod extension_service;
 pub mod federation_service;
+pub(crate) mod field_json;
+#[cfg(test)]
+mod field_json_parity_tests;
 pub mod governance_scaffold_service;
 pub mod index;
 pub mod input_normalization;
