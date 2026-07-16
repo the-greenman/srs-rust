@@ -44,6 +44,7 @@ use srs_repository::{
         RecordSummary, RecordTagSummary,
     },
     relation_service::RelationSummary,
+    protocol_run_service::RunSummary,
     repository_navigation_service::RepositoryNavigation,
     services::{ListNoteTagsResult, NoteSummary, TagSummary},
     theme_service::ThemeSummary,
@@ -874,6 +875,19 @@ pub struct ProtocolRunListPayload {
 pub struct ProtocolRunPayload {
     #[schemars(with = "serde_json::Value")]
     pub run: serde_json::Value,
+}
+
+impl From<RunSummary> for ProtocolRunListEntry {
+    fn from(s: RunSummary) -> Self {
+        Self {
+            run_id: s.run_id,
+            protocol_id: s.protocol_id,
+            container_id: s.container_id,
+            status: s.status,
+            current_stage_id: s.current_stage_id,
+            started_at: s.started_at,
+        }
+    }
 }
 
 // ── Blueprint payloads ────────────────────────────────────────────────────────

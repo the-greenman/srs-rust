@@ -1,6 +1,6 @@
 # ADR-029: Protocol Run Storage Model
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-07-16
 - **Supersedes:** the "execution out of scope" note in [ADR-016](016-protocols-are-package-definitions.md)
 - **Superseded by:** —

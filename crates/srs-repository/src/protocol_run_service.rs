@@ -65,7 +65,10 @@ pub struct RunResult {
 
 fn load_runs(store: &dyn RepositoryStore) -> Result<ProtocolRunsCollection, RepositoryError> {
     match store.load_instance_json(RUNS_PATH) {
-        Ok(v) => Ok(serde_json::from_value(v).unwrap_or(ProtocolRunsCollection { runs: vec![] })),
+        Ok(v) => Ok(serde_json::from_value(v).map_err(|e| RepositoryError::Serialize {
+            path: PathBuf::from(RUNS_PATH),
+            source: e,
+        })?),
         Err(RepositoryError::NotFound { .. }) => Ok(ProtocolRunsCollection { runs: vec![] }),
         Err(RepositoryError::Io { source, .. })
             if source.kind() == std::io::ErrorKind::NotFound =>
@@ -175,7 +178,10 @@ pub fn advance_stage(
         .ok_or_else(|| run_not_found(&input.run_id))?;
 
     if run.status != ProtocolRunStatus::Active {
-        return Err(run_not_found(&input.run_id));
+        return Err(RepositoryError::RunInvalidState {
+            run_id: input.run_id.clone(),
+            message: format!("status is {:?}", run.status),
+        });
     }
 
     let now = now_iso8601();
@@ -272,8 +278,14 @@ pub fn complete_run(
     let run = collection
         .runs
         .iter_mut()
-        .find(|r| r.run_id == run_id && r.status == ProtocolRunStatus::Active)
+        .find(|r| r.run_id == run_id)
         .ok_or_else(|| run_not_found(run_id))?;
+    if run.status != ProtocolRunStatus::Active {
+        return Err(RepositoryError::RunInvalidState {
+            run_id: run_id.to_string(),
+            message: format!("status is {:?}", run.status),
+        });
+    }
 
     let now = now_iso8601();
     run.status = ProtocolRunStatus::Completed;
@@ -299,8 +311,14 @@ pub fn abandon_run(
     let run = collection
         .runs
         .iter_mut()
-        .find(|r| r.run_id == run_id && r.status == ProtocolRunStatus::Active)
+        .find(|r| r.run_id == run_id)
         .ok_or_else(|| run_not_found(run_id))?;
+    if run.status != ProtocolRunStatus::Active {
+        return Err(RepositoryError::RunInvalidState {
+            run_id: run_id.to_string(),
+            message: format!("status is {:?}", run.status),
+        });
+    }
 
     let now = now_iso8601();
     run.status = ProtocolRunStatus::Abandoned;

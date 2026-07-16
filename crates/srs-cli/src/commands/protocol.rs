@@ -293,9 +293,32 @@ fn cmd_run_create(ctx: CliContext) -> Result<String> {
 
 fn cmd_run_advance(ctx: CliContext) -> Result<String> {
     let input: AdvanceStageInput = serde_json::from_reader(std::io::stdin())?;
-    let result = with_store(&ctx, |store| Ok(advance_stage(store, input)?))?;
-    let run = serde_json::to_value(&result.run)?;
-    output::serialize("protocol run advance", ProtocolRunPayload { run })
+    match with_store(&ctx, |store| Ok(advance_stage(store, input)?)) {
+        Ok(result) => {
+            let run = serde_json::to_value(&result.run)?;
+            output::serialize("protocol run advance", ProtocolRunPayload { run })
+        }
+        Err(e) => {
+            if let Some(RepositoryError::NotFound { .. }) = e.downcast_ref::<RepositoryError>() {
+                return Ok(output::err(
+                    "protocol run advance",
+                    vec![format!("Protocol run not found")],
+                ));
+            }
+            if let Some(RepositoryError::RunInvalidState { run_id, message }) =
+                e.downcast_ref::<RepositoryError>()
+            {
+                return Ok(output::err(
+                    "protocol run advance",
+                    vec![format!(
+                        "Protocol run '{}' cannot be advanced: {}",
+                        run_id, message
+                    )],
+                ));
+            }
+            Err(e)
+        }
+    }
 }
 
 fn cmd_run_get(ctx: CliContext, run_id: String) -> Result<String> {
@@ -322,17 +345,9 @@ fn cmd_run_list(
         container_id,
         status,
     };
-    let summaries = with_store(&ctx, |store| Ok(list_runs(store, filter)?))?;
-    let runs = summaries
+    let runs = with_store(&ctx, |store| Ok(list_runs(store, filter)?))?
         .into_iter()
-        .map(|s| ProtocolRunListEntry {
-            run_id: s.run_id,
-            protocol_id: s.protocol_id,
-            container_id: s.container_id,
-            status: s.status,
-            current_stage_id: s.current_stage_id,
-            started_at: s.started_at,
-        })
+        .map(ProtocolRunListEntry::from)
         .collect();
     output::serialize("protocol run list", ProtocolRunListPayload { runs })
 }
@@ -348,6 +363,17 @@ fn cmd_run_complete(ctx: CliContext, run_id: String) -> Result<String> {
                 return Ok(output::err(
                     "protocol run complete",
                     vec![format!("Protocol run '{}' not found", run_id)],
+                ));
+            }
+            if let Some(RepositoryError::RunInvalidState { message, .. }) =
+                e.downcast_ref::<RepositoryError>()
+            {
+                return Ok(output::err(
+                    "protocol run complete",
+                    vec![format!(
+                        "Protocol run '{}' cannot be completed: {}",
+                        run_id, message
+                    )],
                 ));
             }
             Err(e)
@@ -366,6 +392,17 @@ fn cmd_run_abandon(ctx: CliContext, run_id: String) -> Result<String> {
                 return Ok(output::err(
                     "protocol run abandon",
                     vec![format!("Protocol run '{}' not found", run_id)],
+                ));
+            }
+            if let Some(RepositoryError::RunInvalidState { message, .. }) =
+                e.downcast_ref::<RepositoryError>()
+            {
+                return Ok(output::err(
+                    "protocol run abandon",
+                    vec![format!(
+                        "Protocol run '{}' cannot be abandoned: {}",
+                        run_id, message
+                    )],
                 ));
             }
             Err(e)
