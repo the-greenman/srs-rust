@@ -715,7 +715,7 @@ pub fn install_package_bundle(
         .map(str::to_string)
         .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
     boundary_pkg_json["upstreamPackage"] = serde_json::json!({
-        "id": bundle.id,
+        "packageId": bundle.id,
         "namespace": bundle.namespace,
         "name": bundle.name,
         "version": bundle.version,
@@ -822,7 +822,7 @@ mod tests {
             crate::store::RepositoryStore::load_instance_json(&store, "packages/ext/package.json")
                 .unwrap();
         assert_eq!(
-            pkg_json["upstreamPackage"]["id"].as_str(),
+            pkg_json["upstreamPackage"]["packageId"].as_str(),
             Some("ext-pkg-0001")
         );
         assert!(pkg_json["upstreamPackage"]["installedAt"]

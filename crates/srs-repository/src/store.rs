@@ -917,8 +917,14 @@ impl RepositoryStore for FileStore {
             path: manifest_path.clone(),
             source: e,
         })?;
-        let mut manifest: Manifest =
+        let mut raw: serde_json::Value =
             serde_json::from_str(&content).map_err(|e| RepositoryError::ManifestParse {
+                path: manifest_path.clone(),
+                source: e,
+            })?;
+        crate::manifest::migrate_upstream_package(&mut raw);
+        let mut manifest: Manifest =
+            serde_json::from_value(raw).map_err(|e| RepositoryError::ManifestParse {
                 path: manifest_path.clone(),
                 source: e,
             })?;
@@ -2035,6 +2041,7 @@ pub mod memory {
                 container: None,
                 container_index: None,
                 federation_path: None,
+                upstream_package: None,
                 federation_events_path: None,
                 extra: HashMap::new(),
                 root: PathBuf::from("/memory"),
@@ -2201,6 +2208,7 @@ pub mod memory {
                 container: None,
                 container_index: None,
                 federation_path: None,
+                upstream_package: None,
                 federation_events_path: None,
                 extra: HashMap::new(),
                 root: PathBuf::from("/memory"),
@@ -2337,6 +2345,7 @@ pub mod memory {
                 container: None,
                 container_index: None,
                 federation_path: None,
+                upstream_package: None,
                 federation_events_path: None,
                 extra: manifest_extra,
                 root: PathBuf::from("/memory"),
@@ -3203,6 +3212,7 @@ mod tests {
             container: None,
             container_index: None,
             federation_path: None,
+            upstream_package: None,
             federation_events_path: None,
             extra: HashMap::new(),
             root: repo_root.to_path_buf(),

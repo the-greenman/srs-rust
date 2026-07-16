@@ -106,7 +106,7 @@ pub struct ImportSummary {
     pub skipped_definitions: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpstreamPackage {
     pub package_id: String,

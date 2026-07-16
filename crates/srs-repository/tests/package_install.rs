@@ -175,7 +175,7 @@ fn install_into_empty_repo_installs_everything() {
         .load_instance_json("packages/install-fixture/package.json")
         .unwrap();
     assert_eq!(
-        pkg_json["upstreamPackage"]["id"].as_str(),
+        pkg_json["upstreamPackage"]["packageId"].as_str(),
         Some("9a1b0c2d-1111-4aaa-8bbb-000000000001")
     );
     assert_eq!(

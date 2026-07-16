@@ -742,12 +742,11 @@ mod tests {
             manifest.extra.get("title").and_then(|v| v.as_str()),
             Some("Example Gov")
         );
-        // installedAt must be set on the RFC-014 top-level upstreamPackage
+        // installedAt must be set on the typed upstream_package field
         let installed_at = manifest
-            .extra
-            .get("upstreamPackage")
-            .and_then(|v| v.get("installedAt"))
-            .and_then(|v| v.as_str());
+            .upstream_package
+            .as_ref()
+            .map(|up| up.installed_at.as_str());
         assert!(
             installed_at.is_some(),
             "upstreamPackage.installedAt must be stamped"

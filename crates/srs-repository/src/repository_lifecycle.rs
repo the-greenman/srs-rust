@@ -262,36 +262,14 @@ pub fn init_new_repository(
             .insert("description".to_string(), Value::String(d));
     }
 
-    // Stamp installedAt at whichever location carries upstreamPackage.
-    // RFC-014-migrated stores (all governance seeds after migrate_rfc014) have it at top level;
-    // pre-RFC-014 seeds have it under meta.upstreamPackage.
-    if let Some(up) = manifest
-        .extra
-        .get_mut("upstreamPackage")
-        .and_then(|v| v.as_object_mut())
-    {
-        up.insert(
-            "installedAt".to_string(),
-            Value::String(Utc::now().to_rfc3339()),
-        );
+    // Stamp installedAt on the typed upstream_package field (normalised by load_manifest migration).
+    if let Some(ref mut up) = manifest.upstream_package {
+        up.installed_at = Utc::now().to_rfc3339();
     } else {
-        let meta_val = manifest.extra.get_mut("meta").ok_or_else(|| {
-            RepositoryError::InvalidRepositoryInitialization {
-                message:
-                    "upstreamPackage is absent — store must be a seed with upstream provenance"
-                        .to_string(),
-            }
-        })?;
-        let upstream = meta_val
-            .get_mut("upstreamPackage")
-            .and_then(|v| v.as_object_mut())
-            .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
-                message: "meta.upstreamPackage is absent or not an object".to_string(),
-            })?;
-        upstream.insert(
-            "installedAt".to_string(),
-            Value::String(Utc::now().to_rfc3339()),
-        );
+        return Err(RepositoryError::InvalidRepositoryInitialization {
+            message: "upstreamPackage is absent — store must be a seed with upstream provenance"
+                .to_string(),
+        });
     }
 
     store.save_manifest(&manifest)?;
@@ -343,6 +321,7 @@ mod tests {
     use crate::core_purpose;
     use crate::store::memory::MemoryStore;
     use crate::store::{FileStore, RepositoryStore};
+    use srs_core::extensions::import_tracking::UpstreamPackage;
     use tempfile::TempDir;
 
     fn input() -> InitializeRepositoryInput {
@@ -418,7 +397,7 @@ mod tests {
 
     // ── init_new_repository tests ─────────────────────────────────────────────
 
-    /// Build an empty MemoryStore and stamp meta.upstreamPackage into its manifest.
+    /// Build an empty MemoryStore and stamp upstream_package into its manifest.
     fn seed_memory_store() -> MemoryStore {
         let store = MemoryStore::empty();
         let mut manifest = store.load_manifest().unwrap();
@@ -433,18 +412,13 @@ mod tests {
         manifest
             .extra
             .insert("title".to_string(), serde_json::json!("Seed"));
-        manifest.extra.insert(
-            "meta".to_string(),
-            serde_json::json!({
-                "upstreamPackage": {
-                    "packageId": "pkg-upstream-001",
-                    "namespace": "com.mudemocracy.governance",
-                    "name": "Governance",
-                    "version": "1.0.0",
-                    "installedAt": ""
-                }
-            }),
-        );
+        manifest.upstream_package = Some(UpstreamPackage {
+            package_id: "pkg-upstream-001".to_string(),
+            namespace: "com.mudemocracy.governance".to_string(),
+            name: "Governance".to_string(),
+            version: "1.0.0".to_string(),
+            installed_at: String::new(),
+        });
         store.save_manifest(&manifest).unwrap();
         store
     }
@@ -530,25 +504,13 @@ mod tests {
         assert_eq!(result.namespace, "com.example.test");
 
         let manifest = store.load_manifest().unwrap();
-        let installed_at = manifest.extra["meta"]["upstreamPackage"]["installedAt"]
-            .as_str()
-            .unwrap();
-        assert!(!installed_at.is_empty(), "installedAt should be set");
-        assert!(installed_at.contains('T'), "installedAt should be ISO-8601");
+        let up = manifest.upstream_package.as_ref().unwrap();
+        assert!(!up.installed_at.is_empty(), "installedAt should be set");
+        assert!(up.installed_at.contains('T'), "installedAt should be ISO-8601");
 
         // Other upstreamPackage fields unchanged
-        assert_eq!(
-            manifest.extra["meta"]["upstreamPackage"]["packageId"]
-                .as_str()
-                .unwrap(),
-            "pkg-upstream-001"
-        );
-        assert_eq!(
-            manifest.extra["meta"]["upstreamPackage"]["namespace"]
-                .as_str()
-                .unwrap(),
-            "com.mudemocracy.governance"
-        );
+        assert_eq!(up.package_id, "pkg-upstream-001");
+        assert_eq!(up.namespace, "com.mudemocracy.governance");
 
         // Description persisted
         assert_eq!(
@@ -588,14 +550,14 @@ mod tests {
             "Roundtrip Test"
         );
 
-        // Provenance preserved
+        // Provenance preserved at top-level upstreamPackage (migration lifts from meta)
         assert_eq!(
-            parsed["manifest"]["meta"]["upstreamPackage"]["packageId"]
+            parsed["manifest"]["upstreamPackage"]["packageId"]
                 .as_str()
                 .unwrap(),
             "pkg-upstream-001"
         );
-        let installed_at = parsed["manifest"]["meta"]["upstreamPackage"]["installedAt"]
+        let installed_at = parsed["manifest"]["upstreamPackage"]["installedAt"]
             .as_str()
             .unwrap();
         assert!(
@@ -710,7 +672,7 @@ mod tests {
 
     #[test]
     fn init_new_repository_handles_rfc014_top_level_upstream_package() {
-        // Post-RFC-014 store: upstreamPackage at top level, meta.upstreamPackage absent.
+        // Post-RFC-014 store: upstreamPackage typed field set directly.
         let store = MemoryStore::empty();
         let mut manifest = store.load_manifest().unwrap();
         manifest.extra.insert(
@@ -724,16 +686,13 @@ mod tests {
         manifest
             .extra
             .insert("title".to_string(), serde_json::json!("Seed"));
-        manifest.extra.insert(
-            "upstreamPackage".to_string(),
-            serde_json::json!({
-                "packageId": "pkg-upstream-001",
-                "namespace": "com.mudemocracy.governance",
-                "name": "governance",
-                "version": "1.0.0",
-                "installedAt": ""
-            }),
-        );
+        manifest.upstream_package = Some(UpstreamPackage {
+            package_id: "pkg-upstream-001".to_string(),
+            namespace: "com.mudemocracy.governance".to_string(),
+            name: "governance".to_string(),
+            version: "1.0.0".to_string(),
+            installed_at: String::new(),
+        });
         store.save_manifest(&manifest).unwrap();
 
         let result = super::init_new_repository(
@@ -751,25 +710,11 @@ mod tests {
         assert_eq!(result.namespace, "com.example.test");
 
         let manifest = store.load_manifest().unwrap();
-        let installed_at = manifest.extra["upstreamPackage"]["installedAt"]
-            .as_str()
-            .unwrap();
-        assert!(!installed_at.is_empty(), "installedAt should be set");
-        assert!(installed_at.contains('T'), "installedAt should be ISO-8601");
-
-        // Other upstreamPackage fields preserved
-        assert_eq!(
-            manifest.extra["upstreamPackage"]["packageId"]
-                .as_str()
-                .unwrap(),
-            "pkg-upstream-001"
-        );
-        assert_eq!(
-            manifest.extra["upstreamPackage"]["namespace"]
-                .as_str()
-                .unwrap(),
-            "com.mudemocracy.governance"
-        );
+        let up = manifest.upstream_package.as_ref().unwrap();
+        assert!(!up.installed_at.is_empty(), "installedAt should be set");
+        assert!(up.installed_at.contains('T'), "installedAt should be ISO-8601");
+        assert_eq!(up.package_id, "pkg-upstream-001");
+        assert_eq!(up.namespace, "com.mudemocracy.governance");
     }
 
     // ── create_repository_with_intent / scaffold_purpose_record tests ────────
