@@ -2,17 +2,6 @@ use crate::error::RepositoryError;
 use crate::store::RepositoryStore;
 use srs_core::types::source_document_meta::SourceDocumentMeta;
 
-/// A source document sidecar entry returned by `list_source_documents`.
-/// Includes serde derives so CLI payload structs and WASM bindings can embed it directly.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct SourceDocumentEntry {
-    /// Path of the `.meta.json` sidecar, relative to the repository root.
-    /// E.g. `"source-documents/spec/srs-spec.md.meta.json"`
-    pub sidecar_path: String,
-    /// Parsed sidecar metadata.
-    pub meta: SourceDocumentMeta,
-}
-
 /// Filter parameters for `list_source_documents`. Currently empty; extended in future issues
 /// without breaking the service boundary (per ADR-010: list functions accept a filter struct).
 #[derive(Debug, Clone, Default)]
@@ -25,7 +14,7 @@ pub struct ListSourceDocumentsFilter {}
 pub fn list_source_documents(
     store: &dyn RepositoryStore,
     _filter: ListSourceDocumentsFilter,
-) -> Result<Vec<SourceDocumentEntry>, RepositoryError> {
+) -> Result<Vec<SourceDocumentMeta>, RepositoryError> {
     let sidecar_paths = store.list_source_document_sidecar_paths();
     let mut entries = Vec::with_capacity(sidecar_paths.len());
     for sidecar_path in sidecar_paths {
@@ -36,7 +25,7 @@ pub fn list_source_documents(
                 source,
             }
         })?;
-        entries.push(SourceDocumentEntry { sidecar_path, meta });
+        entries.push(meta);
     }
     Ok(entries)
 }
@@ -69,14 +58,10 @@ mod tests {
             list_source_documents(&store, ListSourceDocumentsFilter::default()).unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(
-            result[0].sidecar_path,
-            "source-documents/test.md.meta.json"
-        );
-        assert_eq!(
-            result[0].meta.document_id,
+            result[0].document_id,
             "aaaaaaaa-0000-4000-8000-000000000001"
         );
-        assert_eq!(result[0].meta.content_type, "text/markdown");
+        assert_eq!(result[0].content_type, "text/markdown");
     }
 
     #[test]
@@ -93,7 +78,7 @@ mod tests {
         let result =
             list_source_documents(&store, ListSourceDocumentsFilter::default()).unwrap();
         assert_eq!(result.len(), 2);
-        let ids: Vec<_> = result.iter().map(|e| e.meta.document_id.as_str()).collect();
+        let ids: Vec<_> = result.iter().map(|e| e.document_id.as_str()).collect();
         assert!(ids.contains(&"aaaaaaaa-0000-4000-8000-000000000001"));
         assert!(ids.contains(&"bbbbbbbb-0000-4000-8000-000000000002"));
     }
@@ -103,6 +88,18 @@ mod tests {
         let store = crate::store::memory::MemoryStore::empty();
         store
             .save_text_file("source-documents/bad.md.meta.json", "not-valid-json")
+            .unwrap();
+        assert!(list_source_documents(&store, ListSourceDocumentsFilter::default()).is_err());
+    }
+
+    #[test]
+    fn memory_store_valid_json_missing_required_field_returns_err() {
+        let store = crate::store::memory::MemoryStore::empty();
+        store
+            .save_text_file(
+                "source-documents/incomplete.meta.json",
+                r#"{"documentId":"test","contentPath":"test.md"}"#,
+            )
             .unwrap();
         assert!(list_source_documents(&store, ListSourceDocumentsFilter::default()).is_err());
     }
@@ -125,12 +122,12 @@ mod tests {
         assert_eq!(
             result.len(),
             4,
-            "expected 4 sidecars, got: {:?}",
-            result.iter().map(|e| &e.sidecar_path).collect::<Vec<_>>()
+            "expected 4 sidecars, got {} entries",
+            result.len()
         );
         for entry in &result {
-            assert!(!entry.meta.document_id.is_empty());
-            assert!(!entry.meta.content_type.is_empty());
+            assert!(!entry.document_id.is_empty());
+            assert!(!entry.content_type.is_empty());
         }
     }
 }

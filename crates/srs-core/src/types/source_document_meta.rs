@@ -31,6 +31,7 @@ pub struct SourceDocumentMeta {
     pub created_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub imported_at: Option<String>,
+    /// Spec-defined open extension bag (source-document-meta.json v2.0 §meta); any JSON object value is valid.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub meta: Option<serde_json::Value>,
 }
