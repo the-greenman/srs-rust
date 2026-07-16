@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::source_reference::SourceReference;
+
 /// An addressable, append-only snapshot of a FieldValue at a point in time.
 ///
 /// Revisions form a chain via `prior_revision_id`. Invariant 33: when
@@ -17,6 +19,8 @@ pub struct Revision {
     pub agent: RevisionAgent,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provenance: Option<RevisionProvenance>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_refs: Option<Vec<SourceReference>>,
     pub created_at: String,
 }
 
@@ -71,12 +75,14 @@ mod tests {
             prior_revision_id: None,
             agent: RevisionAgent::Human,
             provenance: None,
+            source_refs: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let v = serde_json::to_value(&rev).unwrap();
         assert_eq!(v["revisionId"], json!("rev-1"));
         assert_eq!(v["agent"]["type"], json!("Human"));
         assert!(v.get("priorRevisionId").is_none());
+        assert!(v.get("sourceRefs").is_none());
         let parsed: Revision = serde_json::from_value(v).unwrap();
         assert_eq!(parsed.revision_id, "rev-1");
     }
@@ -95,6 +101,7 @@ mod tests {
                 transitioned_at: Some("2026-06-01T12:00:00Z".to_string()),
                 import_source: None,
             }),
+            source_refs: None,
             created_at: "2026-06-01T12:00:00Z".to_string(),
         };
         let v = serde_json::to_value(&rev).unwrap();
@@ -114,11 +121,46 @@ mod tests {
                 import_source: Some("legacy-system-v1".to_string()),
             },
             provenance: None,
+            source_refs: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let v = serde_json::to_value(&rev).unwrap();
         assert_eq!(v["agent"]["type"], json!("Imported"));
         assert_eq!(v["agent"]["importSource"], json!("legacy-system-v1"));
+    }
+
+    #[test]
+    fn revision_with_source_refs() {
+        use super::super::source_reference::{SourceReference, SourceRelationType, SourceType};
+        let rev = Revision {
+            revision_id: "rev-4".to_string(),
+            record_id: "rec-1".to_string(),
+            field_id: "f1".to_string(),
+            value: json!("extracted value"),
+            prior_revision_id: Some("rev-3".to_string()),
+            agent: RevisionAgent::Ai,
+            provenance: None,
+            source_refs: Some(vec![SourceReference {
+                source_type: SourceType::TranscriptChunk,
+                source_id: "chunk-99".to_string(),
+                source_standard: None,
+                stream_id: None,
+                relation_type: Some(SourceRelationType::Evidence),
+                confidence: Some(0.85),
+                note: None,
+            }]),
+            created_at: "2026-07-01T00:00:00Z".to_string(),
+        };
+        let v = serde_json::to_value(&rev).unwrap();
+        assert!(v["sourceRefs"].is_array());
+        assert_eq!(v["sourceRefs"][0]["sourceId"], json!("chunk-99"));
+        assert_eq!(v["sourceRefs"][0]["sourceType"], json!("transcript-chunk"));
+        assert_eq!(v["sourceRefs"][0]["relationType"], json!("evidence"));
+        assert_eq!(v["sourceRefs"][0]["confidence"], json!(0.85));
+        let parsed: Revision = serde_json::from_value(v).unwrap();
+        let refs = parsed.source_refs.unwrap();
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].source_id, "chunk-99");
     }
 
     #[test]

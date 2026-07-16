@@ -164,6 +164,7 @@ mod tests {
             prior_revision_id: None,
             agent: RevisionAgent::Human,
             provenance: None,
+            source_refs: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         }
     }
@@ -299,6 +300,7 @@ mod tests {
                 transitioned_at: Some("2026-06-01T12:00:00Z".to_string()),
                 import_source: None,
             }),
+            source_refs: None,
             created_at: "2026-06-01T12:00:00Z".to_string(),
         };
         append(&store, "records/rec-1.json", rev).unwrap();
