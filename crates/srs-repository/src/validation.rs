@@ -611,6 +611,9 @@ pub fn validate_repository(
                         // the SRS data model has no structural uniqueness marker on fields,
                         // so this check must key off the type identity. The field ID is
                         // resolved at runtime via find_field to avoid UUID drift.
+                        // Values are coerced to strings because spec repos store invariant
+                        // numbers as JSON numbers (e.g. 1, 2) while new records use
+                        // strings ("I-1"); both representations are compared after coercion.
                         if record.type_namespace == SPEC_INVARIANT_TYPE_NAMESPACE
                             && record.type_name == SPEC_INVARIANT_TYPE_NAME
                         {
@@ -618,13 +621,20 @@ pub fn validate_repository(
                                 SPEC_INVARIANT_TYPE_NAMESPACE,
                                 SPEC_INVARIANT_NUMBER_FIELD_NAME,
                             ) {
-                                if let Some(num_str) =
-                                    record.get_field_value_str(&inv_field.id)
+                                if let Some(fv) =
+                                    record.find_field_value(&inv_field.id)
                                 {
-                                    invariant_number_occurrences
-                                        .entry(num_str.to_string())
-                                        .or_default()
-                                        .push((rel_path.clone(), record.instance_id.clone()));
+                                    let num_str = match &fv.value {
+                                        serde_json::Value::String(s) => Some(s.clone()),
+                                        serde_json::Value::Number(n) => Some(n.to_string()),
+                                        _ => None,
+                                    };
+                                    if let Some(key) = num_str {
+                                        invariant_number_occurrences
+                                            .entry(key)
+                                            .or_default()
+                                            .push((rel_path.clone(), record.instance_id.clone()));
+                                    }
                                 }
                             }
                         }
@@ -6033,6 +6043,64 @@ mod tests {
             2,
             "expected 2 duplicate-invariant-number errors via MemoryStore, got: {:?}",
             report.diagnostics
+        );
+    }
+
+    #[test]
+    fn validate_invariant_number_uniqueness_integer_values_detected() {
+        // The real spec repo stores invariant numbers as JSON integers (1, 2, 3) not strings.
+        // This test confirms the Number variant is coerced and compared correctly.
+        let temp = TempDir::new().unwrap();
+        let id_a = "00000000-0000-4000-8000-0000000f0001";
+        let id_b = "00000000-0000-4000-8000-0000000f0002";
+
+        write_spec_invariant_pkg(temp.path());
+        write_json(
+            temp.path(),
+            "manifest.json",
+            &minimal_manifest(json!([
+                {"instanceId": id_a, "tier": 2, "path": "records/inv-a.json"},
+                {"instanceId": id_b, "tier": 2, "path": "records/inv-b.json"}
+            ])),
+        );
+        // Use integer JSON values (as the real spec repo does)
+        for (path, id) in [("records/inv-a.json", id_a), ("records/inv-b.json", id_b)] {
+            write_json(
+                temp.path(),
+                path,
+                &json!({
+                    "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                    "instanceId": id,
+                    "typeId": "2a000006-0000-4000-a000-000000000006",
+                    "typeVersion": 1,
+                    "typeNamespace": "com.semanticops.spec",
+                    "typeName": "invariant",
+                    "fieldValues": [{"fieldId": TEST_INV_NUM_FIELD_ID, "value": 42}],
+                    "createdAt": "2026-01-01T00:00:00Z"
+                }),
+            );
+        }
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let dup_errs: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Error
+                    && d.message.contains("duplicate invariant number")
+            })
+            .collect();
+        assert_eq!(
+            dup_errs.len(),
+            2,
+            "expected 2 duplicate-invariant-number errors for integer-valued duplicates, got: {:?}",
+            report.diagnostics
+        );
+        assert!(
+            dup_errs.iter().all(|d| d.message.contains("42")),
+            "all errors should name '42', got: {:?}",
+            dup_errs
         );
     }
 }
