@@ -475,6 +475,8 @@ mod tests {
             root_container: None,
             container_index: None,
             relations,
+            source_documents_path: None,
+            source_documents: vec![],
         }
     }
 
@@ -549,6 +551,8 @@ mod tests {
             root_container: None,
             container_index: None,
             relations: vec![],
+            source_documents_path: None,
+            source_documents: vec![],
         }
     }
 

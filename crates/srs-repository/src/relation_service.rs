@@ -1187,6 +1187,12 @@ mod tests {
             fn save_text_file(&self, _: &str, _: &str) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
+            fn load_binary_file(&self, _: &str) -> Result<Vec<u8>, RepositoryError> {
+                unimplemented!()
+            }
+            fn save_binary_file(&self, _: &str, _: &[u8]) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
             fn validate_package_ref_path(&self, _: &str) -> Result<(), RepositoryError> {
                 unimplemented!()
             }

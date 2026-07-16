@@ -9,6 +9,8 @@ use crate::repository_lifecycle::{
 };
 use crate::store::{RecordTier, RepositoryStore};
 use crate::writer::slugify_instance_name;
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine as _;
 use srs_core::types::blueprint::Blueprint;
 use srs_core::types::container::{Container, ContainerIndexEntry};
 use srs_core::types::field::Field;
@@ -52,6 +54,34 @@ pub struct PackageBoundarySnapshot {
     pub lifecycles: Vec<Lifecycle>,
 }
 
+/// Snapshot of a single source document: sidecar metadata + optional binary blob.
+///
+/// `content_base64` is `None` when the blob was excluded (text-only export) or the
+/// content file was absent in the source (tombstone — RFC-017 R12). Both cases are
+/// valid; import always reconstructs the index entry but writes the binary only when
+/// `content_base64` is `Some`.
+///
+/// `sidecar_path` and `content_path` are relative to `sourceDocumentsPath`
+/// (e.g. `"my-doc.meta.json"`, `"my-doc.pdf"`), never full repo-relative paths.
+/// The guard test `repository_snapshot_contains_no_paths` therefore still passes:
+/// no key named `"path"` appears, and no `"records/"` / `"package/"` prefix.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceDocumentSnapshot {
+    pub document_id: String,
+    pub sidecar_path: String,
+    pub content_path: String,
+    pub sidecar: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_base64: Option<String>,
+}
+
+/// Options controlling what `export_repository_snapshot_with_options` includes.
+#[derive(Debug, Clone, Copy)]
+pub struct ExportSnapshotOptions {
+    pub include_content_blobs: bool,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RepositorySnapshot {
@@ -68,6 +98,13 @@ pub struct RepositorySnapshot {
     #[serde(default)]
     pub container_index: Option<Vec<ContainerIndexEntry>>,
     pub relations: Vec<Relation>,
+    /// `manifest.extra["sourceDocumentsPath"]` — needed to reconstruct on import.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_documents_path: Option<String>,
+    /// One entry per `sourceDocumentIndex` item. Empty when the source has no source docs
+    /// or on a text-only export with no index.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source_documents: Vec<SourceDocumentSnapshot>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -106,6 +143,26 @@ struct RawPackageRef {
 
 pub fn export_repository_snapshot(
     source: &dyn RepositoryStore,
+) -> Result<RepositorySnapshot, RepositoryError> {
+    export_repository_snapshot_with_options(
+        source,
+        ExportSnapshotOptions {
+            include_content_blobs: false,
+        },
+    )
+}
+
+/// Export a full snapshot, optionally including binary source-document blobs.
+///
+/// With `include_content_blobs: false` (the default / `.srsj` path per RFC-017 Change F):
+///   sidecars are included; binary content is never read.
+/// With `include_content_blobs: true` (`.srs` archive and `copy_repository`):
+///   binary content is base64-encoded and attached to each `SourceDocumentSnapshot`.
+///   A missing content file is treated as a tombstone (RFC-017 R12): the snapshot
+///   entry is still emitted but `content_base64` is `None`.
+pub fn export_repository_snapshot_with_options(
+    source: &dyn RepositoryStore,
+    options: ExportSnapshotOptions,
 ) -> Result<RepositorySnapshot, RepositoryError> {
     let manifest = source.load_manifest()?;
 
@@ -164,6 +221,71 @@ pub fn export_repository_snapshot(
         packages.push(export_package_boundary(source, boundary)?);
     }
 
+    // Collect source documents (RFC-017; ADR-031).
+    let source_documents_path = manifest
+        .extra
+        .get("sourceDocumentsPath")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let src_docs_base = source_documents_path
+        .as_deref()
+        .unwrap_or("source-documents");
+    let index_entries: Vec<serde_json::Value> = manifest
+        .extra
+        .get("sourceDocumentIndex")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let mut source_documents = Vec::new();
+    for entry in &index_entries {
+        let document_id = entry
+            .get("documentId")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let sidecar_path = entry
+            .get("sidecarPath")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let content_path = entry
+            .get("contentPath")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+
+        let sidecar_full = format!("{src_docs_base}/{sidecar_path}");
+        let sidecar_str = match source.load_text_file(&sidecar_full) {
+            Ok(s) => s,
+            Err(ref e) if is_not_found(e) => continue, // tombstone: skip this entry
+            Err(e) => return Err(e),
+        };
+        let sidecar: serde_json::Value =
+            serde_json::from_str(&sidecar_str).map_err(|e| RepositoryError::InvalidSnapshotData {
+                message: format!("malformed sidecar '{}': {e}", sidecar_full),
+            })?;
+
+        let content_base64 = if options.include_content_blobs {
+            let content_full = format!("{src_docs_base}/{content_path}");
+            match source.load_binary_file(&content_full) {
+                Ok(bytes) => Some(BASE64.encode(&bytes)),
+                Err(ref e) if is_not_found(e) => None, // tombstone: RFC-017 R12
+                Err(e) => return Err(e),
+            }
+        } else {
+            None
+        };
+
+        source_documents.push(SourceDocumentSnapshot {
+            document_id,
+            sidecar_path,
+            content_path,
+            sidecar,
+            content_base64,
+        });
+    }
+
     Ok(RepositorySnapshot {
         repository: RepositoryMetadata {
             repository_id: manifest
@@ -202,7 +324,21 @@ pub fn export_repository_snapshot(
         root_container: manifest.container.clone(),
         container_index: manifest.container_index.clone(),
         relations: load_relations(source)?,
+        source_documents_path: if source_documents.is_empty() {
+            None
+        } else {
+            Some(src_docs_base.to_string())
+        },
+        source_documents,
     })
+}
+
+/// True for both `RepositoryError::NotFound` (MemoryStore) and
+/// `RepositoryError::Io { source }` where `source.kind() == NotFound` (FileStore/JsonStore).
+fn is_not_found(err: &RepositoryError) -> bool {
+    matches!(err, RepositoryError::NotFound { .. })
+        || matches!(err, RepositoryError::Io { source, .. }
+            if source.kind() == std::io::ErrorKind::NotFound)
 }
 
 pub fn import_repository_snapshot(
@@ -307,6 +443,54 @@ fn do_import(
     if let Some(container_index) = &snapshot.container_index {
         manifest.container_index = Some(container_index.clone());
     }
+
+    // Materialize source documents (RFC-017 R3/R12; ADR-007: files before index;
+    // ADR-021: writes happen inside the begin_batch/commit_batch bracket above).
+    if !snapshot.source_documents.is_empty() {
+        let src_docs_base = snapshot
+            .source_documents_path
+            .as_deref()
+            .unwrap_or("source-documents");
+        let mut source_doc_index: Vec<serde_json::Value> =
+            Vec::with_capacity(snapshot.source_documents.len());
+        for entry in &snapshot.source_documents {
+            let sidecar_full = format!("{src_docs_base}/{}", entry.sidecar_path);
+            let sidecar_str =
+                serde_json::to_string_pretty(&entry.sidecar).map_err(|e| {
+                    RepositoryError::Serialize {
+                        path: std::path::PathBuf::from(&sidecar_full),
+                        source: e,
+                    }
+                })?;
+            target.save_text_file(&sidecar_full, &sidecar_str)?;
+            if let Some(b64) = &entry.content_base64 {
+                let bytes = BASE64.decode(b64).map_err(|e| {
+                    RepositoryError::InvalidSnapshotData {
+                        message: format!(
+                            "base64 decode failed for '{}': {e}",
+                            entry.content_path
+                        ),
+                    }
+                })?;
+                let content_full = format!("{src_docs_base}/{}", entry.content_path);
+                target.save_binary_file(&content_full, &bytes)?;
+            }
+            source_doc_index.push(serde_json::json!({
+                "documentId": entry.document_id,
+                "sidecarPath": entry.sidecar_path,
+                "contentPath": entry.content_path,
+            }));
+        }
+        manifest.extra.insert(
+            "sourceDocumentsPath".to_string(),
+            serde_json::Value::String(src_docs_base.to_string()),
+        );
+        manifest.extra.insert(
+            "sourceDocumentIndex".to_string(),
+            serde_json::Value::Array(source_doc_index),
+        );
+    }
+
     target.save_manifest(&manifest)?;
 
     for container in &snapshot.containers {
@@ -333,7 +517,12 @@ pub fn copy_repository(
     source: &dyn RepositoryStore,
     target: &dyn RepositoryStore,
 ) -> Result<(), RepositoryError> {
-    let snapshot = export_repository_snapshot(source)?;
+    let snapshot = export_repository_snapshot_with_options(
+        source,
+        ExportSnapshotOptions {
+            include_content_blobs: true,
+        },
+    )?;
     import_repository_snapshot(target, &snapshot)
 }
 
@@ -1783,5 +1972,221 @@ mod tests {
             store.load_instance_json(&new_sidecar).is_ok(),
             "new sidecar should exist at canonical path"
         );
+    }
+
+    // --- Source document snapshot tests (RFC-017, ADR-031) ---
+
+    fn make_source_doc_manifest(store: &dyn RepositoryStore) {
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.extra.insert(
+            "sourceDocumentsPath".to_string(),
+            serde_json::Value::String("source-documents".to_string()),
+        );
+        manifest.extra.insert(
+            "sourceDocumentIndex".to_string(),
+            serde_json::json!([{
+                "documentId": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+                "sidecarPath": "my-doc.meta.json",
+                "contentPath": "my-doc.pdf"
+            }]),
+        );
+        store.save_manifest(&manifest).unwrap();
+    }
+
+    const SIDECAR_JSON: &str = r#"{
+        "documentId": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+        "contentPath": "my-doc.pdf",
+        "contentType": "application/pdf",
+        "createdAt": "2026-01-01T00:00:00Z"
+    }"#;
+
+    #[test]
+    fn source_document_binary_roundtrip() {
+        let binary_content = b"PDF binary content \x00\x01\x02";
+
+        let source = MemoryStore::uninitialized();
+        source.initialize_repository(&make_input()).unwrap();
+        source
+            .save_text_file("source-documents/my-doc.meta.json", SIDECAR_JSON)
+            .unwrap();
+        source
+            .save_binary_file("source-documents/my-doc.pdf", binary_content)
+            .unwrap();
+        make_source_doc_manifest(&source);
+
+        // Export with blobs.
+        let snapshot = export_repository_snapshot_with_options(
+            &source,
+            ExportSnapshotOptions {
+                include_content_blobs: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(snapshot.source_documents.len(), 1);
+        let sd = &snapshot.source_documents[0];
+        assert_eq!(sd.document_id, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee");
+        assert_eq!(sd.sidecar_path, "my-doc.meta.json");
+        assert_eq!(sd.content_path, "my-doc.pdf");
+        assert!(sd.content_base64.is_some(), "blob must be present");
+
+        // Import into a target MemoryStore and verify both files materialise.
+        let target = MemoryStore::uninitialized();
+        import_repository_snapshot(&target, &snapshot).unwrap();
+
+        let sidecar_str = target
+            .load_text_file("source-documents/my-doc.meta.json")
+            .unwrap();
+        let sidecar: serde_json::Value = serde_json::from_str(&sidecar_str).unwrap();
+        assert_eq!(
+            sidecar["documentId"],
+            "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+        );
+        let recovered_bytes = target
+            .load_binary_file("source-documents/my-doc.pdf")
+            .unwrap();
+        assert_eq!(recovered_bytes, binary_content);
+
+        // Manifest must carry sourceDocumentIndex.
+        let manifest = target.load_manifest().unwrap();
+        let idx = manifest.extra["sourceDocumentIndex"].as_array().unwrap();
+        assert_eq!(idx.len(), 1);
+        assert_eq!(idx[0]["documentId"], "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee");
+    }
+
+    #[test]
+    fn source_document_text_only_export_excludes_blob() {
+        let source = MemoryStore::uninitialized();
+        source.initialize_repository(&make_input()).unwrap();
+        source
+            .save_text_file("source-documents/my-doc.meta.json", SIDECAR_JSON)
+            .unwrap();
+        source
+            .save_binary_file("source-documents/my-doc.pdf", b"binary")
+            .unwrap();
+        make_source_doc_manifest(&source);
+
+        // Default export (include_content_blobs: false).
+        let snapshot = export_repository_snapshot(&source).unwrap();
+        assert_eq!(snapshot.source_documents.len(), 1);
+        assert!(
+            snapshot.source_documents[0].content_base64.is_none(),
+            "text-only export must not include binary blob"
+        );
+        // Sidecar metadata must still be present.
+        assert_eq!(
+            snapshot.source_documents[0].sidecar["contentType"],
+            "application/pdf"
+        );
+    }
+
+    #[test]
+    fn content_file_tombstone_during_export() {
+        // Index entry present, sidecar present, binary absent → tombstone (RFC-017 R12).
+        let source = MemoryStore::uninitialized();
+        source.initialize_repository(&make_input()).unwrap();
+        source
+            .save_text_file("source-documents/my-doc.meta.json", SIDECAR_JSON)
+            .unwrap();
+        // No binary file written.
+        make_source_doc_manifest(&source);
+
+        let snapshot = export_repository_snapshot_with_options(
+            &source,
+            ExportSnapshotOptions {
+                include_content_blobs: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            snapshot.source_documents.len(),
+            1,
+            "tombstone entry must still appear in snapshot"
+        );
+        assert!(
+            snapshot.source_documents[0].content_base64.is_none(),
+            "missing binary must yield content_base64: None"
+        );
+    }
+
+    #[test]
+    fn sidecar_absent_tombstone_during_export() {
+        // Index entry present but sidecar file is missing → whole entry skipped gracefully.
+        let source = MemoryStore::uninitialized();
+        source.initialize_repository(&make_input()).unwrap();
+        // Neither sidecar nor binary written.
+        make_source_doc_manifest(&source);
+
+        let snapshot = export_repository_snapshot_with_options(
+            &source,
+            ExportSnapshotOptions {
+                include_content_blobs: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            snapshot.source_documents.len(),
+            0,
+            "entry with absent sidecar must be skipped"
+        );
+    }
+
+    #[test]
+    fn copy_preserves_source_documents() {
+        let binary_content = b"source document bytes";
+
+        let source = MemoryStore::uninitialized();
+        source.initialize_repository(&make_input()).unwrap();
+        source
+            .save_text_file("source-documents/my-doc.meta.json", SIDECAR_JSON)
+            .unwrap();
+        source
+            .save_binary_file("source-documents/my-doc.pdf", binary_content)
+            .unwrap();
+        make_source_doc_manifest(&source);
+
+        let temp = TempDir::new().unwrap();
+        let target = FileStore::new(temp.path());
+        copy_repository(&source, &target).unwrap();
+
+        let recovered = target
+            .load_text_file("source-documents/my-doc.meta.json")
+            .unwrap();
+        let sidecar: serde_json::Value = serde_json::from_str(&recovered).unwrap();
+        assert_eq!(
+            sidecar["documentId"],
+            "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+        );
+        let recovered_bytes = target
+            .load_binary_file("source-documents/my-doc.pdf")
+            .unwrap();
+        assert_eq!(recovered_bytes, binary_content);
+    }
+
+    #[test]
+    fn snapshot_with_source_docs_passes_path_guard() {
+        // The path guard must still pass when source_documents is populated.
+        // Field names in SourceDocumentSnapshot (sidecarPath, contentPath, documentId)
+        // contain "Path" with uppercase P — never the bare lowercase "path" key the
+        // guard checks for. Sidecar field names (contentPath, contentType, …) similarly
+        // contain no standalone "path" key.
+        let source = MemoryStore::uninitialized();
+        source.initialize_repository(&make_input()).unwrap();
+        source
+            .save_text_file("source-documents/my-doc.meta.json", SIDECAR_JSON)
+            .unwrap();
+        make_source_doc_manifest(&source);
+
+        let snapshot = export_repository_snapshot_with_options(
+            &source,
+            ExportSnapshotOptions {
+                include_content_blobs: false,
+            },
+        )
+        .unwrap();
+        assert!(!snapshot.source_documents.is_empty());
+        let text = serde_json::to_string(&snapshot).unwrap();
+        assert!(!text.contains("\"path\""), "bare \"path\" key must not appear");
+        assert!(!text.contains("package/"), "package/ prefix must not appear");
+        assert!(!text.contains("records/"), "records/ prefix must not appear");
     }
 }
