@@ -42,7 +42,7 @@ use std::path::{Path, PathBuf};
 use serde::de::Error as SerdeDeError;
 use serde::{Deserialize, Serialize};
 use srs_core::extensions::import_tracking::{
-    DefinitionType, ImportMode, ImportRecord, ImportSummary,
+    ConflictState, DefinitionType, ImportMode, ImportRecord, ImportSummary,
 };
 
 use crate::error::RepositoryError;
@@ -828,7 +828,7 @@ pub fn install_package_bundle(
                 latest_known_upstream_version: None,
                 update_available: None,
                 update_checked_at: None,
-                conflict_state: None,
+                conflict_state: Some(ConflictState::Clean),
                 conflict_detected_at: None,
                 local_version: None,
                 local_edited_at: None,
@@ -992,6 +992,7 @@ mod tests {
         );
         assert_eq!(field0["mode"].as_str(), Some("upstream-tracked"));
         assert_eq!(field0["definitionType"].as_str(), Some("field"));
+        assert_eq!(field0["conflictState"].as_str(), Some("clean"));
 
         // Reference copies present alongside the installed files.
         let ref_alpha = crate::store::RepositoryStore::load_instance_json(

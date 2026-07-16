@@ -28,7 +28,7 @@ use crate::store::RepositoryStore;
 use crate::writer::new_instance_id;
 use serde::{Deserialize, Serialize};
 use srs_core::extensions::import_tracking::{
-    DefinitionType, ImportMode, ImportRecord, ImportSummary,
+    ConflictState, DefinitionType, ImportMode, ImportRecord, ImportSummary,
 };
 use srs_core::types::field::Field;
 use srs_core::types::record_type::RecordType;
@@ -1176,6 +1176,134 @@ fn write_local_import_records(
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// list_package_imports
+// ---------------------------------------------------------------------------
+
+/// Empty filter struct per ADR-010 (list functions take a filter struct).
+#[derive(Debug, Clone, Default)]
+pub struct ListPackageImportsFilter {}
+
+/// Aggregate all boundaries' import records and run live divergence detection.
+///
+/// For each boundary that has a `.srs-import/import-records.json`, deserializes
+/// the stored `ImportSummary` and, for `UpstreamTracked` records, compares the
+/// current definition JSON against the stored reference copy:
+/// - Equal → `ConflictState::Clean`
+/// - Different → `ConflictState::LocalAhead`
+///
+/// Boundaries without an import-records.json are silently skipped (normal for
+/// the primary package and any boundary not created via `install` or `import`).
+pub fn list_package_imports(
+    store: &dyn RepositoryStore,
+    _filter: ListPackageImportsFilter,
+) -> Result<ImportSummary, RepositoryError> {
+    let boundaries = store.list_package_boundaries()?;
+
+    let mut all_fields: Vec<ImportRecord> = Vec::new();
+    let mut all_types: Vec<ImportRecord> = Vec::new();
+    let mut all_views: Vec<ImportRecord> = Vec::new();
+    let mut all_blueprints: Vec<ImportRecord> = Vec::new();
+    let mut all_protocols: Vec<ImportRecord> = Vec::new();
+    let mut all_relation_types: Vec<ImportRecord> = Vec::new();
+    let mut all_skipped: Vec<String> = Vec::new();
+
+    for boundary in &boundaries {
+        let boundary_path = match &boundary.selector {
+            None => "package".to_string(),
+            Some(p) => p.clone(),
+        };
+
+        let records_key = format!("{boundary_path}/.srs-import/import-records.json");
+        let Ok(records_value) = store.load_instance_json(&records_key) else {
+            continue;
+        };
+        let Ok(mut summary) = serde_json::from_value::<ImportSummary>(records_value) else {
+            continue;
+        };
+
+        // Collect all tracked definition paths for divergence lookups.
+        let tracked_paths: Vec<&str> = boundary
+            .field_paths
+            .iter()
+            .chain(&boundary.type_paths)
+            .chain(&boundary.blueprint_paths)
+            .chain(&boundary.protocol_paths)
+            .map(String::as_str)
+            .collect();
+
+        // Run divergence detection for upstream-tracked records.
+        let record_lists: [&mut Vec<ImportRecord>; 6] = [
+            &mut summary.fields,
+            &mut summary.types,
+            &mut summary.views,
+            &mut summary.blueprints,
+            &mut summary.protocols,
+            &mut summary.relation_types,
+        ];
+        for record_list in record_lists {
+            for record in record_list.iter_mut() {
+                if record.mode != ImportMode::UpstreamTracked {
+                    continue;
+                }
+                // Find the relative path whose JSON id matches this record.
+                let def_path = tracked_paths.iter().find(|path| {
+                    store
+                        .load_instance_json(&format!("{boundary_path}/{path}"))
+                        .ok()
+                        .and_then(|v| v["id"].as_str().map(str::to_string))
+                        .as_deref()
+                        == Some(record.definition_id.as_str())
+                });
+
+                let Some(&def_path) = def_path else {
+                    all_skipped.push(format!(
+                        "divergence skipped for {}: definition not found in boundary",
+                        record.definition_id
+                    ));
+                    continue;
+                };
+
+                let current = store
+                    .load_instance_json(&format!("{boundary_path}/{def_path}"))
+                    .ok();
+                let reference = store
+                    .load_instance_json(&format!(
+                        "{boundary_path}/.srs-import/refs/{def_path}"
+                    ))
+                    .ok();
+
+                if let (Some(cur), Some(ref_)) = (current, reference) {
+                    record.conflict_state = Some(if cur == ref_ {
+                        ConflictState::Clean
+                    } else {
+                        ConflictState::LocalAhead
+                    });
+                }
+            }
+        }
+
+        all_fields.extend(summary.fields);
+        all_types.extend(summary.types);
+        all_views.extend(summary.views);
+        all_blueprints.extend(summary.blueprints);
+        all_protocols.extend(summary.protocols);
+        all_relation_types.extend(summary.relation_types);
+        all_skipped.extend(summary.skipped_definitions);
+    }
+
+    Ok(ImportSummary {
+        generated_at: chrono::Utc::now().to_rfc3339(),
+        fields: all_fields,
+        types: all_types,
+        views: all_views,
+        blueprints: all_blueprints,
+        protocols: all_protocols,
+        relation_types: all_relation_types,
+        skipped_definitions: all_skipped,
+    })
+}
+
 /// Input for updating package boundary metadata.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -2201,6 +2329,205 @@ mod tests {
                 .iter()
                 .any(|p| p.boundary_path == Some("pkg/sub".to_string())),
             "sub-package should be present"
+        );
+    }
+
+    // --- Phase 5: list_package_imports tests ---
+
+    fn lpi_field_value(id: &str, name: &str) -> serde_json::Value {
+        serde_json::json!({
+            "id": id,
+            "namespace": "com.test",
+            "name": name,
+            "version": 1,
+            "valueType": "string",
+            "createdAt": "2026-01-01T00:00:00Z"
+        })
+    }
+
+    fn lpi_bundle(
+        field_id: &str,
+        field_name: &str,
+    ) -> crate::package_install_service::PackageSourceBundle {
+        use crate::package_install_service::{PackageSourceBundle, PackageSourceDefinition};
+        PackageSourceBundle {
+            id: "lpi-pkg-0001".to_string(),
+            namespace: "com.lpi.pkg".to_string(),
+            name: "lpi".to_string(),
+            version: "1.0.0".to_string(),
+            definitions: vec![PackageSourceDefinition {
+                kind: DefinitionKind::Field,
+                rel_path: "fields/alpha.json".to_string(),
+                value: lpi_field_value(field_id, field_name),
+            }],
+        }
+    }
+
+    #[test]
+    fn list_package_imports_empty() {
+        let store = MemoryStore::default();
+        let result = list_package_imports(&store, ListPackageImportsFilter::default()).unwrap();
+        assert!(result.fields.is_empty());
+        assert!(result.types.is_empty());
+        assert!(result.relation_types.is_empty());
+        assert!(result.skipped_definitions.is_empty());
+    }
+
+    #[test]
+    fn list_package_imports_skips_boundary_without_records() {
+        let store = MemoryStore::default();
+        create_package(
+            &store,
+            CreatePackageInput {
+                id: "no-rec-001".to_string(),
+                namespace: "com.test".to_string(),
+                name: "no-records".to_string(),
+                version: "1.0.0".to_string(),
+                boundary_path: Some("pkg/no-records".to_string()),
+            },
+        )
+        .unwrap();
+
+        let result = list_package_imports(&store, ListPackageImportsFilter::default()).unwrap();
+        assert!(result.fields.is_empty());
+        assert!(result.skipped_definitions.is_empty());
+    }
+
+    #[test]
+    fn list_package_imports_clean_after_install() {
+        use crate::package_install_service::{install_package_bundle, InstallBundleOptions};
+        use srs_core::extensions::import_tracking::ConflictState;
+
+        let store = MemoryStore::default();
+        install_package_bundle(
+            &store,
+            &lpi_bundle("00000000-0000-4000-8000-0000000000a1", "alpha"),
+            InstallBundleOptions::default(),
+        )
+        .unwrap();
+
+        let result = list_package_imports(&store, ListPackageImportsFilter::default()).unwrap();
+        assert_eq!(result.fields.len(), 1);
+        assert_eq!(
+            result.fields[0].conflict_state,
+            Some(ConflictState::Clean),
+            "freshly installed field should be clean"
+        );
+    }
+
+    #[test]
+    fn list_package_imports_local_ahead_after_edit() {
+        use crate::package_install_service::{install_package_bundle, InstallBundleOptions};
+        use crate::store::RepositoryStore;
+        use srs_core::extensions::import_tracking::ConflictState;
+
+        let store = MemoryStore::default();
+        install_package_bundle(
+            &store,
+            &lpi_bundle("00000000-0000-4000-8000-0000000000a1", "alpha"),
+            InstallBundleOptions::default(),
+        )
+        .unwrap();
+
+        // Simulate local edit: overwrite the installed definition with different content.
+        let modified = serde_json::json!({
+            "id": "00000000-0000-4000-8000-0000000000a1",
+            "namespace": "com.test",
+            "name": "alpha-local-edit",
+            "version": 2,
+            "valueType": "text",
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        store
+            .save_instance_json("packages/lpi/fields/alpha.json", &modified)
+            .unwrap();
+
+        let result = list_package_imports(&store, ListPackageImportsFilter::default()).unwrap();
+        assert_eq!(result.fields.len(), 1);
+        assert_eq!(
+            result.fields[0].conflict_state,
+            Some(ConflictState::LocalAhead),
+            "locally edited field should be detected as local-ahead"
+        );
+    }
+
+    #[test]
+    fn list_package_imports_keeps_record_after_definition_deleted() {
+        use crate::store::RepositoryStore;
+        use srs_core::extensions::import_tracking::{
+            ConflictState, DefinitionType, ImportMode, ImportRecord, ImportSummary,
+        };
+
+        let store = MemoryStore::default();
+        // Create boundary without any field_paths (simulates a boundary whose
+        // definition file was deleted after installation).
+        create_package(
+            &store,
+            CreatePackageInput {
+                id: "del-test-001".to_string(),
+                namespace: "com.del".to_string(),
+                name: "del-test".to_string(),
+                version: "1.0.0".to_string(),
+                boundary_path: Some("pkg/del-test".to_string()),
+            },
+        )
+        .unwrap();
+
+        // Write import-records.json referencing a definition that is not in the store.
+        let record = ImportRecord {
+            definition_id: "00000000-0000-4000-8000-0000000000f1".to_string(),
+            definition_type: DefinitionType::Field,
+            namespace: "com.del".to_string(),
+            name: "gone".to_string(),
+            version: 1,
+            mode: ImportMode::UpstreamTracked,
+            imported_at: "2026-01-01T00:00:00Z".to_string(),
+            source_package_id: "del-test-001".to_string(),
+            source_package_name: "com.del".to_string(),
+            source_package_version: "1.0.0".to_string(),
+            latest_known_upstream_version: None,
+            update_available: None,
+            update_checked_at: None,
+            conflict_state: Some(ConflictState::Clean),
+            conflict_detected_at: None,
+            local_version: None,
+            local_edited_at: None,
+        };
+        let summary = ImportSummary {
+            generated_at: "2026-01-01T00:00:00Z".to_string(),
+            fields: vec![record],
+            types: vec![],
+            views: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            relation_types: vec![],
+            skipped_definitions: vec![],
+        };
+        store
+            .save_instance_json(
+                "pkg/del-test/.srs-import/import-records.json",
+                &serde_json::to_value(&summary).unwrap(),
+            )
+            .unwrap();
+        // Definition file intentionally NOT saved — simulates post-deletion state.
+
+        let result = list_package_imports(&store, ListPackageImportsFilter::default()).unwrap();
+        assert_eq!(
+            result.fields.len(),
+            1,
+            "import record should persist even after the definition file is deleted"
+        );
+        assert_eq!(
+            result.fields[0].definition_id,
+            "00000000-0000-4000-8000-0000000000f1"
+        );
+        // Divergence detection was skipped (definition not in tracked_paths),
+        // so conflict_state retains the stored value.
+        assert_eq!(result.fields[0].conflict_state, Some(ConflictState::Clean));
+        // A message should appear in skipped_definitions.
+        assert!(
+            !result.skipped_definitions.is_empty(),
+            "skipped_definitions should note that divergence was skipped"
         );
     }
 }
