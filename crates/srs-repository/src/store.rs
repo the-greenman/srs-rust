@@ -2989,11 +2989,20 @@ pub mod memory {
         }
 
         fn load_text_file(&self, relative_path: &str) -> Result<String, RepositoryError> {
-            self.data
+            let value = self
+                .data
                 .borrow()
                 .get(relative_path)
-                .and_then(|v| v.as_str().map(|s| s.to_string()))
-                .ok_or_else(|| not_found(relative_path))
+                .cloned()
+                .ok_or_else(|| not_found(relative_path))?;
+            match value {
+                serde_json::Value::String(s) => Ok(s),
+                other => serde_json::to_string(&other)
+                    .map_err(|source| RepositoryError::Serialize {
+                        path: std::path::PathBuf::from(relative_path),
+                        source,
+                    }),
+            }
         }
 
         fn save_text_file(&self, relative_path: &str, content: &str) -> Result<(), RepositoryError> {

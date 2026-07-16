@@ -13,7 +13,8 @@ pub const DEFAULT_FEDERATION_EVENTS_PATH: &str = "federation/events.json";
 
 // ── Input/output types ────────────────────────────────────────────────────
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ResolveRepositoryInput {
     pub repository_id: String,
 }
@@ -148,7 +149,9 @@ fn load_registry_at(
 }
 
 /// DFS search through a registry and its children for a `repository_id`.
-/// `seen` tracks visited `registry_id`s to detect cycles (Invariant 62).
+/// `seen` is the ancestor set for the current DFS path — used to detect back-edges (cycles).
+/// Entries are removed on backtrack so sibling subtrees (diamond topology) are not
+/// mistaken for cycles (Invariant 62).
 /// Returns `(registry_id, entry)` if found, `None` if the subtree has no match.
 fn dfs_search_registry(
     store: &dyn RepositoryStore,
@@ -186,6 +189,9 @@ fn dfs_search_registry(
         }
     }
 
+    // Backtrack: remove this registry from the ancestor set so sibling paths
+    // can visit it without triggering a false cycle error.
+    seen.remove(&this_registry_id);
     Ok(None)
 }
 

@@ -1618,7 +1618,7 @@ impl RepositoryStore for JsonStore {
             .borrow_mut()
             .data
             .insert(relative_path.to_string(), serde_json::Value::String(content.to_string()));
-        Ok(())
+        self.flush()
     }
 
     fn validate_package_ref_path(&self, _relative_path: &str) -> Result<(), RepositoryError> {

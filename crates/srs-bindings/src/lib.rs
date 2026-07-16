@@ -761,15 +761,9 @@ impl SrsRepository {
     /// with `found`, `registryId`, and `entry` (null when not found).
     /// Errors when the federation registry file is absent.
     pub fn federation_resolve(&self, input_json: &str) -> Result<JsValue, JsValue> {
-        let input: FederationResolveInput = serde_json::from_str(input_json)
+        let input: ResolveRepositoryInput = serde_json::from_str(input_json)
             .map_err(|e| js_err(format!("invalid input: {e}")))?;
-        let result = resolve_repository(
-            &self.store,
-            ResolveRepositoryInput {
-                repository_id: input.repository_id,
-            },
-        )
-        .map_err(js_err)?;
+        let result = resolve_repository(&self.store, input).map_err(js_err)?;
         to_js(&result)
     }
 
@@ -944,14 +938,6 @@ struct CreateRecordBindingInput {
     tags: Option<Vec<String>>,
 }
 
-/// Input shape for `federation_resolve` — parsed from caller-supplied JSON.
-/// `ResolveRepositoryInput` in srs-repository does not derive `Deserialize`
-/// (it is a pure typed struct), so this binding struct handles deserialization.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct FederationResolveInput {
-    repository_id: String,
-}
 
 #[cfg(test)]
 mod tests {
