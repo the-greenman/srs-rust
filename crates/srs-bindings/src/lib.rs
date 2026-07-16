@@ -24,7 +24,7 @@ use srs_repository::record_store::{
 use srs_repository::registry_service::{
     filter_registry_entries, parse_registry_json, RegistryListFilter,
 };
-use srs_repository::relation_service::{self, ListRelationsFilter};
+use srs_repository::relation_service::{self, ListRelationsFilter, OrderByPrecedesInput};
 use srs_repository::render_service::{self, RenderDocumentViewOptions};
 use srs_repository::repository_lifecycle::{self, InitNewRepositoryInput};
 use srs_repository::repository_navigation_service;
@@ -283,6 +283,30 @@ impl SrsRepository {
     pub fn delete_relation(&self, relation_id: &str) -> Result<(), JsValue> {
         relation_service::delete_relation(&self.store, relation_id).map_err(js_err)?;
         Ok(())
+    }
+
+    /// Order a set of instance IDs by following the `precedes` relation chain.
+    ///
+    /// `input_json` is `{ "instanceIds": ["uuid1", "uuid2", ...] }`.
+    /// Returns `{ "orderedIds": [...] }` — same IDs, reordered by the `precedes`
+    /// chain. Falls back to `created_at` ascending, then `instanceId` ascending,
+    /// for records not connected by a `precedes` edge. Handles cycles.
+    pub fn order_by_precedes(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Input {
+            instance_ids: Vec<String>,
+        }
+        let parsed: Input = serde_json::from_str(input_json)
+            .map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let result = relation_service::order_by_precedes(
+            &self.store,
+            OrderByPrecedesInput {
+                instance_ids: parsed.instance_ids,
+            },
+        )
+        .map_err(js_err)?;
+        to_js(&result)
     }
 
     /// Transition a record's lifecycle state.
