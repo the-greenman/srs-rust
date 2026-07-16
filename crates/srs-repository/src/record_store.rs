@@ -29,7 +29,6 @@ use crate::relation_service;
 use crate::revision_service;
 use crate::store::{RecordTier, RepositoryStore};
 use crate::writer::{new_instance_id, slugify_instance_name, write_manifest};
-use srs_schema::RECORD_SCHEMA_ID;
 use serde::{Deserialize, Serialize};
 use srs_core::types::field::ValueType;
 use srs_core::types::lifecycle::{RelationDirection, RequiresRelation};
@@ -41,6 +40,7 @@ use srs_core::validation::lifecycle::validate_type_lifecycle_v9;
 use srs_core::validation::record::{validate_record, validate_record_all, validate_type_lifecycle};
 use srs_core::validation::record_type::validate_cross_field_rules;
 use srs_core::validation::relation::validate_relation_type_for_write;
+use srs_schema::RECORD_SCHEMA_ID;
 use std::collections::HashMap;
 
 /// List all Tier 2 records in the repository, regardless of type.
@@ -6552,7 +6552,6 @@ mod tests {
 
     #[test]
     fn write_record_includes_schema_header() {
-        use crate::store::memory::MemoryStore;
         use srs_core::types::record::{FieldValue, Record};
 
         let store = make_store_with_package();
@@ -6587,7 +6586,7 @@ mod tests {
 
         assert_eq!(
             val.get("$schema").and_then(|v| v.as_str()),
-            Some("https://srs.semanticops.com/schema/2.0/record.json"),
+            Some(RECORD_SCHEMA_ID),
             "write_record must stamp the $schema key (ADR-004)"
         );
     }
