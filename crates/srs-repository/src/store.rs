@@ -4176,4 +4176,58 @@ mod tests {
             "SaveManifest point must still fire after a delete_instance_file call"
         );
     }
+
+    #[test]
+    fn binary_file_roundtrip_memory() {
+        let store = MemoryStore::empty();
+        let bytes = b"binary\x00\x01\x02\xffcontent";
+        store
+            .save_binary_file("source-documents/doc.pdf", bytes)
+            .expect("save_binary_file must succeed on MemoryStore");
+        let loaded = store
+            .load_binary_file("source-documents/doc.pdf")
+            .expect("load_binary_file must return bytes that were saved");
+        assert_eq!(loaded, bytes);
+    }
+
+    #[test]
+    fn binary_file_roundtrip_memory_not_found() {
+        let store = MemoryStore::empty();
+        let err = store
+            .load_binary_file("source-documents/absent.pdf")
+            .expect_err("load_binary_file must return an error for absent path");
+        assert!(
+            err.is_not_found(),
+            "absent binary file must return a not-found error, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn binary_file_roundtrip_file() {
+        let temp = tempfile::TempDir::new().unwrap();
+        write_minimal_file_repo(&temp);
+        let store = FileStore::new(temp.path());
+        let bytes = b"binary\x00\x01\x02\xffcontent";
+        store
+            .save_binary_file("source-documents/doc.pdf", bytes)
+            .expect("save_binary_file must succeed on FileStore");
+        let loaded = store
+            .load_binary_file("source-documents/doc.pdf")
+            .expect("load_binary_file must return bytes that were saved");
+        assert_eq!(loaded, bytes);
+    }
+
+    #[test]
+    fn binary_file_roundtrip_file_not_found() {
+        let temp = tempfile::TempDir::new().unwrap();
+        write_minimal_file_repo(&temp);
+        let store = FileStore::new(temp.path());
+        let err = store
+            .load_binary_file("source-documents/absent.pdf")
+            .expect_err("load_binary_file must return an error for absent path");
+        assert!(
+            err.is_not_found(),
+            "absent binary file must return a not-found error, got: {err:?}"
+        );
+    }
 }

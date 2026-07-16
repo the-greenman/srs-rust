@@ -242,23 +242,38 @@ pub fn export_repository_snapshot_with_options(
         let document_id = entry
             .get("documentId")
             .and_then(|v| v.as_str())
-            .unwrap_or_default()
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| RepositoryError::InvalidSnapshotData {
+                message: format!(
+                    "sourceDocumentIndex entry missing or empty 'documentId': {entry}"
+                ),
+            })?
             .to_string();
         let sidecar_path = entry
             .get("sidecarPath")
             .and_then(|v| v.as_str())
-            .unwrap_or_default()
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| RepositoryError::InvalidSnapshotData {
+                message: format!(
+                    "sourceDocumentIndex entry missing or empty 'sidecarPath': {entry}"
+                ),
+            })?
             .to_string();
         let content_path = entry
             .get("contentPath")
             .and_then(|v| v.as_str())
-            .unwrap_or_default()
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| RepositoryError::InvalidSnapshotData {
+                message: format!(
+                    "sourceDocumentIndex entry missing or empty 'contentPath': {entry}"
+                ),
+            })?
             .to_string();
 
         let sidecar_full = format!("{src_docs_base}/{sidecar_path}");
         let sidecar_str = match source.load_text_file(&sidecar_full) {
             Ok(s) => s,
-            Err(ref e) if is_not_found(e) => continue, // tombstone: skip this entry
+            Err(ref e) if e.is_not_found() => continue, // tombstone: skip this entry
             Err(e) => return Err(e),
         };
         let sidecar: serde_json::Value =
@@ -270,7 +285,7 @@ pub fn export_repository_snapshot_with_options(
             let content_full = format!("{src_docs_base}/{content_path}");
             match source.load_binary_file(&content_full) {
                 Ok(bytes) => Some(BASE64.encode(&bytes)),
-                Err(ref e) if is_not_found(e) => None, // tombstone: RFC-017 R12
+                Err(ref e) if e.is_not_found() => None, // tombstone: RFC-017 R12
                 Err(e) => return Err(e),
             }
         } else {
@@ -331,14 +346,6 @@ pub fn export_repository_snapshot_with_options(
         },
         source_documents,
     })
-}
-
-/// True for both `RepositoryError::NotFound` (MemoryStore) and
-/// `RepositoryError::Io { source }` where `source.kind() == NotFound` (FileStore/JsonStore).
-fn is_not_found(err: &RepositoryError) -> bool {
-    matches!(err, RepositoryError::NotFound { .. })
-        || matches!(err, RepositoryError::Io { source, .. }
-            if source.kind() == std::io::ErrorKind::NotFound)
 }
 
 pub fn import_repository_snapshot(

@@ -837,3 +837,13 @@ impl PartialEq for RepositoryError {
         }
     }
 }
+
+impl RepositoryError {
+    /// Returns true for both `NotFound` (MemoryStore) and `Io` where
+    /// `source.kind() == NotFound` (FileStore/JsonStore).
+    pub fn is_not_found(&self) -> bool {
+        matches!(self, RepositoryError::NotFound { .. })
+            || matches!(self, RepositoryError::Io { source, .. }
+                if source.kind() == std::io::ErrorKind::NotFound)
+    }
+}

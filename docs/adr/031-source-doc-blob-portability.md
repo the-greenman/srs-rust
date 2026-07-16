@@ -44,6 +44,7 @@ A third option — a separate out-of-band `HashMap<documentId, Vec<u8>>` return 
 - Adds `base64 = "0.22"` as a workspace dependency.
 - Large binary blobs inflate JSON by ~33%; the snapshot is not intended for streaming large archives (that is the `.srs` ZIP archive's job).
 - `export_repository_snapshot_with_options` duplicates the function signature surface; callers must choose the right variant.
+- **Known limitation — all-tombstone edge case:** if every source-document sidecar file is absent at export time (all entries are tombstones), `source_documents` is empty and `source_documents_path` is set to `None`. On import the `source_documents.is_empty()` guard is false, so neither `sourceDocumentsPath` nor `sourceDocumentIndex` is written to the target manifest. A custom configured path (e.g. `"attachments"`) is silently lost. This edge case is unlikely in practice; a future enhancement could decouple `source_documents_path` emission from list emptiness.
 
 **Neutral:**
 - `MemoryStore` gains a binary-file map parallel to its text-file map.
