@@ -58,6 +58,7 @@ pub struct CreateRelationResult {
 #[derive(Debug, Clone)]
 pub struct DeleteRelationResult {
     pub relation_id: String,
+    pub path: String,
 }
 
 /// Filter options for listing relations
@@ -247,6 +248,7 @@ pub fn delete_relation(
 
     Ok(DeleteRelationResult {
         relation_id: relation_id.to_string(),
+        path: relative_path,
     })
 }
 
@@ -891,10 +893,39 @@ mod tests {
         let store = make_store_with_relations();
         let result = delete_relation(&store, "r2").unwrap();
         assert_eq!(result.relation_id, "r2");
+        assert_eq!(result.path, "relations/relations-collection.json");
 
         let all = list_relations(&store, ListRelationsFilter::default()).unwrap();
         assert_eq!(all.len(), 2);
         assert!(!all.iter().any(|r| r.relation_id == "r2"));
+    }
+
+    #[test]
+    fn relation_delete_returns_manifest_relations_path() {
+        let store = MemoryStore::default();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest
+            .extra
+            .insert("relationsPath".to_string(), json!("relations/custom.json"));
+        store.save_manifest(&manifest).unwrap();
+
+        let relations = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
+            "relations": [{
+                "relationId": "r-custom",
+                "relationType": "precedes",
+                "sourceInstanceId": "a",
+                "targetInstanceId": "b",
+                "createdAt": "2026-01-01T00:00:00Z"
+            }]
+        });
+        store
+            .save_relations_json("relations/custom.json", &relations)
+            .unwrap();
+
+        let result = delete_relation(&store, "r-custom").unwrap();
+        assert_eq!(result.path, "relations/custom.json");
+        assert_eq!(result.relation_id, "r-custom");
     }
 
     #[test]
