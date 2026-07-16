@@ -76,7 +76,7 @@ fn cmd_relation_delete(ctx: CliContext, id: String) -> Result<String> {
             "relation delete",
             RelationDeletePayload {
                 relation_id: result.relation_id,
-                path: "relations/relations-collection.json".to_string(),
+                path: result.path,
             },
         ),
         Err(e) => Ok(output::err("relation delete", vec![e.to_string()])),
