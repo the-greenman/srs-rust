@@ -141,7 +141,7 @@ Confirm `ok: false` with an `E4TypeConstraint` diagnostic naming the source's `s
 
 This is the governance-profile workflow (`governance-profile.md` §6.3–6.4, §8.4) as used in `muSrs`.
 
-**Capabilities exercised.** Governance `exercise` and `decision` types; lifecycle `draft → proposed → ratified → closed → superseded`; `derived-from` linking a Decision to the Exercise it came from; Containers as the durable home for decisions (the meeting is context, not owner); immutability after ratification enforced by creating a successor rather than editing in place; document-view rendering of a decision log.
+**Capabilities exercised.** Governance `exercise` and `decision` types; lifecycle `draft → proposed → ratified → closed → superseded` (and `abandoned` for withdrawn proposals); `derived-from` linking a Decision to the Exercise it came from; Containers as the durable home for decisions (the meeting is context, not owner); immutability after ratification enforced by creating a successor rather than editing in place; document-view rendering of a decision log.
 
 **CLI surface.** `record create`, `record transition`, `record successor`, `relation create`, `container create`, `container members`, `document-view get`, `render document-view`.
 
@@ -157,7 +157,7 @@ This is the governance-profile workflow (`governance-profile.md` §6.3–6.4, §
 
 **Negative case.** Attempt a lifecycle transition that the lifecycle definition does not allow (e.g. `draft → ratified` skipping `proposed`, if disallowed), or attempt to edit a `closed`/ratified record's semantic fields — confirm the operation is rejected or flagged.
 
-**Done when.** The Decision visibly progresses through its states; `derived-from` ties it to the Exercise; the ratified record is superseded (not mutated) on change; the decision-log view renders the ratified decision with its reasoning. The Exercise remains part of the record after a Decision is derived from it. When transitioning to a final state (`closed` or `superseded`), `payload.warnings` contains a `LIFECYCLE_FINAL_STATE` entry and envelope `diagnostics` is absent — the warning is informational, not an error.
+**Done when.** The Decision visibly progresses through its states; `derived-from` ties it to the Exercise; the ratified record is superseded (not mutated) on change; the decision-log view renders the ratified decision with its reasoning. The Exercise remains part of the record after a Decision is derived from it. When transitioning to a final state (`closed`, `superseded`, or `abandoned`), `payload.warnings` contains a `LIFECYCLE_FINAL_STATE` entry and envelope `diagnostics` is absent — the warning is informational, not an error. The decision-log view hides `superseded`, `closed`, and `abandoned` records by default (use `--all` to reveal them).
 
 ### S5 — Assemble and render a document (records as source of truth)
 
