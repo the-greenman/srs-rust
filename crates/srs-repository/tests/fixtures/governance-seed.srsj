@@ -141,7 +141,8 @@
             "containerScope": "explicit",
             "excludeLifecycleStates": [
               "superseded",
-              "closed"
+              "closed",
+              "abandoned"
             ],
             "semanticObjectType": "governance/decision",
             "type": "type-query"
@@ -341,6 +342,25 @@
       "name": "decision_statement",
       "namespace": "governance",
       "valueType": "text",
+      "version": 1
+    },
+    "package/fields/externallinks-fc434475.json": {
+      "aiGuidance": {
+        "examples": [
+          {
+            "description": "Link to meeting minutes containing the original discussion",
+            "output": "https://example.org/minutes/2026-05-14"
+          }
+        ],
+        "extraction": "Extract any URLs mentioned in the source material that the author intends to link to this decision. Include only explicit URLs, not paraphrased references.",
+        "purpose": "One or more URLs to external materials (meeting minutes, reference documents, prior art) that support or contextualise this decision."
+      },
+      "createdAt": "2026-06-26T00:00:00Z",
+      "description": "External reference URLs attached to this decision — documents, minutes, or other materials that provide rationale or context.",
+      "id": "fc434475-b25e-46d5-8536-c2cc2e4e5f98",
+      "name": "external_links",
+      "namespace": "governance",
+      "valueType": "url",
       "version": 1
     },
     "package/fields/friction-1a1c0a5d.json": {
@@ -552,7 +572,7 @@
     },
     "package/lifecycles/governancelifecycle-3c504040.json": {
       "createdAt": "2026-06-08T00:00:00Z",
-      "description": "Shared governance lifecycle for Articles, Roles, and Decisions. A record is drafted, proposed to the group, and ratified once agreed. Ratified records either close (obligation discharged) or are superseded by a successor. closed and superseded are final.",
+      "description": "Shared governance lifecycle for Articles, Roles, and Decisions. A record is drafted, proposed to the group, and ratified once agreed. Ratified records either close (obligation discharged), are superseded by a successor, or are abandoned (withdrawn without a successor). closed, superseded, and abandoned are final.",
       "id": "3c504040-7920-43aa-8fbd-eda21dc7c07b",
       "initialState": "draft",
       "name": "governance_lifecycle",
@@ -593,6 +613,13 @@
           "requiresRelation": {
             "relationType": "supersedes"
           }
+        },
+        {
+          "description": "Proposed or ratified record withdrawn without a successor.",
+          "id": "f21e3ef6-1ce2-4064-b4aa-e03840fe5fb8",
+          "isFinal": true,
+          "key": "abandoned",
+          "label": "Abandoned"
         }
       ],
       "transitions": [
@@ -630,6 +657,27 @@
           "id": "14ff9216-e7ae-4b3c-88a7-db44534b46ae",
           "name": "close",
           "to": "closed"
+        },
+        {
+          "description": "Withdraw a draft without putting it to the group.",
+          "from": "draft",
+          "id": "e86df9c3-8feb-45ac-8366-4337df280fcb",
+          "name": "abandon",
+          "to": "abandoned"
+        },
+        {
+          "description": "Withdraw a proposal without ratifying it.",
+          "from": "proposed",
+          "id": "bc9db928-7ec0-41aa-8492-c51f406773cc",
+          "name": "abandon",
+          "to": "abandoned"
+        },
+        {
+          "description": "Withdraw a ratified record without a successor.",
+          "from": "ratified",
+          "id": "849318f7-c9e6-4ef5-86a6-b0d15ed55dfc",
+          "name": "abandon",
+          "to": "abandoned"
         }
       ],
       "version": 1
@@ -657,6 +705,7 @@
         "fields/context-9889052c.json",
         "fields/decisionquestion-73cd845a.json",
         "fields/decisionstatement-de1296e0.json",
+        "fields/externallinks-fc434475.json",
         "fields/friction-1a1c0a5d.json",
         "fields/keyrequirements-a952604c.json",
         "fields/nextsteps-4181f210.json",
@@ -891,6 +940,13 @@
           "fieldId": "4b34847c-26d1-56be-bc10-844aeb704df7",
           "order": 10,
           "repeatable": false,
+          "required": false
+        },
+        {
+          "displayLabel": "External Links",
+          "fieldId": "fc434475-b25e-46d5-8536-c2cc2e4e5f98",
+          "order": 11,
+          "repeatable": true,
           "required": false
         }
       ],
