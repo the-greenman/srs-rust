@@ -824,6 +824,9 @@ mod tests {
             fn load_text_file(&self, _: &str) -> Result<String, RepositoryError> {
                 unimplemented!()
             }
+            fn save_text_file(&self, _: &str, _: &str) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
             fn validate_package_ref_path(&self, _: &str) -> Result<(), RepositoryError> {
                 unimplemented!()
             }

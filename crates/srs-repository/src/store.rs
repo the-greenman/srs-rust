@@ -348,6 +348,9 @@ pub trait RepositoryStore {
     /// Read a text file at `relative_path` and return its contents.
     fn load_text_file(&self, relative_path: &str) -> Result<String, RepositoryError>;
 
+    /// Write `content` to `relative_path`, creating parent directories as needed.
+    fn save_text_file(&self, relative_path: &str, content: &str) -> Result<(), RepositoryError>;
+
     /// Verify that `relative_path` (relative to repo root) points to a directory
     /// containing a `package.json`.
     ///
@@ -1853,6 +1856,17 @@ impl RepositoryStore for FileStore {
         std::fs::read_to_string(&path).map_err(|source| RepositoryError::Io { path, source })
     }
 
+    fn save_text_file(&self, relative_path: &str, content: &str) -> Result<(), RepositoryError> {
+        let path = self.abs(relative_path);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|source| RepositoryError::Io {
+                path: parent.to_path_buf(),
+                source,
+            })?;
+        }
+        std::fs::write(&path, content).map_err(|source| RepositoryError::Io { path, source })
+    }
+
     // --- Sub-package path validation ---
 
     fn validate_package_ref_path(&self, relative_path: &str) -> Result<(), RepositoryError> {
@@ -2974,6 +2988,13 @@ pub mod memory {
                 .get(relative_path)
                 .and_then(|v| v.as_str().map(|s| s.to_string()))
                 .ok_or_else(|| not_found(relative_path))
+        }
+
+        fn save_text_file(&self, relative_path: &str, content: &str) -> Result<(), RepositoryError> {
+            self.data
+                .borrow_mut()
+                .insert(relative_path.to_string(), serde_json::Value::String(content.to_string()));
+            Ok(())
         }
 
         fn validate_package_ref_path(&self, _relative_path: &str) -> Result<(), RepositoryError> {

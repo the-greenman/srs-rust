@@ -6,7 +6,7 @@ use srs_core::extensions::federation::{
     RepositoryRegistryEntry,
 };
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::PathBuf;
 
 pub const DEFAULT_FEDERATION_REGISTRY_PATH: &str = "federation/registry.json";
 pub const DEFAULT_FEDERATION_EVENTS_PATH: &str = "federation/events.json";
@@ -110,21 +110,37 @@ pub fn filter_federation_events(
 
 // ── Private helpers ───────────────────────────────────────────────────────
 
-fn load_registry_at(path: &Path) -> Result<RepositoryRegistry, RepositoryError> {
-    let content = std::fs::read_to_string(path).map_err(|e| {
-        if e.kind() == std::io::ErrorKind::NotFound {
+/// Returns the directory component of a relative path (e.g. `"a/b/c"` → `"a/b"`).
+fn parent_dir(path: &str) -> &str {
+    match path.rfind('/') {
+        Some(i) => &path[..i],
+        None => ".",
+    }
+}
+
+/// Joins a directory and a child path into a relative path string.
+fn join_relative(dir: &str, child: &str) -> String {
+    if dir == "." || dir.is_empty() {
+        child.to_string()
+    } else {
+        format!("{}/{}", dir, child)
+    }
+}
+
+fn load_registry_at(
+    store: &dyn RepositoryStore,
+    relative_path: &str,
+) -> Result<RepositoryRegistry, RepositoryError> {
+    let content = store.load_text_file(relative_path).map_err(|e| match e {
+        RepositoryError::Io { source, .. } if source.kind() == std::io::ErrorKind::NotFound => {
             RepositoryError::NotFound {
-                path: path.to_path_buf(),
-            }
-        } else {
-            RepositoryError::Io {
-                path: path.to_path_buf(),
-                source: e,
+                path: PathBuf::from(relative_path),
             }
         }
+        other => other,
     })?;
     serde_json::from_str(&content).map_err(|source| RepositoryError::FederationRegistryLoad {
-        path: path.to_path_buf(),
+        path: PathBuf::from(relative_path),
         source,
     })
 }
@@ -133,8 +149,9 @@ fn load_registry_at(path: &Path) -> Result<RepositoryRegistry, RepositoryError> 
 /// `seen` tracks visited `registry_id`s to detect cycles (Invariant 62).
 /// Returns `(registry_id, entry)` if found, `None` if the subtree has no match.
 fn dfs_search_registry(
+    store: &dyn RepositoryStore,
     registry: RepositoryRegistry,
-    registry_path: &Path,
+    registry_path: &str,
     target_id: &str,
     seen: &mut HashSet<String>,
 ) -> Result<Option<(String, RepositoryRegistryEntry)>, RepositoryError> {
@@ -155,11 +172,12 @@ fn dfs_search_registry(
     }
 
     if let Some(children) = child_registries {
-        let parent_dir = registry_path.parent().unwrap_or(registry_path);
+        let parent = parent_dir(registry_path);
         for child_location in children {
-            let child_path = parent_dir.join(&child_location);
-            let child_registry = load_registry_at(&child_path)?;
-            if let Some(result) = dfs_search_registry(child_registry, &child_path, target_id, seen)?
+            let child_path = join_relative(parent, &child_location);
+            let child_registry = load_registry_at(store, &child_path)?;
+            if let Some(result) =
+                dfs_search_registry(store, child_registry, &child_path, target_id, seen)?
             {
                 return Ok(Some(result));
             }
@@ -186,18 +204,12 @@ pub fn resolve_repository(
         .get("federationPath")
         .and_then(|v| v.as_str())
         .unwrap_or(DEFAULT_FEDERATION_REGISTRY_PATH);
-    let registry_path = store.repository_root().join(federation_path);
 
-    let root_registry = load_registry_at(&registry_path)?;
+    let root_registry = load_registry_at(store, federation_path)?;
     let root_registry_id = root_registry.registry_id.clone();
 
     let mut seen = HashSet::new();
-    match dfs_search_registry(
-        root_registry,
-        &registry_path,
-        &input.repository_id,
-        &mut seen,
-    )? {
+    match dfs_search_registry(store, root_registry, federation_path, &input.repository_id, &mut seen)? {
         Some((registry_id, entry)) => Ok(ResolveRepositoryResult {
             found: true,
             registry_id,
@@ -226,7 +238,6 @@ pub fn list_federation_events(
         .get("federationEventsPath")
         .and_then(|v| v.as_str())
         .unwrap_or(DEFAULT_FEDERATION_EVENTS_PATH);
-    let events_abs_path = store.repository_root().join(events_path);
 
     let repository_id = manifest
         .extra
@@ -235,9 +246,9 @@ pub fn list_federation_events(
         .unwrap_or("")
         .to_string();
 
-    let content = match std::fs::read_to_string(&events_abs_path) {
+    let content = match store.load_text_file(events_path) {
         Ok(c) => c,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+        Err(RepositoryError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
             return Ok(ListFederationEventsResult {
                 repository_id,
                 events: vec![],
@@ -245,17 +256,12 @@ pub fn list_federation_events(
                 filtered_count: 0,
             });
         }
-        Err(e) => {
-            return Err(RepositoryError::Io {
-                path: events_abs_path,
-                source: e,
-            });
-        }
+        Err(e) => return Err(e),
     };
 
     let events_file: FederationEventsFile =
         serde_json::from_str(&content).map_err(|source| RepositoryError::FederationEventsLoad {
-            path: events_abs_path.clone(),
+            path: PathBuf::from(events_path),
             source,
         })?;
 
@@ -283,53 +289,37 @@ pub fn append_federation_event(
         .get("federationEventsPath")
         .and_then(|v| v.as_str())
         .unwrap_or(DEFAULT_FEDERATION_EVENTS_PATH);
-    let events_abs_path = store.repository_root().join(events_path);
 
     let event_id = input.event.event_id.clone();
 
-    let mut events_file = match std::fs::read_to_string(&events_abs_path) {
+    let mut events_file = match store.load_text_file(events_path) {
         Ok(content) => {
             serde_json::from_str::<FederationEventsFile>(&content).map_err(|source| {
                 RepositoryError::FederationEventsLoad {
-                    path: events_abs_path.clone(),
+                    path: PathBuf::from(events_path),
                     source,
                 }
             })?
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => FederationEventsFile {
-            schema: None,
-            repository_id: input.repository_id,
-            events: vec![],
-        },
-        Err(e) => {
-            return Err(RepositoryError::Io {
-                path: events_abs_path,
-                source: e,
-            });
+        Err(RepositoryError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
+            FederationEventsFile {
+                schema: None,
+                repository_id: input.repository_id,
+                events: vec![],
+            }
         }
+        Err(e) => return Err(e),
     };
 
     events_file.events.push(input.event);
     let total_events = events_file.events.len();
 
-    if let Some(parent) = events_abs_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|source| RepositoryError::Io {
-            path: parent.to_path_buf(),
-            source,
-        })?;
-    }
-
     let json =
-        serde_json::to_vec_pretty(&events_file).map_err(|source| RepositoryError::Serialize {
-            path: events_abs_path.clone(),
+        serde_json::to_string_pretty(&events_file).map_err(|source| RepositoryError::Serialize {
+            path: PathBuf::from(events_path),
             source,
         })?;
-    std::fs::write(&events_abs_path, json).map_err(|source| {
-        RepositoryError::FederationEventsWrite {
-            path: events_abs_path,
-            source,
-        }
-    })?;
+    store.save_text_file(events_path, &json)?;
 
     Ok(AppendFederationEventResult {
         event_id,
@@ -810,14 +800,13 @@ mod tests {
         );
     }
 
-    // ── MemoryStore test ──────────────────────────────────────────────────
+    // ── MemoryStore tests ─────────────────────────────────────────────────
 
     #[test]
     fn memory_store_non_default_federation_path() {
         // Verifies that the service reads federationPath from manifest.extra,
-        // not a hardcoded default. MemoryStore.repository_root() = "/memory",
-        // which doesn't exist on disk, so the service will attempt to open
-        // "/memory/custom/registry.json" and get NotFound — that's expected.
+        // not a hardcoded default. MemoryStore has no data for the custom path,
+        // so the service returns NotFound with the custom path in the error.
         let store = MemoryStore::default();
         let mut manifest = store.load_manifest().unwrap();
         manifest.extra.insert(
@@ -849,7 +838,6 @@ mod tests {
 
     #[test]
     fn memory_store_list_events_missing_file_returns_empty() {
-        // MemoryStore.repository_root() = "/memory" (non-existent).
         // list_federation_events returns empty when events file absent.
         let store = MemoryStore::default();
         let result = list_federation_events(
@@ -861,5 +849,32 @@ mod tests {
         .unwrap();
         assert_eq!(result.total_count, 0);
         assert!(result.events.is_empty());
+    }
+
+    #[test]
+    fn append_event_roundtrips_via_memory_store() {
+        // Proves the service works end-to-end with no disk I/O (JsonStore-compatible).
+        let store = MemoryStore::default();
+        let event = minimal_event("e-001", FederationEventKind::Merge);
+        let append_result = append_federation_event(
+            &store,
+            AppendFederationEventInput {
+                repository_id: "repo-mem".to_string(),
+                event,
+            },
+        )
+        .unwrap();
+        assert_eq!(append_result.event_id, "e-001");
+        assert_eq!(append_result.total_events, 1);
+
+        let list_result = list_federation_events(
+            &store,
+            ListFederationEventsInput {
+                filter: ListFederationEventsFilter::default(),
+            },
+        )
+        .unwrap();
+        assert_eq!(list_result.total_count, 1);
+        assert_eq!(list_result.events[0].event_id, "e-001");
     }
 }

@@ -1597,6 +1597,14 @@ impl RepositoryStore for JsonStore {
             .ok_or_else(|| Self::not_found(relative_path))
     }
 
+    fn save_text_file(&self, relative_path: &str, content: &str) -> Result<(), RepositoryError> {
+        self.state
+            .borrow_mut()
+            .data
+            .insert(relative_path.to_string(), serde_json::Value::String(content.to_string()));
+        Ok(())
+    }
+
     fn validate_package_ref_path(&self, _relative_path: &str) -> Result<(), RepositoryError> {
         Ok(())
     }
