@@ -1481,6 +1481,55 @@ $SRS_BIN federation events-list --repo "$SCRATCH2" --pretty
 
 ---
 
+## S27 — Retrieve addressability context for a decision field and its revision chain (`srs context`, ext:addressability, #251)
+
+**Intention.** *"An AI agent is being asked to evaluate and improve a governance decision. Before prompting the model, I want to give it the current field value, the field's extraction guidance, and the full revision history — so it knows what has been decided, why it was framed that way, and how the wording evolved through the lifecycle."*
+
+**Capabilities exercised.** ext:addressability detection; `srs context field` assembling current value + revision history + `aiGuidance` in a single call; `srs context record` assembling all field values + outbound relations + display label; `srs context revision` tracing a specific revision's prior chain to show the complete evolution.
+
+**CLI surface.** `srs context field`, `srs context record`, `srs context revision`.
+
+**Prerequisite.** A repository that has at least one Tier-2 record with a `.revisions.json` sidecar. The gallery example (`../srs/docs/spec/examples/gallery-project-v2`) serves as the reference; revisions are created by `record transition` calls (S4). Confirm addressability is active: `srs repo extensions list --repo <path>` should include `"ext:addressability"`.
+
+**Steps.**
+
+1. Identify a decision record with revisions. Use the gallery fixture:
+   ```bash
+   REPO=../srs/docs/spec/examples/gallery-project-v2
+   REC_ID=38501856-26a5-4227-a877-eada79ce591a
+   FIELD_ID=d7e82557-9045-5e92-a494-d99112bbec4a
+   ```
+
+2. Retrieve field context — current value, AI guidance, and full revision chain:
+   ```bash
+   srs context field --repo $REPO "$REC_ID" "$FIELD_ID" --pretty
+   ```
+   Confirm `payload.currentValue` is populated, `payload.aiGuidance` is non-null (the `title` field has extraction guidance), and `payload.revisions` is non-empty and ordered oldest-first.
+
+3. Retrieve record context — all fields + relations:
+   ```bash
+   srs context record --repo $REPO "$REC_ID" --pretty
+   ```
+   Confirm `payload.typeId`, `payload.typeName`, `payload.displayLabel`, and `payload.fieldValues` are all populated. `payload.relations` reflects outbound edges only (inbound are excluded by design — deferred to #252).
+
+4. Trace the latest revision's prior chain:
+   ```bash
+   # The latest revision ID from step 2's output (superseded state)
+   REV_ID=7af8aa4a-eb89-40dc-99b3-53ce5b31ab58
+   srs context revision --repo $REPO "$REC_ID" "$FIELD_ID" "$REV_ID" --pretty
+   ```
+   Confirm `payload.revision.revisionId` matches `REV_ID`, `payload.priorChain` lists the older revisions in oldest-first order (proposed → ratified), and `payload.priorChain` does NOT contain the requested revision itself.
+
+**Negative case.** Pass a non-existent record ID to `srs context field` — confirm `ok: false` with a `"not found"` diagnostic. Pass a non-existent revision ID to `srs context revision` — confirm `ok: false` with a `"not found"` diagnostic.
+
+**Done when.** `srs context field` returns a single JSON envelope with `aiGuidance`, `currentValue`, and a non-empty `revisions` array for a field that has been through lifecycle transitions. `srs context revision` returns the target revision and its prior chain in oldest-first order, with the target NOT appearing in `priorChain`. Both commands return `ok: false` with a diagnostic (not a crash) for non-existent IDs.
+
+**Note on revision creation.** There is no `srs record revision create` command — revisions are created automatically during `record transition` (lifecycle state advances). To exercise `srs context revision` on a fresh repo, first create a type with an inline lifecycle, create a record, and advance it through at least two states via `record transition`.
+
+**Verified 2026-07-16 (#251):** All steps confirmed on the gallery fixture. `srs context field` returns `aiGuidance` from the package, current value, and 3 revisions for the title field (proposed/ratified/superseded transitions). `srs context record` returns type metadata, field values, and empty relations (decision has no outbound edges). `srs context revision` for the `superseded` revision returns a 2-entry `priorChain` (proposed then ratified, oldest-first), with the superseded revision itself absent from the chain. Both negative cases return `ok: false` with `"not found"` diagnostics.
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -1537,6 +1586,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `tag` (definition) | _gap — being deprecated; see open issues_ |
 | `registry` (ext:registry — `registry list`, `registry get`) | S25; WASM free functions (`parse_registry`, `list_registry_entries`) verified via `cargo build --target wasm32-unknown-unknown -p srs-bindings` (#244) |
 | `federation` (ext:federation — `federation resolve`, `federation events-list`, `federation events-append`) | S26 (step 12 adds custom `federationPath`/`federationEventsPath` manifest fields, #249); WASM free functions (`parse_federation_registry`, `filter_federation_events_json`) verified via `cargo build --target wasm32-unknown-unknown -p srs-bindings` (#248); WASM repo-backed bindings (`federation_resolve`, `federation_events_list`, `federation_events_append` on `SrsRepository`) added and smoke-tested (#249) |
+| `context` (ext:addressability — `context field`, `context record`, `context revision`) | S27; WASM bindings (`context_field`, `context_record`, `context_revision` on `SrsRepository`) verified via native integration tests in `crates/srs-bindings/tests/context_query.rs` (#251) |
 | `package` | CLI: covered implicitly by field/type creation in S2; WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330) |
 
 Gaps are intentional and visible: they are the backlog of surfaces that need a meaningful scenario. Do not delete a gap row — fill it when a feature gives the surface a real workflow to demonstrate.
