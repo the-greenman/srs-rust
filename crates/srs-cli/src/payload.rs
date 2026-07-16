@@ -39,12 +39,12 @@ use srs_repository::{
     container_view_service::ContainerView,
     discovery_service::DiscoveryResult,
     extension_service::ExtensionSummary,
+    protocol_run_service::RunSummary,
     record_store::{
         AllowedLifecycleTransitionsResult, LifecycleTransitionOption, ListRecordTagsResult,
         RecordSummary, RecordTagSummary,
     },
     relation_service::RelationSummary,
-    protocol_run_service::RunSummary,
     repository_navigation_service::RepositoryNavigation,
     services::{ListNoteTagsResult, NoteSummary, TagSummary},
     theme_service::ThemeSummary,

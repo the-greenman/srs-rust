@@ -65,10 +65,12 @@ pub struct RunResult {
 
 fn load_runs(store: &dyn RepositoryStore) -> Result<ProtocolRunsCollection, RepositoryError> {
     match store.load_instance_json(RUNS_PATH) {
-        Ok(v) => Ok(serde_json::from_value(v).map_err(|e| RepositoryError::Serialize {
-            path: PathBuf::from(RUNS_PATH),
-            source: e,
-        })?),
+        Ok(v) => Ok(
+            serde_json::from_value(v).map_err(|e| RepositoryError::Serialize {
+                path: PathBuf::from(RUNS_PATH),
+                source: e,
+            })?,
+        ),
         Err(RepositoryError::NotFound { .. }) => Ok(ProtocolRunsCollection { runs: vec![] }),
         Err(RepositoryError::Io { source, .. })
             if source.kind() == std::io::ErrorKind::NotFound =>
@@ -211,10 +213,7 @@ pub fn advance_stage(
 }
 
 /// Get a single protocol run by its run_id.
-pub fn get_run(
-    store: &dyn RepositoryStore,
-    run_id: &str,
-) -> Result<GetRunResult, RepositoryError> {
+pub fn get_run(store: &dyn RepositoryStore, run_id: &str) -> Result<GetRunResult, RepositoryError> {
     let collection = load_runs(store)?;
     Ok(collection
         .runs
@@ -361,8 +360,7 @@ mod tests {
     #[test]
     fn create_run_with_initial_stage() {
         let store = MemoryStore::empty();
-        let result =
-            create_run(&store, make_create_input("p-1", "c-1", Some("stage-a"))).unwrap();
+        let result = create_run(&store, make_create_input("p-1", "c-1", Some("stage-a"))).unwrap();
         assert_eq!(result.run.stage_states.len(), 1);
         assert_eq!(result.run.stage_states[0].stage_id, "stage-a");
         assert_eq!(result.run.stage_states[0].status, StageStatus::Active);
@@ -419,8 +417,7 @@ mod tests {
     #[test]
     fn advance_stage_updates_attention() {
         let store = MemoryStore::empty();
-        let created =
-            create_run(&store, make_create_input("p-1", "c-1", Some("stage-a"))).unwrap();
+        let created = create_run(&store, make_create_input("p-1", "c-1", Some("stage-a"))).unwrap();
         let advanced = advance_stage(
             &store,
             AdvanceStageInput {
@@ -440,8 +437,7 @@ mod tests {
     #[test]
     fn advance_stage_complete_current() {
         let store = MemoryStore::empty();
-        let created =
-            create_run(&store, make_create_input("p-1", "c-1", Some("stage-a"))).unwrap();
+        let created = create_run(&store, make_create_input("p-1", "c-1", Some("stage-a"))).unwrap();
         let advanced = advance_stage(
             &store,
             AdvanceStageInput {

@@ -870,8 +870,8 @@ impl SrsRepository {
     /// `input_json` is `{"protocolId","protocolVersion","containerId","targetRecordId?","initialStageId?"}`.
     /// Returns the created `ProtocolRun` as a JS value.
     pub fn protocol_run_create(&self, input_json: &str) -> Result<JsValue, JsValue> {
-        let input: RunCreateInput = serde_json::from_str(input_json)
-            .map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let input: RunCreateInput =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
         let result = run_service::create_run(&self.store, input).map_err(js_err)?;
         to_js(&result.run)
     }
@@ -881,8 +881,8 @@ impl SrsRepository {
     /// `input_json` is `{"runId","stageId","completeCurrent"}`.
     /// Returns the updated `ProtocolRun`.
     pub fn protocol_run_advance(&self, input_json: &str) -> Result<JsValue, JsValue> {
-        let input: RunAdvanceInput = serde_json::from_str(input_json)
-            .map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let input: RunAdvanceInput =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
         let result = run_service::advance_stage(&self.store, input).map_err(js_err)?;
         to_js(&result.run)
     }
@@ -1628,7 +1628,9 @@ mod tests {
 
     #[test]
     fn protocol_run_advance_smoke() {
-        use srs_repository::protocol_run_service::{advance_stage, create_run, AdvanceStageInput, CreateRunInput};
+        use srs_repository::protocol_run_service::{
+            advance_stage, create_run, AdvanceStageInput, CreateRunInput,
+        };
         let store = JsonStore::from_srsj(&srsj_with_note_and_type()).expect("load srsj");
         let run = create_run(
             &store,
@@ -1674,7 +1676,9 @@ mod tests {
 
     #[test]
     fn protocol_run_complete_and_abandon_smoke() {
-        use srs_repository::protocol_run_service::{abandon_run, complete_run, create_run, CreateRunInput};
+        use srs_repository::protocol_run_service::{
+            abandon_run, complete_run, create_run, CreateRunInput,
+        };
         let store = JsonStore::from_srsj(&srsj_with_note_and_type()).expect("load srsj");
 
         let r1 = create_run(

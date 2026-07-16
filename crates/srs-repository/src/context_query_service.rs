@@ -147,12 +147,11 @@ pub fn get_record_context(
         },
     )?;
 
-    let protocol_run_history =
-        protocol_run_service::list_runs_for_record(store, &query.record_id)
-            .unwrap_or_else(|_| vec![])
-            .into_iter()
-            .map(|s| serde_json::to_value(s).unwrap_or(serde_json::Value::Null))
-            .collect();
+    let protocol_run_history = protocol_run_service::list_runs_for_record(store, &query.record_id)
+        .unwrap_or_else(|_| vec![])
+        .into_iter()
+        .map(|s| serde_json::to_value(s).unwrap_or(serde_json::Value::Null))
+        .collect();
 
     Ok(RecordContextResult {
         record_id: query.record_id,
@@ -810,9 +809,11 @@ mod tests {
         use crate::protocol_run_service::{create_run, CreateRunInput};
         let store = make_store();
 
-        let fv = vec![make_field_value("field-name-001", json!("run-history-test"))];
-        let rec =
-            record_store::create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
+        let fv = vec![make_field_value(
+            "field-name-001",
+            json!("run-history-test"),
+        )];
+        let rec = record_store::create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
 
         // Create a run targeting this record.
         create_run(

@@ -239,8 +239,14 @@ mod tests {
     fn protocol_run_roundtrip_minimal() {
         let run = make_run("run-min", None);
         let v = serde_json::to_value(&run).unwrap();
-        assert!(v.get("targetRecordId").is_none(), "absent optional must not appear");
-        assert!(v.get("completedAt").is_none(), "absent optional must not appear");
+        assert!(
+            v.get("targetRecordId").is_none(),
+            "absent optional must not appear"
+        );
+        assert!(
+            v.get("completedAt").is_none(),
+            "absent optional must not appear"
+        );
         let parsed: ProtocolRun = serde_json::from_value(v).unwrap();
         assert_eq!(parsed, run);
     }
