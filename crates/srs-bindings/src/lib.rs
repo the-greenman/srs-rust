@@ -666,9 +666,9 @@ impl SrsRepository {
         to_js(&views)
     }
 
-    /// Resolve a structured container view for an editor member list (issue #254):
-    /// the container root record, the ordered Tier-2 member records (full `Record` +
-    /// core-resolved display label), the DocumentView-driven column spec, and
+    /// Resolve a structured container view for an editor member list (issue #254, #256):
+    /// the container root record, the ordered member records (Tier-0, Tier-1, or Tier-2;
+    /// full `Record` present only for Tier-2), the DocumentView-driven column spec, and
     /// diagnostics. `view_id` optionally overrides the DocumentView; when omitted it is
     /// matched from the container's root type binding. Returns a `ContainerView` object.
     pub fn resolve_container_view(
