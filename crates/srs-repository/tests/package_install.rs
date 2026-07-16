@@ -6,6 +6,7 @@
 //! protocol). Per CLAUDE.md ("Working with the Spec Repo") the real spec-repo
 //! package is not referenced from tests.
 
+use srs_core::extensions::import_tracking::ConflictState;
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_repository::json_store::JsonStore;
 use srs_repository::package_install_service::{install_package, InstallPackageInput};
@@ -414,4 +415,110 @@ fn install_rejects_primary_boundary_target() {
         ),
         "got: {err:?}"
     );
+}
+
+// ── Import records: FileStore cross-store roundtrip ──────────────────────────
+
+#[test]
+fn file_store_install_writes_import_records_and_ref_copies() {
+    let (_temp, store) = fresh_file_repo();
+    let result = install_package(&store, install_input()).expect("install succeeds");
+
+    // import-records.json must exist in the boundary directory.
+    let summary_json = store
+        .load_instance_json("packages/install-fixture/.srs-import/import-records.json")
+        .expect("import-records.json must exist after FileStore install");
+
+    let fields = summary_json["fields"].as_array().expect("fields array");
+    assert_eq!(fields.len(), 2, "two fields in fixture");
+    assert_eq!(
+        fields[0]["conflictState"].as_str(),
+        Some("clean"),
+        "freshly installed field should be clean"
+    );
+    assert_eq!(
+        summary_json["generatedAt"].as_str(),
+        Some(result.installed_at.as_str()),
+        "generatedAt must match installedAt"
+    );
+
+    // Reference copies must be present alongside the installed files.
+    store
+        .load_instance_json("packages/install-fixture/.srs-import/refs/fields/title-9a1b0c2d.json")
+        .expect("reference copy for title field must exist");
+    store
+        .load_instance_json("packages/install-fixture/.srs-import/refs/fields/body-9a1b0c2e.json")
+        .expect("reference copy for body field must exist");
+    store
+        .load_instance_json(
+            "packages/install-fixture/.srs-import/refs/relation-types/precedes-9a1b0c40.json",
+        )
+        .expect("reference copy for precedes relation type must exist");
+}
+
+#[test]
+fn file_store_list_package_imports_shows_clean_after_install() {
+    use srs_repository::package_service::{list_package_imports, ListPackageImportsFilter};
+
+    let (_temp, store) = fresh_file_repo();
+    install_package(&store, install_input()).expect("install succeeds");
+
+    let summary =
+        list_package_imports(&store, ListPackageImportsFilter::default()).expect("list succeeds");
+
+    assert_eq!(summary.fields.len(), 2, "two fields from fixture");
+    for field in &summary.fields {
+        assert_eq!(
+            field.conflict_state,
+            Some(ConflictState::Clean),
+            "all fields should be clean immediately after install"
+        );
+    }
+    // The relation type is tracked too (it has a reference copy).
+    assert_eq!(summary.relation_types.len(), 1);
+    assert_eq!(
+        summary.relation_types[0].conflict_state,
+        Some(ConflictState::Clean)
+    );
+}
+
+#[test]
+fn file_store_list_package_imports_detects_local_ahead_after_edit() {
+    use srs_repository::package_service::{list_package_imports, ListPackageImportsFilter};
+
+    let (temp, store) = fresh_file_repo();
+    install_package(&store, install_input()).expect("install succeeds");
+
+    // Modify the installed title field on disk to simulate a local edit.
+    let title_path = temp
+        .path()
+        .join("packages/install-fixture/fields/title-9a1b0c2d.json");
+    let original: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&title_path).unwrap()).unwrap();
+    let mut modified = original.clone();
+    modified["version"] = serde_json::json!(2);
+    modified["description"] = serde_json::json!("Locally edited description.");
+    std::fs::write(&title_path, serde_json::to_string_pretty(&modified).unwrap()).unwrap();
+
+    let summary =
+        list_package_imports(&store, ListPackageImportsFilter::default()).expect("list succeeds");
+
+    let title = summary
+        .fields
+        .iter()
+        .find(|f| f.name == "title")
+        .expect("title field in summary");
+    assert_eq!(
+        title.conflict_state,
+        Some(ConflictState::LocalAhead),
+        "locally edited field must be detected as local-ahead"
+    );
+
+    // Unedited field is still clean.
+    let body = summary
+        .fields
+        .iter()
+        .find(|f| f.name == "body")
+        .expect("body field in summary");
+    assert_eq!(body.conflict_state, Some(ConflictState::Clean));
 }
