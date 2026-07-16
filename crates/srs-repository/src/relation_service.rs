@@ -637,7 +637,10 @@ mod tests {
         let rel = make_relation("r-e4", "src", "tgt", "com.test/links");
         let err = create_relation(&store, rel, &[def]).unwrap_err();
         let msg = format!("{err:?}");
-        assert!(msg.contains("E4"), "expected an E4 type-constraint error, got: {msg}");
+        assert!(
+            msg.contains("E4"),
+            "expected an E4 type-constraint error, got: {msg}"
+        );
         // The offending relation must NOT have been persisted.
         let all = list_relations(&store, ListRelationsFilter::default()).unwrap();
         assert!(all.is_empty(), "relation must not be written on E4 failure");
@@ -680,7 +683,10 @@ mod tests {
         let def = links_def(Some(vec!["com.x/allowed"]), None, None);
         let rel = make_relation("r-untyped", "src", "tgt", "com.test/links");
         let result = create_relation(&store, rel, &[def]);
-        assert!(result.is_ok(), "untyped endpoints must not trip E4: {result:?}");
+        assert!(
+            result.is_ok(),
+            "untyped endpoints must not trip E4: {result:?}"
+        );
     }
 
     #[test]

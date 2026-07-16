@@ -754,7 +754,8 @@ pub fn validate_repository(
 
         // Build the semanticObjectType map via the shared helper so `repo validate`
         // and `create_relation` enforce E4 over identical inputs (#556).
-        let instance_semantic_types = crate::writer::build_instance_semantic_types(store, &manifest);
+        let instance_semantic_types =
+            crate::writer::build_instance_semantic_types(store, &manifest);
 
         let coll: RelationsCollection = match serde_json::from_value(relations_value) {
             Ok(c) => c,
