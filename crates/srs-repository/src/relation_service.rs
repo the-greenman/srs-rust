@@ -356,11 +356,12 @@ fn load_relations_collection(
             // no file exists yet. relations_candidate_paths was already called by
             // resolve_relations_source above, so a second call cannot fail in any new
             // way; its first element is the declared path (or the default fallback if
-            // no relationsPath is set).
+            // no relationsPath is set). The vec is never empty (the default path is
+            // an unconditional entry), so .next().expect() is safe.
             let write_path = relations_candidate_paths(store)?
                 .into_iter()
                 .next()
-                .unwrap_or_else(|| "relations/relations-collection.json".to_string());
+                .expect("relations_candidate_paths always returns at least one path");
             Ok((
                 write_path,
                 RelationsCollection {
