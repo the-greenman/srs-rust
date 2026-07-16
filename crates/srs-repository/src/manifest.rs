@@ -193,8 +193,14 @@ mod tests {
             "federationEventsPath": "custom/events.json"
         }"#;
         let manifest: Manifest = serde_json::from_str(json).unwrap();
-        assert_eq!(manifest.federation_path.as_deref(), Some("custom/registry.json"));
-        assert_eq!(manifest.federation_events_path.as_deref(), Some("custom/events.json"));
+        assert_eq!(
+            manifest.federation_path.as_deref(),
+            Some("custom/registry.json")
+        );
+        assert_eq!(
+            manifest.federation_events_path.as_deref(),
+            Some("custom/events.json")
+        );
         // must not appear in extra
         assert!(!manifest.extra.contains_key("federationPath"));
         assert!(!manifest.extra.contains_key("federationEventsPath"));
@@ -203,7 +209,10 @@ mod tests {
         let serialised = serde_json::to_string(&manifest).unwrap();
         let reparsed: Manifest = serde_json::from_str(&serialised).unwrap();
         assert_eq!(reparsed.federation_path, manifest.federation_path);
-        assert_eq!(reparsed.federation_events_path, manifest.federation_events_path);
+        assert_eq!(
+            reparsed.federation_events_path,
+            manifest.federation_events_path
+        );
     }
 
     #[test]

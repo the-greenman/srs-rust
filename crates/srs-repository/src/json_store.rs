@@ -1614,10 +1614,10 @@ impl RepositoryStore for JsonStore {
     }
 
     fn save_text_file(&self, relative_path: &str, content: &str) -> Result<(), RepositoryError> {
-        self.state
-            .borrow_mut()
-            .data
-            .insert(relative_path.to_string(), serde_json::Value::String(content.to_string()));
+        self.state.borrow_mut().data.insert(
+            relative_path.to_string(),
+            serde_json::Value::String(content.to_string()),
+        );
         self.flush()
     }
 

@@ -2997,18 +2997,24 @@ pub mod memory {
                 .ok_or_else(|| not_found(relative_path))?;
             match value {
                 serde_json::Value::String(s) => Ok(s),
-                other => serde_json::to_string(&other)
-                    .map_err(|source| RepositoryError::Serialize {
+                other => {
+                    serde_json::to_string(&other).map_err(|source| RepositoryError::Serialize {
                         path: std::path::PathBuf::from(relative_path),
                         source,
-                    }),
+                    })
+                }
             }
         }
 
-        fn save_text_file(&self, relative_path: &str, content: &str) -> Result<(), RepositoryError> {
-            self.data
-                .borrow_mut()
-                .insert(relative_path.to_string(), serde_json::Value::String(content.to_string()));
+        fn save_text_file(
+            &self,
+            relative_path: &str,
+            content: &str,
+        ) -> Result<(), RepositoryError> {
+            self.data.borrow_mut().insert(
+                relative_path.to_string(),
+                serde_json::Value::String(content.to_string()),
+            );
             Ok(())
         }
 

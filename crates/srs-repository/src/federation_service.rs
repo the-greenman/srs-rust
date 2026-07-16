@@ -216,7 +216,13 @@ pub fn resolve_repository(
     let root_registry_id = root_registry.registry_id.clone();
 
     let mut seen = HashSet::new();
-    match dfs_search_registry(store, root_registry, federation_path, &input.repository_id, &mut seen)? {
+    match dfs_search_registry(
+        store,
+        root_registry,
+        federation_path,
+        &input.repository_id,
+        &mut seen,
+    )? {
         Some((registry_id, entry)) => Ok(ResolveRepositoryResult {
             found: true,
             registry_id,
@@ -254,7 +260,9 @@ pub fn list_federation_events(
 
     let content = match store.load_text_file(events_path) {
         Ok(c) => c,
-        Err(RepositoryError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
+        Err(RepositoryError::Io { source, .. })
+            if source.kind() == std::io::ErrorKind::NotFound =>
+        {
             return Ok(ListFederationEventsResult {
                 repository_id,
                 events: vec![],
@@ -306,7 +314,9 @@ pub fn append_federation_event(
                 }
             })?
         }
-        Err(RepositoryError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
+        Err(RepositoryError::Io { source, .. })
+            if source.kind() == std::io::ErrorKind::NotFound =>
+        {
             FederationEventsFile {
                 schema: None,
                 repository_id: input.repository_id,
@@ -319,11 +329,12 @@ pub fn append_federation_event(
     events_file.events.push(input.event);
     let total_events = events_file.events.len();
 
-    let json =
-        serde_json::to_string_pretty(&events_file).map_err(|source| RepositoryError::Serialize {
+    let json = serde_json::to_string_pretty(&events_file).map_err(|source| {
+        RepositoryError::Serialize {
             path: PathBuf::from(events_path),
             source,
-        })?;
+        }
+    })?;
     store.save_text_file(events_path, &json)?;
 
     Ok(AppendFederationEventResult {

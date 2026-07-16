@@ -761,8 +761,8 @@ impl SrsRepository {
     /// with `found`, `registryId`, and `entry` (null when not found).
     /// Errors when the federation registry file is absent.
     pub fn federation_resolve(&self, input_json: &str) -> Result<JsValue, JsValue> {
-        let input: ResolveRepositoryInput = serde_json::from_str(input_json)
-            .map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let input: ResolveRepositoryInput =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
         let result = resolve_repository(&self.store, input).map_err(js_err)?;
         to_js(&result)
     }
@@ -776,11 +776,8 @@ impl SrsRepository {
     pub fn federation_events_list(&self, filter_json: &str) -> Result<JsValue, JsValue> {
         let filter: ListFederationEventsFilter = serde_json::from_str(filter_json)
             .map_err(|e| js_err(format!("invalid filter: {e}")))?;
-        let result = list_federation_events(
-            &self.store,
-            ListFederationEventsInput { filter },
-        )
-        .map_err(js_err)?;
+        let result = list_federation_events(&self.store, ListFederationEventsInput { filter })
+            .map_err(js_err)?;
         to_js(&result)
     }
 
@@ -789,8 +786,8 @@ impl SrsRepository {
     /// `input_json` is `{"repositoryId": "<id>", "event": <FederationEvent>}`.
     /// Returns `{"eventId": "<id>", "totalEvents": N}`.
     pub fn federation_events_append(&self, input_json: &str) -> Result<JsValue, JsValue> {
-        let input: AppendFederationEventInput = serde_json::from_str(input_json)
-            .map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let input: AppendFederationEventInput =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
         let result = append_federation_event(&self.store, input).map_err(js_err)?;
         to_js(&result)
     }
@@ -937,7 +934,6 @@ struct CreateRecordBindingInput {
     #[serde(default)]
     tags: Option<Vec<String>>,
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -1418,7 +1414,10 @@ mod tests {
         assert_eq!(result.events[0].event_id, "evt-0001");
 
         let json = serde_json::to_value(&result).expect("result must serialize");
-        assert!(json["repositoryId"].is_string(), "repositoryId must be present");
+        assert!(
+            json["repositoryId"].is_string(),
+            "repositoryId must be present"
+        );
         assert!(json["events"].is_array(), "events must be an array");
         assert_eq!(json["totalCount"].as_u64(), Some(1));
         assert_eq!(json["filteredCount"].as_u64(), Some(1));
