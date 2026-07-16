@@ -58,10 +58,9 @@ impl RepositoryValidationReport {
     }
 }
 
-/// Type namespace/name and field name for the spec invariant uniqueness check.
-/// These are field *names* (stable and human-readable), not UUIDs.
-/// The field ID is resolved at runtime via `Package::find_field` to avoid UUID drift.
-const SPEC_INVARIANT_TYPE_NAMESPACE: &str = "com.semanticops.spec";
+/// Shared namespace for the com.semanticops.spec type family and its fields.
+/// Used for both type-dispatch and field-namespace lookups in the invariant uniqueness check.
+const SPEC_NAMESPACE: &str = "com.semanticops.spec";
 const SPEC_INVARIANT_TYPE_NAME: &str = "invariant";
 const SPEC_INVARIANT_NUMBER_FIELD_NAME: &str = "invariant-number";
 
@@ -614,11 +613,11 @@ pub fn validate_repository(
                         // Values are coerced to strings because spec repos store invariant
                         // numbers as JSON numbers (e.g. 1, 2) while new records use
                         // strings ("I-1"); both representations are compared after coercion.
-                        if record.type_namespace == SPEC_INVARIANT_TYPE_NAMESPACE
+                        if record.type_namespace == SPEC_NAMESPACE
                             && record.type_name == SPEC_INVARIANT_TYPE_NAME
                         {
                             if let Some(inv_field) = package.find_field(
-                                SPEC_INVARIANT_TYPE_NAMESPACE,
+                                SPEC_NAMESPACE,
                                 SPEC_INVARIANT_NUMBER_FIELD_NAME,
                             ) {
                                 if let Some(fv) =
