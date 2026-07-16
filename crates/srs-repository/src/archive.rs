@@ -5,7 +5,3 @@
 // Note: `zip` is declared with `default-features = false` (wasm32 constraint, ADR-013).
 // This disables the `time` feature; ZipWriter entries will use epoch timestamps
 // unless a cross-platform timestamp strategy is added in srs-rust#276.
-
-// Read-side type only — ZipWriter is deferred to srs-rust#276.
-#[allow(unused_imports)]
-pub(crate) use zip::ZipArchive;
