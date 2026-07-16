@@ -85,7 +85,7 @@ pub fn get_field_context(
         .iter()
         .find(|fv| fv.field_id == query.field_id)
         .map(|fv| fv.value.clone())
-        .and_then(|v| if v.is_null() { None } else { Some(v) });
+        .filter(|v| !v.is_null());
 
     let revisions = record_store::list_record_revisions(
         store,
