@@ -66,6 +66,14 @@ pub struct PackageBoundary {
     pub blueprint_paths: Vec<String>,
     /// Paths of protocol files, relative to the boundary directory.
     pub protocol_paths: Vec<String>,
+    /// Paths of view files, relative to the boundary directory.
+    pub view_paths: Vec<String>,
+    /// Paths of relation-type files, relative to the boundary directory.
+    pub relation_type_paths: Vec<String>,
+    /// Paths of lifecycle files, relative to the boundary directory.
+    pub lifecycle_paths: Vec<String>,
+    /// Paths of document-view files, relative to the boundary directory.
+    pub document_view_paths: Vec<String>,
 }
 
 impl PackageBoundary {
@@ -102,6 +110,10 @@ impl PackageBoundary {
             type_paths: str_paths("types"),
             blueprint_paths: str_paths("blueprints"),
             protocol_paths: str_paths("protocols"),
+            view_paths: str_paths("views"),
+            relation_type_paths: str_paths("relationTypes"),
+            lifecycle_paths: str_paths("lifecycles"),
+            document_view_paths: str_paths("documentViews"),
         }
     }
 }

@@ -1648,6 +1648,86 @@ $SRS protocol run get "00000000-0000-0000-0000-000000000000" --repo $REPO --pret
 
 ---
 
+## S29 — Install an upstream governance package and track import divergence (`srs package install`, `srs package imports`, ext:import-tracking, #246)
+
+**Intention.** An organisation receives a governance package from a vendor and installs it as a sub-package boundary. They later make a local edit to one of the installed definitions. The `srs package imports` command surfaces which definitions are still in sync with the vendor's version (`clean`) and which have been locally modified (`local-ahead`).
+
+**Setup.**
+
+```bash
+SRS=$(which srs)  # use the built binary from the branch
+FIXTURE=crates/srs-repository/tests/fixtures/install-package
+REPO=/tmp/dogfood-s29-import-tracking
+
+$SRS repo create --repo $REPO --namespace com.example.dogfood
+```
+
+**Step 1 — Install the upstream package.**
+
+```bash
+$SRS package install "$FIXTURE" --repo $REPO --pretty
+```
+
+Expect `ok: true`, `installed > 0`, `conflicts: []`, `skippedIdentical: 0`.
+
+**Step 2 — Confirm all definitions show `clean` divergence state.**
+
+```bash
+$SRS package imports --repo $REPO --pretty | jq '.payload | {fields: [.fields[].conflictState], types: [.types[].conflictState], protocols: [.protocols[].conflictState]}'
+```
+
+Expect every `conflictState` to be `"clean"`. `skippedDefinitions` may list lifecycles and document-views — these definition types are not tracked by RFC-014's ImportSummary, which is expected.
+
+**Step 3 — Simulate a local edit to one installed definition.**
+
+```bash
+# Edit the 'title' field JSON to add local AI guidance
+FIELD_FILE=$REPO/packages/install-fixture/fields/title-9a1b0c2d.json
+python3 -c "
+import json
+with open('$FIELD_FILE') as f: d = json.load(f)
+d['aiGuidance'] = 'locally modified guidance'
+with open('$FIELD_FILE', 'w') as f: json.dump(d, f, indent=2)
+"
+```
+
+**Step 4 — Confirm divergence is detected.**
+
+```bash
+$SRS package imports --repo $REPO --pretty | jq '.payload.fields[] | {name, conflictState}'
+```
+
+Expect the `title` field to show `"conflictState": "local-ahead"` and `body` to show `"clean"`.
+
+**Step 5 — Idempotent re-install preserves existing import records.**
+
+```bash
+$SRS package install "$FIXTURE" --repo $REPO --pretty | jq '{installed, skippedIdentical}'
+```
+
+Expect `installed: 0, skippedIdentical: 9` (all definitions already present and identical are skipped; the locally-edited `title` is also skipped since its content ID matches).
+
+**Step 6 — Validate the repo.**
+
+```bash
+$SRS repo validate --repo $REPO --pretty | jq '.payload.diagnostics | length'
+```
+
+Expect `0` errors (the single warning about a document-view referencing a missing container is a known fixture limitation, not a real error).
+
+**Negative case — Import with wrong mode string.**
+
+```bash
+$SRS package import --path packages/some-pkg --mode invalid-mode --repo $REPO --pretty | jq '.ok'
+# Expect: false, with error message explaining valid modes
+```
+
+**Done when.** `package install` reports installed definitions with `ok: true`. `package imports` immediately after install shows every tracked definition as `conflictState: "clean"`. After editing one definition file, `package imports` shows that definition as `conflictState: "local-ahead"` while all others remain `"clean"`. Re-running install is idempotent. `repo validate` shows 0 errors.
+
+**Verified 2026-07-16 (#246).** All steps confirmed. `package install` installed 9 definitions (2 fields, 1 type, 1 relationType, 1 lifecycle, 1 view, 1 documentView, 1 blueprint, 1 protocol). `package imports` immediately after showed all tracked definitions (fields, types, views, blueprints, protocols, relation-types) as `clean`. After editing `title`, that field showed `local-ahead` while `body` remained `clean`. Re-run install returned `installed: 0, skippedIdentical: 9`. `repo validate` returned 0 errors. Dogfooding found and fixed two bugs: (1) `PackageBoundary` was not tracking `view_paths`/`relation_type_paths`/`lifecycle_paths`/`document_view_paths`, causing those definition types to always show in `skippedDefinitions` as "not found"; (2) protocol divergence detection used the wrong JSON field (`id` instead of `protocolId`), causing all protocols to be skipped.
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -1698,7 +1778,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `protocol run` (create/advance/get/list/complete/abandon — ext:protocol, #252) | S28; WASM bindings (`protocol_run_create`, `protocol_run_advance`, `protocol_run_get`, `protocol_run_list`, `protocol_run_complete`, `protocol_run_abandon` on `SrsRepository`) verified via 5 smoke tests in `crates/srs-bindings/src/lib.rs` |
 | `theme` | S8 |
 | `extension` | _gap — no scenario yet_ |
-| `ext:import-tracking` (`ImportRecord`, `ImportSummary`, `UpstreamPackage`) | CLI: _gap — no CLI commands yet (service layer deferred to #246)_; core types (`ImportMode`, `DefinitionType`, `ConflictState`, `ImportRecord`, `ImportSummary`, `UpstreamPackage`) verified via 10 unit tests in `crates/srs-core/src/extensions/import_tracking.rs` (#245) |
+| `ext:import-tracking` (`ImportRecord`, `ImportSummary`, `UpstreamPackage`) | S29 (#246); CLI: `srs package install`, `srs package import --mode`, `srs package imports`; core types (`ImportMode`, `DefinitionType`, `ConflictState`, `ImportRecord`, `ImportSummary`, `UpstreamPackage`) verified via 11 unit tests in `crates/srs-core/src/extensions/import_tracking.rs` (#245, #246); WASM binding (`list_package_imports_json` on `SrsRepository`) exposes the same service via WASM |
 | `repo extensions` (list/enable/disable/conformance) | S22; WASM read binding (`declared_extensions_conformance`) verified via smoke test `declared_extensions_conformance_report_serialises` in `crates/srs-bindings/src/lib.rs` (#442) |
 | `repo migrate-identity` (graduate Tier-0 identity note to purpose record, #426; bootstrap identity for pre-#424 repos with no `identityInstanceId`, #432) | S21 (Tier-0 note branch), S21b (None-branch: absent pointer); WASM binding (`migrate_identity`) verified via integration tests in `crates/srs-bindings/tests/migrate_identity.rs` (#434); `build_purpose_record` now uses `core_package::core_package()` lookups instead of hardcoded UUID constants (ADR-025, #434) |
 | `type` `validationRules` (ext:cross-field-validation — conditional-required / field-ordering / mutual-exclusion, #242); **CFR violations are now hard errors at `record create`/`record update` write time (#437)** — `repo validate` still enforces for any pre-existing records | S23 |
@@ -1706,7 +1786,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `registry` (ext:registry — `registry list`, `registry get`) | S25; WASM free functions (`parse_registry`, `list_registry_entries`) verified via `cargo build --target wasm32-unknown-unknown -p srs-bindings` (#244) |
 | `federation` (ext:federation — `federation resolve`, `federation events-list`, `federation events-append`) | S26 (step 12 adds custom `federationPath`/`federationEventsPath` manifest fields, #249); WASM free functions (`parse_federation_registry`, `filter_federation_events_json`) verified via `cargo build --target wasm32-unknown-unknown -p srs-bindings` (#248); WASM repo-backed bindings (`federation_resolve`, `federation_events_list`, `federation_events_append` on `SrsRepository`) added and smoke-tested (#249) |
 | `context` (ext:addressability — `context field`, `context record`, `context revision`) | S27; WASM bindings (`context_field`, `context_record`, `context_revision` on `SrsRepository`) verified via native integration tests in `crates/srs-bindings/tests/context_query.rs` (#251) |
-| `package` | CLI: covered implicitly by field/type creation in S2; WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330) |
+| `package` | CLI: covered implicitly by field/type creation in S2; **`srs package install`/`srs package import`/`srs package imports`** end-to-end in S29 (#246); WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330) |
 
 Gaps are intentional and visible: they are the backlog of surfaces that need a meaningful scenario. Do not delete a gap row — fill it when a feature gives the surface a real workflow to demonstrate.
 

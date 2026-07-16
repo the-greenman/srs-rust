@@ -1,6 +1,7 @@
 use crate::error::RepositoryError;
 use crate::index::InstanceIndexEntry;
 use serde::{Deserialize, Serialize};
+use srs_core::extensions::import_tracking::UpstreamPackage;
 use srs_core::types::container::{Container, ContainerIndexEntry};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -18,6 +19,8 @@ pub struct Manifest {
     pub federation_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub federation_events_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub upstream_package: Option<UpstreamPackage>,
     // all other manifest fields preserved for round-trip write
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
@@ -34,6 +37,7 @@ impl Default for Manifest {
             container_index: None,
             federation_path: None,
             federation_events_path: None,
+            upstream_package: None,
             extra: HashMap::new(),
             root: PathBuf::new(),
         }
@@ -54,14 +58,55 @@ pub fn load_manifest(repo_root: &Path) -> Result<Manifest, RepositoryError> {
         source: e,
     })?;
 
-    let mut manifest: Manifest =
+    let mut raw: serde_json::Value =
         serde_json::from_str(&content).map_err(|e| RepositoryError::ManifestParse {
+            path: manifest_path.clone(),
+            source: e,
+        })?;
+
+    migrate_upstream_package(&mut raw);
+
+    let mut manifest: Manifest =
+        serde_json::from_value(raw).map_err(|e| RepositoryError::ManifestParse {
             path: manifest_path.clone(),
             source: e,
         })?;
 
     manifest.root = repo_root.to_path_buf();
     Ok(manifest)
+}
+
+/// Normalize upstreamPackage across legacy formats so the typed field deserialises cleanly.
+///
+/// Two legacy formats exist:
+/// 1. Old `"id"` key (bug in install_package_bundle before #246): rename to `"packageId"`.
+/// 2. Pre-RFC-014 seeds: `upstreamPackage` nested under `meta` — lift to top level.
+pub(crate) fn migrate_upstream_package(raw: &mut serde_json::Value) {
+    let obj = match raw.as_object_mut() {
+        Some(o) => o,
+        None => return,
+    };
+
+    // Lift from meta.upstreamPackage if absent at top level.
+    if !obj.contains_key("upstreamPackage") {
+        if let Some(up) = obj
+            .get("meta")
+            .and_then(|m| m.get("upstreamPackage"))
+            .cloned()
+        {
+            obj.insert("upstreamPackage".to_string(), up);
+        }
+    }
+
+    // Rename "id" → "packageId" (old provenance-stamp bug).
+    if let Some(up) = obj
+        .get_mut("upstreamPackage")
+        .and_then(|v| v.as_object_mut())
+    {
+        if let Some(id_val) = up.remove("id") {
+            up.entry("packageId").or_insert(id_val);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -221,5 +266,103 @@ mod tests {
         let manifest: Manifest = serde_json::from_str(json).unwrap();
         assert!(manifest.federation_path.is_none());
         assert!(manifest.federation_events_path.is_none());
+    }
+
+    #[test]
+    fn manifest_upstream_package_roundtrips() {
+        let json = r#"{
+            "instanceIndex": [],
+            "upstreamPackage": {
+                "packageId": "1cd9622e-3d05-4214-a683-4cb81d0c44d9",
+                "namespace": "com.mudemocracy.governance",
+                "name": "governance",
+                "version": "1.0.0",
+                "installedAt": "2026-06-28T12:00:00Z"
+            }
+        }"#;
+        let manifest: Manifest = serde_json::from_str(json).unwrap();
+        let up = manifest.upstream_package.as_ref().unwrap();
+        assert_eq!(up.package_id, "1cd9622e-3d05-4214-a683-4cb81d0c44d9");
+        assert_eq!(up.namespace, "com.mudemocracy.governance");
+        assert!(!manifest.extra.contains_key("upstreamPackage"));
+
+        let serialised = serde_json::to_string(&manifest).unwrap();
+        let reparsed: Manifest = serde_json::from_str(&serialised).unwrap();
+        assert_eq!(
+            reparsed.upstream_package.as_ref().unwrap().package_id,
+            up.package_id
+        );
+    }
+
+    #[test]
+    fn manifest_absent_upstream_package_is_none() {
+        let json = r#"{"instanceIndex": []}"#;
+        let manifest: Manifest = serde_json::from_str(json).unwrap();
+        assert!(manifest.upstream_package.is_none());
+    }
+
+    #[test]
+    fn migrate_upstream_package_renames_id_to_package_id() {
+        let mut raw = serde_json::json!({
+            "instanceIndex": [],
+            "upstreamPackage": {
+                "id": "old-id-value",
+                "namespace": "com.example",
+                "name": "pkg",
+                "version": "1.0.0",
+                "installedAt": "2026-01-01T00:00:00Z"
+            }
+        });
+        migrate_upstream_package(&mut raw);
+        let up = &raw["upstreamPackage"];
+        assert_eq!(up["packageId"].as_str(), Some("old-id-value"));
+        assert!(up.get("id").is_none());
+    }
+
+    #[test]
+    fn migrate_upstream_package_lifts_from_meta() {
+        let mut raw = serde_json::json!({
+            "instanceIndex": [],
+            "meta": {
+                "upstreamPackage": {
+                    "packageId": "meta-pkg-id",
+                    "namespace": "com.example",
+                    "name": "pkg",
+                    "version": "1.0.0",
+                    "installedAt": "2026-01-01T00:00:00Z"
+                }
+            }
+        });
+        migrate_upstream_package(&mut raw);
+        let up = &raw["upstreamPackage"];
+        assert_eq!(up["packageId"].as_str(), Some("meta-pkg-id"));
+    }
+
+    #[test]
+    fn migrate_upstream_package_top_level_wins_over_meta() {
+        let mut raw = serde_json::json!({
+            "instanceIndex": [],
+            "upstreamPackage": {
+                "packageId": "top-level-id",
+                "namespace": "com.example",
+                "name": "pkg",
+                "version": "1.0.0",
+                "installedAt": "2026-01-01T00:00:00Z"
+            },
+            "meta": {
+                "upstreamPackage": {
+                    "packageId": "meta-id",
+                    "namespace": "com.example",
+                    "name": "pkg",
+                    "version": "1.0.0",
+                    "installedAt": "2026-01-01T00:00:00Z"
+                }
+            }
+        });
+        migrate_upstream_package(&mut raw);
+        assert_eq!(
+            raw["upstreamPackage"]["packageId"].as_str(),
+            Some("top-level-id")
+        );
     }
 }

@@ -1,0 +1,158 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PackageImportsPayload",
+  "type": "object",
+  "required": [
+    "blueprints",
+    "fields",
+    "generatedAt",
+    "protocols",
+    "relationTypes",
+    "types",
+    "views"
+  ],
+  "properties": {
+    "blueprints": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PackageImportRecordEntry"
+      }
+    },
+    "fields": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PackageImportRecordEntry"
+      }
+    },
+    "generatedAt": {
+      "type": "string"
+    },
+    "protocols": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PackageImportRecordEntry"
+      }
+    },
+    "relationTypes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PackageImportRecordEntry"
+      }
+    },
+    "skippedDefinitions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "types": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PackageImportRecordEntry"
+      }
+    },
+    "views": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PackageImportRecordEntry"
+      }
+    }
+  },
+  "definitions": {
+    "PackageImportRecordEntry": {
+      "type": "object",
+      "required": [
+        "definitionId",
+        "definitionType",
+        "importedAt",
+        "mode",
+        "name",
+        "namespace",
+        "sourcePackageId",
+        "sourcePackageName",
+        "sourcePackageVersion",
+        "version"
+      ],
+      "properties": {
+        "conflictDetectedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conflictState": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "definitionId": {
+          "type": "string"
+        },
+        "definitionType": {
+          "type": "string"
+        },
+        "importedAt": {
+          "type": "string"
+        },
+        "latestKnownUpstreamVersion": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "localEditedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "localVersion": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "mode": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "sourcePackageId": {
+          "type": "string"
+        },
+        "sourcePackageName": {
+          "type": "string"
+        },
+        "sourcePackageVersion": {
+          "type": "string"
+        },
+        "updateAvailable": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "updateCheckedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      }
+    }
+  }
+}

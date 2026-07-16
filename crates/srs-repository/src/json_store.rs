@@ -162,6 +162,7 @@ impl JsonStore {
             container: None,
             container_index: None,
             federation_path: None,
+            upstream_package: None,
             federation_events_path: None,
             extra: HashMap::new(),
             root: file_path
@@ -198,13 +199,14 @@ impl JsonStore {
                 message: format!("unsupported srsj version '{}'", envelope.srsj),
             });
         }
-        let mut manifest: Manifest =
-            serde_json::from_value(envelope.manifest).map_err(|source| {
-                RepositoryError::ManifestParse {
-                    path: mem_path.clone(),
-                    source,
-                }
-            })?;
+        let mut raw_manifest = envelope.manifest;
+        crate::manifest::migrate_upstream_package(&mut raw_manifest);
+        let mut manifest: Manifest = serde_json::from_value(raw_manifest).map_err(|source| {
+            RepositoryError::ManifestParse {
+                path: mem_path.clone(),
+                source,
+            }
+        })?;
         manifest.root = PathBuf::from(".");
         // --- Open-time migrations ---
         // Invariants that every migration block here must observe:
@@ -712,6 +714,7 @@ impl RepositoryStore for JsonStore {
             container: Some(container),
             container_index: None,
             federation_path: None,
+            upstream_package: None,
             federation_events_path: None,
             extra,
             root: self.repository_root(),
@@ -781,7 +784,8 @@ impl RepositoryStore for JsonStore {
         // an abort as terminal: propagate the import error and drop the store.
         if self.file_path != std::path::Path::new("<memory>") {
             if let Ok(raw) = std::fs::read_to_string(&self.file_path) {
-                if let Ok(envelope) = serde_json::from_str::<JsonStoreFile>(&raw) {
+                if let Ok(mut envelope) = serde_json::from_str::<JsonStoreFile>(&raw) {
+                    crate::manifest::migrate_upstream_package(&mut envelope.manifest);
                     if let Ok(mut manifest) =
                         serde_json::from_value::<crate::manifest::Manifest>(envelope.manifest)
                     {

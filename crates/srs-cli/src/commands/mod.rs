@@ -1401,6 +1401,9 @@ pub enum PackageCommand {
         /// Path relative to repo root of a directory containing a package.json
         #[arg(long = "path")]
         path: String,
+        /// Import mode: upstream-tracked (default), local-copy, or local-fork
+        #[arg(long, default_value = "upstream-tracked")]
+        mode: String,
     },
     /// Install an external package directory into this repository (one-shot copy)
     Install {
@@ -1447,6 +1450,8 @@ pub enum PackageCommand {
         #[arg(long = "path")]
         boundary_path: String,
     },
+    /// List all imported definitions with live divergence state
+    Imports,
     /// [Deprecated: use `package import` instead] Enable a local sub-package
     #[command(hide = true)]
     Enable {

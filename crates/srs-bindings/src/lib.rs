@@ -18,7 +18,8 @@ use srs_repository::governance_scaffold_service::{self, CreateGovernanceReposito
 use srs_repository::manifest_service;
 use srs_repository::migrate_identity_service;
 use srs_repository::package_service::{
-    self, FieldListFilter, GetFieldResult, GetTypeResult, RelationTypeListFilter, TypeListFilter,
+    self, FieldListFilter, GetFieldResult, GetTypeResult, ListPackageImportsFilter,
+    RelationTypeListFilter, TypeListFilter,
 };
 use srs_repository::protocol_run_service::{
     self as run_service, AdvanceStageInput as RunAdvanceInput, CreateRunInput as RunCreateInput,
@@ -651,6 +652,18 @@ impl SrsRepository {
     pub fn list_packages(&self) -> Result<JsValue, JsValue> {
         let packages = package_service::list_packages(&self.store).map_err(js_err)?;
         to_js(&packages)
+    }
+
+    /// Aggregate import records across all boundaries and run live divergence detection.
+    /// Returns an `ImportSummary` object (`{generatedAt, fields, types, views, blueprints,
+    /// protocols, relationTypes, skippedDefinitions?}`).
+    /// Each record includes `conflictState` ("clean" | "local-ahead") for
+    /// `upstream-tracked` definitions where a reference copy exists.
+    pub fn list_package_imports_json(&self) -> Result<JsValue, JsValue> {
+        let summary =
+            package_service::list_package_imports(&self.store, ListPackageImportsFilter::default())
+                .map_err(js_err)?;
+        to_js(&summary)
     }
 
     /// List the document views (L2) bound to a container's root type. Resolves the container's
