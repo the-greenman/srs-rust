@@ -258,15 +258,14 @@ fn resolve_member(
     diagnostics: &mut Vec<String>,
 ) -> Result<Option<ResolvedMember>, RepositoryError> {
     match tier_by_id.get(id) {
-        Some(0) | Some(1) => {
-            let tier = *tier_by_id.get(id).unwrap();
+        Some(t @ 0) | Some(t @ 1) => {
             let display_label = label_by_id
                 .get(id)
                 .cloned()
                 .unwrap_or_else(|| id.to_string());
             Ok(Some(ResolvedMember {
                 instance_id: id.to_string(),
-                tier,
+                tier: *t,
                 display_label,
                 is_visible_by_default: true,
                 record: None,
@@ -1133,6 +1132,47 @@ mod tests {
         assert_eq!(note.tier, 0);
         assert_eq!(note.display_label, "note-1", "display_label falls back to instance_id");
         assert!(note.record.is_none());
+    }
+
+    #[test]
+    fn resolve_container_view_tier0_root_projects_correctly() {
+        // A container whose root is a Tier-0 Note — root is resolved via the same
+        // `resolve_member` path as members, so this guards against future special-casing.
+        let fields = vec![field("f-title", "title")];
+        let view = view_with_fields(vec![field_view("f-title", 0, None, None)]);
+        let dv = document_view(
+            DV_ID,
+            vec![section(
+                "s1",
+                0,
+                SectionSource::ContainerSubset {
+                    container_id: CONTAINER_ID.to_string(),
+                    container_type: None,
+                    type_filter: None,
+                },
+                Some(VIEW_ID),
+            )],
+        );
+        let note_json = serde_json::json!({ "instanceId": "note-root", "tier": 0, "sections": [] });
+        let store = build_store_titled(
+            fields,
+            vec![view],
+            vec![dv],
+            vec![("note-root", 0, Some("Root Note"), note_json)],
+        );
+        container_service::create_container(
+            &store,
+            make_container(vec!["note-root"], vec![]),
+        )
+        .unwrap();
+
+        let result = resolve_container_view(&store, input(None)).unwrap();
+        let root = result.root.as_ref().expect("root must be present");
+        assert_eq!(root.tier, 0);
+        assert!(root.record.is_none(), "Tier-0 root must have record: None");
+        assert_eq!(root.display_label, "Root Note");
+        assert!(root.is_visible_by_default);
+        assert!(result.diagnostics.is_empty(), "no diagnostics expected");
     }
 
     #[test]
