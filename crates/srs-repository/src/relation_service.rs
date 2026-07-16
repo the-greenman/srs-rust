@@ -814,13 +814,15 @@ mod tests {
             .extra
             .insert("relationsPath".to_string(), json!("relations/custom.json"));
         for id in ["src-1", "tgt-1"] {
-            manifest.instance_index.push(crate::index::InstanceIndexEntry {
-                instance_id: id.to_string(),
-                tier: 0,
-                path: format!("records/{}.json", id),
-                title: None,
-                tags: None,
-            });
+            manifest
+                .instance_index
+                .push(crate::index::InstanceIndexEntry {
+                    instance_id: id.to_string(),
+                    tier: 0,
+                    path: format!("records/{}.json", id),
+                    title: None,
+                    tags: None,
+                });
         }
         store.save_manifest(&manifest).unwrap();
 
@@ -847,13 +849,15 @@ mod tests {
         let store = MemoryStore::default();
         let mut manifest = store.load_manifest().unwrap();
         for id in ["src-1", "tgt-1"] {
-            manifest.instance_index.push(crate::index::InstanceIndexEntry {
-                instance_id: id.to_string(),
-                tier: 0,
-                path: format!("records/{}.json", id),
-                title: None,
-                tags: None,
-            });
+            manifest
+                .instance_index
+                .push(crate::index::InstanceIndexEntry {
+                    instance_id: id.to_string(),
+                    tier: 0,
+                    path: format!("records/{}.json", id),
+                    title: None,
+                    tags: None,
+                });
         }
         store.save_manifest(&manifest).unwrap();
 
