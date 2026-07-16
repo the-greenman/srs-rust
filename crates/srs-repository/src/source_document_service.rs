@@ -1,0 +1,136 @@
+use crate::error::RepositoryError;
+use crate::store::RepositoryStore;
+use srs_core::types::source_document_meta::SourceDocumentMeta;
+
+/// A source document sidecar entry returned by `list_source_documents`.
+/// Includes serde derives so CLI payload structs and WASM bindings can embed it directly.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SourceDocumentEntry {
+    /// Path of the `.meta.json` sidecar, relative to the repository root.
+    /// E.g. `"source-documents/spec/srs-spec.md.meta.json"`
+    pub sidecar_path: String,
+    /// Parsed sidecar metadata.
+    pub meta: SourceDocumentMeta,
+}
+
+/// Filter parameters for `list_source_documents`. Currently empty; extended in future issues
+/// without breaking the service boundary (per ADR-010: list functions accept a filter struct).
+#[derive(Debug, Clone, Default)]
+pub struct ListSourceDocumentsFilter {}
+
+/// Enumerate all source-document sidecars in the repository.
+///
+/// Scans `source-documents/` recursively for `*.meta.json` files and parses each.
+/// Returns `Err` if any sidecar fails to parse (malformed JSON or missing required fields).
+pub fn list_source_documents(
+    store: &dyn RepositoryStore,
+    _filter: ListSourceDocumentsFilter,
+) -> Result<Vec<SourceDocumentEntry>, RepositoryError> {
+    let sidecar_paths = store.list_source_document_sidecar_paths();
+    let mut entries = Vec::with_capacity(sidecar_paths.len());
+    for sidecar_path in sidecar_paths {
+        let json_str = store.load_text_file(&sidecar_path)?;
+        let meta = serde_json::from_str::<SourceDocumentMeta>(&json_str).map_err(|source| {
+            RepositoryError::SourceDocumentMetaLoad {
+                path: std::path::PathBuf::from(&sidecar_path),
+                source,
+            }
+        })?;
+        entries.push(SourceDocumentEntry { sidecar_path, meta });
+    }
+    Ok(entries)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::RepositoryStore;
+
+    #[test]
+    fn memory_store_list_source_documents_empty() {
+        let store = crate::store::memory::MemoryStore::empty();
+        let result = list_source_documents(&store, ListSourceDocumentsFilter::default()).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn memory_store_list_source_documents_single() {
+        let store = crate::store::memory::MemoryStore::empty();
+        let meta_json = r#"{
+            "documentId": "aaaaaaaa-0000-4000-8000-000000000001",
+            "contentPath": "test.md",
+            "contentType": "text/markdown",
+            "createdAt": "2026-01-01T00:00:00Z"
+        }"#;
+        store
+            .save_text_file("source-documents/test.md.meta.json", meta_json)
+            .unwrap();
+        let result =
+            list_source_documents(&store, ListSourceDocumentsFilter::default()).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(
+            result[0].sidecar_path,
+            "source-documents/test.md.meta.json"
+        );
+        assert_eq!(
+            result[0].meta.document_id,
+            "aaaaaaaa-0000-4000-8000-000000000001"
+        );
+        assert_eq!(result[0].meta.content_type, "text/markdown");
+    }
+
+    #[test]
+    fn memory_store_list_source_documents_subdirectory() {
+        let store = crate::store::memory::MemoryStore::empty();
+        let meta_json_a = r#"{"documentId":"aaaaaaaa-0000-4000-8000-000000000001","contentPath":"a.md","contentType":"text/markdown","createdAt":"2026-01-01T00:00:00Z"}"#;
+        let meta_json_b = r#"{"documentId":"bbbbbbbb-0000-4000-8000-000000000002","contentPath":"b.pdf","contentType":"application/pdf","createdAt":"2026-01-01T00:00:00Z"}"#;
+        store
+            .save_text_file("source-documents/sub/a.md.meta.json", meta_json_a)
+            .unwrap();
+        store
+            .save_text_file("source-documents/sub/b.pdf.meta.json", meta_json_b)
+            .unwrap();
+        let result =
+            list_source_documents(&store, ListSourceDocumentsFilter::default()).unwrap();
+        assert_eq!(result.len(), 2);
+        let ids: Vec<_> = result.iter().map(|e| e.meta.document_id.as_str()).collect();
+        assert!(ids.contains(&"aaaaaaaa-0000-4000-8000-000000000001"));
+        assert!(ids.contains(&"bbbbbbbb-0000-4000-8000-000000000002"));
+    }
+
+    #[test]
+    fn memory_store_malformed_sidecar_returns_err() {
+        let store = crate::store::memory::MemoryStore::empty();
+        store
+            .save_text_file("source-documents/bad.md.meta.json", "not-valid-json")
+            .unwrap();
+        assert!(list_source_documents(&store, ListSourceDocumentsFilter::default()).is_err());
+    }
+
+    #[test]
+    fn file_store_list_source_documents_spec_repo() {
+        use crate::store::FileStore;
+        let repo_path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/fixtures/spec-repo"
+        );
+        let store = FileStore::new(repo_path);
+        let result =
+            list_source_documents(&store, ListSourceDocumentsFilter::default()).unwrap();
+        // The spec-repo fixture has 4 .meta.json sidecars:
+        //   source-documents/spec/srs-spec.md.meta.json
+        //   source-documents/ai-sessions/chatgpt-origin.md.meta.json
+        //   source-documents/ai-sessions/chatgpt-spec-review.md.meta.json
+        //   source-documents/ai-sessions/claude-collaborative-document.md.meta.json
+        assert_eq!(
+            result.len(),
+            4,
+            "expected 4 sidecars, got: {:?}",
+            result.iter().map(|e| &e.sidecar_path).collect::<Vec<_>>()
+        );
+        for entry in &result {
+            assert!(!entry.meta.document_id.is_empty());
+            assert!(!entry.meta.content_type.is_empty());
+        }
+    }
+}

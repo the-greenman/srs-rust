@@ -50,6 +50,7 @@ pub mod revision_service;
 #[cfg(test)]
 mod selector_parity_tests;
 pub mod services;
+pub mod source_document_service;
 pub mod srsj_migration_service;
 pub mod store;
 pub mod tag_service;
