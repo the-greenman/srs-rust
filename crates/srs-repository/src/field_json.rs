@@ -20,7 +20,7 @@ pub(crate) struct FieldJson {
     pub(crate) default_value: Option<serde_json::Value>,
     pub(crate) created_at: Option<String>,
     #[serde(flatten)]
-    pub(crate) _extra: HashMap<String, serde_json::Value>,
+    pub(crate) extra_fields: HashMap<String, serde_json::Value>,
 }
 
 impl FieldJson {
@@ -38,7 +38,7 @@ impl FieldJson {
             vocabulary_ref: self.vocabulary_ref,
             default_value: self.default_value,
             created_at: self.created_at.unwrap_or_default(),
-            extra: HashMap::new(),
+            extra: self.extra_fields,
         })
     }
 }

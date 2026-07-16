@@ -12,6 +12,7 @@ use crate::repository_lifecycle::{
     create_repository, InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
 };
 use crate::store::{FileStore, RepositoryStore};
+use serde_json::json;
 use srs_core::types::field::{Field, ValueType};
 use std::collections::HashMap;
 use tempfile::TempDir;
@@ -20,7 +21,7 @@ fn write_minimal_file_repo(temp: &TempDir) {
     let root = temp.path();
     std::fs::create_dir_all(root.join("package")).unwrap();
 
-    let manifest = serde_json::json!({
+    let manifest = json!({
         "instanceIndex": [],
         "srsVersion": "2.0-draft",
         "repositoryId": "parity-repo-id",
@@ -32,7 +33,7 @@ fn write_minimal_file_repo(temp: &TempDir) {
     )
     .unwrap();
 
-    let package_json = serde_json::json!({
+    let package_json = json!({
         "id": "parity-pkg",
         "namespace": "com.test",
         "name": "test",
@@ -59,12 +60,12 @@ fn cross_store_field_json_parity() {
         value_type: ValueType::String,
         description: "Parity test field".to_string(),
         instructions: Some("Cross-store parity check.".to_string()),
-        ai_guidance: serde_json::Value::Null,
+        ai_guidance: json!(null),
         allowed_values: None,
         vocabulary_ref: None,
         default_value: None,
         created_at: "2026-01-01T00:00:00Z".to_string(),
-        extra: HashMap::new(),
+        extra: HashMap::from([("x-future-hint".to_string(), json!("preserved"))]),
     };
 
     // --- FileStore path ---
@@ -122,5 +123,15 @@ fn cross_store_field_json_parity() {
     assert_eq!(
         fs_field.instructions, js_field.instructions,
         "instructions must round-trip identically through both adapters"
+    );
+    assert_eq!(
+        fs_field.extra.get("x-future-hint"),
+        Some(&json!("preserved")),
+        "unknown extra fields must survive the round-trip through FieldJson::into_field"
+    );
+    assert_eq!(
+        js_field.extra.get("x-future-hint"),
+        Some(&json!("preserved")),
+        "unknown extra fields must survive the round-trip through FieldJson::into_field"
     );
 }
