@@ -849,6 +849,33 @@ pub struct ProtocolFindByTargetTypePayload {
     pub diagnostics: Vec<String>,
 }
 
+// ── Protocol run payloads ─────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProtocolRunListEntry {
+    pub run_id: String,
+    pub protocol_id: String,
+    pub container_id: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_stage_id: Option<String>,
+    pub started_at: String,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProtocolRunListPayload {
+    pub runs: Vec<ProtocolRunListEntry>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProtocolRunPayload {
+    #[schemars(with = "serde_json::Value")]
+    pub run: serde_json::Value,
+}
+
 // ── Blueprint payloads ────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]
