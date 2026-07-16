@@ -683,21 +683,32 @@ pub fn validate_repository(
     // --- Validate the authoritative relations file against E1-E4 ---
     // The relations file is infrastructure, not an instance — not counted in `checked`.
     // Resolve it through the same candidate order the relation service writes through
-    // (manifest relationsPath → relations-collection.json → relations.json) so at-rest
-    // validation covers whichever file is authoritative for this repo (#548).
-    if let Some((relations_path, relations_raw)) =
-        crate::relation_service::resolve_relations_source(store)?
-    {
-        // Schema-validate the file first
-        if let Ok(relations_value) = serde_json::from_str::<Value>(&relations_raw) {
-            if let Some(schema_diags) = validate_value_against_schema(
-                &relations_value,
-                &relations_path,
-                srs_schema::RELATIONS_COLLECTION_SCHEMA_ID,
-                reg,
-            ) {
-                diagnostics.extend(schema_diags);
-            }
+    // (manifest relationsPath → relations-collection.json → relations.json), read via
+    // load_relations_json so at-rest validation covers whichever file is authoritative
+    // across every store — including the JsonStore behind the WASM/srs-web path (#548).
+    let relations_source = match crate::relation_service::resolve_relations_source(store) {
+        Ok(source) => source,
+        Err(err) => {
+            // Present-but-unreadable/malformed relations file: surface as a diagnostic
+            // rather than aborting the whole validation run.
+            diagnostics.push(ValidationDiagnostic {
+                severity: DiagnosticSeverity::Error,
+                relative_path: "relations".to_string(),
+                schema_id: None,
+                message: format!("failed to read relations file: {err}"),
+            });
+            None
+        }
+    };
+    if let Some((relations_path, relations_value)) = relations_source {
+        // Schema-validate the (already-parsed) file first
+        if let Some(schema_diags) = validate_value_against_schema(
+            &relations_value,
+            &relations_path,
+            srs_schema::RELATIONS_COLLECTION_SCHEMA_ID,
+            reg,
+        ) {
+            diagnostics.extend(schema_diags);
         }
 
         let pkg = match store.load_package() {
@@ -739,14 +750,14 @@ pub fn validate_repository(
         // and `create_relation` enforce E4 over identical inputs (#556).
         let instance_semantic_types = crate::writer::build_instance_semantic_types(store, &manifest);
 
-        let coll: RelationsCollection = match serde_json::from_str(&relations_raw) {
+        let coll: RelationsCollection = match serde_json::from_value(relations_value) {
             Ok(c) => c,
             Err(e) => {
                 diagnostics.push(ValidationDiagnostic {
                     severity: DiagnosticSeverity::Error,
                     relative_path: relations_path.clone(),
                     schema_id: None,
-                    message: format!("JSON parse error: {e}"),
+                    message: format!("malformed relations collection: {e}"),
                 });
                 let errors = diagnostics
                     .iter()
@@ -5560,5 +5571,69 @@ mod tests {
             report.diagnostics
         );
         assert_eq!(e1.unwrap().relative_path, "relations/relations.json");
+    }
+
+    #[test]
+    fn validate_finds_relations_in_jsonstore_cross_store() {
+        // #548 regression for the WASM/srs-web path: relations are written as a JSON object
+        // (save_relations_json), so validate must resolve them in a JsonStore too — not just
+        // FileStore. Before the fix, resolve_relations_source used load_text_file, which
+        // returns nothing for an object-backed store, so JsonStore validate silently reported
+        // zero relation diagnostics even though the relation was readable via the API.
+        let temp = TempDir::new().unwrap();
+        // Distinct id-prefixes: snapshot import derives a canonical filename from the id's
+        // first 8 hex chars when a note has no title, so same-prefix ids would collide.
+        let a = "aaaaaaaa-0000-4000-8000-000000000001";
+        let b = "bbbbbbbb-0000-4000-8000-000000000001";
+        write_json(
+            temp.path(),
+            "manifest.json",
+            &minimal_manifest(json!([
+                {"instanceId": a, "tier": 0, "path": "records/notes/a.json"},
+                {"instanceId": b, "tier": 0, "path": "records/notes/b.json"},
+            ])),
+        );
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &minimal_package_json(None, None),
+        );
+        write_json(temp.path(), "records/notes/a.json", &valid_note(a));
+        write_json(temp.path(), "records/notes/b.json", &valid_note(b));
+        write_json(
+            temp.path(),
+            "relations/relations-collection.json",
+            &relations_collection(vec![bad_type_relation(
+                "00000000-0000-4000-8000-000000000105",
+                a,
+                b,
+            )]),
+        );
+
+        let file_store = crate::store::FileStore::new(temp.path());
+        // Reconstruct the same repository in a JsonStore via snapshot import (the .srsj store).
+        let snapshot =
+            crate::repository_portability::export_repository_snapshot(&file_store).unwrap();
+        let tmp2 = TempDir::new().unwrap();
+        let json_store =
+            crate::json_store::JsonStore::create(tmp2.path().join("repo.srsj")).unwrap();
+        crate::repository_portability::import_repository_snapshot(&json_store, &snapshot).unwrap();
+
+        let has_e1 =
+            |r: &RepositoryValidationReport| r.diagnostics.iter().any(|d| d.message.contains("E1"));
+        let file_report = validate_repository(&file_store).unwrap();
+        let json_report = validate_repository(&json_store).unwrap();
+        assert!(
+            has_e1(&file_report),
+            "FileStore should flag the bogus relation type (E1): {:?}",
+            file_report.diagnostics
+        );
+        assert!(
+            has_e1(&json_report),
+            "JsonStore (WASM/srs-web path) must also flag the bogus relation type (E1) — \
+             cross-store regression guard for #548: {:?}",
+            json_report.diagnostics
+        );
     }
 }

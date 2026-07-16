@@ -298,18 +298,24 @@ pub(crate) fn relations_candidate_paths(
     Ok(candidates)
 }
 
-/// Resolve the authoritative relations file and return `(relative_path, raw_text)`,
+/// Resolve the authoritative relations file and return `(relative_path, parsed_json)`,
 /// or `None` when no relations file exists.
 ///
-/// Uses the same candidate order as [`load_relations_collection`] but returns the
-/// raw, unparsed file text so callers such as `repo validate` can emit a JSON-parse
-/// diagnostic on a malformed file instead of hard-erroring (#548).
+/// Reads via [`RepositoryStore::load_relations_json`] (the same method the write path
+/// and `analysis::summarize_relations` use) so resolution works uniformly across
+/// `FileStore`, `MemoryStore`, and `JsonStore` — the `.srsj`/WASM store behind srs-web.
+/// `load_text_file` only surfaces `FileStore`'s on-disk text, so an object-backed store
+/// would never find a relation written by `save_relations_json`, and `repo validate`
+/// would silently skip every relation there (#548).
+///
+/// A missing file is skipped (`Io`/`NotFound`); a present-but-malformed file propagates
+/// its error (`Serialize`) so the caller can surface it as a diagnostic rather than crash.
 pub(crate) fn resolve_relations_source(
     store: &dyn RepositoryStore,
-) -> Result<Option<(String, String)>, RepositoryError> {
+) -> Result<Option<(String, serde_json::Value)>, RepositoryError> {
     for relative_path in relations_candidate_paths(store)? {
-        match store.load_text_file(&relative_path) {
-            Ok(raw) => return Ok(Some((relative_path, raw))),
+        match store.load_relations_json(&relative_path) {
+            Ok(value) => return Ok(Some((relative_path, value))),
             Err(RepositoryError::Io { .. } | RepositoryError::NotFound { .. }) => continue,
             Err(e) => return Err(e),
         }
