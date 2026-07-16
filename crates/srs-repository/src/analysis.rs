@@ -185,7 +185,7 @@ fn build_repo_map_from_manifest(
     manifest: &Manifest,
 ) -> Result<RepoMap, RepositoryError> {
     let counts = summarize_counts(manifest);
-    let relations_summary = summarize_relations(store, manifest)?;
+    let relations_summary = summarize_relations(store)?;
     let schemas = summarize_schemas(store);
     let source_documents = summarize_source_documents(manifest);
     let containers_summary = summarize_containers(store)?;
@@ -553,28 +553,11 @@ fn try_load_relations_json(store: &dyn RepositoryStore, path: &str) -> Option<se
     }
 }
 
-fn summarize_relations(
-    store: &dyn RepositoryStore,
-    manifest: &Manifest,
-) -> Result<RelationsSummary, RepositoryError> {
-    // Resolution order matches relation_service::load_relations_collection:
-    // 1. manifest relationsPath, 2. relations-collection.json, 3. relations.json
-    let manifest_path = string_extra(manifest, "relationsPath");
-    let candidates: Vec<String> = [
-        manifest_path,
-        Some("relations/relations-collection.json".to_string()),
-        Some("relations/relations.json".to_string()),
-    ]
-    .into_iter()
-    .flatten()
-    .collect::<Vec<_>>();
-
-    // Deduplicate while preserving order (manifest path may equal a default).
-    let mut seen = std::collections::HashSet::new();
-    let candidates: Vec<String> = candidates
-        .into_iter()
-        .filter(|p| seen.insert(p.clone()))
-        .collect();
+fn summarize_relations(store: &dyn RepositoryStore) -> Result<RelationsSummary, RepositoryError> {
+    // Resolution order is owned by relation_service::relations_candidate_paths, so the
+    // repo-map summary, the write path, and repo validate never disagree on which file
+    // is authoritative (#548).
+    let candidates = crate::relation_service::relations_candidate_paths(store)?;
 
     let found = candidates
         .iter()

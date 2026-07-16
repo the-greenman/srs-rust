@@ -27,7 +27,7 @@ use srs_core::types::relation::{Relation, RelationsCollection};
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::validation::relation::{validate_relation, RelationValidationContext};
 use srs_schema::{SchemaRegistry, RELATIONS_COLLECTION_SCHEMA_ID};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 /// Summary for relation list operations
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -163,7 +163,10 @@ pub fn create_relation(
         .iter()
         .map(|e| e.instance_id().to_string())
         .collect();
-    let instance_semantic_types: HashMap<String, String> = HashMap::new();
+    // Populate the semantic-type map so E4 (allowedSourceTypes / allowedTargetTypes /
+    // requireSameSemanticObjectType) fires on the write path exactly as it does in
+    // `repo validate` — previously this was an empty map, so E4 was dead on create (#556).
+    let instance_semantic_types = crate::writer::build_instance_semantic_types(store, &manifest);
     let ctx = RelationValidationContext {
         definitions,
         known_instance_ids: &known_instance_ids,
@@ -253,27 +256,22 @@ pub(crate) fn load_relations(
     Ok(collection.relations)
 }
 
-/// Load the relations collection, returning (relative_path, collection).
-///
-/// Path resolution order:
+/// Ordered, de-duplicated list of relative paths to try when locating the
+/// repository's relations file:
 /// 1. `relationsPath` declared in `manifest.json`
-/// 2. `relations/relations-collection.json` (legacy default)
+/// 2. `relations/relations-collection.json` (default write path)
 /// 3. `relations/relations.json` (alternate convention)
 ///
-/// Returns an empty collection (at the default write path) if no file is found.
-fn load_relations_collection(
+/// This is the single source of truth for the relations-file resolution order.
+/// `load_relations_collection`, `resolve_relations_source`, and
+/// `analysis::summarize_relations` all consume it, so the write path and every
+/// read path (including `repo validate`) agree on which file is authoritative (#548).
+///
+/// A missing/unreadable manifest yields no `relationsPath` (the two defaults are
+/// still returned); any other manifest error propagates.
+pub(crate) fn relations_candidate_paths(
     store: &dyn RepositoryStore,
-) -> Result<(String, RelationsCollection), RepositoryError> {
-    let default_write_path = "relations/relations-collection.json".to_string();
-    let empty = || RelationsCollection {
-        schema: Some(
-            "https://srs.semanticops.com/schema/2.0/relations-collection.json".to_string(),
-        ),
-        relations: Vec::new(),
-    };
-
-    // Determine the path to try first from the manifest's relationsPath field.
-    // Only suppress NotFound/Io errors (no manifest yet); propagate all other errors.
+) -> Result<Vec<String>, RepositoryError> {
     let manifest_path = match store.load_manifest() {
         Ok(m) => m
             .extra
@@ -287,7 +285,7 @@ fn load_relations_collection(
         Err(e) => return Err(e),
     };
 
-    // Build candidate list: manifest path first, then the two defaults.
+    let mut seen = HashSet::new();
     let candidates: Vec<String> = [
         manifest_path,
         Some("relations/relations-collection.json".to_string()),
@@ -295,24 +293,72 @@ fn load_relations_collection(
     ]
     .into_iter()
     .flatten()
+    .filter(|p| seen.insert(p.clone()))
     .collect();
+    Ok(candidates)
+}
 
-    for relative_path in &candidates {
-        match store.load_relations_json(relative_path) {
-            Ok(value) => {
-                let collection: RelationsCollection =
-                    serde_json::from_value(value).map_err(|e| RepositoryError::RecordLoad {
-                        path: std::path::PathBuf::from(relative_path),
-                        source: e,
-                    })?;
-                return Ok((relative_path.clone(), collection));
-            }
+/// Resolve the authoritative relations file and return `(relative_path, parsed_json)`,
+/// or `None` when no relations file exists.
+///
+/// Reads via [`RepositoryStore::load_relations_json`] (the same method the write path
+/// and `analysis::summarize_relations` use) so resolution works uniformly across
+/// `FileStore`, `MemoryStore`, and `JsonStore` — the `.srsj`/WASM store behind srs-web.
+/// `load_text_file` only surfaces `FileStore`'s on-disk text, so an object-backed store
+/// would never find a relation written by `save_relations_json`, and `repo validate`
+/// would silently skip every relation there (#548).
+///
+/// A missing file is skipped (`Io`/`NotFound`); a present-but-malformed file propagates
+/// its error (`Serialize`) so the caller can surface it as a diagnostic rather than crash.
+pub(crate) fn resolve_relations_source(
+    store: &dyn RepositoryStore,
+) -> Result<Option<(String, serde_json::Value)>, RepositoryError> {
+    for relative_path in relations_candidate_paths(store)? {
+        match store.load_relations_json(&relative_path) {
+            Ok(value) => return Ok(Some((relative_path, value))),
             Err(RepositoryError::Io { .. } | RepositoryError::NotFound { .. }) => continue,
+            Err(RepositoryError::Serialize { source, .. }) => {
+                // A present-but-malformed file. The store reports an absolute path; re-attach
+                // the relative candidate path so a caller (e.g. validate) can attribute the
+                // diagnostic consistently with every other relative-path diagnostic.
+                return Err(RepositoryError::Serialize {
+                    path: std::path::PathBuf::from(&relative_path),
+                    source,
+                });
+            }
             Err(e) => return Err(e),
         }
     }
+    Ok(None)
+}
 
-    Ok((default_write_path, empty()))
+/// Load the relations collection, returning (relative_path, collection).
+///
+/// Layers typed parsing over [`resolve_relations_source`] (the single resolver), so the
+/// candidate order and store-read method are shared. Returns an empty collection at the
+/// default write path if no file is found.
+fn load_relations_collection(
+    store: &dyn RepositoryStore,
+) -> Result<(String, RelationsCollection), RepositoryError> {
+    match resolve_relations_source(store)? {
+        Some((relative_path, value)) => {
+            let collection: RelationsCollection =
+                serde_json::from_value(value).map_err(|e| RepositoryError::RecordLoad {
+                    path: std::path::PathBuf::from(&relative_path),
+                    source: e,
+                })?;
+            Ok((relative_path, collection))
+        }
+        None => Ok((
+            "relations/relations-collection.json".to_string(),
+            RelationsCollection {
+                schema: Some(
+                    "https://srs.semanticops.com/schema/2.0/relations-collection.json".to_string(),
+                ),
+                relations: Vec::new(),
+            },
+        )),
+    }
 }
 
 /// Write the relations collection to the store.
@@ -518,6 +564,129 @@ mod tests {
 
         let all = list_relations(&store, ListRelationsFilter::default()).unwrap();
         assert_eq!(all.len(), 4);
+    }
+
+    /// A store with two Tier-2 instances carrying `semanticObjectType`, for E4-on-create tests (#556).
+    fn make_store_with_typed_instances(src_type: &str, tgt_type: &str) -> MemoryStore {
+        let store = MemoryStore::default();
+        let mut manifest = store.load_manifest().unwrap();
+        for id in ["src", "tgt"] {
+            manifest
+                .instance_index
+                .push(crate::index::InstanceIndexEntry {
+                    instance_id: id.to_string(),
+                    tier: 2,
+                    path: format!("records/{}.json", id),
+                    title: None,
+                    tags: None,
+                });
+        }
+        store.save_manifest(&manifest).unwrap();
+        store
+            .save_instance_json(
+                "records/src.json",
+                &json!({ "instanceId": "src", "semanticObjectType": src_type }),
+            )
+            .unwrap();
+        store
+            .save_instance_json(
+                "records/tgt.json",
+                &json!({ "instanceId": "tgt", "semanticObjectType": tgt_type }),
+            )
+            .unwrap();
+        store
+    }
+
+    /// A relation type definition keyed `com.test/links` with the given E4 constraints.
+    fn links_def(
+        allowed_source: Option<Vec<&str>>,
+        allowed_target: Option<Vec<&str>>,
+        require_same: Option<bool>,
+    ) -> RelationTypeDefinition {
+        use srs_core::types::relation_type_definition::RelationTypeCategory;
+        RelationTypeDefinition {
+            schema: None,
+            id: "11111111-1111-4111-8111-111111111111".to_string(),
+            version: 1,
+            key: "com.test/links".to_string(),
+            namespace: "com.test".to_string(),
+            label: "Links".to_string(),
+            description: "source links to target".to_string(),
+            category: RelationTypeCategory::Association,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            canonical_direction: None,
+            inverse_type: None,
+            irreflexive: None,
+            allowed_source_types: allowed_source
+                .map(|v| v.into_iter().map(|s| s.to_string()).collect()),
+            allowed_target_types: allowed_target
+                .map(|v| v.into_iter().map(|s| s.to_string()).collect()),
+            require_same_semantic_object_type: require_same,
+            status: None,
+            updated_at: None,
+            properties: None,
+        }
+    }
+
+    #[test]
+    fn create_relation_enforces_e4_allowed_source_types() {
+        // Regression for #556: E4 was dead on create because the semantic-type map was empty,
+        // so a source whose semanticObjectType is not in allowedSourceTypes was accepted.
+        let store = make_store_with_typed_instances("com.x/forbidden", "com.x/anything");
+        let def = links_def(Some(vec!["com.x/allowed"]), None, None);
+        let rel = make_relation("r-e4", "src", "tgt", "com.test/links");
+        let err = create_relation(&store, rel, &[def]).unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("E4"),
+            "expected an E4 type-constraint error, got: {msg}"
+        );
+        // The offending relation must NOT have been persisted.
+        let all = list_relations(&store, ListRelationsFilter::default()).unwrap();
+        assert!(all.is_empty(), "relation must not be written on E4 failure");
+    }
+
+    #[test]
+    fn create_relation_enforces_require_same_semantic_object_type() {
+        let store = make_store_with_typed_instances("com.x/one", "com.x/two");
+        let def = links_def(None, None, Some(true));
+        let rel = make_relation("r-same", "src", "tgt", "com.test/links");
+        let err = create_relation(&store, rel, &[def]).unwrap_err();
+        assert!(format!("{err:?}").contains("E4"));
+    }
+
+    #[test]
+    fn create_relation_allows_untyped_endpoints_under_constrained_type() {
+        // Endpoints carry NO semanticObjectType, so E4 must stay a no-op even under a
+        // constrained type — proves the fix doesn't over-reject (the `if let Some` guard holds).
+        let store = MemoryStore::default();
+        let mut manifest = store.load_manifest().unwrap();
+        for id in ["src", "tgt"] {
+            manifest
+                .instance_index
+                .push(crate::index::InstanceIndexEntry {
+                    instance_id: id.to_string(),
+                    tier: 0,
+                    path: format!("records/{}.json", id),
+                    title: None,
+                    tags: None,
+                });
+        }
+        store.save_manifest(&manifest).unwrap();
+        store
+            .save_instance_json("records/src.json", &json!({ "instanceId": "src" }))
+            .unwrap();
+        store
+            .save_instance_json("records/tgt.json", &json!({ "instanceId": "tgt" }))
+            .unwrap();
+
+        let def = links_def(Some(vec!["com.x/allowed"]), None, None);
+        let rel = make_relation("r-untyped", "src", "tgt", "com.test/links");
+        let result = create_relation(&store, rel, &[def]);
+        assert!(
+            result.is_ok(),
+            "untyped endpoints must not trip E4: {result:?}"
+        );
     }
 
     #[test]
