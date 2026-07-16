@@ -101,9 +101,9 @@ Also confirm `srs type schema <nonexistent-uuid>` → `ok: false` with a diagnos
 
 **Intention.** *"These records are related: this one replaces that one; this one was derived from that one; this one depends on that one. I want those claims to be first-class and queryable."*
 
-**Capabilities exercised.** Relations as first-class typed edges held outside the records; the canonical relation vocabulary (`contains`, `depends-on`, `supersedes`, `refines`, `derived-from`, `evidences`, `precedes`); the invariant that **asserting a relation does not change lifecycle state**; `record successor` as the supported supersession move.
+**Capabilities exercised.** Relations as first-class typed edges held outside the records; the canonical relation vocabulary (`contains`, `depends-on`, `supersedes`, `refines`, `derived-from`, `evidences`, `precedes`); the invariant that **asserting a relation does not change lifecycle state**; `record successor` as the supported supersession move; **write/validate E4 parity (#556/#548)** — `relation create` enforces a relation type's `allowedSourceTypes`/`allowedTargetTypes`/`requireSameSemanticObjectType`, and `repo validate` audits relations in the *authoritative* file (`manifest.relationsPath` → `relations/relations-collection.json` → `relations/relations.json`), so write and at-rest validation agree.
 
-**CLI surface.** `relation create`, `relation list`, `relation get`, `relation delete`, `record successor`.
+**CLI surface.** `relation create`, `relation list`, `relation get`, `relation delete`, `record successor`, `relation-type create`.
 
 **Steps.**
 1. `srs relation list --repo <repo> --pretty` to see existing edges before adding.
@@ -121,7 +121,19 @@ echo '{"relationType":"not-a-real-type","fieldValues":[]}' | \
 ```
 Confirm `ok: false` and `diagnostics` contains `"E1: relation type 'not-a-real-type' is not installed in the package"`. Confirm the record count from `srs record list` did not increase — no orphaned record was written. (Before #459, the record was written and then best-effort-deleted; now the error fires before any write.)
 
-**Done when.** Relations appear/disappear in `relation list`; `record successor` produces both a successor record and the supersession edge; neither endpoint's lifecycle state changed as a side effect of any relation operation; `record successor` with an unknown `relationType` fails before writing any record.
+**Negative case (E4 on create — #556).** Install a relation type carrying a semantic-type constraint, then attempt a violating `relation create`:
+```bash
+echo '{"id":"22222222-2222-4222-8222-222222222222","version":1,"key":"com.example/links","namespace":"com.example","label":"Links","description":"x","category":"association","createdAt":"2026-01-01T00:00:00Z","allowedSourceTypes":["com.example/decision"]}' | \
+  srs relation-type create --repo <repo>
+# give the source instance a semanticObjectType outside allowedSourceTypes, then:
+echo '{"relationType":"com.example/links","sourceInstanceId":"<src>","targetInstanceId":"<tgt>"}' | \
+  srs relation create --repo <repo> --pretty
+```
+Confirm `ok: false` with an `E4TypeConstraint` diagnostic naming the source's `semanticObjectType` and the `allowedSourceTypes`, **and** that no relation file is written (the rejected edge is not persisted). Set the source's `semanticObjectType` to an allowed value and confirm the same create now succeeds — E4 does not over-reject. (Before #556, `create` skipped E4 entirely and accepted the edge, disagreeing with `repo validate`.)
+
+**Negative case (validate reads the authoritative file — #548).** After a successful `relation create` (which writes to `relations/relations-collection.json`, **not** `relations.json`), edit that file to reference a relation type not installed in the package, then run `srs repo validate --repo <repo> --pretty`. Confirm `ok: false` with an `E1` diagnostic whose path is `relations/relations-collection.json`. (Before #548, validate read only `relations/relations.json`, so a repo whose relations live at the default `relations-collection.json` validated green with the bad edge silently unread.)
+
+**Done when.** Relations appear/disappear in `relation list`; `record successor` produces both a successor record and the supersession edge; neither endpoint's lifecycle state changed as a side effect of any relation operation; `record successor` with an unknown `relationType` fails before writing any record; an E4-violating `relation create` is rejected at write time and leaves no relation file behind while an E4-satisfying one succeeds; and `repo validate` surfaces a bad edge living in `relations/relations-collection.json` (or the manifest `relationsPath`), not only in `relations/relations.json`.
 
 ### S4 — Deliberate, ratify, and supersede a decision (governance lifecycle)
 

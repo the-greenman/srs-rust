@@ -148,14 +148,14 @@ Specific tests to write (in `validation.rs` `#[cfg(test)]`, MemoryStore):
 
 ## Final Acceptance
 
-- [ ] `cargo test` passes with no failures
-- [ ] `cargo clippy -- -D warnings` passes
-- [ ] CLI output format unchanged (integration tests pass)
-- [ ] `cargo test --test payload_contracts` passes (no payload structs changed — expected green)
-- [ ] `bash scripts/check-schema-sync.sh` exits 0 (no entity schemas changed — expected green)
-- [ ] E4 fires on `create_relation` (dogfood: `srs relation create` rejects a type-constraint-violating edge)
-- [ ] `repo validate` reports E1/E2 diagnostics for a bad relation living in `relations-collection.json` (dogfood: the #548 repro sketch now shows diagnostics instead of 0)
-- [ ] Exactly one instance→semanticObjectType map builder and one relations-file candidate-path list remain in the crate
+- [x] `cargo test` passes with no failures
+- [x] `cargo clippy -- -D warnings` passes
+- [x] CLI output format unchanged (integration tests pass)
+- [x] `cargo test --test payload_contracts` passes (no payload structs changed — expected green)
+- [x] `bash scripts/check-schema-sync.sh` exits 0 (no entity schemas changed — expected green)
+- [x] E4 fires on `create_relation` (dogfood: `srs relation create` rejects a type-constraint-violating edge)
+- [x] `repo validate` reports E1/E2 diagnostics for a bad relation living in `relations-collection.json` (dogfood: the #548 repro sketch now shows diagnostics instead of 0)
+- [x] Exactly one instance→semanticObjectType map builder and one relations-file candidate-path list remain in the crate
 
 ## Coordination Rules
 
