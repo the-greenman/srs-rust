@@ -2397,10 +2397,7 @@ pub mod memory {
                 *self.fail_at.borrow_mut() = None;
                 return Err(RepositoryError::Io {
                     path: std::path::PathBuf::from("manifest.json"),
-                    source: std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        "injected fault: save_manifest",
-                    ),
+                    source: std::io::Error::other("injected fault: save_manifest"),
                 });
             }
             *self.manifest.borrow_mut() = manifest.clone();
@@ -2740,10 +2737,7 @@ pub mod memory {
                 *self.fail_at.borrow_mut() = None;
                 return Err(RepositoryError::Io {
                     path: std::path::PathBuf::from(relative_path),
-                    source: std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        "injected fault: delete_instance_file",
-                    ),
+                    source: std::io::Error::other("injected fault: delete_instance_file"),
                 });
             }
             self.data.borrow_mut().remove(relative_path);
@@ -2840,10 +2834,7 @@ pub mod memory {
                 *self.fail_at.borrow_mut() = None;
                 return Err(RepositoryError::Io {
                     path: std::path::PathBuf::from("injected"),
-                    source: std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        "injected fault: save_container_index",
-                    ),
+                    source: std::io::Error::other("injected fault: save_container_index"),
                 });
             }
             // Update summary index in manifest

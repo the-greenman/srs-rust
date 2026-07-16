@@ -6307,7 +6307,7 @@ mod tests {
         let path = manifest
             .instance_index
             .iter()
-            .find(|e| e.instance_id() == &instance_id)
+            .find(|e| e.instance_id() == instance_id)
             .unwrap()
             .path()
             .to_string();
@@ -6330,7 +6330,7 @@ mod tests {
             manifest_after
                 .instance_index
                 .iter()
-                .any(|e| e.instance_id() == &instance_id),
+                .any(|e| e.instance_id() == instance_id),
             "manifest entry must remain when manifest write fails"
         );
     }
@@ -6358,7 +6358,7 @@ mod tests {
         let path = manifest
             .instance_index
             .iter()
-            .find(|e| e.instance_id() == &instance_id)
+            .find(|e| e.instance_id() == instance_id)
             .unwrap()
             .path()
             .to_string();
@@ -6381,7 +6381,7 @@ mod tests {
             manifest_after
                 .instance_index
                 .iter()
-                .all(|e| e.instance_id() != &instance_id),
+                .all(|e| e.instance_id() != instance_id),
             "manifest entry must be removed even when file delete fails"
         );
     }
