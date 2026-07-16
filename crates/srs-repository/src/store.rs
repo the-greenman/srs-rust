@@ -2085,6 +2085,8 @@ pub mod memory {
                 instance_index: vec![],
                 container: None,
                 container_index: None,
+                federation_path: None,
+                federation_events_path: None,
                 extra: HashMap::new(),
                 root: PathBuf::from("/memory"),
             };
@@ -2249,6 +2251,8 @@ pub mod memory {
                 instance_index: vec![],
                 container: None,
                 container_index: None,
+                federation_path: None,
+                federation_events_path: None,
                 extra: HashMap::new(),
                 root: PathBuf::from("/memory"),
             };
@@ -2383,6 +2387,8 @@ pub mod memory {
                 instance_index: vec![],
                 container: None,
                 container_index: None,
+                federation_path: None,
+                federation_events_path: None,
                 extra: manifest_extra,
                 root: PathBuf::from("/memory"),
             };
@@ -3241,6 +3247,8 @@ mod tests {
             instance_index: vec![],
             container: None,
             container_index: None,
+            federation_path: None,
+            federation_events_path: None,
             extra: HashMap::new(),
             root: repo_root.to_path_buf(),
         }

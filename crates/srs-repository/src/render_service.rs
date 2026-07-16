@@ -3300,6 +3300,8 @@ mod tests {
             instance_index: vec![],
             container: None,
             container_index: None,
+            federation_path: None,
+            federation_events_path: None,
             extra: HashMap::new(),
             root: std::path::PathBuf::from("/memory"),
         };
@@ -3945,6 +3947,8 @@ mod tests {
             instance_index: vec![],
             container: None,
             container_index: None,
+            federation_path: None,
+            federation_events_path: None,
             extra: HashMap::new(),
             root: std::path::PathBuf::from("/memory"),
         };
@@ -4262,6 +4266,8 @@ mod tests {
             instance_index: vec![],
             container: None,
             container_index: None,
+            federation_path: None,
+            federation_events_path: None,
             extra: HashMap::new(),
             root: std::path::PathBuf::from("/memory"),
         };
@@ -4479,6 +4485,8 @@ mod tests {
             instance_index: vec![],
             container: None,
             container_index: None,
+            federation_path: None,
+            federation_events_path: None,
             extra: HashMap::new(),
             root: std::path::PathBuf::from("/memory"),
         };
@@ -4849,6 +4857,8 @@ mod tests {
             instance_index: vec![],
             container: None,
             container_index: None,
+            federation_path: None,
+            federation_events_path: None,
             extra: HashMap::new(),
             root: std::path::PathBuf::from("/memory"),
         };
@@ -5261,6 +5271,8 @@ mod tests {
             instance_index: vec![],
             container: None,
             container_index: None,
+            federation_path: None,
+            federation_events_path: None,
             extra: HashMap::new(),
             root: std::path::PathBuf::from("/memory"),
         };
@@ -5790,6 +5802,8 @@ mod tests {
             instance_index: vec![],
             container: None,
             container_index: None,
+            federation_path: None,
+            federation_events_path: None,
             extra: std::collections::HashMap::new(),
             root: std::path::PathBuf::from("/memory"),
         };
@@ -6658,6 +6672,8 @@ mod tests {
             instance_index: vec![],
             container: None,
             container_index: None,
+            federation_path: None,
+            federation_events_path: None,
             extra: HashMap::new(),
             root: std::path::PathBuf::from("/memory"),
         };
@@ -6867,6 +6883,8 @@ mod tests {
             instance_index: vec![],
             container: None,
             container_index: None,
+            federation_path: None,
+            federation_events_path: None,
             extra: HashMap::new(),
             root: std::path::PathBuf::from("/memory"),
         }
@@ -6957,6 +6975,8 @@ mod tests {
                 tags: None,
                 extra: HashMap::new(),
             }]),
+            federation_path: None,
+            federation_events_path: None,
             extra: HashMap::new(),
             root: std::path::PathBuf::from("/memory"),
         };
@@ -7051,6 +7071,8 @@ mod tests {
                 tags: None,
                 extra: HashMap::new(),
             }]),
+            federation_path: None,
+            federation_events_path: None,
             extra: HashMap::new(),
             root: repo_root.to_path_buf(),
         };
@@ -7189,6 +7211,8 @@ mod tests {
             instance_index: vec![],
             container: None,
             container_index: None,
+            federation_path: None,
+            federation_events_path: None,
             extra: HashMap::new(),
             root: std::path::PathBuf::from("/memory"),
         };
@@ -7381,6 +7405,8 @@ mod tests {
             instance_index: vec![],
             container: None,
             container_index: None,
+            federation_path: None,
+            federation_events_path: None,
             extra: HashMap::new(),
             root: std::path::PathBuf::from("/memory"),
         };
@@ -7600,6 +7626,8 @@ mod tests {
             instance_index: vec![],
             container: None,
             container_index: None,
+            federation_path: None,
+            federation_events_path: None,
             extra: HashMap::new(),
             root: std::path::PathBuf::from("/memory"),
         };
@@ -7738,6 +7766,8 @@ mod tests {
             instance_index: vec![],
             container: None,
             container_index: None,
+            federation_path: None,
+            federation_events_path: None,
             extra: HashMap::new(),
             root: std::path::PathBuf::from("/memory"),
         };

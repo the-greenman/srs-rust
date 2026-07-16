@@ -181,6 +181,8 @@ impl JsonStore {
             instance_index: vec![],
             container: None,
             container_index: None,
+            federation_path: None,
+            federation_events_path: None,
             extra: HashMap::new(),
             root: file_path
                 .parent()
@@ -760,6 +762,8 @@ impl RepositoryStore for JsonStore {
             instance_index: vec![],
             container: Some(container),
             container_index: None,
+            federation_path: None,
+            federation_events_path: None,
             extra,
             root: self.repository_root(),
         };

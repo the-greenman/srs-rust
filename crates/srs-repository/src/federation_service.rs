@@ -200,9 +200,8 @@ pub fn resolve_repository(
 ) -> Result<ResolveRepositoryResult, RepositoryError> {
     let manifest = store.load_manifest()?;
     let federation_path = manifest
-        .extra
-        .get("federationPath")
-        .and_then(|v| v.as_str())
+        .federation_path
+        .as_deref()
         .unwrap_or(DEFAULT_FEDERATION_REGISTRY_PATH);
 
     let root_registry = load_registry_at(store, federation_path)?;
@@ -234,9 +233,8 @@ pub fn list_federation_events(
 ) -> Result<ListFederationEventsResult, RepositoryError> {
     let manifest = store.load_manifest()?;
     let events_path = manifest
-        .extra
-        .get("federationEventsPath")
-        .and_then(|v| v.as_str())
+        .federation_events_path
+        .as_deref()
         .unwrap_or(DEFAULT_FEDERATION_EVENTS_PATH);
 
     let repository_id = manifest
@@ -285,9 +283,8 @@ pub fn append_federation_event(
 ) -> Result<AppendFederationEventResult, RepositoryError> {
     let manifest = store.load_manifest()?;
     let events_path = manifest
-        .extra
-        .get("federationEventsPath")
-        .and_then(|v| v.as_str())
+        .federation_events_path
+        .as_deref()
         .unwrap_or(DEFAULT_FEDERATION_EVENTS_PATH);
 
     let event_id = input.event.event_id.clone();
@@ -804,15 +801,12 @@ mod tests {
 
     #[test]
     fn memory_store_non_default_federation_path() {
-        // Verifies that the service reads federationPath from manifest.extra,
-        // not a hardcoded default. MemoryStore has no data for the custom path,
-        // so the service returns NotFound with the custom path in the error.
+        // Verifies that the service reads federation_path from the typed manifest
+        // field, not the hardcoded default. MemoryStore has no data for the custom
+        // path, so the service returns NotFound with the custom path in the error.
         let store = MemoryStore::default();
         let mut manifest = store.load_manifest().unwrap();
-        manifest.extra.insert(
-            "federationPath".to_string(),
-            serde_json::Value::String("custom/registry.json".to_string()),
-        );
+        manifest.federation_path = Some("custom/registry.json".to_string());
         store.save_manifest(&manifest).unwrap();
 
         let err = resolve_repository(

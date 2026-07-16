@@ -14,12 +14,30 @@ pub struct Manifest {
     pub container: Option<Container>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub container_index: Option<Vec<ContainerIndexEntry>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub federation_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub federation_events_path: Option<String>,
     // all other manifest fields preserved for round-trip write
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
     // set by loader, not from JSON
     #[serde(skip)]
     pub root: PathBuf,
+}
+
+impl Default for Manifest {
+    fn default() -> Self {
+        Self {
+            instance_index: Vec::new(),
+            container: None,
+            container_index: None,
+            federation_path: None,
+            federation_events_path: None,
+            extra: HashMap::new(),
+            root: PathBuf::new(),
+        }
+    }
 }
 
 pub fn load_manifest(repo_root: &Path) -> Result<Manifest, RepositoryError> {
@@ -165,5 +183,34 @@ mod tests {
         let manifest: Manifest = serde_json::from_str(json).unwrap();
         assert!(manifest.container.is_none());
         assert!(manifest.container_index.is_none());
+    }
+
+    #[test]
+    fn manifest_federation_fields_roundtrip() {
+        let json = r#"{
+            "instanceIndex": [],
+            "federationPath": "custom/registry.json",
+            "federationEventsPath": "custom/events.json"
+        }"#;
+        let manifest: Manifest = serde_json::from_str(json).unwrap();
+        assert_eq!(manifest.federation_path.as_deref(), Some("custom/registry.json"));
+        assert_eq!(manifest.federation_events_path.as_deref(), Some("custom/events.json"));
+        // must not appear in extra
+        assert!(!manifest.extra.contains_key("federationPath"));
+        assert!(!manifest.extra.contains_key("federationEventsPath"));
+
+        // serialise and re-parse
+        let serialised = serde_json::to_string(&manifest).unwrap();
+        let reparsed: Manifest = serde_json::from_str(&serialised).unwrap();
+        assert_eq!(reparsed.federation_path, manifest.federation_path);
+        assert_eq!(reparsed.federation_events_path, manifest.federation_events_path);
+    }
+
+    #[test]
+    fn manifest_absent_federation_fields_are_none() {
+        let json = r#"{"instanceIndex": []}"#;
+        let manifest: Manifest = serde_json::from_str(json).unwrap();
+        assert!(manifest.federation_path.is_none());
+        assert!(manifest.federation_events_path.is_none());
     }
 }

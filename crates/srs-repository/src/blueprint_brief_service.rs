@@ -451,6 +451,8 @@ mod tests {
             instance_index: vec![],
             container: None,
             container_index: None,
+            federation_path: None,
+            federation_events_path: None,
             extra: HashMap::new(),
             root: PathBuf::from("/memory"),
         };
