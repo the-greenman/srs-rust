@@ -182,6 +182,8 @@ pub fn get_revision_trace(
 
     let mut chain = vec![];
     let mut seen: HashSet<String> = HashSet::new();
+    // Seed with target so a lasso-shaped chain (ancestor → target) is detected immediately.
+    seen.insert(target.revision_id.clone());
     let mut current_prior = target.prior_revision_id.clone();
     while let Some(ref prior_id) = current_prior {
         if !seen.insert(prior_id.clone()) {
