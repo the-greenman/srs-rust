@@ -7,7 +7,9 @@ use srs_repository::container_service::{self, ContainerListFilter};
 use srs_repository::container_view_service::{self, ResolveContainerViewInput};
 use srs_repository::discovery_service::{self, DiscoveryQuery};
 use srs_repository::federation_service::{
-    filter_federation_events, parse_federation_registry_json, ListFederationEventsFilter,
+    append_federation_event, filter_federation_events, list_federation_events,
+    parse_federation_registry_json, resolve_repository, AppendFederationEventInput,
+    ListFederationEventsFilter, ListFederationEventsInput, ResolveRepositoryInput,
 };
 use srs_repository::governance_scaffold_service::{self, CreateGovernanceRepositoryInput};
 use srs_repository::manifest_service;
@@ -752,6 +754,43 @@ impl SrsRepository {
             None => Ok(JsValue::NULL),
         }
     }
+
+    /// Resolve a repository by ID via DFS through the local federation registry.
+    ///
+    /// `input_json` is `{"repositoryId": "<id>"}`. Returns a `ResolveRepositoryResult`
+    /// with `found`, `registryId`, and `entry` (null when not found).
+    /// Errors when the federation registry file is absent.
+    pub fn federation_resolve(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: ResolveRepositoryInput =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let result = resolve_repository(&self.store, input).map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// List federation events from the repository's configured events file.
+    ///
+    /// `filter_json` is a JSON object with optional `sourceRepositoryId`, `targetRepositoryId`,
+    /// and `kind` keys; pass `"{}"` to return all events. Returns a `ListFederationEventsResult`
+    /// with `repositoryId`, `events`, `totalCount`, and `filteredCount`.
+    /// Returns an empty result (not an error) when the events file does not yet exist.
+    pub fn federation_events_list(&self, filter_json: &str) -> Result<JsValue, JsValue> {
+        let filter: ListFederationEventsFilter = serde_json::from_str(filter_json)
+            .map_err(|e| js_err(format!("invalid filter: {e}")))?;
+        let result = list_federation_events(&self.store, ListFederationEventsInput { filter })
+            .map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Append a federation event to the repository's events file.
+    ///
+    /// `input_json` is `{"repositoryId": "<id>", "event": <FederationEvent>}`.
+    /// Returns `{"eventId": "<id>", "totalEvents": N}`.
+    pub fn federation_events_append(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: AppendFederationEventInput =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let result = append_federation_event(&self.store, input).map_err(js_err)?;
+        to_js(&result)
+    }
 }
 
 // ── Repo-independent free functions (ADR-013 addendum) ───────────────────────
@@ -1310,5 +1349,130 @@ mod tests {
             result.value.is_none(),
             "unknown field name must return None, not an error"
         );
+    }
+
+    // ── federation binding smoke tests ───────────────────────────────────────
+    //
+    // These tests call the service functions directly (not through JsValue) because
+    // `JsValue` is not available on a native target. They confirm the service functions
+    // are reachable from srs-bindings imports and that results serialize correctly.
+
+    fn srsj_with_federation_events() -> String {
+        serde_json::json!({
+            "srsj": "1",
+            "manifest": {
+                "repositoryId": "test-repo-federation",
+                "srsVersion": "2.0-draft",
+                "namespace": "com.test",
+                "instanceIndex": [],
+                "packageRef": {"mode": "local", "path": "package"}
+            },
+            "data": {
+                "package/package.json": {
+                    "id": "pkg-fed-001",
+                    "namespace": "com.test",
+                    "name": "fed-package",
+                    "version": "1.0.0",
+                    "fields": [],
+                    "types": [],
+                    "relationTypes": [],
+                    "views": [],
+                    "documentViews": []
+                },
+                "federation/events.json": {
+                    "repositoryId": "test-repo-federation",
+                    "events": [{
+                        "eventId": "evt-0001",
+                        "event": "merge",
+                        "sourceRepositoryId": "repo-source-01",
+                        "targetRepositoryId": "test-repo-federation",
+                        "affectedInstanceIds": ["iiii-1111"],
+                        "at": "2026-01-01T00:00:00Z"
+                    }]
+                }
+            }
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn federation_events_list_service_result_serialises() {
+        use srs_repository::federation_service::{
+            list_federation_events, ListFederationEventsFilter, ListFederationEventsInput,
+        };
+        let store = JsonStore::from_srsj(&srsj_with_federation_events()).expect("load srsj");
+        let result = list_federation_events(
+            &store,
+            ListFederationEventsInput {
+                filter: ListFederationEventsFilter::default(),
+            },
+        )
+        .expect("list_federation_events should succeed");
+
+        assert_eq!(result.total_count, 1, "should find one event");
+        assert_eq!(result.filtered_count, 1, "filter is empty so count stays 1");
+        assert_eq!(result.events[0].event_id, "evt-0001");
+
+        let json = serde_json::to_value(&result).expect("result must serialize");
+        assert!(
+            json["repositoryId"].is_string(),
+            "repositoryId must be present"
+        );
+        assert!(json["events"].is_array(), "events must be an array");
+        assert_eq!(json["totalCount"].as_u64(), Some(1));
+        assert_eq!(json["filteredCount"].as_u64(), Some(1));
+    }
+
+    #[test]
+    fn federation_events_list_empty_when_no_file() {
+        use srs_repository::federation_service::{
+            list_federation_events, ListFederationEventsFilter, ListFederationEventsInput,
+        };
+        let store = JsonStore::from_srsj(&srsj_with_note_and_type()).expect("load srsj");
+        let result = list_federation_events(
+            &store,
+            ListFederationEventsInput {
+                filter: ListFederationEventsFilter::default(),
+            },
+        )
+        .expect("list_federation_events should not error when events file is absent");
+
+        assert_eq!(result.total_count, 0, "empty repo should have 0 events");
+        let json = serde_json::to_value(&result).expect("result must serialize");
+        assert_eq!(json["totalCount"].as_u64(), Some(0));
+    }
+
+    #[test]
+    fn federation_events_append_service_result_serialises() {
+        use srs_core::extensions::federation::FederationEvent;
+        use srs_repository::federation_service::{
+            append_federation_event, AppendFederationEventInput,
+        };
+        let store = JsonStore::from_srsj(&srsj_with_note_and_type()).expect("load srsj");
+        let result = append_federation_event(
+            &store,
+            AppendFederationEventInput {
+                repository_id: "test-repo-bindings-graduate".to_string(),
+                event: FederationEvent {
+                    event_id: "evt-bind-0001".to_string(),
+                    event: srs_core::extensions::federation::FederationEventKind::Import,
+                    at: "2026-01-01T00:00:00Z".to_string(),
+                    performed_by: None,
+                    source_repository_id: Some("repo-source-01".to_string()),
+                    target_repository_id: Some("test-repo-bindings-graduate".to_string()),
+                    affected_instance_ids: vec!["iiii-0001".to_string()],
+                    strategy: None,
+                    note: None,
+                },
+            },
+        )
+        .expect("append_federation_event should succeed");
+
+        assert_eq!(result.event_id, "evt-bind-0001");
+        assert_eq!(result.total_events, 1);
+
+        let json = serde_json::to_value(&result).expect("result must serialize");
+        assert_eq!(json["eventId"].as_str(), Some("evt-bind-0001"));
+        assert_eq!(json["totalEvents"].as_u64(), Some(1));
     }
 }

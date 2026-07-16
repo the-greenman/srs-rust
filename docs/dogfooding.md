@@ -1412,10 +1412,44 @@ $SRS_BIN federation events-list --repo "$SCRATCH" --source repo-beta-0000-0000-0
 $SRS_BIN federation events-list --repo "$SCRATCH" --kind split --pretty
 ```
 
-11. **Validate the repo.** Confirm `diagnostics: []`, `errors: 0`.
+11. **Validate the repo.** Confirm `diagnostics: []`.
 
 ```bash
 $SRS_BIN repo validate --repo "$SCRATCH" --pretty
+```
+
+12. **Custom `federationPath` and `federationEventsPath`.** Set typed manifest fields and confirm the CLI routes to the custom paths instead of the defaults (`federation/registry.json`, `federation/events.json`).
+
+```bash
+SCRATCH2=/tmp/dogfood-federation-s26-custom
+$SRS_BIN repo create --repo "$SCRATCH2" --namespace com.example.dogfood-custom
+
+# Write custom registry at a non-default path
+mkdir -p "$SCRATCH2/custom"
+cat > "$SCRATCH2/custom/registry.json" <<'REOF'
+{
+  "registryId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+  "title": "Custom Path Registry",
+  "updatedAt": "2026-07-16T00:00:00Z",
+  "entries": [{"repositoryId": "repo-custom-0001", "title": "Custom Repo"}]
+}
+REOF
+
+# Stamp custom paths into manifest
+python3 -c "
+import json
+p = '$SCRATCH2/manifest.json'
+m = json.load(open(p))
+m['federationPath'] = 'custom/registry.json'
+m['federationEventsPath'] = 'custom/events.json'
+json.dump(m, open(p,'w'), indent=2)
+"
+
+$SRS_BIN federation resolve --repo "$SCRATCH2" \
+  --repository-id repo-custom-0001 --pretty
+# Confirm found: true, registryId: cccccccc-…
+$SRS_BIN federation events-list --repo "$SCRATCH2" --pretty
+# Confirm events: [], no error (empty custom events file is graceful)
 ```
 
 **Done when:**
@@ -1425,8 +1459,11 @@ $SRS_BIN repo validate --repo "$SCRATCH" --pretty
 - Steps 8–9 `filteredCount` < `totalCount` — AND semantics hold.
 - Step 10 `totalCount: 2` even when `filteredCount: 0` — total reflects all stored events.
 - Step 11 `diagnostics: []`.
+- Step 12 custom `federationPath`/`federationEventsPath` in manifest resolve to the configured files.
 
 **Verified 2026-07-12 (#248):** All eleven steps passed. Graceful degradation confirmed — unknown repository ID returns `ok: true, found: false` (not an error envelope). DFS traversal confirmed — child registry entry resolves via the `childRegistries` pointer without manual path specification. Filter AND semantics correct across all combinations. `totalCount` vs `filteredCount` distinction correct.
+
+**Verified 2026-07-16 (#249):** Step 12 (custom manifest paths) confirmed — `federationPath` and `federationEventsPath` are now typed manifest fields (not `extra` map entries); `federation resolve` and `federation events-list` route to the configured paths. Storage boundary fix confirmed — federation I/O routes through `RepositoryStore` trait (WASM-safe). WASM bindings `federation_resolve`, `federation_events_list`, `federation_events_append` added; smoke-tested via `JsonStore` with all three methods serializing correct camelCase output.
 
 ---
 
@@ -1485,7 +1522,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `type` `validationRules` (ext:cross-field-validation — conditional-required / field-ordering / mutual-exclusion, #242); **CFR violations are now hard errors at `record create`/`record update` write time (#437)** — `repo validate` still enforces for any pre-existing records | S23 |
 | `tag` (definition) | _gap — being deprecated; see open issues_ |
 | `registry` (ext:registry — `registry list`, `registry get`) | S25; WASM free functions (`parse_registry`, `list_registry_entries`) verified via `cargo build --target wasm32-unknown-unknown -p srs-bindings` (#244) |
-| `federation` (ext:federation — `federation resolve`, `federation events-list`, `federation events-append`) | S26; WASM free functions (`parse_federation_registry`, `filter_federation_events_json`) verified via `cargo build --target wasm32-unknown-unknown -p srs-bindings` (#248) |
+| `federation` (ext:federation — `federation resolve`, `federation events-list`, `federation events-append`) | S26 (step 12 adds custom `federationPath`/`federationEventsPath` manifest fields, #249); WASM free functions (`parse_federation_registry`, `filter_federation_events_json`) verified via `cargo build --target wasm32-unknown-unknown -p srs-bindings` (#248); WASM repo-backed bindings (`federation_resolve`, `federation_events_list`, `federation_events_append` on `SrsRepository`) added and smoke-tested (#249) |
 | `package` | CLI: covered implicitly by field/type creation in S2; WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330) |
 
 Gaps are intentional and visible: they are the backlog of surfaces that need a meaningful scenario. Do not delete a gap row — fill it when a feature gives the surface a real workflow to demonstrate.

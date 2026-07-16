@@ -181,6 +181,8 @@ impl JsonStore {
             instance_index: vec![],
             container: None,
             container_index: None,
+            federation_path: None,
+            federation_events_path: None,
             extra: HashMap::new(),
             root: file_path
                 .parent()
@@ -760,6 +762,8 @@ impl RepositoryStore for JsonStore {
             instance_index: vec![],
             container: Some(container),
             container_index: None,
+            federation_path: None,
+            federation_events_path: None,
             extra,
             root: self.repository_root(),
         };
@@ -1589,12 +1593,32 @@ impl RepositoryStore for JsonStore {
             });
         }
 
-        self.state
+        let value = self
+            .state
             .borrow()
             .data
             .get(relative_path)
-            .and_then(|v| v.as_str().map(|s| s.to_string()))
-            .ok_or_else(|| Self::not_found(relative_path))
+            .cloned()
+            .ok_or_else(|| Self::not_found(relative_path))?;
+
+        // Values written via `save_text_file` are stored as JSON strings;
+        // values that arrived via the `.srsj` bundle are stored as their parsed
+        // JSON types (objects, arrays). Both must be readable as text.
+        match value {
+            serde_json::Value::String(s) => Ok(s),
+            other => serde_json::to_string(&other).map_err(|source| RepositoryError::Serialize {
+                path: PathBuf::from(relative_path),
+                source,
+            }),
+        }
+    }
+
+    fn save_text_file(&self, relative_path: &str, content: &str) -> Result<(), RepositoryError> {
+        self.state.borrow_mut().data.insert(
+            relative_path.to_string(),
+            serde_json::Value::String(content.to_string()),
+        );
+        self.flush()
     }
 
     fn validate_package_ref_path(&self, _relative_path: &str) -> Result<(), RepositoryError> {

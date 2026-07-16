@@ -101,6 +101,12 @@
           "enum": ["incoming", "outgoing"],
           "default": "incoming",
           "description": "incoming: an edge whose target is the record (e.g. successor → predecessor supersedes). outgoing: an edge whose source is the record."
+        },
+        "enforcement": {
+          "type": "string",
+          "enum": ["hard", "advisory"],
+          "default": "hard",
+          "description": "hard (default): a transition into this state MUST be rejected unless the obligation is satisfied or fulfilled (definitional relational states whose meaning is the relationship, e.g. superseded). advisory: the transition is permitted even when unsatisfied, and an unsatisfied obligation is surfaced as a warning at rest, never a rejection (evidentiary obligations that may be established later)."
         }
       }
     },
