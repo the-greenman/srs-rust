@@ -1,4 +1,5 @@
 use crate::error::RepositoryError;
+use crate::field_json::FieldJson;
 use crate::manifest::Manifest;
 use crate::package::Package;
 use crate::package_types::{DefinitionKind, PackageBoundary, PackageSelector};
@@ -7,7 +8,7 @@ use crate::repository_lifecycle::{
 };
 use serde::de::Error as SerdeDeError;
 use srs_core::types::container::ContainerIndexEntry;
-use srs_core::types::field::{Field, ValueType};
+use srs_core::types::field::Field;
 use srs_core::types::lifecycle::Lifecycle;
 use srs_core::types::record_type::{
     CrossFieldRule, FieldAssignment, FieldAssignmentOverride, FieldGroup, RecordType, TypeLifecycle,
@@ -469,27 +470,6 @@ struct PackageMetadata {
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct FieldJson {
-    id: String,
-    namespace: String,
-    name: String,
-    version: u32,
-    value_type: String,
-    description: Option<String>,
-    #[serde(default)]
-    instructions: Option<String>,
-    ai_guidance: Option<serde_json::Value>,
-    allowed_values: Option<Vec<String>>,
-    #[serde(default)]
-    vocabulary_ref: Option<String>,
-    default_value: Option<serde_json::Value>,
-    created_at: Option<String>,
-    #[serde(flatten)]
-    _extra: HashMap<String, serde_json::Value>,
-}
-
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct TypeJson {
     id: String,
     namespace: String,
@@ -559,23 +539,6 @@ struct FieldAssignmentOverrideJson {
     required: Option<bool>,
 }
 
-fn parse_value_type(s: &str, path: &std::path::Path) -> Result<ValueType, RepositoryError> {
-    match s {
-        "string" => Ok(ValueType::String),
-        "text" => Ok(ValueType::Text),
-        "number" => Ok(ValueType::Number),
-        "boolean" => Ok(ValueType::Boolean),
-        "date" => Ok(ValueType::Date),
-        "url" => Ok(ValueType::Url),
-        "select" => Ok(ValueType::Select),
-        "multiselect" => Ok(ValueType::Multiselect),
-        _ => Err(RepositoryError::InvalidValueType {
-            path: path.to_path_buf(),
-            value_type: s.to_string(),
-        }),
-    }
-}
-
 #[allow(clippy::type_complexity)]
 fn load_package_from_dir(
     package_dir: &std::path::Path,
@@ -617,21 +580,7 @@ fn load_package_from_dir(
                 path: full_path.clone(),
                 source: e,
             })?;
-        fields.push(Field {
-            id: fj.id,
-            namespace: fj.namespace,
-            name: fj.name,
-            version: fj.version,
-            value_type: parse_value_type(&fj.value_type, &full_path)?,
-            description: fj.description.unwrap_or_default(),
-            instructions: fj.instructions,
-            ai_guidance: fj.ai_guidance.unwrap_or(serde_json::Value::Null),
-            allowed_values: fj.allowed_values,
-            vocabulary_ref: fj.vocabulary_ref,
-            default_value: fj.default_value,
-            created_at: fj.created_at.unwrap_or_default(),
-            extra: HashMap::new(),
-        });
+        fields.push(fj.into_field(&full_path)?);
     }
 
     let mut record_types = Vec::new();
