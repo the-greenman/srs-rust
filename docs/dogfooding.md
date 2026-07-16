@@ -1498,7 +1498,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `note graduate` (atomic Note→Record promotion) | S18 |
 | `field` (create/list/get/update/delete) | S2 |
 | `type` (create/get/list/schema/update/delete) | S2 |
-| `record` (create/get/list/update/delete) | S1, S2, S4 |
+| `record` (create/get/list/update/delete) | S1, S2, S4; **`record create` now stamps `"$schema": "https://srs.semanticops.com/schema/2.0/record.json"` on every written Tier-2 file (#551)** — before this fix the write path omitted the key, causing `scripts/validate-all.mjs` in the spec repo to reject every CLI-created record; `write_note` ADR-004 violation (hard-coded URL literal instead of `NOTE_SCHEMA_ID`) fixed in the same PR; dogfooded: `record create` + file inspection + `repo validate` on a scratch repo confirms `$schema` present and 0 diagnostics |
 | `record update` with `typeVersion` migration (srs-rust#42) | S2 negative case — pass `typeVersion: 2` when package has advanced past stored version; confirm `ok: true` and returned record carries `typeVersion: 2`; pass `typeVersion: 99` and confirm `ok: false` with `"type version 99 not found"` diagnostic; `repo validate` must be 0 errors throughout |
 | `record list`/`record get` core `displayLabel` (tree-parity, type_name fallback; RFC-020 `identityFieldId` priority + Rule [N+33] dangling-reference diagnostic, #376) | S1 (list), S18 (get — `payload.instanceId` + `payload.displayLabel` since #294) |
 | `record validate` (no-write preflight) | S2 |

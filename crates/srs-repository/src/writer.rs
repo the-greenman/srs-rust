@@ -3,6 +3,7 @@ use crate::index::InstanceIndexEntry;
 use crate::manifest::Manifest;
 use crate::store::RepositoryStore;
 use srs_core::types::note::Note;
+use srs_schema::NOTE_SCHEMA_ID;
 use std::collections::HashMap;
 
 /// Build the `instanceId → semanticObjectType` map used by E4 relation validation.
@@ -60,9 +61,7 @@ pub fn write_note(
     if let serde_json::Value::Object(ref mut obj) = value {
         obj.insert(
             "$schema".to_string(),
-            serde_json::Value::String(
-                "https://srs.semanticops.com/schema/2.0/note.json".to_string(),
-            ),
+            serde_json::Value::String(NOTE_SCHEMA_ID.to_string()),
         );
     }
 
