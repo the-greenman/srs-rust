@@ -5,6 +5,7 @@ use srs_repository::blueprint_schema_service::{self, BlueprintSchemaInput};
 use srs_repository::blueprint_service;
 use srs_repository::container_service::{self, ContainerListFilter};
 use srs_repository::container_view_service::{self, ResolveContainerViewInput};
+use srs_repository::context_query_service::{self, FieldContextQuery, RecordContextQuery, RevisionTraceQuery};
 use srs_repository::discovery_service::{self, DiscoveryQuery};
 use srs_repository::federation_service::{
     append_federation_event, filter_federation_events, list_federation_events,
@@ -813,6 +814,43 @@ impl SrsRepository {
         let input: AppendFederationEventInput =
             serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
         let result = append_federation_event(&self.store, input).map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Assemble context for a single field: current value, revision history, aiGuidance.
+    ///
+    /// `input_json` is `{"recordId": "<id>", "fieldId": "<id>"}`.
+    /// Returns a `FieldContextResult` with `recordId`, `fieldId`, `fieldName`,
+    /// `fieldNamespace`, `aiGuidance`, `currentValue`, `revisions`, and `taggedChunks`.
+    pub fn context_field(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: FieldContextQuery =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let result = context_query_service::get_field_context(&self.store, input).map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Assemble context for a record: all field values and relations.
+    ///
+    /// `input_json` is `{"recordId": "<id>"}`.
+    /// Returns a `RecordContextResult` with `recordId`, `typeId`, `typeName`,
+    /// `typeNamespace`, `displayLabel`, `fieldValues`, `relations`, `taggedChunks`,
+    /// and `protocolRunHistory`.
+    pub fn context_record(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: RecordContextQuery =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let result = context_query_service::get_record_context(&self.store, input).map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Trace a revision: value, source refs, and prior revision chain.
+    ///
+    /// `input_json` is `{"recordId": "<id>", "fieldId": "<id>", "revisionId": "<id>"}`.
+    /// Returns a `RevisionTraceResult` with `recordId`, `fieldId`, `revision`,
+    /// and `priorChain` (ordered oldest-first).
+    pub fn context_revision(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: RevisionTraceQuery =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let result = context_query_service::get_revision_trace(&self.store, input).map_err(js_err)?;
         to_js(&result)
     }
 }
