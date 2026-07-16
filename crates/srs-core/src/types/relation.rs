@@ -30,6 +30,8 @@ pub struct Relation {
     pub valid_until: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
+    // SourceReference omits deny_unknown_fields intentionally (forward-compat);
+    // Relation's own deny_unknown_fields does not propagate into nested items.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_refs: Option<Vec<SourceReference>>,
     #[serde(skip_serializing_if = "Option::is_none")]

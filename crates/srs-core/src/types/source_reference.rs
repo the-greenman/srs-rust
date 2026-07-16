@@ -24,8 +24,7 @@ pub struct SourceReference {
 
 /// The kind of source material being referenced.
 ///
-/// `Copy` is intentional — `note.rs` had it; `relation.rs` was missing it without
-/// documented reason. `Copy` is additive and all callers compile without change.
+/// `Copy` is intentional — these are value-like, fieldless enum variants.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SourceType {

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 /// A stable, resolvable identifier for any addressable element in the SRS space.
 ///
 /// The `space` tag determines which sub-type the address resolves to.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "space")]
 pub enum Address {
     Document(DocumentAddress),
@@ -15,7 +15,7 @@ pub enum Address {
 ///
 /// `container_id` is the only required field; each additional field narrows
 /// the address to a specific record, field, or revision.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentAddress {
     pub container_id: String,
@@ -28,7 +28,7 @@ pub struct DocumentAddress {
 }
 
 /// An address within process space (ext:protocol run).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProcessAddress {
     pub run_id: String,
@@ -37,7 +37,7 @@ pub struct ProcessAddress {
 }
 
 /// An address within conversation space.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConversationAddress {
     pub session_id: String,
@@ -51,7 +51,7 @@ pub struct ConversationAddress {
 /// focus currently is. Structurally related to `Address` but serves a distinct
 /// role: an `Address` is a stable identifier; `AttentionState` is a mutable
 /// cursor that changes as the Protocol advances.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AttentionState {
     pub container_id: String,

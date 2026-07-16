@@ -131,7 +131,7 @@ mod tests {
 
     #[test]
     fn revision_with_source_refs() {
-        use super::super::source_reference::{SourceReference, SourceRelationType, SourceType};
+        use crate::types::source_reference::{SourceReference, SourceRelationType, SourceType};
         let rev = Revision {
             revision_id: "rev-4".to_string(),
             record_id: "rec-1".to_string(),
