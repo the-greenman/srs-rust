@@ -41,6 +41,9 @@ use std::path::{Path, PathBuf};
 
 use serde::de::Error as SerdeDeError;
 use serde::{Deserialize, Serialize};
+use srs_core::extensions::import_tracking::{
+    DefinitionType, ImportMode, ImportRecord, ImportSummary,
+};
 
 use crate::error::RepositoryError;
 use crate::package_service::{create_package, CreatePackageInput};
@@ -372,6 +375,48 @@ fn definition_key(kind: DefinitionKind, value: &serde_json::Value) -> Option<Str
             Some(format!("{ns}/{name}@{}", value["version"]))
         }
     }
+}
+
+/// Map a DefinitionKind to its DefinitionType (returns None for unmappable kinds).
+fn to_definition_type(kind: DefinitionKind) -> Option<DefinitionType> {
+    match kind {
+        DefinitionKind::Field => Some(DefinitionType::Field),
+        DefinitionKind::Type => Some(DefinitionType::Type),
+        DefinitionKind::RelationType => Some(DefinitionType::RelationType),
+        DefinitionKind::View => Some(DefinitionType::View),
+        DefinitionKind::Blueprint => Some(DefinitionType::Blueprint),
+        DefinitionKind::Protocol => Some(DefinitionType::Protocol),
+        DefinitionKind::DocumentView
+        | DefinitionKind::Lifecycle
+        | DefinitionKind::Vocabulary
+        | DefinitionKind::Theme => None,
+    }
+}
+
+/// Extract the namespace string from a definition JSON.
+fn definition_namespace(kind: DefinitionKind, value: &serde_json::Value) -> Option<String> {
+    match kind {
+        DefinitionKind::Protocol => value["protocolNamespace"].as_str().map(str::to_string),
+        _ => value["namespace"].as_str().map(str::to_string),
+    }
+}
+
+/// Extract the logical name from a definition JSON.
+fn definition_name(kind: DefinitionKind, value: &serde_json::Value) -> Option<String> {
+    match kind {
+        DefinitionKind::Protocol => value["protocolName"].as_str().map(str::to_string),
+        DefinitionKind::RelationType => value["key"].as_str().map(str::to_string),
+        _ => value["name"].as_str().map(str::to_string),
+    }
+}
+
+/// Extract the version as u32 from a definition JSON (defaults to 1 if absent).
+fn definition_version(kind: DefinitionKind, value: &serde_json::Value) -> u32 {
+    let v = match kind {
+        DefinitionKind::Protocol => &value["protocolVersion"],
+        _ => &value["version"],
+    };
+    v.as_u64().unwrap_or(1) as u32
 }
 
 /// Index of definitions already present in the target repository.
@@ -723,6 +768,91 @@ pub fn install_package_bundle(
     });
     store.save_instance_json(&pkg_json_key, &boundary_pkg_json)?;
 
+    // ── Phase 5: import records + reference copies ───────────────────────────
+    // Only written when something was actually installed (re-runs preserve the
+    // existing ImportSummary because every definition is skipped-identical).
+    if installed_total > 0 {
+        let import_prefix = format!("{boundary_path}/.srs-import");
+        store.ensure_instance_dir(&import_prefix)?;
+        store.ensure_instance_dir(&format!("{import_prefix}/refs"))?;
+
+        let mut summary = ImportSummary {
+            generated_at: installed_at.clone(),
+            fields: Vec::new(),
+            types: Vec::new(),
+            views: Vec::new(),
+            blueprints: Vec::new(),
+            protocols: Vec::new(),
+            relation_types: Vec::new(),
+            skipped_definitions: Vec::new(),
+        };
+
+        for (def, decision) in bundle.definitions.iter().zip(&decisions) {
+            if !matches!(decision, Decision::Install) {
+                continue;
+            }
+            let Some(def_type) = to_definition_type(def.kind) else {
+                summary.skipped_definitions.push(def.rel_path.clone());
+                continue;
+            };
+            let Some(id) = definition_id(def.kind, &def.value) else {
+                continue;
+            };
+
+            // Write reference copy alongside the installed definition.
+            if let Some((dir, _)) = def.rel_path.rsplit_once('/') {
+                store
+                    .ensure_instance_dir(&format!("{import_prefix}/refs/{dir}"))?;
+            }
+            store.save_instance_json(
+                &format!("{import_prefix}/refs/{}", def.rel_path),
+                &def.value,
+            )?;
+
+            let namespace =
+                definition_namespace(def.kind, &def.value).unwrap_or_default();
+            let name = definition_name(def.kind, &def.value).unwrap_or_default();
+            let version = definition_version(def.kind, &def.value);
+
+            let record = ImportRecord {
+                definition_id: id,
+                definition_type: def_type.clone(),
+                namespace,
+                name,
+                version,
+                mode: ImportMode::UpstreamTracked,
+                imported_at: installed_at.clone(),
+                source_package_id: bundle.id.clone(),
+                source_package_name: bundle.namespace.clone(),
+                source_package_version: bundle.version.clone(),
+                latest_known_upstream_version: None,
+                update_available: None,
+                update_checked_at: None,
+                conflict_state: None,
+                conflict_detected_at: None,
+                local_version: None,
+                local_edited_at: None,
+            };
+
+            match def_type {
+                DefinitionType::Field => summary.fields.push(record),
+                DefinitionType::Type => summary.types.push(record),
+                DefinitionType::View => summary.views.push(record),
+                DefinitionType::Blueprint => summary.blueprints.push(record),
+                DefinitionType::Protocol => summary.protocols.push(record),
+                DefinitionType::RelationType => summary.relation_types.push(record),
+            }
+        }
+
+        let summary_path = format!("{import_prefix}/import-records.json");
+        let summary_value =
+            serde_json::to_value(&summary).map_err(|e| RepositoryError::Serialize {
+                path: PathBuf::from(&summary_path),
+                source: e,
+            })?;
+        store.save_instance_json(&summary_path, &summary_value)?;
+    }
+
     let kinds = INSTALL_ORDER
         .iter()
         .filter_map(|kind| counts.remove(kind_label(*kind)))
@@ -828,6 +958,72 @@ mod tests {
         assert!(pkg_json["upstreamPackage"]["installedAt"]
             .as_str()
             .is_some());
+    }
+
+    #[test]
+    fn memory_install_writes_import_summary_and_reference_copies() {
+        let store = MemoryStore::default();
+        let result =
+            install_package_bundle(&store, &bundle(), InstallBundleOptions::default()).unwrap();
+
+        // ImportSummary written at the canonical path.
+        let summary_json = crate::store::RepositoryStore::load_instance_json(
+            &store,
+            "packages/ext/.srs-import/import-records.json",
+        )
+        .expect("import-records.json must exist after install");
+
+        assert_eq!(
+            summary_json["generatedAt"].as_str(),
+            Some(result.installed_at.as_str())
+        );
+        assert_eq!(summary_json["fields"].as_array().unwrap().len(), 2);
+        assert_eq!(summary_json["types"].as_array().unwrap().len(), 0);
+        assert_eq!(summary_json["relationTypes"].as_array().unwrap().len(), 1);
+
+        let field0 = &summary_json["fields"][0];
+        assert_eq!(
+            field0["sourcePackageId"].as_str(),
+            Some("ext-pkg-0001")
+        );
+        assert_eq!(
+            field0["sourcePackageName"].as_str(),
+            Some("com.ext.pkg")
+        );
+        assert_eq!(field0["mode"].as_str(), Some("upstream-tracked"));
+        assert_eq!(field0["definitionType"].as_str(), Some("field"));
+
+        // Reference copies present alongside the installed files.
+        let ref_alpha = crate::store::RepositoryStore::load_instance_json(
+            &store,
+            "packages/ext/.srs-import/refs/fields/alpha.json",
+        )
+        .expect("reference copy for alpha must exist");
+        assert_eq!(
+            ref_alpha["id"].as_str(),
+            Some("00000000-0000-4000-8000-0000000000a1")
+        );
+    }
+
+    #[test]
+    fn memory_rerun_preserves_existing_import_summary() {
+        let store = MemoryStore::default();
+        let first =
+            install_package_bundle(&store, &bundle(), InstallBundleOptions::default()).unwrap();
+        // Second run: everything skipped-identical → Phase 5 is skipped (installed_total == 0).
+        install_package_bundle(&store, &bundle(), InstallBundleOptions::default()).unwrap();
+
+        // The summary from the first run is still there and unchanged.
+        let summary_json = crate::store::RepositoryStore::load_instance_json(
+            &store,
+            "packages/ext/.srs-import/import-records.json",
+        )
+        .expect("import-records.json must survive re-run");
+        assert_eq!(
+            summary_json["generatedAt"].as_str(),
+            Some(first.installed_at.as_str())
+        );
+        assert_eq!(summary_json["fields"].as_array().unwrap().len(), 2);
     }
 
     #[test]
