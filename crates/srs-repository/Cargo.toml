@@ -17,6 +17,7 @@ anyhow = { workspace = true }
 uuid = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
 unicode-normalization = { workspace = true }
+zip = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
