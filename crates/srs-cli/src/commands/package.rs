@@ -93,12 +93,7 @@ fn cmd_package_create(
 }
 
 fn cmd_package_import(ctx: CliContext, path: String, mode: String) -> Result<String> {
-    let import_mode = match mode.as_str() {
-        "upstream-tracked" => ImportMode::UpstreamTracked,
-        "local-copy" => ImportMode::LocalCopy,
-        "local-fork" => ImportMode::LocalFork,
-        other => return Err(anyhow::anyhow!("invalid --mode '{other}': must be upstream-tracked, local-copy, or local-fork")),
-    };
+    let import_mode = ImportMode::try_from(mode.as_str()).map_err(|e| anyhow::anyhow!("{e}"))?;
     let input = ImportPackageLocalInput {
         source_path: path.clone(),
         mode: import_mode,

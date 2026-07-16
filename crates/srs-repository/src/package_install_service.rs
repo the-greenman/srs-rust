@@ -771,86 +771,91 @@ pub fn install_package_bundle(
     // ── Phase 5: import records + reference copies ───────────────────────────
     // Only written when something was actually installed (re-runs preserve the
     // existing ImportSummary because every definition is skipped-identical).
+    // Per ADR-030: import-record writes are best-effort; a failure here does not
+    // affect the definitions already committed in Phases 1–4.
     if installed_total > 0 {
-        let import_prefix = format!("{boundary_path}/.srs-import");
-        store.ensure_instance_dir(&import_prefix)?;
-        store.ensure_instance_dir(&format!("{import_prefix}/refs"))?;
+        let _ = (|| -> Result<(), RepositoryError> {
+            let import_prefix = format!("{boundary_path}/.srs-import");
+            store.ensure_instance_dir(&import_prefix)?;
+            store.ensure_instance_dir(&format!("{import_prefix}/refs"))?;
 
-        let mut summary = ImportSummary {
-            generated_at: installed_at.clone(),
-            fields: Vec::new(),
-            types: Vec::new(),
-            views: Vec::new(),
-            blueprints: Vec::new(),
-            protocols: Vec::new(),
-            relation_types: Vec::new(),
-            skipped_definitions: Vec::new(),
-        };
-
-        for (def, decision) in bundle.definitions.iter().zip(&decisions) {
-            if !matches!(decision, Decision::Install) {
-                continue;
-            }
-            let Some(def_type) = to_definition_type(def.kind) else {
-                summary.skipped_definitions.push(def.rel_path.clone());
-                continue;
-            };
-            let Some(id) = definition_id(def.kind, &def.value) else {
-                continue;
+            let mut summary = ImportSummary {
+                generated_at: installed_at.clone(),
+                fields: Vec::new(),
+                types: Vec::new(),
+                views: Vec::new(),
+                blueprints: Vec::new(),
+                protocols: Vec::new(),
+                relation_types: Vec::new(),
+                skipped_definitions: Vec::new(),
             };
 
-            // Write reference copy alongside the installed definition.
-            if let Some((dir, _)) = def.rel_path.rsplit_once('/') {
-                store
-                    .ensure_instance_dir(&format!("{import_prefix}/refs/{dir}"))?;
+            for (def, decision) in bundle.definitions.iter().zip(&decisions) {
+                if !matches!(decision, Decision::Install) {
+                    continue;
+                }
+                let Some(def_type) = to_definition_type(def.kind) else {
+                    summary.skipped_definitions.push(def.rel_path.clone());
+                    continue;
+                };
+                let Some(id) = definition_id(def.kind, &def.value) else {
+                    continue;
+                };
+
+                // Write reference copy alongside the installed definition.
+                if let Some((dir, _)) = def.rel_path.rsplit_once('/') {
+                    store
+                        .ensure_instance_dir(&format!("{import_prefix}/refs/{dir}"))?;
+                }
+                store.save_instance_json(
+                    &format!("{import_prefix}/refs/{}", def.rel_path),
+                    &def.value,
+                )?;
+
+                let namespace =
+                    definition_namespace(def.kind, &def.value).unwrap_or_default();
+                let name = definition_name(def.kind, &def.value).unwrap_or_default();
+                let version = definition_version(def.kind, &def.value);
+
+                let record = ImportRecord {
+                    definition_id: id,
+                    definition_type: def_type.clone(),
+                    namespace,
+                    name,
+                    version,
+                    mode: ImportMode::UpstreamTracked,
+                    imported_at: installed_at.clone(),
+                    source_package_id: bundle.id.clone(),
+                    source_package_name: bundle.namespace.clone(),
+                    source_package_version: bundle.version.clone(),
+                    latest_known_upstream_version: None,
+                    update_available: None,
+                    update_checked_at: None,
+                    conflict_state: Some(ConflictState::Clean),
+                    conflict_detected_at: None,
+                    local_version: None,
+                    local_edited_at: None,
+                };
+
+                match def_type {
+                    DefinitionType::Field => summary.fields.push(record),
+                    DefinitionType::Type => summary.types.push(record),
+                    DefinitionType::View => summary.views.push(record),
+                    DefinitionType::Blueprint => summary.blueprints.push(record),
+                    DefinitionType::Protocol => summary.protocols.push(record),
+                    DefinitionType::RelationType => summary.relation_types.push(record),
+                }
             }
-            store.save_instance_json(
-                &format!("{import_prefix}/refs/{}", def.rel_path),
-                &def.value,
-            )?;
 
-            let namespace =
-                definition_namespace(def.kind, &def.value).unwrap_or_default();
-            let name = definition_name(def.kind, &def.value).unwrap_or_default();
-            let version = definition_version(def.kind, &def.value);
-
-            let record = ImportRecord {
-                definition_id: id,
-                definition_type: def_type.clone(),
-                namespace,
-                name,
-                version,
-                mode: ImportMode::UpstreamTracked,
-                imported_at: installed_at.clone(),
-                source_package_id: bundle.id.clone(),
-                source_package_name: bundle.namespace.clone(),
-                source_package_version: bundle.version.clone(),
-                latest_known_upstream_version: None,
-                update_available: None,
-                update_checked_at: None,
-                conflict_state: Some(ConflictState::Clean),
-                conflict_detected_at: None,
-                local_version: None,
-                local_edited_at: None,
-            };
-
-            match def_type {
-                DefinitionType::Field => summary.fields.push(record),
-                DefinitionType::Type => summary.types.push(record),
-                DefinitionType::View => summary.views.push(record),
-                DefinitionType::Blueprint => summary.blueprints.push(record),
-                DefinitionType::Protocol => summary.protocols.push(record),
-                DefinitionType::RelationType => summary.relation_types.push(record),
-            }
-        }
-
-        let summary_path = format!("{import_prefix}/import-records.json");
-        let summary_value =
-            serde_json::to_value(&summary).map_err(|e| RepositoryError::Serialize {
-                path: PathBuf::from(&summary_path),
-                source: e,
-            })?;
-        store.save_instance_json(&summary_path, &summary_value)?;
+            let summary_path = format!("{import_prefix}/import-records.json");
+            let summary_value =
+                serde_json::to_value(&summary).map_err(|e| RepositoryError::Serialize {
+                    path: PathBuf::from(&summary_path),
+                    source: e,
+                })?;
+            store.save_instance_json(&summary_path, &summary_value)?;
+            Ok(())
+        })();
     }
 
     let kinds = INSTALL_ORDER

@@ -20,6 +20,21 @@ impl fmt::Display for ImportMode {
     }
 }
 
+impl TryFrom<&str> for ImportMode {
+    type Error = String;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        match s {
+            "upstream-tracked" => Ok(Self::UpstreamTracked),
+            "local-copy" => Ok(Self::LocalCopy),
+            "local-fork" => Ok(Self::LocalFork),
+            other => Err(format!(
+                "invalid import mode '{other}': must be upstream-tracked, local-copy, or local-fork"
+            )),
+        }
+    }
+}
+
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -149,6 +164,14 @@ mod tests {
         assert_eq!(ImportMode::UpstreamTracked.to_string(), "upstream-tracked");
         assert_eq!(ImportMode::LocalCopy.to_string(), "local-copy");
         assert_eq!(ImportMode::LocalFork.to_string(), "local-fork");
+    }
+
+    #[test]
+    fn import_mode_try_from_str() {
+        assert_eq!(ImportMode::try_from("upstream-tracked"), Ok(ImportMode::UpstreamTracked));
+        assert_eq!(ImportMode::try_from("local-copy"), Ok(ImportMode::LocalCopy));
+        assert_eq!(ImportMode::try_from("local-fork"), Ok(ImportMode::LocalFork));
+        assert!(ImportMode::try_from("invalid").is_err());
     }
 
     #[test]

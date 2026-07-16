@@ -1059,7 +1059,7 @@ pub fn import_package_local(
     store.save_package_boundary_metadata(&boundary)?;
     store.register_package_boundary(&boundary.selector)?;
 
-    // Build ImportRecords for definitions found in the boundary (best-effort, ADR-024).
+    // Build ImportRecords for definitions found in the boundary (best-effort, ADR-030).
     // Pass the boundary struct directly — it already has field_paths from from_pkg_json.
     let _ = write_local_import_records(store, &source_path, &boundary, &input.mode);
 
@@ -1075,8 +1075,8 @@ pub fn import_package_local(
 ///
 /// No reference copies are written for local imports (no upstream to compare against
 /// until divergence detection is wired to a registry). Failures are silently discarded
-/// per ADR-024: the import already succeeded, and `list_package_imports` will simply
-/// skip boundaries whose import-records.json is absent.
+/// per ADR-030 (pattern from ADR-024): the import already succeeded, and
+/// `list_package_imports` will simply skip boundaries whose import-records.json is absent.
 fn write_local_import_records(
     store: &dyn RepositoryStore,
     source_path: &str,
