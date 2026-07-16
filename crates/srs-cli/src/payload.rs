@@ -571,11 +571,11 @@ pub struct ContainerValidatePayload {
     pub errors: Vec<String>,
 }
 
-/// Payload for `container resolve-view` (issue #254).
+/// Payload for `container resolve-view` (issue #254, #256).
 ///
-/// Carries the structured container view: the container root record, ordered Tier-2
-/// member records (full Record + display label), the DocumentView-driven column spec,
-/// and non-fatal diagnostics.
+/// Carries the structured container view: the container root record, ordered member
+/// records (Tier-0, Tier-1, or Tier-2; full `Record` present only for Tier-2), the
+/// DocumentView-driven column spec, and non-fatal diagnostics.
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ContainerViewPayload {

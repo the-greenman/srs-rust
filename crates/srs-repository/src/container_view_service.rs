@@ -1,10 +1,14 @@
-//! Structured container-view projection for editor member lists (issue #254).
+//! Structured container-view projection for editor member lists (issue #254, #256).
 //!
 //! `resolve_container_view` composes a Container, an optional DocumentView, and the
 //! referenced View into a single read-only result the editor can render as an
 //! interactive, selectable list: the container's root record, the ordered member
-//! records (full [`Record`] + core-resolved display label + tier), and the
-//! column/field spec resolved from the DocumentView.
+//! records (Tier-0, Tier-1, or Tier-2; full [`Record`] present only for Tier-2), and
+//! the column/field spec resolved from the DocumentView.
+//!
+//! Tier-0 (Note) and Tier-1 (TypedRecord) members carry `record: None` and a
+//! `display_label` sourced from the manifest index entry's `title`. Clients that drive
+//! field-column cells check `record.is_some()`; cells for non-Tier-2 rows are empty.
 //!
 //! This is a Layer-1 typed projection — all semantics live here so the CLI, the WASM
 //! binding, and any future consumer get the same answer (see
@@ -50,21 +54,31 @@ pub struct ColumnSpec {
     pub is_identity_column: bool,
 }
 
-/// A resolved Tier-2 member (or root) of the container.
+/// A resolved member (or root) of the container.
+///
+/// Tier-2 Records carry a full [`Record`] in `record`; Tier-0 (Note) and Tier-1
+/// (TypedRecord) members carry `record: None` — their `display_label` is sourced from
+/// the manifest index entry's `title`. Clients that render field-column cells check
+/// `record.is_some()`; cells for non-Tier-2 rows are intentionally empty.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResolvedMember {
     pub instance_id: String,
-    /// Always `2` — only Tier-2 Records are projected; non-Tier-2 members are skipped.
+    /// Instance tier: 0 (Note), 1 (TypedRecord), or 2 (Record).
     pub tier: u8,
-    /// Core-resolved label via `record_display_label`.
+    /// Core-resolved label: `record_display_label` for Tier-2; manifest index `title`
+    /// (falling back to `instance_id`) for Tier-0/1.
     pub display_label: String,
     /// `false` when this member's `lifecycleState` is in the container's authored
     /// `excludeLifecycleStates` list (ADR-020). `true` when the lifecycle state is absent
-    /// or not in the exclusion list. Clients use this to implement a "show all" toggle
-    /// without re-querying or re-deriving the governing DocumentSection.
+    /// or not in the exclusion list. Always `true` for Tier-0/1 (no lifecycle state).
+    /// Clients use this to implement a "show all" toggle without re-querying.
     pub is_visible_by_default: bool,
-    pub record: Record,
+    /// Present for Tier-2 Records; `None` for Tier-0/1. Serialized with
+    /// `skip_serializing_if = "Option::is_none"` so the JSON field is absent (not `null`)
+    /// for non-Tier-2 members.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub record: Option<Record>,
 }
 
 /// The structured container view: root + ordered members + column spec.
@@ -89,7 +103,7 @@ pub struct ContainerView {
     /// list, dropping them for a "show all" toggle — see ADR-020. Clients MUST NOT re-derive
     /// them from the DocumentView source.
     pub exclude_lifecycle_states: Vec<String>,
-    /// Non-fatal notes (skipped non-Tier-2 members, unresolved view/field references).
+    /// Non-fatal notes (skipped unknown-tier members, unresolved view/field references).
     pub diagnostics: Vec<String>,
 }
 
@@ -116,13 +130,19 @@ pub fn resolve_container_view(
     // rather than duplicating it here.
     let container = container_service::get_container(store, &container_id)?;
 
-    // Build instance_id -> tier lookup once, from the manifest index.
+    // Build instance_id -> tier and instance_id -> display label lookups from the manifest
+    // in a single pass. The label index provides display labels for Tier-0/1 members (the
+    // manifest title field, populated at write time). Tier-2 members use record_display_label
+    // instead; the label_by_id entry still exists but is unused for them.
     let manifest = store.load_manifest()?;
-    let tier_by_id: HashMap<String, u8> = manifest
-        .instance_index
-        .iter()
-        .map(|e| (e.instance_id().to_string(), e.tier()))
-        .collect();
+    let mut tier_by_id: HashMap<String, u8> = HashMap::new();
+    let mut label_by_id: HashMap<String, String> = HashMap::new();
+    for e in &manifest.instance_index {
+        let id = e.instance_id().to_string();
+        let label = e.title().unwrap_or_else(|| id.clone());
+        tier_by_id.insert(id.clone(), e.tier());
+        label_by_id.insert(id, label);
+    }
 
     // Build the field_id -> field_name and (type_id, type_version) -> identityFieldId
     // indexes together, from a single Package load.
@@ -176,6 +196,7 @@ pub fn resolve_container_view(
             store,
             root_id,
             &tier_by_id,
+            &label_by_id,
             &identity_field_index,
             &field_name_index,
             &exclude_lifecycle_states,
@@ -193,6 +214,7 @@ pub fn resolve_container_view(
             store,
             id,
             &tier_by_id,
+            &label_by_id,
             &identity_field_index,
             &field_name_index,
             &exclude_lifecycle_states,
@@ -214,13 +236,21 @@ pub fn resolve_container_view(
     })
 }
 
-/// Load one instance as a Tier-2 [`ResolvedMember`]; non-Tier-2 or unresolved
-/// instances yield `None` plus a diagnostic (mirrors `tree_service`).
+/// Load one instance as a [`ResolvedMember`].
+///
+/// - **Tier 2 (Record):** loads the full record, resolves `display_label` via
+///   `record_display_label`, and sets `is_visible_by_default` from `lifecycleState`.
+/// - **Tier 0 (Note) or Tier 1 (TypedRecord):** sets `record: None`, uses the manifest
+///   index `title` (falling back to `instance_id`) as `display_label`, and sets
+///   `is_visible_by_default: true` (no lifecycle state on these tiers).
+/// - **Unknown tier:** emits a diagnostic and returns `None` (mirrors `tree_service`).
+/// - **Not in manifest:** emits a diagnostic and returns `None`.
 #[allow(clippy::too_many_arguments)]
 fn resolve_member(
     store: &dyn RepositoryStore,
     id: &str,
     tier_by_id: &HashMap<String, u8>,
+    label_by_id: &HashMap<String, String>,
     identity_field_index: &HashMap<(String, u32), String>,
     field_name_index: &HashMap<String, String>,
     exclude_lifecycle_states: &[String],
@@ -228,6 +258,20 @@ fn resolve_member(
     diagnostics: &mut Vec<String>,
 ) -> Result<Option<ResolvedMember>, RepositoryError> {
     match tier_by_id.get(id) {
+        Some(0) | Some(1) => {
+            let tier = *tier_by_id.get(id).unwrap();
+            let display_label = label_by_id
+                .get(id)
+                .cloned()
+                .unwrap_or_else(|| id.to_string());
+            Ok(Some(ResolvedMember {
+                instance_id: id.to_string(),
+                tier,
+                display_label,
+                is_visible_by_default: true,
+                record: None,
+            }))
+        }
         Some(2) => match record_store::get_record_by_id(store, id)? {
             Some(record) => {
                 let display_label = record_label::record_display_label(
@@ -244,7 +288,7 @@ fn resolve_member(
                     tier: 2,
                     display_label,
                     is_visible_by_default,
-                    record,
+                    record: Some(record),
                 }))
             }
             None => {
@@ -254,9 +298,9 @@ fn resolve_member(
                 Ok(None)
             }
         },
-        Some(_) => {
+        Some(t) => {
             diagnostics.push(format!(
-                "resolve-container-view: {kind} {id} not a Tier 2 record — skipped"
+                "resolve-container-view: {kind} {id} has unknown tier {t} — skipped"
             ));
             Ok(None)
         }
@@ -849,7 +893,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_container_view_skips_non_tier2_member_with_diagnostic() {
+    fn resolve_container_view_unknown_tier_member_skipped() {
         let fields = vec![field("f-title", "title")];
         let view = view_with_fields(vec![field_view("f-title", 0, None, None)]);
         let dv = document_view(
@@ -866,28 +910,229 @@ mod tests {
             )],
         );
         let root = record("root-1", "f-title", "Root");
-        // A Tier-0 note instance (not a Record). It must be SKIPPED, not loaded.
-        let note_json = serde_json::json!({ "instanceId": "note-1", "tier": 0, "sections": [] });
+        // An instance with an unrecognised tier (99). It must be SKIPPED with a diagnostic.
+        let bogus_json = serde_json::json!({ "instanceId": "bogus-1", "tier": 99 });
         let store = build_store(
             fields,
             vec![view],
             vec![dv],
             vec![
                 ("root-1", 2, serde_json::to_value(&root).unwrap()),
-                ("note-1", 0, note_json),
+                ("bogus-1", 99, bogus_json),
             ],
         );
-        container_service::create_container(&store, make_container(vec!["root-1"], vec!["note-1"]))
-            .unwrap();
+        container_service::create_container(
+            &store,
+            make_container(vec!["root-1"], vec!["bogus-1"]),
+        )
+        .unwrap();
 
         let result = resolve_container_view(&store, input(None)).unwrap();
-        // Only the Tier-2 root is a member; the note is skipped.
+        // Only the Tier-2 root is a member; the unknown-tier instance is skipped.
         assert_eq!(result.members.len(), 1);
         assert_eq!(result.members[0].instance_id, "root-1");
         assert!(result
             .diagnostics
             .iter()
-            .any(|d| d.contains("note-1 not a Tier 2 record")));
+            .any(|d| d.contains("unknown tier 99")));
+    }
+
+    /// Like [`build_store`], but each instance tuple includes an optional manifest index title.
+    /// Use this when testing `display_label` for Tier-0/1 members where the title must be
+    /// non-null; `build_store` always sets `title: None`.
+    fn build_store_titled(
+        fields: Vec<Field>,
+        views: Vec<View>,
+        document_views: Vec<DocumentView>,
+        instances: Vec<(&str, u8, Option<&str>, serde_json::Value)>,
+    ) -> MemoryStore {
+        let manifest = Manifest {
+            instance_index: instances
+                .iter()
+                .map(|(id, tier, title, _)| InstanceIndexEntry {
+                    instance_id: id.to_string(),
+                    tier: *tier,
+                    path: format!("records/{id}.json"),
+                    title: title.map(|t| serde_json::Value::String(t.to_string())),
+                    tags: None,
+                })
+                .collect(),
+            container: None,
+            container_index: None,
+            federation_path: None,
+            federation_events_path: None,
+            extra: HashMap::new(),
+            root: PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "test-pkg".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test".to_string(),
+            version: "1.0.0".to_string(),
+            fields,
+            record_types: vec![],
+            relation_type_definitions: vec![],
+            views,
+            document_views,
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let mut store = MemoryStore::new(manifest, package);
+        for (id, _, _, json) in &instances {
+            store = store.with_data(&format!("records/{id}.json"), json.clone());
+        }
+        store
+    }
+
+    #[test]
+    fn resolve_container_view_includes_tier0_note_member() {
+        // A Tier-0 member with a manifest index title must appear in members with
+        // record: None and display_label sourced from the index title.
+        let fields = vec![field("f-title", "title")];
+        let view = view_with_fields(vec![field_view("f-title", 0, None, None)]);
+        let dv = document_view(
+            DV_ID,
+            vec![section(
+                "s1",
+                0,
+                SectionSource::ContainerSubset {
+                    container_id: CONTAINER_ID.to_string(),
+                    container_type: None,
+                    type_filter: None,
+                },
+                Some(VIEW_ID),
+            )],
+        );
+        let root = record("root-1", "f-title", "Root Decision");
+        let note_json = serde_json::json!({ "instanceId": "note-1", "tier": 0, "sections": [] });
+        let store = build_store_titled(
+            fields,
+            vec![view],
+            vec![dv],
+            vec![
+                ("root-1", 2, None, serde_json::to_value(&root).unwrap()),
+                ("note-1", 0, Some("My Note"), note_json),
+            ],
+        );
+        container_service::create_container(
+            &store,
+            make_container(vec!["root-1"], vec!["note-1"]),
+        )
+        .unwrap();
+
+        let result = resolve_container_view(&store, input(None)).unwrap();
+        assert_eq!(result.members.len(), 2, "root + Tier-0 note must both appear");
+        let note = result
+            .members
+            .iter()
+            .find(|m| m.instance_id == "note-1")
+            .expect("Tier-0 note member must appear");
+        assert_eq!(note.tier, 0);
+        assert!(note.record.is_none(), "Tier-0 member must have record: None");
+        assert_eq!(note.display_label, "My Note");
+        assert!(note.is_visible_by_default);
+        assert!(result.diagnostics.is_empty(), "no diagnostics expected");
+    }
+
+    #[test]
+    fn resolve_container_view_includes_tier1_typed_record_member() {
+        // A Tier-1 member with a manifest index title must appear with record: None.
+        let fields = vec![field("f-title", "title")];
+        let view = view_with_fields(vec![field_view("f-title", 0, None, None)]);
+        let dv = document_view(
+            DV_ID,
+            vec![section(
+                "s1",
+                0,
+                SectionSource::ContainerSubset {
+                    container_id: CONTAINER_ID.to_string(),
+                    container_type: None,
+                    type_filter: None,
+                },
+                Some(VIEW_ID),
+            )],
+        );
+        let root = record("root-1", "f-title", "Root Decision");
+        let typed_json =
+            serde_json::json!({ "instanceId": "typed-1", "tier": 1, "fieldValues": [] });
+        let store = build_store_titled(
+            fields,
+            vec![view],
+            vec![dv],
+            vec![
+                ("root-1", 2, None, serde_json::to_value(&root).unwrap()),
+                ("typed-1", 1, Some("TypedRecord One"), typed_json),
+            ],
+        );
+        container_service::create_container(
+            &store,
+            make_container(vec!["root-1"], vec!["typed-1"]),
+        )
+        .unwrap();
+
+        let result = resolve_container_view(&store, input(None)).unwrap();
+        let typed = result
+            .members
+            .iter()
+            .find(|m| m.instance_id == "typed-1")
+            .expect("Tier-1 member must appear");
+        assert_eq!(typed.tier, 1);
+        assert!(typed.record.is_none(), "Tier-1 member must have record: None");
+        assert_eq!(typed.display_label, "TypedRecord One");
+        assert!(typed.is_visible_by_default);
+        assert!(result.diagnostics.is_empty(), "no diagnostics expected");
+    }
+
+    #[test]
+    fn resolve_container_view_tier01_label_falls_back_to_instance_id() {
+        // When a Tier-0 member has no manifest index title, display_label falls back to
+        // instance_id.
+        let fields = vec![field("f-title", "title")];
+        let view = view_with_fields(vec![field_view("f-title", 0, None, None)]);
+        let dv = document_view(
+            DV_ID,
+            vec![section(
+                "s1",
+                0,
+                SectionSource::ContainerSubset {
+                    container_id: CONTAINER_ID.to_string(),
+                    container_type: None,
+                    type_filter: None,
+                },
+                Some(VIEW_ID),
+            )],
+        );
+        let root = record("root-1", "f-title", "Root Decision");
+        let note_json = serde_json::json!({ "instanceId": "note-1", "tier": 0, "sections": [] });
+        let store = build_store_titled(
+            fields,
+            vec![view],
+            vec![dv],
+            vec![
+                ("root-1", 2, None, serde_json::to_value(&root).unwrap()),
+                ("note-1", 0, None, note_json), // title: None → fall back to instance_id
+            ],
+        );
+        container_service::create_container(
+            &store,
+            make_container(vec!["root-1"], vec!["note-1"]),
+        )
+        .unwrap();
+
+        let result = resolve_container_view(&store, input(None)).unwrap();
+        let note = result
+            .members
+            .iter()
+            .find(|m| m.instance_id == "note-1")
+            .expect("Tier-0 note member must appear");
+        assert_eq!(note.tier, 0);
+        assert_eq!(note.display_label, "note-1", "display_label falls back to instance_id");
+        assert!(note.record.is_none());
     }
 
     #[test]
@@ -939,7 +1184,8 @@ mod tests {
 
     #[test]
     fn resolve_container_view_roundtrip_stores() {
-        // Cross-store roundtrip (memory -> file) per CLAUDE.md storage rules.
+        // Cross-store roundtrip (memory -> file) per CLAUDE.md storage rules, covering
+        // a mixed-tier container: two Tier-2 records + one Tier-0 note member.
         // The snapshot importer requires identifiers >= 8 chars, so this test uses
         // its own snapshot-compliant fixture rather than the short-id `standard_store`.
         const F_TITLE: &str = "field-title-0001";
@@ -948,6 +1194,7 @@ mod tests {
         const DV: &str = "dv-decision-0001";
         const ROOT: &str = "record-root-0001";
         const MEM: &str = "record-member-0001";
+        const NOTE: &str = "record-note-0001";
 
         let fields = vec![field(F_TITLE, "title"), field(F_STATUS, "status")];
         let view = View {
@@ -973,18 +1220,31 @@ mod tests {
         };
         let root = record(ROOT, F_TITLE, "Root Decision");
         let member = record(MEM, F_TITLE, "Member Decision");
-        let store = build_store(
+        let note_json = serde_json::json!({ "instanceId": NOTE, "tier": 0, "sections": [] });
+        let store = build_store_titled(
             fields,
             vec![view],
             vec![dv],
             vec![
-                (ROOT, 2, serde_json::to_value(&root).unwrap()),
-                (MEM, 2, serde_json::to_value(&member).unwrap()),
+                (ROOT, 2, None, serde_json::to_value(&root).unwrap()),
+                (MEM, 2, None, serde_json::to_value(&member).unwrap()),
+                (NOTE, 0, Some("Roundtrip Note"), note_json),
             ],
         );
-        container_service::create_container(&store, make_container(vec![ROOT], vec![MEM])).unwrap();
+        container_service::create_container(&store, make_container(vec![ROOT], vec![MEM, NOTE]))
+            .unwrap();
 
         let from_memory = resolve_container_view(&store, input(None)).unwrap();
+
+        // Verify the Tier-0 member is present with record: None.
+        let note_mem = from_memory
+            .members
+            .iter()
+            .find(|m| m.instance_id == NOTE)
+            .expect("Tier-0 note must appear in memory result");
+        assert_eq!(note_mem.tier, 0);
+        assert!(note_mem.record.is_none(), "Tier-0 member must have record: None");
+        assert_eq!(note_mem.display_label, "Roundtrip Note");
 
         // Copy the whole repository memory -> file (FileStore) and re-run the service.
         let temp = tempfile::TempDir::new().unwrap();
