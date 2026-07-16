@@ -58,6 +58,13 @@ impl RepositoryValidationReport {
     }
 }
 
+/// Type namespace/name and field name for the spec invariant uniqueness check.
+/// These are field *names* (stable and human-readable), not UUIDs.
+/// The field ID is resolved at runtime via `Package::find_field` to avoid UUID drift.
+const SPEC_INVARIANT_TYPE_NAMESPACE: &str = "com.semanticops.spec";
+const SPEC_INVARIANT_TYPE_NAME: &str = "invariant";
+const SPEC_INVARIANT_NUMBER_FIELD_NAME: &str = "invariant-number";
+
 /// Validate an entire repository via the storage trait.
 ///
 /// I/O errors and malformed JSON are returned as `Err(RepositoryError)`.
@@ -75,6 +82,9 @@ pub fn validate_repository(
     // a corrupt relations file is reported by relation validation, not here).
     let mut relations_for_rfc022: Option<Option<Vec<crate::relation_service::RelationSummary>>> =
         None;
+    // Tracks invariant numbers for the com.semanticops.spec/invariant uniqueness check.
+    // Key: invariant-number string (e.g. "I-80"); value: list of (path, instance_id).
+    let mut invariant_number_occurrences: HashMap<String, Vec<(String, String)>> = HashMap::new();
 
     // --- Validate root manifest.json ---
     let manifest_raw = store.load_text_file("manifest.json").map_err(|e| match e {
@@ -595,6 +605,29 @@ pub fn validate_repository(
                                 }
                             }
                         }
+
+                        // Collect invariant numbers for the post-loop uniqueness check.
+                        // Naming-based dispatch on type_namespace/type_name is intentional:
+                        // the SRS data model has no structural uniqueness marker on fields,
+                        // so this check must key off the type identity. The field ID is
+                        // resolved at runtime via find_field to avoid UUID drift.
+                        if record.type_namespace == SPEC_INVARIANT_TYPE_NAMESPACE
+                            && record.type_name == SPEC_INVARIANT_TYPE_NAME
+                        {
+                            if let Some(inv_field) = package.find_field(
+                                SPEC_INVARIANT_TYPE_NAMESPACE,
+                                SPEC_INVARIANT_NUMBER_FIELD_NAME,
+                            ) {
+                                if let Some(num_str) =
+                                    record.get_field_value_str(&inv_field.id)
+                                {
+                                    invariant_number_occurrences
+                                        .entry(num_str.to_string())
+                                        .or_default()
+                                        .push((rel_path.clone(), record.instance_id.clone()));
+                                }
+                            }
+                        }
                     }
                     Err(err) => diagnostics.push(ValidationDiagnostic {
                         severity: DiagnosticSeverity::Error,
@@ -612,6 +645,32 @@ pub fn validate_repository(
                     message: "failed to load package for tier-2 semantic validation".to_string(),
                 }),
             }
+        }
+    }
+
+    // --- com.semanticops.spec/invariant number uniqueness ---
+    // Emit an Error for every record that participates in a duplicate invariant number.
+    // The same I-NN number on two or more records is a data-integrity error: projection
+    // scripts and downstream validators cannot unambiguously resolve a number to one record.
+    let mut invariant_dup_keys: Vec<&String> = invariant_number_occurrences
+        .keys()
+        .filter(|k| invariant_number_occurrences[*k].len() > 1)
+        .collect();
+    invariant_dup_keys.sort(); // deterministic diagnostic order
+    for inv_num in invariant_dup_keys {
+        let occurrences = &invariant_number_occurrences[inv_num];
+        let count = occurrences.len();
+        for (path, _id) in occurrences {
+            diagnostics.push(ValidationDiagnostic {
+                severity: DiagnosticSeverity::Error,
+                relative_path: path.clone(),
+                schema_id: None,
+                message: format!(
+                    "com.semanticops.spec/invariant: duplicate invariant number '{}' — \
+                     {count} records share this number",
+                    inv_num
+                ),
+            });
         }
     }
 
@@ -5672,6 +5731,308 @@ mod tests {
             diag.unwrap().relative_path,
             "relations/relations-collection.json",
             "malformed-file diagnostic should be attributed to the relative candidate path"
+        );
+    }
+
+    // ── spec/invariant number uniqueness tests ───────────────────────────────
+
+    /// Arbitrary field ID used in the spec/invariant test package.
+    /// The validator resolves the real ID at runtime via `find_field`; tests use
+    /// this to keep test data self-consistent without depending on the live spec repo.
+    const TEST_INV_NUM_FIELD_ID: &str = "ff000020-0000-4000-a000-000000000020";
+
+    fn write_spec_invariant_pkg(dir: &Path) {
+        write_json(dir, "package/.srs", &json!({}));
+        write_json(
+            dir,
+            "package/package.json",
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                "id": "00000000-0000-4000-8000-000000001000",
+                "namespace": "com.semanticops.spec",
+                "name": "spec",
+                "title": "Spec Test Package",
+                "description": "test",
+                "status": "active",
+                "version": "1.0.0",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "fields": ["fields/invariant-number.json"],
+                "types": [],
+                "views": [],
+                "documentViews": []
+            }),
+        );
+        write_json(
+            dir,
+            "package/fields/invariant-number.json",
+            &json!({
+                "id": TEST_INV_NUM_FIELD_ID,
+                "namespace": "com.semanticops.spec",
+                "name": "invariant-number",
+                "version": 1,
+                "description": "invariant number",
+                "aiGuidance": {},
+                "valueType": "text",
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+    }
+
+    fn spec_invariant_record_json(instance_id: &str, inv_num: &str) -> Value {
+        json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+            "instanceId": instance_id,
+            "typeId": "2a000006-0000-4000-a000-000000000006",
+            "typeVersion": 1,
+            "typeNamespace": "com.semanticops.spec",
+            "typeName": "invariant",
+            "fieldValues": [{"fieldId": TEST_INV_NUM_FIELD_ID, "value": inv_num}],
+            "createdAt": "2026-01-01T00:00:00Z"
+        })
+    }
+
+    #[test]
+    fn validate_invariant_number_uniqueness_duplicate_emits_error() {
+        let temp = TempDir::new().unwrap();
+        let id_a = "00000000-0000-4000-8000-0000000a0001";
+        let id_b = "00000000-0000-4000-8000-0000000a0002";
+
+        write_spec_invariant_pkg(temp.path());
+        write_json(
+            temp.path(),
+            "manifest.json",
+            &minimal_manifest(json!([
+                {"instanceId": id_a, "tier": 2, "path": "records/inv-a.json"},
+                {"instanceId": id_b, "tier": 2, "path": "records/inv-b.json"}
+            ])),
+        );
+        write_json(
+            temp.path(),
+            "records/inv-a.json",
+            &spec_invariant_record_json(id_a, "I-01"),
+        );
+        write_json(
+            temp.path(),
+            "records/inv-b.json",
+            &spec_invariant_record_json(id_b, "I-01"), // duplicate
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let dup_errs: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Error
+                    && d.message.contains("duplicate invariant number")
+            })
+            .collect();
+        assert_eq!(
+            dup_errs.len(),
+            2,
+            "expected 2 duplicate-invariant-number errors (one per record), got: {:?}",
+            report.diagnostics
+        );
+        assert!(
+            dup_errs.iter().all(|d| d.message.contains("I-01")),
+            "all errors should name 'I-01', got: {:?}",
+            dup_errs
+        );
+    }
+
+    #[test]
+    fn validate_invariant_number_uniqueness_distinct_numbers_pass() {
+        let temp = TempDir::new().unwrap();
+        let id_a = "00000000-0000-4000-8000-0000000b0001";
+        let id_b = "00000000-0000-4000-8000-0000000b0002";
+
+        write_spec_invariant_pkg(temp.path());
+        write_json(
+            temp.path(),
+            "manifest.json",
+            &minimal_manifest(json!([
+                {"instanceId": id_a, "tier": 2, "path": "records/inv-a.json"},
+                {"instanceId": id_b, "tier": 2, "path": "records/inv-b.json"}
+            ])),
+        );
+        write_json(
+            temp.path(),
+            "records/inv-a.json",
+            &spec_invariant_record_json(id_a, "I-01"),
+        );
+        write_json(
+            temp.path(),
+            "records/inv-b.json",
+            &spec_invariant_record_json(id_b, "I-02"), // distinct
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let dup_errs: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("duplicate invariant number"))
+            .collect();
+        assert!(
+            dup_errs.is_empty(),
+            "expected no duplicate-invariant-number diagnostics for distinct numbers, got: {:?}",
+            dup_errs
+        );
+    }
+
+    #[test]
+    fn validate_invariant_number_uniqueness_non_spec_type_no_false_positive() {
+        // A non-spec type with a field that happens to have value "I-01" on two records
+        // must NOT trigger the uniqueness check.
+        let temp = TempDir::new().unwrap();
+        let id_a = "00000000-0000-4000-8000-0000000c0001";
+        let id_b = "00000000-0000-4000-8000-0000000c0002";
+
+        write_spec_invariant_pkg(temp.path()); // package still needed for tier-2 processing
+        write_json(
+            temp.path(),
+            "manifest.json",
+            &minimal_manifest(json!([
+                {"instanceId": id_a, "tier": 2, "path": "records/rec-a.json"},
+                {"instanceId": id_b, "tier": 2, "path": "records/rec-b.json"}
+            ])),
+        );
+        // Records of a different type — same field value, different namespace/name
+        for (path, id) in [
+            ("records/rec-a.json", id_a),
+            ("records/rec-b.json", id_b),
+        ] {
+            write_json(
+                temp.path(),
+                path,
+                &json!({
+                    "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                    "instanceId": id,
+                    "typeId": "aa000001-0000-4000-a000-000000000001",
+                    "typeVersion": 1,
+                    "typeNamespace": "com.example",
+                    "typeName": "not-invariant",
+                    "fieldValues": [{"fieldId": TEST_INV_NUM_FIELD_ID, "value": "I-01"}],
+                    "createdAt": "2026-01-01T00:00:00Z"
+                }),
+            );
+        }
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let dup_errs: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("duplicate invariant number"))
+            .collect();
+        assert!(
+            dup_errs.is_empty(),
+            "expected no false-positive duplicate-invariant-number diagnostics for non-spec type, got: {:?}",
+            dup_errs
+        );
+    }
+
+    #[test]
+    fn validate_invariant_number_uniqueness_three_duplicates_emits_all() {
+        // Three records sharing the same number → all three get an error.
+        let temp = TempDir::new().unwrap();
+        let id_a = "00000000-0000-4000-8000-0000000d0001";
+        let id_b = "00000000-0000-4000-8000-0000000d0002";
+        let id_c = "00000000-0000-4000-8000-0000000d0003";
+
+        write_spec_invariant_pkg(temp.path());
+        write_json(
+            temp.path(),
+            "manifest.json",
+            &minimal_manifest(json!([
+                {"instanceId": id_a, "tier": 2, "path": "records/inv-a.json"},
+                {"instanceId": id_b, "tier": 2, "path": "records/inv-b.json"},
+                {"instanceId": id_c, "tier": 2, "path": "records/inv-c.json"}
+            ])),
+        );
+        for (path, id) in [
+            ("records/inv-a.json", id_a),
+            ("records/inv-b.json", id_b),
+            ("records/inv-c.json", id_c),
+        ] {
+            write_json(
+                temp.path(),
+                path,
+                &spec_invariant_record_json(id, "I-99"), // all three share I-99
+            );
+        }
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let dup_errs: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Error
+                    && d.message.contains("duplicate invariant number")
+            })
+            .collect();
+        assert_eq!(
+            dup_errs.len(),
+            3,
+            "expected 3 duplicate-invariant-number errors (one per record), got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn validate_invariant_number_uniqueness_duplicate_via_memory_store() {
+        // Cross-store variant: MemoryStore exercises the same uniqueness-check path.
+        use crate::manifest::Manifest;
+
+        let id_a = "00000000-0000-4000-8000-0000000e0001";
+        let id_b = "00000000-0000-4000-8000-0000000e0002";
+
+        let inv_field: srs_core::types::field::Field = serde_json::from_value(json!({
+            "id": TEST_INV_NUM_FIELD_ID,
+            "namespace": "com.semanticops.spec",
+            "name": "invariant-number",
+            "version": 1,
+            "description": "invariant number",
+            "aiGuidance": {},
+            "valueType": "text",
+            "createdAt": "2026-01-01T00:00:00Z"
+        }))
+        .unwrap();
+
+        let manifest_json = minimal_manifest(json!([
+            {"instanceId": id_a, "tier": 2, "path": "records/inv-a.json"},
+            {"instanceId": id_b, "tier": 2, "path": "records/inv-b.json"}
+        ]));
+        let manifest_str = serde_json::to_string(&manifest_json).unwrap();
+        let manifest: Manifest = serde_json::from_value(manifest_json).unwrap();
+
+        let store = MemoryStore::with_field(inv_field)
+            .with_data(
+                "records/inv-a.json",
+                spec_invariant_record_json(id_a, "I-07"),
+            )
+            .with_data(
+                "records/inv-b.json",
+                spec_invariant_record_json(id_b, "I-07"), // duplicate
+            )
+            .with_data("manifest.json", serde_json::Value::String(manifest_str));
+        store.save_manifest(&manifest).unwrap();
+
+        let report = validate_repository(&store).unwrap();
+        let dup_errs: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Error
+                    && d.message.contains("duplicate invariant number")
+            })
+            .collect();
+        assert_eq!(
+            dup_errs.len(),
+            2,
+            "expected 2 duplicate-invariant-number errors via MemoryStore, got: {:?}",
+            report.diagnostics
         );
     }
 }
