@@ -83,14 +83,14 @@ pub fn repo_created(output: &str, title: &str, repository_id: &str, has_purpose:
     println!("  Package:       com.mudemocracy.governance @1.0.0");
     println!();
     println!(
-        "  Identity:      governance article ({})",
+        "  Identity:      purpose record ({})",
         if has_purpose {
             "your purpose"
         } else {
             "placeholder"
         }
     );
-    println!("  Root container: identity article + Decision Log (RFC-013)");
+    println!("  Root container: purpose record + Decision Log (RFC-013)");
     println!("  Containers scaffolded:");
     println!("    ⊕  Decision Log  — empty, ready for decisions");
     println!();

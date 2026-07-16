@@ -100,7 +100,7 @@ fn derive_namespace_from_title(title: &str) -> String {
 /// Scaffold governance records into an already-stamped seed store.
 ///
 /// Writes three records and two containers:
-/// - `governance/article` identity record (title + purpose)
+/// - `com.semanticops.core/purpose` identity record (statement + title; RFC-018 I-81)
 /// - `governance/decision_log` container + root record
 /// - untyped root container linking identity and decision-log root
 ///
@@ -210,7 +210,7 @@ pub fn scaffold_governance_repo(
         None,
         CreateRecordInput {
             field_values: vec![FieldValue {
-                field_id: dl_title_field_id.clone(),
+                field_id: dl_title_field_id,
                 value: serde_json::json!(dl_title),
                 entries: None,
                 source: None,

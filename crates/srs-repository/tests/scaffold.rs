@@ -34,13 +34,21 @@ fn scaffold_from_raw_seed_produces_valid_repository() {
     let report =
         validation::validate_repository(&store).expect("validate_repository must not error");
 
-    // RFC-018: the scaffolded identity is a governance/article record, not yet a
-    // com.semanticops.core/purpose record. This is the expected transitional state
-    // until the scaffold is updated (issue #426). Warnings are acceptable; errors are not.
+    // RFC-018 I-81: the scaffold now creates a com.semanticops.core/purpose identity record
+    // (#568). A freshly scaffolded repository must have zero errors and zero I-81 warnings.
     assert!(
         report.is_ok(),
         "expected scaffold to produce a valid repository (no errors), got: {:?}",
         report.diagnostics
+    );
+    let i81_warnings: Vec<_> = report
+        .diagnostics
+        .iter()
+        .filter(|d| d.message.contains("RFC-018 I-81"))
+        .collect();
+    assert!(
+        i81_warnings.is_empty(),
+        "freshly scaffolded repo must have zero RFC-018 I-81 warnings: {i81_warnings:?}"
     );
 
     // srs#163: the scaffold re-binds the installed document views to the containers it
