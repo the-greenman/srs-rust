@@ -132,6 +132,9 @@ pub fn get_record_context(
             }
         })?;
 
+    // Intentionally source-only: outbound relations give the context of what this record
+    // depends on / contains / supersedes. Inbound edges are part of the stage-context
+    // pattern deferred to #252.
     let relations = relation_service::list_relations(
         store,
         ListRelationsFilter {
