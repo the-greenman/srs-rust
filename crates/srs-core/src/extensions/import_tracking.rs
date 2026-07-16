@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -6,6 +7,16 @@ pub enum ImportMode {
     UpstreamTracked,
     LocalCopy,
     LocalFork,
+}
+
+impl fmt::Display for ImportMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UpstreamTracked => write!(f, "upstream-tracked"),
+            Self::LocalCopy => write!(f, "local-copy"),
+            Self::LocalFork => write!(f, "local-fork"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -19,6 +30,19 @@ pub enum DefinitionType {
     RelationType,
 }
 
+impl fmt::Display for DefinitionType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Field => write!(f, "field"),
+            Self::Type => write!(f, "type"),
+            Self::View => write!(f, "view"),
+            Self::Blueprint => write!(f, "blueprint"),
+            Self::Protocol => write!(f, "protocol"),
+            Self::RelationType => write!(f, "relation-type"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ConflictState {
@@ -26,6 +50,17 @@ pub enum ConflictState {
     LocalAhead,
     UpstreamAhead,
     Diverged,
+}
+
+impl fmt::Display for ConflictState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Clean => write!(f, "clean"),
+            Self::LocalAhead => write!(f, "local-ahead"),
+            Self::UpstreamAhead => write!(f, "upstream-ahead"),
+            Self::Diverged => write!(f, "diverged"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,6 +102,8 @@ pub struct ImportSummary {
     pub blueprints: Vec<ImportRecord>,
     pub protocols: Vec<ImportRecord>,
     pub relation_types: Vec<ImportRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skipped_definitions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,6 +140,31 @@ mod tests {
             local_version: None,
             local_edited_at: None,
         }
+    }
+
+    #[test]
+    fn import_mode_display() {
+        assert_eq!(ImportMode::UpstreamTracked.to_string(), "upstream-tracked");
+        assert_eq!(ImportMode::LocalCopy.to_string(), "local-copy");
+        assert_eq!(ImportMode::LocalFork.to_string(), "local-fork");
+    }
+
+    #[test]
+    fn definition_type_display() {
+        assert_eq!(DefinitionType::Field.to_string(), "field");
+        assert_eq!(DefinitionType::Type.to_string(), "type");
+        assert_eq!(DefinitionType::View.to_string(), "view");
+        assert_eq!(DefinitionType::Blueprint.to_string(), "blueprint");
+        assert_eq!(DefinitionType::Protocol.to_string(), "protocol");
+        assert_eq!(DefinitionType::RelationType.to_string(), "relation-type");
+    }
+
+    #[test]
+    fn conflict_state_display() {
+        assert_eq!(ConflictState::Clean.to_string(), "clean");
+        assert_eq!(ConflictState::LocalAhead.to_string(), "local-ahead");
+        assert_eq!(ConflictState::UpstreamAhead.to_string(), "upstream-ahead");
+        assert_eq!(ConflictState::Diverged.to_string(), "diverged");
     }
 
     #[test]
@@ -232,6 +294,7 @@ mod tests {
             blueprints: vec![],
             protocols: vec![],
             relation_types: vec![record],
+            skipped_definitions: vec!["view/some-view.json".to_string()],
         };
         let json = serde_json::to_string(&summary).unwrap();
         let parsed: ImportSummary = serde_json::from_str(&json).unwrap();
@@ -239,6 +302,23 @@ mod tests {
         assert_eq!(parsed.fields.len(), 1);
         assert_eq!(parsed.types.len(), 0);
         assert_eq!(parsed.relation_types.len(), 1);
+        assert_eq!(parsed.skipped_definitions, vec!["view/some-view.json"]);
+    }
+
+    #[test]
+    fn import_summary_skipped_definitions_omitted_when_empty() {
+        let summary = ImportSummary {
+            generated_at: "2026-07-12T00:00:00Z".to_string(),
+            fields: vec![],
+            types: vec![],
+            views: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            relation_types: vec![],
+            skipped_definitions: vec![],
+        };
+        let json = serde_json::to_string(&summary).unwrap();
+        assert!(!json.contains("skippedDefinitions"));
     }
 
     #[test]
@@ -256,6 +336,7 @@ mod tests {
         let parsed: ImportSummary = serde_json::from_str(json).unwrap();
         assert_eq!(parsed.generated_at, "2026-07-12T00:00:00Z");
         assert!(parsed.fields.is_empty());
+        assert!(parsed.skipped_definitions.is_empty());
     }
 
     #[test]
