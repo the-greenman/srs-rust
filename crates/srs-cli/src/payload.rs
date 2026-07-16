@@ -1766,6 +1766,49 @@ pub struct FederationAppendEventPayload {
     pub total_events: usize,
 }
 
+// ── Context query payloads ────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextFieldPayload {
+    pub record_id: String,
+    pub field_id: String,
+    pub field_name: Option<String>,
+    pub field_namespace: Option<String>,
+    pub ai_guidance: Option<serde_json::Value>,
+    pub current_value: Option<serde_json::Value>,
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub revisions: Vec<srs_core::types::revision::Revision>,
+    pub tagged_chunks: Vec<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextRecordPayload {
+    pub record_id: String,
+    pub type_id: String,
+    pub type_name: String,
+    pub type_namespace: String,
+    pub display_label: String,
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub field_values: Vec<srs_core::types::record::FieldValue>,
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub relations: Vec<srs_repository::relation_service::RelationSummary>,
+    pub tagged_chunks: Vec<serde_json::Value>,
+    pub protocol_run_history: Vec<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextRevisionTracePayload {
+    pub record_id: String,
+    pub field_id: String,
+    #[schemars(with = "serde_json::Value")]
+    pub revision: srs_core::types::revision::Revision,
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub prior_chain: Vec<srs_core::types::revision::Revision>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
