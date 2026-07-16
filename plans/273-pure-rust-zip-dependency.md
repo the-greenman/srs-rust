@@ -57,7 +57,7 @@ is unaffected.
 - Add `zip = { workspace = true }` to `crates/srs-repository/Cargo.toml`.
 - Create `crates/srs-repository/src/archive.rs` as a placeholder module that imports from `zip`,
   anchoring the dependency so the compiler verifies it resolves.
-- Declare `pub(crate) mod archive;` in `crates/srs-repository/src/lib.rs`.
+- Declare `pub mod archive;` in `crates/srs-repository/src/lib.rs`.
 - Verify `cargo build --all` passes.
 - Verify `cargo build --target wasm32-unknown-unknown -p srs-bindings` passes.
 
