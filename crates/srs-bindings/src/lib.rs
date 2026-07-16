@@ -715,9 +715,9 @@ impl SrsRepository {
     /// when a different organisational prefix is required.
     ///
     /// Stamps manifest identity (repositoryId, namespace, title) and creates the
-    /// governance/article identity record, Decision Log container + root record, and
-    /// root container — all in one call. After this returns, call `export_srsj()` to get
-    /// the final bundle for download.
+    /// com.semanticops.core/purpose identity record (RFC-018 I-81), Decision Log container
+    /// + root record, and root container — all in one call. After this returns, call
+    /// `export_srsj()` to get the final bundle for download.
     pub fn scaffold_new_repository(&self, input_json: &str) -> Result<JsValue, JsValue> {
         let input: CreateGovernanceRepositoryInput =
             serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;

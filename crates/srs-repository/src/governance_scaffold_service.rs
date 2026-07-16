@@ -126,42 +126,48 @@ pub fn scaffold_governance_repo(
         .unwrap_or("Add your group's purpose statement here.");
 
     let package = store.load_package()?;
-    // Namespace-qualified lookups: the bundle may also carry the implicit-core
-    // com.semanticops.core/title field (a repo-copy of a core-aware engine
-    // materializes it), and a bare-name match would pin the wrong field id
-    // onto the governance/article record.
-    let title_field_id = package
+    // RFC-018 I-81: the identity record must be com.semanticops.core/purpose.
+    // The core types are available via the ADR-025 implicit-core merge.
+    let statement_field_id = package
+        .find_field("com.semanticops.core", "statement")
+        .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
+            message: "com.semanticops.core/statement field not found in package".to_string(),
+        })?
+        .id
+        .clone();
+    let core_title_field_id = package
+        .find_field("com.semanticops.core", "title")
+        .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
+            message: "com.semanticops.core/title field not found in package".to_string(),
+        })?
+        .id
+        .clone();
+    // Namespace-qualified lookup for the decision-log root title field.
+    let dl_title_field_id = package
         .find_field("governance", "title")
         .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
             message: "governance/title field not found in package".to_string(),
         })?
         .id
         .clone();
-    let article_text_field_id = package
-        .find_field("governance", "article_text")
-        .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
-            message: "governance/article_text field not found in package".to_string(),
-        })?
-        .id
-        .clone();
 
-    // 1. Identity record: governance/article carrying title + purpose.
+    // 1. Identity record: com.semanticops.core/purpose carrying statement + title (RFC-018 I-81).
     let identity = create_record_in_context(
         store,
-        "governance/article",
+        "com.semanticops.core/purpose",
         None,
         CreateRecordInput {
             field_values: vec![
                 FieldValue {
-                    field_id: title_field_id.clone(),
-                    value: serde_json::json!(input.title),
+                    field_id: statement_field_id,
+                    value: serde_json::json!(purpose_text),
                     entries: None,
                     source: None,
                     edited_at: None,
                 },
                 FieldValue {
-                    field_id: article_text_field_id,
-                    value: serde_json::json!(purpose_text),
+                    field_id: core_title_field_id,
+                    value: serde_json::json!(input.title),
                     entries: None,
                     source: None,
                     edited_at: None,
@@ -204,7 +210,7 @@ pub fn scaffold_governance_repo(
         None,
         CreateRecordInput {
             field_values: vec![FieldValue {
-                field_id: title_field_id.clone(),
+                field_id: dl_title_field_id.clone(),
                 value: serde_json::json!(dl_title),
                 entries: None,
                 source: None,
@@ -611,6 +617,36 @@ mod tests {
         ];
         expected.sort();
         assert_eq!(rebound, expected);
+    }
+
+    #[test]
+    fn create_governance_repository_validates_with_zero_i81_warnings() {
+        // RFC-018 I-81: the identity record must be com.semanticops.core/purpose.
+        // A freshly created governance repo must not emit any I-81 diagnostic.
+        let store = load_seed_store();
+        create_governance_repository(
+            &store,
+            CreateGovernanceRepositoryInput {
+                namespace: Some("com.example.i81-check".to_string()),
+                title: "I-81 Check Org".to_string(),
+                purpose: Some("Check I-81 compliance.".to_string()),
+                repository_id: Some("i81-check-id".to_string()),
+            },
+        )
+        .expect("create succeeds");
+
+        let srsj = store.to_srsj_string().expect("to_srsj_string");
+        let store2 = crate::json_store::JsonStore::from_srsj(&srsj).expect("re-parse");
+        let report = crate::validation::validate_repository(&store2).expect("validate runs");
+        let i81_warnings: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("RFC-018 I-81"))
+            .collect();
+        assert!(
+            i81_warnings.is_empty(),
+            "freshly created governance repo must have zero RFC-018 I-81 warnings: {i81_warnings:?}"
+        );
     }
 
     #[test]
