@@ -333,6 +333,28 @@ This is the muSrs guide pattern: `guide-body-view` has a default `themeRef` targ
    srs repo validate --repo /tmp/s9-dst
    ```
 
+7. **Source-document preservation** (#274 — ADR-031): attach a source document to the source repo by creating the sidecar JSON, binary content file, and manifest entries manually (the `source-document add` CLI does not exist yet — that is a future issue). Then copy and verify the binary content arrives in the target.
+   ```bash
+   mkdir -p /tmp/s9-src/source-documents
+   DOC_ID="a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+   printf '{"documentId":"%s","title":"Spec PDF","contentType":"application/pdf","contentPath":"%s.pdf","importedAt":"2026-07-16T00:00:00Z"}' \
+     "$DOC_ID" "$DOC_ID" \
+     > /tmp/s9-src/source-documents/${DOC_ID}.json
+   printf '\x25\x50\x44\x46' > /tmp/s9-src/source-documents/${DOC_ID}.pdf
+   python3 -c "
+   import json
+   m=json.load(open('/tmp/s9-src/manifest.json'))
+   m['sourceDocumentsPath']='source-documents'
+   m['sourceDocumentIndex']=[{'documentId':'$DOC_ID','sidecarPath':'$DOC_ID.json','contentPath':'$DOC_ID.pdf'}]
+   json.dump(m,open('/tmp/s9-src/manifest.json','w'),indent=2)"
+   # Re-run copy (first clean the destination)
+   rm -rf /tmp/s9-dst
+   srs repo copy --from /tmp/s9-src --to /tmp/s9-dst --store file
+   ls /tmp/s9-dst/source-documents/
+   # Confirm binary is byte-identical
+   cmp /tmp/s9-src/source-documents/${DOC_ID}.pdf /tmp/s9-dst/source-documents/${DOC_ID}.pdf && echo IDENTICAL
+   ```
+
 **Negative case.** Run `srs repo copy` a second time targeting the same non-empty `/tmp/s9-dst` — confirm `ok: false` and a diagnostic naming "target is not empty".
 
 **Done when.**
@@ -341,6 +363,7 @@ This is the muSrs guide pattern: `guide-body-view` has a default `themeRef` targ
 - Filenames in source and destination are identical.
 - `srs repo validate` on the destination returns `ok: true` with 0 errors and `summary.checked` equal to the instance count.
 - The non-empty-target copy returns `ok: false` with a clear diagnostic.
+- Source-document sidecar, binary content, and `sourceDocumentIndex` manifest entry are all present in the copy destination unchanged.
 
 ---
 

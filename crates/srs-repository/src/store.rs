@@ -352,6 +352,12 @@ pub trait RepositoryStore {
     /// Write `content` to `relative_path`, creating parent directories as needed.
     fn save_text_file(&self, relative_path: &str, content: &str) -> Result<(), RepositoryError>;
 
+    /// Read raw bytes from `relative_path`.
+    fn load_binary_file(&self, relative_path: &str) -> Result<Vec<u8>, RepositoryError>;
+
+    /// Write raw bytes to `relative_path`, creating parent directories as needed.
+    fn save_binary_file(&self, relative_path: &str, content: &[u8]) -> Result<(), RepositoryError>;
+
     /// Verify that `relative_path` (relative to repo root) points to a directory
     /// containing a `package.json`.
     ///
@@ -1822,6 +1828,22 @@ impl RepositoryStore for FileStore {
         std::fs::write(&path, content).map_err(|source| RepositoryError::Io { path, source })
     }
 
+    fn load_binary_file(&self, relative_path: &str) -> Result<Vec<u8>, RepositoryError> {
+        let path = self.abs(relative_path);
+        std::fs::read(&path).map_err(|source| RepositoryError::Io { path, source })
+    }
+
+    fn save_binary_file(&self, relative_path: &str, content: &[u8]) -> Result<(), RepositoryError> {
+        let path = self.abs(relative_path);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|source| RepositoryError::Io {
+                path: parent.to_path_buf(),
+                source,
+            })?;
+        }
+        std::fs::write(&path, content).map_err(|source| RepositoryError::Io { path, source })
+    }
+
     // --- Sub-package path validation ---
 
     fn validate_package_ref_path(&self, relative_path: &str) -> Result<(), RepositoryError> {
@@ -1996,6 +2018,8 @@ pub mod memory {
         manifest: RefCell<Manifest>,
         package: RefCell<Package>,
         data: RefCell<HashMap<String, serde_json::Value>>,
+        /// Binary files keyed by relative path (parallel to `data` for text/JSON).
+        binary_data: RefCell<HashMap<String, Vec<u8>>>,
         repository_initialized: RefCell<bool>,
         /// Package boundary metadata keyed by `PackageSelector`.
         /// Always pre-populated with the primary boundary (`None`).
@@ -2027,6 +2051,7 @@ pub mod memory {
                 manifest: RefCell::new(manifest),
                 package: RefCell::new(package),
                 data: RefCell::new(HashMap::new()),
+                binary_data: RefCell::new(HashMap::new()),
                 repository_initialized: RefCell::new(true),
                 boundaries: RefCell::new(boundaries),
                 fail_at: RefCell::new(None),
@@ -2239,6 +2264,7 @@ pub mod memory {
                 manifest: RefCell::new(manifest),
                 package: RefCell::new(package),
                 data: RefCell::new(HashMap::new()),
+                binary_data: RefCell::new(HashMap::new()),
                 repository_initialized: RefCell::new(false),
                 boundaries: RefCell::new(HashMap::new()),
                 fail_at: RefCell::new(None),
@@ -2968,6 +2994,25 @@ pub mod memory {
                 relative_path.to_string(),
                 serde_json::Value::String(content.to_string()),
             );
+            Ok(())
+        }
+
+        fn load_binary_file(&self, relative_path: &str) -> Result<Vec<u8>, RepositoryError> {
+            self.binary_data
+                .borrow()
+                .get(relative_path)
+                .cloned()
+                .ok_or_else(|| not_found(relative_path))
+        }
+
+        fn save_binary_file(
+            &self,
+            relative_path: &str,
+            content: &[u8],
+        ) -> Result<(), RepositoryError> {
+            self.binary_data
+                .borrow_mut()
+                .insert(relative_path.to_string(), content.to_vec());
             Ok(())
         }
 
@@ -4121,6 +4166,60 @@ mod tests {
         assert!(
             matches!(err, Err(RepositoryError::Io { .. })),
             "SaveManifest point must still fire after a delete_instance_file call"
+        );
+    }
+
+    #[test]
+    fn binary_file_roundtrip_memory() {
+        let store = MemoryStore::empty();
+        let bytes = b"binary\x00\x01\x02\xffcontent";
+        store
+            .save_binary_file("source-documents/doc.pdf", bytes)
+            .expect("save_binary_file must succeed on MemoryStore");
+        let loaded = store
+            .load_binary_file("source-documents/doc.pdf")
+            .expect("load_binary_file must return bytes that were saved");
+        assert_eq!(loaded, bytes);
+    }
+
+    #[test]
+    fn binary_file_roundtrip_memory_not_found() {
+        let store = MemoryStore::empty();
+        let err = store
+            .load_binary_file("source-documents/absent.pdf")
+            .expect_err("load_binary_file must return an error for absent path");
+        assert!(
+            err.is_not_found(),
+            "absent binary file must return a not-found error, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn binary_file_roundtrip_file() {
+        let temp = tempfile::TempDir::new().unwrap();
+        write_minimal_file_repo(&temp);
+        let store = FileStore::new(temp.path());
+        let bytes = b"binary\x00\x01\x02\xffcontent";
+        store
+            .save_binary_file("source-documents/doc.pdf", bytes)
+            .expect("save_binary_file must succeed on FileStore");
+        let loaded = store
+            .load_binary_file("source-documents/doc.pdf")
+            .expect("load_binary_file must return bytes that were saved");
+        assert_eq!(loaded, bytes);
+    }
+
+    #[test]
+    fn binary_file_roundtrip_file_not_found() {
+        let temp = tempfile::TempDir::new().unwrap();
+        write_minimal_file_repo(&temp);
+        let store = FileStore::new(temp.path());
+        let err = store
+            .load_binary_file("source-documents/absent.pdf")
+            .expect_err("load_binary_file must return an error for absent path");
+        assert!(
+            err.is_not_found(),
+            "absent binary file must return a not-found error, got: {err:?}"
         );
     }
 }

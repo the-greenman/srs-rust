@@ -1574,6 +1574,21 @@ impl RepositoryStore for JsonStore {
         self.flush()
     }
 
+    /// JsonStore is a text-only format (.srsj). Binary content is never stored;
+    /// reading always returns not-found so callers treat missing blobs as tombstones.
+    fn load_binary_file(&self, relative_path: &str) -> Result<Vec<u8>, RepositoryError> {
+        Err(Self::not_found(relative_path))
+    }
+
+    /// JsonStore is a text-only format (.srsj). Binary writes are silently discarded.
+    fn save_binary_file(
+        &self,
+        _relative_path: &str,
+        _content: &[u8],
+    ) -> Result<(), RepositoryError> {
+        Ok(())
+    }
+
     fn validate_package_ref_path(&self, _relative_path: &str) -> Result<(), RepositoryError> {
         Ok(())
     }
