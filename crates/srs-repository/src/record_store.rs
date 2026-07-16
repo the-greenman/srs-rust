@@ -29,6 +29,7 @@ use crate::relation_service;
 use crate::revision_service;
 use crate::store::{RecordTier, RepositoryStore};
 use crate::writer::{new_instance_id, slugify_instance_name, write_manifest};
+use srs_schema::RECORD_SCHEMA_ID;
 use serde::{Deserialize, Serialize};
 use srs_core::types::field::ValueType;
 use srs_core::types::lifecycle::{RelationDirection, RequiresRelation};
@@ -322,10 +323,16 @@ fn write_record(
     record: &Record,
     relative_path: &str,
 ) -> Result<(), RepositoryError> {
-    let value = serde_json::to_value(record).map_err(|e| RepositoryError::Serialize {
+    let mut value = serde_json::to_value(record).map_err(|e| RepositoryError::Serialize {
         path: std::path::PathBuf::from(relative_path),
         source: e,
     })?;
+    if let serde_json::Value::Object(ref mut obj) = value {
+        obj.insert(
+            "$schema".to_string(),
+            serde_json::Value::String(RECORD_SCHEMA_ID.to_string()),
+        );
+    }
     store.save_instance_json(relative_path, &value)
 }
 
@@ -6540,6 +6547,48 @@ mod tests {
             from_file.value,
             Some(json!("Roundtrip Value")),
             "value must match what was written"
+        );
+    }
+
+    #[test]
+    fn write_record_includes_schema_header() {
+        use crate::store::memory::MemoryStore;
+        use srs_core::types::record::{FieldValue, Record};
+
+        let store = make_store_with_package();
+
+        let record = Record {
+            instance_id: "aaaabbbb-0000-4000-8000-000000000001".to_string(),
+            type_id: "type-test-001".to_string(),
+            type_version: 1,
+            type_namespace: "com.test".to_string(),
+            type_name: "test-type".to_string(),
+            field_values: vec![FieldValue {
+                field_id: "field-name-001".to_string(),
+                value: json!("schema-test"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            }],
+            group_values: None,
+            lifecycle_state: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            extra: HashMap::new(),
+        };
+
+        let path = "records/tier-2/test-type-aaaabbbb.json";
+        write_record(&store, &record, path).expect("write_record must succeed");
+
+        let val = store
+            .load_instance_json(path)
+            .expect("stored file must be loadable");
+
+        assert_eq!(
+            val.get("$schema").and_then(|v| v.as_str()),
+            Some("https://srs.semanticops.com/schema/2.0/record.json"),
+            "write_record must stamp the $schema key (ADR-004)"
         );
     }
 }
