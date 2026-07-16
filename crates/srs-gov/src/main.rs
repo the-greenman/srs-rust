@@ -661,6 +661,7 @@ mod tests {
             .iter()
             .map(|v| v.as_str().unwrap())
             .collect();
-        assert_eq!(excludes, vec!["superseded", "closed"]);
+        // RFC-022 added the `abandoned` lifecycle state; the canonical view hides it by default.
+        assert_eq!(excludes, vec!["superseded", "closed", "abandoned"]);
     }
 }
