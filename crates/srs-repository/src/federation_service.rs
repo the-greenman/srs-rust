@@ -18,7 +18,8 @@ pub struct ResolveRepositoryInput {
     pub repository_id: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ResolveRepositoryResult {
     pub found: bool,
     /// registry_id of the registry that contained the match (`found: true`),
@@ -57,7 +58,8 @@ pub struct AppendFederationEventInput {
     pub event: FederationEvent,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppendFederationEventResult {
     pub event_id: String,
     pub total_events: usize,
