@@ -351,15 +351,27 @@ fn load_relations_collection(
                 })?;
             Ok((relative_path, collection))
         }
-        None => Ok((
-            "relations/relations-collection.json".to_string(),
-            RelationsCollection {
-                schema: Some(
-                    "https://srs.semanticops.com/schema/2.0/relations-collection.json".to_string(),
-                ),
-                relations: Vec::new(),
-            },
-        )),
+        None => {
+            // Use the manifest's declared relationsPath as the write destination when
+            // no file exists yet. relations_candidate_paths was already called by
+            // resolve_relations_source above, so a second call cannot fail in any new
+            // way; its first element is the declared path (or the default fallback if
+            // no relationsPath is set).
+            let write_path = relations_candidate_paths(store)?
+                .into_iter()
+                .next()
+                .unwrap_or_else(|| "relations/relations-collection.json".to_string());
+            Ok((
+                write_path,
+                RelationsCollection {
+                    schema: Some(
+                        "https://srs.semanticops.com/schema/2.0/relations-collection.json"
+                            .to_string(),
+                    ),
+                    relations: Vec::new(),
+                },
+            ))
+        }
     }
 }
 
@@ -789,6 +801,77 @@ mod tests {
         let result = load_relations(&store).unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].relation_id, "rc1");
+    }
+
+    #[test]
+    fn create_relation_uses_manifest_relations_path_when_no_file_exists() {
+        // Regression for #560: first create_relation must write to the manifest-declared
+        // relationsPath, not the hardcoded default, when no relations file exists yet.
+        let store = MemoryStore::default();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest
+            .extra
+            .insert("relationsPath".to_string(), json!("relations/custom.json"));
+        for id in ["src-1", "tgt-1"] {
+            manifest.instance_index.push(crate::index::InstanceIndexEntry {
+                instance_id: id.to_string(),
+                tier: 0,
+                path: format!("records/{}.json", id),
+                title: None,
+                tags: None,
+            });
+        }
+        store.save_manifest(&manifest).unwrap();
+
+        let def = links_def(None, None, None);
+        let rel = make_relation("r-new", "src-1", "tgt-1", "com.test/links");
+        create_relation(&store, rel, &[def]).unwrap();
+
+        assert!(
+            store.load_relations_json("relations/custom.json").is_ok(),
+            "relation must be written to the manifest-declared relationsPath"
+        );
+        assert!(
+            store
+                .load_relations_json("relations/relations-collection.json")
+                .is_err(),
+            "relation must not be written to the hardcoded default path"
+        );
+    }
+
+    #[test]
+    fn create_relation_no_relations_path_writes_to_default() {
+        // Regression for #560: when no relationsPath is declared, first create_relation
+        // must still write to the default "relations/relations-collection.json".
+        let store = MemoryStore::default();
+        let mut manifest = store.load_manifest().unwrap();
+        for id in ["src-1", "tgt-1"] {
+            manifest.instance_index.push(crate::index::InstanceIndexEntry {
+                instance_id: id.to_string(),
+                tier: 0,
+                path: format!("records/{}.json", id),
+                title: None,
+                tags: None,
+            });
+        }
+        store.save_manifest(&manifest).unwrap();
+
+        let def = links_def(None, None, None);
+        let rel = make_relation("r-default", "src-1", "tgt-1", "com.test/links");
+        create_relation(&store, rel, &[def]).unwrap();
+
+        assert!(
+            store
+                .load_relations_json("relations/relations-collection.json")
+                .is_ok(),
+            "relation must be written to the default path when no relationsPath is declared"
+        );
+        assert!(
+            store
+                .load_relations_json("relations/relations.json")
+                .is_err(),
+            "relation must not be written to the legacy alternate path"
+        );
     }
 
     #[test]
