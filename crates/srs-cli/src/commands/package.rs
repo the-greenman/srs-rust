@@ -6,6 +6,7 @@ use crate::payload::{
     PackageRefEntry, PackageRefPayload, PackageUpdatePayload,
 };
 use anyhow::Result;
+use srs_core::extensions::import_tracking::ImportMode;
 use srs_repository::manifest_service::{add_package_ref, remove_package_ref};
 use srs_repository::package_install_service::{install_package, InstallPackageInput};
 use srs_repository::package_service::{
@@ -23,7 +24,7 @@ pub fn dispatch(ctx: CliContext, cmd: PackageCommand) -> Result<String> {
             version,
             boundary_path,
         } => cmd_package_create(ctx, id, namespace, name, version, boundary_path),
-        PackageCommand::Import { path } => cmd_package_import(ctx, path),
+        PackageCommand::Import { path, mode } => cmd_package_import(ctx, path, mode),
         PackageCommand::Install {
             source_dir,
             boundary,
@@ -89,9 +90,16 @@ fn cmd_package_create(
     )
 }
 
-fn cmd_package_import(ctx: CliContext, path: String) -> Result<String> {
+fn cmd_package_import(ctx: CliContext, path: String, mode: String) -> Result<String> {
+    let import_mode = match mode.as_str() {
+        "upstream-tracked" => ImportMode::UpstreamTracked,
+        "local-copy" => ImportMode::LocalCopy,
+        "local-fork" => ImportMode::LocalFork,
+        other => return Err(anyhow::anyhow!("invalid --mode '{other}': must be upstream-tracked, local-copy, or local-fork")),
+    };
     let input = ImportPackageLocalInput {
         source_path: path.clone(),
+        mode: import_mode,
     };
     let result = with_store(&ctx, |store| {
         Ok(import_package_local(store, input.clone())?)

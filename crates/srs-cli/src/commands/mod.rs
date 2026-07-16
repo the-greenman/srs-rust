@@ -1401,6 +1401,9 @@ pub enum PackageCommand {
         /// Path relative to repo root of a directory containing a package.json
         #[arg(long = "path")]
         path: String,
+        /// Import mode: upstream-tracked (default), local-copy, or local-fork
+        #[arg(long, default_value = "upstream-tracked")]
+        mode: String,
     },
     /// Install an external package directory into this repository (one-shot copy)
     Install {

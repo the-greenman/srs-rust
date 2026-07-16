@@ -27,6 +27,9 @@ use crate::relation_service;
 use crate::store::RepositoryStore;
 use crate::writer::new_instance_id;
 use serde::{Deserialize, Serialize};
+use srs_core::extensions::import_tracking::{
+    DefinitionType, ImportMode, ImportRecord, ImportSummary,
+};
 use srs_core::types::field::Field;
 use srs_core::types::record_type::RecordType;
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
@@ -988,12 +991,19 @@ pub fn create_package(
     })
 }
 
+fn default_import_mode() -> ImportMode {
+    ImportMode::UpstreamTracked
+}
+
 /// Input for importing a local pre-existing package directory.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportPackageLocalInput {
     /// Path relative to repository root of a directory containing a `package.json`.
     pub source_path: String,
+    /// How this package should be tracked: upstream-tracked (default), local-copy, or local-fork.
+    #[serde(default = "default_import_mode")]
+    pub mode: ImportMode,
 }
 
 /// Result for import_package_local
@@ -1049,12 +1059,121 @@ pub fn import_package_local(
     store.save_package_boundary_metadata(&boundary)?;
     store.register_package_boundary(&boundary.selector)?;
 
+    // Build ImportRecords for definitions found in the boundary (best-effort, ADR-024).
+    // Pass the boundary struct directly — it already has field_paths from from_pkg_json.
+    let _ = write_local_import_records(store, &source_path, &boundary, &input.mode);
+
     Ok(ImportPackageLocalResult {
         selector: boundary.selector.clone(),
         id: boundary.id.clone(),
         namespace: boundary.namespace.clone(),
         name: boundary.name.clone(),
     })
+}
+
+/// Create an ImportSummary for a newly-registered local boundary (best-effort).
+///
+/// No reference copies are written for local imports (no upstream to compare against
+/// until divergence detection is wired to a registry). Failures are silently discarded
+/// per ADR-024: the import already succeeded, and `list_package_imports` will simply
+/// skip boundaries whose import-records.json is absent.
+fn write_local_import_records(
+    store: &dyn RepositoryStore,
+    source_path: &str,
+    boundary: &PackageBoundary,
+    mode: &ImportMode,
+) -> Result<(), RepositoryError> {
+    // Use the boundary struct directly (populated from package.json via from_pkg_json)
+    // rather than reloading from the store, because save_package_boundary_metadata
+    // intentionally does not propagate field_paths to the store index.
+    let imported_at = chrono::Utc::now().to_rfc3339();
+
+    let mut skipped_definitions: Vec<String> = Vec::new();
+
+    let path_groups: &[(&[String], DefinitionType)] = &[
+        (&boundary.field_paths, DefinitionType::Field),
+        (&boundary.type_paths, DefinitionType::Type),
+        (&boundary.blueprint_paths, DefinitionType::Blueprint),
+        (&boundary.protocol_paths, DefinitionType::Protocol),
+    ];
+
+    let mut fields: Vec<ImportRecord> = Vec::new();
+    let mut types: Vec<ImportRecord> = Vec::new();
+    let mut blueprints: Vec<ImportRecord> = Vec::new();
+    let mut protocols: Vec<ImportRecord> = Vec::new();
+
+    for (paths, def_type) in path_groups {
+        for path in *paths {
+            let json_key = format!("{source_path}/{path}");
+            let Ok(value) = store.load_instance_json(&json_key) else {
+                skipped_definitions.push(format!("skipped {path}: load failed"));
+                continue;
+            };
+            let definition_id = value["id"].as_str().unwrap_or("").to_string();
+            if definition_id.is_empty() {
+                skipped_definitions.push(format!("skipped {path}: missing id"));
+                continue;
+            }
+            let namespace = value["namespace"].as_str().unwrap_or("").to_string();
+            let name = match def_type {
+                DefinitionType::Protocol => {
+                    value["protocolName"].as_str().unwrap_or("").to_string()
+                }
+                _ => value["name"].as_str().unwrap_or("").to_string(),
+            };
+            let version = value["version"].as_u64().map(|v| v as u32).unwrap_or(0);
+
+            let record = ImportRecord {
+                definition_id,
+                definition_type: def_type.clone(),
+                namespace,
+                name,
+                version,
+                mode: mode.clone(),
+                imported_at: imported_at.clone(),
+                source_package_id: boundary.id.clone(),
+                source_package_name: boundary.namespace.clone(),
+                source_package_version: boundary.version.clone(),
+                latest_known_upstream_version: None,
+                update_available: None,
+                update_checked_at: None,
+                conflict_state: None,
+                conflict_detected_at: None,
+                local_version: None,
+                local_edited_at: None,
+            };
+
+            match def_type {
+                DefinitionType::Field => fields.push(record),
+                DefinitionType::Type => types.push(record),
+                DefinitionType::Blueprint => blueprints.push(record),
+                DefinitionType::Protocol => protocols.push(record),
+                _ => {}
+            }
+        }
+    }
+
+    let summary = ImportSummary {
+        generated_at: imported_at,
+        fields,
+        types,
+        views: Vec::new(),
+        blueprints,
+        protocols,
+        relation_types: Vec::new(),
+        skipped_definitions,
+    };
+
+    let summary_path = format!("{source_path}/.srs-import/import-records.json");
+    let summary_value = serde_json::to_value(&summary).map_err(|e| {
+        RepositoryError::Serialize {
+            path: std::path::PathBuf::from(&summary_path),
+            source: e,
+        }
+    })?;
+    store.ensure_instance_dir(&format!("{source_path}/.srs-import"))?;
+    store.save_instance_json(&summary_path, &summary_value)?;
+    Ok(())
 }
 
 /// Input for updating package boundary metadata.
@@ -1395,6 +1514,7 @@ mod tests {
 
         let input = ImportPackageLocalInput {
             source_path: "external/mypkg".to_string(),
+            mode: Default::default(),
         };
         let result = import_package_local(&store, input).unwrap();
         assert_eq!(result.id, "import-pkg-001");
@@ -1428,6 +1548,7 @@ mod tests {
             &store,
             ImportPackageLocalInput {
                 source_path: "ext/dup".to_string(),
+            mode: Default::default(),
             },
         )
         .unwrap();
@@ -1440,6 +1561,7 @@ mod tests {
             &store,
             ImportPackageLocalInput {
                 source_path: "ext/dup2".to_string(),
+            mode: Default::default(),
             },
         );
         assert!(
@@ -1458,12 +1580,105 @@ mod tests {
             &store,
             ImportPackageLocalInput {
                 source_path: "nonexistent/path".to_string(),
+            mode: Default::default(),
             },
         );
         assert!(
             matches!(result, Err(RepositoryError::PackageRefMissing { .. })),
             "missing source should return PackageRefMissing"
         );
+    }
+
+    #[test]
+    fn import_package_local_creates_import_records() {
+        use crate::store::RepositoryStore;
+        use srs_core::extensions::import_tracking::ImportMode;
+
+        let store = MemoryStore::default();
+        // field_paths are read from package.json by from_pkg_json — no add_definition_to_boundary needed.
+        let pkg_json = serde_json::json!({
+            "id": "local-pkg-001",
+            "namespace": "com.local",
+            "name": "local",
+            "version": "1.0.0",
+            "fields": ["fields/alpha.json"],
+            "types": []
+        });
+        let field_json = serde_json::json!({
+            "id": "00000000-0000-4000-8000-00000000aa01",
+            "namespace": "com.local",
+            "name": "alpha",
+            "version": 1,
+            "valueType": "string",
+            "description": "A local field.",
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        store.save_instance_json("local/pkg/package.json", &pkg_json).unwrap();
+        store.save_instance_json("local/pkg/fields/alpha.json", &field_json).unwrap();
+
+        import_package_local(
+            &store,
+            ImportPackageLocalInput {
+                source_path: "local/pkg".to_string(),
+                mode: ImportMode::UpstreamTracked,
+            },
+        ).unwrap();
+
+        let summary_json = store
+            .load_instance_json("local/pkg/.srs-import/import-records.json")
+            .expect("import-records.json must exist after import_package_local");
+
+        let fields = summary_json["fields"].as_array().unwrap();
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields[0]["mode"].as_str(), Some("upstream-tracked"));
+        assert_eq!(fields[0]["definitionType"].as_str(), Some("field"));
+        assert_eq!(
+            fields[0]["definitionId"].as_str(),
+            Some("00000000-0000-4000-8000-00000000aa01")
+        );
+    }
+
+    #[test]
+    fn import_package_local_respects_mode() {
+        use crate::store::RepositoryStore;
+        use srs_core::extensions::import_tracking::ImportMode;
+
+        let store = MemoryStore::default();
+        let pkg_json = serde_json::json!({
+            "id": "fork-pkg-001",
+            "namespace": "com.fork",
+            "name": "fork",
+            "version": "1.0.0",
+            "fields": ["fields/beta.json"],
+            "types": []
+        });
+        let field_json = serde_json::json!({
+            "id": "00000000-0000-4000-8000-00000000bb01",
+            "namespace": "com.fork",
+            "name": "beta",
+            "version": 1,
+            "valueType": "string",
+            "description": "A forked field.",
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        store.save_instance_json("fork/pkg/package.json", &pkg_json).unwrap();
+        store.save_instance_json("fork/pkg/fields/beta.json", &field_json).unwrap();
+
+        import_package_local(
+            &store,
+            ImportPackageLocalInput {
+                source_path: "fork/pkg".to_string(),
+                mode: ImportMode::LocalFork,
+            },
+        ).unwrap();
+
+        let summary_json = store
+            .load_instance_json("fork/pkg/.srs-import/import-records.json")
+            .expect("import-records.json must exist");
+
+        let fields = summary_json["fields"].as_array().unwrap();
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields[0]["mode"].as_str(), Some("local-fork"));
     }
 
     #[test]
