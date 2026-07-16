@@ -660,11 +660,9 @@ impl SrsRepository {
     /// Each record includes `conflictState` ("clean" | "local-ahead") for
     /// `upstream-tracked` definitions where a reference copy exists.
     pub fn list_package_imports_json(&self) -> Result<JsValue, JsValue> {
-        let summary = package_service::list_package_imports(
-            &self.store,
-            ListPackageImportsFilter::default(),
-        )
-        .map_err(js_err)?;
+        let summary =
+            package_service::list_package_imports(&self.store, ListPackageImportsFilter::default())
+                .map_err(js_err)?;
         to_js(&summary)
     }
 

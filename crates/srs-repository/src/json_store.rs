@@ -201,13 +201,12 @@ impl JsonStore {
         }
         let mut raw_manifest = envelope.manifest;
         crate::manifest::migrate_upstream_package(&mut raw_manifest);
-        let mut manifest: Manifest =
-            serde_json::from_value(raw_manifest).map_err(|source| {
-                RepositoryError::ManifestParse {
-                    path: mem_path.clone(),
-                    source,
-                }
-            })?;
+        let mut manifest: Manifest = serde_json::from_value(raw_manifest).map_err(|source| {
+            RepositoryError::ManifestParse {
+                path: mem_path.clone(),
+                source,
+            }
+        })?;
         manifest.root = PathBuf::from(".");
         // --- Open-time migrations ---
         // Invariants that every migration block here must observe:

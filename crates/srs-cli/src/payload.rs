@@ -1625,11 +1625,31 @@ impl From<srs_core::extensions::import_tracking::ImportSummary> for PackageImpor
     fn from(s: srs_core::extensions::import_tracking::ImportSummary) -> Self {
         Self {
             generated_at: s.generated_at,
-            fields: s.fields.into_iter().map(PackageImportRecordEntry::from).collect(),
-            types: s.types.into_iter().map(PackageImportRecordEntry::from).collect(),
-            views: s.views.into_iter().map(PackageImportRecordEntry::from).collect(),
-            blueprints: s.blueprints.into_iter().map(PackageImportRecordEntry::from).collect(),
-            protocols: s.protocols.into_iter().map(PackageImportRecordEntry::from).collect(),
+            fields: s
+                .fields
+                .into_iter()
+                .map(PackageImportRecordEntry::from)
+                .collect(),
+            types: s
+                .types
+                .into_iter()
+                .map(PackageImportRecordEntry::from)
+                .collect(),
+            views: s
+                .views
+                .into_iter()
+                .map(PackageImportRecordEntry::from)
+                .collect(),
+            blueprints: s
+                .blueprints
+                .into_iter()
+                .map(PackageImportRecordEntry::from)
+                .collect(),
+            protocols: s
+                .protocols
+                .into_iter()
+                .map(PackageImportRecordEntry::from)
+                .collect(),
             relation_types: s
                 .relation_types
                 .into_iter()

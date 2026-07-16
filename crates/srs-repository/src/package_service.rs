@@ -1169,11 +1169,9 @@ fn write_local_import_records(
     };
 
     let summary_path = format!("{source_path}/.srs-import/import-records.json");
-    let summary_value = serde_json::to_value(&summary).map_err(|e| {
-        RepositoryError::Serialize {
-            path: std::path::PathBuf::from(&summary_path),
-            source: e,
-        }
+    let summary_value = serde_json::to_value(&summary).map_err(|e| RepositoryError::Serialize {
+        path: std::path::PathBuf::from(&summary_path),
+        source: e,
     })?;
     store.ensure_instance_dir(&format!("{source_path}/.srs-import"))?;
     store.save_instance_json(&summary_path, &summary_value)?;
@@ -1282,9 +1280,7 @@ pub fn list_package_imports(
                     .load_instance_json(&format!("{boundary_path}/{def_path}"))
                     .ok();
                 let reference = store
-                    .load_instance_json(&format!(
-                        "{boundary_path}/.srs-import/refs/{def_path}"
-                    ))
+                    .load_instance_json(&format!("{boundary_path}/.srs-import/refs/{def_path}"))
                     .ok();
 
                 if let (Some(cur), Some(ref_)) = (current, reference) {
@@ -1690,7 +1686,7 @@ mod tests {
             &store,
             ImportPackageLocalInput {
                 source_path: "ext/dup".to_string(),
-            mode: Default::default(),
+                mode: Default::default(),
             },
         )
         .unwrap();
@@ -1703,7 +1699,7 @@ mod tests {
             &store,
             ImportPackageLocalInput {
                 source_path: "ext/dup2".to_string(),
-            mode: Default::default(),
+                mode: Default::default(),
             },
         );
         assert!(
@@ -1722,7 +1718,7 @@ mod tests {
             &store,
             ImportPackageLocalInput {
                 source_path: "nonexistent/path".to_string(),
-            mode: Default::default(),
+                mode: Default::default(),
             },
         );
         assert!(
@@ -1755,8 +1751,12 @@ mod tests {
             "description": "A local field.",
             "createdAt": "2026-01-01T00:00:00Z"
         });
-        store.save_instance_json("local/pkg/package.json", &pkg_json).unwrap();
-        store.save_instance_json("local/pkg/fields/alpha.json", &field_json).unwrap();
+        store
+            .save_instance_json("local/pkg/package.json", &pkg_json)
+            .unwrap();
+        store
+            .save_instance_json("local/pkg/fields/alpha.json", &field_json)
+            .unwrap();
 
         import_package_local(
             &store,
@@ -1764,7 +1764,8 @@ mod tests {
                 source_path: "local/pkg".to_string(),
                 mode: ImportMode::UpstreamTracked,
             },
-        ).unwrap();
+        )
+        .unwrap();
 
         let summary_json = store
             .load_instance_json("local/pkg/.srs-import/import-records.json")
@@ -1803,8 +1804,12 @@ mod tests {
             "description": "A forked field.",
             "createdAt": "2026-01-01T00:00:00Z"
         });
-        store.save_instance_json("fork/pkg/package.json", &pkg_json).unwrap();
-        store.save_instance_json("fork/pkg/fields/beta.json", &field_json).unwrap();
+        store
+            .save_instance_json("fork/pkg/package.json", &pkg_json)
+            .unwrap();
+        store
+            .save_instance_json("fork/pkg/fields/beta.json", &field_json)
+            .unwrap();
 
         import_package_local(
             &store,
@@ -1812,7 +1817,8 @@ mod tests {
                 source_path: "fork/pkg".to_string(),
                 mode: ImportMode::LocalFork,
             },
-        ).unwrap();
+        )
+        .unwrap();
 
         let summary_json = store
             .load_instance_json("fork/pkg/.srs-import/import-records.json")

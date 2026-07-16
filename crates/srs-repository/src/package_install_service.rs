@@ -804,16 +804,14 @@ pub fn install_package_bundle(
 
                 // Write reference copy alongside the installed definition.
                 if let Some((dir, _)) = def.rel_path.rsplit_once('/') {
-                    store
-                        .ensure_instance_dir(&format!("{import_prefix}/refs/{dir}"))?;
+                    store.ensure_instance_dir(&format!("{import_prefix}/refs/{dir}"))?;
                 }
                 store.save_instance_json(
                     &format!("{import_prefix}/refs/{}", def.rel_path),
                     &def.value,
                 )?;
 
-                let namespace =
-                    definition_namespace(def.kind, &def.value).unwrap_or_default();
+                let namespace = definition_namespace(def.kind, &def.value).unwrap_or_default();
                 let name = definition_name(def.kind, &def.value).unwrap_or_default();
                 let version = definition_version(def.kind, &def.value);
 
@@ -987,14 +985,8 @@ mod tests {
         assert_eq!(summary_json["relationTypes"].as_array().unwrap().len(), 1);
 
         let field0 = &summary_json["fields"][0];
-        assert_eq!(
-            field0["sourcePackageId"].as_str(),
-            Some("ext-pkg-0001")
-        );
-        assert_eq!(
-            field0["sourcePackageName"].as_str(),
-            Some("com.ext.pkg")
-        );
+        assert_eq!(field0["sourcePackageId"].as_str(), Some("ext-pkg-0001"));
+        assert_eq!(field0["sourcePackageName"].as_str(), Some("com.ext.pkg"));
         assert_eq!(field0["mode"].as_str(), Some("upstream-tracked"));
         assert_eq!(field0["definitionType"].as_str(), Some("field"));
         assert_eq!(field0["conflictState"].as_str(), Some("clean"));

@@ -506,7 +506,10 @@ mod tests {
         let manifest = store.load_manifest().unwrap();
         let up = manifest.upstream_package.as_ref().unwrap();
         assert!(!up.installed_at.is_empty(), "installedAt should be set");
-        assert!(up.installed_at.contains('T'), "installedAt should be ISO-8601");
+        assert!(
+            up.installed_at.contains('T'),
+            "installedAt should be ISO-8601"
+        );
 
         // Other upstreamPackage fields unchanged
         assert_eq!(up.package_id, "pkg-upstream-001");
@@ -712,7 +715,10 @@ mod tests {
         let manifest = store.load_manifest().unwrap();
         let up = manifest.upstream_package.as_ref().unwrap();
         assert!(!up.installed_at.is_empty(), "installedAt should be set");
-        assert!(up.installed_at.contains('T'), "installedAt should be ISO-8601");
+        assert!(
+            up.installed_at.contains('T'),
+            "installedAt should be ISO-8601"
+        );
         assert_eq!(up.package_id, "pkg-upstream-001");
         assert_eq!(up.namespace, "com.mudemocracy.governance");
     }

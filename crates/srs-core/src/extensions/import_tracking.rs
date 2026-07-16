@@ -35,7 +35,6 @@ impl TryFrom<&str> for ImportMode {
     }
 }
 
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DefinitionType {
@@ -168,9 +167,18 @@ mod tests {
 
     #[test]
     fn import_mode_try_from_str() {
-        assert_eq!(ImportMode::try_from("upstream-tracked"), Ok(ImportMode::UpstreamTracked));
-        assert_eq!(ImportMode::try_from("local-copy"), Ok(ImportMode::LocalCopy));
-        assert_eq!(ImportMode::try_from("local-fork"), Ok(ImportMode::LocalFork));
+        assert_eq!(
+            ImportMode::try_from("upstream-tracked"),
+            Ok(ImportMode::UpstreamTracked)
+        );
+        assert_eq!(
+            ImportMode::try_from("local-copy"),
+            Ok(ImportMode::LocalCopy)
+        );
+        assert_eq!(
+            ImportMode::try_from("local-fork"),
+            Ok(ImportMode::LocalFork)
+        );
         assert!(ImportMode::try_from("invalid").is_err());
     }
 

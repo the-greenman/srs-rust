@@ -498,7 +498,11 @@ fn file_store_list_package_imports_detects_local_ahead_after_edit() {
     let mut modified = original.clone();
     modified["version"] = serde_json::json!(2);
     modified["description"] = serde_json::json!("Locally edited description.");
-    std::fs::write(&title_path, serde_json::to_string_pretty(&modified).unwrap()).unwrap();
+    std::fs::write(
+        &title_path,
+        serde_json::to_string_pretty(&modified).unwrap(),
+    )
+    .unwrap();
 
     let summary =
         list_package_imports(&store, ListPackageImportsFilter::default()).expect("list succeeds");

@@ -11,8 +11,8 @@ use srs_repository::manifest_service::{add_package_ref, remove_package_ref};
 use srs_repository::package_install_service::{install_package, InstallPackageInput};
 use srs_repository::package_service::{
     create_package, import_package_local, list_package_imports, list_packages,
-    update_package_metadata, CreatePackageInput, ImportPackageLocalInput,
-    ListPackageImportsFilter, UpdatePackageMetadataInput,
+    update_package_metadata, CreatePackageInput, ImportPackageLocalInput, ListPackageImportsFilter,
+    UpdatePackageMetadataInput,
 };
 
 pub fn dispatch(ctx: CliContext, cmd: PackageCommand) -> Result<String> {
@@ -217,7 +217,10 @@ fn cmd_package_disable(ctx: CliContext, path: String) -> Result<String> {
 
 fn cmd_package_imports(ctx: CliContext) -> Result<String> {
     let result = with_store(&ctx, |store| {
-        Ok(list_package_imports(store, ListPackageImportsFilter::default())?)
+        Ok(list_package_imports(
+            store,
+            ListPackageImportsFilter::default(),
+        )?)
     })?;
     output::serialize("package imports", PackageImportsPayload::from(result))
 }
