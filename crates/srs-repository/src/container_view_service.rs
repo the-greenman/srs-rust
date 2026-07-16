@@ -1018,21 +1018,25 @@ mod tests {
                 ("note-1", 0, Some("My Note"), note_json),
             ],
         );
-        container_service::create_container(
-            &store,
-            make_container(vec!["root-1"], vec!["note-1"]),
-        )
-        .unwrap();
+        container_service::create_container(&store, make_container(vec!["root-1"], vec!["note-1"]))
+            .unwrap();
 
         let result = resolve_container_view(&store, input(None)).unwrap();
-        assert_eq!(result.members.len(), 2, "root + Tier-0 note must both appear");
+        assert_eq!(
+            result.members.len(),
+            2,
+            "root + Tier-0 note must both appear"
+        );
         let note = result
             .members
             .iter()
             .find(|m| m.instance_id == "note-1")
             .expect("Tier-0 note member must appear");
         assert_eq!(note.tier, 0);
-        assert!(note.record.is_none(), "Tier-0 member must have record: None");
+        assert!(
+            note.record.is_none(),
+            "Tier-0 member must have record: None"
+        );
         assert_eq!(note.display_label, "My Note");
         assert!(note.is_visible_by_default);
         assert!(result.diagnostics.is_empty(), "no diagnostics expected");
@@ -1081,7 +1085,10 @@ mod tests {
             .find(|m| m.instance_id == "typed-1")
             .expect("Tier-1 member must appear");
         assert_eq!(typed.tier, 1);
-        assert!(typed.record.is_none(), "Tier-1 member must have record: None");
+        assert!(
+            typed.record.is_none(),
+            "Tier-1 member must have record: None"
+        );
         assert_eq!(typed.display_label, "TypedRecord One");
         assert!(typed.is_visible_by_default);
         assert!(result.diagnostics.is_empty(), "no diagnostics expected");
@@ -1117,11 +1124,8 @@ mod tests {
                 ("note-1", 0, None, note_json), // title: None → fall back to instance_id
             ],
         );
-        container_service::create_container(
-            &store,
-            make_container(vec!["root-1"], vec!["note-1"]),
-        )
-        .unwrap();
+        container_service::create_container(&store, make_container(vec!["root-1"], vec!["note-1"]))
+            .unwrap();
 
         let result = resolve_container_view(&store, input(None)).unwrap();
         let note = result
@@ -1130,7 +1134,10 @@ mod tests {
             .find(|m| m.instance_id == "note-1")
             .expect("Tier-0 note member must appear");
         assert_eq!(note.tier, 0);
-        assert_eq!(note.display_label, "note-1", "display_label falls back to instance_id");
+        assert_eq!(
+            note.display_label, "note-1",
+            "display_label falls back to instance_id"
+        );
         assert!(note.record.is_none());
     }
 
@@ -1160,11 +1167,8 @@ mod tests {
             vec![dv],
             vec![("note-root", 0, Some("Root Note"), note_json)],
         );
-        container_service::create_container(
-            &store,
-            make_container(vec!["note-root"], vec![]),
-        )
-        .unwrap();
+        container_service::create_container(&store, make_container(vec!["note-root"], vec![]))
+            .unwrap();
 
         let result = resolve_container_view(&store, input(None)).unwrap();
         let root = result.root.as_ref().expect("root must be present");
@@ -1283,7 +1287,10 @@ mod tests {
             .find(|m| m.instance_id == NOTE)
             .expect("Tier-0 note must appear in memory result");
         assert_eq!(note_mem.tier, 0);
-        assert!(note_mem.record.is_none(), "Tier-0 member must have record: None");
+        assert!(
+            note_mem.record.is_none(),
+            "Tier-0 member must have record: None"
+        );
         assert_eq!(note_mem.display_label, "Roundtrip Note");
 
         // Copy the whole repository memory -> file (FileStore) and re-run the service.
