@@ -317,6 +317,15 @@ pub(crate) fn resolve_relations_source(
         match store.load_relations_json(&relative_path) {
             Ok(value) => return Ok(Some((relative_path, value))),
             Err(RepositoryError::Io { .. } | RepositoryError::NotFound { .. }) => continue,
+            Err(RepositoryError::Serialize { source, .. }) => {
+                // A present-but-malformed file. The store reports an absolute path; re-attach
+                // the relative candidate path so a caller (e.g. validate) can attribute the
+                // diagnostic consistently with every other relative-path diagnostic.
+                return Err(RepositoryError::Serialize {
+                    path: std::path::PathBuf::from(&relative_path),
+                    source,
+                });
+            }
             Err(e) => return Err(e),
         }
     }

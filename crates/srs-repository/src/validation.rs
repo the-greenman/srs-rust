@@ -690,10 +690,16 @@ pub fn validate_repository(
         Ok(source) => source,
         Err(err) => {
             // Present-but-unreadable/malformed relations file: surface as a diagnostic
-            // rather than aborting the whole validation run.
+            // rather than aborting the whole validation run. resolve_relations_source
+            // re-attaches the relative candidate path to the Serialize error so the
+            // diagnostic points at the actual file.
+            let relative_path = match &err {
+                RepositoryError::Serialize { path, .. } => path.display().to_string(),
+                _ => "relations".to_string(),
+            };
             diagnostics.push(ValidationDiagnostic {
                 severity: DiagnosticSeverity::Error,
-                relative_path: "relations".to_string(),
+                relative_path,
                 schema_id: None,
                 message: format!("failed to read relations file: {err}"),
             });
@@ -5634,6 +5640,37 @@ mod tests {
             "JsonStore (WASM/srs-web path) must also flag the bogus relation type (E1) — \
              cross-store regression guard for #548: {:?}",
             json_report.diagnostics
+        );
+    }
+
+    #[test]
+    fn validate_reports_malformed_relations_file_as_diagnostic() {
+        // A corrupt relations file must produce a diagnostic attributed to that file,
+        // not abort the whole validation run.
+        let temp = TempDir::new().unwrap();
+        setup_repo_for_relation_validation(&temp);
+        std::fs::create_dir_all(temp.path().join("relations")).unwrap();
+        std::fs::write(
+            temp.path().join("relations/relations-collection.json"),
+            "{ this is not valid json",
+        )
+        .unwrap();
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let diag = report
+            .diagnostics
+            .iter()
+            .find(|d| d.message.contains("failed to read relations file"));
+        assert!(
+            diag.is_some(),
+            "expected a diagnostic for the malformed relations file, got: {:?}",
+            report.diagnostics
+        );
+        assert_eq!(
+            diag.unwrap().relative_path,
+            "relations/relations-collection.json",
+            "malformed-file diagnostic should be attributed to the relative candidate path"
         );
     }
 }
