@@ -276,10 +276,11 @@ pub fn export_repository_snapshot_with_options(
             Err(ref e) if e.is_not_found() => continue, // tombstone: skip this entry
             Err(e) => return Err(e),
         };
-        let sidecar: serde_json::Value =
-            serde_json::from_str(&sidecar_str).map_err(|e| RepositoryError::InvalidSnapshotData {
+        let sidecar: serde_json::Value = serde_json::from_str(&sidecar_str).map_err(|e| {
+            RepositoryError::InvalidSnapshotData {
                 message: format!("malformed sidecar '{}': {e}", sidecar_full),
-            })?;
+            }
+        })?;
 
         let content_base64 = if options.include_content_blobs {
             let content_full = format!("{src_docs_base}/{content_path}");
@@ -462,23 +463,23 @@ fn do_import(
             Vec::with_capacity(snapshot.source_documents.len());
         for entry in &snapshot.source_documents {
             let sidecar_full = format!("{src_docs_base}/{}", entry.sidecar_path);
-            let sidecar_str =
-                serde_json::to_string_pretty(&entry.sidecar).map_err(|e| {
-                    RepositoryError::Serialize {
-                        path: std::path::PathBuf::from(&sidecar_full),
-                        source: e,
-                    }
-                })?;
+            let sidecar_str = serde_json::to_string_pretty(&entry.sidecar).map_err(|e| {
+                RepositoryError::Serialize {
+                    path: std::path::PathBuf::from(&sidecar_full),
+                    source: e,
+                }
+            })?;
             target.save_text_file(&sidecar_full, &sidecar_str)?;
             if let Some(b64) = &entry.content_base64 {
-                let bytes = BASE64.decode(b64).map_err(|e| {
-                    RepositoryError::InvalidSnapshotData {
-                        message: format!(
-                            "base64 decode failed for '{}': {e}",
-                            entry.content_path
-                        ),
-                    }
-                })?;
+                let bytes =
+                    BASE64
+                        .decode(b64)
+                        .map_err(|e| RepositoryError::InvalidSnapshotData {
+                            message: format!(
+                                "base64 decode failed for '{}': {e}",
+                                entry.content_path
+                            ),
+                        })?;
                 let content_full = format!("{src_docs_base}/{}", entry.content_path);
                 target.save_binary_file(&content_full, &bytes)?;
             }
@@ -2192,8 +2193,17 @@ mod tests {
         .unwrap();
         assert!(!snapshot.source_documents.is_empty());
         let text = serde_json::to_string(&snapshot).unwrap();
-        assert!(!text.contains("\"path\""), "bare \"path\" key must not appear");
-        assert!(!text.contains("package/"), "package/ prefix must not appear");
-        assert!(!text.contains("records/"), "records/ prefix must not appear");
+        assert!(
+            !text.contains("\"path\""),
+            "bare \"path\" key must not appear"
+        );
+        assert!(
+            !text.contains("package/"),
+            "package/ prefix must not appear"
+        );
+        assert!(
+            !text.contains("records/"),
+            "records/ prefix must not appear"
+        );
     }
 }

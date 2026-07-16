@@ -356,11 +356,7 @@ pub trait RepositoryStore {
     fn load_binary_file(&self, relative_path: &str) -> Result<Vec<u8>, RepositoryError>;
 
     /// Write raw bytes to `relative_path`, creating parent directories as needed.
-    fn save_binary_file(
-        &self,
-        relative_path: &str,
-        content: &[u8],
-    ) -> Result<(), RepositoryError>;
+    fn save_binary_file(&self, relative_path: &str, content: &[u8]) -> Result<(), RepositoryError>;
 
     /// Verify that `relative_path` (relative to repo root) points to a directory
     /// containing a `package.json`.
@@ -1837,11 +1833,7 @@ impl RepositoryStore for FileStore {
         std::fs::read(&path).map_err(|source| RepositoryError::Io { path, source })
     }
 
-    fn save_binary_file(
-        &self,
-        relative_path: &str,
-        content: &[u8],
-    ) -> Result<(), RepositoryError> {
+    fn save_binary_file(&self, relative_path: &str, content: &[u8]) -> Result<(), RepositoryError> {
         let path = self.abs(relative_path);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|source| RepositoryError::Io {
