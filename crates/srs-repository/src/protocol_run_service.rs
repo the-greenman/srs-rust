@@ -83,6 +83,7 @@ fn save_runs(
     store: &dyn RepositoryStore,
     collection: &ProtocolRunsCollection,
 ) -> Result<(), RepositoryError> {
+    store.ensure_instance_dir("runs")?;
     let value = serde_json::to_value(collection).map_err(|e| RepositoryError::Serialize {
         path: PathBuf::from(RUNS_PATH),
         source: e,
