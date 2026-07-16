@@ -616,13 +616,10 @@ pub fn validate_repository(
                         if record.type_namespace == SPEC_NAMESPACE
                             && record.type_name == SPEC_INVARIANT_TYPE_NAME
                         {
-                            if let Some(inv_field) = package.find_field(
-                                SPEC_NAMESPACE,
-                                SPEC_INVARIANT_NUMBER_FIELD_NAME,
-                            ) {
-                                if let Some(fv) =
-                                    record.find_field_value(&inv_field.id)
-                                {
+                            if let Some(inv_field) =
+                                package.find_field(SPEC_NAMESPACE, SPEC_INVARIANT_NUMBER_FIELD_NAME)
+                            {
+                                if let Some(fv) = record.find_field_value(&inv_field.id) {
                                     let num_str = match &fv.value {
                                         serde_json::Value::String(s) => Some(s.clone()),
                                         serde_json::Value::Number(n) => Some(n.to_string()),
@@ -5907,10 +5904,7 @@ mod tests {
             ])),
         );
         // Records of a different type — same field value, different namespace/name
-        for (path, id) in [
-            ("records/rec-a.json", id_a),
-            ("records/rec-b.json", id_b),
-        ] {
+        for (path, id) in [("records/rec-a.json", id_a), ("records/rec-b.json", id_b)] {
             write_json(
                 temp.path(),
                 path,
