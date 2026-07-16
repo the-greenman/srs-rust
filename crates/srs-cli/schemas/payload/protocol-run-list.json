@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProtocolRunListPayload",
+  "type": "object",
+  "required": [
+    "runs"
+  ],
+  "properties": {
+    "runs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ProtocolRunListEntry"
+      }
+    }
+  },
+  "definitions": {
+    "ProtocolRunListEntry": {
+      "type": "object",
+      "required": [
+        "containerId",
+        "protocolId",
+        "runId",
+        "startedAt",
+        "status"
+      ],
+      "properties": {
+        "containerId": {
+          "type": "string"
+        },
+        "currentStageId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "protocolId": {
+          "type": "string"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "startedAt": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

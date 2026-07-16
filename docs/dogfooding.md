@@ -1530,6 +1530,121 @@ $SRS_BIN federation events-list --repo "$SCRATCH2" --pretty
 
 ---
 
+## S28 — Run a protocol to extract a governance decision (`srs protocol run`, ext:protocol, #252)
+
+**Intention.** *"I am facilitating a structured decision extraction session. I want to start a protocol run to guide the process stage by stage — so the AI agent always knows where we are in the workflow and can pick up an interrupted session cleanly."*
+
+**Capabilities exercised.** `protocol run create` (begin a facilitation session); `protocol run advance` (move to next stage, mark current complete); `protocol run get` (retrieve current run state); `protocol run list` (filter by status); `protocol run complete` (close out a finished run); `protocol run abandon` (cancel an interrupted run); correct error messages for state-conflict and not-found cases.
+
+**CLI surface.** `srs protocol run create`, `srs protocol run advance`, `srs protocol run get`, `srs protocol run list`, `srs protocol run complete`, `srs protocol run abandon`.
+
+**Prerequisite.** A repository with a protocol definition in its package (imported via `srs protocol import`). A container to scope the run.
+
+**Steps.**
+
+1. Set up a repo and import a minimal two-stage protocol:
+   ```bash
+   SRS=$(which srs)   # or path to the built binary
+   REPO=/tmp/dogfood-protocol-run
+   rm -rf $REPO
+   $SRS repo create --repo $REPO --namespace com.example.dogfood --pretty > /dev/null
+
+   echo '{
+     "protocolId": "b0000000-0000-0000-0000-000000000001",
+     "protocolNamespace": "com.example.dogfood",
+     "protocolName": "decision-extraction",
+     "protocolVersion": 1,
+     "protocolTargetType": "a0000000-0000-0000-0000-000000000001",
+     "protocolStages": [
+       {"stageId": "stage-gather", "name": "Gather context", "order": 1, "dependsOn": []},
+       {"stageId": "stage-draft",  "name": "Draft decision",  "order": 2, "dependsOn": ["stage-gather"]}
+     ],
+     "protocolCreatedAt": "2026-07-16T00:00:00Z"
+   }' | $SRS protocol import --repo $REPO --pretty > /dev/null
+   ```
+
+2. Create a container and start a run:
+   ```bash
+   echo '{"containerId": "c0000000-0000-0000-0000-000000000001", "title": "Decisions"}' | \
+     $SRS container create --repo $REPO --pretty > /dev/null
+
+   RUN_RESULT=$(echo '{
+     "protocolId": "b0000000-0000-0000-0000-000000000001",
+     "protocolVersion": 1,
+     "containerId": "c0000000-0000-0000-0000-000000000001",
+     "initialStageId": "stage-gather"
+   }' | $SRS protocol run create --repo $REPO --pretty)
+   echo "$RUN_RESULT" | jq '{runId: .payload.run.runId, status: .payload.run.status, stageId: .payload.run.attentionState.stageId}'
+   RUN_ID=$(echo "$RUN_RESULT" | jq -r '.payload.run.runId')
+   ```
+   Confirm `ok: true`, `status: "Active"`, `attentionState.stageId: "stage-gather"`.
+
+3. Advance to the next stage (marking stage-gather complete):
+   ```bash
+   echo "{\"runId\": \"$RUN_ID\", \"stageId\": \"stage-draft\", \"completeCurrent\": true}" | \
+     $SRS protocol run advance --repo $REPO --pretty | \
+     jq '{stageId: .payload.run.attentionState.stageId, stageCount: (.payload.run.stageStates | length)}'
+   ```
+   Confirm `stageId: "stage-draft"` and `stageCount: 2` (both stages in history).
+
+4. Retrieve the current run state:
+   ```bash
+   $SRS protocol run get "$RUN_ID" --repo $REPO --pretty | \
+     jq '{status: .payload.run.status, currentStage: .payload.run.attentionState.stageId}'
+   ```
+   Confirm `status: "Active"`, `currentStage: "stage-draft"`.
+
+5. List all runs (should show the one active run):
+   ```bash
+   $SRS protocol run list --repo $REPO --pretty | jq '.payload.runs[0].status'
+   $SRS protocol run list --repo $REPO --status Active --pretty | jq '.payload.runs | length'
+   ```
+   Confirm status is `"Active"`, count is `1`.
+
+6. Complete the run:
+   ```bash
+   $SRS protocol run complete "$RUN_ID" --repo $REPO --pretty | jq '.payload.run.status'
+   ```
+   Confirm `"Completed"`.
+
+7. List again — filter by completed:
+   ```bash
+   $SRS protocol run list --repo $REPO --status Completed --pretty | jq '.payload.runs | length'
+   ```
+   Confirm `1`.
+
+8. Validate the repo:
+   ```bash
+   $SRS repo validate --repo $REPO --pretty | jq '.payload.summary.errors'
+   ```
+   Confirm `0` errors.
+
+**Negative cases.**
+
+```bash
+# Complete an already-completed run — must return correct state-conflict message
+$SRS protocol run complete "$RUN_ID" --repo $REPO --pretty | jq '{ok, diagnostics}'
+# Expect: ok: false, diagnostics: ["Protocol run '...' cannot be completed: status is Completed"]
+
+# Create a second run and abandon it, then try to advance it
+RUN2_ID=$(echo '{"protocolId":"b0000000-0000-0000-0000-000000000001","protocolVersion":1,"containerId":"c0000000-0000-0000-0000-000000000001"}' \
+  | $SRS protocol run create --repo $REPO --pretty | jq -r '.payload.run.runId')
+$SRS protocol run abandon "$RUN2_ID" --repo $REPO --pretty > /dev/null
+echo "{\"runId\":\"$RUN2_ID\",\"stageId\":\"stage-gather\",\"completeCurrent\":false}" | \
+  $SRS protocol run advance --repo $REPO --pretty | jq '{ok, diagnostics}'
+# Expect: ok: false, diagnostics: ["Protocol run '...' cannot be advanced: status is Abandoned"]
+
+# Get a non-existent run
+$SRS protocol run get "00000000-0000-0000-0000-000000000000" --repo $REPO --pretty | jq '{ok}'
+# Expect: ok: false
+```
+
+**Done when.** `protocol run create` returns `ok: true` with `status: "Active"` and `attentionState.stageId` set. `protocol run advance` advances the cursor and appends to `stageStates`. `protocol run complete` sets `status: "Completed"`. `protocol run list --status Active` returns only active runs. `repo validate` reports 0 errors when runs are present. State-conflict operations return `ok: false` with a message identifying the current status, not a generic "not found" message.
+
+**Verified 2026-07-16 (#252).** All steps confirmed on a fresh repo. `protocol run create` returns `ok: true` with `status: "Active"`. `advance` moves cursor from `stage-gather` to `stage-draft` with 2 `stageStates`. `complete` sets `status: "Completed"`. `abandon` on a second run sets `status: "Abandoned"`. Both negative state-conflict cases return `ok: false` with the correct message (e.g. "cannot be completed: status is Completed", "cannot be advanced: status is Abandoned"). `repo validate` reports 0 errors. Dogfooding also revealed a missing `ensure_instance_dir("runs")` call in `save_runs` — fixed inline (the `runs/` directory must be created on first write).
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -1577,6 +1692,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `lifecycleRef` create/transition (referenceable lifecycle) | S6 (step 7 extended) |
 | `blueprint` (list/get/validate/structure/schema/brief) | S7 |
 | `protocol` (create/list/get/stages/find-by-target-type) | S13 |
+| `protocol run` (create/advance/get/list/complete/abandon — ext:protocol, #252) | S28; WASM bindings (`protocol_run_create`, `protocol_run_advance`, `protocol_run_get`, `protocol_run_list`, `protocol_run_complete`, `protocol_run_abandon` on `SrsRepository`) verified via 5 smoke tests in `crates/srs-bindings/src/lib.rs` |
 | `theme` | S8 |
 | `extension` | _gap — no scenario yet_ |
 | `ext:import-tracking` (`ImportRecord`, `ImportSummary`, `UpstreamPackage`) | CLI: _gap — no CLI commands yet (service layer deferred to #246)_; core types (`ImportMode`, `DefinitionType`, `ConflictState`, `ImportRecord`, `ImportSummary`, `UpstreamPackage`) verified via 10 unit tests in `crates/srs-core/src/extensions/import_tracking.rs` (#245) |

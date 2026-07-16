@@ -39,6 +39,7 @@ use srs_repository::{
     container_view_service::ContainerView,
     discovery_service::DiscoveryResult,
     extension_service::ExtensionSummary,
+    protocol_run_service::RunSummary,
     record_store::{
         AllowedLifecycleTransitionsResult, LifecycleTransitionOption, ListRecordTagsResult,
         RecordSummary, RecordTagSummary,
@@ -847,6 +848,46 @@ pub struct ProtocolFindByTargetTypePayload {
     pub protocol_name: String,
     pub stages: Vec<ProtocolStageEntry>,
     pub diagnostics: Vec<String>,
+}
+
+// ── Protocol run payloads ─────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProtocolRunListEntry {
+    pub run_id: String,
+    pub protocol_id: String,
+    pub container_id: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_stage_id: Option<String>,
+    pub started_at: String,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProtocolRunListPayload {
+    pub runs: Vec<ProtocolRunListEntry>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProtocolRunPayload {
+    #[schemars(with = "serde_json::Value")]
+    pub run: serde_json::Value,
+}
+
+impl From<RunSummary> for ProtocolRunListEntry {
+    fn from(s: RunSummary) -> Self {
+        Self {
+            run_id: s.run_id,
+            protocol_id: s.protocol_id,
+            container_id: s.container_id,
+            status: s.status,
+            current_stage_id: s.current_stage_id,
+            started_at: s.started_at,
+        }
+    }
 }
 
 // ── Blueprint payloads ────────────────────────────────────────────────────────

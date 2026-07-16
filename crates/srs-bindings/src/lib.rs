@@ -20,6 +20,10 @@ use srs_repository::migrate_identity_service;
 use srs_repository::package_service::{
     self, FieldListFilter, GetFieldResult, GetTypeResult, RelationTypeListFilter, TypeListFilter,
 };
+use srs_repository::protocol_run_service::{
+    self as run_service, AdvanceStageInput as RunAdvanceInput, CreateRunInput as RunCreateInput,
+    GetRunResult, RunListFilter,
+};
 use srs_repository::protocol_service::{self, GetProtocolResult};
 use srs_repository::record_store::{
     self, CreateRecordInput, RecordListFilter, TransitionLifecycleInput,
@@ -858,6 +862,61 @@ impl SrsRepository {
             context_query_service::get_revision_trace(&self.store, input).map_err(js_err)?;
         to_js(&result)
     }
+
+    // ── Protocol runs (ext:protocol execution) ────────────────────────────────
+
+    /// Create a new protocol run.
+    ///
+    /// `input_json` is `{"protocolId","protocolVersion","containerId","targetRecordId?","initialStageId?"}`.
+    /// Returns the created `ProtocolRun` as a JS value.
+    pub fn protocol_run_create(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: RunCreateInput =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let result = run_service::create_run(&self.store, input).map_err(js_err)?;
+        to_js(&result.run)
+    }
+
+    /// Advance a protocol run to a new stage.
+    ///
+    /// `input_json` is `{"runId","stageId","completeCurrent"}`.
+    /// Returns the updated `ProtocolRun`.
+    pub fn protocol_run_advance(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: RunAdvanceInput =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let result = run_service::advance_stage(&self.store, input).map_err(js_err)?;
+        to_js(&result.run)
+    }
+
+    /// Get a protocol run by its `runId`. Returns the `ProtocolRun`, or `null` if not found.
+    pub fn protocol_run_get(&self, run_id: &str) -> Result<JsValue, JsValue> {
+        match run_service::get_run(&self.store, run_id).map_err(js_err)? {
+            GetRunResult::Found(run) => to_js(&*run),
+            GetRunResult::NotFound => Ok(JsValue::NULL),
+        }
+    }
+
+    /// List protocol runs. `filter_json` is `{}` or `{"protocolId"?,"containerId"?,"status"?}`.
+    /// Returns a JS array of `RunSummary` objects.
+    pub fn protocol_run_list(&self, filter_json: &str) -> Result<JsValue, JsValue> {
+        let filter: RunListFilter = serde_json::from_str(filter_json)
+            .map_err(|e| js_err(format!("invalid filter: {e}")))?;
+        let summaries = run_service::list_runs(&self.store, filter).map_err(js_err)?;
+        to_js(&summaries)
+    }
+
+    /// Mark a protocol run as Completed. Returns the updated `ProtocolRun`,
+    /// or a JS error string if the run is not found.
+    pub fn protocol_run_complete(&self, run_id: &str) -> Result<JsValue, JsValue> {
+        let result = run_service::complete_run(&self.store, run_id).map_err(js_err)?;
+        to_js(&result.run)
+    }
+
+    /// Mark a protocol run as Abandoned. Returns the updated `ProtocolRun`,
+    /// or a JS error string if the run is not found.
+    pub fn protocol_run_abandon(&self, run_id: &str) -> Result<JsValue, JsValue> {
+        let result = run_service::abandon_run(&self.store, run_id).map_err(js_err)?;
+        to_js(&result.run)
+    }
 }
 
 // ── Repo-independent free functions (ADR-013 addendum) ───────────────────────
@@ -1541,5 +1600,116 @@ mod tests {
         let json = serde_json::to_value(&result).expect("result must serialize");
         assert_eq!(json["eventId"].as_str(), Some("evt-bind-0001"));
         assert_eq!(json["totalEvents"].as_u64(), Some(1));
+    }
+
+    // ── Protocol run binding smoke tests ─────────────────────────────────────
+
+    #[test]
+    fn protocol_run_create_smoke() {
+        use srs_repository::protocol_run_service::{create_run, CreateRunInput};
+        let store = JsonStore::from_srsj(&srsj_with_note_and_type()).expect("load srsj");
+        let result = create_run(
+            &store,
+            CreateRunInput {
+                protocol_id: "proto-bind-001".to_string(),
+                protocol_version: 1,
+                container_id: "c-bind-001".to_string(),
+                target_record_id: None,
+                initial_stage_id: Some("s1".to_string()),
+            },
+        )
+        .expect("create_run should succeed");
+
+        let json = serde_json::to_value(&result.run).expect("run must serialize");
+        assert_eq!(json["protocolId"].as_str(), Some("proto-bind-001"));
+        assert_eq!(json["status"].as_str(), Some("Active"));
+        assert_eq!(json["attentionState"]["stageId"].as_str(), Some("s1"));
+    }
+
+    #[test]
+    fn protocol_run_advance_smoke() {
+        use srs_repository::protocol_run_service::{
+            advance_stage, create_run, AdvanceStageInput, CreateRunInput,
+        };
+        let store = JsonStore::from_srsj(&srsj_with_note_and_type()).expect("load srsj");
+        let run = create_run(
+            &store,
+            CreateRunInput {
+                protocol_id: "proto-bind-002".to_string(),
+                protocol_version: 1,
+                container_id: "c-bind-002".to_string(),
+                target_record_id: None,
+                initial_stage_id: Some("s1".to_string()),
+            },
+        )
+        .expect("create_run");
+
+        let result = advance_stage(
+            &store,
+            AdvanceStageInput {
+                run_id: run.run.run_id.clone(),
+                stage_id: "s2".to_string(),
+                complete_current: true,
+            },
+        )
+        .expect("advance_stage should succeed");
+
+        let json = serde_json::to_value(&result.run).expect("run must serialize");
+        assert_eq!(json["attentionState"]["stageId"].as_str(), Some("s2"));
+    }
+
+    #[test]
+    fn protocol_run_get_not_found_returns_null() {
+        use srs_repository::protocol_run_service::{get_run, GetRunResult};
+        let store = JsonStore::from_srsj(&srsj_with_note_and_type()).expect("load srsj");
+        let result = get_run(&store, "no-such-run").expect("get_run should not error");
+        assert!(matches!(result, GetRunResult::NotFound));
+    }
+
+    #[test]
+    fn protocol_run_list_empty_smoke() {
+        use srs_repository::protocol_run_service::{list_runs, RunListFilter};
+        let store = JsonStore::from_srsj(&srsj_with_note_and_type()).expect("load srsj");
+        let runs = list_runs(&store, RunListFilter::default()).expect("list_runs should succeed");
+        assert!(runs.is_empty(), "fresh repo has no runs");
+    }
+
+    #[test]
+    fn protocol_run_complete_and_abandon_smoke() {
+        use srs_repository::protocol_run_service::{
+            abandon_run, complete_run, create_run, CreateRunInput,
+        };
+        let store = JsonStore::from_srsj(&srsj_with_note_and_type()).expect("load srsj");
+
+        let r1 = create_run(
+            &store,
+            CreateRunInput {
+                protocol_id: "p1".to_string(),
+                protocol_version: 1,
+                container_id: "c1".to_string(),
+                target_record_id: None,
+                initial_stage_id: None,
+            },
+        )
+        .expect("create run 1");
+        let r2 = create_run(
+            &store,
+            CreateRunInput {
+                protocol_id: "p2".to_string(),
+                protocol_version: 1,
+                container_id: "c2".to_string(),
+                target_record_id: None,
+                initial_stage_id: None,
+            },
+        )
+        .expect("create run 2");
+
+        let completed = complete_run(&store, &r1.run.run_id).expect("complete_run");
+        let json = serde_json::to_value(&completed.run).expect("serialize");
+        assert_eq!(json["status"].as_str(), Some("Completed"));
+
+        let abandoned = abandon_run(&store, &r2.run.run_id).expect("abandon_run");
+        let json2 = serde_json::to_value(&abandoned.run).expect("serialize");
+        assert_eq!(json2["status"].as_str(), Some("Abandoned"));
     }
 }

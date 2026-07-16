@@ -1264,6 +1264,44 @@ pub enum ProtocolCommand {
         #[arg(long, name = "type-id")]
         type_id: String,
     },
+    /// Protocol run management commands (ext:protocol execution)
+    #[command(subcommand)]
+    Run(ProtocolRunCommand),
+}
+
+#[derive(Subcommand)]
+pub enum ProtocolRunCommand {
+    /// Create a new protocol run (reads JSON from stdin)
+    Create,
+    /// Advance a protocol run to a new stage (reads JSON from stdin)
+    Advance,
+    /// Get a protocol run by ID
+    Get {
+        /// Protocol run ID
+        run_id: String,
+    },
+    /// List protocol runs, optionally filtered
+    List {
+        /// Filter by protocol ID
+        #[arg(long = "protocol-id")]
+        protocol_id: Option<String>,
+        /// Filter by container ID
+        #[arg(long = "container-id")]
+        container_id: Option<String>,
+        /// Filter by status (Active, Completed, Abandoned)
+        #[arg(long)]
+        status: Option<String>,
+    },
+    /// Mark a protocol run as completed
+    Complete {
+        /// Protocol run ID
+        run_id: String,
+    },
+    /// Mark a protocol run as abandoned
+    Abandon {
+        /// Protocol run ID
+        run_id: String,
+    },
 }
 
 #[derive(Subcommand)]

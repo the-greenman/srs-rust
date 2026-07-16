@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::error::RepositoryError;
 use crate::store::RepositoryStore;
-use crate::{package_service, record_store, relation_service};
+use crate::{package_service, protocol_run_service, record_store, relation_service};
 use relation_service::ListRelationsFilter;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -147,6 +147,12 @@ pub fn get_record_context(
         },
     )?;
 
+    let protocol_run_history = protocol_run_service::list_runs_for_record(store, &query.record_id)
+        .unwrap_or_else(|_| vec![])
+        .into_iter()
+        .map(|s| serde_json::to_value(s).unwrap_or(serde_json::Value::Null))
+        .collect();
+
     Ok(RecordContextResult {
         record_id: query.record_id,
         type_id: summary.record.type_id.clone(),
@@ -156,7 +162,7 @@ pub fn get_record_context(
         field_values: summary.record.field_values.clone(),
         relations,
         tagged_chunks: vec![],
-        protocol_run_history: vec![],
+        protocol_run_history,
     })
 }
 
@@ -796,5 +802,43 @@ mod tests {
             json_result.revisions[0].revision_id
         );
         assert_eq!(mem_result.current_value, json_result.current_value);
+    }
+
+    #[test]
+    fn record_context_includes_run_history() {
+        use crate::protocol_run_service::{create_run, CreateRunInput};
+        let store = make_store();
+
+        let fv = vec![make_field_value(
+            "field-name-001",
+            json!("run-history-test"),
+        )];
+        let rec = record_store::create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
+
+        // Create a run targeting this record.
+        create_run(
+            &store,
+            CreateRunInput {
+                protocol_id: "proto-ctx".to_string(),
+                protocol_version: 1,
+                container_id: "c-ctx-run".to_string(),
+                target_record_id: Some(rec.instance_id.clone()),
+                initial_stage_id: None,
+            },
+        )
+        .unwrap();
+
+        let result = get_record_context(
+            &store,
+            RecordContextQuery {
+                record_id: rec.instance_id.clone(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.protocol_run_history.len(), 1);
+        let entry = &result.protocol_run_history[0];
+        assert_eq!(entry["protocolId"], "proto-ctx");
+        assert_eq!(entry["status"], "Active");
     }
 }

@@ -368,6 +368,10 @@ pub enum RepositoryError {
         #[source]
         source: std::io::Error,
     },
+
+    // ── ext:protocol run errors ───────────────────────────────────────────────
+    #[error("protocol run '{run_id}' is not in a valid state for this operation: {message}")]
+    RunInvalidState { run_id: String, message: String },
 }
 
 impl PartialEq for RepositoryError {
@@ -819,6 +823,16 @@ impl PartialEq for RepositoryError {
                 RepositoryError::FederationEventsWrite { path: a, .. },
                 RepositoryError::FederationEventsWrite { path: b, .. },
             ) => a == b,
+            (
+                RepositoryError::RunInvalidState {
+                    run_id: a,
+                    message: ma,
+                },
+                RepositoryError::RunInvalidState {
+                    run_id: b,
+                    message: mb,
+                },
+            ) => a == b && ma == mb,
             _ => false,
         }
     }

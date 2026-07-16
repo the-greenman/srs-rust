@@ -127,6 +127,14 @@ fn main() {
         ProtocolFindByTargetTypePayload
     );
 
+    // Protocol run payloads (ext:protocol execution)
+    write_schema!("protocol-run-create", ProtocolRunPayload);
+    write_schema!("protocol-run-advance", ProtocolRunPayload);
+    write_schema!("protocol-run-get", ProtocolRunPayload);
+    write_schema!("protocol-run-list", ProtocolRunListPayload);
+    write_schema!("protocol-run-complete", ProtocolRunPayload);
+    write_schema!("protocol-run-abandon", ProtocolRunPayload);
+
     // Blueprint payloads
     write_schema!("blueprint-list", BlueprintListPayload);
     write_schema!("blueprint-get", BlueprintPayload);
