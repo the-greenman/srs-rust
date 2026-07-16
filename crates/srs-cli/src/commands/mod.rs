@@ -1,5 +1,6 @@
 pub mod blueprint;
 pub mod container;
+pub mod context;
 pub mod document_view;
 pub mod extension;
 pub mod federation;
@@ -320,6 +321,9 @@ pub enum Commands {
     /// Federation registry and event log commands (ext:federation)
     #[command(subcommand)]
     Federation(FederationCommand),
+    /// Addressability context-query commands (ext:addressability)
+    #[command(subcommand)]
+    Context(context::ContextCommand),
 }
 
 #[derive(Subcommand)]
@@ -1578,5 +1582,6 @@ pub fn dispatch(cli: Cli) -> Result<String> {
         Commands::Find(args) => find::dispatch(ctx, args),
         Commands::Registry(registry_cmd) => registry::dispatch(ctx, registry_cmd),
         Commands::Federation(federation_cmd) => federation::dispatch(ctx, federation_cmd),
+        Commands::Context(ctx_cmd) => context::dispatch(ctx, ctx_cmd),
     }
 }

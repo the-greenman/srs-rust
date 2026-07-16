@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ContextRecordPayload",
+  "type": "object",
+  "required": [
+    "displayLabel",
+    "fieldValues",
+    "protocolRunHistory",
+    "recordId",
+    "relations",
+    "taggedChunks",
+    "typeId",
+    "typeName",
+    "typeNamespace"
+  ],
+  "properties": {
+    "displayLabel": {
+      "type": "string"
+    },
+    "fieldValues": {
+      "type": "array",
+      "items": true
+    },
+    "protocolRunHistory": {
+      "type": "array",
+      "items": true
+    },
+    "recordId": {
+      "type": "string"
+    },
+    "relations": {
+      "type": "array",
+      "items": true
+    },
+    "taggedChunks": {
+      "type": "array",
+      "items": true
+    },
+    "typeId": {
+      "type": "string"
+    },
+    "typeName": {
+      "type": "string"
+    },
+    "typeNamespace": {
+      "type": "string"
+    }
+  }
+}

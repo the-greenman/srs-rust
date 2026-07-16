@@ -231,5 +231,10 @@ fn main() {
     write_schema!("federation-events-list", FederationEventsListPayload);
     write_schema!("federation-events-append", FederationAppendEventPayload);
 
+    // Context query payloads (ext:addressability)
+    write_schema!("context-field", ContextFieldPayload);
+    write_schema!("context-record", ContextRecordPayload);
+    write_schema!("context-revision", ContextRevisionTracePayload);
+
     println!("done.");
 }

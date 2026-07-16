@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ContextFieldPayload",
+  "type": "object",
+  "required": [
+    "fieldId",
+    "recordId",
+    "revisions",
+    "taggedChunks"
+  ],
+  "properties": {
+    "aiGuidance": true,
+    "currentValue": true,
+    "fieldId": {
+      "type": "string"
+    },
+    "fieldName": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "fieldNamespace": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "recordId": {
+      "type": "string"
+    },
+    "revisions": {
+      "type": "array",
+      "items": true
+    },
+    "taggedChunks": {
+      "type": "array",
+      "items": true
+    }
+  }
+}
