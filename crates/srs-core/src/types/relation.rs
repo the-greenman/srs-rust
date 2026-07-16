@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+pub use super::source_reference::{SourceReference, SourceRelationType, SourceType};
+
 /// A flat relation record as stored in `relations-collection.json`.
 ///
 /// Shape matches the `relations-collection.json` schema exactly.
@@ -28,6 +30,8 @@ pub struct Relation {
     pub valid_until: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
+    // SourceReference omits deny_unknown_fields intentionally (forward-compat);
+    // Relation's own deny_unknown_fields does not propagate into nested items.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_refs: Option<Vec<SourceReference>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -62,42 +66,6 @@ pub enum RelationStatus {
     Active,
     Rejected,
     Superseded,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct SourceReference {
-    pub source_type: SourceType,
-    pub source_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_standard: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stream_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub relation_type: Option<SourceRelationType>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub confidence: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub note: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum SourceType {
-    TranscriptChunk,
-    TranscriptSegment,
-    ExternalDocument,
-    RepositoryDocument,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum SourceRelationType {
-    Evidence,
-    DerivedFrom,
-    QuotedFrom,
-    InspiredBy,
-    SupersedesContext,
 }
 
 #[cfg(test)]

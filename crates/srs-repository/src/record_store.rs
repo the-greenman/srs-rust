@@ -1356,6 +1356,7 @@ pub fn transition_record_lifecycle(
             prior_revision_id,
             agent: RevisionAgent::Ai,
             provenance: Some(provenance.clone()),
+            source_refs: None,
             created_at: now.clone(),
         };
         if let Err(_e) = revision_service::append(store, entry.path(), revision) {

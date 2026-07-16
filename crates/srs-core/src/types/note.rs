@@ -1,5 +1,11 @@
 use serde::{Deserialize, Serialize};
 
+pub use super::source_reference::{SourceReference, SourceRelationType, SourceType};
+
+/// `RelationType` is a legacy alias for `SourceRelationType` kept for backward
+/// compatibility. Prefer `SourceRelationType` from `types::source_reference`.
+pub type RelationType = SourceRelationType;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Note {
@@ -41,42 +47,6 @@ pub enum ContentHint {
     Text,
     Markdown,
     Plain,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SourceReference {
-    pub source_type: SourceType,
-    pub source_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_standard: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stream_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub relation_type: Option<RelationType>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub confidence: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub note: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum SourceType {
-    TranscriptChunk,
-    TranscriptSegment,
-    ExternalDocument,
-    RepositoryDocument,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum RelationType {
-    Evidence,
-    DerivedFrom,
-    QuotedFrom,
-    InspiredBy,
-    SupersedesContext,
 }
 
 #[cfg(test)]
