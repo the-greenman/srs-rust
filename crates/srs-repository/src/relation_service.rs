@@ -325,35 +325,31 @@ pub(crate) fn resolve_relations_source(
 
 /// Load the relations collection, returning (relative_path, collection).
 ///
-/// Resolution order per [`relations_candidate_paths`]. Returns an empty collection
-/// (at the default write path) if no file is found.
+/// Layers typed parsing over [`resolve_relations_source`] (the single resolver), so the
+/// candidate order and store-read method are shared. Returns an empty collection at the
+/// default write path if no file is found.
 fn load_relations_collection(
     store: &dyn RepositoryStore,
 ) -> Result<(String, RelationsCollection), RepositoryError> {
-    let default_write_path = "relations/relations-collection.json".to_string();
-    let empty = || RelationsCollection {
-        schema: Some(
-            "https://srs.semanticops.com/schema/2.0/relations-collection.json".to_string(),
-        ),
-        relations: Vec::new(),
-    };
-
-    for relative_path in relations_candidate_paths(store)? {
-        match store.load_relations_json(&relative_path) {
-            Ok(value) => {
-                let collection: RelationsCollection =
-                    serde_json::from_value(value).map_err(|e| RepositoryError::RecordLoad {
-                        path: std::path::PathBuf::from(&relative_path),
-                        source: e,
-                    })?;
-                return Ok((relative_path, collection));
-            }
-            Err(RepositoryError::Io { .. } | RepositoryError::NotFound { .. }) => continue,
-            Err(e) => return Err(e),
+    match resolve_relations_source(store)? {
+        Some((relative_path, value)) => {
+            let collection: RelationsCollection =
+                serde_json::from_value(value).map_err(|e| RepositoryError::RecordLoad {
+                    path: std::path::PathBuf::from(&relative_path),
+                    source: e,
+                })?;
+            Ok((relative_path, collection))
         }
+        None => Ok((
+            "relations/relations-collection.json".to_string(),
+            RelationsCollection {
+                schema: Some(
+                    "https://srs.semanticops.com/schema/2.0/relations-collection.json".to_string(),
+                ),
+                relations: Vec::new(),
+            },
+        )),
     }
-
-    Ok((default_write_path, empty()))
 }
 
 /// Write the relations collection to the store.
