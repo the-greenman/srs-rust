@@ -1450,6 +1450,8 @@ pub enum PackageCommand {
         #[arg(long = "path")]
         boundary_path: String,
     },
+    /// List all imported definitions with live divergence state
+    Imports,
     /// [Deprecated: use `package import` instead] Enable a local sub-package
     #[command(hide = true)]
     Enable {

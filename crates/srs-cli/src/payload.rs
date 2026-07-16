@@ -1554,6 +1554,92 @@ pub struct PackageInstallKindEntry {
     pub conflicts: usize,
 }
 
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageImportRecordEntry {
+    pub definition_id: String,
+    pub definition_type: String,
+    pub namespace: String,
+    pub name: String,
+    pub version: u32,
+    pub mode: String,
+    pub imported_at: String,
+    pub source_package_id: String,
+    pub source_package_name: String,
+    pub source_package_version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_known_upstream_version: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub update_available: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub update_checked_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conflict_state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conflict_detected_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub local_version: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub local_edited_at: Option<String>,
+}
+
+impl From<srs_core::extensions::import_tracking::ImportRecord> for PackageImportRecordEntry {
+    fn from(r: srs_core::extensions::import_tracking::ImportRecord) -> Self {
+        Self {
+            definition_id: r.definition_id,
+            definition_type: r.definition_type.to_string(),
+            namespace: r.namespace,
+            name: r.name,
+            version: r.version,
+            mode: r.mode.to_string(),
+            imported_at: r.imported_at,
+            source_package_id: r.source_package_id,
+            source_package_name: r.source_package_name,
+            source_package_version: r.source_package_version,
+            latest_known_upstream_version: r.latest_known_upstream_version,
+            update_available: r.update_available,
+            update_checked_at: r.update_checked_at,
+            conflict_state: r.conflict_state.map(|s| s.to_string()),
+            conflict_detected_at: r.conflict_detected_at,
+            local_version: r.local_version,
+            local_edited_at: r.local_edited_at,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageImportsPayload {
+    pub generated_at: String,
+    pub fields: Vec<PackageImportRecordEntry>,
+    pub types: Vec<PackageImportRecordEntry>,
+    pub views: Vec<PackageImportRecordEntry>,
+    pub blueprints: Vec<PackageImportRecordEntry>,
+    pub protocols: Vec<PackageImportRecordEntry>,
+    pub relation_types: Vec<PackageImportRecordEntry>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skipped_definitions: Vec<String>,
+}
+
+impl From<srs_core::extensions::import_tracking::ImportSummary> for PackageImportsPayload {
+    fn from(s: srs_core::extensions::import_tracking::ImportSummary) -> Self {
+        Self {
+            generated_at: s.generated_at,
+            fields: s.fields.into_iter().map(PackageImportRecordEntry::from).collect(),
+            types: s.types.into_iter().map(PackageImportRecordEntry::from).collect(),
+            views: s.views.into_iter().map(PackageImportRecordEntry::from).collect(),
+            blueprints: s.blueprints.into_iter().map(PackageImportRecordEntry::from).collect(),
+            protocols: s.protocols.into_iter().map(PackageImportRecordEntry::from).collect(),
+            relation_types: s
+                .relation_types
+                .into_iter()
+                .map(PackageImportRecordEntry::from)
+                .collect(),
+            skipped_definitions: s.skipped_definitions,
+        }
+    }
+}
+
 // ── Tree ──────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]

@@ -1,7 +1,7 @@
 use crate::commands::{with_store, CliContext, PackageCommand};
 use crate::output;
 use crate::payload::{
-    PackageCreatePayload, PackageImportPayload, PackageInstallConflictEntry,
+    PackageCreatePayload, PackageImportPayload, PackageImportsPayload, PackageInstallConflictEntry,
     PackageInstallKindEntry, PackageInstallPayload, PackageListEntry, PackageListPayload,
     PackageRefEntry, PackageRefPayload, PackageUpdatePayload,
 };
@@ -10,8 +10,9 @@ use srs_core::extensions::import_tracking::ImportMode;
 use srs_repository::manifest_service::{add_package_ref, remove_package_ref};
 use srs_repository::package_install_service::{install_package, InstallPackageInput};
 use srs_repository::package_service::{
-    create_package, import_package_local, list_packages, update_package_metadata,
-    CreatePackageInput, ImportPackageLocalInput, UpdatePackageMetadataInput,
+    create_package, import_package_local, list_package_imports, list_packages,
+    update_package_metadata, CreatePackageInput, ImportPackageLocalInput,
+    ListPackageImportsFilter, UpdatePackageMetadataInput,
 };
 
 pub fn dispatch(ctx: CliContext, cmd: PackageCommand) -> Result<String> {
@@ -43,6 +44,7 @@ pub fn dispatch(ctx: CliContext, cmd: PackageCommand) -> Result<String> {
             version,
             boundary_path,
         } => cmd_package_create(ctx, id, namespace, name, version, boundary_path),
+        PackageCommand::Imports => cmd_package_imports(ctx),
         PackageCommand::Enable { path } => cmd_package_enable(ctx, path),
         PackageCommand::Disable { path } => cmd_package_disable(ctx, path),
     }
@@ -216,4 +218,11 @@ fn cmd_package_disable(ctx: CliContext, path: String) -> Result<String> {
         })
         .collect();
     output::serialize("package disable", PackageRefPayload { path, packages })
+}
+
+fn cmd_package_imports(ctx: CliContext) -> Result<String> {
+    let result = with_store(&ctx, |store| {
+        Ok(list_package_imports(store, ListPackageImportsFilter::default())?)
+    })?;
+    output::serialize("package imports", PackageImportsPayload::from(result))
 }

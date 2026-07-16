@@ -200,6 +200,7 @@ fn main() {
     write_schema!("package-install", PackageInstallPayload);
     write_schema!("package-update", PackageUpdatePayload);
     write_schema!("package-refs", PackageRefPayload);
+    write_schema!("package-imports", PackageImportsPayload);
 
     // Vocabulary payloads (RFC-006)
     write_schema!("vocabulary-list", VocabularyListPayload);
