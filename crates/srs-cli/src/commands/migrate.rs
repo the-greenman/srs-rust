@@ -1,3 +1,7 @@
+// `srs migrate packet` is a read-only analysis/export command — it assembles a handoff
+// packet for external AI tooling but does not modify the repository. It is not an upgrade
+// migration and does not correspond to a `MIGRATIONS` registry entry (see ADR-032).
+
 use crate::commands::{with_store, CliContext, MigrateCommand};
 use crate::output;
 use anyhow::{anyhow, Result};

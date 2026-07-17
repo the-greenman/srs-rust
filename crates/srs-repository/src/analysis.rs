@@ -407,6 +407,13 @@ fn collect_foundation_notes_from_manifest(
     })
 }
 
+/// Assemble a read-only analysis/handoff packet for external AI migration tooling.
+///
+/// This function performs **no writes** to the repository and produces no before/after state
+/// transition — calling it multiple times simply re-reads the store and regenerates the same
+/// packet. There is no `Needed` state to detect. It is therefore not a candidate for the
+/// `MIGRATIONS` static registry in `migration_registry_service.rs` (see ADR-032).
+/// The `srs migrate packet` CLI command is an analysis/export tool, not an upgrade migration.
 pub fn build_migration_packet(
     store: &dyn RepositoryStore,
     profile: &str,
