@@ -1477,17 +1477,21 @@ mod tests {
     }
 
     fn make_store_for_rebuild_chain(ids: &[&str]) -> MemoryStore {
-        use srs_core::types::relation_type_definition::{RelationTypeCategory, RelationTypeDefinition};
+        use srs_core::types::relation_type_definition::{
+            RelationTypeCategory, RelationTypeDefinition,
+        };
         let store = MemoryStore::default();
         let mut manifest = store.load_manifest().unwrap();
         for id in ids {
-            manifest.instance_index.push(crate::index::InstanceIndexEntry {
-                instance_id: id.to_string(),
-                tier: 0,
-                path: format!("records/{}.json", id),
-                title: None,
-                tags: None,
-            });
+            manifest
+                .instance_index
+                .push(crate::index::InstanceIndexEntry {
+                    instance_id: id.to_string(),
+                    tier: 0,
+                    path: format!("records/{}.json", id),
+                    title: None,
+                    tags: None,
+                });
         }
         store.save_manifest(&manifest).unwrap();
         store
@@ -1535,7 +1539,10 @@ mod tests {
         assert_eq!(result.created[1].source_id, "id-b");
         assert_eq!(result.created[1].target_id, "id-c");
         let all = list_relations(&store, ListRelationsFilter::default()).unwrap();
-        assert_eq!(all.iter().filter(|r| r.relation_type == "precedes").count(), 2);
+        assert_eq!(
+            all.iter().filter(|r| r.relation_type == "precedes").count(),
+            2
+        );
     }
 
     #[test]
@@ -1576,10 +1583,19 @@ mod tests {
         .unwrap();
         assert_eq!(result.created.len(), 2);
         let all = list_relations(&store, ListRelationsFilter::default()).unwrap();
-        let precedes: Vec<_> = all.iter().filter(|r| r.relation_type == "precedes").collect();
+        let precedes: Vec<_> = all
+            .iter()
+            .filter(|r| r.relation_type == "precedes")
+            .collect();
         assert_eq!(precedes.len(), 2, "old edges replaced by new edges");
-        assert!(!precedes.iter().any(|r| r.relation_id == "old-1"), "old-1 must be removed");
-        assert!(!precedes.iter().any(|r| r.relation_id == "old-2"), "old-2 must be removed");
+        assert!(
+            !precedes.iter().any(|r| r.relation_id == "old-1"),
+            "old-1 must be removed"
+        );
+        assert!(
+            !precedes.iter().any(|r| r.relation_id == "old-2"),
+            "old-2 must be removed"
+        );
         assert_eq!(result.created[0].source_id, "id-a");
         assert_eq!(result.created[0].target_id, "id-b");
         assert_eq!(result.created[1].source_id, "id-b");
@@ -1712,8 +1728,15 @@ mod tests {
         let exported = store.to_srsj_string().unwrap();
         let store2 = crate::JsonStore::from_srsj(&exported).unwrap();
         let all = list_relations(&store2, ListRelationsFilter::default()).unwrap();
-        let precedes: Vec<_> = all.iter().filter(|r| r.relation_type == "precedes").collect();
-        assert_eq!(precedes.len(), 2, "exactly 2 precedes edges after roundtrip");
+        let precedes: Vec<_> = all
+            .iter()
+            .filter(|r| r.relation_type == "precedes")
+            .collect();
+        assert_eq!(
+            precedes.len(),
+            2,
+            "exactly 2 precedes edges after roundtrip"
+        );
         assert_eq!(precedes[0].source_id, "id-a");
         assert_eq!(precedes[0].target_id, "id-b");
         assert_eq!(precedes[1].source_id, "id-b");
