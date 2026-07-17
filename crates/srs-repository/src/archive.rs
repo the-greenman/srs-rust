@@ -666,6 +666,244 @@ mod tests {
     }
 
     #[test]
+    fn test_archive_roundtrip_with_source_documents() {
+        const SIDECAR_JSON: &str =
+            r#"{"documentId":"test-doc-aaaa","contentPath":"my-doc.pdf","contentType":"application/pdf"}"#;
+        const BINARY_CONTENT: &[u8] = b"\x00\x01\x02\x03 binary pdf content";
+
+        let source = init_memory_store();
+        source
+            .save_text_file("source-documents/my-doc.meta.json", SIDECAR_JSON)
+            .expect("save sidecar");
+        source
+            .save_binary_file("source-documents/my-doc.pdf", BINARY_CONTENT)
+            .expect("save binary");
+
+        let mut manifest = source.load_manifest().expect("load manifest");
+        manifest.source_documents_path = Some("source-documents".to_string());
+        manifest.source_document_index =
+            Some(vec![srs_core::types::source_document::SourceDocumentIndexEntry {
+                document_id: "test-doc-aaaa".to_string(),
+                sidecar_path: "my-doc.meta.json".to_string(),
+                content_path: "my-doc.pdf".to_string(),
+                title: None,
+                sidecar_checksum: None,
+                content_checksum: None,
+            }]);
+        source.save_manifest(&manifest).expect("save manifest");
+
+        let zip_bytes = pack_to_bytes(&source);
+
+        let target = MemoryStore::uninitialized();
+        archive_unpack(Cursor::new(&zip_bytes), &target).expect("unpack failed");
+
+        let restored = target.load_manifest().expect("load restored manifest");
+        let idx = restored
+            .source_document_index
+            .as_ref()
+            .expect("source_document_index missing");
+        assert_eq!(idx.len(), 1);
+        assert_eq!(idx[0].document_id, "test-doc-aaaa");
+
+        let restored_bytes = target
+            .load_binary_file("source-documents/my-doc.pdf")
+            .expect("load binary content");
+        assert_eq!(restored_bytes.as_slice(), BINARY_CONTENT);
+
+        let restored_sidecar = target
+            .load_text_file("source-documents/my-doc.meta.json")
+            .expect("load sidecar");
+        let sidecar_val: serde_json::Value =
+            serde_json::from_str(&restored_sidecar).expect("parse sidecar");
+        assert_eq!(sidecar_val["documentId"], "test-doc-aaaa");
+    }
+
+    #[test]
+    fn test_archive_roundtrip_with_source_documents_subdir() {
+        const SIDECAR_JSON: &str = r#"{"documentId":"subdir-doc-bbbb","contentPath":"reports/2026/analysis.pdf","contentType":"application/pdf"}"#;
+        const BINARY_CONTENT: &[u8] = b"subdir pdf bytes";
+
+        let source = init_memory_store();
+        source
+            .save_text_file(
+                "source-documents/reports/2026/analysis.meta.json",
+                SIDECAR_JSON,
+            )
+            .expect("save sidecar");
+        source
+            .save_binary_file(
+                "source-documents/reports/2026/analysis.pdf",
+                BINARY_CONTENT,
+            )
+            .expect("save binary");
+
+        let mut manifest = source.load_manifest().expect("load manifest");
+        manifest.source_documents_path = Some("source-documents".to_string());
+        manifest.source_document_index =
+            Some(vec![srs_core::types::source_document::SourceDocumentIndexEntry {
+                document_id: "subdir-doc-bbbb".to_string(),
+                sidecar_path: "reports/2026/analysis.meta.json".to_string(),
+                content_path: "reports/2026/analysis.pdf".to_string(),
+                title: None,
+                sidecar_checksum: None,
+                content_checksum: None,
+            }]);
+        source.save_manifest(&manifest).expect("save manifest");
+
+        let zip_bytes = pack_to_bytes(&source);
+
+        let target = MemoryStore::uninitialized();
+        archive_unpack(Cursor::new(&zip_bytes), &target).expect("unpack failed");
+
+        let restored = target.load_manifest().expect("load restored manifest");
+        let idx = restored
+            .source_document_index
+            .as_ref()
+            .expect("source_document_index missing");
+        assert_eq!(idx.len(), 1);
+        assert_eq!(idx[0].content_path, "reports/2026/analysis.pdf");
+
+        let restored_bytes = target
+            .load_binary_file("source-documents/reports/2026/analysis.pdf")
+            .expect("load subdir binary content");
+        assert_eq!(restored_bytes.as_slice(), BINARY_CONTENT);
+    }
+
+    #[test]
+    fn test_archive_roundtrip_preserves_checksum_metadata() {
+        use crate::store::FileStore;
+        use tempfile::tempdir;
+
+        const SIDECAR_JSON: &str =
+            r#"{"documentId":"checksum-doc-cccc","contentPath":"doc.pdf","contentType":"application/pdf"}"#;
+
+        let source = init_memory_store();
+        source
+            .save_text_file("source-documents/doc.meta.json", SIDECAR_JSON)
+            .expect("save sidecar");
+        source
+            .save_binary_file("source-documents/doc.pdf", b"doc bytes")
+            .expect("save binary");
+
+        let mut manifest = source.load_manifest().expect("load manifest");
+        manifest.source_documents_path = Some("source-documents".to_string());
+        manifest.source_document_index =
+            Some(vec![srs_core::types::source_document::SourceDocumentIndexEntry {
+                document_id: "checksum-doc-cccc".to_string(),
+                sidecar_path: "doc.meta.json".to_string(),
+                content_path: "doc.pdf".to_string(),
+                title: Some("Checksum Doc".to_string()),
+                sidecar_checksum: Some("sha256:aaa111".to_string()),
+                content_checksum: Some("sha256:bbb222".to_string()),
+            }]);
+        source.save_manifest(&manifest).expect("save manifest");
+
+        let zip_bytes = pack_to_bytes(&source);
+
+        let target_dir = tempdir().unwrap();
+        let target = FileStore::new(target_dir.path());
+        archive_unpack(Cursor::new(&zip_bytes), &target).expect("unpack failed");
+
+        let restored = target.load_manifest().expect("load restored manifest");
+        let idx = restored
+            .source_document_index
+            .as_ref()
+            .expect("source_document_index missing");
+        assert_eq!(idx.len(), 1);
+        assert_eq!(idx[0].document_id, "checksum-doc-cccc");
+        assert_eq!(idx[0].title, Some("Checksum Doc".to_string()));
+        assert_eq!(idx[0].sidecar_checksum, Some("sha256:aaa111".to_string()));
+        assert_eq!(idx[0].content_checksum, Some("sha256:bbb222".to_string()));
+    }
+
+    #[test]
+    fn test_archive_roundtrip_filestore_with_source_docs() {
+        use crate::repository_lifecycle::{InitializeRepositoryInput, RepositoryMetadata};
+        use crate::store::FileStore;
+        use tempfile::tempdir;
+
+        const SIDECAR_JSON: &str = r#"{"documentId":"filestore-doc-dddd","contentPath":"report.pdf","contentType":"application/pdf"}"#;
+        const BINARY_CONTENT: &[u8] = b"binary report content\x00\x01\x02";
+
+        let source_dir = tempdir().unwrap();
+        let source = FileStore::new(source_dir.path());
+        source
+            .initialize_repository(&InitializeRepositoryInput {
+                repository: RepositoryMetadata {
+                    repository_id: "source-repo-id".to_string(),
+                    namespace: "com.example.srcdoc".to_string(),
+                    srs_version: "2.0-draft".to_string(),
+                    title: Some("Source Doc Test".to_string()),
+                    description: None,
+                },
+                primary_package: PrimaryPackageMetadata {
+                    id: "src-pkg-id".to_string(),
+                    namespace: "com.example.srcdoc".to_string(),
+                    name: "src-package".to_string(),
+                    version: "1.0.0".to_string(),
+                },
+            })
+            .expect("initialize source FileStore");
+
+        source
+            .save_text_file("source-documents/report.meta.json", SIDECAR_JSON)
+            .expect("save sidecar to FileStore");
+        source
+            .save_binary_file("source-documents/report.pdf", BINARY_CONTENT)
+            .expect("save binary to FileStore");
+
+        let mut manifest = source.load_manifest().expect("load FileStore manifest");
+        manifest.source_documents_path = Some("source-documents".to_string());
+        manifest.source_document_index =
+            Some(vec![srs_core::types::source_document::SourceDocumentIndexEntry {
+                document_id: "filestore-doc-dddd".to_string(),
+                sidecar_path: "report.meta.json".to_string(),
+                content_path: "report.pdf".to_string(),
+                title: None,
+                sidecar_checksum: None,
+                content_checksum: None,
+            }]);
+        source.save_manifest(&manifest).expect("save manifest");
+
+        let zip_dir = tempdir().unwrap();
+        let zip_path = zip_dir.path().join("repo.srs");
+        let mut zip_file = std::fs::File::create(&zip_path).expect("create zip");
+        archive_pack(&source, &mut zip_file).expect("archive_pack");
+        drop(zip_file);
+
+        let target_dir = tempdir().unwrap();
+        let target = FileStore::new(target_dir.path());
+        let zip_file2 = std::fs::File::open(&zip_path).expect("open zip");
+        archive_unpack(zip_file2, &target).expect("archive_unpack");
+
+        let restored = target.load_manifest().expect("load target manifest");
+        let idx = restored
+            .source_document_index
+            .as_ref()
+            .expect("source_document_index missing");
+        assert_eq!(idx.len(), 1);
+        assert_eq!(idx[0].document_id, "filestore-doc-dddd");
+
+        let content_path = target_dir.path().join("source-documents").join("report.pdf");
+        assert!(
+            content_path.exists(),
+            "content file should exist at source-documents/report.pdf"
+        );
+
+        let sidecar_path = target_dir
+            .path()
+            .join("source-documents")
+            .join("report.meta.json");
+        assert!(
+            sidecar_path.exists(),
+            "sidecar file should exist at source-documents/report.meta.json"
+        );
+
+        let restored_bytes = std::fs::read(&content_path).expect("read content file");
+        assert_eq!(restored_bytes.as_slice(), BINARY_CONTENT);
+    }
+
+    #[test]
     fn test_archive_no_extra_fields_and_deflated() {
         let store = init_memory_store();
         let bytes = pack_to_bytes(&store);
