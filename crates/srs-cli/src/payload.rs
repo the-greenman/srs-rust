@@ -1739,6 +1739,76 @@ impl From<srs_repository::migrate_identity_service::MigrateIdentityResult>
     }
 }
 
+// ── migration registry payloads ───────────────────────────────────────────────
+
+/// Status of a migration for a specific repository.
+/// Contract: exactly one of the three booleans is `true`. This invariant is
+/// guaranteed by the `From<MigrationStatus>` impl below and must be preserved
+/// for any future `MigrationStatus` variant.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MigrationStatusPayload {
+    pub needed: bool,
+    pub already_applied: bool,
+    pub not_applicable: bool,
+}
+
+impl From<srs_repository::migration_registry_service::MigrationStatus> for MigrationStatusPayload {
+    fn from(s: srs_repository::migration_registry_service::MigrationStatus) -> Self {
+        use srs_repository::migration_registry_service::MigrationStatus;
+        Self {
+            needed: matches!(s, MigrationStatus::Needed),
+            already_applied: matches!(s, MigrationStatus::AlreadyApplied),
+            not_applicable: matches!(s, MigrationStatus::NotApplicable),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MigrationSummaryPayload {
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    pub status: MigrationStatusPayload,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoMigrationsPayload {
+    pub migrations: Vec<MigrationSummaryPayload>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoApplyMigrationPayload {
+    pub id: String,
+    #[schemars(with = "serde_json::Value")]
+    pub payload: serde_json::Value,
+}
+
+#[cfg(test)]
+mod migration_payload_tests {
+    use super::*;
+    use srs_repository::migration_registry_service::MigrationStatus;
+
+    #[test]
+    fn migration_status_payload_always_sets_exactly_one_bool() {
+        for status in [
+            MigrationStatus::Needed,
+            MigrationStatus::AlreadyApplied,
+            MigrationStatus::NotApplicable,
+        ] {
+            let p = MigrationStatusPayload::from(status);
+            let count = [p.needed, p.already_applied, p.not_applicable]
+                .iter()
+                .filter(|&&b| b)
+                .count();
+            assert_eq!(count, 1, "exactly one bool must be true, got {p:?}");
+        }
+    }
+}
+
 // ── ext:registry payloads ─────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]

@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RepoMigrationsPayload",
+  "type": "object",
+  "required": [
+    "migrations"
+  ],
+  "properties": {
+    "migrations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/MigrationSummaryPayload"
+      }
+    }
+  },
+  "definitions": {
+    "MigrationStatusPayload": {
+      "description": "Status of a migration for a specific repository. Contract: exactly one of the three booleans is `true`. This invariant is guaranteed by the `From<MigrationStatus>` impl below and must be preserved for any future `MigrationStatus` variant.",
+      "type": "object",
+      "required": [
+        "alreadyApplied",
+        "needed",
+        "notApplicable"
+      ],
+      "properties": {
+        "alreadyApplied": {
+          "type": "boolean"
+        },
+        "needed": {
+          "type": "boolean"
+        },
+        "notApplicable": {
+          "type": "boolean"
+        }
+      }
+    },
+    "MigrationSummaryPayload": {
+      "type": "object",
+      "required": [
+        "description",
+        "id",
+        "status",
+        "title"
+      ],
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/definitions/MigrationStatusPayload"
+        },
+        "title": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

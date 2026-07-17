@@ -475,6 +475,26 @@ fn repo_set_root_container() {
     check::<RepoSetRootContainerPayload>("repo-set-root-container");
 }
 
+#[test]
+fn repo_upgrade() {
+    check::<RepoUpgradePayload>("repo-upgrade");
+}
+
+#[test]
+fn repo_migrate_identity() {
+    check::<RepoMigrateIdentityPayload>("repo-migrate-identity");
+}
+
+#[test]
+fn repo_migrations() {
+    check::<RepoMigrationsPayload>("repo-migrations");
+}
+
+#[test]
+fn repo_apply_migration() {
+    check::<RepoApplyMigrationPayload>("repo-apply-migration");
+}
+
 // ── Package ───────────────────────────────────────────────────────────────────
 
 #[test]

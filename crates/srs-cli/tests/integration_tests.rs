@@ -6869,3 +6869,58 @@ fn container_resolve_view_happy_path() {
     assert!(cv["members"][0]["displayLabel"].is_string());
     assert!(cv["members"][0]["record"].is_object());
 }
+
+// ── repo migrations / apply-migration (#461) ──────────────────────────────────
+
+#[test]
+fn repo_migrations_lists_two_migrations() {
+    let temp = create_temp_repo();
+    let repo_str = temp.path().to_str().unwrap().to_string();
+    let result = run_srs_in_dir(temp.path(), &["--repo", &repo_str, "repo", "migrations"]);
+
+    assert_eq!(result["ok"], true, "expected ok: {result:?}");
+    assert_eq!(result["command"], "repo migrations");
+    let migrations = result["payload"]["migrations"]
+        .as_array()
+        .expect("migrations must be an array");
+    assert_eq!(migrations.len(), 2, "expected exactly two migrations");
+
+    let ids: Vec<&str> = migrations
+        .iter()
+        .map(|m| m["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, vec!["migrate-identity", "repo-upgrade"]);
+
+    // Each status object has exactly one bool set to true (exclusive-one invariant).
+    for m in migrations {
+        let s = &m["status"];
+        let true_count = [s["needed"].as_bool(), s["alreadyApplied"].as_bool(), s["notApplicable"].as_bool()]
+            .iter()
+            .filter(|v| **v == Some(true))
+            .count();
+        assert_eq!(true_count, 1, "status must have exactly one true field: {s:?}");
+    }
+
+    // Minimal repo has no container → migrate-identity is notApplicable; no instances → repo-upgrade is alreadyApplied.
+    assert_eq!(migrations[0]["status"]["notApplicable"], true);
+    assert_eq!(migrations[1]["status"]["alreadyApplied"], true);
+}
+
+#[test]
+fn repo_apply_migration_repo_upgrade_canonical_repo() {
+    let temp = create_temp_repo();
+    let repo_str = temp.path().to_str().unwrap().to_string();
+    let result = run_srs_in_dir(
+        temp.path(),
+        &["--repo", &repo_str, "repo", "apply-migration", "--id", "repo-upgrade"],
+    );
+
+    assert_eq!(result["ok"], true, "expected ok: {result:?}");
+    assert_eq!(result["command"], "repo apply-migration");
+    assert_eq!(result["payload"]["id"], "repo-upgrade");
+    let inner = &result["payload"]["payload"];
+    assert!(inner.is_object(), "payload.payload must be an object");
+    assert_eq!(inner["totalInstances"], 0);
+    assert_eq!(inner["alreadyCanonicalCount"], 0);
+    assert!(inner["renames"].as_array().unwrap().is_empty());
+}

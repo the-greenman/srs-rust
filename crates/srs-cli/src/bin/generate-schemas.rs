@@ -192,6 +192,8 @@ fn main() {
     write_schema!("repo-set-root-container", RepoSetRootContainerPayload);
     write_schema!("repo-upgrade", RepoUpgradePayload);
     write_schema!("repo-migrate-identity", RepoMigrateIdentityPayload);
+    write_schema!("repo-migrations", RepoMigrationsPayload);
+    write_schema!("repo-apply-migration", RepoApplyMigrationPayload);
 
     // Package payloads
     write_schema!("package-list", PackageListPayload);
