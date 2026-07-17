@@ -1922,6 +1922,54 @@ $SRS repo validate --repo /tmp/dogfood-s32 --pretty
 
 ---
 
+## S33 — Governance operator adds a supporting file to a decision-log repo (`srs-gov attachment add/list`, #282)
+
+**Intention:** As a governance operator I have a policy brief I want to attach to the decision-log repository so it is preserved alongside the decisions it supports — I can confirm it is stored, immediately find it in the listing, and hand it off knowing the repo stays valid.
+
+**CLI surface.** `srs-gov attachment add`, `srs-gov attachment list`, `srs repo validate`.
+
+**Note on repo format.** `srs-gov attachment add/list` work on **directory-format** repos. The `.srsj` single-file format silently discards binary writes (JsonStore is text-only), so the content file is not stored and `attachment list` returns empty. Use `srs repo create` to create a directory-format repo for this scenario.
+
+```bash
+# Prepare
+srs repo create --namespace com.example.gov --repo /tmp/dogfood-s33
+
+# Create a sample document to attach
+echo "Gate A policy brief" > /tmp/gate-a-brief.txt
+
+# Step 1 — add the attachment
+srs-gov attachment add /tmp/gate-a-brief.txt --title "Gate A Brief" --repo /tmp/dogfood-s33
+```
+
+Expected output: a `"Attachment stored"` header with path and document ID.
+
+```bash
+# Step 2 — list shows the file immediately
+srs-gov attachment list --repo /tmp/dogfood-s33
+```
+
+Expected: the file appears with its `PATH` and `TITLE` columns populated.
+
+```bash
+# Step 3 — raw srs attachment list confirms the indexed entry
+srs attachment list --repo /tmp/dogfood-s33 --format json
+```
+
+Expected: `payload.entries[0].title == "Gate A Brief"`, `documentId` and `contentChecksum` populated.
+
+```bash
+# Step 4 — validate stays clean
+srs repo validate --repo /tmp/dogfood-s33 --format json
+```
+
+Expected: `payload.summary.errors == 0`.
+
+**Negative case.** Run `srs-gov attachment add /tmp/gate-a-brief.txt --repo /tmp/dogfood-s33` a second time — the command must exit non-zero (duplicate rejection). The repo must still validate cleanly.
+
+**Done when.** `srs-gov attachment add` prints a `"Attachment stored"` header with the file path and document ID. `srs-gov attachment list` immediately shows the file with its title. `srs attachment list` (raw) returns the entry with all four metadata fields. `srs repo validate` returns 0 errors throughout. Duplicate add exits non-zero. The file path in the listing is relative to `source-documents/`, not an absolute path.
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -1957,7 +2005,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `container resolve-view` authored `excludeLifecycleStates` (ADR-020) | S15 |
 | `find` (ext:discovery query — type/tag/lifecycle/exclude/text) | S15 |
 | `repo navigation` (RFC-013 root container + identity + sections) | S15, S17; WASM binding (`repository_navigation`) verified via integration tests in `crates/srs-bindings/tests/navigation.rs` (#268); Tier-0 note identity grace (returns Ok + diagnostic instead of erroring) — see S20 (#427); "root is also a member" shape (sub-container root in its own `memberInstanceIds`) — `repository_navigation_root_is_member_of_its_own_sub_container` in both unit and WASM integration tests (#460) |
-| `srs-gov` (governance client: `repo-create`, `list` + `--all`/`--search`/`--tag`, `tui --smoke`) | S15; `SrsRepository::load` WASM binding applies RFC-014 migration automatically (#381); `crates/srs-repository/tests/scaffold.rs` covers the migrate→scaffold→validate chain; `migrate_rfc014` now unconditionally strips `contentHash` from already-promoted bundles (regression #428, see `migrate_rfc014_strips_content_hash_from_already_promoted_bundle`) |
+| `srs-gov` (governance client: `repo-create`, `list` + `--all`/`--search`/`--tag`, `tui --smoke`, `attachment add/list`) | S15, S33; `SrsRepository::load` WASM binding applies RFC-014 migration automatically (#381); `crates/srs-repository/tests/scaffold.rs` covers the migrate→scaffold→validate chain; `migrate_rfc014` now unconditionally strips `contentHash` from already-promoted bundles (regression #428, see `migrate_rfc014_strips_content_hash_from_already_promoted_bundle`) |
 | `document-view` (create/get/list/…) | S4, S5, S11 |
 | `render document-view` | S4, S5, S8, S11; **RFC-020 Rule [N+37]** identity-field fallback heading (no `titleFieldId` → Type's `identityFieldId` → `### <value>` per record; structured mode NOT activated by fallback, #453) — see S5 step 8; **`{{container-title}}` fallback to container file when index entry has no title** (#484): `resolve_container_title` now calls `store.load_container` when the containerIndex entry is absent or has no title — dogfooded on branch: `srs render document-view --view <dv> --repo /tmp/dogfood-resolve-container-title --container <cid>` returns `"Container: Recognising decisions"` when manifest has a pathless-title containerIndex entry (previously returned repo title "DogfoodRepo"); negative case (no `--container`) returns `"Container: DogfoodRepo"` (manifest title fallback correct) |
 | `container-subset` section + `typeFilter` / `typeDispatch` (RFC-008) | S11 |
@@ -1985,6 +2033,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `package` | CLI: covered implicitly by field/type creation in S2; **`srs package install`/`srs package import`/`srs package imports`** end-to-end in S29 (#246); WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330) |
 | `attachment list` | S31 |
 | `attachment add` | S32 |
+| `srs-gov attachment add` / `srs-gov attachment list` | S33 |
 | `archive pack` / `archive unpack` (**gap** — no CLI surface yet, #276) | Library functions `archive_pack` / `archive_unpack` are implemented in `srs-repository` (ADR-033) and verified via 11 unit/integration tests: 8 unit tests (roundtrip, determinism, entry order, timestamps, error paths, FileStore roundtrip, cross-store roundtrip) + `test_archive_no_extra_fields_and_deflated` (asserts all ZIP entries use Deflated and carry no host metadata extra fields) + `test_archive_golden_fixture` (byte-identical comparison against committed `tests/fixtures/golden-archive.srs`) + `test_archive_golden_roundtrip` (unpack committed golden → assert correct namespace, proving ZIP is valid and `archive_unpack` handles the format) (#277). CLI handlers `srs archive pack` / `srs archive unpack` are a future deliverable (#276 follow-up). A meaningful dogfood scenario requires the CLI surface to exist — the intention would be: *"I want to hand off a self-contained snapshot of a repository — all records, relations, package definition, and binary attachments — as a single portable file."* Add a scenario (S31 or similar) when `srs archive pack`/`srs archive unpack` are wired up. |
 
 Gaps are intentional and visible: they are the backlog of surfaces that need a meaningful scenario. Do not delete a gap row — fill it when a feature gives the surface a real workflow to demonstrate.
