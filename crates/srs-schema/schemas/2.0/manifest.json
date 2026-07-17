@@ -286,7 +286,7 @@
         },
         "packageVersion": {
           "type": "string",
-          "description": "Semver of the package (both local and external modes). SHOULD be set when the version is known."
+          "description": "Semver of the package (both local and external modes). SHOULD be set when the version is known)."
         }
       }
     },
@@ -357,7 +357,8 @@
           "type": "string"
         },
         "contentPath": {
-          "type": "string"
+          "type": "string",
+          "description": "Relative path from sourceDocumentsPath to the document file. MAY contain forward-slash-separated sub-path segments (e.g., 'audio/meeting.mp4'); MUST be resolved relative to sourceDocumentsPath (RFC-017 [R9])."
         },
         "title": {
           "type": "string"
