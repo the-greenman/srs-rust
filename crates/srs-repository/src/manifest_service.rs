@@ -1037,6 +1037,8 @@ mod tests {
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::HashMap::new(),
+            source_documents_path: None,
+            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let store = MemoryStore::new(
@@ -1105,6 +1107,8 @@ mod tests {
             upstream_package: None,
             federation_events_path: None,
             extra,
+            source_documents_path: None,
+            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let store = MemoryStore::new(

@@ -3,6 +3,7 @@ use crate::index::InstanceIndexEntry;
 use serde::{Deserialize, Serialize};
 use srs_core::extensions::import_tracking::UpstreamPackage;
 use srs_core::types::container::{Container, ContainerIndexEntry};
+use srs_core::types::source_document::SourceDocumentIndexEntry;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -21,6 +22,10 @@ pub struct Manifest {
     pub federation_events_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub upstream_package: Option<UpstreamPackage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_documents_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_document_index: Option<Vec<SourceDocumentIndexEntry>>,
     // all other manifest fields preserved for round-trip write
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
@@ -38,6 +43,8 @@ impl Default for Manifest {
             federation_path: None,
             federation_events_path: None,
             upstream_package: None,
+            source_documents_path: None,
+            source_document_index: None,
             extra: HashMap::new(),
             root: PathBuf::new(),
         }
@@ -364,5 +371,67 @@ mod tests {
             raw["upstreamPackage"]["packageId"].as_str(),
             Some("top-level-id")
         );
+    }
+
+    #[test]
+    fn manifest_source_documents_path_roundtrips() {
+        let json = r#"{
+            "instanceIndex": [],
+            "sourceDocumentsPath": "attachments"
+        }"#;
+        let manifest: Manifest = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            manifest.source_documents_path.as_deref(),
+            Some("attachments")
+        );
+        // must not appear in extra
+        assert!(!manifest.extra.contains_key("sourceDocumentsPath"));
+
+        let serialised = serde_json::to_string(&manifest).unwrap();
+        assert!(serialised.contains("\"sourceDocumentsPath\""));
+        let reparsed: Manifest = serde_json::from_str(&serialised).unwrap();
+        assert_eq!(
+            reparsed.source_documents_path,
+            manifest.source_documents_path
+        );
+    }
+
+    #[test]
+    fn manifest_source_document_index_roundtrips() {
+        let json = r#"{
+            "instanceIndex": [],
+            "sourceDocumentsPath": "source-documents",
+            "sourceDocumentIndex": [
+                {
+                    "documentId": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+                    "sidecarPath": "my-doc.meta.json",
+                    "contentPath": "my-doc.pdf"
+                }
+            ]
+        }"#;
+        let manifest: Manifest = serde_json::from_str(json).unwrap();
+        let idx = manifest.source_document_index.as_ref().unwrap();
+        assert_eq!(idx.len(), 1);
+        assert_eq!(idx[0].document_id, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee");
+        assert_eq!(idx[0].sidecar_path, "my-doc.meta.json");
+        assert_eq!(idx[0].content_path, "my-doc.pdf");
+        assert!(idx[0].title.is_none());
+        // must not appear in extra
+        assert!(!manifest.extra.contains_key("sourceDocumentIndex"));
+
+        let serialised = serde_json::to_string(&manifest).unwrap();
+        let reparsed: Manifest = serde_json::from_str(&serialised).unwrap();
+        assert_eq!(
+            reparsed.source_document_index,
+            manifest.source_document_index
+        );
+    }
+
+    #[test]
+    fn manifest_absent_source_doc_fields_are_none() {
+        let json = r#"{"instanceIndex": []}"#;
+        let manifest: Manifest = serde_json::from_str(json).unwrap();
+        assert!(manifest.source_documents_path.is_none());
+        assert!(manifest.source_document_index.is_none());
     }
 }

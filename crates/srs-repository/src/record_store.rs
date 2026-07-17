@@ -2097,6 +2097,8 @@ mod tests {
             upstream_package: None,
             federation_events_path: None,
             extra: HashMap::new(),
+            source_documents_path: None,
+            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let package = Package {
@@ -2186,6 +2188,8 @@ mod tests {
             upstream_package: None,
             federation_events_path: None,
             extra: HashMap::new(),
+            source_documents_path: None,
+            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let package = Package {
@@ -3163,6 +3167,8 @@ mod tests {
             upstream_package: None,
             federation_events_path: None,
             extra: HashMap::new(),
+            source_documents_path: None,
+            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let package = Package {
@@ -3494,6 +3500,8 @@ mod tests {
             upstream_package: None,
             federation_events_path: None,
             extra: HashMap::new(),
+            source_documents_path: None,
+            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let package = Package {
@@ -3665,6 +3673,8 @@ mod tests {
             upstream_package: None,
             federation_events_path: None,
             extra: HashMap::new(),
+            source_documents_path: None,
+            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         // Reuse lc_type from make_store_with_lifecycle via a fresh MemoryStore from the helper
@@ -4455,6 +4465,8 @@ mod tests {
             upstream_package: None,
             federation_events_path: None,
             extra: HashMap::new(),
+            source_documents_path: None,
+            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let package = Package {
@@ -4669,6 +4681,8 @@ mod tests {
             upstream_package: None,
             federation_events_path: None,
             extra: HashMap::new(),
+            source_documents_path: None,
+            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let package = Package {
@@ -5221,6 +5235,8 @@ mod tests {
             upstream_package: None,
             federation_events_path: None,
             extra: HashMap::new(),
+            source_documents_path: None,
+            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let package = Package {
@@ -6058,6 +6074,8 @@ mod tests {
             upstream_package: None,
             federation_events_path: None,
             extra: HashMap::new(),
+            source_documents_path: None,
+            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let package = Package {
