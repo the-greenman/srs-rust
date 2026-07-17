@@ -22,10 +22,10 @@ See [agents.md](agents.md) for role definitions.
 
 | ADR | Decision | Status |
 |---|---|---|
-| [ADR-010](../docs/adr/010-service-boundary-contract.md) | New service function `rebuild_precedes_chain` takes typed input struct, performs all orchestration, writes atomically in one collection write | accepted |
+| [ADR-010](../docs/adr/010-service-boundary-contract.md) | New service function `rebuild_precedes_chain` takes typed input, performs all orchestration and validation, writes atomically in one collection write. Single write is inherently atomic; ADR-024 rollback machinery not needed. | accepted |
 | [ADR-013](../docs/adr/013-wasm-binding-strategy.md) | WASM binding is a thin `SrsRepository` method — deserialise JS input → one service call → serialise output | accepted |
 | [ADR-015](../docs/adr/015-wasm-write-and-export.md) | Write mutation via in-memory `JsonStore`, no filesystem access | accepted |
-| [ADR-024](../docs/adr/024-best-effort-rollback-multi-write-services.md) | Single collection write (load-mutate-write), naturally atomic | accepted |
+| [CLAUDE.md capability-layering](../CLAUDE.md) | WASM-only exposure (no CLI command) is acceptable here because CLI callers retain full composability via the existing `relation delete` + `relation create` commands. The service itself follows the full capability-layering model. | accepted |
 
 No new ADRs required — all decisions follow established patterns.
 
@@ -45,14 +45,14 @@ No schema files in `srs/docs/schema/2.0/` are modified. No sync required.
 
 ## Scope
 
-- Add `rebuild_precedes_chain(store, input)` to `crates/srs-repository/src/relation_service.rs`
+- Add `rebuild_precedes_chain(store, input)` to `crates/srs-repository/src/relation_service.rs`, with a `pub(crate)` helper `build_relation_validation_ctx` shared with `create_relation`
 - Add `rebuild_precedes_chain(input_json)` WASM method to `crates/srs-bindings/src/lib.rs`
-- Unit tests for the service function using `MemoryStore`
-- Smoke test verifying WASM binding compiles (`cargo build --target wasm32-unknown-unknown -p srs-bindings`)
+- Six unit tests for the service function (5 behavioural + 1 cross-store roundtrip) using `MemoryStore` / `JsonStore`
+- WASM build smoke test verifying the binding compiles to `wasm32-unknown-unknown`
 
 **Out of scope:**
-- Any srs-web changes (that is follow-on work in the srs-web repo)
-- CLI command for `rebuild_precedes_chain` (not needed — CLI callers can sequence `relation delete` + `relation create` themselves)
+- Any srs-web changes (follow-on work in the srs-web repo)
+- CLI command for `rebuild_precedes_chain` (not needed — CLI callers compose existing `relation delete` + `relation create`)
 - Non-`precedes` chain rebuilding
 
 ---
@@ -67,8 +67,9 @@ No schema files in `srs/docs/schema/2.0/` are modified. No sync required.
 
 #### Tasks
 
-- [ ] Define `RebuildPrecedesChainInput` struct in `crates/srs-repository/src/relation_service.rs`:
+- [x] In `crates/srs-repository/src/relation_service.rs`, define the input struct before `rebuild_precedes_chain`:
   ```rust
+  #[derive(Debug, Clone)]
   pub struct RebuildPrecedesChainInput {
       /// Desired linear order — edges created as instance_ids[0]→[1]→…→[n-1].
       pub instance_ids: Vec<String>,
@@ -76,7 +77,8 @@ No schema files in `srs/docs/schema/2.0/` are modified. No sync required.
       pub clear_ids: Vec<String>,
   }
   ```
-- [ ] Define `RebuildPrecedesChainResult` struct in the same file:
+
+- [x] Define the result struct in the same file:
   ```rust
   #[derive(Debug, Clone, serde::Serialize)]
   #[serde(rename_all = "camelCase")]
@@ -84,27 +86,49 @@ No schema files in `srs/docs/schema/2.0/` are modified. No sync required.
       pub created: Vec<RelationSummary>,
   }
   ```
-- [ ] Implement `pub fn rebuild_precedes_chain(store: &dyn RepositoryStore, input: RebuildPrecedesChainInput) -> Result<RebuildPrecedesChainResult, RepositoryError>` in `relation_service.rs`. The function must:
-  1. Load the relations collection once with `load_relations_collection(store)`.
-  2. Retain all relations where: `relationType != "precedes"` OR neither source nor target is in `clear_ids` (i.e. only remove `precedes` edges that touch `clear_ids`).
-  3. Build `n-1` new `Relation` objects: `instanceIds[i] precedes instanceIds[i+1]`, each with a fresh UUID from `new_instance_id()`.
-  4. Validate each new relation using `create_relation`'s validation path: build `RelationValidationContext` from manifest instance index + `build_instance_semantic_types`, call `validate_relation` for each new relation.
-  5. Append the new relations to the collection, run `SchemaRegistry::global().validate_by_id(RELATIONS_COLLECTION_SCHEMA_ID, ...)` on the full collection, then call `write_relations_collection(store, &relative_path, &collection)` exactly once.
-  6. Return `RebuildPrecedesChainResult { created: Vec<RelationSummary> }` for the new edges.
-- [ ] Write unit tests in `relation_service.rs` `#[cfg(test)]` block using `MemoryStore`:
+
+- [x] Extract `pub(crate) fn build_relation_validation_ctx` from the duplicated block in `create_relation`, placing it above `create_relation` in `relation_service.rs`. Signature:
+  ```rust
+  pub(crate) fn build_relation_validation_ctx<'a>(
+      store: &dyn RepositoryStore,
+      manifest: &'a srs_core::types::manifest::Manifest,
+      definitions: &'a [srs_core::types::relation_type_definition::RelationTypeDefinition],
+  ) -> RelationValidationContext<'a>
+  ```
+  Body: constructs `known_instance_ids` from `manifest.instance_index` and calls `crate::writer::build_instance_semantic_types(store, manifest)`, returning `RelationValidationContext { definitions, known_instance_ids: &known_instance_ids, instance_semantic_types: &instance_semantic_types }`.
+  **Note:** `known_instance_ids` and `instance_semantic_types` are owned in the caller; this helper receives refs and returns a context that borrows them. Adjust lifetime bounds as needed — the existing `create_relation` body shows the exact pattern.
+  Update `create_relation` to call `build_relation_validation_ctx` instead of duplicating the block.
+
+- [x] Implement `pub fn rebuild_precedes_chain(store: &dyn RepositoryStore, input: RebuildPrecedesChainInput) -> Result<RebuildPrecedesChainResult, RepositoryError>` in `relation_service.rs`. Algorithm — single atomic write:
+  1. Load the relations collection once: `let (relative_path, mut collection) = load_relations_collection(store)?;`
+  2. Delete all `precedes` edges where source OR target is in `clear_ids`: `collection.relations.retain(|r| !(r.relation_type == "precedes" && (clear_ids_set.contains(&r.source_instance_id) || clear_ids_set.contains(&r.target_instance_id))));`
+  3. If `instance_ids.len() <= 1`, skip edge creation (0 new edges).
+  4. Load the package: `let package = store.load_package()?;`
+  5. Load the manifest: `let manifest = store.load_manifest()?;`
+  6. Build the validation context once using `build_relation_validation_ctx(store, &manifest, &package.relation_type_definitions)`. (Own the `known_instance_ids` HashSet and `instance_semantic_types` map in the caller; pass refs to the helper as in `create_relation`.)
+  7. For each adjacent pair `(instance_ids[i], instance_ids[i+1])`, create a `Relation { relation_id: new_instance_id(), relation_type: "precedes".to_string(), source_instance_id: instance_ids[i].clone(), target_instance_id: instance_ids[i+1].clone() }`. Call `validate_relation(&relation, &ctx, true)` — on error, return `RepositoryError::RelationValidation { relation_id, message }`. Collect validated relations.
+  8. Append all new relations to `collection.relations`.
+  9. Schema-validate the full collection: `SchemaRegistry::global().validate_by_id(RELATIONS_COLLECTION_SCHEMA_ID, &serde_json::to_value(&collection)?)`.
+  10. Write exactly once: `write_relations_collection(store, &relative_path, &collection)?;`
+  11. Return `RebuildPrecedesChainResult { created: new_relations.iter().map(|r| RelationSummary { … }).collect() }`.
+
+- [x] Write unit tests in `relation_service.rs` `#[cfg(test)]` block using `MemoryStore` (and `JsonStore` for roundtrip). All 6 tests must pre-populate the manifest `instance_index` with the relevant IDs (so E1 validation passes):
   - `test_rebuild_precedes_chain_creates_n_minus_1_edges` — 3 IDs → 2 `precedes` edges, correct source/target order.
-  - `test_rebuild_precedes_chain_clears_existing_precedes` — pre-populate store with existing `precedes` edges among `clear_ids`, call rebuild, confirm old edges gone and only new edges for `instance_ids` remain.
+  - `test_rebuild_precedes_chain_clears_existing_precedes` — pre-populate store with existing `precedes` edges among `clear_ids`, call rebuild, confirm old edges removed and only new edges for `instance_ids` remain.
   - `test_rebuild_precedes_chain_empty_instance_ids` — `instance_ids: []` → `created: []`, no edges written.
   - `test_rebuild_precedes_chain_single_instance_id` — `instance_ids: [x]` → `created: []`, no edges written.
-  - `test_rebuild_precedes_chain_does_not_clear_non_precedes` — non-`precedes` edges involving `clear_ids` are preserved.
+  - `test_rebuild_precedes_chain_does_not_clear_non_precedes` — non-`precedes` edges involving `clear_ids` IDs are preserved.
+  - `test_rebuild_precedes_chain_roundtrip_json_store` — call `rebuild_precedes_chain` on `MemoryStore` with 3 IDs, export via `to_srsj_string()`, reload with `JsonStore::from_srsj`, call `list_relations` and assert exactly 2 `precedes` edges survive with correct source/target.
 
 #### Acceptance Criteria
 
-- [ ] `rebuild_precedes_chain` takes `RebuildPrecedesChainInput` and returns `Result<RebuildPrecedesChainResult, RepositoryError>`.
-- [ ] All 5 named tests pass.
-- [ ] The function performs exactly **one** `write_relations_collection` call per invocation (verified by MemoryStore state being correct after one call).
-- [ ] Non-`precedes` relations are never removed even when their IDs appear in `clear_ids`.
-- [ ] `validate_relation` is called for each new edge; validation errors surface as `RepositoryError::RelationValidation`.
+- [x] `pub struct RebuildPrecedesChainInput` with `#[derive(Debug, Clone)]` exists in `relation_service.rs`.
+- [x] `pub struct RebuildPrecedesChainResult` with `#[derive(Debug, Clone, serde::Serialize)]` and `#[serde(rename_all = "camelCase")]` exists.
+- [x] `pub(crate) fn load_validation_data` exists; `create_relation` is updated to use it (no duplication).
+- [x] All 6 named tests pass.
+- [x] The final relations collection after `rebuild_precedes_chain([a, b, c], clear_ids=[a,b,c])` contains exactly 2 `precedes` edges: `a→b` and `b→c`, and all pre-existing non-`precedes` edges are preserved.
+- [x] If any relation fails E1–E4 validation, the call returns `RepositoryError::RelationValidation` and no write occurs (by virtue of the single-write-at-end structure).
+- [x] Roundtrip test passes: edges written on a `JsonStore` survive serialize→deserialize via `to_srsj_string` / `from_srsj`.
 
 #### Testing
 
@@ -118,11 +142,12 @@ Specific tests to write or verify:
 - `test_rebuild_precedes_chain_empty_instance_ids`
 - `test_rebuild_precedes_chain_single_instance_id`
 - `test_rebuild_precedes_chain_does_not_clear_non_precedes`
+- `test_rebuild_precedes_chain_roundtrip_json_store`
 
 #### Milestone gate
 
-1. All 5 acceptance criteria checked.
-2. All 5 named tests exist and pass.
+1. All 7 acceptance criteria checked.
+2. All 6 named tests exist and pass.
 3. Run:
    ```bash
    cargo test -p srs-repository
@@ -135,22 +160,24 @@ Specific tests to write or verify:
 
 ### Phase 2: WASM binding in srs-bindings
 
-**Goal:** `SrsRepository::rebuild_precedes_chain(input_json)` exists in `crates/srs-bindings/src/lib.rs`, compiles to WASM, and is exercised by a smoke test.
+**Goal:** `SrsRepository::rebuild_precedes_chain(input_json)` exists in `crates/srs-bindings/src/lib.rs`, compiles to `wasm32-unknown-unknown`, and passes a smoke test.
 
 **Agent:** Bindings Worker
 
 #### Tasks
 
-- [ ] Add `use srs_repository::relation_service::{self, ..., RebuildPrecedesChainInput, RebuildPrecedesChainResult}` import to `crates/srs-bindings/src/lib.rs` (amend the existing `relation_service` import line).
-- [ ] Add the WASM method to `impl SrsRepository`:
+- [x] Add `RebuildPrecedesChainInput` to the `relation_service` import in `crates/srs-bindings/src/lib.rs` (amend the existing import line at line 36).
+
+- [x] Add the WASM method to `#[wasm_bindgen] impl SrsRepository`:
   ```rust
   /// Atomically rebuild a linear `precedes` chain.
   ///
   /// `input_json` is `{ "instanceIds": ["uuid1", ...], "clearIds": ["uuid1", ...] }`.
-  /// All `precedes` edges where source OR target is in `clearIds` are deleted; then
-  /// `n-1` new `precedes` edges are created connecting `instanceIds[0]→[1]→…→[n-1]`.
+  /// All `precedes` edges where source OR target is in `clearIds` are deleted first;
+  /// then `n-1` new `precedes` edges connect `instanceIds[0]→[1]→…→[n-1]`.
   ///
-  /// Returns `{ "created": [<RelationSummary>, ...] }` as a JS value.
+  /// Returns `{ "created": [<RelationSummary>, ...] }` as a JS value where each
+  /// `RelationSummary` is `{ "relationId", "relationType", "sourceId", "targetId" }`.
   pub fn rebuild_precedes_chain(&self, input_json: &str) -> Result<JsValue, JsValue> {
       #[derive(serde::Deserialize)]
       #[serde(rename_all = "camelCase")]
@@ -171,26 +198,32 @@ Specific tests to write or verify:
       to_js(&result)
   }
   ```
-- [ ] Verify the binding compiles for the WASM target:
+
+- [x] Add smoke test `test_rebuild_precedes_chain_binding_smoke` in `crates/srs-bindings/src/lib.rs` `#[cfg(test)]` block. The test must:
+  1. Build a `JsonStore` from a minimal `.srsj` string that includes 3 instance IDs (`"id-a"`, `"id-b"`, `"id-c"`) in `manifest.instanceIndex` (follow the pattern of `srsj_with_note_and_type()` or construct a minimal seed inline).
+  2. Call `relation_service::rebuild_precedes_chain(&store, RebuildPrecedesChainInput { instance_ids: vec!["id-a", "id-b", "id-c"], clear_ids: vec![] })`.
+  3. Assert `result.created.len() == 2`.
+  4. Assert `result.created[0].source_id == "id-a"` and `result.created[0].target_id == "id-b"`.
+  5. Assert `result.created[1].source_id == "id-b"` and `result.created[1].target_id == "id-c"`.
+
+- [x] Verify WASM compilation:
   ```bash
   cargo build --target wasm32-unknown-unknown -p srs-bindings
   ```
-- [ ] Add a smoke test in `crates/srs-bindings/src/lib.rs` or a dedicated test file that exercises the binding via the service function directly (WASM bindings are exercised by compiling; functional correctness is covered by Phase 1 service tests):
-  - `test_rebuild_precedes_chain_binding_smoke` — create a `JsonStore` from a minimal `.srsj` seed, call `relation_service::rebuild_precedes_chain` with 3 IDs in `instance_ids`, verify 2 edges returned.
 
 #### Acceptance Criteria
 
-- [ ] `rebuild_precedes_chain` is a `#[wasm_bindgen]` method on `SrsRepository` in `crates/srs-bindings/src/lib.rs`.
-- [ ] Input is `{ "instanceIds": [...], "clearIds": [...] }` (camelCase); invalid JSON returns a JS error.
-- [ ] Output is `{ "created": [<RelationSummary>, ...] }` — same camelCase shape as `RelationSummary`.
-- [ ] `cargo build --target wasm32-unknown-unknown -p srs-bindings` succeeds.
-- [ ] Smoke test passes.
+- [x] `rebuild_precedes_chain` is a `pub fn` on `impl SrsRepository` in `crates/srs-bindings/src/lib.rs`.
+- [x] Input accepts `{ "instanceIds": [...], "clearIds": [...] }` (camelCase); invalid JSON returns a `JsValue` error via `js_err`.
+- [x] Output shape is `{ "created": [{ "relationId", "relationType", "sourceId", "targetId" }, ...] }` (inherits `RelationSummary`'s camelCase serialisation).
+- [x] `cargo build --target wasm32-unknown-unknown -p srs-bindings` exits 0.
+- [x] Smoke test `test_rebuild_precedes_chain_binding_smoke` passes.
 
 #### Testing
 
 ```bash
 cargo build --target wasm32-unknown-unknown -p srs-bindings
-cargo test -p srs-bindings
+cargo test -p srs-bindings test_rebuild_precedes_chain_binding_smoke
 ```
 
 Specific tests to write or verify:
@@ -199,7 +232,7 @@ Specific tests to write or verify:
 #### Milestone gate
 
 1. All 5 acceptance criteria checked.
-2. WASM build succeeds.
+2. WASM build exits 0.
 3. Run:
    ```bash
    cargo test -p srs-bindings
@@ -212,13 +245,13 @@ Specific tests to write or verify:
 
 ## Final Acceptance
 
-- [ ] `cargo test` passes with no failures
-- [ ] `cargo clippy -- -D warnings` passes
-- [ ] `cargo test --test payload_contracts` passes (no payload structs changed)
-- [ ] `bash scripts/check-schema-sync.sh` exits 0 (no entity schemas changed)
-- [ ] `cargo build --target wasm32-unknown-unknown -p srs-bindings` succeeds
-- [ ] All 5 service-layer tests pass
-- [ ] Smoke test in srs-bindings passes
+- [x] `cargo test` passes with no failures
+- [x] `cargo clippy -- -D warnings` passes
+- [x] `cargo test --test payload_contracts` passes (no payload structs changed)
+- [x] `bash scripts/check-schema-sync.sh` exits 0 (no entity schemas changed)
+- [x] `cargo build --target wasm32-unknown-unknown -p srs-bindings` succeeds
+- [x] All 6 service-layer tests pass
+- [x] Smoke test in srs-bindings passes
 
 ## Coordination Rules
 
@@ -232,6 +265,6 @@ Specific tests to write or verify:
 
 ## Assumptions
 
-- The `precedes` relation type is already registered in the repo's package (via the spec package). Validation via `validate_relation` will pass for repos that include the spec package (standard setup). For repos without any package definitions, E1/E4 checks may fail; this is consistent with the existing `create_relation_auto` behaviour.
-- `clear_ids` semantics: edges where source OR target is in `clear_ids` and `relationType == "precedes"` are removed. Non-`precedes` edges touching `clear_ids` are never removed.
-- The WASM binding test (smoke) validates service-level correctness; the WASM-target build check validates bindgen correctness.
+- The `precedes` relation type is registered in the repo's package (via the spec package). Validation via `validate_relation` will pass for repos that include the spec package (standard setup). For repos without any package definitions, E2 (unknown relation type) may fire; this is consistent with existing `create_relation_auto` behaviour.
+- `clear_ids` semantics: edges where source OR target is in `clear_ids` AND `relationType == "precedes"` are removed. Non-`precedes` edges touching `clear_ids` are never removed.
+- The WASM binding test validates service-level correctness; the `wasm32-unknown-unknown` build check validates wasm-bindgen correctness.

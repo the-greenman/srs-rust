@@ -153,7 +153,7 @@ pub fn get_relation_by_id(
 /// Build the owned data needed to construct a `RelationValidationContext`.
 /// Shared by `create_relation` and `rebuild_precedes_chain` to avoid duplicating
 /// the manifest-load + instance-set + semantic-type-map construction.
-pub(crate) fn load_validation_data(
+fn load_validation_data(
     store: &dyn RepositoryStore,
 ) -> Result<(HashSet<String>, HashMap<String, String>), RepositoryError> {
     let manifest = store.load_manifest()?;
@@ -476,7 +476,8 @@ impl relation_graph::PrecedesSortable for PrecedesEntry {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RebuildPrecedesChainInput {
     /// Desired linear order — edges created as instance_ids[0]→[1]→…→[n-1].
     pub instance_ids: Vec<String>,
