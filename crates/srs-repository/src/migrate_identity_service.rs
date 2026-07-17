@@ -61,6 +61,52 @@ fn extract_identity_text(
     }
 }
 
+/// Local status enum for the identity migration — returned by [`migration_status`] so that
+/// `migrate_identity_service` does not need to import from `migration_registry_service`.
+/// The registry's `status_fn` maps from this type to the registry's own `MigrationStatus`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IdentityMigrationStatus {
+    Needed,
+    AlreadyApplied,
+    NotApplicable,
+}
+
+pub fn migration_status(
+    store: &dyn RepositoryStore,
+) -> Result<IdentityMigrationStatus, RepositoryError> {
+    let manifest = store.load_manifest()?;
+    let mc = match manifest.container.as_ref() {
+        None => return Ok(IdentityMigrationStatus::NotApplicable),
+        Some(c) => c,
+    };
+
+    match mc.identity_instance_id.as_deref() {
+        None => Ok(IdentityMigrationStatus::Needed),
+        Some(id) => {
+            let entry = manifest
+                .instance_index
+                .iter()
+                .find(|e| e.instance_id() == id);
+            match entry {
+                None => Ok(IdentityMigrationStatus::Needed),
+                Some(e) if e.tier() != 2 => Ok(IdentityMigrationStatus::Needed),
+                Some(e) => {
+                    let raw = store.load_instance_json(e.path())?;
+                    let ns_ok = raw.get("typeNamespace").and_then(|v| v.as_str())
+                        == Some(core_purpose::PURPOSE_TYPE_NAMESPACE);
+                    let name_ok = raw.get("typeName").and_then(|v| v.as_str())
+                        == Some(core_purpose::PURPOSE_TYPE_NAME);
+                    if ns_ok && name_ok {
+                        Ok(IdentityMigrationStatus::AlreadyApplied)
+                    } else {
+                        Ok(IdentityMigrationStatus::NotApplicable)
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub fn migrate_identity(
     store: &dyn RepositoryStore,
 ) -> Result<MigrateIdentityResult, RepositoryError> {

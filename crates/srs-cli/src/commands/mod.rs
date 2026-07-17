@@ -607,6 +607,15 @@ pub enum RepoCommand {
     /// and repoint manifest.container.identityInstanceId to the new record.
     #[command(name = "migrate-identity")]
     MigrateIdentity,
+    /// List all registered migrations and their applicability status for this repository.
+    Migrations,
+    /// Apply a registered migration by id.
+    #[command(name = "apply-migration")]
+    ApplyMigration {
+        /// Migration id to apply (e.g. "migrate-identity", "repo-upgrade")
+        #[arg(long)]
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]

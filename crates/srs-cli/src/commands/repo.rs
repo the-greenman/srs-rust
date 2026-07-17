@@ -1,14 +1,15 @@
 use crate::commands::{with_store, CliContext, RepoCommand, RepoExtensionsCommand, StoreBackend};
 use crate::output;
 use crate::payload::{
-    InstancePathRename, RepoCopyPayload, RepoCreatePayload, RepoDiffInstanceAdded,
-    RepoDiffInstanceModified, RepoDiffInstanceRemoved, RepoDiffInstances, RepoDiffManifest,
-    RepoDiffPackage, RepoDiffPackageCategory, RepoDiffPackageItemAdded,
-    RepoDiffPackageItemModified, RepoDiffPackageItemRemoved, RepoDiffPayload,
-    RepoDiffRelationAdded, RepoDiffRelationModified, RepoDiffRelationRemoved, RepoDiffRelations,
-    RepoDiffSummary, RepoExtensionsConformancePayload, RepoExtensionsMutatePayload,
-    RepoExtensionsPayload, RepoInitNewPayload, RepoMapPayload, RepoMigrateIdentityPayload,
-    RepoNavigationPayload, RepoSetRootContainerPayload, RepoUpgradePayload, RepoValidatePayload,
+    InstancePathRename, MigrationSummaryPayload, RepoApplyMigrationPayload, RepoCopyPayload,
+    RepoCreatePayload, RepoDiffInstanceAdded, RepoDiffInstanceModified, RepoDiffInstanceRemoved,
+    RepoDiffInstances, RepoDiffManifest, RepoDiffPackage, RepoDiffPackageCategory,
+    RepoDiffPackageItemAdded, RepoDiffPackageItemModified, RepoDiffPackageItemRemoved,
+    RepoDiffPayload, RepoDiffRelationAdded, RepoDiffRelationModified, RepoDiffRelationRemoved,
+    RepoDiffRelations, RepoDiffSummary, RepoExtensionsConformancePayload,
+    RepoExtensionsMutatePayload, RepoExtensionsPayload, RepoInitNewPayload, RepoMapPayload,
+    RepoMigrateIdentityPayload, RepoMigrationsPayload, RepoNavigationPayload,
+    RepoSetRootContainerPayload, RepoUpgradePayload, RepoValidatePayload,
 };
 use anyhow::{Context, Result};
 use srs_repository::analysis::build_repo_map;
@@ -18,6 +19,7 @@ use srs_repository::manifest_service::{
     remove_declared_extension, set_manifest_root_container, SetManifestRootContainerInput,
 };
 use srs_repository::migrate_identity_service;
+use srs_repository::migration_registry_service;
 use srs_repository::repository_lifecycle::{
     create_repository_with_intent, init_new_repository, InitNewRepositoryInput,
     InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
@@ -81,6 +83,8 @@ pub fn dispatch(ctx: CliContext, cmd: RepoCommand) -> Result<String> {
         } => cmd_repo_init_new(ctx, repository_id, namespace, title, description),
         RepoCommand::Upgrade => cmd_repo_upgrade(ctx),
         RepoCommand::MigrateIdentity => cmd_repo_migrate_identity(ctx),
+        RepoCommand::Migrations => cmd_repo_migrations(ctx),
+        RepoCommand::ApplyMigration { id } => cmd_repo_apply_migration(ctx, id),
     }
 }
 
@@ -94,11 +98,11 @@ fn cmd_repo_upgrade(ctx: CliContext) -> Result<String> {
         }
     };
     let result = upgrade_repository_paths(&store)?;
-    let already_canonical_count = result.total_instances - result.renames.len();
     output::serialize(
         "repo upgrade",
         RepoUpgradePayload {
-            already_canonical_count,
+            total_instances: result.total_instances,
+            already_canonical_count: result.already_canonical_count,
             renames: result
                 .renames
                 .into_iter()
@@ -119,6 +123,34 @@ fn cmd_repo_migrate_identity(ctx: CliContext) -> Result<String> {
     output::serialize(
         "repo migrate-identity",
         RepoMigrateIdentityPayload::from(result),
+    )
+}
+
+fn cmd_repo_migrations(ctx: CliContext) -> Result<String> {
+    let migrations = with_store(&ctx, |store| {
+        migration_registry_service::list_migrations(store).map_err(anyhow::Error::from)
+    })?;
+    output::serialize(
+        "repo migrations",
+        RepoMigrationsPayload {
+            migrations: migrations
+                .into_iter()
+                .map(MigrationSummaryPayload::from)
+                .collect(),
+        },
+    )
+}
+
+fn cmd_repo_apply_migration(ctx: CliContext, id: String) -> Result<String> {
+    let result = with_store(&ctx, |store| {
+        migration_registry_service::apply_migration(store, &id).map_err(anyhow::Error::from)
+    })?;
+    output::serialize(
+        "repo apply-migration",
+        RepoApplyMigrationPayload {
+            id: result.id,
+            payload: result.payload,
+        },
     )
 }
 

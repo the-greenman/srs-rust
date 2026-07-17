@@ -17,6 +17,7 @@ use srs_repository::federation_service::{
 use srs_repository::governance_scaffold_service::{self, CreateGovernanceRepositoryInput};
 use srs_repository::manifest_service;
 use srs_repository::migrate_identity_service;
+use srs_repository::migration_registry_service;
 use srs_repository::package_service::{
     self, FieldListFilter, GetFieldResult, GetTypeResult, ListPackageImportsFilter,
     RelationTypeListFilter, TypeListFilter,
@@ -769,6 +770,25 @@ impl SrsRepository {
     /// statement from. After this returns, call `export_srsj()` to get the updated bundle.
     pub fn migrate_identity(&self) -> Result<JsValue, JsValue> {
         let result = migrate_identity_service::migrate_identity(&self.store).map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// List all known migrations with their applicability status for this repository.
+    ///
+    /// Returns a JSON array of `{ id, title, description, status }` objects where
+    /// `status` has exactly one of `needed`, `alreadyApplied`, or `notApplicable` set to `true`.
+    pub fn available_migrations(&self) -> Result<JsValue, JsValue> {
+        let result = migration_registry_service::list_migrations(&self.store).map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Apply a migration by ID and return its result payload.
+    ///
+    /// The result shape is `{ id: string, payload: object }` where `payload` is
+    /// migration-specific. Returns an error if the ID is unknown.
+    pub fn apply_migration(&self, id: &str) -> Result<JsValue, JsValue> {
+        let result =
+            migration_registry_service::apply_migration(&self.store, id).map_err(js_err)?;
         to_js(&result)
     }
 
