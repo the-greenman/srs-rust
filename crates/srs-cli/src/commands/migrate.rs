@@ -5,7 +5,7 @@
 use crate::commands::{with_store, CliContext, MigrateCommand};
 use crate::output;
 use anyhow::{anyhow, Result};
-use srs_repository::analysis::{build_migration_packet, load_analysis_profile};
+use srs_repository::analysis::build_migration_packet_for_profile;
 
 pub fn dispatch(ctx: CliContext, cmd: MigrateCommand) -> Result<String> {
     match cmd {
@@ -24,12 +24,7 @@ fn cmd_migrate_packet(ctx: CliContext, foundation: bool) -> Result<String> {
     }
 
     let packet = with_store(&ctx, |store| {
-        let profile = load_analysis_profile(store, "foundation")?;
-        Ok(build_migration_packet(
-            store,
-            &profile.profile_id,
-            &profile.include_tags,
-        )?)
+        Ok(build_migration_packet_for_profile(store, "foundation")?)
     })?;
     Ok(output::ok("migrate packet", serde_json::to_value(packet)?))
 }

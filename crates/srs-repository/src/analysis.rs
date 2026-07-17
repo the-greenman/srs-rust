@@ -475,6 +475,14 @@ pub fn load_analysis_profile(
     Ok(profile)
 }
 
+pub fn build_migration_packet_for_profile(
+    store: &dyn RepositoryStore,
+    profile_id: &str,
+) -> Result<MigrationPacket, RepositoryError> {
+    let profile = load_analysis_profile(store, profile_id)?;
+    build_migration_packet(store, &profile.profile_id, &profile.include_tags)
+}
+
 #[derive(Debug, Clone, Default)]
 struct TagAccumulator {
     count: usize,
@@ -946,5 +954,44 @@ mod tests {
             audit_note_tags_for_note(&store, "11111111-1111-4111-8111-111111111111").unwrap();
         // problem note should be excluded
         assert!(!audit.tag_counts.iter().any(|t| t.tag == "problems"));
+    }
+
+    #[test]
+    fn test_build_migration_packet_for_profile_foundation() {
+        let store = fixture_store();
+        store
+            .save_text_file(
+                ".srs/profiles/foundation.json",
+                r#"{"profileId":"foundation","includeTags":["meaning-first","problems"]}"#,
+            )
+            .unwrap();
+
+        let packet = build_migration_packet_for_profile(&store, "foundation").unwrap();
+
+        assert_eq!(packet.profile, "foundation");
+        assert_eq!(packet.foundation_notes.notes.len(), 2);
+        assert!(packet.ai_handoff_guidance.contains("external AI"));
+    }
+
+    #[test]
+    fn test_build_migration_packet_for_profile_json_store_roundtrip() {
+        use crate::json_store::JsonStore;
+
+        let srsj = r#"{
+            "srsj": "1",
+            "manifest": {
+                "instanceIndex": [],
+                "repositoryId": "cross-store-test",
+                "title": "Cross-store Test"
+            },
+            "data": {
+                ".srs/profiles/foundation.json": "{\"profileId\":\"foundation\",\"includeTags\":[\"meaning-first\"]}"
+            }
+        }"#;
+
+        let store = JsonStore::from_srsj(srsj).unwrap();
+        let packet = build_migration_packet_for_profile(&store, "foundation").unwrap();
+
+        assert_eq!(packet.profile, "foundation");
     }
 }
