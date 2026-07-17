@@ -39,10 +39,13 @@ fn canonical_store() -> (tempfile::TempDir, FileStore) {
     // chrono::Utc::now() into manifest.json, which varies between process runs
     // and breaks the golden-fixture byte comparison.
     let mut manifest = store.load_manifest().expect("load manifest for pinning");
-    manifest
-        .extra
-        .insert("createdAt".to_string(), serde_json::json!("2026-01-01T00:00:00Z"));
-    store.save_manifest(&manifest).expect("save pinned manifest");
+    manifest.extra.insert(
+        "createdAt".to_string(),
+        serde_json::json!("2026-01-01T00:00:00Z"),
+    );
+    store
+        .save_manifest(&manifest)
+        .expect("save pinned manifest");
 
     (dir, store)
 }

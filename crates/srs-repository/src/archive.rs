@@ -49,10 +49,11 @@ pub fn archive_pack(
             serde_json::to_value(pkg).map_err(|e| RepositoryError::InvalidSnapshotData {
                 message: e.to_string(),
             })?;
-        let pkg_bytes =
-            serde_json::to_vec_pretty(&pkg_value).map_err(|e| RepositoryError::InvalidSnapshotData {
+        let pkg_bytes = serde_json::to_vec_pretty(&pkg_value).map_err(|e| {
+            RepositoryError::InvalidSnapshotData {
                 message: e.to_string(),
-            })?;
+            }
+        })?;
         entries.push(("package/package.snapshot.json".to_string(), pkg_bytes));
     }
 
