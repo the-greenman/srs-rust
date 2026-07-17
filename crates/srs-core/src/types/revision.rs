@@ -145,6 +145,7 @@ mod tests {
                 source_id: "chunk-99".to_string(),
                 source_standard: None,
                 stream_id: None,
+                source_role: None,
                 relation_type: Some(SourceRelationType::Evidence),
                 confidence: Some(0.85),
                 note: None,
