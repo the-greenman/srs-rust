@@ -1,8 +1,8 @@
 use crate::commands::{with_store, AttachmentCommand, CliContext};
 use crate::output;
-use crate::payload::{AttachmentAddPayload, AttachmentListPayload};
+use crate::payload::{AttachmentAddPayload, AttachmentLinkPayload, AttachmentListPayload};
 use anyhow::{Context as _, Result};
-use srs_repository::attachment_service::{self, AddAttachmentInput, ListAttachmentsFilter};
+use srs_repository::attachment_service::{self, AddAttachmentInput, LinkAttachmentInput, ListAttachmentsFilter};
 
 pub fn dispatch(ctx: CliContext, cmd: AttachmentCommand) -> Result<String> {
     match cmd {
@@ -13,6 +13,10 @@ pub fn dispatch(ctx: CliContext, cmd: AttachmentCommand) -> Result<String> {
             title,
             content_type,
         } => cmd_attachment_add(ctx, source, subdir, title, content_type),
+        AttachmentCommand::Link {
+            instance_id,
+            document_id,
+        } => cmd_attachment_link(ctx, instance_id, document_id),
     }
 }
 
@@ -24,6 +28,19 @@ fn cmd_attachment_list(ctx: CliContext) -> Result<String> {
         )?)
     })?;
     output::serialize("attachment list", AttachmentListPayload::from(result))
+}
+
+fn cmd_attachment_link(ctx: CliContext, instance_id: String, document_id: String) -> Result<String> {
+    let result = with_store(&ctx, |store| {
+        Ok(attachment_service::link_attachment(
+            store,
+            LinkAttachmentInput {
+                instance_id,
+                document_id,
+            },
+        )?)
+    })?;
+    output::serialize("attachment link", AttachmentLinkPayload::from(result))
 }
 
 fn cmd_attachment_add(

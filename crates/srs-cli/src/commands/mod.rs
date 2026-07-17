@@ -348,6 +348,13 @@ pub enum AttachmentCommand {
         #[arg(long = "content-type")]
         content_type: Option<String>,
     },
+    /// Link an existing source document to a record via sourceRole:attaches
+    Link {
+        /// Instance ID of the record to attach the document to
+        instance_id: String,
+        /// Document ID of the source document to link (must exist in source-documents/)
+        document_id: String,
+    },
 }
 
 #[derive(Subcommand)]

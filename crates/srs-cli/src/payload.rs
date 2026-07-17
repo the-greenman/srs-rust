@@ -2108,6 +2108,24 @@ impl From<srs_repository::attachment_service::AddAttachmentResult> for Attachmen
     }
 }
 
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentLinkPayload {
+    pub instance_id: String,
+    pub document_id: String,
+    pub source_refs_count: usize,
+}
+
+impl From<srs_repository::attachment_service::LinkAttachmentResult> for AttachmentLinkPayload {
+    fn from(r: srs_repository::attachment_service::LinkAttachmentResult) -> Self {
+        Self {
+            instance_id: r.instance_id,
+            document_id: r.document_id,
+            source_refs_count: r.source_refs_count,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
