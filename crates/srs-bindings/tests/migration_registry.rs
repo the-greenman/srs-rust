@@ -39,8 +39,8 @@ fn minimal_srsj() -> String {
 fn available_migrations_lists_two_migrations_with_status() {
     let store = JsonStore::from_srsj(&minimal_srsj()).expect("fixture must load");
 
-    let migrations = migration_registry_service::list_migrations(&store)
-        .expect("list_migrations must succeed");
+    let migrations =
+        migration_registry_service::list_migrations(&store).expect("list_migrations must succeed");
 
     assert_eq!(migrations.len(), 2, "expected exactly two migrations");
     assert_eq!(migrations[0].id, "migrate-identity");
@@ -133,7 +133,8 @@ fn apply_migration_via_registry_migrate_identity() {
                 "sections": [{"name": "body", "content": "We build SRS."}]
             }
         }
-    }).to_string();
+    })
+    .to_string();
 
     let store = JsonStore::from_srsj(&srsj).expect("fixture must load");
 
@@ -146,7 +147,10 @@ fn apply_migration_via_registry_migrate_identity() {
     let result = migration_registry_service::apply_migration(&store, "migrate-identity")
         .expect("apply_migration must succeed");
     assert_eq!(result.id, "migrate-identity");
-    assert!(result.payload["newIdentityId"].is_string(), "payload must contain newIdentityId");
+    assert!(
+        result.payload["newIdentityId"].is_string(),
+        "payload must contain newIdentityId"
+    );
     assert_eq!(result.payload["statement"], "We build SRS.");
 
     // After apply: migrate-identity should be AlreadyApplied.

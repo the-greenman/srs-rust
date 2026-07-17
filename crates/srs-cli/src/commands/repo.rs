@@ -1,16 +1,15 @@
 use crate::commands::{with_store, CliContext, RepoCommand, RepoExtensionsCommand, StoreBackend};
 use crate::output;
 use crate::payload::{
-    InstancePathRename, MigrationSummaryPayload, RepoCopyPayload,
-    RepoApplyMigrationPayload, RepoCreatePayload, RepoDiffInstanceAdded,
-    RepoDiffInstanceModified, RepoDiffInstanceRemoved, RepoDiffInstances, RepoDiffManifest,
-    RepoDiffPackage, RepoDiffPackageCategory, RepoDiffPackageItemAdded,
-    RepoDiffPackageItemModified, RepoDiffPackageItemRemoved, RepoDiffPayload,
-    RepoDiffRelationAdded, RepoDiffRelationModified, RepoDiffRelationRemoved, RepoDiffRelations,
-    RepoDiffSummary, RepoExtensionsConformancePayload, RepoExtensionsMutatePayload,
-    RepoExtensionsPayload, RepoInitNewPayload, RepoMapPayload, RepoMigrateIdentityPayload,
-    RepoMigrationsPayload, RepoNavigationPayload, RepoSetRootContainerPayload,
-    RepoUpgradePayload, RepoValidatePayload,
+    InstancePathRename, MigrationSummaryPayload, RepoApplyMigrationPayload, RepoCopyPayload,
+    RepoCreatePayload, RepoDiffInstanceAdded, RepoDiffInstanceModified, RepoDiffInstanceRemoved,
+    RepoDiffInstances, RepoDiffManifest, RepoDiffPackage, RepoDiffPackageCategory,
+    RepoDiffPackageItemAdded, RepoDiffPackageItemModified, RepoDiffPackageItemRemoved,
+    RepoDiffPayload, RepoDiffRelationAdded, RepoDiffRelationModified, RepoDiffRelationRemoved,
+    RepoDiffRelations, RepoDiffSummary, RepoExtensionsConformancePayload,
+    RepoExtensionsMutatePayload, RepoExtensionsPayload, RepoInitNewPayload, RepoMapPayload,
+    RepoMigrateIdentityPayload, RepoMigrationsPayload, RepoNavigationPayload,
+    RepoSetRootContainerPayload, RepoUpgradePayload, RepoValidatePayload,
 };
 use anyhow::{Context, Result};
 use srs_repository::analysis::build_repo_map;
@@ -134,7 +133,10 @@ fn cmd_repo_migrations(ctx: CliContext) -> Result<String> {
     output::serialize(
         "repo migrations",
         RepoMigrationsPayload {
-            migrations: migrations.into_iter().map(MigrationSummaryPayload::from).collect(),
+            migrations: migrations
+                .into_iter()
+                .map(MigrationSummaryPayload::from)
+                .collect(),
         },
     )
 }

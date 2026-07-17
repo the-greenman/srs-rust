@@ -6894,11 +6894,18 @@ fn repo_migrations_lists_two_migrations() {
     // Each status object has exactly one bool set to true (exclusive-one invariant).
     for m in migrations {
         let s = &m["status"];
-        let true_count = [s["needed"].as_bool(), s["alreadyApplied"].as_bool(), s["notApplicable"].as_bool()]
-            .iter()
-            .filter(|v| **v == Some(true))
-            .count();
-        assert_eq!(true_count, 1, "status must have exactly one true field: {s:?}");
+        let true_count = [
+            s["needed"].as_bool(),
+            s["alreadyApplied"].as_bool(),
+            s["notApplicable"].as_bool(),
+        ]
+        .iter()
+        .filter(|v| **v == Some(true))
+        .count();
+        assert_eq!(
+            true_count, 1,
+            "status must have exactly one true field: {s:?}"
+        );
     }
 
     // Minimal repo has no container → migrate-identity is notApplicable; no instances → repo-upgrade is alreadyApplied.
@@ -6912,7 +6919,14 @@ fn repo_apply_migration_repo_upgrade_canonical_repo() {
     let repo_str = temp.path().to_str().unwrap().to_string();
     let result = run_srs_in_dir(
         temp.path(),
-        &["--repo", &repo_str, "repo", "apply-migration", "--id", "repo-upgrade"],
+        &[
+            "--repo",
+            &repo_str,
+            "repo",
+            "apply-migration",
+            "--id",
+            "repo-upgrade",
+        ],
     );
 
     assert_eq!(result["ok"], true, "expected ok: {result:?}");
@@ -6931,13 +6945,27 @@ fn repo_apply_migration_unknown_id_returns_error() {
     let repo_str = temp.path().to_str().unwrap().to_string();
     let (_ok, result) = run_srs_any_status_in_dir(
         temp.path(),
-        &["--repo", &repo_str, "repo", "apply-migration", "--id", "no-such-migration"],
+        &[
+            "--repo",
+            &repo_str,
+            "repo",
+            "apply-migration",
+            "--id",
+            "no-such-migration",
+        ],
     );
 
-    assert_eq!(result["ok"], false, "expected ok: false for unknown migration id: {result:?}");
-    let diagnostics = result["diagnostics"].as_array().expect("diagnostics must be present");
+    assert_eq!(
+        result["ok"], false,
+        "expected ok: false for unknown migration id: {result:?}"
+    );
+    let diagnostics = result["diagnostics"]
+        .as_array()
+        .expect("diagnostics must be present");
     assert!(
-        diagnostics.iter().any(|e| e.as_str().unwrap_or("").contains("no-such-migration")),
+        diagnostics
+            .iter()
+            .any(|e| e.as_str().unwrap_or("").contains("no-such-migration")),
         "diagnostic must reference the unknown id, got: {diagnostics:?}"
     );
 }
@@ -7023,7 +7051,14 @@ fn repo_apply_migration_migrate_identity_graduates_note_to_purpose_record() {
 
     let result = run_srs_in_dir(
         temp.path(),
-        &["--repo", &repo_str, "repo", "apply-migration", "--id", "migrate-identity"],
+        &[
+            "--repo",
+            &repo_str,
+            "repo",
+            "apply-migration",
+            "--id",
+            "migrate-identity",
+        ],
     );
 
     assert_eq!(result["ok"], true, "expected ok: {result:?}");
@@ -7035,5 +7070,8 @@ fn repo_apply_migration_migrate_identity_graduates_note_to_purpose_record() {
         inner["newIdentityId"].is_string(),
         "newIdentityId must be present in migrate-identity payload: {inner:?}"
     );
-    assert_eq!(inner["statement"], "We build SRS.", "statement must come from the note body");
+    assert_eq!(
+        inner["statement"], "We build SRS.",
+        "statement must come from the note body"
+    );
 }

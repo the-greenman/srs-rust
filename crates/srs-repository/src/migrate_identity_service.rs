@@ -83,7 +83,10 @@ pub fn migration_status(
     match mc.identity_instance_id.as_deref() {
         None => Ok(IdentityMigrationStatus::Needed),
         Some(id) => {
-            let entry = manifest.instance_index.iter().find(|e| e.instance_id() == id);
+            let entry = manifest
+                .instance_index
+                .iter()
+                .find(|e| e.instance_id() == id);
             match entry {
                 None => Ok(IdentityMigrationStatus::Needed),
                 Some(e) if e.tier() != 2 => Ok(IdentityMigrationStatus::Needed),

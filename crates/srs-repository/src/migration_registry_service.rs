@@ -124,12 +124,13 @@ pub fn apply_migration(
     store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<MigrationApplyResult, RepositoryError> {
-    let m = MIGRATIONS
-        .iter()
-        .find(|m| m.id == id)
-        .ok_or_else(|| RepositoryError::InvalidInput {
-            message: format!("unknown migration id: '{id}'"),
-        })?;
+    let m =
+        MIGRATIONS
+            .iter()
+            .find(|m| m.id == id)
+            .ok_or_else(|| RepositoryError::InvalidInput {
+                message: format!("unknown migration id: '{id}'"),
+            })?;
     let payload = (m.apply_fn)(store)?;
     Ok(MigrationApplyResult {
         id: id.to_string(),
@@ -264,7 +265,10 @@ mod tests {
         };
         create_repository_with_intent(&store, &input).unwrap();
         let migrations = list_migrations(&store).unwrap();
-        let identity_migration = migrations.iter().find(|m| m.id == "migrate-identity").unwrap();
+        let identity_migration = migrations
+            .iter()
+            .find(|m| m.id == "migrate-identity")
+            .unwrap();
         assert_eq!(identity_migration.status, MigrationStatus::AlreadyApplied);
     }
 
@@ -336,7 +340,10 @@ mod tests {
         // MemoryStore::default() starts with no manifest.container
         let store = MemoryStore::default();
         let migrations = list_migrations(&store).unwrap();
-        let identity_migration = migrations.iter().find(|m| m.id == "migrate-identity").unwrap();
+        let identity_migration = migrations
+            .iter()
+            .find(|m| m.id == "migrate-identity")
+            .unwrap();
         assert_eq!(identity_migration.status, MigrationStatus::NotApplicable);
     }
 
@@ -377,7 +384,10 @@ mod tests {
 
         // manifest.container was transferred by copy_repository — no patching needed.
         let migrations = list_migrations(&target).unwrap();
-        let id_migration = migrations.iter().find(|m| m.id == "migrate-identity").unwrap();
+        let id_migration = migrations
+            .iter()
+            .find(|m| m.id == "migrate-identity")
+            .unwrap();
         assert_eq!(id_migration.status, MigrationStatus::AlreadyApplied);
     }
 
@@ -393,12 +403,20 @@ mod tests {
 
         let before = list_migrations(&store).unwrap();
         let id_before = before.iter().find(|m| m.id == "migrate-identity").unwrap();
-        assert_eq!(id_before.status, MigrationStatus::Needed, "must be Needed before apply");
+        assert_eq!(
+            id_before.status,
+            MigrationStatus::Needed,
+            "must be Needed before apply"
+        );
 
         apply_migration(&store, "migrate-identity").unwrap();
 
         let after = list_migrations(&store).unwrap();
         let id_after = after.iter().find(|m| m.id == "migrate-identity").unwrap();
-        assert_eq!(id_after.status, MigrationStatus::AlreadyApplied, "must be AlreadyApplied after apply");
+        assert_eq!(
+            id_after.status,
+            MigrationStatus::AlreadyApplied,
+            "must be AlreadyApplied after apply"
+        );
     }
 }

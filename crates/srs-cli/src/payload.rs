@@ -1774,7 +1774,9 @@ pub struct MigrationSummaryPayload {
     pub status: MigrationStatusPayload,
 }
 
-impl From<srs_repository::migration_registry_service::MigrationSummary> for MigrationSummaryPayload {
+impl From<srs_repository::migration_registry_service::MigrationSummary>
+    for MigrationSummaryPayload
+{
     fn from(m: srs_repository::migration_registry_service::MigrationSummary) -> Self {
         Self {
             id: m.id,

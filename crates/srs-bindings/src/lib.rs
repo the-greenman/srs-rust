@@ -778,8 +778,7 @@ impl SrsRepository {
     /// Returns a JSON array of `{ id, title, description, status }` objects where
     /// `status` has exactly one of `needed`, `alreadyApplied`, or `notApplicable` set to `true`.
     pub fn available_migrations(&self) -> Result<JsValue, JsValue> {
-        let result =
-            migration_registry_service::list_migrations(&self.store).map_err(js_err)?;
+        let result = migration_registry_service::list_migrations(&self.store).map_err(js_err)?;
         to_js(&result)
     }
 

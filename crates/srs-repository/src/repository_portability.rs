@@ -7,8 +7,8 @@ use crate::relation_service::load_relations;
 use crate::repository_lifecycle::{
     InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
 };
-use crate::store::{RecordTier, RepositoryStore};
 use crate::revision_service::sidecar_path_for;
+use crate::store::{RecordTier, RepositoryStore};
 use crate::writer::slugify_instance_name;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
@@ -914,9 +914,7 @@ fn collect_planned_renames(
 /// Returns `true` if any instance file path in the manifest index differs from its
 /// canonical slug-id8 form (i.e. `upgrade_repository_paths` would rename at least one file).
 /// Reads the manifest but performs no writes.
-pub fn check_path_upgrade_needed(
-    store: &dyn RepositoryStore,
-) -> Result<bool, RepositoryError> {
+pub fn check_path_upgrade_needed(store: &dyn RepositoryStore) -> Result<bool, RepositoryError> {
     let manifest = store.load_manifest()?;
     let planned = collect_planned_renames(store, &manifest)?;
     Ok(!planned.is_empty())
