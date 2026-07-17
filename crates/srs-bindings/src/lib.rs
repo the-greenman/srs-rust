@@ -33,7 +33,9 @@ use srs_repository::record_store::{
 use srs_repository::registry_service::{
     filter_registry_entries, parse_registry_json, RegistryListFilter,
 };
-use srs_repository::relation_service::{self, ListRelationsFilter, OrderByPrecedesInput};
+use srs_repository::relation_service::{
+    self, ListRelationsFilter, OrderByPrecedesInput, RebuildPrecedesChainInput,
+};
 use srs_repository::render_service::{self, RenderDocumentViewOptions};
 use srs_repository::repository_lifecycle::{self, InitNewRepositoryInput};
 use srs_repository::repository_navigation_service;
@@ -312,6 +314,34 @@ impl SrsRepository {
             &self.store,
             OrderByPrecedesInput {
                 instance_ids: parsed.instance_ids,
+            },
+        )
+        .map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Atomically rebuild a linear `precedes` chain.
+    ///
+    /// `input_json` is `{ "instanceIds": ["uuid1", ...], "clearIds": ["uuid1", ...] }`.
+    /// All `precedes` edges where source OR target is in `clearIds` are deleted first;
+    /// then `n-1` new `precedes` edges connect `instanceIds[0]→[1]→…→[n-1]`.
+    ///
+    /// Returns `{ "created": [<RelationSummary>, ...] }` as a JS value where each
+    /// `RelationSummary` is `{ "relationId", "relationType", "sourceId", "targetId" }`.
+    pub fn rebuild_precedes_chain(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Input {
+            instance_ids: Vec<String>,
+            clear_ids: Vec<String>,
+        }
+        let parsed: Input =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let result = relation_service::rebuild_precedes_chain(
+            &self.store,
+            RebuildPrecedesChainInput {
+                instance_ids: parsed.instance_ids,
+                clear_ids: parsed.clear_ids,
             },
         )
         .map_err(js_err)?;
@@ -1744,5 +1774,57 @@ mod tests {
         let abandoned = abandon_run(&store, &r2.run.run_id).expect("abandon_run");
         let json2 = serde_json::to_value(&abandoned.run).expect("serialize");
         assert_eq!(json2["status"].as_str(), Some("Abandoned"));
+    }
+
+    #[test]
+    fn test_rebuild_precedes_chain_binding_smoke() {
+        use srs_repository::relation_service::{rebuild_precedes_chain, RebuildPrecedesChainInput};
+
+        let srsj = serde_json::json!({
+            "srsj": "1",
+            "manifest": {
+                "instanceIndex": [
+                    {"instanceId": "id-a", "tier": 0, "path": "records/id-a.json"},
+                    {"instanceId": "id-b", "tier": 0, "path": "records/id-b.json"},
+                    {"instanceId": "id-c", "tier": 0, "path": "records/id-c.json"}
+                ]
+            },
+            "data": {
+                "package/package.json": {
+                    "id": "00000000-0000-0000-0000-000000000099",
+                    "namespace": "com.test",
+                    "name": "test-package",
+                    "version": "1",
+                    "relationTypes": ["relation-types/precedes.json"]
+                },
+                "package/relation-types/precedes.json": {
+                    "id": "00000000-0000-0000-0000-000000000001",
+                    "version": 1,
+                    "namespace": "com.semanticops.srs",
+                    "key": "precedes",
+                    "label": "Precedes",
+                    "description": "Source precedes target",
+                    "category": "association",
+                    "createdAt": "2026-01-01T00:00:00Z"
+                }
+            }
+        })
+        .to_string();
+
+        let store = JsonStore::from_srsj(&srsj).expect("load srsj");
+        let result = rebuild_precedes_chain(
+            &store,
+            RebuildPrecedesChainInput {
+                instance_ids: vec!["id-a".into(), "id-b".into(), "id-c".into()],
+                clear_ids: vec![],
+            },
+        )
+        .expect("rebuild_precedes_chain should succeed");
+
+        assert_eq!(result.created.len(), 2);
+        assert_eq!(result.created[0].source_id, "id-a");
+        assert_eq!(result.created[0].target_id, "id-b");
+        assert_eq!(result.created[1].source_id, "id-b");
+        assert_eq!(result.created[1].target_id, "id-c");
     }
 }
