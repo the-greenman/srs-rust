@@ -548,13 +548,12 @@ fn summarize_schemas(store: &dyn RepositoryStore) -> SchemaSummary {
 
 fn summarize_source_documents(manifest: &Manifest) -> SourceDocumentsSummary {
     let source_document_index_count = manifest
-        .extra
-        .get("sourceDocumentIndex")
-        .and_then(|value| value.as_array())
-        .map_or(0, Vec::len);
+        .source_document_index
+        .as_deref()
+        .map_or(0, |v| v.len());
 
     SourceDocumentsSummary {
-        source_documents_path: string_extra(manifest, "sourceDocumentsPath"),
+        source_documents_path: manifest.source_documents_path.clone(),
         has_source_document_index: source_document_index_count > 0,
         source_document_index_count,
     }
@@ -688,9 +687,7 @@ mod tests {
             "relationsPath".to_string(),
             json!("relations/relations.json"),
         );
-        manifest
-            .extra
-            .insert("sourceDocumentsPath".to_string(), json!("source-documents"));
+        manifest.source_documents_path = Some("source-documents".to_string());
         manifest.extra.insert(
             "aiGuidance".to_string(),
             json!({"suggestedEntryPoints": ["records/notes/foundation.json"]}),

@@ -49,3 +49,7 @@ A third option — a separate out-of-band `HashMap<documentId, Vec<u8>>` return 
 **Neutral:**
 - `MemoryStore` gains a binary-file map parallel to its text-file map.
 - The `.srs` archive producer (a future caller) will use `export_repository_snapshot_with_options(..., include_content_blobs: true)` once implemented.
+
+## Amendment (2026-07-17, #604)
+
+`sourceDocumentsPath` and `sourceDocumentIndex` were promoted from `manifest.extra` to typed fields on the `Manifest` struct (`source_documents_path: Option<String>`, `source_document_index: Option<Vec<SourceDocumentIndexEntry>>`), following the same pattern as `federationPath` and `upstreamPackage`. All references in this ADR to `manifest.extra["sourceDocumentsPath"]` and `manifest.extra["sourceDocumentIndex"]` now refer to the typed fields instead. Serialisation round-trip behaviour is unchanged.

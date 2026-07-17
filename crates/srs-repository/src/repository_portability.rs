@@ -20,6 +20,7 @@ use srs_core::types::record_type::RecordType;
 use srs_core::types::relation::Relation;
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::types::theme::Theme;
+use srs_core::types::source_document::SourceDocumentIndexEntry;
 use srs_core::types::view::{DocumentView, View};
 use srs_core::types::vocabulary::Vocabulary;
 use std::collections::HashMap;
@@ -55,7 +56,11 @@ pub struct PackageBoundarySnapshot {
     pub lifecycles: Vec<Lifecycle>,
 }
 
-/// Snapshot of a single source document: sidecar metadata + optional binary blob.
+/// In-flight snapshot of a single source document: sidecar metadata + optional binary blob.
+///
+/// Distinct from `srs_core::types::source_document::SourceDocumentIndexEntry`, which is the
+/// manifest-persisted index shape (no blob, serialised to disk). `SourceDocumentSnapshot` is
+/// ephemeral: it carries the blob across export/import and is never written to disk as-is.
 ///
 /// `content_base64` is `None` when the blob was excluded (text-only export) or the
 /// content file was absent in the source (tombstone — RFC-017 R12). Both cases are
@@ -99,7 +104,7 @@ pub struct RepositorySnapshot {
     #[serde(default)]
     pub container_index: Option<Vec<ContainerIndexEntry>>,
     pub relations: Vec<Relation>,
-    /// `manifest.extra["sourceDocumentsPath"]` — needed to reconstruct on import.
+    /// `manifest.source_documents_path` — needed to reconstruct on import.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_documents_path: Option<String>,
     /// One entry per `sourceDocumentIndex` item. Empty when the source has no source docs
@@ -223,50 +228,41 @@ pub fn export_repository_snapshot_with_options(
     }
 
     // Collect source documents (RFC-017; ADR-031).
-    let source_documents_path = manifest
-        .extra
-        .get("sourceDocumentsPath")
-        .and_then(|v| v.as_str())
-        .map(str::to_string);
+    let source_documents_path = manifest.source_documents_path.clone();
     let src_docs_base = source_documents_path
         .as_deref()
         .unwrap_or("source-documents");
-    let index_entries: Vec<serde_json::Value> = manifest
-        .extra
-        .get("sourceDocumentIndex")
-        .and_then(|v| v.as_array())
-        .cloned()
+    let index_entries = manifest
+        .source_document_index
+        .as_deref()
         .unwrap_or_default();
 
     let mut source_documents = Vec::new();
-    for entry in &index_entries {
-        let document_id = entry
-            .get("documentId")
-            .and_then(|v| v.as_str())
+    for entry in index_entries {
+        let document_id = Some(entry.document_id.as_str())
             .filter(|s| !s.is_empty())
             .ok_or_else(|| RepositoryError::InvalidSnapshotData {
                 message: format!(
-                    "sourceDocumentIndex entry missing or empty 'documentId': {entry}"
+                    "sourceDocumentIndex entry missing or empty 'documentId': {:?}",
+                    entry.document_id
                 ),
             })?
             .to_string();
-        let sidecar_path = entry
-            .get("sidecarPath")
-            .and_then(|v| v.as_str())
+        let sidecar_path = Some(entry.sidecar_path.as_str())
             .filter(|s| !s.is_empty())
             .ok_or_else(|| RepositoryError::InvalidSnapshotData {
                 message: format!(
-                    "sourceDocumentIndex entry missing or empty 'sidecarPath': {entry}"
+                    "sourceDocumentIndex entry missing or empty 'sidecarPath': {:?}",
+                    entry.sidecar_path
                 ),
             })?
             .to_string();
-        let content_path = entry
-            .get("contentPath")
-            .and_then(|v| v.as_str())
+        let content_path = Some(entry.content_path.as_str())
             .filter(|s| !s.is_empty())
             .ok_or_else(|| RepositoryError::InvalidSnapshotData {
                 message: format!(
-                    "sourceDocumentIndex entry missing or empty 'contentPath': {entry}"
+                    "sourceDocumentIndex entry missing or empty 'contentPath': {:?}",
+                    entry.content_path
                 ),
             })?
             .to_string();
@@ -460,7 +456,7 @@ fn do_import(
             .source_documents_path
             .as_deref()
             .unwrap_or("source-documents");
-        let mut source_doc_index: Vec<serde_json::Value> =
+        let mut source_doc_index: Vec<SourceDocumentIndexEntry> =
             Vec::with_capacity(snapshot.source_documents.len());
         for entry in &snapshot.source_documents {
             let sidecar_full = format!("{src_docs_base}/{}", entry.sidecar_path);
@@ -484,20 +480,17 @@ fn do_import(
                 let content_full = format!("{src_docs_base}/{}", entry.content_path);
                 target.save_binary_file(&content_full, &bytes)?;
             }
-            source_doc_index.push(serde_json::json!({
-                "documentId": entry.document_id,
-                "sidecarPath": entry.sidecar_path,
-                "contentPath": entry.content_path,
-            }));
+            source_doc_index.push(SourceDocumentIndexEntry {
+                document_id: entry.document_id.clone(),
+                sidecar_path: entry.sidecar_path.clone(),
+                content_path: entry.content_path.clone(),
+                title: None,
+                sidecar_checksum: None,
+                content_checksum: None,
+            });
         }
-        manifest.extra.insert(
-            "sourceDocumentsPath".to_string(),
-            serde_json::Value::String(src_docs_base.to_string()),
-        );
-        manifest.extra.insert(
-            "sourceDocumentIndex".to_string(),
-            serde_json::Value::Array(source_doc_index),
-        );
+        manifest.source_documents_path = Some(src_docs_base.to_string());
+        manifest.source_document_index = Some(source_doc_index);
     }
 
     target.save_manifest(&manifest)?;
@@ -2008,18 +2001,15 @@ mod tests {
 
     fn make_source_doc_manifest(store: &dyn RepositoryStore) {
         let mut manifest = store.load_manifest().unwrap();
-        manifest.extra.insert(
-            "sourceDocumentsPath".to_string(),
-            serde_json::Value::String("source-documents".to_string()),
-        );
-        manifest.extra.insert(
-            "sourceDocumentIndex".to_string(),
-            serde_json::json!([{
-                "documentId": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
-                "sidecarPath": "my-doc.meta.json",
-                "contentPath": "my-doc.pdf"
-            }]),
-        );
+        manifest.source_documents_path = Some("source-documents".to_string());
+        manifest.source_document_index = Some(vec![SourceDocumentIndexEntry {
+            document_id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee".to_string(),
+            sidecar_path: "my-doc.meta.json".to_string(),
+            content_path: "my-doc.pdf".to_string(),
+            title: None,
+            sidecar_checksum: None,
+            content_checksum: None,
+        }]);
         store.save_manifest(&manifest).unwrap();
     }
 
@@ -2078,9 +2068,9 @@ mod tests {
 
         // Manifest must carry sourceDocumentIndex.
         let manifest = target.load_manifest().unwrap();
-        let idx = manifest.extra["sourceDocumentIndex"].as_array().unwrap();
+        let idx = manifest.source_document_index.as_ref().unwrap();
         assert_eq!(idx.len(), 1);
-        assert_eq!(idx[0]["documentId"], "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee");
+        assert_eq!(idx[0].document_id, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee");
     }
 
     #[test]
