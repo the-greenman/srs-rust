@@ -237,9 +237,7 @@ pub fn add_attachment(
         .any(|e| e.content_path == rel_content_path)
     {
         return Err(RepositoryError::InvalidInput {
-            message: format!(
-                "file already exists in repository: {full_content_path}"
-            ),
+            message: format!("file already exists in repository: {full_content_path}"),
         });
     }
 
@@ -259,16 +257,14 @@ pub fn add_attachment(
         "encoding": "binary",
         "checksum": content_checksum,
     });
-    let sidecar_bytes = serde_json::to_vec_pretty(&sidecar_value).map_err(|e| {
-        RepositoryError::InvalidInput {
+    let sidecar_bytes =
+        serde_json::to_vec_pretty(&sidecar_value).map_err(|e| RepositoryError::InvalidInput {
             message: format!("failed to serialize sidecar: {e}"),
-        }
-    })?;
-    let sidecar_str = String::from_utf8(sidecar_bytes.clone()).map_err(|e| {
-        RepositoryError::InvalidInput {
+        })?;
+    let sidecar_str =
+        String::from_utf8(sidecar_bytes.clone()).map_err(|e| RepositoryError::InvalidInput {
             message: format!("sidecar is not valid UTF-8: {e}"),
-        }
-    })?;
+        })?;
     let sidecar_checksum = sha256_hex(&sidecar_bytes);
 
     // ADR-007: write content file first, then sidecar, then update index.

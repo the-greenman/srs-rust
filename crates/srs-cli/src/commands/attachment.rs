@@ -47,7 +47,8 @@ fn cmd_attachment_add(
         title,
         content_type,
     };
-    let result =
-        with_store(&ctx, |store| Ok(attachment_service::add_attachment(store, input)?))?;
+    let result = with_store(&ctx, |store| {
+        Ok(attachment_service::add_attachment(store, input)?)
+    })?;
     output::serialize("attachment add", AttachmentAddPayload::from(result))
 }
