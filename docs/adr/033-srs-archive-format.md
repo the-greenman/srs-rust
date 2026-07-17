@@ -39,7 +39,7 @@ RFC-017 explicitly describes `manifest.json` at the ZIP root and names the file-
 5. `archive_unpack(reader: impl Read + Seek, target: &dyn RepositoryStore) -> Result<(), RepositoryError>` is the unpack API.
 6. Both functions are `pub` in `srs-repository` (re-exported from `lib.rs`).
 7. A new `RepositoryError::InvalidArchive { message: String }` variant handles ZIP read/write errors.
-8. The pack function loads `manifest.json` and `package/package.json` as raw bytes from the store (via `store.load_file`) to avoid serialization drift, and uses `export_repository_snapshot_with_options` for instance and source-document data.
+8. The pack function loads `manifest.json` and `package/package.json` as raw bytes from the store via dedicated `RepositoryStore` trait methods (`load_manifest_raw_text`, `load_primary_package_raw_text`, `load_relations_raw_text`) to avoid serialization drift and to keep path strings inside the storage-adapter layer (CLAUDE.md path-string rule). `export_repository_snapshot_with_options` is used for instance and source-document data. Relations are loaded via `load_relations_raw_text`; if absent, the ZIP entry is omitted. Path string literals (`"manifest.json"` etc.) do not appear in `archive.rs` — only in the default implementations of these trait methods.
 
 ## Consequences
 
@@ -56,6 +56,7 @@ RFC-017 explicitly describes `manifest.json` at the ZIP root and names the file-
 - `archive_unpack` must reconstruct `SnapshotInstance` from raw JSON files in the ZIP (reading `tier`, `id`, `title`, `tags` from instance JSON), then call `import_repository_snapshot`. If the on-disk instance JSON format changes, `archive_unpack` must be updated in sync.
 
 **Neutral:**
-- The `zip` workspace dependency (`zip = { version = "2", default-features = false, features = ["deflate"] }`) was already added in plan #273.
+- The `zip` workspace dependency (`zip = { version = "2", default-features = false, features = ["deflate"] }`) was already added in plan #273. The `deflate` feature routes through `flate2` with the `miniz_oxide` backend (pure Rust, WASM-safe); the CI `cargo build --target wasm32-unknown-unknown -p srs-repository` job verifies this remains true.
 - A future `srs archive pack` / `srs archive unpack` CLI handler will be thin wrappers over these library functions; no new architectural decisions are needed for the CLI layer.
+- The future WASM binding for archive functions will use `Vec<u8>` I/O (returning bytes for pack, accepting bytes for unpack) rather than `impl Write + Seek` / `impl Read + Seek`, per ADR-013's JS-interop surface requirements.
 - `srs-vscode` and `srs-web` are not affected by this decision.

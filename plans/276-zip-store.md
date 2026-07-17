@@ -83,12 +83,31 @@ No changes to JSON Schema files under `srs/docs/schema/2.0/`. No action required
       }
   }
   ```
+- [ ] In `crates/srs-repository/src/store.rs`: add three new methods to the `RepositoryStore` trait with default implementations that delegate to `load_text_file` in `FileStore`/`MemoryStore` (path strings must not appear in `archive.rs` — CLAUDE.md path-string rule):
+  ```rust
+  fn load_manifest_raw_text(&self) -> Result<String, RepositoryError> {
+      self.load_text_file("manifest.json")
+  }
+  fn load_primary_package_raw_text(&self) -> Result<String, RepositoryError> {
+      self.load_text_file("package/package.json")
+  }
+  /// Returns None if relations/relations.json does not exist.
+  fn load_relations_raw_text(&self) -> Result<Option<String>, RepositoryError> {
+      match self.load_text_file("relations/relations.json") {
+          Ok(s) => Ok(Some(s)),
+          Err(e) if e.is_not_found() => Ok(None),
+          Err(e) => Err(e),
+      }
+  }
+  ```
+  These have no override in FileStore, MemoryStore, or JsonStore — the default implementation using `load_text_file` is correct for all adapters.
+
 - [ ] Replace the comment-only stub in `crates/srs-repository/src/archive.rs` with the full implementation of `archive_pack`. Complete algorithm (use this; no alternatives):
-  1. Call `export_repository_snapshot_with_options(source, ExportSnapshotOptions { include_content_blobs: true })` to obtain the snapshot (used for instances and source-document data).
+  1. Call `export_repository_snapshot_with_options(source, ExportSnapshotOptions { include_content_blobs: true })` to obtain the snapshot (used for instances and source-document data). Note: `manifest.json` is read separately via `source.load_manifest_raw_text()` — intentional two-read pattern: the snapshot provides typed instance/source-doc data while `load_manifest_raw_text()` provides the full raw manifest including `instanceIndex`.
   2. Build a `Vec<(String, Vec<u8>)>` of `(zip_path, bytes)` pairs using the following rules for each file type:
-     - **`manifest.json`** (required): bytes = `source.load_text_file("manifest.json")?.into_bytes()`. Do NOT serialize `snapshot.repository` — `RepositoryMetadata` lacks `instanceIndex` and extra fields; raw load preserves them exactly.
-     - **`package/package.json`** (required): bytes = `source.load_text_file("package/package.json")?.into_bytes()`.
-     - **`relations/relations.json`** (optional): bytes = `source.load_text_file("relations/relations.json")?.into_bytes()`. Skip this entry if the file returns a not-found error (`err.is_not_found()` on `RepositoryError`).
+     - **`manifest.json`** (required): bytes = `source.load_manifest_raw_text()?.into_bytes()`.
+     - **`package/package.json`** (required): bytes = `source.load_primary_package_raw_text()?.into_bytes()`.
+     - **`relations/relations.json`** (optional): call `source.load_relations_raw_text()?` — if `Some(text)`, add `(zip_path, text.into_bytes())`; if `None`, skip this entry.
      - **Each instance** (from `snapshot.instances`): `zip_path = canonical_instance_path(&instance, source)?`; bytes = `serde_json::to_vec_pretty(&instance.value).map_err(|e| RepositoryError::InvalidSnapshotData { message: e.to_string() })?`.
      - **Source doc sidecars** (from `snapshot.source_documents`): `zip_path = format!("{}/{}", source_docs_dir, doc.sidecar_path)` where `source_docs_dir = snapshot.source_documents_path.as_deref().unwrap_or("source-documents")`; bytes = `serde_json::to_vec_pretty(&doc.sidecar).map_err(|e| RepositoryError::InvalidSnapshotData { message: e.to_string() })?`.
      - **Source doc content** (from `snapshot.source_documents`, if `content_base64` is `Some`): `zip_path = format!("{}/{}", source_docs_dir, doc.content_path)`; bytes = `base64::engine::general_purpose::STANDARD.decode(b64).map_err(|e| RepositoryError::InvalidArchive { message: e.to_string() })?`.
@@ -113,6 +132,8 @@ No changes to JSON Schema files under `srs/docs/schema/2.0/`. No action required
 - [ ] ZIP entries use `CompressionMethod::Deflated`
 - [ ] `RepositoryError::InvalidArchive` is wired — zip errors map cleanly to `RepositoryError`
 - [ ] Source document binary content is included in the ZIP (decoded from base64)
+- [ ] No path string literals (`"manifest.json"`, `"package/package.json"`, `"relations/relations.json"`) appear in `archive.rs` — only in store adapter implementations
+- [ ] `cargo build --target wasm32-unknown-unknown -p srs-repository` succeeds (verifies `zip deflate` feature is WASM-safe)
 
 #### Testing
 
@@ -224,9 +245,16 @@ git commit -m "feat(archive): archive_unpack (#276)"
 
   **Test 5 — `test_archive_unpack_missing_manifest`**: Build a ZIP with no `manifest.json`; assert `archive_unpack` returns `Err(RepositoryError::InvalidArchive { .. })`.
 
+  **Test 6 — `test_archive_roundtrip_filestore`** (required by CLAUDE.md cross-store rule): Use `FileStore` as source and a second `FileStore` as target:
+  1. Create a `tempfile::tempdir()`-backed `FileStore`, initialize it, write instances and relations.
+  2. Call `archive_pack(&file_store1, &mut zip_file)` where `zip_file` is a `File` in a second tempdir.
+  3. Open the ZIP file; call `archive_unpack(zip_file2, &file_store2)` where `file_store2` is a fresh `FileStore` in a third tempdir.
+  4. Assert instances and relations are present in `file_store2`.
+
 #### Acceptance Criteria
 
 - [ ] `test_archive_roundtrip` passes
+- [ ] `test_archive_roundtrip_filestore` passes (cross-store: FileStore source + FileStore target)
 - [ ] `test_archive_determinism` passes
 - [ ] `test_archive_zip_entry_order` passes (entries sorted lexicographically)
 - [ ] `test_archive_zip_timestamps` passes (all entries use epoch/zeroed timestamp)
