@@ -1858,6 +1858,70 @@ srs repo validate --repo /tmp/dogfood-s31 --pretty
 
 ---
 
+## S32 — Store a source-document attachment (`srs attachment add`, #280)
+
+**Intention:** I have a PDF brief I want to store in my repository so the system records its provenance — a stable `documentId`, content checksum, and a `.meta.json` sidecar — and it appears in `attachment list` with all metadata fields.
+
+**Preparation.**
+```bash
+SRS=/path/to/srs    # built from the feature branch
+$SRS repo create --repo /tmp/dogfood-s32 --namespace com.example.dogfood --pretty
+# Create a sample binary file
+python3 -c "
+data = b'%PDF-1.4\n%binary\n'
+open('/tmp/brief.pdf', 'wb').write(data)
+"
+```
+
+**Step 1 — add an attachment, infer content type.**
+```bash
+$SRS attachment add /tmp/brief.pdf --repo /tmp/dogfood-s32 --title "Project Brief" --pretty
+```
+Returns `ok: true` with `payload` containing `documentId` (UUID), `contentPath` (`"brief.pdf"`), `sidecarPath` (`"brief.meta.json"`), `sourceDocumentsPath` (`"source-documents"`), `contentChecksum` (`"sha256:..."`), `sidecarChecksum` (`"sha256:..."`).
+
+Files created in `source-documents/`:
+- `brief.pdf` — the raw binary content
+- `brief.meta.json` — JSON sidecar: `{"documentId":"...","contentPath":"brief.pdf","contentType":"application/pdf","encoding":"binary","checksum":"sha256:..."}`
+
+`manifest.json → sourceDocumentIndex` gains one entry with all six fields: `documentId`, `contentPath`, `sidecarPath`, `title`, `contentChecksum`, `sidecarChecksum`.
+
+**Step 2 — attachment list reflects the new entry.**
+```bash
+$SRS attachment list --repo /tmp/dogfood-s32 --pretty
+```
+Returns one entry with `path: "brief.pdf"`, `documentId`, `title: "Project Brief"`, `contentChecksum`, `sidecarChecksum`. `sidecarPath` is not in the list payload (sidecar is excluded from listing).
+
+**Step 3 — add a second attachment in a subdirectory.**
+```bash
+echo "annex content" > /tmp/annex-a.txt
+$SRS attachment add /tmp/annex-a.txt --repo /tmp/dogfood-s32 --subdir annexes --title "Annex A" --pretty
+```
+Returns `contentPath: "annexes/annex-a.txt"`, `sidecarPath: "annexes/annex-a.meta.json"`. Both files land under `source-documents/annexes/`.
+
+**Negative case — duplicate rejection.**
+```bash
+$SRS attachment add /tmp/brief.pdf --repo /tmp/dogfood-s32 --pretty
+```
+Returns `ok: false` with `diagnostics: ["invalid input: file already exists in repository: source-documents/brief.pdf"]`. Exit code 1. Manifest unchanged.
+
+**Negative case — source file not found.**
+```bash
+$SRS attachment add /tmp/nonexistent.pdf --repo /tmp/dogfood-s32 --pretty
+```
+Returns `ok: false` with a `"failed to read source file"` diagnostic. Exit code 1.
+
+**Validate throughout.**
+```bash
+$SRS repo validate --repo /tmp/dogfood-s32 --pretty
+```
+0 diagnostics at every step — attachment files are outside the `instanceIndex` and do not affect record validation.
+
+**Done when.** `attachment add` writes the content file + `.meta.json` sidecar under `source-documents/`, appends a fully-populated entry to `manifest.sourceDocumentIndex`, and returns all six fields in the payload. `attachment list` immediately reflects the new entry with all metadata fields. Subdirectory works. Duplicate is rejected with a clear diagnostic. Missing source returns a read error. `repo validate` stays at 0 errors throughout.
+
+**Verified 2026-07-17 (#280).** Happy path confirmed: PDF stored, sidecar written with correct `contentType: "application/pdf"`, manifest entry populated, `attachment list` returned the entry with all fields. Subdir (`annexes/`) confirmed: `contentPath: "annexes/annex-a.txt"`. Duplicate rejection confirmed: `ok: false` with the expected diagnostic. Missing-file case confirmed: `ok: false` with read-error diagnostic. `repo validate`: 0 diagnostics throughout.
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -1920,6 +1984,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `context` (ext:addressability — `context field`, `context record`, `context revision`) | S27; WASM bindings (`context_field`, `context_record`, `context_revision` on `SrsRepository`) verified via native integration tests in `crates/srs-bindings/tests/context_query.rs` (#251) |
 | `package` | CLI: covered implicitly by field/type creation in S2; **`srs package install`/`srs package import`/`srs package imports`** end-to-end in S29 (#246); WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330) |
 | `attachment list` | S31 |
+| `attachment add` | S32 |
 | `archive pack` / `archive unpack` (**gap** — no CLI surface yet, #276) | Library functions `archive_pack` / `archive_unpack` are implemented in `srs-repository` (ADR-033) and verified via 11 unit/integration tests: 8 unit tests (roundtrip, determinism, entry order, timestamps, error paths, FileStore roundtrip, cross-store roundtrip) + `test_archive_no_extra_fields_and_deflated` (asserts all ZIP entries use Deflated and carry no host metadata extra fields) + `test_archive_golden_fixture` (byte-identical comparison against committed `tests/fixtures/golden-archive.srs`) + `test_archive_golden_roundtrip` (unpack committed golden → assert correct namespace, proving ZIP is valid and `archive_unpack` handles the format) (#277). CLI handlers `srs archive pack` / `srs archive unpack` are a future deliverable (#276 follow-up). A meaningful dogfood scenario requires the CLI surface to exist — the intention would be: *"I want to hand off a self-contained snapshot of a repository — all records, relations, package definition, and binary attachments — as a single portable file."* Add a scenario (S31 or similar) when `srs archive pack`/`srs archive unpack` are wired up. |
 
 Gaps are intentional and visible: they are the backlog of surfaces that need a meaningful scenario. Do not delete a gap row — fill it when a feature gives the surface a real workflow to demonstrate.

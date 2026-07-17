@@ -625,3 +625,15 @@ fn federation_events_list() {
 fn federation_events_append() {
     check::<FederationAppendEventPayload>("federation-events-append");
 }
+
+// ── Attachment ────────────────────────────────────────────────────────────────
+
+#[test]
+fn attachment_list() {
+    check::<AttachmentListPayload>("attachment-list");
+}
+
+#[test]
+fn attachment_add() {
+    check::<AttachmentAddPayload>("attachment-add");
+}

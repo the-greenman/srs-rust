@@ -2084,6 +2084,30 @@ impl From<srs_repository::attachment_service::ListAttachmentsResult> for Attachm
     }
 }
 
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentAddPayload {
+    pub document_id: String,
+    pub content_path: String,
+    pub sidecar_path: String,
+    pub source_documents_path: String,
+    pub content_checksum: String,
+    pub sidecar_checksum: String,
+}
+
+impl From<srs_repository::attachment_service::AddAttachmentResult> for AttachmentAddPayload {
+    fn from(r: srs_repository::attachment_service::AddAttachmentResult) -> Self {
+        Self {
+            document_id: r.document_id,
+            content_path: r.content_path,
+            sidecar_path: r.sidecar_path,
+            source_documents_path: r.source_documents_path,
+            content_checksum: r.content_checksum,
+            sidecar_checksum: r.sidecar_checksum,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

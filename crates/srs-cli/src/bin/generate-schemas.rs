@@ -197,6 +197,7 @@ fn main() {
 
     // Attachment payloads
     write_schema!("attachment-list", AttachmentListPayload);
+    write_schema!("attachment-add", AttachmentAddPayload);
 
     // Package payloads
     write_schema!("package-list", PackageListPayload);
