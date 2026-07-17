@@ -865,7 +865,10 @@ fn srs_gov_attachment_add_and_list() {
         &repo.path,
         &["attachment", "add", src_str, "--title", "Gate A Brief"],
     );
-    assert!(out.contains("Attachment stored"), "expected confirmation\n{out}");
+    assert!(
+        out.contains("Attachment stored"),
+        "expected confirmation\n{out}"
+    );
     assert!(
         out.contains(src_path.file_name().unwrap().to_str().unwrap()),
         "expected file name in output\n{out}"
@@ -877,7 +880,10 @@ fn srs_gov_attachment_add_and_list() {
         list_out.contains(src_path.file_name().unwrap().to_str().unwrap()),
         "file should appear in list\n{list_out}"
     );
-    assert!(list_out.contains("Gate A Brief"), "title should appear in list\n{list_out}");
+    assert!(
+        list_out.contains("Gate A Brief"),
+        "title should appear in list\n{list_out}"
+    );
 
     // validate must stay clean after the add
     let v = srs_json(&repo.path, &["repo", "validate"], None);
@@ -890,11 +896,17 @@ fn srs_gov_attachment_add_and_list() {
     // raw srs attachment list must also surface the indexed entry with its title
     let raw = srs_json(&repo.path, &["attachment", "list"], None);
     let entries = raw["payload"]["entries"].as_array().expect("entries array");
-    assert!(!entries.is_empty(), "raw srs attachment list must show entries");
+    assert!(
+        !entries.is_empty(),
+        "raw srs attachment list must show entries"
+    );
     let entry = entries
         .iter()
         .find(|e| e["title"].as_str() == Some("Gate A Brief"));
-    assert!(entry.is_some(), "indexed entry with title not found: {entries:?}");
+    assert!(
+        entry.is_some(),
+        "indexed entry with title not found: {entries:?}"
+    );
 
     std::fs::remove_file(&src_path).ok();
 }

@@ -648,11 +648,8 @@ fn cmd_attachment_add(
         .ok_or_else(|| anyhow::anyhow!("source path is not valid UTF-8: {}", source.display()))?;
 
     // Collect positional + optional flag args. Owned strings must outlive the args slice.
-    let mut arg_parts: Vec<String> = vec![
-        "attachment".into(),
-        "add".into(),
-        source_str.to_string(),
-    ];
+    let mut arg_parts: Vec<String> =
+        vec!["attachment".into(), "add".into(), source_str.to_string()];
     if let Some(s) = subdir {
         arg_parts.push("--subdir".into());
         arg_parts.push(s);
@@ -687,7 +684,9 @@ fn cmd_attachment_list(repo: &str, explain: bool, json: bool) -> Result<()> {
         return Ok(());
     }
 
-    let base_dir = payload["sourceDocumentsPath"].as_str().unwrap_or("source-documents");
+    let base_dir = payload["sourceDocumentsPath"]
+        .as_str()
+        .unwrap_or("source-documents");
     let empty_entries = vec![];
     let entries = payload["entries"].as_array().unwrap_or(&empty_entries);
     render::attachment_list(base_dir, entries);
