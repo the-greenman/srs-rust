@@ -15,7 +15,7 @@
     },
     "contentPath": {
       "type": "string",
-      "description": "Relative path from source-documents/ to the document file."
+      "description": "Relative path from source-documents/ to the document file. MAY contain forward-slash-separated sub-path segments (e.g., 'audio/meeting.mp4'); implementations MUST resolve it relative to sourceDocumentsPath (RFC-017 [R9])."
     },
     "contentType": {
       "type": "string",

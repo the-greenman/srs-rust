@@ -88,8 +88,8 @@
         "streamId": { "type": "string", "format": "uuid" },
         "sourceRole": {
           "type": "string",
-          "enum": ["evidence", "extracted-from", "quoted-from", "inspired-by"],
-          "description": "The role the source material plays for this instance (RFC-023). Replaces relationType."
+          "enum": ["evidence", "extracted-from", "quoted-from", "inspired-by", "attaches"],
+          "description": "The role the source material plays for this instance (RFC-023). Replaces relationType. 'attaches' added by RFC-017: material attachment of a source document to a record (RFC-017 [R1])."
         },
         "relationType": {
           "type": "string",
