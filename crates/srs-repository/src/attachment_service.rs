@@ -814,10 +814,19 @@ mod tests {
         // Verify the record JSON on disk has sourceRefs[0].sourceRole == "attaches"
         let record_path = format!("records/tier-2/test-record-{}.json", &record_id[..8]);
         let val = store.load_instance_json(&record_path).unwrap();
-        assert_eq!(val["sourceRefs"][0]["sourceRole"], serde_json::json!("attaches"));
+        assert_eq!(
+            val["sourceRefs"][0]["sourceRole"],
+            serde_json::json!("attaches")
+        );
         assert_eq!(val["sourceRefs"][0]["sourceId"], serde_json::json!(doc_id));
-        assert_eq!(val["sourceRefs"][0]["sourceType"], serde_json::json!("repository-document"));
-        assert!(val["sourceRefs"][0].get("relationType").is_none(), "relationType must not be emitted (RFC-023)");
+        assert_eq!(
+            val["sourceRefs"][0]["sourceType"],
+            serde_json::json!("repository-document")
+        );
+        assert!(
+            val["sourceRefs"][0].get("relationType").is_none(),
+            "relationType must not be emitted (RFC-023)"
+        );
     }
 
     #[test]
@@ -1038,8 +1047,8 @@ mod tests {
         assert_eq!(result.source_refs_count, 1);
 
         // Reload and verify sourceRefs[0].sourceRole == "attaches"
-        let val = std::fs::read_to_string(root.join("records/tier-2/test-type-ffffffff.json"))
-            .unwrap();
+        let val =
+            std::fs::read_to_string(root.join("records/tier-2/test-type-ffffffff.json")).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&val).unwrap();
         assert_eq!(
             parsed["sourceRefs"][0]["sourceRole"],
