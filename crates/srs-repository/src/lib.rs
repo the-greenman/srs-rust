@@ -1,5 +1,5 @@
 pub mod analysis;
-pub(crate) mod archive;
+pub mod archive;
 pub mod blueprint_brief_service;
 pub mod blueprint_schema_service;
 pub mod blueprint_service;
@@ -59,6 +59,7 @@ pub mod view_service;
 pub mod vocabulary_service;
 pub mod writer;
 
+pub use archive::{archive_pack, archive_unpack};
 pub use json_store::JsonStore;
 pub use package::EffectiveLifecycle;
 pub use package_types::{

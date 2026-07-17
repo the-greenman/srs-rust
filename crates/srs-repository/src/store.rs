@@ -367,6 +367,30 @@ pub trait RepositoryStore {
     ///   - `MemoryStore`: returns `Ok(())` unconditionally — path existence is
     ///     not meaningful in memory.
     fn validate_package_ref_path(&self, relative_path: &str) -> Result<(), RepositoryError>;
+
+    fn load_manifest_raw_text(&self) -> Result<String, RepositoryError> {
+        self.load_text_file("manifest.json")
+    }
+
+    fn load_primary_package_raw_text(&self) -> Result<String, RepositoryError> {
+        self.load_text_file("package/package.json")
+    }
+
+    /// Returns `None` if no relations file exists.
+    /// Tries `relations/relations-collection.json` first (canonical write path),
+    /// then `relations/relations.json` (legacy alternate convention).
+    fn load_relations_raw_text(&self) -> Result<Option<String>, RepositoryError> {
+        match self.load_text_file("relations/relations-collection.json") {
+            Ok(s) => return Ok(Some(s)),
+            Err(e) if e.is_not_found() => {}
+            Err(e) => return Err(e),
+        }
+        match self.load_text_file("relations/relations.json") {
+            Ok(s) => Ok(Some(s)),
+            Err(e) if e.is_not_found() => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3018,6 +3042,15 @@ pub mod memory {
 
         fn validate_package_ref_path(&self, _relative_path: &str) -> Result<(), RepositoryError> {
             Ok(())
+        }
+
+        fn load_manifest_raw_text(&self) -> Result<String, RepositoryError> {
+            serde_json::to_string_pretty(&*self.manifest.borrow()).map_err(|e| {
+                RepositoryError::Serialize {
+                    path: PathBuf::from("manifest.json"),
+                    source: e,
+                }
+            })
         }
 
         // --- Package boundaries ---
