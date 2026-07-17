@@ -210,6 +210,9 @@ pub enum RepositoryError {
     #[error("invalid snapshot data: {message}")]
     InvalidSnapshotData { message: String },
 
+    #[error("invalid archive: {message}")]
+    InvalidArchive { message: String },
+
     #[error("package not found: {selector:?}")]
     PackageNotFound { selector: Option<String> },
 
@@ -372,6 +375,14 @@ pub enum RepositoryError {
     // ── ext:protocol run errors ───────────────────────────────────────────────
     #[error("protocol run '{run_id}' is not in a valid state for this operation: {message}")]
     RunInvalidState { run_id: String, message: String },
+}
+
+impl From<zip::result::ZipError> for RepositoryError {
+    fn from(e: zip::result::ZipError) -> Self {
+        RepositoryError::InvalidArchive {
+            message: e.to_string(),
+        }
+    }
 }
 
 impl PartialEq for RepositoryError {
@@ -627,6 +638,10 @@ impl PartialEq for RepositoryError {
             (
                 RepositoryError::InvalidSnapshotData { message: a },
                 RepositoryError::InvalidSnapshotData { message: b },
+            ) => a == b,
+            (
+                RepositoryError::InvalidArchive { message: a },
+                RepositoryError::InvalidArchive { message: b },
             ) => a == b,
             (
                 RepositoryError::PackageNotFound { selector: a },
