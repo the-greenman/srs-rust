@@ -2040,6 +2040,50 @@ pub struct ContextRevisionTracePayload {
     pub prior_chain: Vec<srs_core::types::revision::Revision>,
 }
 
+// ── Attachment payloads ───────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentEntry {
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub document_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_checksum: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sidecar_checksum: Option<String>,
+}
+
+impl From<srs_repository::attachment_service::AttachmentEntry> for AttachmentEntry {
+    fn from(e: srs_repository::attachment_service::AttachmentEntry) -> Self {
+        Self {
+            path: e.path,
+            document_id: e.document_id,
+            title: e.title,
+            content_checksum: e.content_checksum,
+            sidecar_checksum: e.sidecar_checksum,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentListPayload {
+    pub source_documents_path: String,
+    pub entries: Vec<AttachmentEntry>,
+}
+
+impl From<srs_repository::attachment_service::ListAttachmentsResult> for AttachmentListPayload {
+    fn from(r: srs_repository::attachment_service::ListAttachmentsResult) -> Self {
+        Self {
+            source_documents_path: r.source_documents_path,
+            entries: r.entries.into_iter().map(AttachmentEntry::from).collect(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
