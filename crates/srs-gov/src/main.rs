@@ -109,6 +109,34 @@ enum Commands {
         #[arg(long)]
         smoke: bool,
     },
+    /// Source document attachment commands
+    #[command(name = "attachment")]
+    Attachment {
+        #[command(subcommand)]
+        command: AttachmentSubcommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum AttachmentSubcommand {
+    /// Add a file as a source-document attachment to this repository
+    #[command(name = "add")]
+    Add {
+        /// Path to the local source file to store
+        source: std::path::PathBuf,
+        /// Optional subdirectory within source-documents/ (e.g. "phase-1")
+        #[arg(long)]
+        subdir: Option<String>,
+        /// Optional human-readable title for the attachment
+        #[arg(long)]
+        title: Option<String>,
+        /// MIME type override (auto-detected from file extension if omitted)
+        #[arg(long = "content-type")]
+        content_type: Option<String>,
+    },
+    /// List source-document attachments in this repository
+    #[command(name = "list")]
+    List,
 }
 
 fn main() {
@@ -159,6 +187,9 @@ fn run() -> Result<()> {
             purpose,
         }) => cmd_repo_create(&output, &title, purpose.as_deref()),
         Some(Commands::Tui { smoke }) => tui_app::run_tui(&cli.repo, smoke),
+        Some(Commands::Attachment { command }) => {
+            cmd_attachment(&cli.repo, cli.explain, cli.json, command)
+        }
     }
 }
 
@@ -585,6 +616,81 @@ fn resolve_container_id(def: &governance::ContainerTypeDef, repo: &str) -> Resul
                 def.root_type_name,
             )
         })
+}
+
+// ---------------------------------------------------------------------------
+// attachment — add/list source-document attachments
+// ---------------------------------------------------------------------------
+
+fn cmd_attachment(repo: &str, explain: bool, json: bool, sub: AttachmentSubcommand) -> Result<()> {
+    match sub {
+        AttachmentSubcommand::Add {
+            source,
+            subdir,
+            title,
+            content_type,
+        } => cmd_attachment_add(repo, explain, json, source, subdir, title, content_type),
+        AttachmentSubcommand::List => cmd_attachment_list(repo, explain, json),
+    }
+}
+
+fn cmd_attachment_add(
+    repo: &str,
+    explain: bool,
+    json: bool,
+    source: std::path::PathBuf,
+    subdir: Option<String>,
+    title: Option<String>,
+    content_type: Option<String>,
+) -> Result<()> {
+    let source_str = source
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("source path is not valid UTF-8: {}", source.display()))?;
+
+    // Collect positional + optional flag args. Owned strings must outlive the args slice.
+    let mut arg_parts: Vec<String> =
+        vec!["attachment".into(), "add".into(), source_str.to_string()];
+    if let Some(s) = subdir {
+        arg_parts.push("--subdir".into());
+        arg_parts.push(s);
+    }
+    if let Some(t) = title {
+        arg_parts.push("--title".into());
+        arg_parts.push(t);
+    }
+    if let Some(ct) = content_type {
+        arg_parts.push("--content-type".into());
+        arg_parts.push(ct);
+    }
+    let args: Vec<&str> = arg_parts.iter().map(String::as_str).collect();
+
+    let payload = run_srs(&args, repo, explain, json)?;
+    if json || explain {
+        return Ok(());
+    }
+
+    let content_path = payload["contentPath"].as_str().unwrap_or("");
+    let document_id = payload["documentId"].as_str().unwrap_or("");
+    let base_dir = payload["sourceDocumentsPath"]
+        .as_str()
+        .unwrap_or("source-documents");
+    render::attachment_added(content_path, document_id, base_dir);
+    Ok(())
+}
+
+fn cmd_attachment_list(repo: &str, explain: bool, json: bool) -> Result<()> {
+    let payload = run_srs(&["attachment", "list"], repo, explain, json)?;
+    if json || explain {
+        return Ok(());
+    }
+
+    let base_dir = payload["sourceDocumentsPath"]
+        .as_str()
+        .unwrap_or("source-documents");
+    let empty_entries = vec![];
+    let entries = payload["entries"].as_array().unwrap_or(&empty_entries);
+    render::attachment_list(base_dir, entries);
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

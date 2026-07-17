@@ -784,3 +784,165 @@ fn list_tag_narrows_by_tag() {
         "untagged decision excluded\n{out}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Gate A: srs-gov attachment add / list  (#282)
+//
+// Attachment tests use a directory-format repo (not .srsj) because JsonStore
+// silently discards binary file writes — the content file is never stored,
+// so list_files_recursive returns nothing. Directory repos write to disk and
+// list_files_recursive walks the filesystem correctly.
+// ---------------------------------------------------------------------------
+
+/// A temp directory-format SRS repo, removed on drop.
+struct TempDirRepo {
+    path: String,
+}
+
+impl Drop for TempDirRepo {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(&self.path).ok();
+    }
+}
+
+/// Create a minimal directory-format SRS repo for attachment tests.
+fn setup_dir_repo(suffix: &str) -> TempDirRepo {
+    let dir = std::env::temp_dir()
+        .join(format!(
+            "srs-gov-dir-{suffix}-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+        .to_string_lossy()
+        .into_owned();
+
+    let srs = srs_bin();
+    let out = Command::new(&srs)
+        .args([
+            "repo",
+            "create",
+            "--repo",
+            &dir,
+            "--namespace",
+            "com.test.gov",
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("srs repo create");
+    assert!(
+        out.status.success(),
+        "srs repo create failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    TempDirRepo { path: dir }
+}
+
+#[test]
+fn srs_gov_attachment_add_and_list() {
+    use std::io::Write;
+
+    let repo = setup_dir_repo("attach");
+
+    let src_path = std::env::temp_dir().join(format!(
+        "test-brief-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .subsec_nanos()
+    ));
+    std::fs::File::create(&src_path)
+        .unwrap()
+        .write_all(b"Gate A test document")
+        .unwrap();
+    let src_str = src_path.to_str().unwrap();
+
+    // add must succeed and print a friendly confirmation
+    let out = gov_out(
+        &repo.path,
+        &["attachment", "add", src_str, "--title", "Gate A Brief"],
+    );
+    assert!(
+        out.contains("Attachment stored"),
+        "expected confirmation\n{out}"
+    );
+    assert!(
+        out.contains(src_path.file_name().unwrap().to_str().unwrap()),
+        "expected file name in output\n{out}"
+    );
+
+    // list must show the stored file
+    let list_out = gov_out(&repo.path, &["attachment", "list"]);
+    assert!(
+        list_out.contains(src_path.file_name().unwrap().to_str().unwrap()),
+        "file should appear in list\n{list_out}"
+    );
+    assert!(
+        list_out.contains("Gate A Brief"),
+        "title should appear in list\n{list_out}"
+    );
+
+    // validate must stay clean after the add
+    let v = srs_json(&repo.path, &["repo", "validate"], None);
+    assert_eq!(
+        v["payload"]["summary"]["errors"].as_u64(),
+        Some(0),
+        "validate must report 0 errors after attachment add"
+    );
+
+    // raw srs attachment list must also surface the indexed entry with its title
+    let raw = srs_json(&repo.path, &["attachment", "list"], None);
+    let entries = raw["payload"]["entries"].as_array().expect("entries array");
+    assert!(
+        !entries.is_empty(),
+        "raw srs attachment list must show entries"
+    );
+    let entry = entries
+        .iter()
+        .find(|e| e["title"].as_str() == Some("Gate A Brief"));
+    assert!(
+        entry.is_some(),
+        "indexed entry with title not found: {entries:?}"
+    );
+
+    std::fs::remove_file(&src_path).ok();
+}
+
+#[test]
+fn srs_gov_attachment_add_duplicate_rejected() {
+    use std::io::Write;
+
+    let repo = setup_dir_repo("attach-dup");
+    let src_path = std::env::temp_dir().join(format!(
+        "dup-test-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .subsec_nanos()
+    ));
+    std::fs::File::create(&src_path)
+        .unwrap()
+        .write_all(b"duplicate test")
+        .unwrap();
+    let src_str = src_path.to_str().unwrap();
+
+    // First add succeeds
+    gov_out(&repo.path, &["attachment", "add", src_str]);
+
+    // Second add of the same file must fail
+    let gov = srs_gov_bin();
+    let srs = srs_bin();
+    let out = std::process::Command::new(&gov)
+        .env("SRS_BIN", &srs)
+        .arg("--repo")
+        .arg(&repo.path)
+        .args(["attachment", "add", src_str])
+        .output()
+        .expect("run srs-gov");
+    assert!(!out.status.success(), "second add of same file must fail");
+
+    std::fs::remove_file(&src_path).ok();
+}
