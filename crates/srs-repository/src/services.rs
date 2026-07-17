@@ -670,6 +670,8 @@ mod tests {
             upstream_package: None,
             federation_events_path: None,
             extra: HashMap::new(),
+            source_documents_path: None,
+            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         MemoryStore::new(
@@ -733,6 +735,8 @@ mod tests {
             upstream_package: None,
             federation_events_path: None,
             extra: HashMap::new(),
+            source_documents_path: None,
+            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         MemoryStore::new(
@@ -821,6 +825,8 @@ mod tests {
             upstream_package: None,
             federation_events_path: None,
             extra: HashMap::new(),
+            source_documents_path: None,
+            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let store = MemoryStore::new(
@@ -875,6 +881,8 @@ mod tests {
             upstream_package: None,
             federation_events_path: None,
             extra: HashMap::new(),
+            source_documents_path: None,
+            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let store = MemoryStore::new(
@@ -993,6 +1001,8 @@ mod tests {
             upstream_package: None,
             federation_events_path: None,
             extra: HashMap::new(),
+            source_documents_path: None,
+            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let store = MemoryStore::new(
@@ -1314,6 +1324,8 @@ mod tests {
             upstream_package: None,
             federation_events_path: None,
             extra: HashMap::new(),
+            source_documents_path: None,
+            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let package = Package {
@@ -1418,6 +1430,8 @@ mod tests {
             upstream_package: None,
             federation_events_path: None,
             extra: HashMap::new(),
+            source_documents_path: None,
+            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let store = MemoryStore::new(

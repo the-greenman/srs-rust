@@ -165,6 +165,8 @@ impl JsonStore {
             upstream_package: None,
             federation_events_path: None,
             extra: HashMap::new(),
+            source_documents_path: None,
+            source_document_index: None,
             root: file_path
                 .parent()
                 .unwrap_or(std::path::Path::new("."))
@@ -717,6 +719,8 @@ impl RepositoryStore for JsonStore {
             upstream_package: None,
             federation_events_path: None,
             extra,
+            source_documents_path: None,
+            source_document_index: None,
             root: self.repository_root(),
         };
         state.data.insert(

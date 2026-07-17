@@ -2097,6 +2097,8 @@ pub mod memory {
                 upstream_package: None,
                 federation_events_path: None,
                 extra: HashMap::new(),
+                source_documents_path: None,
+                source_document_index: None,
                 root: PathBuf::from("/memory"),
             };
             let package = Package {
@@ -2264,6 +2266,8 @@ pub mod memory {
                 upstream_package: None,
                 federation_events_path: None,
                 extra: HashMap::new(),
+                source_documents_path: None,
+                source_document_index: None,
                 root: PathBuf::from("/memory"),
             };
             let package = Package {
@@ -2402,6 +2406,8 @@ pub mod memory {
                 upstream_package: None,
                 federation_events_path: None,
                 extra: manifest_extra,
+                source_documents_path: None,
+                source_document_index: None,
                 root: PathBuf::from("/memory"),
             };
 
@@ -3301,6 +3307,8 @@ mod tests {
             upstream_package: None,
             federation_events_path: None,
             extra: HashMap::new(),
+            source_documents_path: None,
+            source_document_index: None,
             root: repo_root.to_path_buf(),
         }
     }

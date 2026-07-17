@@ -297,6 +297,8 @@ mod tests {
             upstream_package: None,
             federation_events_path: None,
             extra: HashMap::new(),
+            source_documents_path: None,
+            source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
         };
         let package = Package {
