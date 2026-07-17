@@ -22,6 +22,8 @@ See [agents.md](agents.md) for role definitions. This plan is a single-crate, si
 |---|---|---|
 | [ADR-034](../docs/adr/034-source-refs-in-record-extra.md) | `sourceRefs` on Record is in `record.extra["sourceRefs"]`; access via `record["sourceRefs"]` in the JSON payload | accepted |
 | [capability-layering](../docs/architecture/capability-layering.md) | Cross-referencing `record.sourceRefs` with `attachment list` metadata is presentation logic, not shared semantics; it lives in `srs-gov` (thin governance client), not in `srs-repository`. | accepted |
+| R5 nominal-string filter (capability-layering R5) | `build_linked_attachments` filters `sourceRole == "attaches"` as a string literal. This is semantic determination (which source refs are attachment-type?) keyed on a nominal string — R5 debt. The correct fix is a typed `get_record_attachments` service in `srs-repository`. Deferred as a follow-up issue; this plan ships the interim shortcut with explicit acknowledgement. | known-debt |
+| Client-side file size (`std::fs::metadata`) | `build_linked_attachments` computes file size by joining `repo + sourceDocumentsPath + path` and calling `std::fs::metadata`. The correct fix is to add `sizeBytes: Option<u64>` to `AttachmentEntry` in `payload.rs`, computed by the `FileStore` side of `attachment_service`. Deferred as a follow-up issue; JSON-store repos already degrade gracefully (no path → no size). | known-debt |
 
 No new ADRs are needed. This plan is governed by ADR-034 (storage location of sourceRefs on Record) and the capability-layering rule (format-specific rendering stays in clients). A future `get_record_attachments` service in `srs-repository` (if multiple clients need it) is deferred — see *Out of scope*.
 
@@ -42,7 +44,7 @@ No changes to JSON Schema files under `srs/docs/schema/2.0/`. `bash scripts/chec
 ## Scope
 
 - Modify `cmd_get` in `crates/srs-gov/src/main.rs` to extract `sourceRefs` from the fetched record, filter for `sourceRole == "attaches"`, cross-reference with `srs attachment list`, and pass the matched entries to a new `render::linked_attachments` function.
-- Add `render::linked_attachments(repo: &str, attachments: &[LinkedAttachment])` to `crates/srs-gov/src/render.rs` — renders a "Linked Attachments" section showing title (or doc ID fallback), content path, document ID (short), and on-disk file size.
+- Add `render::linked_attachments(attachments: &[LinkedAttachment])` to `crates/srs-gov/src/render.rs` — renders a "Linked Attachments" section showing title (or doc ID fallback), content path, document ID (short), and on-disk file size.
 - Add `LinkedAttachment` struct in `crates/srs-gov/src/render.rs` (plain data carrier for the render function; no serde needed).
 - Degrade gracefully when no attachments are linked: silently omit the section.
 - Degrade gracefully when a linked document ID is not found in the attachment list: show the document ID without metadata.
@@ -54,6 +56,8 @@ No changes to JSON Schema files under `srs/docs/schema/2.0/`. `bash scripts/chec
 - A `get_record_attachments` service in `srs-repository` (a future enhancement if other clients need this data; deferred as a follow-up issue).
 - A WASM binding for record attachment queries (deferred to the same future follow-up).
 - Size-warning *policy* (non-blocking diagnostics based on configurable limits) — deferred to #284, which is blocked on RFC srs#101.
+- Adding `sizeBytes: Option<u64>` to `AttachmentEntry` in `payload.rs` (the `FileStore` side should compute the size and include it in the list payload; deferred follow-up issue — until then, `srs-gov` reads size client-side via `std::fs::metadata`, acknowledged in the Architecture Decisions table).
+- A typed service function for `sourceRole`-based filtering of `sourceRefs` (R5 debt; deferred follow-up issue — see Architecture Decisions table for acknowledgement).
 - The `--json` flag case for `srs-gov get` with attachments: the raw `srs record get` JSON already includes `sourceRefs`; no change needed.
 - Any change to `srs-cli`, `srs-repository`, or `srs-core`.
 
@@ -155,11 +159,52 @@ git commit -m "feat(srs-gov): add linked_attachments render function (#285)"
   }
   ```
 
-- [ ] Add `fn resolve_linked_attachments(record: &serde_json::Value, repo: &str) -> Vec<render::LinkedAttachment>` to `main.rs`:
+- [ ] Add `fn resolve_linked_attachments(record: &serde_json::Value, repo: &str) -> Vec<render::LinkedAttachment>` and `fn build_linked_attachments(record: &serde_json::Value, attach_payload: &serde_json::Value, repo: &str) -> Vec<render::LinkedAttachment>` to `main.rs`:
 
   ```rust
+  /// Thin acquisition wrapper: calls run_srs to fetch the attachment list, then delegates
+  /// all cross-referencing to `build_linked_attachments`.
   fn resolve_linked_attachments(record: &serde_json::Value, repo: &str) -> Vec<render::LinkedAttachment> {
       // 1. Extract sourceRefs with sourceRole == "attaches" (ADR-034: in record.extra["sourceRefs"])
+      let empty = vec![];
+      let source_refs = record["sourceRefs"].as_array().unwrap_or(&empty);
+      let has_attaches = source_refs
+          .iter()
+          .any(|r| r["sourceRole"].as_str() == Some("attaches"));
+      if !has_attaches {
+          return vec![];
+      }
+
+      // 2. Fetch attachment list from the store (best-effort: degrade to doc IDs on error)
+      let attach_payload = match run_srs(&["attachment", "list"], repo, false, false) {
+          Ok(p) => p,
+          Err(_) => {
+              // Degrade: return stub entries with doc IDs only
+              return source_refs
+                  .iter()
+                  .filter(|r| r["sourceRole"].as_str() == Some("attaches"))
+                  .filter_map(|r| r["sourceId"].as_str())
+                  .map(|id| render::LinkedAttachment {
+                      document_id: id.to_string(),
+                      title: None,
+                      content_path: None,
+                      size_bytes: None,
+                  })
+                  .collect();
+          }
+      };
+
+      // 3. Delegate cross-referencing to the pure function
+      build_linked_attachments(record, &attach_payload, repo)
+  }
+
+  /// Pure function: cross-references sourceRefs against a pre-fetched attachment list payload.
+  /// Accepts pre-fetched JSON so the logic is fully testable without spawning subprocesses.
+  fn build_linked_attachments(
+      record: &serde_json::Value,
+      attach_payload: &serde_json::Value,
+      repo: &str,
+  ) -> Vec<render::LinkedAttachment> {
       let empty = vec![];
       let source_refs = record["sourceRefs"].as_array().unwrap_or(&empty);
       let attached_doc_ids: Vec<&str> = source_refs
@@ -167,35 +212,22 @@ git commit -m "feat(srs-gov): add linked_attachments render function (#285)"
           .filter(|r| r["sourceRole"].as_str() == Some("attaches"))
           .filter_map(|r| r["sourceId"].as_str())
           .collect();
-      if attached_doc_ids.is_empty() {
-          return vec![];
-      }
 
-      // 2. Fetch attachment list from the store (best-effort: degrade to doc IDs on error)
-      let attach_payload = match run_srs(&["attachment", "list"], repo, false, false) {
-          Ok(p) => p,
-          Err(_) => return attached_doc_ids.iter().map(|id| render::LinkedAttachment {
-              document_id: id.to_string(),
-              title: None,
-              content_path: None,
-              size_bytes: None,
-          }).collect(),
-      };
       let base_dir = attach_payload["sourceDocumentsPath"]
           .as_str()
           .unwrap_or("source-documents");
       let empty_entries = vec![];
       let entries = attach_payload["entries"].as_array().unwrap_or(&empty_entries);
 
-      // 3. Cross-reference and build result
+      // Cross-reference and build result (R5 known-debt: filtering by "attaches" string)
       attached_doc_ids.iter().map(|&doc_id| {
           // AttachmentEntry has #[serde(rename_all = "camelCase")] → "documentId" in JSON
           let entry = entries.iter().find(|e| e["documentId"].as_str() == Some(doc_id));
           let content_path = entry.and_then(|e| e["path"].as_str()).map(String::from);
           let title = entry.and_then(|e| e["title"].as_str()).map(String::from);
           // Compute on-disk size (best-effort; None on JSON-store repos or missing file)
+          // Known-debt: should come from sizeBytes in AttachmentEntry payload instead
           let size_bytes = content_path.as_deref().and_then(|rel_path| {
-              // repo path + base_dir + rel_path
               let full = std::path::Path::new(repo).join(base_dir).join(rel_path);
               std::fs::metadata(full).ok().map(|m| m.len())
           });
@@ -229,10 +261,11 @@ cargo clippy -p srs-gov -- -D warnings
 ```
 
 Specific tests to write or verify:
-- `resolve_linked_attachments_empty_refs` — record with no sourceRefs returns empty Vec
-- `resolve_linked_attachments_no_attaches_role` — record with sourceRefs but none with `sourceRole: "attaches"` returns empty Vec
+- `resolve_linked_attachments_empty_refs` — record with no sourceRefs returns empty Vec (calls `resolve_linked_attachments`, returns early before `run_srs`)
+- `resolve_linked_attachments_no_attaches_role` — record with sourceRefs but none with `sourceRole: "attaches"` returns empty Vec (same early-exit path)
+- `build_linked_attachments_matches_entry` — record with one attaches ref, payload with matching entry: result contains one `LinkedAttachment` with correct title and path
 
-These tests call the actual function. Because `resolve_linked_attachments` calls `run_srs` only when attached IDs are non-empty, both tests return early before any process is spawned. Add them in a `#[cfg(test)] mod tests` block in `main.rs`:
+Add them in a `#[cfg(test)] mod tests` block in `main.rs`:
 
 ```rust
 #[test]
@@ -251,6 +284,26 @@ fn resolve_linked_attachments_no_attaches_role() {
     });
     let result = resolve_linked_attachments(&record, ".");
     assert!(result.is_empty());
+}
+
+#[test]
+fn build_linked_attachments_matches_entry() {
+    let record = serde_json::json!({
+        "sourceRefs": [
+            { "sourceType": "repository-document", "sourceId": "doc-abc123", "sourceRole": "attaches" }
+        ]
+    });
+    let attach_payload = serde_json::json!({
+        "sourceDocumentsPath": "source-documents",
+        "entries": [
+            { "documentId": "doc-abc123", "path": "report.pdf", "title": "Q3 Report" }
+        ]
+    });
+    let result = build_linked_attachments(&record, &attach_payload, ".");
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].document_id, "doc-abc123");
+    assert_eq!(result[0].title.as_deref(), Some("Q3 Report"));
+    assert_eq!(result[0].content_path.as_deref(), Some("report.pdf"));
 }
 ```
 
