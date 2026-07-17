@@ -38,16 +38,11 @@ fn canonical_store() -> (tempfile::TempDir, FileStore) {
     // Pin createdAt to a fixed value. FileStore::initialize_repository writes
     // chrono::Utc::now() into manifest.json, which varies between process runs
     // and breaks the golden-fixture byte comparison.
-    let manifest_path = dir.path().join("manifest.json");
-    let content = std::fs::read_to_string(&manifest_path).expect("read manifest");
-    let mut val: serde_json::Value =
-        serde_json::from_str(&content).expect("parse manifest");
-    val["createdAt"] = serde_json::json!("2026-01-01T00:00:00Z");
-    std::fs::write(
-        &manifest_path,
-        serde_json::to_string_pretty(&val).expect("serialize manifest"),
-    )
-    .expect("write pinned manifest");
+    let mut manifest = store.load_manifest().expect("load manifest for pinning");
+    manifest
+        .extra
+        .insert("createdAt".to_string(), serde_json::json!("2026-01-01T00:00:00Z"));
+    store.save_manifest(&manifest).expect("save pinned manifest");
 
     (dir, store)
 }
@@ -67,7 +62,7 @@ fn golden_path() -> std::path::PathBuf {
 fn test_archive_golden_fixture() {
     let actual = pack_canonical();
 
-    if std::env::var("REGENERATE_GOLDEN").is_ok() {
+    if std::env::var("REGENERATE_GOLDEN").as_deref() == Ok("1") {
         std::fs::write(golden_path(), &actual).expect("write golden fixture");
         println!("golden-archive.srs regenerated ({} bytes)", actual.len());
         return;
@@ -90,7 +85,10 @@ fn test_archive_golden_fixture() {
 #[test]
 fn test_archive_golden_roundtrip() {
     let path = golden_path();
-    let bytes = std::fs::read(&path).expect("golden fixture missing");
+    let bytes = std::fs::read(&path).expect(
+        "golden fixture missing — run: \
+        REGENERATE_GOLDEN=1 cargo test -p srs-repository -- test_archive_golden_fixture",
+    );
     let target_dir = tempdir().unwrap();
     let target = FileStore::new(target_dir.path());
     archive_unpack(Cursor::new(bytes), &target).expect("golden fixture failed to unpack");
