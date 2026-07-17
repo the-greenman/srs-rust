@@ -972,4 +972,26 @@ mod tests {
         assert_eq!(packet.foundation_notes.notes.len(), 2);
         assert!(packet.ai_handoff_guidance.contains("external AI"));
     }
+
+    #[test]
+    fn test_build_migration_packet_for_profile_json_store_roundtrip() {
+        use crate::json_store::JsonStore;
+
+        let srsj = r#"{
+            "srsj": "1",
+            "manifest": {
+                "instanceIndex": [],
+                "repositoryId": "cross-store-test",
+                "title": "Cross-store Test"
+            },
+            "data": {
+                ".srs/profiles/foundation.json": "{\"profileId\":\"foundation\",\"includeTags\":[\"meaning-first\"]}"
+            }
+        }"#;
+
+        let store = JsonStore::from_srsj(srsj).unwrap();
+        let packet = build_migration_packet_for_profile(&store, "foundation").unwrap();
+
+        assert_eq!(packet.profile, "foundation");
+    }
 }
