@@ -56,11 +56,7 @@ pub fn list_attachments(
     let mut entries: Vec<AttachmentEntry> = all_files
         .into_iter()
         // Strip the base prefix to get the path relative to source-documents/.
-        .filter_map(|repo_rel| {
-            repo_rel
-                .strip_prefix(&prefix)
-                .map(|s| s.to_string())
-        })
+        .filter_map(|repo_rel| repo_rel.strip_prefix(&prefix).map(|s| s.to_string()))
         // Exclude .meta.json sidecars.
         .filter(|rel| !rel.ends_with(".meta.json"))
         .map(|rel| {
@@ -294,7 +290,11 @@ mod tests {
         assert_eq!(result.source_documents_path, "source-documents");
         let paths: Vec<&str> = result.entries.iter().map(|e| e.path.as_str()).collect();
         // content file is indexed → metadata populated
-        let brief = result.entries.iter().find(|e| e.path == "brief.pdf").unwrap();
+        let brief = result
+            .entries
+            .iter()
+            .find(|e| e.path == "brief.pdf")
+            .unwrap();
         assert_eq!(brief.document_id.as_deref(), Some("roundtrip-uuid"));
         assert_eq!(brief.title.as_deref(), Some("Roundtrip Brief"));
         // subdirectory file is present but not indexed
@@ -302,7 +302,11 @@ mod tests {
             paths.contains(&"annexes/annex-a.pdf"),
             "expected annexes/annex-a.pdf, got {paths:?}"
         );
-        let annex = result.entries.iter().find(|e| e.path == "annexes/annex-a.pdf").unwrap();
+        let annex = result
+            .entries
+            .iter()
+            .find(|e| e.path == "annexes/annex-a.pdf")
+            .unwrap();
         assert!(annex.document_id.is_none());
         // sidecar excluded
         assert!(!paths.contains(&"brief.meta.json"));
