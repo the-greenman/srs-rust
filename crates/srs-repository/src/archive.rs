@@ -7,6 +7,7 @@ use crate::repository_portability::{
 use crate::store::RepositoryStore;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
+use srs_core::types::container::{Container, ContainerIndexEntry};
 use srs_core::types::relation::Relation;
 use std::collections::HashMap;
 use std::io::{Read, Seek, Write};
@@ -78,7 +79,7 @@ pub fn archive_pack(
         if let Some(b64) = &doc.content_base64 {
             let content_bytes = BASE64
                 .decode(b64)
-                .map_err(|e| RepositoryError::InvalidArchive {
+                .map_err(|e| RepositoryError::InvalidSnapshotData {
                     message: e.to_string(),
                 })?;
             entries.push((
@@ -137,10 +138,11 @@ pub fn archive_unpack(
             .ok_or_else(|| RepositoryError::InvalidArchive {
                 message: "missing manifest.json".to_string(),
             })?;
-    let manifest_val: serde_json::Value =
+    let mut manifest_val: serde_json::Value =
         serde_json::from_slice(manifest_bytes).map_err(|e| RepositoryError::InvalidArchive {
             message: e.to_string(),
         })?;
+    crate::manifest::migrate_upstream_package(&mut manifest_val);
 
     let repo_meta = RepositoryMetadata {
         repository_id: manifest_val
@@ -313,14 +315,22 @@ pub fn archive_unpack(
         Some(src_docs_base.to_string())
     };
 
+    let root_container: Option<Container> = manifest_val
+        .get("container")
+        .and_then(|v| serde_json::from_value(v.clone()).ok());
+
+    let container_index: Option<Vec<ContainerIndexEntry>> = manifest_val
+        .get("containerIndex")
+        .and_then(|v| serde_json::from_value(v.clone()).ok());
+
     let snapshot = RepositorySnapshot {
         repository: repo_meta,
         declared_extensions,
         packages: vec![primary_pkg],
         instances,
         containers: Vec::new(),
-        root_container: None,
-        container_index: None,
+        root_container,
+        container_index,
         relations,
         source_documents_path,
         source_documents,
@@ -373,7 +383,6 @@ mod tests {
 
         let source = init_memory_store();
 
-        // Write a note instance
         let note_id = new_instance_id();
         let note_value = serde_json::json!({
             "id": note_id,
@@ -404,6 +413,93 @@ mod tests {
         let unpacked = target.load_manifest().expect("load target manifest");
         assert_eq!(unpacked.instance_index.len(), 1);
         assert_eq!(unpacked.instance_index[0].instance_id, note_id);
+
+        // Verify instance body survived roundtrip
+        let inst_path = &unpacked.instance_index[0].path;
+        let inst_body = target
+            .load_instance_json(inst_path)
+            .expect("load unpacked instance");
+        assert_eq!(inst_body["title"], "Test Note");
+        assert_eq!(inst_body["tier"], 0);
+        let sections = inst_body["sections"].as_array().expect("sections array");
+        assert_eq!(sections.len(), 1);
+        assert_eq!(sections[0]["content"], "Hello");
+    }
+
+    #[test]
+    fn test_archive_unpack_missing_package_snapshot() {
+        use zip::write::SimpleFileOptions;
+
+        let manifest_json = serde_json::json!({
+            "repositoryId": "test-id",
+            "namespace": "com.example",
+            "srsVersion": "2.0-draft",
+            "instanceIndex": []
+        });
+        let mut buf = Vec::new();
+        let mut zw = zip::ZipWriter::new(Cursor::new(&mut buf));
+        let opts = SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated)
+            .last_modified_time(zip::DateTime::default());
+        zw.start_file("manifest.json", opts).unwrap();
+        zw.write_all(serde_json::to_vec_pretty(&manifest_json).unwrap().as_slice())
+            .unwrap();
+        let _ = zw.finish().unwrap();
+
+        let target = MemoryStore::uninitialized();
+        let result = archive_unpack(Cursor::new(buf), &target);
+        assert!(
+            matches!(result, Err(RepositoryError::InvalidArchive { .. })),
+            "expected InvalidArchive for missing package snapshot, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_archive_cross_store_roundtrip() {
+        use crate::store::FileStore;
+        use crate::writer::new_instance_id;
+        use tempfile::tempdir;
+
+        // Pack from MemoryStore, unpack into FileStore
+        let source = init_memory_store();
+        let note_id = new_instance_id();
+        let note_value = serde_json::json!({
+            "id": note_id,
+            "tier": 0,
+            "title": "Cross-Store Note",
+            "sections": [{ "id": "s1", "title": "Body", "content": "cross-store content" }]
+        });
+        source
+            .save_instance_json(&format!("records/notes/{}.json", &note_id[..8]), &note_value)
+            .expect("save instance to memory");
+
+        let mut manifest = source.load_manifest().expect("load memory manifest");
+        manifest.instance_index.push(crate::index::InstanceIndexEntry {
+            instance_id: note_id.clone(),
+            tier: 0,
+            path: format!("records/notes/{}.json", &note_id[..8]),
+            title: Some(serde_json::Value::String("Cross-Store Note".to_string())),
+            tags: None,
+        });
+        source.save_manifest(&manifest).expect("save manifest");
+
+        let zip_bytes = pack_to_bytes(&source);
+
+        let target_dir = tempdir().unwrap();
+        let target = FileStore::new(target_dir.path());
+        archive_unpack(Cursor::new(&zip_bytes), &target).expect("cross-store unpack failed");
+
+        let unpacked = target.load_manifest().expect("load filestore manifest");
+        assert_eq!(unpacked.instance_index.len(), 1);
+        assert_eq!(unpacked.instance_index[0].instance_id, note_id);
+
+        let inst_path = &unpacked.instance_index[0].path;
+        let inst_body = target
+            .load_instance_json(inst_path)
+            .expect("load cross-store instance");
+        assert_eq!(inst_body["title"], "Cross-Store Note");
+        assert_eq!(inst_body["sections"][0]["content"], "cross-store content");
     }
 
     #[test]

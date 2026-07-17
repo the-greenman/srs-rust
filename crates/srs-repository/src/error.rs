@@ -640,6 +640,10 @@ impl PartialEq for RepositoryError {
                 RepositoryError::InvalidSnapshotData { message: b },
             ) => a == b,
             (
+                RepositoryError::InvalidArchive { message: a },
+                RepositoryError::InvalidArchive { message: b },
+            ) => a == b,
+            (
                 RepositoryError::PackageNotFound { selector: a },
                 RepositoryError::PackageNotFound { selector: b },
             ) => a == b,

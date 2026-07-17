@@ -1,6 +1,6 @@
 # ADR-033: .srs Archive Format — File-Tree ZIP with archive_pack/archive_unpack
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-07-17
 - **Supersedes:** —
 - **Superseded by:** —
@@ -39,7 +39,9 @@ RFC-017 explicitly describes `manifest.json` at the ZIP root and names the file-
 5. `archive_unpack(reader: impl Read + Seek, target: &dyn RepositoryStore) -> Result<(), RepositoryError>` is the unpack API.
 6. Both functions are `pub` in `srs-repository` (re-exported from `lib.rs`).
 7. A new `RepositoryError::InvalidArchive { message: String }` variant handles ZIP read/write errors.
-8. The pack function loads `manifest.json` and `package/package.json` as raw bytes from the store via dedicated `RepositoryStore` trait methods (`load_manifest_raw_text`, `load_primary_package_raw_text`, `load_relations_raw_text`) to avoid serialization drift and to keep path strings inside the storage-adapter layer (CLAUDE.md path-string rule). `export_repository_snapshot_with_options` is used for instance and source-document data. Relations are loaded via `load_relations_raw_text`; if absent, the ZIP entry is omitted. Path string literals (`"manifest.json"` etc.) do not appear in `archive.rs` — only in the default implementations of these trait methods.
+8. The pack function loads `manifest.json` and `package/package.json` as raw bytes from the store via dedicated `RepositoryStore` trait methods (`load_manifest_raw_text`, `load_primary_package_raw_text`, `load_relations_raw_text`) to avoid serialization drift and to keep path strings inside the storage-adapter layer (CLAUDE.md path-string rule). Instance files are read via the manifest `instanceIndex` paths (actual storage layout is mirrored faithfully; canonical paths are not recomputed). Relations are loaded via `load_relations_raw_text`; if absent, the ZIP entry is omitted.
+9. **Implementation deviation:** the ZIP also contains `package/package.snapshot.json` — the serialized `PackageBoundarySnapshot` from `export_repository_snapshot_with_options`. This is required because `package/package.json` uses a path-index format (fields and types referenced by relative path, not inlined) that cannot be deserialized as `PackageBoundarySnapshot` directly; the snapshot file enables faithful unpack without re-loading the source store's files. `archive_unpack` reads `package/package.snapshot.json` to reconstruct the primary `PackageBoundarySnapshot` and populate the import snapshot. ZIP entry names for the archive format (e.g. `"manifest.json"`, `"package/package.snapshot.json"`) appear as literals in `archive.rs` for the unpack read path; only the storage adapter paths (for the source store during pack) are hidden behind trait methods.
+10. `archive_unpack` extracts `container` and `containerIndex` from `manifest.json` and passes them to `import_repository_snapshot` as `root_container` and `container_index`, preserving the source repository's root container identity across roundtrips.
 
 ## Consequences
 
