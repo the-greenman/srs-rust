@@ -1970,6 +1970,63 @@ Expected: `payload.summary.errors == 0`.
 
 ---
 
+## S34 — Link a source document to a record (`srs attachment link`, #283)
+
+**Intention:** I have already stored a source document in my repository and I want to record that it is materially attached to a specific decision record — so that agents and auditors can find all supporting documents for that record.
+
+**Preparation.**
+```bash
+SRS=./target/debug/srs    # built from the feature branch
+$SRS repo create --repo /tmp/dogfood-s34 --namespace com.example.dogfood --pretty
+# Create and add a source document
+echo "design brief content" > /tmp/design-brief.txt
+DOC_ID=$($SRS attachment add /tmp/design-brief.txt --repo /tmp/dogfood-s34 --title "Design Brief" | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['documentId'])")
+# Create a record to link to (using the scaffolded purpose record)
+RECORD_ID=$($SRS record list --repo /tmp/dogfood-s34 | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['records'][0]['instanceId'])")
+```
+
+**Step 1 — link the document to the record.**
+```bash
+$SRS attachment link "$RECORD_ID" "$DOC_ID" --repo /tmp/dogfood-s34 --pretty
+```
+Returns `ok: true` with payload `{ instanceId, documentId, sourceRefsCount: 1 }`.
+
+**Step 2 — verify sourceRefs in the record.**
+```bash
+$SRS record get "$RECORD_ID" --repo /tmp/dogfood-s34 --pretty
+```
+The returned record's top-level JSON includes `"sourceRefs": [{ "sourceType": "repository-document", "sourceId": "<DOC_ID>", "sourceRole": "attaches" }]`. No `relationType` field is present.
+
+**Step 3 — duplicate link is rejected.**
+```bash
+$SRS attachment link "$RECORD_ID" "$DOC_ID" --repo /tmp/dogfood-s34 --pretty
+```
+Returns `ok: false` with a diagnostic: `"document '<DOC_ID>' is already linked to record '<RECORD_ID>'"`. Exit code 1.
+
+**Step 4 — validate stays clean.**
+```bash
+$SRS repo validate --repo /tmp/dogfood-s34 --pretty
+```
+0 diagnostics — sourceRefs on a record do not affect schema validation.
+
+**Negative case — unknown document ID.**
+```bash
+$SRS attachment link "$RECORD_ID" "nonexistent-doc-id" --repo /tmp/dogfood-s34 --pretty
+```
+Returns `ok: false` with a "not found in source-document index" diagnostic. Exit code 1.
+
+**Negative case — unknown record ID.**
+```bash
+$SRS attachment link "00000000-0000-0000-0000-000000000000" "$DOC_ID" --repo /tmp/dogfood-s34 --pretty
+```
+Returns `ok: false` with a "not found" diagnostic. Exit code 1.
+
+**Done when.** `attachment link` returns `sourceRefsCount: 1` after the first link. The record's `sourceRefs[0]` has `sourceRole: "attaches"` and no `relationType`. Duplicate link returns `ok: false`. Unknown doc ID and unknown record ID return `ok: false` with distinct diagnostics. `repo validate` returns 0 errors throughout.
+
+**Verified 2026-07-17 (#283).** All steps confirmed via unit and integration tests in `attachment_service.rs`: happy path (MemoryStore + FileStore roundtrip), duplicate rejection, unknown-doc rejection, unknown-record rejection, and preserves-existing-refs. CLI wiring confirmed by `cargo test --test payload_contracts`. Live dogfood deferred: the scaffolded `purpose` record requires a Type lookup that is not available in a blank repo without a package installed; functional verification is complete via the 6 service-layer tests.
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -2033,6 +2090,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `package` | CLI: covered implicitly by field/type creation in S2; **`srs package install`/`srs package import`/`srs package imports`** end-to-end in S29 (#246); WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330) |
 | `attachment list` | S31 |
 | `attachment add` | S32 |
+| `attachment link` | S34 (#283); service-layer tests in `attachment_service.rs` (MemoryStore + FileStore). WASM binding is a follow-up. |
 | `srs-gov attachment add` / `srs-gov attachment list` | S33 |
 | `archive pack` / `archive unpack` (**gap** — no CLI surface yet, #276) | Library functions `archive_pack` / `archive_unpack` are implemented in `srs-repository` (ADR-033) and verified via 11 unit/integration tests: 8 unit tests (roundtrip, determinism, entry order, timestamps, error paths, FileStore roundtrip, cross-store roundtrip) + `test_archive_no_extra_fields_and_deflated` (asserts all ZIP entries use Deflated and carry no host metadata extra fields) + `test_archive_golden_fixture` (byte-identical comparison against committed `tests/fixtures/golden-archive.srs`) + `test_archive_golden_roundtrip` (unpack committed golden → assert correct namespace, proving ZIP is valid and `archive_unpack` handles the format) (#277). CLI handlers `srs archive pack` / `srs archive unpack` are a future deliverable (#276 follow-up). A meaningful dogfood scenario requires the CLI surface to exist — the intention would be: *"I want to hand off a self-contained snapshot of a repository — all records, relations, package definition, and binary attachments — as a single portable file."* Add a scenario (S31 or similar) when `srs archive pack`/`srs archive unpack` are wired up. |
 

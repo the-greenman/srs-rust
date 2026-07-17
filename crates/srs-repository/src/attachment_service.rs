@@ -387,8 +387,8 @@ pub fn link_attachment(
     let source_refs_count = updated
         .extra
         .get("sourceRefs")
-        .and_then(|v| serde_json::from_value::<Vec<SourceReference>>(v.clone()).ok())
-        .map(|refs| refs.len())
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
         .unwrap_or(0);
 
     Ok(LinkAttachmentResult {
@@ -843,6 +843,7 @@ mod tests {
         assert_eq!(val["sourceRefs"][0]["sourceRole"], serde_json::json!("attaches"));
         assert_eq!(val["sourceRefs"][0]["sourceId"], serde_json::json!(doc_id));
         assert_eq!(val["sourceRefs"][0]["sourceType"], serde_json::json!("repository-document"));
+        assert!(val["sourceRefs"][0].get("relationType").is_none(), "relationType must not be emitted (RFC-023)");
     }
 
     #[test]
@@ -1073,6 +1074,10 @@ mod tests {
         assert_eq!(
             parsed["sourceRefs"][0]["sourceId"],
             serde_json::json!(doc_id)
+        );
+        assert!(
+            parsed["sourceRefs"][0].get("relationType").is_none(),
+            "relationType must not be emitted (RFC-023)"
         );
     }
 
