@@ -195,6 +195,9 @@ fn main() {
     write_schema!("repo-migrations", RepoMigrationsPayload);
     write_schema!("repo-apply-migration", RepoApplyMigrationPayload);
 
+    // Attachment payloads
+    write_schema!("attachment-list", AttachmentListPayload);
+
     // Package payloads
     write_schema!("package-list", PackageListPayload);
     write_schema!("package-create", PackageCreatePayload);

@@ -1,3 +1,4 @@
+pub mod attachment;
 pub mod blueprint;
 pub mod container;
 pub mod context;
@@ -324,6 +325,15 @@ pub enum Commands {
     /// Addressability context-query commands (ext:addressability)
     #[command(subcommand)]
     Context(context::ContextCommand),
+    /// Source document attachment commands
+    #[command(subcommand)]
+    Attachment(AttachmentCommand),
+}
+
+#[derive(Subcommand)]
+pub enum AttachmentCommand {
+    /// List source documents in the repository (walks subdirectories)
+    List,
 }
 
 #[derive(Subcommand)]
@@ -1635,5 +1645,6 @@ pub fn dispatch(cli: Cli) -> Result<String> {
         Commands::Registry(registry_cmd) => registry::dispatch(ctx, registry_cmd),
         Commands::Federation(federation_cmd) => federation::dispatch(ctx, federation_cmd),
         Commands::Context(ctx_cmd) => context::dispatch(ctx, ctx_cmd),
+        Commands::Attachment(cmd) => attachment::dispatch(ctx, cmd),
     }
 }
