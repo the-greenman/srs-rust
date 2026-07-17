@@ -34,6 +34,7 @@ use srs_core::types::field::ValueType;
 use srs_core::types::lifecycle::{RelationDirection, RequiresRelation};
 use srs_core::types::record::{FieldValue, Record};
 use srs_core::types::relation::Relation;
+use srs_core::types::source_reference::SourceReference;
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::types::revision::{Revision, RevisionAgent, RevisionProvenance};
 use srs_core::validation::lifecycle::validate_type_lifecycle_v9;
@@ -1953,6 +1954,48 @@ pub(crate) fn write_new_record(
     store.ensure_instance_dir(dir)?;
     write_record(store, record, &relative_path)?;
     Ok(relative_path)
+}
+
+/// Append a SourceReference to a tier-2 record by instance ID.
+///
+/// Path lookup is encapsulated here so service callers never handle storage paths
+/// (ADR-010 storage-boundary rule). `sourceRefs` on `Record` is persisted via
+/// `record.extra["sourceRefs"]`; see ADR-032 for why a typed field is not used.
+///
+/// Returns the updated record (with the appended ref in extra["sourceRefs"]).
+pub(crate) fn append_source_ref(
+    store: &dyn RepositoryStore,
+    instance_id: &str,
+    source_ref: SourceReference,
+) -> Result<Record, RepositoryError> {
+    let manifest = store.load_manifest()?;
+    let entry = manifest
+        .instance_index
+        .iter()
+        .find(|e| e.instance_id() == instance_id && e.tier() == 2)
+        .ok_or_else(|| RepositoryError::NotFound {
+            path: std::path::PathBuf::from("records"),
+        })?
+        .clone();
+
+    let mut record = load_record(store, entry.path())?;
+
+    let mut refs: Vec<SourceReference> = record
+        .extra
+        .get("sourceRefs")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default();
+    refs.push(source_ref);
+    record.extra.insert(
+        "sourceRefs".to_string(),
+        serde_json::to_value(&refs).map_err(|e| RepositoryError::Serialize {
+            path: std::path::PathBuf::from(entry.path()),
+            source: e,
+        })?,
+    );
+
+    write_record(store, &record, entry.path())?;
+    Ok(record)
 }
 
 /// Add or replace the manifest index entry for a Record (in memory only).
