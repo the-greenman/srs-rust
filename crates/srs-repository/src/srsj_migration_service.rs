@@ -5,7 +5,9 @@
 //! `migration_registry_service.rs` (see ADR-032): by the time any store exists the
 //! RFC-014 transformation has already been applied, so a registry `status_fn` would always
 //! return `AlreadyApplied` — noise, not signal. Pre-load migrations remain standalone entry
-//! points called directly at bundle-load time (e.g. `JsonStore::from_srsj`).
+//! points called directly at bundle-load time — `load_from_srsj` (this module) is the
+//! public entry point; `JsonStore::from_srsj` is its lower-level delegate and does **not**
+//! apply the migration.
 
 use crate::error::RepositoryError;
 
