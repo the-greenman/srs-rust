@@ -334,6 +334,20 @@ pub enum Commands {
 pub enum AttachmentCommand {
     /// List source documents in the repository (walks subdirectories)
     List,
+    /// Add a file as a source-document attachment
+    Add {
+        /// Path to the local source file to store
+        source: std::path::PathBuf,
+        /// Optional subdirectory within source-documents/ (e.g. "phase-1")
+        #[arg(long)]
+        subdir: Option<String>,
+        /// Optional human-readable title for the attachment
+        #[arg(long)]
+        title: Option<String>,
+        /// MIME type override (auto-detected from file extension if omitted)
+        #[arg(long = "content-type")]
+        content_type: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
