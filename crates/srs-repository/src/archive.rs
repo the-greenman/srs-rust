@@ -42,10 +42,18 @@ pub fn archive_pack(
     ));
 
     if let Some(pkg) = snapshot.packages.iter().find(|p| p.boundary_path.is_none()) {
-        let pkg_bytes =
-            serde_json::to_vec_pretty(pkg).map_err(|e| RepositoryError::InvalidSnapshotData {
+        // Route through to_value() so serde_json::Map (BTreeMap-backed) sorts all
+        // HashMap<String,Value> fields, making the snapshot byte-stable across process runs.
+        // See ADR-017: preserve_order must remain disabled or this guarantee breaks.
+        let pkg_value =
+            serde_json::to_value(pkg).map_err(|e| RepositoryError::InvalidSnapshotData {
                 message: e.to_string(),
             })?;
+        let pkg_bytes = serde_json::to_vec_pretty(&pkg_value).map_err(|e| {
+            RepositoryError::InvalidSnapshotData {
+                message: e.to_string(),
+            }
+        })?;
         entries.push(("package/package.snapshot.json".to_string(), pkg_bytes));
     }
 
@@ -646,5 +654,29 @@ mod tests {
             .expect("load target FileStore manifest");
         assert_eq!(unpacked.instance_index.len(), 1);
         assert_eq!(unpacked.instance_index[0].instance_id, note_id);
+    }
+
+    #[test]
+    fn test_archive_no_extra_fields_and_deflated() {
+        let store = init_memory_store();
+        let bytes = pack_to_bytes(&store);
+        let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).expect("open zip");
+        for i in 0..zip.len() {
+            let entry = zip.by_index(i).unwrap();
+            let extra = entry.extra_data().unwrap_or(&[]);
+            assert!(
+                extra.is_empty(),
+                "entry '{}' has non-empty extra_data (host metadata present): {:?}",
+                entry.name(),
+                extra
+            );
+            assert_eq!(
+                entry.compression(),
+                zip::CompressionMethod::Deflated,
+                "entry '{}' uses {:?} instead of Deflated",
+                entry.name(),
+                entry.compression()
+            );
+        }
     }
 }
