@@ -2027,6 +2027,85 @@ Returns `ok: false` with a "not found" diagnostic. Exit code 1.
 
 ---
 
+## S35 — Facilitator reviews a decision with its linked source documents (`srs-gov get`, #285)
+
+**Intention:** I want to review a decision record and see which source documents support it — so that I can confirm the decision has proper backing material before a governance meeting.
+
+**Preparation.**
+```bash
+SRS=./target/debug/srs
+SRS_GOV=./target/debug/srs-gov
+REPO=/tmp/dogfood-s35
+
+# Use a directory-format governance repo (directory repos support binary attachments)
+cp -r srs/docs/spec/examples/gallery-project-v2 $REPO
+
+# Pick a decision record (governance/decision type)
+DECISION_ID=$($SRS record list --repo $REPO | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+records = data['payload']['records']
+for r in records:
+    if r['record'].get('typeId') == '1fcad6a2-9f78-5e41-94ba-d82e88b822f3':
+        print(r['instanceId'])
+        break
+")
+echo "Decision: $DECISION_ID"
+```
+
+**Step 1 — baseline: no attachments.**
+```bash
+$SRS_GOV get decision_log "$DECISION_ID" --repo $REPO
+```
+Shows field detail only. No "Linked Attachments" section. Confirms the section is conditional.
+
+**Step 2 — add a source document to the repo.**
+```bash
+echo "Working notes: reviewed 3 options. 6-month pilot chosen." > /tmp/pilot-brief.txt
+DOC_ID=$($SRS attachment add /tmp/pilot-brief.txt --repo $REPO --title "Pilot Duration Brief" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['documentId'])")
+echo "DOC_ID: $DOC_ID"
+```
+
+**Step 3 — link the attachment to the decision.**
+```bash
+$SRS attachment link "$DECISION_ID" "$DOC_ID" --repo $REPO --pretty
+```
+Returns `ok: true` with `sourceRefsCount: 1`.
+
+**Step 4 — happy path: srs-gov get now shows linked attachments.**
+```bash
+$SRS_GOV get decision_log "$DECISION_ID" --repo $REPO
+```
+Output includes a "Linked Attachments" section below the field detail:
+```
+· · · · · · · · · · · · · �� · · · · · · · · · · · · · · · · ·
+  Linked Attachments
+· · �� · · · · · · · · · · · · · · · · · · · · · · · · · · · ·
+  PATH · DOCUMENT ID                          TITLE                         SIZE
+  ──��───────────��───────────────────────────────────────────────────────────────
+  pilot-brief.txt (c463a202)                  Pilot Duration Brief          85 B
+```
+Path is relative to `source-documents/`. Document ID is truncated to 8 chars.
+
+**Step 5 — JSON flag: raw srs record get payload (no presentation).**
+```bash
+$SRS_GOV get decision_log "$DECISION_ID" --repo $REPO --json \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print('sourceRefs' in d['payload']['record'])"
+```
+Prints `True` — `sourceRefs` is in the raw JSON record payload, no "Linked Attachments" rendering.
+
+**Negative case — attachment list unavailable.** When `srs attachment list` would fail (e.g. wrong repo path), `srs-gov get` degrades gracefully: it prints a `warn: could not fetch attachment list: …` message to stderr and shows the doc IDs only (path/title/size are absent). The record fields are still displayed.
+
+**Done when.** `srs-gov get decision_log <id>` shows a "Linked Attachments" section when the record has `sourceRefs` with `sourceRole: "attaches"`. Section is absent when no attachments are linked. `--json` flag outputs raw `srs record get` JSON without the attachments section. File size, content path, and title are all displayed when the attachment file exists on disk.
+
+**Verified 2026-07-17 (#285).** All three cases confirmed live against gallery-project-v2:
+- Negative case (no linked attachments): no section shown ✓
+- Happy path (attachment linked): "Linked Attachments" section with path, title, doc ID (8 chars), and file size (85 B) ✓
+- JSON flag: raw payload with `sourceRefs` present, no presentation section ✓
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -2062,7 +2141,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `container resolve-view` authored `excludeLifecycleStates` (ADR-020) | S15 |
 | `find` (ext:discovery query — type/tag/lifecycle/exclude/text) | S15 |
 | `repo navigation` (RFC-013 root container + identity + sections) | S15, S17; WASM binding (`repository_navigation`) verified via integration tests in `crates/srs-bindings/tests/navigation.rs` (#268); Tier-0 note identity grace (returns Ok + diagnostic instead of erroring) — see S20 (#427); "root is also a member" shape (sub-container root in its own `memberInstanceIds`) — `repository_navigation_root_is_member_of_its_own_sub_container` in both unit and WASM integration tests (#460) |
-| `srs-gov` (governance client: `repo-create`, `list` + `--all`/`--search`/`--tag`, `tui --smoke`, `attachment add/list`) | S15, S33; `SrsRepository::load` WASM binding applies RFC-014 migration automatically (#381); `crates/srs-repository/tests/scaffold.rs` covers the migrate→scaffold→validate chain; `migrate_rfc014` now unconditionally strips `contentHash` from already-promoted bundles (regression #428, see `migrate_rfc014_strips_content_hash_from_already_promoted_bundle`) |
+| `srs-gov` (governance client: `repo-create`, `list` + `--all`/`--search`/`--tag`, `get` + linked-attachments display, `tui --smoke`, `attachment add/list`) | S15, S33, S35; `SrsRepository::load` WASM binding applies RFC-014 migration automatically (#381); `crates/srs-repository/tests/scaffold.rs` covers the migrate→scaffold→validate chain; `migrate_rfc014` now unconditionally strips `contentHash` from already-promoted bundles (regression #428, see `migrate_rfc014_strips_content_hash_from_already_promoted_bundle`) |
 | `document-view` (create/get/list/…) | S4, S5, S11 |
 | `render document-view` | S4, S5, S8, S11; **RFC-020 Rule [N+37]** identity-field fallback heading (no `titleFieldId` → Type's `identityFieldId` → `### <value>` per record; structured mode NOT activated by fallback, #453) — see S5 step 8; **`{{container-title}}` fallback to container file when index entry has no title** (#484): `resolve_container_title` now calls `store.load_container` when the containerIndex entry is absent or has no title — dogfooded on branch: `srs render document-view --view <dv> --repo /tmp/dogfood-resolve-container-title --container <cid>` returns `"Container: Recognising decisions"` when manifest has a pathless-title containerIndex entry (previously returned repo title "DogfoodRepo"); negative case (no `--container`) returns `"Container: DogfoodRepo"` (manifest title fallback correct) |
 | `container-subset` section + `typeFilter` / `typeDispatch` (RFC-008) | S11 |
