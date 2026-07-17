@@ -73,7 +73,7 @@ No changes to JSON Schema files under `srs/docs/schema/2.0/`. `bash scripts/chec
 
 #### Tasks
 
-- [ ] Add `LinkedAttachment` struct to `crates/srs-gov/src/render.rs`:
+- [x] Add `LinkedAttachment` struct to `crates/srs-gov/src/render.rs`:
   ```rust
   pub struct LinkedAttachment {
       pub document_id: String,
@@ -84,7 +84,7 @@ No changes to JSON Schema files under `srs/docs/schema/2.0/`. `bash scripts/chec
   }
   ```
 
-- [ ] Add `pub fn linked_attachments(attachments: &[LinkedAttachment])` to `render.rs`:
+- [x] Add `pub fn linked_attachments(attachments: &[LinkedAttachment])` to `render.rs`:
   - If `attachments` is empty, return immediately without printing anything.
   - Print a `section("Linked Attachments")` header.
   - Print a column header: `PATH / DOCUMENT ID  TITLE  SIZE`
@@ -95,12 +95,12 @@ No changes to JSON Schema files under `srs/docs/schema/2.0/`. `bash scripts/chec
     - `doc_id`: `short_id(&attachment.document_id)` shown after path
   - Close with a blank line.
 
-- [ ] Add unit tests in `render.rs` `#[cfg(test)] mod tests`:
+- [x] Add unit tests in `render.rs` `#[cfg(test)] mod tests`:
   - `linked_attachments_empty_silent` — call `linked_attachments(&[])` and confirm it does not panic (output goes to stdout, visible in test output only; no assertion on text content needed for this case).
   - `linked_attachments_renders_row` — build one `LinkedAttachment` with all fields present, call `linked_attachments`, confirm it does not panic. (srs-gov render functions write to stdout; unit tests verify they do not panic and that the helper `fmt_size` returns correct strings.)
   - `fmt_size_thresholds` — unit test the private `fmt_size(n: u64) -> String` helper directly: `0 → "0 B"`, `1023 → "1023 B"`, `1024 → "1 KB"`, `1048576 → "1 MB"`.
 
-- [ ] Add private `fn fmt_size(bytes: u64) -> String` to `render.rs`:
+- [x] Add private `fn fmt_size(bytes: u64) -> String` to `render.rs`:
   ```
   if bytes >= 1_048_576 { format!("{} MB", bytes / 1_048_576) }
   else if bytes >= 1024   { format!("{} KB", bytes / 1024) }
@@ -109,11 +109,11 @@ No changes to JSON Schema files under `srs/docs/schema/2.0/`. `bash scripts/chec
 
 #### Acceptance Criteria
 
-- [ ] `LinkedAttachment` struct is in `render.rs`
-- [ ] `linked_attachments(&[])` does not print anything (no `section` header for empty list)
-- [ ] `linked_attachments` with entries prints `THIN` section separator, column header, one row per attachment
-- [ ] `fmt_size(0)` == `"0 B"`, `fmt_size(1023)` == `"1023 B"`, `fmt_size(1024)` == `"1 KB"`, `fmt_size(1048576)` == `"1 MB"`
-- [ ] Tests `linked_attachments_empty_silent`, `linked_attachments_renders_row`, `fmt_size_thresholds` pass
+- [x] `LinkedAttachment` struct is in `render.rs`
+- [x] `linked_attachments(&[])` does not print anything (no `section` header for empty list)
+- [x] `linked_attachments` with entries prints `THIN` section separator, column header, one row per attachment
+- [x] `fmt_size(0)` == `"0 B"`, `fmt_size(1023)` == `"1023 B"`, `fmt_size(1024)` == `"1 KB"`, `fmt_size(1048576)` == `"1 MB"`
+- [x] Tests `linked_attachments_empty_silent`, `linked_attachments_renders_row`, `fmt_size_thresholds` pass
 
 #### Testing
 
@@ -149,7 +149,7 @@ git commit -m "feat(srs-gov): add linked_attachments render function (#285)"
 
 #### Tasks
 
-- [ ] In `crates/srs-gov/src/main.rs`, modify `cmd_get` after `record_detail(id, schema_props, &field_values);`:
+- [x] In `crates/srs-gov/src/main.rs`, modify `cmd_get` after `record_detail(id, schema_props, &field_values);`:
 
   ```rust
   // Show linked attachments (sourceRefs with sourceRole == "attaches")
@@ -159,7 +159,7 @@ git commit -m "feat(srs-gov): add linked_attachments render function (#285)"
   }
   ```
 
-- [ ] Add `fn resolve_linked_attachments(record: &serde_json::Value, repo: &str) -> Vec<render::LinkedAttachment>` and `fn build_linked_attachments(record: &serde_json::Value, attach_payload: &serde_json::Value, repo: &str) -> Vec<render::LinkedAttachment>` to `main.rs`:
+- [x] Add `fn resolve_linked_attachments(record: &serde_json::Value, repo: &str) -> Vec<render::LinkedAttachment>` and `fn build_linked_attachments(record: &serde_json::Value, attach_payload: &serde_json::Value, repo: &str) -> Vec<render::LinkedAttachment>` to `main.rs`:
 
   ```rust
   /// Thin acquisition wrapper: calls run_srs to fetch the attachment list, then delegates
@@ -243,14 +243,14 @@ git commit -m "feat(srs-gov): add linked_attachments render function (#285)"
 
   **Note on the `"path"` key**: `attachment list` returns entries where `path` is the path relative to `source-documents/`. `AttachmentEntry.path: String` is confirmed in `crates/srs-cli/src/payload.rs` line 2048. The on-disk path is `<repo>/<base_dir>/<path>`.
 
-- [ ] Verify that `cmd_get` `--json` flag path returns before `resolve_linked_attachments` is called (the `if json { return Ok(()); }` guard is already in place after the `run_srs` calls).
+- [x] Verify that `cmd_get` `--json` flag path returns before `resolve_linked_attachments` is called (the `if json { return Ok(()); }` guard is already in place after the `run_srs` calls).
 
 #### Acceptance Criteria
 
-- [ ] `srs-gov get decision_log <id>` with no linked attachments: output unchanged (no "Linked Attachments" section printed)
-- [ ] `srs-gov get decision_log <id>` with one linked attachment: "Linked Attachments" section appears after field detail, with title, path, short doc ID, and size
-- [ ] `srs-gov get decision_log <id>` with `--json`: outputs raw `srs record get` JSON (unchanged; `resolve_linked_attachments` not called in JSON path)
-- [ ] If `srs attachment list` fails (e.g. empty new repo): section shows doc IDs only, no crash
+- [x] `srs-gov get decision_log <id>` with no linked attachments: output unchanged (no "Linked Attachments" section printed)
+- [x] `srs-gov get decision_log <id>` with one linked attachment: "Linked Attachments" section appears after field detail, with title, path, short doc ID, and size
+- [x] `srs-gov get decision_log <id>` with `--json`: outputs raw `srs record get` JSON (unchanged; `resolve_linked_attachments` not called in JSON path)
+- [x] If `srs attachment list` fails (e.g. empty new repo): section shows doc IDs only, no crash
 
 #### Testing
 

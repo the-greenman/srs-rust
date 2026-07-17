@@ -128,6 +128,41 @@ pub fn attachment_list(base_dir: &str, entries: &[serde_json::Value]) {
     println!();
 }
 
+pub struct LinkedAttachment {
+    pub document_id: String,
+    pub title: Option<String>,
+    pub content_path: Option<String>,
+    /// Size in bytes, `None` when unavailable (JSON-store repos or file not found).
+    pub size_bytes: Option<u64>,
+}
+
+pub fn linked_attachments(attachments: &[LinkedAttachment]) {
+    if attachments.is_empty() {
+        return;
+    }
+    section("Linked Attachments");
+    println!("  {:<42}  {:<28}  SIZE", "PATH · DOCUMENT ID", "TITLE");
+    println!("  {}", "─".repeat(70));
+    for a in attachments {
+        let path_str = a.content_path.as_deref().unwrap_or("(no path)");
+        let path_col = format!("{} ({})", path_str, short_id(&a.document_id));
+        let title_str = a.title.as_deref().unwrap_or("—");
+        let size_str = a.size_bytes.map(fmt_size).unwrap_or_else(|| "—".into());
+        println!("  {:<42}  {:<28}  {size_str}", path_col, title_str);
+    }
+    println!();
+}
+
+fn fmt_size(bytes: u64) -> String {
+    if bytes >= 1_048_576 {
+        format!("{} MB", bytes / 1_048_576)
+    } else if bytes >= 1024 {
+        format!("{} KB", bytes / 1024)
+    } else {
+        format!("{} B", bytes)
+    }
+}
+
 fn textwrap(s: &str, width: usize) -> Vec<&str> {
     let mut lines = Vec::new();
     let mut start = 0;
@@ -173,6 +208,29 @@ mod tests {
 
         assert!(!lines.is_empty());
         assert_eq!(lines.concat(), text);
+    }
+
+    #[test]
+    fn linked_attachments_empty_silent() {
+        linked_attachments(&[]);
+    }
+
+    #[test]
+    fn linked_attachments_renders_row() {
+        linked_attachments(&[LinkedAttachment {
+            document_id: "doc-abc12345-test".to_string(),
+            title: Some("Q3 Report".to_string()),
+            content_path: Some("phase-1/report.pdf".to_string()),
+            size_bytes: Some(2048),
+        }]);
+    }
+
+    #[test]
+    fn fmt_size_thresholds() {
+        assert_eq!(fmt_size(0), "0 B");
+        assert_eq!(fmt_size(1023), "1023 B");
+        assert_eq!(fmt_size(1024), "1 KB");
+        assert_eq!(fmt_size(1_048_576), "1 MB");
     }
 
     #[test]
