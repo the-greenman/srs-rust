@@ -444,7 +444,10 @@ fn cmd_get(key: &str, id: &str, repo: &str, explain: bool, json: bool) -> Result
 
 /// Thin acquisition wrapper: calls run_srs to fetch the attachment list, then delegates
 /// all cross-referencing to `build_linked_attachments`.
-fn resolve_linked_attachments(record: &serde_json::Value, repo: &str) -> Vec<render::LinkedAttachment> {
+fn resolve_linked_attachments(
+    record: &serde_json::Value,
+    repo: &str,
+) -> Vec<render::LinkedAttachment> {
     // 1. Extract sourceRefs with sourceRole == "attaches" (ADR-034: in record.extra["sourceRefs"])
     let empty = vec![];
     let source_refs = record["sourceRefs"].as_array().unwrap_or(&empty);
@@ -497,27 +500,34 @@ fn build_linked_attachments(
         .as_str()
         .unwrap_or("source-documents");
     let empty_entries = vec![];
-    let entries = attach_payload["entries"].as_array().unwrap_or(&empty_entries);
+    let entries = attach_payload["entries"]
+        .as_array()
+        .unwrap_or(&empty_entries);
 
     // Cross-reference and build result (R5 known-debt: filtering by "attaches" string)
-    attached_doc_ids.iter().map(|&doc_id| {
-        // AttachmentEntry has #[serde(rename_all = "camelCase")] → "documentId" in JSON
-        let entry = entries.iter().find(|e| e["documentId"].as_str() == Some(doc_id));
-        let content_path = entry.and_then(|e| e["path"].as_str()).map(String::from);
-        let title = entry.and_then(|e| e["title"].as_str()).map(String::from);
-        // Compute on-disk size (best-effort; None on JSON-store repos or missing file)
-        // Known-debt: should come from sizeBytes in AttachmentEntry payload instead (#619)
-        let size_bytes = content_path.as_deref().and_then(|rel_path| {
-            let full = std::path::Path::new(repo).join(base_dir).join(rel_path);
-            std::fs::metadata(full).ok().map(|m| m.len())
-        });
-        render::LinkedAttachment {
-            document_id: doc_id.to_string(),
-            title,
-            content_path,
-            size_bytes,
-        }
-    }).collect()
+    attached_doc_ids
+        .iter()
+        .map(|&doc_id| {
+            // AttachmentEntry has #[serde(rename_all = "camelCase")] → "documentId" in JSON
+            let entry = entries
+                .iter()
+                .find(|e| e["documentId"].as_str() == Some(doc_id));
+            let content_path = entry.and_then(|e| e["path"].as_str()).map(String::from);
+            let title = entry.and_then(|e| e["title"].as_str()).map(String::from);
+            // Compute on-disk size (best-effort; None on JSON-store repos or missing file)
+            // Known-debt: should come from sizeBytes in AttachmentEntry payload instead (#619)
+            let size_bytes = content_path.as_deref().and_then(|rel_path| {
+                let full = std::path::Path::new(repo).join(base_dir).join(rel_path);
+                std::fs::metadata(full).ok().map(|m| m.len())
+            });
+            render::LinkedAttachment {
+                document_id: doc_id.to_string(),
+                title,
+                content_path,
+                size_bytes,
+            }
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
