@@ -31,6 +31,9 @@ clap = { version = "4", features = ["derive"] }
 schemars = "0.8"
 unicode-normalization = "0.1"
 base64 = "0.22"
+# sha2 + hex: wasm32-safe (pure Rust); default-features = false ensures no std-only features (ADR-013)
+sha2 = { version = "0.10", default-features = false }
+hex = "0.4"
 # default-features = false is a wasm32 constraint (ADR-013); deflate uses flate2/miniz_oxide (pure Rust, wasm32-safe)
 zip = { version = "2", default-features = false, features = ["deflate"] }
 ratatui = "0.28"
