@@ -243,8 +243,8 @@ pub fn export_repository_snapshot_with_options(
             .filter(|s| !s.is_empty())
             .ok_or_else(|| RepositoryError::InvalidSnapshotData {
                 message: format!(
-                    "sourceDocumentIndex entry missing or empty 'documentId': {:?}",
-                    entry.document_id
+                    "sourceDocumentIndex entry has empty 'documentId' (sidecarPath: {:?})",
+                    entry.sidecar_path
                 ),
             })?
             .to_string();
@@ -252,8 +252,8 @@ pub fn export_repository_snapshot_with_options(
             .filter(|s| !s.is_empty())
             .ok_or_else(|| RepositoryError::InvalidSnapshotData {
                 message: format!(
-                    "sourceDocumentIndex entry missing or empty 'sidecarPath': {:?}",
-                    entry.sidecar_path
+                    "sourceDocumentIndex entry has empty 'sidecarPath' (documentId: {:?})",
+                    entry.document_id
                 ),
             })?
             .to_string();
@@ -261,8 +261,8 @@ pub fn export_repository_snapshot_with_options(
             .filter(|s| !s.is_empty())
             .ok_or_else(|| RepositoryError::InvalidSnapshotData {
                 message: format!(
-                    "sourceDocumentIndex entry missing or empty 'contentPath': {:?}",
-                    entry.content_path
+                    "sourceDocumentIndex entry has empty 'contentPath' (documentId: {:?})",
+                    entry.document_id
                 ),
             })?
             .to_string();
