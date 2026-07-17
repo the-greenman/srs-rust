@@ -303,6 +303,10 @@ pub fn archive_unpack(
         let content_full = format!("{}/{}", src_docs_base, content_path);
         let content_base64 = bytes_map.get(&content_full).map(|b| BASE64.encode(b));
 
+        // Optional metadata fields are extracted from raw JSON here (camelCase keys from
+        // SourceDocumentIndexEntry's #[serde(rename_all = "camelCase")]). This mirrors the
+        // typed path in export_repository_snapshot_with_options — any new field added to
+        // SourceDocumentIndexEntry must be propagated in both places.
         source_documents.push(SourceDocumentSnapshot {
             document_id,
             sidecar_path,
