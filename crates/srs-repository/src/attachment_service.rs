@@ -1,9 +1,11 @@
 use crate::error::RepositoryError;
+use crate::record_store;
 use crate::store::RepositoryStore;
 use crate::writer::write_manifest;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use srs_core::types::source_document::SourceDocumentIndexEntry;
+use srs_core::types::source_reference::{SourceReference, SourceRole, SourceType};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -295,6 +297,78 @@ pub fn add_attachment(
         source_documents_path: src_docs_base,
         content_checksum,
         sidecar_checksum,
+    })
+}
+
+// ── link_attachment ─────────────────────────────────────────────────────────────
+
+/// Input for `link_attachment`.
+pub struct LinkAttachmentInput {
+    pub instance_id: String,
+    pub document_id: String,
+}
+
+/// Result for `link_attachment`.
+#[derive(Debug)]
+pub struct LinkAttachmentResult {
+    pub instance_id: String,
+    pub document_id: String,
+    /// Total number of sourceRefs on the record after the link was added.
+    pub source_refs_count: usize,
+}
+
+/// Append `sourceType:"repository-document"`, `sourceId:<documentId>`,
+/// `sourceRole:"attaches"` to a record's `sourceRefs[]`.
+///
+/// Validation:
+/// - `document_id` MUST resolve in `manifest.sourceDocumentIndex` → `InvalidInput` if absent.
+/// - Duplicate link (same record + doc with `sourceRole: Attaches`) → `InvalidInput`.
+/// - Record with `instance_id` not found → `NotFound`.
+///
+/// Write order (ADR-007): record body written before no manifest update is needed
+/// (sourceRefs are embedded in the record JSON, not the manifest index).
+pub fn link_attachment(
+    store: &dyn RepositoryStore,
+    input: LinkAttachmentInput,
+) -> Result<LinkAttachmentResult, RepositoryError> {
+    // 1. Validate document_id in source-document index.
+    let manifest = store.load_manifest()?;
+    let index = manifest.source_document_index.as_deref().unwrap_or(&[]);
+    if !index.iter().any(|e| e.document_id == input.document_id) {
+        return Err(RepositoryError::InvalidInput {
+            message: format!(
+                "document '{}' not found in source-document index",
+                input.document_id
+            ),
+        });
+    }
+
+    // 2. Append the new SourceReference (path-encapsulated via record_store).
+    // NotFound if record absent; duplicate check (same source_type + source_id + source_role)
+    // is handled atomically inside append_source_ref to avoid TOCTOU (ADR-034).
+    let new_ref = SourceReference {
+        source_type: SourceType::RepositoryDocument,
+        source_id: input.document_id.clone(),
+        source_standard: None,
+        stream_id: None,
+        source_role: Some(SourceRole::Attaches),
+        relation_type: None,
+        confidence: None,
+        note: None,
+    };
+    let updated = record_store::append_source_ref(store, &input.instance_id, new_ref, true)?;
+
+    let source_refs_count = updated
+        .extra
+        .get("sourceRefs")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+
+    Ok(LinkAttachmentResult {
+        instance_id: input.instance_id,
+        document_id: input.document_id,
+        source_refs_count,
     })
 }
 
@@ -671,6 +745,322 @@ mod tests {
             sidecar["contentType"].as_str(),
             Some("application/custom"),
             "explicit content_type should not be overridden"
+        );
+    }
+
+    // ── link_attachment tests ───────────────────────────────────────────────────
+
+    use crate::index::InstanceIndexEntry;
+
+    /// Build a MemoryStore that contains one source-document index entry and one
+    /// tier-2 record at "records/tier-2/test-record-aaaabbbb.json".
+    fn store_with_doc_and_record(doc_id: &str, record_id: &str) -> MemoryStore {
+        let manifest = Manifest {
+            source_document_index: Some(vec![SourceDocumentIndexEntry {
+                document_id: doc_id.to_string(),
+                sidecar_path: "brief.meta.json".to_string(),
+                content_path: "brief.pdf".to_string(),
+                title: None,
+                sidecar_checksum: None,
+                content_checksum: None,
+            }]),
+            instance_index: vec![InstanceIndexEntry {
+                instance_id: record_id.to_string(),
+                tier: 2,
+                path: format!("records/tier-2/test-record-{}.json", &record_id[..8]),
+                title: None,
+                tags: None,
+            }],
+            ..Manifest::default()
+        };
+        let store = store_with_manifest(manifest);
+        let record_path = format!("records/tier-2/test-record-{}.json", &record_id[..8]);
+        store
+            .save_instance_json(
+                &record_path,
+                &serde_json::json!({
+                    "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                    "instanceId": record_id,
+                    "typeId": "type-test-001",
+                    "typeVersion": 1,
+                    "typeNamespace": "com.test",
+                    "typeName": "test-type",
+                    "fieldValues": []
+                }),
+            )
+            .unwrap();
+        store
+    }
+
+    #[test]
+    fn link_attachment_happy_path() {
+        let doc_id = "doc-aaa-111";
+        let record_id = "aaaabbbb-0000-4000-8000-000000000001";
+        let store = store_with_doc_and_record(doc_id, record_id);
+
+        let result = link_attachment(
+            &store,
+            LinkAttachmentInput {
+                instance_id: record_id.to_string(),
+                document_id: doc_id.to_string(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.instance_id, record_id);
+        assert_eq!(result.document_id, doc_id);
+        assert_eq!(result.source_refs_count, 1);
+
+        // Verify the record JSON on disk has sourceRefs[0].sourceRole == "attaches"
+        let record_path = format!("records/tier-2/test-record-{}.json", &record_id[..8]);
+        let val = store.load_instance_json(&record_path).unwrap();
+        assert_eq!(
+            val["sourceRefs"][0]["sourceRole"],
+            serde_json::json!("attaches")
+        );
+        assert_eq!(val["sourceRefs"][0]["sourceId"], serde_json::json!(doc_id));
+        assert_eq!(
+            val["sourceRefs"][0]["sourceType"],
+            serde_json::json!("repository-document")
+        );
+        assert!(
+            val["sourceRefs"][0].get("relationType").is_none(),
+            "relationType must not be emitted (RFC-023)"
+        );
+    }
+
+    #[test]
+    fn link_attachment_duplicate_rejected() {
+        let doc_id = "doc-bbb-222";
+        let record_id = "bbbbcccc-0000-4000-8000-000000000002";
+        let store = store_with_doc_and_record(doc_id, record_id);
+
+        link_attachment(
+            &store,
+            LinkAttachmentInput {
+                instance_id: record_id.to_string(),
+                document_id: doc_id.to_string(),
+            },
+        )
+        .unwrap();
+
+        let err = link_attachment(
+            &store,
+            LinkAttachmentInput {
+                instance_id: record_id.to_string(),
+                document_id: doc_id.to_string(),
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::InvalidInput { .. }),
+            "expected InvalidInput for duplicate, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn link_attachment_unknown_doc_rejected() {
+        let record_id = "ccccdddd-0000-4000-8000-000000000003";
+        let store = store_with_doc_and_record("real-doc", record_id);
+
+        let err = link_attachment(
+            &store,
+            LinkAttachmentInput {
+                instance_id: record_id.to_string(),
+                document_id: "nonexistent-doc".to_string(),
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::InvalidInput { .. }),
+            "expected InvalidInput for unknown doc, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn link_attachment_unknown_record_rejected() {
+        let doc_id = "doc-ccc-333";
+        // Store has the doc in the index but no record with this ID
+        let manifest = Manifest {
+            source_document_index: Some(vec![SourceDocumentIndexEntry {
+                document_id: doc_id.to_string(),
+                sidecar_path: "f.meta.json".to_string(),
+                content_path: "f.pdf".to_string(),
+                title: None,
+                sidecar_checksum: None,
+                content_checksum: None,
+            }]),
+            ..Manifest::default()
+        };
+        let store = store_with_manifest(manifest);
+
+        let err = link_attachment(
+            &store,
+            LinkAttachmentInput {
+                instance_id: "no-such-record-00000000".to_string(),
+                document_id: doc_id.to_string(),
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::NotFound { .. }),
+            "expected NotFound for unknown record, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn link_attachment_preserves_existing_refs() {
+        let doc_id_1 = "doc-first-111";
+        let doc_id_2 = "doc-second-222";
+        let record_id = "ddddeeee-0000-4000-8000-000000000004";
+
+        let manifest = Manifest {
+            source_document_index: Some(vec![
+                SourceDocumentIndexEntry {
+                    document_id: doc_id_1.to_string(),
+                    sidecar_path: "a.meta.json".to_string(),
+                    content_path: "a.pdf".to_string(),
+                    title: None,
+                    sidecar_checksum: None,
+                    content_checksum: None,
+                },
+                SourceDocumentIndexEntry {
+                    document_id: doc_id_2.to_string(),
+                    sidecar_path: "b.meta.json".to_string(),
+                    content_path: "b.pdf".to_string(),
+                    title: None,
+                    sidecar_checksum: None,
+                    content_checksum: None,
+                },
+            ]),
+            instance_index: vec![InstanceIndexEntry {
+                instance_id: record_id.to_string(),
+                tier: 2,
+                path: format!("records/tier-2/test-record-{}.json", &record_id[..8]),
+                title: None,
+                tags: None,
+            }],
+            ..Manifest::default()
+        };
+        let store = store_with_manifest(manifest);
+        let record_path = format!("records/tier-2/test-record-{}.json", &record_id[..8]);
+        store
+            .save_instance_json(
+                &record_path,
+                &serde_json::json!({
+                    "instanceId": record_id,
+                    "typeId": "type-test-001",
+                    "typeVersion": 1,
+                    "typeNamespace": "com.test",
+                    "typeName": "test-type",
+                    "fieldValues": []
+                }),
+            )
+            .unwrap();
+
+        link_attachment(
+            &store,
+            LinkAttachmentInput {
+                instance_id: record_id.to_string(),
+                document_id: doc_id_1.to_string(),
+            },
+        )
+        .unwrap();
+
+        let result = link_attachment(
+            &store,
+            LinkAttachmentInput {
+                instance_id: record_id.to_string(),
+                document_id: doc_id_2.to_string(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.source_refs_count, 2, "both refs should be present");
+    }
+
+    #[test]
+    fn link_attachment_filestore_roundtrip() {
+        use crate::store::FileStore;
+        use tempfile::TempDir;
+
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+
+        std::fs::create_dir_all(root.join(".srs")).unwrap();
+        let doc_id = "doc-roundtrip-001";
+        let manifest_json = serde_json::json!({
+            "instanceIndex": [{
+                "instanceId": "ffffffff-0000-4000-8000-000000000001",
+                "tier": 2,
+                "path": "records/tier-2/test-type-ffffffff.json"
+            }],
+            "sourceDocumentIndex": [{
+                "documentId": doc_id,
+                "sidecarPath": "brief.meta.json",
+                "contentPath": "brief.pdf"
+            }]
+        });
+        std::fs::write(
+            root.join("manifest.json"),
+            serde_json::to_string(&manifest_json).unwrap(),
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("package")).unwrap();
+        std::fs::write(
+            root.join("package/package.json"),
+            serde_json::json!({
+                "id": "link-rt-pkg", "namespace": "com.test", "name": "test",
+                "version": "1.0.0", "fields": [], "types": []
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        std::fs::create_dir_all(root.join("records/tier-2")).unwrap();
+        let record_id = "ffffffff-0000-4000-8000-000000000001";
+        std::fs::write(
+            root.join("records/tier-2/test-type-ffffffff.json"),
+            serde_json::json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                "instanceId": record_id,
+                "typeId": "type-test-001",
+                "typeVersion": 1,
+                "typeNamespace": "com.test",
+                "typeName": "test-type",
+                "fieldValues": []
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let store = FileStore::new(root);
+        let result = link_attachment(
+            &store,
+            LinkAttachmentInput {
+                instance_id: record_id.to_string(),
+                document_id: doc_id.to_string(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.source_refs_count, 1);
+
+        // Reload and verify sourceRefs[0].sourceRole == "attaches"
+        let val =
+            std::fs::read_to_string(root.join("records/tier-2/test-type-ffffffff.json")).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&val).unwrap();
+        assert_eq!(
+            parsed["sourceRefs"][0]["sourceRole"],
+            serde_json::json!("attaches")
+        );
+        assert_eq!(
+            parsed["sourceRefs"][0]["sourceId"],
+            serde_json::json!(doc_id)
+        );
+        assert!(
+            parsed["sourceRefs"][0].get("relationType").is_none(),
+            "relationType must not be emitted (RFC-023)"
         );
     }
 
