@@ -1790,6 +1790,74 @@ Returns `ok: false` (exit 1) with a diagnostic explaining the migration is not n
 
 ---
 
+## S31 — Inspect source-document attachments in a repository (`srs attachment list`, #279)
+
+**Intention:** I want to see what source documents are stored in my repository — which ones the system knows about (indexed, with provenance metadata) and which ones were dropped in manually (present on disk, unindexed).
+
+**Preparation.**
+```bash
+SRS=/path/to/srs    # built from the feature branch
+srs repo create --repo /tmp/dogfood-s31 --namespace com.example.dogfood --pretty
+```
+
+**Step 1 — empty repo returns empty list.**
+```bash
+srs attachment list --repo /tmp/dogfood-s31 --pretty
+```
+`payload.entries` is `[]`. `payload.sourceDocumentsPath` is `"source-documents"`. `ok: true`.
+
+**Step 2 — add unindexed files, including a subdirectory.**
+```bash
+mkdir -p /tmp/dogfood-s31/source-documents/annexes
+echo "pdf bytes" > /tmp/dogfood-s31/source-documents/brief.pdf
+echo "docx bytes" > /tmp/dogfood-s31/source-documents/report.docx
+echo "annex bytes" > /tmp/dogfood-s31/source-documents/annexes/annex-a.pdf
+
+srs attachment list --repo /tmp/dogfood-s31 --pretty
+```
+Returns 3 entries, each with only `path` populated: `annexes/annex-a.pdf`, `brief.pdf`, `report.docx`. Paths are relative to `source-documents/`, sorted lexicographically. No `documentId`, `title`, or checksum fields present.
+
+**Step 3 — add an indexed entry to the manifest.**
+```bash
+python3 - <<'EOF'
+import json
+with open('/tmp/dogfood-s31/manifest.json') as f:
+    m = json.load(f)
+m['sourceDocumentIndex'] = [{
+    'documentId': 'aaaabbbb-cccc-dddd-eeee-ffffffffffff',
+    'sidecarPath': 'brief.meta.json',
+    'contentPath': 'brief.pdf',
+    'title': 'Project Brief Q3',
+    'contentChecksum': 'sha256:abc123',
+    'sidecarChecksum': 'sha256:def456'
+}]
+with open('/tmp/dogfood-s31/manifest.json', 'w') as f:
+    json.dump(m, f, indent=2)
+EOF
+echo '{"documentId":"aaaabbbb-cccc-dddd-eeee-ffffffffffff"}' > /tmp/dogfood-s31/source-documents/brief.meta.json
+
+srs attachment list --repo /tmp/dogfood-s31 --pretty
+```
+`brief.pdf` entry now carries `documentId`, `title`, `contentChecksum`, `sidecarChecksum`. `brief.meta.json` is absent from the listing (sidecar excluded). `annexes/annex-a.pdf` and `report.docx` remain without metadata.
+
+**Negative case — repository not found.**
+```bash
+srs attachment list --repo /tmp/no-such-repo --pretty
+```
+Returns `ok: false` with `diagnostics: ["manifest missing: \"/tmp/no-such-repo/manifest.json\""]`. Exit code 1.
+
+**Validate throughout.**
+```bash
+srs repo validate --repo /tmp/dogfood-s31 --pretty
+```
+0 diagnostics at every step — attachment files on disk are outside the `instanceIndex` and do not affect record validation.
+
+**Done when.** `attachment list` on an empty repo returns `entries: []`. Unindexed files appear with only `path`. An indexed file surfaces all four metadata fields. Sidecar `.meta.json` files are excluded. Subdirectory files appear with their relative path (`annexes/annex-a.pdf`, not `source-documents/annexes/annex-a.pdf`). Missing repo returns `ok: false` exit 1. `repo validate` stays at 0 errors throughout.
+
+**Verified 2026-07-17 (#279).** All steps confirmed. Empty repo: `entries: []`. Unindexed files: 3 entries with path only, sorted lexicographically, `annexes/annex-a.pdf` correctly prefixed. Indexed entry: `brief.pdf` carried all metadata fields; `brief.meta.json` absent from listing. Missing repo: `ok: false` exit 1 with manifest-missing diagnostic. `repo validate`: 0 diagnostics.
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -1851,6 +1919,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `federation` (ext:federation — `federation resolve`, `federation events-list`, `federation events-append`) | S26 (step 12 adds custom `federationPath`/`federationEventsPath` manifest fields, #249); WASM free functions (`parse_federation_registry`, `filter_federation_events_json`) verified via `cargo build --target wasm32-unknown-unknown -p srs-bindings` (#248); WASM repo-backed bindings (`federation_resolve`, `federation_events_list`, `federation_events_append` on `SrsRepository`) added and smoke-tested (#249) |
 | `context` (ext:addressability — `context field`, `context record`, `context revision`) | S27; WASM bindings (`context_field`, `context_record`, `context_revision` on `SrsRepository`) verified via native integration tests in `crates/srs-bindings/tests/context_query.rs` (#251) |
 | `package` | CLI: covered implicitly by field/type creation in S2; **`srs package install`/`srs package import`/`srs package imports`** end-to-end in S29 (#246); WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330) |
+| `attachment list` | S31 |
 | `archive pack` / `archive unpack` (**gap** — no CLI surface yet, #276) | Library functions `archive_pack` / `archive_unpack` are implemented in `srs-repository` (ADR-033) and verified via 11 unit/integration tests: 8 unit tests (roundtrip, determinism, entry order, timestamps, error paths, FileStore roundtrip, cross-store roundtrip) + `test_archive_no_extra_fields_and_deflated` (asserts all ZIP entries use Deflated and carry no host metadata extra fields) + `test_archive_golden_fixture` (byte-identical comparison against committed `tests/fixtures/golden-archive.srs`) + `test_archive_golden_roundtrip` (unpack committed golden → assert correct namespace, proving ZIP is valid and `archive_unpack` handles the format) (#277). CLI handlers `srs archive pack` / `srs archive unpack` are a future deliverable (#276 follow-up). A meaningful dogfood scenario requires the CLI surface to exist — the intention would be: *"I want to hand off a self-contained snapshot of a repository — all records, relations, package definition, and binary attachments — as a single portable file."* Add a scenario (S31 or similar) when `srs archive pack`/`srs archive unpack` are wired up. |
 
 Gaps are intentional and visible: they are the backlog of surfaces that need a meaningful scenario. Do not delete a gap row — fill it when a feature gives the surface a real workflow to demonstrate.
