@@ -309,6 +309,15 @@ pub fn archive_unpack(
             content_path,
             sidecar,
             content_base64,
+            title: entry.get("title").and_then(|v| v.as_str()).map(str::to_string),
+            sidecar_checksum: entry
+                .get("sidecarChecksum")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+            content_checksum: entry
+                .get("contentChecksum")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
         });
     }
 

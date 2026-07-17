@@ -53,3 +53,9 @@ A third option — a separate out-of-band `HashMap<documentId, Vec<u8>>` return 
 ## Amendment (2026-07-17, #604)
 
 `sourceDocumentsPath` and `sourceDocumentIndex` were promoted from `manifest.extra` to typed fields on the `Manifest` struct (`source_documents_path: Option<String>`, `source_document_index: Option<Vec<SourceDocumentIndexEntry>>`), following the same pattern as `federationPath` and `upstreamPackage`. All references in this ADR to `manifest.extra["sourceDocumentsPath"]` and `manifest.extra["sourceDocumentIndex"]` now refer to the typed fields instead. Serialisation round-trip behaviour is unchanged.
+
+## Amendment (2026-07-17, #278)
+
+`SourceDocumentSnapshot` gains three additional optional fields that mirror the optional metadata on `SourceDocumentIndexEntry`: `title: Option<String>`, `sidecarChecksum: Option<String>`, and `contentChecksum: Option<String>`. All three use `#[serde(default, skip_serializing_if = "Option::is_none")]` — existing serialised snapshots that lack these keys deserialise with `None`, preserving backward compatibility. The struct already carries `#[serde(rename_all = "camelCase")]`, so the snake_case Rust field names serialize automatically to the correct camelCase JSON keys (`sidecarChecksum`, `contentChecksum`).
+
+`export_repository_snapshot_with_options` now populates these fields from the source `SourceDocumentIndexEntry`; `do_import` propagates them back into the restored `SourceDocumentIndexEntry` instead of hard-coding `None`. `archive_unpack` reads them from the raw manifest JSON using the camelCase keys. The result: all optional source-document metadata (`title`, `sidecarChecksum`, `contentChecksum`) now propagates losslessly through export/import, `copy_repository`, and `.srs` archive roundtrips. Checksum recomputation (verifying stored checksums against actual file bytes) is out of scope and deferred.

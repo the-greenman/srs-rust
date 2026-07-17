@@ -80,6 +80,12 @@ pub struct SourceDocumentSnapshot {
     pub sidecar: serde_json::Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_base64: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sidecar_checksum: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_checksum: Option<String>,
 }
 
 /// Options controlling what `export_repository_snapshot_with_options` includes.
@@ -296,6 +302,9 @@ pub fn export_repository_snapshot_with_options(
             content_path,
             sidecar,
             content_base64,
+            title: entry.title.clone(),
+            sidecar_checksum: entry.sidecar_checksum.clone(),
+            content_checksum: entry.content_checksum.clone(),
         });
     }
 
@@ -484,9 +493,9 @@ fn do_import(
                 document_id: entry.document_id.clone(),
                 sidecar_path: entry.sidecar_path.clone(),
                 content_path: entry.content_path.clone(),
-                title: None,
-                sidecar_checksum: None,
-                content_checksum: None,
+                title: entry.title.clone(),
+                sidecar_checksum: entry.sidecar_checksum.clone(),
+                content_checksum: entry.content_checksum.clone(),
             });
         }
         manifest.source_documents_path = Some(src_docs_base.to_string());
@@ -2217,5 +2226,44 @@ mod tests {
             !text.contains("records/"),
             "records/ prefix must not appear"
         );
+    }
+
+    #[test]
+    fn copy_preserves_source_doc_checksum_metadata() {
+        let source = MemoryStore::uninitialized();
+        source.initialize_repository(&make_input()).unwrap();
+        source
+            .save_text_file("source-documents/my-doc.meta.json", SIDECAR_JSON)
+            .unwrap();
+        source
+            .save_binary_file("source-documents/my-doc.pdf", b"pdf bytes")
+            .unwrap();
+
+        // Set up manifest with non-None checksum metadata.
+        let mut manifest = source.load_manifest().unwrap();
+        manifest.source_documents_path = Some("source-documents".to_string());
+        manifest.source_document_index = Some(vec![SourceDocumentIndexEntry {
+            document_id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee".to_string(),
+            sidecar_path: "my-doc.meta.json".to_string(),
+            content_path: "my-doc.pdf".to_string(),
+            title: Some("My Test Doc".to_string()),
+            sidecar_checksum: Some("sha256:aaabbb".to_string()),
+            content_checksum: Some("sha256:cccddd".to_string()),
+        }]);
+        source.save_manifest(&manifest).unwrap();
+
+        let temp = TempDir::new().unwrap();
+        let target = FileStore::new(temp.path());
+        copy_repository(&source, &target).unwrap();
+
+        let target_manifest = target.load_manifest().unwrap();
+        let idx = target_manifest
+            .source_document_index
+            .as_ref()
+            .expect("source_document_index must be present");
+        assert_eq!(idx.len(), 1);
+        assert_eq!(idx[0].title, Some("My Test Doc".to_string()));
+        assert_eq!(idx[0].sidecar_checksum, Some("sha256:aaabbb".to_string()));
+        assert_eq!(idx[0].content_checksum, Some("sha256:cccddd".to_string()));
     }
 }
