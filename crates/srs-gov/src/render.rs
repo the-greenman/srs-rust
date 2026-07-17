@@ -100,6 +100,34 @@ pub fn repo_created(output: &str, title: &str, repository_id: &str, has_purpose:
     println!();
 }
 
+pub fn attachment_added(content_path: &str, document_id: &str, base_dir: &str) {
+    header("Attachment stored");
+    println!();
+    println!("  Path:        {base_dir}/{content_path}");
+    println!("  Document ID: {document_id}");
+    println!();
+    println!("  Run: srs-gov attachment list  to see all attachments");
+    println!();
+}
+
+pub fn attachment_list(base_dir: &str, entries: &[serde_json::Value]) {
+    header(&format!("Attachments  —  {base_dir}/"));
+    println!();
+    if entries.is_empty() {
+        println!("  (no attachments)");
+        println!();
+        return;
+    }
+    println!("  {:<50}  TITLE", "PATH");
+    println!("  {}", "─".repeat(70));
+    for e in entries {
+        let path = e["path"].as_str().unwrap_or("");
+        let title = e["title"].as_str().unwrap_or("—");
+        println!("  {:<50}  {title}", path);
+    }
+    println!();
+}
+
 fn textwrap(s: &str, width: usize) -> Vec<&str> {
     let mut lines = Vec::new();
     let mut start = 0;
