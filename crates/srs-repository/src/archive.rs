@@ -42,11 +42,10 @@ pub fn archive_pack(
     ));
 
     if let Some(pkg) = snapshot.packages.iter().find(|p| p.boundary_path.is_none()) {
-        let pkg_bytes = serde_json::to_vec_pretty(pkg).map_err(|e| {
-            RepositoryError::InvalidSnapshotData {
+        let pkg_bytes =
+            serde_json::to_vec_pretty(pkg).map_err(|e| RepositoryError::InvalidSnapshotData {
                 message: e.to_string(),
-            }
-        })?;
+            })?;
         entries.push(("package/package.snapshot.json".to_string(), pkg_bytes));
     }
 
@@ -77,11 +76,12 @@ pub fn archive_pack(
             sidecar_bytes,
         ));
         if let Some(b64) = &doc.content_base64 {
-            let content_bytes = BASE64
-                .decode(b64)
-                .map_err(|e| RepositoryError::InvalidSnapshotData {
-                    message: e.to_string(),
-                })?;
+            let content_bytes =
+                BASE64
+                    .decode(b64)
+                    .map_err(|e| RepositoryError::InvalidSnapshotData {
+                        message: e.to_string(),
+                    })?;
             entries.push((
                 format!("{}/{}", src_docs_dir, doc.content_path),
                 content_bytes,
@@ -97,9 +97,10 @@ pub fn archive_pack(
             .compression_method(zip::CompressionMethod::Deflated)
             .last_modified_time(zip::DateTime::default());
         zip.start_file(path, options)?;
-        zip.write_all(bytes).map_err(|e| RepositoryError::InvalidArchive {
-            message: e.to_string(),
-        })?;
+        zip.write_all(bytes)
+            .map_err(|e| RepositoryError::InvalidArchive {
+                message: e.to_string(),
+            })?;
     }
     let _ = zip.finish()?;
 
@@ -110,10 +111,9 @@ pub fn archive_unpack(
     reader: impl Read + Seek,
     target: &dyn RepositoryStore,
 ) -> Result<(), RepositoryError> {
-    let mut zip =
-        zip::ZipArchive::new(reader).map_err(|e| RepositoryError::InvalidArchive {
-            message: e.to_string(),
-        })?;
+    let mut zip = zip::ZipArchive::new(reader).map_err(|e| RepositoryError::InvalidArchive {
+        message: e.to_string(),
+    })?;
 
     let file_count = zip.len();
     let mut bytes_map: HashMap<String, Vec<u8>> = HashMap::with_capacity(file_count);
@@ -203,10 +203,7 @@ pub fn archive_unpack(
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        let tier: u8 = entry
-            .get("tier")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as u8;
+        let tier: u8 = entry.get("tier").and_then(|v| v.as_u64()).unwrap_or(0) as u8;
         let path = entry
             .get("path")
             .and_then(|v| v.as_str())
@@ -219,15 +216,14 @@ pub fn archive_unpack(
                 .collect()
         });
 
-        let inst_bytes =
-            bytes_map
-                .get(&path)
-                .ok_or_else(|| RepositoryError::InvalidArchive {
-                    message: format!(
-                        "instance '{}' referenced in instanceIndex not found at '{}'",
-                        instance_id, path
-                    ),
-                })?;
+        let inst_bytes = bytes_map
+            .get(&path)
+            .ok_or_else(|| RepositoryError::InvalidArchive {
+                message: format!(
+                    "instance '{}' referenced in instanceIndex not found at '{}'",
+                    instance_id, path
+                ),
+            })?;
         let value: serde_json::Value =
             serde_json::from_slice(inst_bytes).map_err(|e| RepositoryError::InvalidArchive {
                 message: e.to_string(),
@@ -244,11 +240,10 @@ pub fn archive_unpack(
 
     let relations: Vec<Relation> =
         if let Some(rel_bytes) = bytes_map.get("relations/relations-collection.json") {
-            let val: serde_json::Value = serde_json::from_slice(rel_bytes).map_err(|e| {
-                RepositoryError::InvalidArchive {
+            let val: serde_json::Value =
+                serde_json::from_slice(rel_bytes).map_err(|e| RepositoryError::InvalidArchive {
                     message: e.to_string(),
-                }
-            })?;
+                })?;
             let arr = val
                 .get("relations")
                 .cloned()
@@ -391,17 +386,22 @@ mod tests {
             "sections": [{ "id": "s1", "title": "Intro", "content": "Hello" }]
         });
         source
-            .save_instance_json(&format!("records/notes/{}.json", &note_id[..8]), &note_value)
+            .save_instance_json(
+                &format!("records/notes/{}.json", &note_id[..8]),
+                &note_value,
+            )
             .expect("save instance");
 
         let mut manifest = source.load_manifest().expect("load manifest");
-        manifest.instance_index.push(crate::index::InstanceIndexEntry {
-            instance_id: note_id.clone(),
-            tier: 0,
-            path: format!("records/notes/{}.json", &note_id[..8]),
-            title: Some(serde_json::Value::String("Test Note".to_string())),
-            tags: None,
-        });
+        manifest
+            .instance_index
+            .push(crate::index::InstanceIndexEntry {
+                instance_id: note_id.clone(),
+                tier: 0,
+                path: format!("records/notes/{}.json", &note_id[..8]),
+                title: Some(serde_json::Value::String("Test Note".to_string())),
+                tags: None,
+            });
         source.save_manifest(&manifest).expect("save manifest");
 
         let zip_bytes = pack_to_bytes(&source);
@@ -442,8 +442,12 @@ mod tests {
             .compression_method(zip::CompressionMethod::Deflated)
             .last_modified_time(zip::DateTime::default());
         zw.start_file("manifest.json", opts).unwrap();
-        zw.write_all(serde_json::to_vec_pretty(&manifest_json).unwrap().as_slice())
-            .unwrap();
+        zw.write_all(
+            serde_json::to_vec_pretty(&manifest_json)
+                .unwrap()
+                .as_slice(),
+        )
+        .unwrap();
         let _ = zw.finish().unwrap();
 
         let target = MemoryStore::uninitialized();
@@ -471,17 +475,22 @@ mod tests {
             "sections": [{ "id": "s1", "title": "Body", "content": "cross-store content" }]
         });
         source
-            .save_instance_json(&format!("records/notes/{}.json", &note_id[..8]), &note_value)
+            .save_instance_json(
+                &format!("records/notes/{}.json", &note_id[..8]),
+                &note_value,
+            )
             .expect("save instance to memory");
 
         let mut manifest = source.load_manifest().expect("load memory manifest");
-        manifest.instance_index.push(crate::index::InstanceIndexEntry {
-            instance_id: note_id.clone(),
-            tier: 0,
-            path: format!("records/notes/{}.json", &note_id[..8]),
-            title: Some(serde_json::Value::String("Cross-Store Note".to_string())),
-            tags: None,
-        });
+        manifest
+            .instance_index
+            .push(crate::index::InstanceIndexEntry {
+                instance_id: note_id.clone(),
+                tier: 0,
+                path: format!("records/notes/{}.json", &note_id[..8]),
+                title: Some(serde_json::Value::String("Cross-Store Note".to_string())),
+                tags: None,
+            });
         source.save_manifest(&manifest).expect("save manifest");
 
         let zip_bytes = pack_to_bytes(&source);
@@ -603,17 +612,22 @@ mod tests {
             .ensure_instance_dir("records/notes")
             .expect("ensure records/notes dir");
         source
-            .save_instance_json(&format!("records/notes/{}.json", &note_id[..8]), &note_value)
+            .save_instance_json(
+                &format!("records/notes/{}.json", &note_id[..8]),
+                &note_value,
+            )
             .expect("save instance to FileStore");
 
         let mut manifest = source.load_manifest().expect("load FileStore manifest");
-        manifest.instance_index.push(crate::index::InstanceIndexEntry {
-            instance_id: note_id.clone(),
-            tier: 0,
-            path: format!("records/notes/{}.json", &note_id[..8]),
-            title: Some(serde_json::Value::String("FileStore Note".to_string())),
-            tags: None,
-        });
+        manifest
+            .instance_index
+            .push(crate::index::InstanceIndexEntry {
+                instance_id: note_id.clone(),
+                tier: 0,
+                path: format!("records/notes/{}.json", &note_id[..8]),
+                title: Some(serde_json::Value::String("FileStore Note".to_string())),
+                tags: None,
+            });
         source.save_manifest(&manifest).expect("save manifest");
 
         let zip_dir = tempdir().unwrap();
@@ -627,7 +641,9 @@ mod tests {
         let zip_file2 = std::fs::File::open(&zip_path).expect("open zip file");
         archive_unpack(zip_file2, &target).expect("archive_unpack FileStore");
 
-        let unpacked = target.load_manifest().expect("load target FileStore manifest");
+        let unpacked = target
+            .load_manifest()
+            .expect("load target FileStore manifest");
         assert_eq!(unpacked.instance_index.len(), 1);
         assert_eq!(unpacked.instance_index[0].instance_id, note_id);
     }
