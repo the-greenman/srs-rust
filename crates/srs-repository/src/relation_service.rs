@@ -29,7 +29,7 @@ use srs_core::types::relation::{Relation, RelationsCollection};
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::validation::relation::{validate_relation, RelationValidationContext};
 use srs_schema::{SchemaRegistry, RELATIONS_COLLECTION_SCHEMA_ID};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// Summary for relation list operations
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -150,16 +150,12 @@ pub fn get_relation_by_id(
     }
 }
 
-/// Create a new relation with E1-E4 validation
-pub fn create_relation(
+/// Build the owned data needed to construct a `RelationValidationContext`.
+/// Shared by `create_relation` and `rebuild_precedes_chain` to avoid duplicating
+/// the manifest-load + instance-set + semantic-type-map construction.
+fn load_validation_data(
     store: &dyn RepositoryStore,
-    mut relation: Relation,
-    definitions: &[RelationTypeDefinition],
-) -> Result<CreateRelationResult, RepositoryError> {
-    if relation.relation_id.trim().is_empty() {
-        relation.relation_id = new_instance_id();
-    }
-    // Build owned context data
+) -> Result<(HashSet<String>, HashMap<String, String>), RepositoryError> {
     let manifest = store.load_manifest()?;
     let known_instance_ids: HashSet<String> = manifest
         .instance_index
@@ -170,6 +166,19 @@ pub fn create_relation(
     // requireSameSemanticObjectType) fires on the write path exactly as it does in
     // `repo validate` — previously this was an empty map, so E4 was dead on create (#556).
     let instance_semantic_types = crate::writer::build_instance_semantic_types(store, &manifest);
+    Ok((known_instance_ids, instance_semantic_types))
+}
+
+/// Create a new relation with E1-E4 validation
+pub fn create_relation(
+    store: &dyn RepositoryStore,
+    mut relation: Relation,
+    definitions: &[RelationTypeDefinition],
+) -> Result<CreateRelationResult, RepositoryError> {
+    if relation.relation_id.trim().is_empty() {
+        relation.relation_id = new_instance_id();
+    }
+    let (known_instance_ids, instance_semantic_types) = load_validation_data(store)?;
     let ctx = RelationValidationContext {
         definitions,
         known_instance_ids: &known_instance_ids,
@@ -465,6 +474,114 @@ impl relation_graph::PrecedesSortable for PrecedesEntry {
     fn precedes_created_at(&self) -> Option<&str> {
         self.created_at.as_deref()
     }
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RebuildPrecedesChainInput {
+    /// Desired linear order — edges created as instance_ids[0]→[1]→…→[n-1].
+    pub instance_ids: Vec<String>,
+    /// IDs whose existing `precedes` edges (source OR target) are deleted first.
+    pub clear_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RebuildPrecedesChainResult {
+    pub created: Vec<RelationSummary>,
+}
+
+/// Atomically rebuild a linear `precedes` chain.
+///
+/// Deletes all `precedes` edges where source OR target is in `clear_ids`, then
+/// creates `n-1` new edges connecting `instance_ids[0]→[1]→…→[n-1]`.
+/// Validation (E1–E4) runs before writing; the single `write_relations_collection`
+/// call is inherently atomic.
+pub fn rebuild_precedes_chain(
+    store: &dyn RepositoryStore,
+    input: RebuildPrecedesChainInput,
+) -> Result<RebuildPrecedesChainResult, RepositoryError> {
+    let (relative_path, mut collection) = load_relations_collection(store)?;
+
+    let clear_ids_set: HashSet<String> = input.clear_ids.into_iter().collect();
+    collection.relations.retain(|r| {
+        !(r.relation_type == "precedes"
+            && (clear_ids_set.contains(&r.source_instance_id)
+                || clear_ids_set.contains(&r.target_instance_id)))
+    });
+
+    let new_relations: Vec<Relation> = if input.instance_ids.len() < 2 {
+        Vec::new()
+    } else {
+        let package = store.load_package()?;
+        let (known_instance_ids, instance_semantic_types) = load_validation_data(store)?;
+        let ctx = RelationValidationContext {
+            definitions: &package.relation_type_definitions,
+            known_instance_ids: &known_instance_ids,
+            instance_semantic_types: &instance_semantic_types,
+        };
+        let mut rels = Vec::with_capacity(input.instance_ids.len() - 1);
+        for window in input.instance_ids.windows(2) {
+            let relation = Relation {
+                relation_id: new_instance_id(),
+                relation_type: "precedes".to_string(),
+                source_instance_id: window[0].clone(),
+                target_instance_id: window[1].clone(),
+                asserted_by: None,
+                confidence: None,
+                created_at: None,
+                created_by: None,
+                status: None,
+                valid_from: None,
+                valid_until: None,
+                notes: None,
+                source_refs: None,
+                meta: None,
+                source_repository_id: None,
+                target_repository_id: None,
+            };
+            validate_relation(&relation, &ctx, true).map_err(|errors| {
+                RepositoryError::RelationValidation {
+                    relation_id: relation.relation_id.clone(),
+                    message: errors
+                        .iter()
+                        .map(|e| format!("{:?}: {}", e.code, e.message))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                }
+            })?;
+            rels.push(relation);
+        }
+        rels
+    };
+
+    for rel in &new_relations {
+        collection.relations.push(rel.clone());
+    }
+
+    let collection_raw =
+        serde_json::to_value(&collection).map_err(|e| RepositoryError::Serialize {
+            path: std::path::PathBuf::from(&relative_path),
+            source: e,
+        })?;
+    SchemaRegistry::global()
+        .validate_by_id(RELATIONS_COLLECTION_SCHEMA_ID, &collection_raw)
+        .map_err(|e| RepositoryError::SchemaValidation {
+            path: std::path::PathBuf::from(&relative_path),
+            message: e.to_string(),
+        })?;
+    write_relations_collection(store, &relative_path, &collection)?;
+
+    let created = new_relations
+        .iter()
+        .map(|r| RelationSummary {
+            relation_id: r.relation_id.clone(),
+            relation_type: r.relation_type.clone(),
+            source_id: r.source_instance_id.clone(),
+            target_id: r.target_instance_id.clone(),
+        })
+        .collect();
+    Ok(RebuildPrecedesChainResult { created })
 }
 
 #[cfg(test)]
@@ -1357,5 +1474,272 @@ mod tests {
             .position(|x| x == "sec-b")
             .unwrap();
         assert!(a < b, "sec-a must precede sec-b in the output");
+    }
+
+    fn make_store_for_rebuild_chain(ids: &[&str]) -> MemoryStore {
+        use srs_core::types::relation_type_definition::{
+            RelationTypeCategory, RelationTypeDefinition,
+        };
+        let store = MemoryStore::default();
+        let mut manifest = store.load_manifest().unwrap();
+        for id in ids {
+            manifest
+                .instance_index
+                .push(crate::index::InstanceIndexEntry {
+                    instance_id: id.to_string(),
+                    tier: 0,
+                    path: format!("records/{}.json", id),
+                    title: None,
+                    tags: None,
+                });
+        }
+        store.save_manifest(&manifest).unwrap();
+        store
+            .save_relation_type_definition(
+                "package/relation-types/precedes.json",
+                &RelationTypeDefinition {
+                    schema: None,
+                    id: "00000000-0000-0000-0000-000000000001".to_string(),
+                    version: 1,
+                    key: "precedes".to_string(),
+                    namespace: "com.semanticops.srs".to_string(),
+                    label: "Precedes".to_string(),
+                    description: "Source precedes target".to_string(),
+                    category: RelationTypeCategory::Association,
+                    created_at: "2026-01-01T00:00:00Z".to_string(),
+                    canonical_direction: None,
+                    inverse_type: None,
+                    irreflexive: None,
+                    allowed_source_types: None,
+                    allowed_target_types: None,
+                    require_same_semantic_object_type: None,
+                    status: None,
+                    updated_at: None,
+                    properties: None,
+                },
+            )
+            .unwrap();
+        store
+    }
+
+    #[test]
+    fn test_rebuild_precedes_chain_creates_n_minus_1_edges() {
+        let store = make_store_for_rebuild_chain(&["id-a", "id-b", "id-c"]);
+        let result = rebuild_precedes_chain(
+            &store,
+            RebuildPrecedesChainInput {
+                instance_ids: vec!["id-a".into(), "id-b".into(), "id-c".into()],
+                clear_ids: vec![],
+            },
+        )
+        .unwrap();
+        assert_eq!(result.created.len(), 2, "3 ids → 2 edges");
+        assert_eq!(result.created[0].source_id, "id-a");
+        assert_eq!(result.created[0].target_id, "id-b");
+        assert_eq!(result.created[1].source_id, "id-b");
+        assert_eq!(result.created[1].target_id, "id-c");
+        let all = list_relations(&store, ListRelationsFilter::default()).unwrap();
+        assert_eq!(
+            all.iter().filter(|r| r.relation_type == "precedes").count(),
+            2
+        );
+    }
+
+    #[test]
+    fn test_rebuild_precedes_chain_clears_existing_precedes() {
+        let store = make_store_for_rebuild_chain(&["id-a", "id-b", "id-c"]);
+        // Pre-populate with old precedes edges (b→c and c→a — wrong order)
+        store
+            .save_relations_json(
+                "relations/relations-collection.json",
+                &json!({
+                    "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
+                    "relations": [
+                        {
+                            "relationId": "old-1",
+                            "relationType": "precedes",
+                            "sourceInstanceId": "id-b",
+                            "targetInstanceId": "id-c",
+                            "createdAt": "2026-01-01T00:00:00Z"
+                        },
+                        {
+                            "relationId": "old-2",
+                            "relationType": "precedes",
+                            "sourceInstanceId": "id-c",
+                            "targetInstanceId": "id-a",
+                            "createdAt": "2026-01-01T00:00:00Z"
+                        }
+                    ]
+                }),
+            )
+            .unwrap();
+        let result = rebuild_precedes_chain(
+            &store,
+            RebuildPrecedesChainInput {
+                instance_ids: vec!["id-a".into(), "id-b".into(), "id-c".into()],
+                clear_ids: vec!["id-a".into(), "id-b".into(), "id-c".into()],
+            },
+        )
+        .unwrap();
+        assert_eq!(result.created.len(), 2);
+        let all = list_relations(&store, ListRelationsFilter::default()).unwrap();
+        let precedes: Vec<_> = all
+            .iter()
+            .filter(|r| r.relation_type == "precedes")
+            .collect();
+        assert_eq!(precedes.len(), 2, "old edges replaced by new edges");
+        assert!(
+            !precedes.iter().any(|r| r.relation_id == "old-1"),
+            "old-1 must be removed"
+        );
+        assert!(
+            !precedes.iter().any(|r| r.relation_id == "old-2"),
+            "old-2 must be removed"
+        );
+        assert_eq!(result.created[0].source_id, "id-a");
+        assert_eq!(result.created[0].target_id, "id-b");
+        assert_eq!(result.created[1].source_id, "id-b");
+        assert_eq!(result.created[1].target_id, "id-c");
+    }
+
+    #[test]
+    fn test_rebuild_precedes_chain_empty_instance_ids() {
+        let store = make_store_for_rebuild_chain(&["id-a"]);
+        let result = rebuild_precedes_chain(
+            &store,
+            RebuildPrecedesChainInput {
+                instance_ids: vec![],
+                clear_ids: vec![],
+            },
+        )
+        .unwrap();
+        assert!(result.created.is_empty(), "empty input → no edges created");
+        let all = list_relations(&store, ListRelationsFilter::default()).unwrap();
+        assert!(all.is_empty());
+    }
+
+    #[test]
+    fn test_rebuild_precedes_chain_single_instance_id() {
+        let store = make_store_for_rebuild_chain(&["id-a"]);
+        let result = rebuild_precedes_chain(
+            &store,
+            RebuildPrecedesChainInput {
+                instance_ids: vec!["id-a".into()],
+                clear_ids: vec![],
+            },
+        )
+        .unwrap();
+        assert!(result.created.is_empty(), "single id → no edges created");
+        let all = list_relations(&store, ListRelationsFilter::default()).unwrap();
+        assert!(all.is_empty());
+    }
+
+    #[test]
+    fn test_rebuild_precedes_chain_does_not_clear_non_precedes() {
+        let store = make_store_for_rebuild_chain(&["id-a", "id-b"]);
+        // Pre-populate with a non-precedes edge involving id-a (should survive)
+        // and a precedes edge (should be cleared)
+        store
+            .save_relations_json(
+                "relations/relations-collection.json",
+                &json!({
+                    "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
+                    "relations": [
+                        {
+                            "relationId": "keep-me",
+                            "relationType": "contains",
+                            "sourceInstanceId": "id-a",
+                            "targetInstanceId": "id-b",
+                            "createdAt": "2026-01-01T00:00:00Z"
+                        },
+                        {
+                            "relationId": "remove-me",
+                            "relationType": "precedes",
+                            "sourceInstanceId": "id-a",
+                            "targetInstanceId": "id-b",
+                            "createdAt": "2026-01-01T00:00:00Z"
+                        }
+                    ]
+                }),
+            )
+            .unwrap();
+        let result = rebuild_precedes_chain(
+            &store,
+            RebuildPrecedesChainInput {
+                instance_ids: vec!["id-a".into(), "id-b".into()],
+                clear_ids: vec!["id-a".into(), "id-b".into()],
+            },
+        )
+        .unwrap();
+        assert_eq!(result.created.len(), 1);
+        let all = list_relations(&store, ListRelationsFilter::default()).unwrap();
+        assert_eq!(all.len(), 2, "non-precedes edge must survive");
+        assert!(
+            all.iter().any(|r| r.relation_id == "keep-me"),
+            "contains edge must be preserved"
+        );
+        assert!(
+            !all.iter().any(|r| r.relation_id == "remove-me"),
+            "old precedes edge must be removed"
+        );
+    }
+
+    #[test]
+    fn test_rebuild_precedes_chain_roundtrip_json_store() {
+        let srsj = serde_json::json!({
+            "srsj": "1",
+            "manifest": {
+                "instanceIndex": [
+                    {"instanceId": "id-a", "tier": 0, "path": "records/id-a.json"},
+                    {"instanceId": "id-b", "tier": 0, "path": "records/id-b.json"},
+                    {"instanceId": "id-c", "tier": 0, "path": "records/id-c.json"}
+                ]
+            },
+            "data": {
+                "package/package.json": {
+                    "id": "00000000-0000-0000-0000-000000000099",
+                    "namespace": "com.test",
+                    "name": "test-package",
+                    "version": "1",
+                    "relationTypes": ["relation-types/precedes.json"]
+                },
+                "package/relation-types/precedes.json": {
+                    "id": "00000000-0000-0000-0000-000000000001",
+                    "version": 1,
+                    "namespace": "com.semanticops.srs",
+                    "key": "precedes",
+                    "label": "Precedes",
+                    "description": "Source precedes target",
+                    "category": "association",
+                    "createdAt": "2026-01-01T00:00:00Z"
+                }
+            }
+        })
+        .to_string();
+        let store = crate::JsonStore::from_srsj(&srsj).unwrap();
+        rebuild_precedes_chain(
+            &store,
+            RebuildPrecedesChainInput {
+                instance_ids: vec!["id-a".into(), "id-b".into(), "id-c".into()],
+                clear_ids: vec![],
+            },
+        )
+        .unwrap();
+        let exported = store.to_srsj_string().unwrap();
+        let store2 = crate::JsonStore::from_srsj(&exported).unwrap();
+        let all = list_relations(&store2, ListRelationsFilter::default()).unwrap();
+        let precedes: Vec<_> = all
+            .iter()
+            .filter(|r| r.relation_type == "precedes")
+            .collect();
+        assert_eq!(
+            precedes.len(),
+            2,
+            "exactly 2 precedes edges after roundtrip"
+        );
+        assert_eq!(precedes[0].source_id, "id-a");
+        assert_eq!(precedes[0].target_id, "id-b");
+        assert_eq!(precedes[1].source_id, "id-b");
+        assert_eq!(precedes[1].target_id, "id-c");
     }
 }
