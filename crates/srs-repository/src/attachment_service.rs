@@ -343,35 +343,9 @@ pub fn link_attachment(
         });
     }
 
-    // 2. Load record (NotFound if absent).
-    let record =
-        record_store::get_record_by_id(store, &input.instance_id)?.ok_or_else(|| {
-            RepositoryError::NotFound {
-                path: std::path::PathBuf::from("records"),
-            }
-        })?;
-
-    // 3. Check for duplicate link.
-    let existing: Vec<SourceReference> = record
-        .extra
-        .get("sourceRefs")
-        .and_then(|v| serde_json::from_value(v.clone()).ok())
-        .unwrap_or_default();
-
-    if existing.iter().any(|r| {
-        r.source_type == SourceType::RepositoryDocument
-            && r.source_id == input.document_id
-            && r.source_role == Some(SourceRole::Attaches)
-    }) {
-        return Err(RepositoryError::InvalidInput {
-            message: format!(
-                "document '{}' is already linked to record '{}'",
-                input.document_id, input.instance_id
-            ),
-        });
-    }
-
-    // 4. Append the new SourceReference (path-encapsulated via record_store).
+    // 2. Append the new SourceReference (path-encapsulated via record_store).
+    // NotFound if record absent; duplicate check (same source_type + source_id + source_role)
+    // is handled atomically inside append_source_ref to avoid TOCTOU (ADR-034).
     let new_ref = SourceReference {
         source_type: SourceType::RepositoryDocument,
         source_id: input.document_id.clone(),
@@ -382,7 +356,7 @@ pub fn link_attachment(
         confidence: None,
         note: None,
     };
-    let updated = record_store::append_source_ref(store, &input.instance_id, new_ref)?;
+    let updated = record_store::append_source_ref(store, &input.instance_id, new_ref, true)?;
 
     let source_refs_count = updated
         .extra

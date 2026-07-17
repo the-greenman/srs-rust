@@ -1960,13 +1960,19 @@ pub(crate) fn write_new_record(
 ///
 /// Path lookup is encapsulated here so service callers never handle storage paths
 /// (ADR-010 storage-boundary rule). `sourceRefs` on `Record` is persisted via
-/// `record.extra["sourceRefs"]`; see ADR-032 for why a typed field is not used.
+/// `record.extra["sourceRefs"]`; see ADR-034 for why a typed field is not used.
+///
+/// When `check_duplicate` is `true`, returns `InvalidInput` if an existing ref with the
+/// same `(source_type, source_id, source_role)` triple is already present. The check
+/// runs on the same record load used for the write, eliminating the TOCTOU that would
+/// arise if callers loaded the record separately to perform the check.
 ///
 /// Returns the updated record (with the appended ref in extra["sourceRefs"]).
 pub(crate) fn append_source_ref(
     store: &dyn RepositoryStore,
     instance_id: &str,
     source_ref: SourceReference,
+    check_duplicate: bool,
 ) -> Result<Record, RepositoryError> {
     let manifest = store.load_manifest()?;
     let entry = manifest
@@ -1980,11 +1986,29 @@ pub(crate) fn append_source_ref(
 
     let mut record = load_record(store, entry.path())?;
 
-    let mut refs: Vec<SourceReference> = record
-        .extra
-        .get("sourceRefs")
-        .and_then(|v| serde_json::from_value(v.clone()).ok())
-        .unwrap_or_default();
+    let mut refs: Vec<SourceReference> = match record.extra.get("sourceRefs") {
+        None => Vec::new(),
+        Some(v) => serde_json::from_value(v.clone()).map_err(|e| RepositoryError::Serialize {
+            path: std::path::PathBuf::from(entry.path()),
+            source: e,
+        })?,
+    };
+
+    if check_duplicate
+        && refs.iter().any(|r| {
+            r.source_type == source_ref.source_type
+                && r.source_id == source_ref.source_id
+                && r.source_role == source_ref.source_role
+        })
+    {
+        return Err(RepositoryError::InvalidInput {
+            message: format!(
+                "document '{}' is already linked to record '{}'",
+                source_ref.source_id, instance_id
+            ),
+        });
+    }
+
     refs.push(source_ref);
     record.extra.insert(
         "sourceRefs".to_string(),
