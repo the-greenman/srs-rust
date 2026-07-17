@@ -42,8 +42,14 @@ pub fn archive_pack(
     ));
 
     if let Some(pkg) = snapshot.packages.iter().find(|p| p.boundary_path.is_none()) {
+        // Route through to_value() so serde_json::Map (BTreeMap-backed) sorts all
+        // HashMap<String,Value> fields, making the snapshot byte-stable across process runs.
+        let pkg_value =
+            serde_json::to_value(pkg).map_err(|e| RepositoryError::InvalidSnapshotData {
+                message: e.to_string(),
+            })?;
         let pkg_bytes =
-            serde_json::to_vec_pretty(pkg).map_err(|e| RepositoryError::InvalidSnapshotData {
+            serde_json::to_vec_pretty(&pkg_value).map_err(|e| RepositoryError::InvalidSnapshotData {
                 message: e.to_string(),
             })?;
         entries.push(("package/package.snapshot.json".to_string(), pkg_bytes));
