@@ -1,3 +1,12 @@
+//! Pre-load bundle-format migrations for `.srsj` JSON strings.
+//!
+//! These functions operate on raw `.srsj` bytes **before** a `RepositoryStore` is constructed.
+//! They are intentionally outside the `MIGRATIONS` static registry in
+//! `migration_registry_service.rs` (see ADR-032): by the time any store exists the
+//! RFC-014 transformation has already been applied, so a registry `status_fn` would always
+//! return `AlreadyApplied` — noise, not signal. Pre-load migrations remain standalone entry
+//! points called directly at bundle-load time (e.g. `JsonStore::from_srsj`).
+
 use crate::error::RepositoryError;
 
 /// Migrate a raw `.srsj` string (RFC-014) and load it into a `JsonStore` in one call.
