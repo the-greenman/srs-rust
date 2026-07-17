@@ -1751,6 +1751,45 @@ $SRS package import --path packages/some-pkg --mode invalid-mode --repo $REPO --
 
 ---
 
+## S30 — Inspect and apply repository migrations (`repo migrations`, `repo apply-migration`, #461)
+
+**Intention.** *"I want to see at a glance which migrations are available for my repository and whether each one has already been applied — then apply any that are needed."*
+
+**Preparation.**
+```bash
+srs repo create --repo /tmp/dogfood-migration-s30 --namespace com.example.dogfood
+```
+
+**Happy path — list migrations.**
+```bash
+srs --repo /tmp/dogfood-migration-s30 repo migrations
+```
+Returns `ok: true` with `payload.migrations` — an array of objects each with `id`, `title`, `description`, and `status` (a discriminated object with exactly one of `needed`, `alreadyApplied`, `notApplicable` set to `true`). A freshly-created repo shows both migrations as `alreadyApplied`.
+
+**Happy path — apply an idempotent migration.**
+```bash
+srs --repo /tmp/dogfood-migration-s30 repo apply-migration --id repo-upgrade
+```
+Returns `ok: true` with `payload.id` = `"repo-upgrade"` and a nested `payload.payload` with `totalInstances`, `alreadyCanonicalCount`, and `renames`. On a fresh repo `renames` is empty and `alreadyCanonicalCount` equals `totalInstances`. `repo validate` immediately after returns `ok: true`, `errors: 0`.
+
+**Negative case 1 — unknown migration ID.**
+```bash
+srs --repo /tmp/dogfood-migration-s30 repo apply-migration --id no-such-migration
+```
+Returns `ok: false` (exit 1) with the unknown ID named in `diagnostics[0]`.
+
+**Negative case 2 — applying an already-applied migration.**
+```bash
+srs --repo /tmp/dogfood-migration-s30 repo apply-migration --id migrate-identity
+```
+Returns `ok: false` (exit 1) with a diagnostic explaining the migration is not needed.
+
+**Done when.** `repo migrations` returns `ok: true` with a `migrations` array where every entry has exactly one `true` field in its `status` object. `repo apply-migration --id repo-upgrade` returns `ok: true` with a structured `payload.payload`. Unknown ID returns `ok: false` exit 1 with the ID named in `diagnostics`. Already-applied migration returns `ok: false` exit 1. `repo validate` shows 0 errors throughout.
+
+**Verified 2026-07-17 (#461).** All steps confirmed. `repo migrations` returned two entries (`migrate-identity: alreadyApplied`, `repo-upgrade: alreadyApplied`) on a freshly-created repo. `repo apply-migration --id repo-upgrade` returned `alreadyCanonicalCount: 1`, `renames: []`. Unknown ID correctly returned `ok: false` exit 1 with `"unknown migration id: 'no-such-migration'"` in diagnostics. Already-applied `migrate-identity` returned `ok: false` exit 1 with `"already a com.semanticops.core/purpose record; no migration needed"`. `repo validate` returned 0 errors throughout.
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -1804,6 +1843,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `ext:import-tracking` (`ImportRecord`, `ImportSummary`, `UpstreamPackage`) | S29 (#246); CLI: `srs package install`, `srs package import --mode`, `srs package imports`; core types (`ImportMode`, `DefinitionType`, `ConflictState`, `ImportRecord`, `ImportSummary`, `UpstreamPackage`) verified via 11 unit tests in `crates/srs-core/src/extensions/import_tracking.rs` (#245, #246); WASM binding (`list_package_imports_json` on `SrsRepository`) exposes the same service via WASM |
 | `repo extensions` (list/enable/disable/conformance) | S22; WASM read binding (`declared_extensions_conformance`) verified via smoke test `declared_extensions_conformance_report_serialises` in `crates/srs-bindings/src/lib.rs` (#442) |
 | `repo migrate-identity` (graduate Tier-0 identity note to purpose record, #426; bootstrap identity for pre-#424 repos with no `identityInstanceId`, #432) | S21 (Tier-0 note branch), S21b (None-branch: absent pointer); WASM binding (`migrate_identity`) verified via integration tests in `crates/srs-bindings/tests/migrate_identity.rs` (#434); `build_purpose_record` now uses `core_package::core_package()` lookups instead of hardcoded UUID constants (ADR-025, #434) |
+| `repo migrations` / `repo apply-migration` (enumerable migration registry with per-repo status, #461) | S30; service `migration_registry_service` verified in `crates/srs-repository/src/migration_registry_service.rs` (unit + cross-store roundtrip tests); WASM bindings (`available_migrations`, `apply_migration` on `SrsRepository`) verified in `crates/srs-bindings/tests/migration_registry.rs` (#461) |
 | `type` `validationRules` (ext:cross-field-validation — conditional-required / field-ordering / mutual-exclusion, #242); **CFR violations are now hard errors at `record create`/`record update` write time (#437)** — `repo validate` still enforces for any pre-existing records | S23 |
 | `tag` (definition) | _gap — being deprecated; see open issues_ |
 | `registry` (ext:registry — `registry list`, `registry get`) | S25; WASM free functions (`parse_registry`, `list_registry_entries`) verified via `cargo build --target wasm32-unknown-unknown -p srs-bindings` (#244) |
