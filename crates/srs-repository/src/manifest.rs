@@ -380,14 +380,20 @@ mod tests {
             "sourceDocumentsPath": "attachments"
         }"#;
         let manifest: Manifest = serde_json::from_str(json).unwrap();
-        assert_eq!(manifest.source_documents_path.as_deref(), Some("attachments"));
+        assert_eq!(
+            manifest.source_documents_path.as_deref(),
+            Some("attachments")
+        );
         // must not appear in extra
         assert!(!manifest.extra.contains_key("sourceDocumentsPath"));
 
         let serialised = serde_json::to_string(&manifest).unwrap();
         assert!(serialised.contains("\"sourceDocumentsPath\""));
         let reparsed: Manifest = serde_json::from_str(&serialised).unwrap();
-        assert_eq!(reparsed.source_documents_path, manifest.source_documents_path);
+        assert_eq!(
+            reparsed.source_documents_path,
+            manifest.source_documents_path
+        );
     }
 
     #[test]
@@ -415,7 +421,10 @@ mod tests {
 
         let serialised = serde_json::to_string(&manifest).unwrap();
         let reparsed: Manifest = serde_json::from_str(&serialised).unwrap();
-        assert_eq!(reparsed.source_document_index, manifest.source_document_index);
+        assert_eq!(
+            reparsed.source_document_index,
+            manifest.source_document_index
+        );
     }
 
     #[test]
