@@ -6924,3 +6924,116 @@ fn repo_apply_migration_repo_upgrade_canonical_repo() {
     assert_eq!(inner["alreadyCanonicalCount"], 0);
     assert!(inner["renames"].as_array().unwrap().is_empty());
 }
+
+#[test]
+fn repo_apply_migration_unknown_id_returns_error() {
+    let temp = create_temp_repo();
+    let repo_str = temp.path().to_str().unwrap().to_string();
+    let (_ok, result) = run_srs_any_status_in_dir(
+        temp.path(),
+        &["--repo", &repo_str, "repo", "apply-migration", "--id", "no-such-migration"],
+    );
+
+    assert_eq!(result["ok"], false, "expected ok: false for unknown migration id: {result:?}");
+    let diagnostics = result["diagnostics"].as_array().expect("diagnostics must be present");
+    assert!(
+        diagnostics.iter().any(|e| e.as_str().unwrap_or("").contains("no-such-migration")),
+        "diagnostic must reference the unknown id, got: {diagnostics:?}"
+    );
+}
+
+fn create_repo_with_tier0_identity() -> TempDir {
+    let temp = TempDir::new().expect("Failed to create temp dir");
+    let root = temp.path();
+
+    std::fs::create_dir(root.join(".srs")).unwrap();
+
+    let note_id = "aaaa0001-0000-4000-8000-000000000001";
+    let container_id = "550e8400-e29b-41d4-a716-446655440000";
+
+    // Write note file
+    write_json(
+        &root.join("records/notes/identity.json"),
+        serde_json::json!({
+            "instanceId": note_id,
+            "title": "Test Repo",
+            "sections": [{"name": "body", "content": "We build SRS."}]
+        }),
+    );
+
+    // Write container file
+    write_json(
+        &root.join(format!("containers/{container_id}.json")),
+        serde_json::json!({
+            "containerId": container_id,
+            "title": "Test Repo",
+            "identityInstanceId": note_id,
+            "memberInstanceIds": [note_id]
+        }),
+    );
+
+    // Write minimal package
+    write_json(
+        &root.join("package/package.json"),
+        serde_json::json!({
+            "id": "pkg-tier0-test",
+            "namespace": "com.test",
+            "name": "primary",
+            "version": "1.0.0",
+            "fields": [], "types": [], "relationTypes": [],
+            "views": [], "documentViews": [], "blueprints": []
+        }),
+    );
+
+    // Write manifest with container embed, container index (required by FileStore's
+    // load_container path), and instance index.
+    write_json(
+        &root.join("manifest.json"),
+        serde_json::json!({
+            "repositoryId": container_id,
+            "namespace": "com.test",
+            "srsVersion": "2.0-draft",
+            "container": {
+                "containerId": container_id,
+                "title": "Test Repo",
+                "identityInstanceId": note_id,
+                "memberInstanceIds": [note_id]
+            },
+            "containerIndex": [{
+                "containerId": container_id,
+                "title": "Test Repo",
+                "path": format!("containers/{container_id}.json")
+            }],
+            "instanceIndex": [{
+                "instanceId": note_id,
+                "tier": 0,
+                "path": "records/notes/identity.json",
+                "title": "Test Repo"
+            }]
+        }),
+    );
+
+    temp
+}
+
+#[test]
+fn repo_apply_migration_migrate_identity_graduates_note_to_purpose_record() {
+    let temp = create_repo_with_tier0_identity();
+    let repo_str = temp.path().to_str().unwrap().to_string();
+
+    let result = run_srs_in_dir(
+        temp.path(),
+        &["--repo", &repo_str, "repo", "apply-migration", "--id", "migrate-identity"],
+    );
+
+    assert_eq!(result["ok"], true, "expected ok: {result:?}");
+    assert_eq!(result["command"], "repo apply-migration");
+    assert_eq!(result["payload"]["id"], "migrate-identity");
+    let inner = &result["payload"]["payload"];
+    assert!(inner.is_object(), "inner payload must be a JSON object");
+    assert!(
+        inner["newIdentityId"].is_string(),
+        "newIdentityId must be present in migrate-identity payload: {inner:?}"
+    );
+    assert_eq!(inner["statement"], "We build SRS.", "statement must come from the note body");
+}

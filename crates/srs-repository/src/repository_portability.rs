@@ -8,6 +8,7 @@ use crate::repository_lifecycle::{
     InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
 };
 use crate::store::{RecordTier, RepositoryStore};
+use crate::revision_service::sidecar_path_for;
 use crate::writer::slugify_instance_name;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
@@ -850,6 +851,7 @@ pub struct InstancePathRename {
 pub struct UpgradeRepositoryPathsResult {
     pub renames: Vec<InstancePathRename>,
     pub total_instances: usize,
+    pub already_canonical_count: usize,
 }
 
 struct PlannedRename {
@@ -865,7 +867,6 @@ fn collect_planned_renames(
     store: &dyn RepositoryStore,
     manifest: &crate::manifest::Manifest,
 ) -> Result<Vec<PlannedRename>, RepositoryError> {
-    use crate::revision_service::sidecar_path_for;
     use std::collections::HashSet;
 
     let mut planned: Vec<PlannedRename> = Vec::new();
@@ -932,11 +933,10 @@ pub fn upgrade_repository_paths(
     if planned.is_empty() {
         return Ok(UpgradeRepositoryPathsResult {
             renames: vec![],
+            already_canonical_count: total_instances,
             total_instances,
         });
     }
-
-    use crate::revision_service::sidecar_path_for;
 
     // Phase 2: apply — write canonical instance files (and sidecars)
     for rename in &planned {
@@ -963,7 +963,7 @@ pub fn upgrade_repository_paths(
         }
     }
 
-    let renames = planned
+    let renames: Vec<InstancePathRename> = planned
         .into_iter()
         .map(|r| InstancePathRename {
             instance_id: r.instance_id,
@@ -972,9 +972,11 @@ pub fn upgrade_repository_paths(
         })
         .collect();
 
+    let already_canonical_count = total_instances - renames.len();
     Ok(UpgradeRepositoryPathsResult {
         renames,
         total_instances,
+        already_canonical_count,
     })
 }
 

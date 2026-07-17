@@ -57,7 +57,14 @@ static MIGRATIONS: &[MigrationDefinition] = &[
         description: "Converts a Tier-0 note identity (or a container with no identity \
                        pointer) to a typed com.semanticops.core/purpose Tier-2 Record \
                        and repoints manifest.container.identityInstanceId. Satisfies RFC-018.",
-        status_fn: |store| crate::migrate_identity_service::migration_status(store),
+        status_fn: |store| {
+            use crate::migrate_identity_service::IdentityMigrationStatus;
+            match crate::migrate_identity_service::migration_status(store)? {
+                IdentityMigrationStatus::Needed => Ok(MigrationStatus::Needed),
+                IdentityMigrationStatus::AlreadyApplied => Ok(MigrationStatus::AlreadyApplied),
+                IdentityMigrationStatus::NotApplicable => Ok(MigrationStatus::NotApplicable),
+            }
+        },
         apply_fn: |store| {
             let result = crate::migrate_identity_service::migrate_identity(store)?;
             serde_json::to_value(&result).map_err(|e| RepositoryError::InvalidSnapshotData {
@@ -80,9 +87,8 @@ static MIGRATIONS: &[MigrationDefinition] = &[
         },
         apply_fn: |store| {
             let result = crate::upgrade_repository_paths(store)?;
-            let already_canonical_count = result.total_instances - result.renames.len();
             serde_json::to_value(UpgradePathsMigrationPayload {
-                already_canonical_count,
+                already_canonical_count: result.already_canonical_count,
                 total_instances: result.total_instances,
                 renames: result.renames,
             })
@@ -346,11 +352,10 @@ mod tests {
         let target = MemoryStore::uninitialized();
         copy_repository(&source, &target).unwrap();
 
-        // After copying, the purpose record should be in the target — migrate-identity
-        // must be AlreadyApplied when checked via the registry status_fn.
-        // Note: copy_repository transfers instances and containers but not manifest.container
-        // embed. Migration status checks manifest.container, so we verify the instances
-        // directly instead of calling list_migrations (which would see no manifest.container).
+        // copy_repository transfers instances, containers, AND manifest.container
+        // (via snapshot.root_container). After migration the source's manifest.container
+        // identityInstanceId points at the new purpose record; that pointer must survive
+        // the roundtrip so migration_status returns AlreadyApplied on the target.
         let manifest = target.load_manifest().unwrap();
         let purpose_entries: Vec<_> = manifest
             .instance_index
@@ -370,17 +375,30 @@ mod tests {
             Some(crate::core_purpose::PURPOSE_TYPE_NAMESPACE),
         );
 
-        // Add the manifest.container pointer on the target so migration_status can resolve it,
-        // then confirm list_migrations reports AlreadyApplied.
-        let mut manifest = target.load_manifest().unwrap();
-        let purpose_id = purpose_entries[0].instance_id.clone();
-        let mut container = bare_container("550e8400-e29b-41d4-a716-446655440000");
-        container.identity_instance_id = Some(purpose_id);
-        manifest.container = Some(container);
-        write_manifest(&target, &manifest).unwrap();
-
+        // manifest.container was transferred by copy_repository — no patching needed.
         let migrations = list_migrations(&target).unwrap();
         let id_migration = migrations.iter().find(|m| m.id == "migrate-identity").unwrap();
         assert_eq!(id_migration.status, MigrationStatus::AlreadyApplied);
+    }
+
+    #[test]
+    fn apply_migrate_identity_then_list_shows_already_applied() {
+        // After applying migrate-identity, list_migrations must report AlreadyApplied
+        // without any store manipulation — the registry status_fn must detect the outcome.
+        let (store, _) = make_store_with_identity(
+            "11111111-1111-4111-8111-111111111114",
+            Some("Repo"),
+            one_section("Content."),
+        );
+
+        let before = list_migrations(&store).unwrap();
+        let id_before = before.iter().find(|m| m.id == "migrate-identity").unwrap();
+        assert_eq!(id_before.status, MigrationStatus::Needed, "must be Needed before apply");
+
+        apply_migration(&store, "migrate-identity").unwrap();
+
+        let after = list_migrations(&store).unwrap();
+        let id_after = after.iter().find(|m| m.id == "migrate-identity").unwrap();
+        assert_eq!(id_after.status, MigrationStatus::AlreadyApplied, "must be AlreadyApplied after apply");
     }
 }

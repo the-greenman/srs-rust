@@ -1709,6 +1709,7 @@ pub struct InstancePathRename {
 #[serde(rename_all = "camelCase")]
 pub struct RepoUpgradePayload {
     pub renames: Vec<InstancePathRename>,
+    pub total_instances: usize,
     pub already_canonical_count: usize,
 }
 
@@ -1771,6 +1772,17 @@ pub struct MigrationSummaryPayload {
     pub title: String,
     pub description: String,
     pub status: MigrationStatusPayload,
+}
+
+impl From<srs_repository::migration_registry_service::MigrationSummary> for MigrationSummaryPayload {
+    fn from(m: srs_repository::migration_registry_service::MigrationSummary) -> Self {
+        Self {
+            id: m.id,
+            title: m.title,
+            description: m.description,
+            status: MigrationStatusPayload::from(m.status),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, JsonSchema)]

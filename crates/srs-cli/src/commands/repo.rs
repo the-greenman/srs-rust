@@ -1,7 +1,7 @@
 use crate::commands::{with_store, CliContext, RepoCommand, RepoExtensionsCommand, StoreBackend};
 use crate::output;
 use crate::payload::{
-    InstancePathRename, MigrationStatusPayload, MigrationSummaryPayload, RepoCopyPayload,
+    InstancePathRename, MigrationSummaryPayload, RepoCopyPayload,
     RepoApplyMigrationPayload, RepoCreatePayload, RepoDiffInstanceAdded,
     RepoDiffInstanceModified, RepoDiffInstanceRemoved, RepoDiffInstances, RepoDiffManifest,
     RepoDiffPackage, RepoDiffPackageCategory, RepoDiffPackageItemAdded,
@@ -99,11 +99,11 @@ fn cmd_repo_upgrade(ctx: CliContext) -> Result<String> {
         }
     };
     let result = upgrade_repository_paths(&store)?;
-    let already_canonical_count = result.total_instances - result.renames.len();
     output::serialize(
         "repo upgrade",
         RepoUpgradePayload {
-            already_canonical_count,
+            total_instances: result.total_instances,
+            already_canonical_count: result.already_canonical_count,
             renames: result
                 .renames
                 .into_iter()
@@ -134,15 +134,7 @@ fn cmd_repo_migrations(ctx: CliContext) -> Result<String> {
     output::serialize(
         "repo migrations",
         RepoMigrationsPayload {
-            migrations: migrations
-                .into_iter()
-                .map(|m| MigrationSummaryPayload {
-                    id: m.id,
-                    title: m.title,
-                    description: m.description,
-                    status: MigrationStatusPayload::from(m.status),
-                })
-                .collect(),
+            migrations: migrations.into_iter().map(MigrationSummaryPayload::from).collect(),
         },
     )
 }

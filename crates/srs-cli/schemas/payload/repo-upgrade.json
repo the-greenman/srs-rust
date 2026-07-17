@@ -4,7 +4,8 @@
   "type": "object",
   "required": [
     "alreadyCanonicalCount",
-    "renames"
+    "renames",
+    "totalInstances"
   ],
   "properties": {
     "alreadyCanonicalCount": {
@@ -17,6 +18,11 @@
       "items": {
         "$ref": "#/definitions/InstancePathRename"
       }
+    },
+    "totalInstances": {
+      "type": "integer",
+      "format": "uint",
+      "minimum": 0.0
     }
   },
   "definitions": {

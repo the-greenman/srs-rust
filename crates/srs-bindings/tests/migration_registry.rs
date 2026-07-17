@@ -85,3 +85,72 @@ fn apply_migration_unknown_id_returns_error() {
         "error must name the unknown ID, got: {msg}"
     );
 }
+
+#[test]
+fn apply_migration_via_registry_migrate_identity() {
+    let container_id = "550e8400-e29b-41d4-a716-446655440000";
+    let note_id = "bbbb0001-0000-4000-8000-000000000001";
+
+    // Build the fixture as a JsonStore via SRSJ so MemoryStore (test-only) is not needed.
+    let srsj = serde_json::json!({
+        "srsj": "1",
+        "manifest": {
+            "repositoryId": container_id,
+            "srsVersion": "2.0-draft",
+            "namespace": "com.test",
+            "instanceIndex": [{
+                "instanceId": note_id,
+                "tier": 0,
+                "path": "records/notes/identity.json",
+                "title": "Test Repo"
+            }],
+            "container": {
+                "containerId": container_id,
+                "title": "Test Repo",
+                "identityInstanceId": note_id,
+                "memberInstanceIds": [note_id]
+            },
+            "packageRef": {"mode": "local", "path": "package"}
+        },
+        "data": {
+            "package/package.json": {
+                "id": "pkg-migration-test",
+                "namespace": "com.test",
+                "name": "primary",
+                "version": "1.0.0",
+                "fields": [], "types": [], "relationTypes": [],
+                "views": [], "documentViews": [], "blueprints": []
+            },
+            format!("containers/{container_id}.json"): {
+                "containerId": container_id,
+                "title": "Test Repo",
+                "identityInstanceId": note_id,
+                "memberInstanceIds": [note_id]
+            },
+            "records/notes/identity.json": {
+                "instanceId": note_id,
+                "title": "Test Repo",
+                "sections": [{"name": "body", "content": "We build SRS."}]
+            }
+        }
+    }).to_string();
+
+    let store = JsonStore::from_srsj(&srsj).expect("fixture must load");
+
+    // Before apply: migrate-identity should be Needed.
+    let before = migration_registry_service::list_migrations(&store).unwrap();
+    let id_before = before.iter().find(|m| m.id == "migrate-identity").unwrap();
+    assert_eq!(id_before.status, MigrationStatus::Needed);
+
+    // Apply via the registry.
+    let result = migration_registry_service::apply_migration(&store, "migrate-identity")
+        .expect("apply_migration must succeed");
+    assert_eq!(result.id, "migrate-identity");
+    assert!(result.payload["newIdentityId"].is_string(), "payload must contain newIdentityId");
+    assert_eq!(result.payload["statement"], "We build SRS.");
+
+    // After apply: migrate-identity should be AlreadyApplied.
+    let after = migration_registry_service::list_migrations(&store).unwrap();
+    let id_after = after.iter().find(|m| m.id == "migrate-identity").unwrap();
+    assert_eq!(id_after.status, MigrationStatus::AlreadyApplied);
+}
