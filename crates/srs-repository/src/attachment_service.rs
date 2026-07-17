@@ -21,6 +21,9 @@ pub struct ListAttachmentsResult {
     pub entries: Vec<AttachmentEntry>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct ListAttachmentsFilter {}
+
 /// List source document attachments by walking `source_documents_path` recursively.
 ///
 /// Sidecar files (`.meta.json`) are excluded from the listing; their metadata is
@@ -28,6 +31,7 @@ pub struct ListAttachmentsResult {
 /// Files not present in `manifest.sourceDocumentIndex` appear with only `path` populated.
 pub fn list_attachments(
     store: &dyn RepositoryStore,
+    _filter: ListAttachmentsFilter,
 ) -> Result<ListAttachmentsResult, RepositoryError> {
     let manifest = store.load_manifest()?;
 
@@ -38,8 +42,7 @@ pub fn list_attachments(
         .to_string();
 
     // Build index map keyed on content_path (relative to src_docs_base).
-    let empty = Vec::new();
-    let index_entries = manifest.source_document_index.as_deref().unwrap_or(&empty);
+    let index_entries = manifest.source_document_index.as_deref().unwrap_or(&[]);
     let index_map: HashMap<&str, _> = index_entries
         .iter()
         .map(|e| (e.content_path.as_str(), e))
@@ -143,7 +146,7 @@ mod tests {
     #[test]
     fn list_attachments_empty_store() {
         let store = store_with_manifest(Manifest::default());
-        let result = list_attachments(&store).unwrap();
+        let result = list_attachments(&store, ListAttachmentsFilter::default()).unwrap();
         assert_eq!(result.source_documents_path, "source-documents");
         assert!(result.entries.is_empty());
     }
@@ -164,7 +167,7 @@ mod tests {
         touch(&store, "source-documents/my-doc.pdf");
         touch(&store, "source-documents/my-doc.meta.json");
 
-        let result = list_attachments(&store).unwrap();
+        let result = list_attachments(&store, ListAttachmentsFilter::default()).unwrap();
         assert_eq!(result.entries.len(), 1);
         let e = &result.entries[0];
         assert_eq!(e.path, "my-doc.pdf");
@@ -179,7 +182,7 @@ mod tests {
         let store = store_with_manifest(Manifest::default());
         touch(&store, "source-documents/unknown.docx");
 
-        let result = list_attachments(&store).unwrap();
+        let result = list_attachments(&store, ListAttachmentsFilter::default()).unwrap();
         assert_eq!(result.entries.len(), 1);
         let e = &result.entries[0];
         assert_eq!(e.path, "unknown.docx");
@@ -194,7 +197,7 @@ mod tests {
         touch(&store, "source-documents/subdir/nested.pdf");
         touch(&store, "source-documents/top.pdf");
 
-        let result = list_attachments(&store).unwrap();
+        let result = list_attachments(&store, ListAttachmentsFilter::default()).unwrap();
         assert_eq!(result.entries.len(), 2);
         let paths: Vec<&str> = result.entries.iter().map(|e| e.path.as_str()).collect();
         assert!(
@@ -213,7 +216,7 @@ mod tests {
         touch(&store, "source-documents/doc.pdf");
         touch(&store, "source-documents/doc.meta.json");
 
-        let result = list_attachments(&store).unwrap();
+        let result = list_attachments(&store, ListAttachmentsFilter::default()).unwrap();
         assert_eq!(result.entries.len(), 1);
         assert_eq!(result.entries[0].path, "doc.pdf");
     }
@@ -227,7 +230,7 @@ mod tests {
         let store = store_with_manifest(manifest);
         touch(&store, "attachments/report.pdf");
 
-        let result = list_attachments(&store).unwrap();
+        let result = list_attachments(&store, ListAttachmentsFilter::default()).unwrap();
         assert_eq!(result.source_documents_path, "attachments");
         assert_eq!(result.entries.len(), 1);
         assert_eq!(result.entries[0].path, "report.pdf");
@@ -286,7 +289,7 @@ mod tests {
         std::fs::write(root.join("source-documents/annexes/annex-a.pdf"), b"annex").unwrap();
 
         let store = FileStore::new(root);
-        let result = list_attachments(&store).unwrap();
+        let result = list_attachments(&store, ListAttachmentsFilter::default()).unwrap();
 
         assert_eq!(result.source_documents_path, "source-documents");
         let paths: Vec<&str> = result.entries.iter().map(|e| e.path.as_str()).collect();
