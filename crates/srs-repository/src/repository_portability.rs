@@ -837,14 +837,16 @@ fn ensure_target_empty(target: &dyn RepositoryStore) -> Result<(), RepositoryErr
 // upgrade_repository_paths
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InstancePathRename {
     pub instance_id: String,
     pub from_path: String,
     pub to_path: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UpgradeRepositoryPathsResult {
     pub renames: Vec<InstancePathRename>,
     pub total_instances: usize,
@@ -859,16 +861,13 @@ struct PlannedRename {
     sidecar_value: Option<serde_json::Value>,
 }
 
-pub fn upgrade_repository_paths(
+fn collect_planned_renames(
     store: &dyn RepositoryStore,
-) -> Result<UpgradeRepositoryPathsResult, RepositoryError> {
+    manifest: &crate::manifest::Manifest,
+) -> Result<Vec<PlannedRename>, RepositoryError> {
     use crate::revision_service::sidecar_path_for;
     use std::collections::HashSet;
 
-    let mut manifest = store.load_manifest()?;
-    let total_instances = manifest.instance_index.len();
-
-    // Phase 1: plan — compute canonical paths, detect collisions
     let mut planned: Vec<PlannedRename> = Vec::new();
     let mut canonical_paths: HashSet<String> = HashSet::new();
     for (idx, entry) in manifest.instance_index.iter().enumerate() {
@@ -908,6 +907,27 @@ pub fn upgrade_repository_paths(
             });
         }
     }
+    Ok(planned)
+}
+
+/// Returns `true` if any instance file path in the manifest index differs from its
+/// canonical slug-id8 form (i.e. `upgrade_repository_paths` would rename at least one file).
+/// Reads the manifest but performs no writes.
+pub fn check_path_upgrade_needed(
+    store: &dyn RepositoryStore,
+) -> Result<bool, RepositoryError> {
+    let manifest = store.load_manifest()?;
+    let planned = collect_planned_renames(store, &manifest)?;
+    Ok(!planned.is_empty())
+}
+
+pub fn upgrade_repository_paths(
+    store: &dyn RepositoryStore,
+) -> Result<UpgradeRepositoryPathsResult, RepositoryError> {
+    let mut manifest = store.load_manifest()?;
+    let total_instances = manifest.instance_index.len();
+
+    let planned = collect_planned_renames(store, &manifest)?;
 
     if planned.is_empty() {
         return Ok(UpgradeRepositoryPathsResult {
@@ -915,6 +935,8 @@ pub fn upgrade_repository_paths(
             total_instances,
         });
     }
+
+    use crate::revision_service::sidecar_path_for;
 
     // Phase 2: apply — write canonical instance files (and sidecars)
     for rename in &planned {

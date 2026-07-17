@@ -61,6 +61,41 @@ fn extract_identity_text(
     }
 }
 
+pub fn migration_status(
+    store: &dyn RepositoryStore,
+) -> Result<crate::migration_registry_service::MigrationStatus, RepositoryError> {
+    use crate::migration_registry_service::MigrationStatus;
+
+    let manifest = store.load_manifest()?;
+    let mc = match manifest.container.as_ref() {
+        None => return Ok(MigrationStatus::NotApplicable),
+        Some(c) => c,
+    };
+
+    match mc.identity_instance_id.as_deref() {
+        None => Ok(MigrationStatus::Needed),
+        Some(id) => {
+            let entry = manifest.instance_index.iter().find(|e| e.instance_id() == id);
+            match entry {
+                None => Ok(MigrationStatus::Needed),
+                Some(e) if e.tier() != 2 => Ok(MigrationStatus::Needed),
+                Some(e) => {
+                    let raw = store.load_instance_json(e.path())?;
+                    let ns_ok = raw.get("typeNamespace").and_then(|v| v.as_str())
+                        == Some(core_purpose::PURPOSE_TYPE_NAMESPACE);
+                    let name_ok = raw.get("typeName").and_then(|v| v.as_str())
+                        == Some(core_purpose::PURPOSE_TYPE_NAME);
+                    if ns_ok && name_ok {
+                        Ok(MigrationStatus::AlreadyApplied)
+                    } else {
+                        Ok(MigrationStatus::NotApplicable)
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub fn migrate_identity(
     store: &dyn RepositoryStore,
 ) -> Result<MigrateIdentityResult, RepositoryError> {
