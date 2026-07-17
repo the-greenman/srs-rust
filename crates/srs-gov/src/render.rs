@@ -142,7 +142,7 @@ pub fn linked_attachments(attachments: &[LinkedAttachment]) {
     }
     section("Linked Attachments");
     println!("  {:<42}  {:<28}  SIZE", "PATH · DOCUMENT ID", "TITLE");
-    println!("  {}", "─".repeat(70));
+    println!("  {}", "─".repeat(78));
     for a in attachments {
         let path_str = a.content_path.as_deref().unwrap_or("(no path)");
         let path_col = format!("{} ({})", path_str, short_id(&a.document_id));

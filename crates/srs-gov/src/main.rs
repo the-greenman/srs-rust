@@ -458,7 +458,8 @@ fn resolve_linked_attachments(record: &serde_json::Value, repo: &str) -> Vec<ren
     // 2. Fetch attachment list from the store (best-effort: degrade to doc IDs on error)
     let attach_payload = match run_srs(&["attachment", "list"], repo, false, false) {
         Ok(p) => p,
-        Err(_) => {
+        Err(err) => {
+            eprintln!("warn: could not fetch attachment list: {err}");
             return source_refs
                 .iter()
                 .filter(|r| r["sourceRole"].as_str() == Some("attaches"))
