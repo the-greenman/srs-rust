@@ -110,6 +110,7 @@ enum Commands {
         smoke: bool,
     },
     /// Source document attachment commands
+    #[command(name = "attachment")]
     Attachment {
         #[command(subcommand)]
         command: AttachmentSubcommand,
