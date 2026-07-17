@@ -132,7 +132,10 @@ mod tests {
         };
         let v = serde_json::to_value(&sr).unwrap();
         assert_eq!(v["sourceRole"], json!("attaches"));
-        assert!(v.get("relationType").is_none(), "relationType must not be emitted when only sourceRole is set");
+        assert!(
+            v.get("relationType").is_none(),
+            "relationType must not be emitted when only sourceRole is set"
+        );
         let parsed: SourceReference = serde_json::from_value(v).unwrap();
         assert_eq!(parsed.source_role, Some(SourceRole::Attaches));
         assert!(parsed.relation_type.is_none());

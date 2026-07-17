@@ -2,7 +2,9 @@ use crate::commands::{with_store, AttachmentCommand, CliContext};
 use crate::output;
 use crate::payload::{AttachmentAddPayload, AttachmentLinkPayload, AttachmentListPayload};
 use anyhow::{Context as _, Result};
-use srs_repository::attachment_service::{self, AddAttachmentInput, LinkAttachmentInput, ListAttachmentsFilter};
+use srs_repository::attachment_service::{
+    self, AddAttachmentInput, LinkAttachmentInput, ListAttachmentsFilter,
+};
 
 pub fn dispatch(ctx: CliContext, cmd: AttachmentCommand) -> Result<String> {
     match cmd {
@@ -30,7 +32,11 @@ fn cmd_attachment_list(ctx: CliContext) -> Result<String> {
     output::serialize("attachment list", AttachmentListPayload::from(result))
 }
 
-fn cmd_attachment_link(ctx: CliContext, instance_id: String, document_id: String) -> Result<String> {
+fn cmd_attachment_link(
+    ctx: CliContext,
+    instance_id: String,
+    document_id: String,
+) -> Result<String> {
     let result = with_store(&ctx, |store| {
         Ok(attachment_service::link_attachment(
             store,
