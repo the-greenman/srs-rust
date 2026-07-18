@@ -86,6 +86,12 @@ impl SrsRepository {
         Ok(SrsRepository { store })
     }
 
+    /// Load a repository from a `.srs` binary archive (ZIP bytes).
+    pub fn load_archive(bytes: &[u8]) -> Result<SrsRepository, JsValue> {
+        let store = JsonStore::from_archive(bytes).map_err(js_err)?;
+        Ok(SrsRepository { store })
+    }
+
     /// Validate the repository. Returns a `RepositoryValidationReport` as a JS value.
     pub fn validate(&self) -> Result<JsValue, JsValue> {
         let report = validation::validate_repository(&self.store).map_err(js_err)?;
@@ -178,6 +184,13 @@ impl SrsRepository {
     #[wasm_bindgen]
     pub fn export_srsj(&self) -> Result<String, JsValue> {
         self.store.to_srsj_string().map_err(js_err)
+    }
+
+    /// Export the current repository state as a `.srs` binary archive (ZIP bytes).
+    pub fn export_archive(&self) -> Result<js_sys::Uint8Array, JsValue> {
+        let mut buf = std::io::Cursor::new(Vec::new());
+        srs_repository::archive_pack(&self.store, &mut buf).map_err(js_err)?;
+        Ok(js_sys::Uint8Array::from(buf.into_inner().as_slice()))
     }
 
     /// Create a record. `input_json` is a JSON object with fields:
@@ -1842,5 +1855,20 @@ mod tests {
         assert_eq!(result.created[0].target_id, "id-b");
         assert_eq!(result.created[1].source_id, "id-b");
         assert_eq!(result.created[1].target_id, "id-c");
+    }
+
+    #[test]
+    fn archive_roundtrip_via_wasm_bindings() {
+        use srs_repository::services::{list_notes, ListNotesFilter};
+
+        let store = JsonStore::from_srsj(&srsj_with_note_and_type()).expect("load srsj");
+
+        let mut buf = std::io::Cursor::new(Vec::new());
+        srs_repository::archive_pack(&store, &mut buf).expect("archive_pack");
+        let bytes = buf.into_inner();
+
+        let reloaded = JsonStore::from_archive(&bytes).expect("from_archive");
+        let result = list_notes(&reloaded, ListNotesFilter::default()).expect("list notes");
+        assert!(!result.notes.is_empty(), "reloaded store should preserve the note");
     }
 }
