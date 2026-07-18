@@ -153,6 +153,12 @@ pub enum RepositoryError {
         source: serde_json::Error,
     },
 
+    #[error("failed to load source document metadata at {path:?}: {source}")]
+    SourceDocumentMetaLoad {
+        path: PathBuf,
+        source: serde_json::Error,
+    },
+
     #[error("theme validation failed at {path:?}: {source}")]
     ThemeValidation {
         path: PathBuf,
@@ -570,6 +576,10 @@ impl PartialEq for RepositoryError {
                     path: b,
                     source: sb,
                 },
+            ) => a == b && sa.to_string() == sb.to_string(),
+            (
+                RepositoryError::SourceDocumentMetaLoad { path: a, source: sa },
+                RepositoryError::SourceDocumentMetaLoad { path: b, source: sb },
             ) => a == b && sa.to_string() == sb.to_string(),
             (
                 RepositoryError::ThemeValidation {
