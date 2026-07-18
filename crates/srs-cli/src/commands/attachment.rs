@@ -1,9 +1,13 @@
 use crate::commands::{with_store, AttachmentCommand, CliContext};
 use crate::output;
-use crate::payload::{AttachmentAddPayload, AttachmentLinkPayload, AttachmentListPayload};
+use crate::payload::{
+    AttachmentAddPayload, AttachmentLinkPayload, AttachmentListPayload,
+    ResolveViewAttachmentsPayload,
+};
 use anyhow::{Context as _, Result};
 use srs_repository::attachment_service::{
     self, AddAttachmentInput, LinkAttachmentInput, ListAttachmentsFilter,
+    ResolveDocumentViewAttachmentsInput,
 };
 
 pub fn dispatch(ctx: CliContext, cmd: AttachmentCommand) -> Result<String> {
@@ -19,6 +23,7 @@ pub fn dispatch(ctx: CliContext, cmd: AttachmentCommand) -> Result<String> {
             instance_id,
             document_id,
         } => cmd_attachment_link(ctx, instance_id, document_id),
+        AttachmentCommand::ResolveViewAttachments => cmd_attachment_resolve_view_attachments(ctx),
     }
 }
 
@@ -74,4 +79,18 @@ fn cmd_attachment_add(
         Ok(attachment_service::add_attachment(store, input)?)
     })?;
     output::serialize("attachment add", AttachmentAddPayload::from(result))
+}
+
+fn cmd_attachment_resolve_view_attachments(ctx: CliContext) -> Result<String> {
+    let input: ResolveDocumentViewAttachmentsInput =
+        crate::input::from_stdin("resolve-view-attachments")?;
+    let result = with_store(&ctx, |store| {
+        Ok(attachment_service::resolve_document_view_attachments(
+            store, input,
+        )?)
+    })?;
+    output::serialize(
+        "attachment resolve-view-attachments",
+        ResolveViewAttachmentsPayload::from(result),
+    )
 }

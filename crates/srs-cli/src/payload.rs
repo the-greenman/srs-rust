@@ -2126,6 +2126,79 @@ impl From<srs_repository::attachment_service::LinkAttachmentResult> for Attachme
     }
 }
 
+// ── Resolve view attachments payloads ─────────────────────────────────────────
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedAttachmentPayload {
+    pub document_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sidecar_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_checksum: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sidecar_checksum: Option<String>,
+}
+
+impl From<srs_repository::attachment_service::ResolvedAttachment> for ResolvedAttachmentPayload {
+    fn from(a: srs_repository::attachment_service::ResolvedAttachment) -> Self {
+        Self {
+            document_id: a.document_id,
+            content_path: a.content_path,
+            sidecar_path: a.sidecar_path,
+            title: a.title,
+            content_checksum: a.content_checksum,
+            sidecar_checksum: a.sidecar_checksum,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordAttachmentsPayload {
+    pub instance_id: String,
+    pub attachments: Vec<ResolvedAttachmentPayload>,
+}
+
+impl From<srs_repository::attachment_service::RecordAttachments> for RecordAttachmentsPayload {
+    fn from(r: srs_repository::attachment_service::RecordAttachments) -> Self {
+        Self {
+            instance_id: r.instance_id,
+            attachments: r
+                .attachments
+                .into_iter()
+                .map(ResolvedAttachmentPayload::from)
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolveViewAttachmentsPayload {
+    pub source_documents_path: String,
+    pub records: Vec<RecordAttachmentsPayload>,
+}
+
+impl From<srs_repository::attachment_service::ResolveDocumentViewAttachmentsResult>
+    for ResolveViewAttachmentsPayload
+{
+    fn from(r: srs_repository::attachment_service::ResolveDocumentViewAttachmentsResult) -> Self {
+        Self {
+            source_documents_path: r.source_documents_path,
+            records: r
+                .records
+                .into_iter()
+                .map(RecordAttachmentsPayload::from)
+                .collect(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

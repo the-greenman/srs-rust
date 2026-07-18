@@ -1,4 +1,5 @@
 use crate::error::RepositoryError;
+use crate::index::InstanceIndexEntry;
 use crate::record_store;
 use crate::store::RepositoryStore;
 use crate::writer::write_manifest;
@@ -370,6 +371,127 @@ pub fn link_attachment(
         instance_id: input.instance_id,
         document_id: input.document_id,
         source_refs_count,
+    })
+}
+
+// ── resolve_document_view_attachments ──────────────────────────────────────────
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolveDocumentViewAttachmentsInput {
+    pub instance_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedAttachment {
+    pub document_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sidecar_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_checksum: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sidecar_checksum: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordAttachments {
+    pub instance_id: String,
+    pub attachments: Vec<ResolvedAttachment>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolveDocumentViewAttachmentsResult {
+    pub source_documents_path: String,
+    pub records: Vec<RecordAttachments>,
+}
+
+/// Given a list of instance IDs from a rendered document_view, resolve each record's
+/// `sourceRefs` with `sourceRole: attaches` and `sourceType: repository-document`
+/// to their `SourceDocumentIndexEntry` metadata.
+///
+/// Resolution is sourceRefs-only per RFC-017 Rev 3 [R1].
+/// Records with no qualifying sourceRefs are omitted from the result.
+pub fn resolve_document_view_attachments(
+    store: &dyn RepositoryStore,
+    input: ResolveDocumentViewAttachmentsInput,
+) -> Result<ResolveDocumentViewAttachmentsResult, RepositoryError> {
+    let manifest = store.load_manifest()?;
+
+    let src_docs_base = manifest
+        .source_documents_path
+        .as_deref()
+        .unwrap_or("source-documents")
+        .to_string();
+
+    let index_entries = manifest.source_document_index.as_deref().unwrap_or(&[]);
+    let index_map: HashMap<&str, &SourceDocumentIndexEntry> = index_entries
+        .iter()
+        .map(|e| (e.document_id.as_str(), e))
+        .collect();
+
+    let instance_map: HashMap<&str, &InstanceIndexEntry> = manifest
+        .instance_index
+        .iter()
+        .filter(|e| e.tier() == 2)
+        .map(|e| (e.instance_id(), e))
+        .collect();
+
+    let mut records: Vec<RecordAttachments> = Vec::new();
+
+    for instance_id in &input.instance_ids {
+        let Some(entry) = instance_map.get(instance_id.as_str()) else {
+            continue;
+        };
+
+        let record = crate::record_store::load_record(store, entry.path())?;
+
+        let source_refs: Vec<SourceReference> = match record.extra.get("sourceRefs") {
+            None => vec![],
+            Some(v) => {
+                serde_json::from_value(v.clone()).map_err(|e| RepositoryError::Serialize {
+                    path: std::path::PathBuf::from(entry.path()),
+                    source: e,
+                })?
+            }
+        };
+
+        let attachments: Vec<ResolvedAttachment> = source_refs
+            .into_iter()
+            .filter(|r| {
+                r.source_role == Some(SourceRole::Attaches)
+                    && r.source_type == SourceType::RepositoryDocument
+            })
+            .map(|r| {
+                let idx = index_map.get(r.source_id.as_str());
+                ResolvedAttachment {
+                    document_id: r.source_id,
+                    content_path: idx.map(|e| e.content_path.clone()),
+                    sidecar_path: idx.map(|e| e.sidecar_path.clone()),
+                    title: idx.and_then(|e| e.title.clone()),
+                    content_checksum: idx.and_then(|e| e.content_checksum.clone()),
+                    sidecar_checksum: idx.and_then(|e| e.sidecar_checksum.clone()),
+                }
+            })
+            .collect();
+
+        if !attachments.is_empty() {
+            records.push(RecordAttachments {
+                instance_id: instance_id.clone(),
+                attachments,
+            });
+        }
+    }
+
+    Ok(ResolveDocumentViewAttachmentsResult {
+        source_documents_path: src_docs_base,
+        records,
     })
 }
 
@@ -1280,5 +1402,325 @@ mod tests {
                 entry.sidecar_path
             );
         }
+    }
+
+    // ── resolve_document_view_attachments tests ───────────────────────────────────
+
+    #[test]
+    fn resolve_document_view_attachments_empty_ids() {
+        let store = store_with_manifest(Manifest::default());
+        let result = resolve_document_view_attachments(
+            &store,
+            ResolveDocumentViewAttachmentsInput {
+                instance_ids: vec![],
+            },
+        )
+        .unwrap();
+        assert!(result.records.is_empty());
+        assert_eq!(result.source_documents_path, "source-documents");
+    }
+
+    #[test]
+    fn resolve_document_view_attachments_no_source_refs() {
+        let doc_id = "doc-no-refs-001";
+        let record_id = "aaaa0001-0000-4000-8000-000000000001";
+        let store = store_with_doc_and_record(doc_id, record_id);
+        let result = resolve_document_view_attachments(
+            &store,
+            ResolveDocumentViewAttachmentsInput {
+                instance_ids: vec![record_id.to_string()],
+            },
+        )
+        .unwrap();
+        assert!(
+            result.records.is_empty(),
+            "record with no sourceRefs must not appear"
+        );
+    }
+
+    #[test]
+    fn resolve_document_view_attachments_wrong_role() {
+        let doc_id = "doc-wrong-role-002";
+        let record_id = "aaaa0002-0000-4000-8000-000000000002";
+        let store = store_with_doc_and_record(doc_id, record_id);
+        let record_path = format!("records/tier-2/test-record-{}.json", &record_id[..8]);
+        store
+            .save_instance_json(
+                &record_path,
+                &serde_json::json!({
+                    "instanceId": record_id,
+                    "typeId": "type-test-001",
+                    "typeVersion": 1,
+                    "typeNamespace": "com.test",
+                    "typeName": "test-type",
+                    "fieldValues": [],
+                    "sourceRefs": [{
+                        "sourceType": "repository-document",
+                        "sourceId": doc_id,
+                        "sourceRole": "evidence"
+                    }]
+                }),
+            )
+            .unwrap();
+        let result = resolve_document_view_attachments(
+            &store,
+            ResolveDocumentViewAttachmentsInput {
+                instance_ids: vec![record_id.to_string()],
+            },
+        )
+        .unwrap();
+        assert!(
+            result.records.is_empty(),
+            "sourceRole:evidence must not be included"
+        );
+    }
+
+    #[test]
+    fn resolve_document_view_attachments_happy_path() {
+        let doc_id = "doc-happy-003";
+        let record_id = "aaaa0003-0000-4000-8000-000000000003";
+        let manifest = Manifest {
+            source_document_index: Some(vec![SourceDocumentIndexEntry {
+                document_id: doc_id.to_string(),
+                sidecar_path: "brief.meta.json".to_string(),
+                content_path: "brief.pdf".to_string(),
+                title: Some("Brief Title".to_string()),
+                sidecar_checksum: Some("sha256:sidecar".to_string()),
+                content_checksum: Some("sha256:content".to_string()),
+            }]),
+            instance_index: vec![InstanceIndexEntry {
+                instance_id: record_id.to_string(),
+                tier: 2,
+                path: format!("records/tier-2/test-record-{}.json", &record_id[..8]),
+                title: None,
+                tags: None,
+            }],
+            ..Manifest::default()
+        };
+        let store = store_with_manifest(manifest);
+        let record_path = format!("records/tier-2/test-record-{}.json", &record_id[..8]);
+        store
+            .save_instance_json(
+                &record_path,
+                &serde_json::json!({
+                    "instanceId": record_id,
+                    "typeId": "type-test-001",
+                    "typeVersion": 1,
+                    "typeNamespace": "com.test",
+                    "typeName": "test-type",
+                    "fieldValues": []
+                }),
+            )
+            .unwrap();
+        link_attachment(
+            &store,
+            LinkAttachmentInput {
+                instance_id: record_id.to_string(),
+                document_id: doc_id.to_string(),
+            },
+        )
+        .unwrap();
+
+        let result = resolve_document_view_attachments(
+            &store,
+            ResolveDocumentViewAttachmentsInput {
+                instance_ids: vec![record_id.to_string()],
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.records.len(), 1);
+        let rec = &result.records[0];
+        assert_eq!(rec.instance_id, record_id);
+        assert_eq!(rec.attachments.len(), 1);
+        let att = &rec.attachments[0];
+        assert_eq!(att.document_id, doc_id);
+        assert_eq!(att.content_path.as_deref(), Some("brief.pdf"));
+        assert_eq!(att.sidecar_path.as_deref(), Some("brief.meta.json"));
+        assert_eq!(att.title.as_deref(), Some("Brief Title"));
+        assert_eq!(att.content_checksum.as_deref(), Some("sha256:content"));
+        assert_eq!(att.sidecar_checksum.as_deref(), Some("sha256:sidecar"));
+    }
+
+    #[test]
+    fn resolve_document_view_attachments_unindexed_doc() {
+        let record_id = "aaaa0004-0000-4000-8000-000000000004";
+        let manifest = Manifest {
+            source_document_index: Some(vec![]),
+            instance_index: vec![InstanceIndexEntry {
+                instance_id: record_id.to_string(),
+                tier: 2,
+                path: format!("records/tier-2/test-record-{}.json", &record_id[..8]),
+                title: None,
+                tags: None,
+            }],
+            ..Manifest::default()
+        };
+        let store = store_with_manifest(manifest);
+        let record_path = format!("records/tier-2/test-record-{}.json", &record_id[..8]);
+        store
+            .save_instance_json(
+                &record_path,
+                &serde_json::json!({
+                    "instanceId": record_id,
+                    "typeId": "type-test-001",
+                    "typeVersion": 1,
+                    "typeNamespace": "com.test",
+                    "typeName": "test-type",
+                    "fieldValues": [],
+                    "sourceRefs": [{
+                        "sourceType": "repository-document",
+                        "sourceId": "nonexistent-doc-id",
+                        "sourceRole": "attaches"
+                    }]
+                }),
+            )
+            .unwrap();
+
+        let result = resolve_document_view_attachments(
+            &store,
+            ResolveDocumentViewAttachmentsInput {
+                instance_ids: vec![record_id.to_string()],
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            result.records.len(),
+            1,
+            "record with unindexed ref must still appear"
+        );
+        let att = &result.records[0].attachments[0];
+        assert_eq!(att.document_id, "nonexistent-doc-id");
+        assert!(
+            att.content_path.is_none(),
+            "unindexed doc should have no content_path"
+        );
+        assert!(
+            att.sidecar_path.is_none(),
+            "unindexed doc should have no sidecar_path"
+        );
+        assert!(att.title.is_none());
+        assert!(att.content_checksum.is_none());
+        assert!(att.sidecar_checksum.is_none());
+    }
+
+    #[test]
+    fn resolve_document_view_attachments_skips_missing_instance() {
+        let doc_id = "doc-skip-005";
+        let record_id = "aaaa0005-0000-4000-8000-000000000005";
+        let store = store_with_doc_and_record(doc_id, record_id);
+        link_attachment(
+            &store,
+            LinkAttachmentInput {
+                instance_id: record_id.to_string(),
+                document_id: doc_id.to_string(),
+            },
+        )
+        .unwrap();
+
+        let result = resolve_document_view_attachments(
+            &store,
+            ResolveDocumentViewAttachmentsInput {
+                instance_ids: vec![
+                    "nonexistent-instance-000000000000".to_string(),
+                    record_id.to_string(),
+                ],
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            result.records.len(),
+            1,
+            "missing instance must be silently skipped"
+        );
+        assert_eq!(result.records[0].instance_id, record_id);
+    }
+
+    #[test]
+    fn resolve_document_view_attachments_filestore_roundtrip() {
+        use crate::store::FileStore;
+        use tempfile::TempDir;
+
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+
+        std::fs::create_dir_all(root.join(".srs")).unwrap();
+        let doc_id = "doc-resolve-roundtrip-006";
+        let record_id = "aaaa0006-0000-4000-8000-000000000006";
+        let manifest_json = serde_json::json!({
+            "instanceIndex": [{
+                "instanceId": record_id,
+                "tier": 2,
+                "path": "records/tier-2/test-type-aaaa0006.json"
+            }],
+            "sourceDocumentIndex": [{
+                "documentId": doc_id,
+                "sidecarPath": "brief.meta.json",
+                "contentPath": "brief.pdf",
+                "title": "Roundtrip Brief",
+                "contentChecksum": "sha256:abc"
+            }]
+        });
+        std::fs::write(
+            root.join("manifest.json"),
+            serde_json::to_string(&manifest_json).unwrap(),
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("package")).unwrap();
+        std::fs::write(
+            root.join("package/package.json"),
+            serde_json::json!({
+                "id": "resolve-rt-pkg", "namespace": "com.test", "name": "test",
+                "version": "1.0.0", "fields": [], "types": []
+            })
+            .to_string(),
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("records/tier-2")).unwrap();
+        std::fs::write(
+            root.join("records/tier-2/test-type-aaaa0006.json"),
+            serde_json::json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                "instanceId": record_id,
+                "typeId": "type-test-001",
+                "typeVersion": 1,
+                "typeNamespace": "com.test",
+                "typeName": "test-type",
+                "fieldValues": []
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let store = FileStore::new(root);
+        link_attachment(
+            &store,
+            LinkAttachmentInput {
+                instance_id: record_id.to_string(),
+                document_id: doc_id.to_string(),
+            },
+        )
+        .unwrap();
+
+        let result = resolve_document_view_attachments(
+            &store,
+            ResolveDocumentViewAttachmentsInput {
+                instance_ids: vec![record_id.to_string()],
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.records.len(), 1);
+        let rec = &result.records[0];
+        assert_eq!(rec.instance_id, record_id);
+        assert_eq!(rec.attachments.len(), 1);
+        let att = &rec.attachments[0];
+        assert_eq!(att.document_id, doc_id);
+        assert_eq!(att.content_path.as_deref(), Some("brief.pdf"));
+        assert_eq!(att.sidecar_path.as_deref(), Some("brief.meta.json"));
+        assert_eq!(att.title.as_deref(), Some("Roundtrip Brief"));
+        assert_eq!(att.content_checksum.as_deref(), Some("sha256:abc"));
     }
 }

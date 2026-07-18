@@ -637,3 +637,13 @@ fn attachment_list() {
 fn attachment_add() {
     check::<AttachmentAddPayload>("attachment-add");
 }
+
+#[test]
+fn attachment_link() {
+    check::<AttachmentLinkPayload>("attachment-link");
+}
+
+#[test]
+fn attachment_resolve_view_attachments() {
+    check::<ResolveViewAttachmentsPayload>("attachment-resolve-view-attachments");
+}

@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ResolveViewAttachmentsPayload",
+  "type": "object",
+  "required": [
+    "records",
+    "sourceDocumentsPath"
+  ],
+  "properties": {
+    "records": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/RecordAttachmentsPayload"
+      }
+    },
+    "sourceDocumentsPath": {
+      "type": "string"
+    }
+  },
+  "definitions": {
+    "RecordAttachmentsPayload": {
+      "type": "object",
+      "required": [
+        "attachments",
+        "instanceId"
+      ],
+      "properties": {
+        "attachments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ResolvedAttachmentPayload"
+          }
+        },
+        "instanceId": {
+          "type": "string"
+        }
+      }
+    },
+    "ResolvedAttachmentPayload": {
+      "type": "object",
+      "required": [
+        "documentId"
+      ],
+      "properties": {
+        "contentChecksum": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "contentPath": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "documentId": {
+          "type": "string"
+        },
+        "sidecarChecksum": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sidecarPath": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

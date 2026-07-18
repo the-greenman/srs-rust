@@ -2027,6 +2027,62 @@ Returns `ok: false` with a "not found" diagnostic. Exit code 1.
 
 ---
 
+## S36 — Resolve linked attachments for a set of records from a document view (`srs attachment resolve-view-attachments`, #286)
+
+**Intention:** After rendering a `document_view` projection, I have a list of record instance IDs. I want to look up all attached source documents for those records in a single call — so a UI can display "linked files" alongside each decision without making N individual record reads.
+
+**CLI surface.** `attachment resolve-view-attachments` (reads stdin JSON `{"instanceIds": [...]}`)
+
+**Repo setup.**
+
+```bash
+SRS=target/debug/srs
+REPO=/tmp/dogfood-s36
+
+$SRS repo create --repo $REPO --namespace com.example.dogfood
+
+echo "Phase 1 transcript" > /tmp/s36-transcript.txt
+DOC_ID=$($SRS attachment add /tmp/s36-transcript.txt --repo $REPO --title "Phase 1 Transcript" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['documentId'])")
+
+FIELD_ID=$($SRS field create --repo $REPO <<< \
+  '{"namespace":"com.example.dogfood","name":"summary","version":1,"valueType":"string","description":"Summary"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['field']['id'])")
+
+TYPE_JSON=$(printf '{"namespace":"com.example.dogfood","name":"decision","version":1,"fields":[{"fieldId":"%s","order":1,"required":false}]}' "$FIELD_ID")
+$SRS type create --repo $REPO <<< "$TYPE_JSON" > /dev/null
+
+RECORD_ID=$($SRS record create --repo $REPO --type "com.example.dogfood/decision" <<< \
+  $(printf '{"typeVersion":1,"typeNamespace":"com.example.dogfood","typeName":"decision","fieldValues":[{"fieldId":"%s","value":"Use RFC-017."}]}' "$FIELD_ID") \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['record']['instanceId'])")
+
+$SRS attachment link "$RECORD_ID" "$DOC_ID" --repo $REPO > /dev/null
+```
+
+**Happy path.**
+
+```bash
+echo "{\"instanceIds\": [\"$RECORD_ID\"]}" | $SRS attachment resolve-view-attachments --repo $REPO --pretty
+```
+
+Expected: `ok: true`, one entry in `records` with the record's `instanceId`, one attachment with `documentId`, `contentPath`, `sidecarPath`, `title`, and checksums.
+
+**Negative cases.**
+
+```bash
+# Empty list → empty records
+echo '{"instanceIds":[]}' | $SRS attachment resolve-view-attachments --repo $REPO --pretty
+
+# Unknown ID → silently omitted (not an error)
+echo '{"instanceIds":["00000000-0000-0000-0000-000000000000"]}' | $SRS attachment resolve-view-attachments --repo $REPO --pretty
+```
+
+**Done when.** Happy path returns `ok: true`, one record entry with the correct `documentId`, `contentPath`, `sidecarPath`, and `title`. Empty `instanceIds` returns `ok: true`, `records: []`. An unknown ID is silently omitted (not an error). A record with no attaches-type sourceRefs is omitted from the output. `repo validate` returns 0 diagnostics throughout.
+
+**Verified 2026-07-18 (#286).** Live dogfood run against `/tmp/dogfood-286-v2`: happy path returned `ok: true`, single record with `documentId: 6814041d-…`, `contentPath: "dogfood-phase1.txt"`, `sidecarPath: "dogfood-phase1.meta.json"`, `title: "Phase 1 Transcript"`, and both checksums. Empty `instanceIds` → `records: []`. Unknown ID → `records: []`. Record with no attachment refs → `records: []`. `repo validate` → 0 diagnostics.
+
+---
+
 ## S35 — Facilitator reviews a decision with its linked source documents (`srs-gov get`, #285)
 
 **Intention:** I want to review a decision record and see which source documents support it — so that I can confirm the decision has proper backing material before a governance meeting.
@@ -2170,6 +2226,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `attachment list` | S31 |
 | `attachment add` | S32 |
 | `attachment link` | S34 (#283); service-layer tests in `attachment_service.rs` (MemoryStore + FileStore). WASM binding is a follow-up. |
+| `attachment resolve-view-attachments` (resolve sourceRefs attachments for a set of record IDs, RFC-017 Rev 3 [R1]) | S36 (#286); service-layer tests in `attachment_service.rs` (MemoryStore + FileStore, 7 tests); WASM binding (`SrsRepository::resolve_document_view_attachments`) verified via 2 integration tests in `crates/srs-bindings/tests/resolve_view_attachments.rs` |
 | `srs-gov attachment add` / `srs-gov attachment list` | S33 |
 | `archive pack` / `archive unpack` (**gap** — no CLI surface yet, #276) | Library functions `archive_pack` / `archive_unpack` are implemented in `srs-repository` (ADR-033) and verified via 11 unit/integration tests: 8 unit tests (roundtrip, determinism, entry order, timestamps, error paths, FileStore roundtrip, cross-store roundtrip) + `test_archive_no_extra_fields_and_deflated` (asserts all ZIP entries use Deflated and carry no host metadata extra fields) + `test_archive_golden_fixture` (byte-identical comparison against committed `tests/fixtures/golden-archive.srs`) + `test_archive_golden_roundtrip` (unpack committed golden → assert correct namespace, proving ZIP is valid and `archive_unpack` handles the format) (#277). CLI handlers `srs archive pack` / `srs archive unpack` are a future deliverable (#276 follow-up). A meaningful dogfood scenario requires the CLI surface to exist — the intention would be: *"I want to hand off a self-contained snapshot of a repository — all records, relations, package definition, and binary attachments — as a single portable file."* Add a scenario (S31 or similar) when `srs archive pack`/`srs archive unpack` are wired up. |
 
