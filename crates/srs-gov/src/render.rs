@@ -153,6 +153,20 @@ pub fn linked_attachments(attachments: &[LinkedAttachment]) {
     println!();
 }
 
+pub fn export_bundle_created(output_path: &str, rendered_filename: &str, attachment_count: usize) {
+    println!();
+    println!("  Bundle created: {output_path}");
+    println!("  Contents:");
+    println!("    {rendered_filename}");
+    if attachment_count > 0 {
+        println!(
+            "    attachments/  ({attachment_count} file{})",
+            if attachment_count == 1 { "" } else { "s" }
+        );
+    }
+    println!();
+}
+
 fn fmt_size(bytes: u64) -> String {
     if bytes >= 1_048_576 {
         format!("{} MB", bytes / 1_048_576)

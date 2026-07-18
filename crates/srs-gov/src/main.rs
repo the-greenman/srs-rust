@@ -115,6 +115,15 @@ enum Commands {
         #[command(subcommand)]
         command: AttachmentSubcommand,
     },
+    /// Export a decision as a shareable bundle (rendered doc + attachments)
+    #[command(name = "export-decision")]
+    ExportDecision {
+        /// Instance ID (or unique prefix) of the decision to export
+        id: String,
+        /// Output path for the .zip bundle (default: ./<id-prefix>.zip)
+        #[arg(long)]
+        output: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -189,6 +198,9 @@ fn run() -> Result<()> {
         Some(Commands::Tui { smoke }) => tui_app::run_tui(&cli.repo, smoke),
         Some(Commands::Attachment { command }) => {
             cmd_attachment(&cli.repo, cli.explain, cli.json, command)
+        }
+        Some(Commands::ExportDecision { id, output }) => {
+            cmd_export_decision(&id, output.as_deref(), &cli.repo, cli.explain, cli.json)
         }
     }
 }
@@ -835,6 +847,113 @@ fn cmd_repo_create(output: &str, title: &str, purpose: Option<&str>) -> Result<(
     std::fs::File::create(out_path)?.write_all(final_srsj.as_bytes())?;
 
     render::repo_created(output, title, &result.repository_id, purpose.is_some());
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// export-decision — bundle a decision as a shareable flat ZIP
+// ---------------------------------------------------------------------------
+
+fn cmd_export_decision(
+    id: &str,
+    output: Option<&str>,
+    repo: &str,
+    explain: bool,
+    json: bool,
+) -> Result<()> {
+    if explain {
+        run_srs(&["record", "get", id], repo, true, false)?;
+        run_srs(
+            &[
+                "document-view",
+                "list",
+                "--namespace",
+                "governance",
+                "--name",
+                "decision-deliberation",
+            ],
+            repo,
+            true,
+            false,
+        )?;
+        let out_path = output.unwrap_or("<id-prefix>.zip");
+        run_srs(
+            &[
+                "render",
+                "export-bundle",
+                "--view",
+                "<view-id>",
+                "--instance",
+                "<instance-id>",
+                "--output",
+                out_path,
+            ],
+            repo,
+            true,
+            false,
+        )?;
+        return Ok(());
+    }
+
+    let record_payload = run_srs(&["record", "get", id], repo, false, json)?;
+    if json {
+        return Ok(());
+    }
+    let instance_id = record_payload["record"]["instanceId"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("record not found: {id}"))?
+        .to_string();
+
+    let view_payload = run_srs(
+        &[
+            "document-view",
+            "list",
+            "--namespace",
+            "governance",
+            "--name",
+            "decision-deliberation",
+        ],
+        repo,
+        false,
+        false,
+    )?;
+    let view_id = view_payload["documentViews"]
+        .as_array()
+        .and_then(|a| a.first())
+        .and_then(|v| v["id"].as_str())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "decision-deliberation document view not found in repo {repo}. \
+                 Is the governance package installed?"
+            )
+        })?
+        .to_string();
+
+    let out_path = output
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("{}.zip", &instance_id[..8.min(instance_id.len())]));
+
+    let bundle_payload = run_srs(
+        &[
+            "render",
+            "export-bundle",
+            "--view",
+            &view_id,
+            "--instance",
+            &instance_id,
+            "--output",
+            &out_path,
+        ],
+        repo,
+        false,
+        false,
+    )?;
+
+    let rendered_filename = bundle_payload["renderedFilename"]
+        .as_str()
+        .unwrap_or("decision.md");
+    let attachment_count = bundle_payload["attachmentCount"].as_u64().unwrap_or(0);
+    render::export_bundle_created(&out_path, rendered_filename, attachment_count as usize);
     Ok(())
 }
 
