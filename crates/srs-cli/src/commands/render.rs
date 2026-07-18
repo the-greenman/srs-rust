@@ -134,12 +134,9 @@ fn cmd_render_export_bundle(
     instance_id: String,
     output_path: PathBuf,
 ) -> Result<String> {
+    let mut file = std::fs::File::create(&output_path)
+        .map_err(|e| anyhow::anyhow!("cannot create output file {:?}: {}", output_path, e))?;
     match with_store(&ctx, |store| {
-        let file = std::fs::File::create(&output_path).map_err(|e| {
-            srs_repository::error::RepositoryError::InvalidExportBundle {
-                message: format!("failed to create output file {:?}: {}", output_path, e),
-            }
-        })?;
         Ok(export_record_bundle(
             store,
             ExportBundleInput {
@@ -147,7 +144,7 @@ fn cmd_render_export_bundle(
                 view_id: view_id.clone(),
                 format: None,
             },
-            file,
+            &mut file,
         )?)
     }) {
         Ok(meta) => output::serialize(

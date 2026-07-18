@@ -61,9 +61,11 @@ pub fn export_record_bundle(
                 .unwrap_or(content_path.as_str());
             let candidate_key = format!("attachments/{}", basename);
             let entry_key = if used_keys.contains(&candidate_key) {
-                // Two attachments share a basename in different subdirectories:
-                // fall back to full relative path to avoid silent overwrite.
-                format!("attachments/{}", content_path)
+                // Two attachments share a basename: keep the bundle flat by
+                // appending the first 8 chars of the document ID as a suffix.
+                let id_prefix =
+                    &attachment.document_id[..8.min(attachment.document_id.len())];
+                format!("attachments/{}_{}", basename, id_prefix)
             } else {
                 candidate_key
             };
