@@ -2225,6 +2225,122 @@ import sys,json; r=json.load(sys.stdin); print('ok:', r['ok'], '| diags:', len(r
 
 ---
 
+## S38 — Export a decision as a shareable bundle (`render export-bundle` / `srs-gov export-decision`, #289)
+
+**Intention:** *"I've ratified a decision and need to share it with stakeholders who don't have SRS installed. I want a single ZIP file containing the rendered markdown and all linked evidence attachments, so anyone can read it."*
+
+**Capabilities exercised.** `export_record_bundle` service (ADR-035 flat ZIP: `decision.md` + `attachments/<basename>`); `render export-bundle` CLI command; `srs-gov export-decision` orchestration (record lookup → view discovery → bundle pack); default output filename; `--explain` pre-staging mode.
+
+**CLI surface.** `srs render export-bundle`, `srs-gov export-decision`, `srs attachment add`, `srs attachment link`.
+
+**Anchor repo.** `srs/docs/spec/examples/gallery-project-v2` (copy to a scratch dir — it already has the `decision-deliberation` document view and ratified decision records).
+
+**Steps.**
+
+```bash
+# Copy the gallery repo to a scratch dir (gallery is a read-only reference)
+cp -r /home/user/srs/docs/spec/examples/gallery-project-v2 /tmp/dogfood-s38
+
+# Confirm the repo is valid
+srs repo validate --repo /tmp/dogfood-s38 --pretty
+# → ok: true
+
+# Add an evidence file as a source-document attachment
+cat > /tmp/s38-evidence.txt << 'EOF'
+Meeting Minutes — Eye Level Standard Decision
+Date: 2026-05-31
+Resolution: Agreed to establish 165cm as the standard centre-height.
+EOF
+srs attachment add /tmp/s38-evidence.txt --repo /tmp/dogfood-s38 --title "Meeting Minutes" --pretty
+# → payload.documentId: <doc-id>
+
+# Link the attachment to a decision record
+DECISION_ID="3be7b057-9167-42a4-b0db-2a8b30666cef"   # Eye level standard
+DOC_ID="<doc-id from above>"
+srs attachment link "$DECISION_ID" "$DOC_ID" --repo /tmp/dogfood-s38 --pretty
+# → payload.sourceRefsCount: 1
+
+# Find the decision-deliberation view ID
+srs document-view list --repo /tmp/dogfood-s38 --namespace governance --name decision-deliberation --pretty
+# → payload.documentViews[0].id: 5a3ce87e-8340-4d91-a140-ab56b57f704f
+
+VIEW_ID="5a3ce87e-8340-4d91-a140-ab56b57f704f"
+
+# Export the bundle
+srs render export-bundle \
+  --repo /tmp/dogfood-s38 \
+  --view "$VIEW_ID" \
+  --instance "$DECISION_ID" \
+  --output /tmp/s38-bundle.zip \
+  --pretty
+# → ok: true, attachmentCount: 1, renderedFilename: "decision.md"
+
+# Inspect the bundle
+python3 -c "
+import zipfile
+z = zipfile.ZipFile('/tmp/s38-bundle.zip')
+print([i.filename for i in z.infolist()])
+# ['attachments/s38-evidence.txt', 'decision.md']
+print(z.read('decision.md').decode()[:200])
+# Rendered markdown: '# Limoma\n\n## Decisions\n\n### Eye level standard...'
+print(len(z.read('attachments/s38-evidence.txt')), 'bytes')
+"
+```
+
+**srs-gov end-to-end:**
+
+```bash
+# Happy path: export via srs-gov (resolves view from governance package automatically)
+srs-gov export-decision --repo /tmp/dogfood-s38 "$DECISION_ID" --output /tmp/s38-gov-bundle.zip
+# → "Bundle created: /tmp/s38-gov-bundle.zip"
+# → "  Contents:"
+# → "    decision.md"
+# → "    attachments/  (1 file)"
+
+# Default filename (no --output): uses first 8 chars of instance ID
+cd /tmp && srs-gov export-decision --repo /tmp/dogfood-s38 "$DECISION_ID"
+# → Bundle created: 3be7b057.zip
+ls /tmp/3be7b057.zip   # exists
+
+# --explain mode: shows all 3 underlying srs calls without running them
+srs-gov --repo /tmp/dogfood-s38 --explain export-decision "$DECISION_ID" --output /tmp/s38-explain.zip
+# → srs --repo /tmp/dogfood-s38 … record get 3be7b057-…
+# → srs --repo /tmp/dogfood-s38 … document-view list --namespace governance --name decision-deliberation
+# → srs --repo /tmp/dogfood-s38 … render export-bundle --view <view-id> --instance <instance-id> --output /tmp/s38-explain.zip
+# No file is written.
+```
+
+**Negative case.**
+
+```bash
+# Nonexistent record ID → clean error, no ZIP file written
+srs-gov export-decision --repo /tmp/dogfood-s38 "00000000-0000-0000-0000-000000000000" --output /tmp/s38-neg.zip
+# → exit 1, error: srs command failed: ["Record with id '00000000-…' not found"]
+# /tmp/s38-neg.zip does NOT exist
+
+# Missing governance package → clear diagnostic
+srs render export-bundle --repo /tmp/empty-repo --view "00000000-…" --instance "$DECISION_ID" --output /tmp/s38-neg2.zip
+# → ok: false, diagnostics: ["document view '00000000-…' not found"]
+```
+
+**Done when.**
+- `render export-bundle` returns `ok: true` with `attachmentCount: 1`, `renderedFilename: "decision.md"`, and an `outputPath` pointing to the written file.
+- The ZIP contains exactly `decision.md` (rendered governance markdown) and `attachments/s38-evidence.txt` (binary-identical to the source file).
+- Entries are lexicographically sorted (`attachments/…` before `decision.md`).
+- `srs-gov export-decision` prints a human-readable bundle summary (path, contents breakdown).
+- `--explain` prints exactly 3 underlying `srs` commands without writing any file.
+- Default output filename is `<first-8-chars-of-instance-id>.zip` when `--output` is omitted.
+- Nonexistent record ID returns a clean error (non-zero exit) and writes no file.
+
+**Verified 2026-07-18 (#289).** Against `/tmp/dogfood-gallery` (gallery-project-v2 copy with evidence attachment added):
+- `srs render export-bundle` → `ok: true`, `attachmentCount: 1`. ZIP contains `['attachments/evidence-minutes.txt', 'decision.md']`, lexicographically sorted. `decision.md` content starts with `# Limoma`. Attachment bytes byte-identical to source (286 bytes).
+- `srs-gov export-decision` → `"Bundle created: /tmp/srs-gov-decision.zip"` with `"attachments/  (1 file)"`. Same ZIP contents verified.
+- `--explain` → 3 srs command lines printed, no file written.
+- Default filename → `3be7b057.zip` written in current directory.
+- Negative case (nonexistent ID) → exit 1, `"Record with id '00000000-…' not found"`.
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -2293,6 +2409,8 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `srs-gov attachment add` / `srs-gov attachment list` | S33 |
 | `repo validate` — RFC-017 I-107 attachment_policy size/MIME diagnostics (#284) | S37 (**partial gap** — full end-to-end blocked pending srs#193 `com.semanticops.base` package); regression verified 2026-07-18: 0 policy diagnostics on spec repo and fresh repos; 12 unit tests in `validation.rs` cover maxPerFileBytes, maxDocBytes, maxTotalBytes, allowedMimeTypes (array + bare-string), tombstone skip (ADR-031), multiple-records Change B error, and both per-file limits firing independently |
 | `archive pack` / `archive unpack` (**gap** — no CLI surface yet, #276) | Library functions `archive_pack` / `archive_unpack` are implemented in `srs-repository` (ADR-033) and verified via 11 unit/integration tests: 8 unit tests (roundtrip, determinism, entry order, timestamps, error paths, FileStore roundtrip, cross-store roundtrip) + `test_archive_no_extra_fields_and_deflated` (asserts all ZIP entries use Deflated and carry no host metadata extra fields) + `test_archive_golden_fixture` (byte-identical comparison against committed `tests/fixtures/golden-archive.srs`) + `test_archive_golden_roundtrip` (unpack committed golden → assert correct namespace, proving ZIP is valid and `archive_unpack` handles the format) (#277). CLI handlers `srs archive pack` / `srs archive unpack` are a future deliverable (#276 follow-up). A meaningful dogfood scenario requires the CLI surface to exist — the intention would be: *"I want to hand off a self-contained snapshot of a repository — all records, relations, package definition, and binary attachments — as a single portable file."* Add a scenario (S31 or similar) when `srs archive pack`/`srs archive unpack` are wired up. |
+| `render export-bundle` (flat ZIP export: rendered doc + attachments, ADR-035, #289) | S38 (#289); service-layer tests in `export_service.rs` (3 tests: no-attachment, with-attachment, cross-store roundtrip via `tempfile::NamedTempFile`). |
+| `srs-gov export-decision` (governance operator exports shareable bundle, #289) | S38 (#289); exercises record lookup → view discovery → `render export-bundle` chain; `--explain` pre-stages all 3 underlying srs calls; default output filename (`<id8>.zip`). |
 
 Gaps are intentional and visible: they are the backlog of surfaces that need a meaningful scenario. Do not delete a gap row — fill it when a feature gives the surface a real workflow to demonstrate.
 
