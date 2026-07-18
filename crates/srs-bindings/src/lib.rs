@@ -1857,8 +1857,12 @@ mod tests {
         assert_eq!(result.created[1].target_id, "id-c");
     }
 
+    // Note: load_archive / export_archive call through js_sys::Uint8Array and JsValue which
+    // are not meaningful on a native target. The test below validates the underlying service
+    // functions (archive_pack + JsonStore::from_archive) reachable from srs-bindings imports.
+    // The wasm32 build gate confirms the binding wrapper layer compiles and links correctly.
     #[test]
-    fn archive_roundtrip_via_wasm_bindings() {
+    fn archive_service_roundtrip_smoke() {
         use srs_repository::services::{list_notes, ListNotesFilter};
 
         let store = JsonStore::from_srsj(&srsj_with_note_and_type()).expect("load srsj");
