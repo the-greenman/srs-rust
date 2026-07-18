@@ -2199,6 +2199,16 @@ impl From<srs_repository::attachment_service::ResolveDocumentViewAttachmentsResu
     }
 }
 
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportBundlePayload {
+    pub rendered_filename: String,
+    pub attachment_count: usize,
+    pub output_path: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
