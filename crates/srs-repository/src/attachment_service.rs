@@ -5,6 +5,7 @@ use crate::writer::write_manifest;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use srs_core::types::source_document::SourceDocumentIndexEntry;
+use srs_core::types::source_document_meta::SourceDocumentMeta;
 use srs_core::types::source_reference::{SourceReference, SourceRole, SourceType};
 use std::collections::HashMap;
 
@@ -370,6 +371,59 @@ pub fn link_attachment(
         document_id: input.document_id,
         source_refs_count,
     })
+}
+
+// ── list_source_documents ──────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SourceDocumentEntry {
+    /// Path relative to the source-documents directory (e.g. "spec/srs-spec.md.meta.json").
+    /// Matches the convention of SourceDocumentIndexEntry.sidecar_path.
+    pub sidecar_path: String,
+    pub meta: SourceDocumentMeta,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ListSourceDocumentsFilter {}
+
+/// Enumerate all source-document sidecars in the repository.
+///
+/// Reads manifest to resolve the configured source-documents path
+/// (defaults to "source-documents"). Scans recursively for *.meta.json files,
+/// parses each, and returns entries with source-documents-relative sidecar paths.
+pub fn list_source_documents(
+    store: &dyn RepositoryStore,
+    _filter: ListSourceDocumentsFilter,
+) -> Result<Vec<SourceDocumentEntry>, RepositoryError> {
+    let manifest = store.load_manifest()?;
+    let src_docs_base = manifest
+        .source_documents_path
+        .as_deref()
+        .unwrap_or("source-documents")
+        .to_string();
+    let prefix = format!("{}/", src_docs_base);
+    let sidecar_paths: Vec<(String, String)> = store
+        .list_files_recursive(&src_docs_base)
+        .into_iter()
+        .filter(|p| p.ends_with(".meta.json"))
+        .filter_map(|repo_rel| {
+            repo_rel
+                .strip_prefix(&prefix)
+                .map(|rel| (repo_rel.clone(), rel.to_string()))
+        })
+        .collect();
+    let mut entries = Vec::with_capacity(sidecar_paths.len());
+    for (repo_relative_path, sidecar_path) in sidecar_paths {
+        let json_str = store.load_text_file(&repo_relative_path)?;
+        let meta = serde_json::from_str::<SourceDocumentMeta>(&json_str).map_err(|source| {
+            RepositoryError::SourceDocumentMetaLoad {
+                path: std::path::PathBuf::from(&repo_relative_path),
+                source,
+            }
+        })?;
+        entries.push(SourceDocumentEntry { sidecar_path, meta });
+    }
+    Ok(entries)
 }
 
 #[cfg(test)]
@@ -1131,5 +1185,100 @@ mod tests {
             list.entries[0].document_id.as_deref(),
             Some(result.document_id.as_str())
         );
+    }
+
+    // ── list_source_documents tests ───────────────────────────────────────────
+
+    #[test]
+    fn list_source_documents_empty() {
+        let store = store_with_manifest(Manifest::default());
+        let result = list_source_documents(&store, ListSourceDocumentsFilter::default()).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn list_source_documents_single() {
+        let store = store_with_manifest(Manifest::default());
+        store
+            .save_text_file(
+                "source-documents/my-doc.meta.json",
+                r#"{"documentId":"aaaaaaaa-0000-4000-8000-000000000001","contentPath":"my-doc.pdf","contentType":"text/plain"}"#,
+            )
+            .unwrap();
+        let result = list_source_documents(&store, ListSourceDocumentsFilter::default()).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].sidecar_path, "my-doc.meta.json");
+        assert_eq!(
+            result[0].meta.document_id,
+            "aaaaaaaa-0000-4000-8000-000000000001"
+        );
+    }
+
+    #[test]
+    fn list_source_documents_subdirectory() {
+        let store = store_with_manifest(Manifest::default());
+        store
+            .save_text_file(
+                "source-documents/sub/a.meta.json",
+                r#"{"documentId":"aaaaaaaa-0000-4000-8000-000000000002","contentPath":"sub/a.pdf","contentType":"text/plain"}"#,
+            )
+            .unwrap();
+        store
+            .save_text_file(
+                "source-documents/sub/b.meta.json",
+                r#"{"documentId":"aaaaaaaa-0000-4000-8000-000000000003","contentPath":"sub/b.pdf","contentType":"text/plain"}"#,
+            )
+            .unwrap();
+        let result = list_source_documents(&store, ListSourceDocumentsFilter::default()).unwrap();
+        assert_eq!(result.len(), 2);
+        let paths: Vec<&str> = result.iter().map(|e| e.sidecar_path.as_str()).collect();
+        assert!(
+            paths.contains(&"sub/a.meta.json"),
+            "expected sub/a.meta.json, got {paths:?}"
+        );
+        assert!(
+            paths.contains(&"sub/b.meta.json"),
+            "expected sub/b.meta.json, got {paths:?}"
+        );
+    }
+
+    #[test]
+    fn list_source_documents_malformed_returns_err() {
+        let store = store_with_manifest(Manifest::default());
+        store
+            .save_text_file("source-documents/bad.meta.json", "not valid json")
+            .unwrap();
+        let result = list_source_documents(&store, ListSourceDocumentsFilter::default());
+        assert!(
+            matches!(result, Err(RepositoryError::SourceDocumentMetaLoad { .. })),
+            "expected SourceDocumentMetaLoad error, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn file_store_list_source_documents_spec_repo() {
+        use crate::store::FileStore;
+        let repo_root =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/spec-repo");
+        let store = FileStore::new(&repo_root);
+        let result = list_source_documents(&store, ListSourceDocumentsFilter::default()).unwrap();
+        assert_eq!(
+            result.len(),
+            4,
+            "expected 4 sidecars, got {:?}",
+            result.iter().map(|e| &e.sidecar_path).collect::<Vec<_>>()
+        );
+        for entry in &result {
+            assert!(
+                !entry.meta.document_id.is_empty(),
+                "document_id missing in {}",
+                entry.sidecar_path
+            );
+            assert!(
+                !entry.meta.content_type.is_empty(),
+                "content_type missing in {}",
+                entry.sidecar_path
+            );
+        }
     }
 }
