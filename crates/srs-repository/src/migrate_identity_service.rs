@@ -167,11 +167,24 @@ pub fn migrate_identity(
                     .push(new_id.clone());
             }
             writer::write_manifest(store, &manifest)?;
-            // Persist container file so FileStore's load_container lookups succeed
-            // after migration (scaffold_purpose_record uses the same pattern).
-            if let Some(ref container) = manifest.container {
-                store.save_container(container)?;
-            }
+            // Load the real container file (which holds pre-existing section members),
+            // patch in the new identity pointer and member, then save — mirrors the
+            // non-None branch. Falls back to mc on ContainerNotFound. mc is the
+            // pre-batch snapshot from line 121 (before any batch writes), so new_id
+            // is NOT yet in mc.member_instance_ids; the push below adds it exactly
+            // once. (The within-batch manifest.container already has new_id pushed at
+            // lines 163-167 but is a distinct struct from the container file.)
+            let mut persisted_container = match store.load_container(&mc.container_id) {
+                Ok(c) => c,
+                Err(RepositoryError::ContainerNotFound { .. }) => mc.clone(),
+                Err(e) => return Err(e),
+            };
+            persisted_container.identity_instance_id = Some(new_id.clone());
+            persisted_container
+                .member_instance_ids
+                .get_or_insert_with(Vec::new)
+                .push(new_id.clone());
+            store.save_container(&persisted_container)?;
             Ok(new_id)
         })();
         match batch_result {
@@ -860,6 +873,40 @@ mod tests {
         assert!(
             matches!(&err, RepositoryError::InvalidInput { message } if message.contains("no migration needed")),
             "expected already-migrated error on FileStore repo, got: {err:?}"
+        );
+    }
+
+    /// Regression test for #607: None-branch migration must not erase pre-existing section
+    /// members from the container file. Before the fix, `save_container(&manifest.container)`
+    /// persisted the manifest embed (containing only the new identity member), overwriting the
+    /// real container file and losing all section members.
+    #[test]
+    fn none_branch_migration_preserves_pre_existing_section_members() {
+        let section_member_id = "aaaa0000-0000-4000-8000-000000000001";
+
+        let store = MemoryStore::default();
+        let container_id = "660e8400-e29b-41d4-a716-446655440099";
+        let mut container = bare_container(container_id);
+        container.title = "My Repo".to_string();
+        container.description = Some("We build SRS.".to_string());
+        // Pre-existing section member that must survive migration.
+        container.member_instance_ids = Some(vec![section_member_id.to_string()]);
+        create_container(&store, container.clone()).unwrap();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.container = Some(container);
+        write_manifest(&store, &manifest).unwrap();
+
+        let result = migrate_identity(&store).unwrap();
+
+        let persisted = get_container(&store, container_id).unwrap();
+        let members = persisted.member_instance_ids.unwrap_or_default();
+        assert!(
+            members.contains(&section_member_id.to_string()),
+            "pre-existing section member must survive None-branch migration, got: {members:?}"
+        );
+        assert!(
+            members.contains(&result.new_identity_id),
+            "new identity must also be in container members, got: {members:?}"
         );
     }
 }
