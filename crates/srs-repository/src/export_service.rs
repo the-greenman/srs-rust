@@ -427,7 +427,7 @@ mod tests {
 
     /// Stable identifiers for the golden fixture store.
     const GOLDEN_INSTANCE_ID: &str = "golden-exp-0000-4000-8000-000000000001";
-    const GOLDEN_VIEW_ID: &str = "golden-exp-view-0000-4000-8000-00000001";
+    const GOLDEN_VIEW_ID: &str = "golden-exp-view-0000-4000-8000-000000000001";
 
     /// Build a canonical MemoryStore for golden-fixture comparison.
     ///
@@ -582,7 +582,9 @@ mod tests {
         );
     }
 
-    /// ADR-035: same record + attachments → identical bytes across independent runs.
+    /// Within-process stability check: two calls in the same process must produce identical bytes.
+    /// Cross-run determinism (ADR-035) is guarded by `test_export_bundle_golden_fixture`, which
+    /// compares against a fixture written by a prior process invocation.
     #[test]
     fn test_export_bundle_determinism() {
         let run1 = export_bundle_bytes();
@@ -616,6 +618,141 @@ mod tests {
             content.starts_with("# Golden Export Bundle"),
             "decision.md must start with the static preamble, got: {:?}",
             &content[..content.len().min(80)]
+        );
+    }
+
+    /// Covers the collision-resolution branch (export_service.rs lines 63-67): two attachments
+    /// sharing a basename get distinct ZIP entry names, and the output is byte-stable across runs.
+    #[test]
+    fn test_export_bundle_determinism_shared_basenames() {
+        let instance_id = "sbn-det-00000-4000-8000-000000000099".to_string();
+        let view_id = "view-sbn-0000-4000-8000-000000000099".to_string();
+        let doc_id_1 = "sbn-q1-report";
+        let doc_id_2 = "sbn-q2-report";
+        let pdf_bytes_1: &[u8] = b"q1 report bytes";
+        let pdf_bytes_2: &[u8] = b"q2 report bytes";
+
+        let make_store = || {
+            let manifest = Manifest {
+                source_document_index: Some(vec![
+                    SourceDocumentIndexEntry {
+                        document_id: doc_id_1.to_string(),
+                        sidecar_path: "q1-report.meta.json".to_string(),
+                        content_path: "q1/report.pdf".to_string(),
+                        title: Some("Q1 Report".to_string()),
+                        sidecar_checksum: None,
+                        content_checksum: None,
+                    },
+                    SourceDocumentIndexEntry {
+                        document_id: doc_id_2.to_string(),
+                        sidecar_path: "q2-report.meta.json".to_string(),
+                        content_path: "q2/report.pdf".to_string(),
+                        title: Some("Q2 Report".to_string()),
+                        sidecar_checksum: None,
+                        content_checksum: None,
+                    },
+                ]),
+                instance_index: vec![InstanceIndexEntry {
+                    instance_id: instance_id.clone(),
+                    tier: 2,
+                    path: "records/tier-2/sbn-dec.json".to_string(),
+                    title: None,
+                    tags: None,
+                }],
+                ..Manifest::default()
+            };
+            let package = minimal_package_with_view(&view_id);
+            let store = MemoryStore::new(manifest, package);
+            store
+                .save_instance_json(
+                    "records/tier-2/sbn-dec.json",
+                    &serde_json::json!({
+                        "instanceId": instance_id,
+                        "typeId": "type-sbn-001",
+                        "typeVersion": 1,
+                        "typeNamespace": "com.test",
+                        "typeName": "sbn-decision",
+                        "fieldValues": []
+                    }),
+                )
+                .unwrap();
+            link_attachment(
+                &store,
+                LinkAttachmentInput {
+                    instance_id: instance_id.clone(),
+                    document_id: doc_id_1.to_string(),
+                },
+            )
+            .unwrap();
+            link_attachment(
+                &store,
+                LinkAttachmentInput {
+                    instance_id: instance_id.clone(),
+                    document_id: doc_id_2.to_string(),
+                },
+            )
+            .unwrap();
+            store
+                .save_binary_file("source-documents/q1/report.pdf", pdf_bytes_1)
+                .unwrap();
+            store
+                .save_binary_file("source-documents/q2/report.pdf", pdf_bytes_2)
+                .unwrap();
+            store
+        };
+
+        let run = || {
+            let store = make_store();
+            let mut buf = Cursor::new(Vec::new());
+            export_record_bundle(
+                &store,
+                ExportBundleInput {
+                    instance_id: instance_id.clone(),
+                    view_id: view_id.clone(),
+                    format: None,
+                },
+                &mut buf,
+            )
+            .expect("export with shared-basename attachments should succeed");
+            buf.into_inner()
+        };
+
+        let run1 = run();
+        let run2 = run();
+        assert_eq!(
+            run1, run2,
+            "export_record_bundle with shared-basename attachments must produce byte-identical \
+            output (ADR-035 determinism invariant — collision-resolution path)"
+        );
+
+        // Verify collision resolution produced two distinct entry names.
+        let mut zip = ZipArchive::new(Cursor::new(run1)).expect("valid ZIP");
+        assert_eq!(zip.len(), 3, "ZIP must have decision.md + 2 attachments");
+        let names: Vec<String> = (0..zip.len())
+            .map(|i| zip.by_index(i).unwrap().name().to_string())
+            .collect();
+        assert!(names.contains(&"decision.md".to_string()));
+        let attachment_names: Vec<&str> = names
+            .iter()
+            .filter(|n| n.starts_with("attachments/"))
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            attachment_names.len(),
+            2,
+            "must contain exactly 2 attachment entries; got: {:?}",
+            names
+        );
+        assert_ne!(
+            attachment_names[0], attachment_names[1],
+            "collision-resolved attachment entries must have distinct names"
+        );
+        assert!(
+            attachment_names
+                .iter()
+                .all(|n| n.starts_with("attachments/report.pdf")),
+            "both entries must share the 'report.pdf' basename prefix; got: {:?}",
+            attachment_names
         );
     }
 }
