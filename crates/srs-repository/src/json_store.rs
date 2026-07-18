@@ -40,6 +40,9 @@ struct JsonStoreState {
     manifest: Manifest,
     // BTreeMap for deterministic `.srsj` serialisation — see JsonStoreFile.data (ADR-017).
     data: BTreeMap<String, serde_json::Value>,
+    // In-memory binary file storage for archive-loaded repositories (ADR-031 amendment).
+    // Not serialised to `.srsj` — binary content is excluded from the JSON-only format per RFC-017.
+    binary_files: HashMap<String, Vec<u8>>,
     // When true, flush() is suppressed until commit_batch() is called (ADR-021).
     batching: bool,
 }
@@ -178,6 +181,7 @@ impl JsonStore {
                 initialized: false,
                 manifest,
                 data: BTreeMap::new(),
+                binary_files: HashMap::new(),
                 batching: false,
             }),
         };
@@ -275,6 +279,7 @@ impl JsonStore {
                 initialized: true,
                 manifest,
                 data: envelope.data,
+                binary_files: HashMap::new(),
                 batching: false,
             }),
         })
@@ -295,6 +300,7 @@ impl JsonStore {
                     ..Manifest::default()
                 },
                 data: BTreeMap::new(),
+                binary_files: HashMap::new(),
                 batching: false,
             }),
         }
@@ -1609,18 +1615,34 @@ impl RepositoryStore for JsonStore {
         self.flush()
     }
 
-    /// JsonStore is a text-only format (.srsj). Binary content is never stored;
-    /// reading always returns not-found so callers treat missing blobs as tombstones.
+    /// Load a binary file from the in-memory binary-file map (ADR-031 amendment).
+    ///
+    /// Returns the bytes when present, or a not-found error for absent paths.
+    /// Binary content is populated by `archive_unpack` (via `save_binary_file`) when the
+    /// repository is loaded from a `.srs` archive. Repositories loaded from `.srsj` strings
+    /// never contain binary content — callers should treat a not-found result as tombstone state.
     fn load_binary_file(&self, relative_path: &str) -> Result<Vec<u8>, RepositoryError> {
-        Err(Self::not_found(relative_path))
+        self.state
+            .borrow()
+            .binary_files
+            .get(relative_path)
+            .cloned()
+            .ok_or_else(|| Self::not_found(relative_path))
     }
 
-    /// JsonStore is a text-only format (.srsj). Binary writes are silently discarded.
+    /// Store a binary file in the in-memory binary-file map (ADR-031 amendment).
+    ///
+    /// The bytes are held in `JsonStoreState::binary_files` and are NOT serialised by
+    /// `to_srsj_string()` — `.srsj` output remains binary-free per RFC-017.
     fn save_binary_file(
         &self,
-        _relative_path: &str,
-        _content: &[u8],
+        relative_path: &str,
+        content: &[u8],
     ) -> Result<(), RepositoryError> {
+        self.state
+            .borrow_mut()
+            .binary_files
+            .insert(relative_path.to_string(), content.to_vec());
         Ok(())
     }
 
@@ -3262,5 +3284,185 @@ mod tests {
             store.record_tier_dir(RecordTier::Extension),
             "package/records"
         );
+    }
+
+    // ── JsonStore binary-file storage (ADR-031 amendment) ───────────────────────
+
+    fn binary_test_srsj() -> String {
+        serde_json::json!({
+            "srsj": "1",
+            "manifest": {
+                "repositoryId": "bin-test-repo",
+                "srsVersion": "2.0-draft",
+                "namespace": "com.test.bin",
+                "instanceIndex": [],
+                "packageRef": {"mode": "local", "path": "package"}
+            },
+            "data": {
+                "package/package.json": {
+                    "id": "pkg-bin",
+                    "namespace": "com.test.bin",
+                    "name": "primary",
+                    "version": "1.0.0",
+                    "fields": [],
+                    "types": [],
+                    "relationTypes": [],
+                    "views": [],
+                    "documentViews": []
+                }
+            }
+        })
+        .to_string()
+    }
+
+    fn init_memory_store_for_archive() -> MemoryStore {
+        let store = MemoryStore::uninitialized();
+        store
+            .initialize_repository(&InitializeRepositoryInput {
+                repository: RepositoryMetadata {
+                    repository_id: "arc-test-repo".to_string(),
+                    namespace: "com.example.arctest".to_string(),
+                    srs_version: "2.0-draft".to_string(),
+                    title: None,
+                    description: None,
+                },
+                primary_package: PrimaryPackageMetadata {
+                    id: "arc-pkg".to_string(),
+                    namespace: "com.example.arctest".to_string(),
+                    name: "primary".to_string(),
+                    version: "1.0.0".to_string(),
+                },
+            })
+            .expect("initialize_repository failed");
+        store
+    }
+
+    #[test]
+    fn json_store_binary_file_save_and_load() {
+        let store = JsonStore::from_srsj(&binary_test_srsj()).expect("load store");
+        let bytes = b"\x00\x01\x02\xffpdf-content";
+        store
+            .save_binary_file("source-documents/doc.pdf", bytes)
+            .expect("save_binary_file must succeed");
+        let loaded = store
+            .load_binary_file("source-documents/doc.pdf")
+            .expect("load_binary_file must return saved bytes");
+        assert_eq!(loaded, bytes);
+    }
+
+    #[test]
+    fn json_store_binary_file_load_absent() {
+        let store = JsonStore::from_srsj(&binary_test_srsj()).expect("load store");
+        let err = store
+            .load_binary_file("source-documents/absent.pdf")
+            .expect_err("absent path must return an error");
+        assert!(
+            err.is_not_found(),
+            "absent binary file must be a not-found error, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn json_store_srsj_excludes_binary() {
+        let store = JsonStore::from_srsj(&binary_test_srsj()).expect("load store");
+        store
+            .save_binary_file("source-documents/secret.pdf", b"binary bytes")
+            .expect("save must succeed");
+        let srsj = store
+            .to_srsj_string()
+            .expect("to_srsj_string must succeed");
+        assert!(
+            !srsj.contains("source-documents/secret.pdf"),
+            "binary file path must not appear in .srsj output"
+        );
+        assert!(
+            !srsj.contains("binary bytes"),
+            "binary content must not appear in .srsj output"
+        );
+    }
+
+    #[test]
+    fn json_store_from_archive_binary_available() {
+        use crate::archive::archive_pack;
+        use srs_core::types::source_document::SourceDocumentIndexEntry;
+        use std::io::Cursor;
+
+        // Build a MemoryStore with a binary attachment.
+        let source = init_memory_store_for_archive();
+        const BYTES: &[u8] = b"\xde\xad\xbe\xef archive binary";
+        source
+            .save_binary_file("source-documents/my-doc.pdf", BYTES)
+            .expect("save binary to source");
+        let mut manifest = source.load_manifest().expect("load manifest");
+        manifest.source_documents_path = Some("source-documents".to_string());
+        manifest.source_document_index = Some(vec![SourceDocumentIndexEntry {
+            document_id: "doc-0001".to_string(),
+            sidecar_path: "my-doc.meta.json".to_string(),
+            content_path: "my-doc.pdf".to_string(),
+            title: None,
+            sidecar_checksum: None,
+            content_checksum: None,
+        }]);
+        source.save_manifest(&manifest).expect("save manifest");
+        source
+            .save_text_file(
+                "source-documents/my-doc.meta.json",
+                r#"{"documentId":"doc-0001","contentPath":"my-doc.pdf"}"#,
+            )
+            .expect("save sidecar");
+
+        // Pack to archive bytes.
+        let mut buf = Vec::new();
+        archive_pack(&source, Cursor::new(&mut buf)).expect("pack archive");
+
+        // Load archive into JsonStore and verify binary is accessible.
+        let json_store = JsonStore::from_archive(&buf).expect("from_archive");
+        let loaded = json_store
+            .load_binary_file("source-documents/my-doc.pdf")
+            .expect("binary must be available after from_archive");
+        assert_eq!(loaded, BYTES);
+    }
+
+    #[test]
+    fn json_store_from_archive_export_archive_roundtrip() {
+        use crate::archive::{archive_pack, archive_to_vec};
+        use srs_core::types::source_document::SourceDocumentIndexEntry;
+        use std::io::Cursor;
+
+        // Build source MemoryStore with binary content.
+        let source = init_memory_store_for_archive();
+        const BYTES: &[u8] = b"\xca\xfe\xba\xbe roundtrip content";
+        source
+            .save_binary_file("source-documents/rt.pdf", BYTES)
+            .expect("save binary");
+        let mut manifest = source.load_manifest().expect("load manifest");
+        manifest.source_documents_path = Some("source-documents".to_string());
+        manifest.source_document_index = Some(vec![SourceDocumentIndexEntry {
+            document_id: "doc-rt".to_string(),
+            sidecar_path: "rt.meta.json".to_string(),
+            content_path: "rt.pdf".to_string(),
+            title: None,
+            sidecar_checksum: None,
+            content_checksum: None,
+        }]);
+        source.save_manifest(&manifest).expect("save manifest");
+        source
+            .save_text_file(
+                "source-documents/rt.meta.json",
+                r#"{"documentId":"doc-rt","contentPath":"rt.pdf"}"#,
+            )
+            .expect("save sidecar");
+
+        let mut first_buf = Vec::new();
+        archive_pack(&source, Cursor::new(&mut first_buf)).expect("first pack");
+
+        // Load into JsonStore, re-export, and verify bytes survive the second pack.
+        let json_store = JsonStore::from_archive(&first_buf).expect("from_archive");
+        let second_buf = archive_to_vec(&json_store).expect("re-export archive");
+        let json_store2 = JsonStore::from_archive(&second_buf).expect("from second archive");
+        let loaded = json_store2
+            .load_binary_file("source-documents/rt.pdf")
+            .expect("binary must survive re-export roundtrip");
+        assert_eq!(loaded, BYTES);
     }
 }
