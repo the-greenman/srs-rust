@@ -355,6 +355,13 @@ pub trait RepositoryStore {
     /// Read raw bytes from `relative_path`.
     fn load_binary_file(&self, relative_path: &str) -> Result<Vec<u8>, RepositoryError>;
 
+    /// Return the byte length of the file at `relative_path` without necessarily
+    /// reading the full content. The default reads the file; `FileStore` overrides
+    /// with `std::fs::metadata` to avoid loading large binary content during validation.
+    fn file_byte_len(&self, relative_path: &str) -> Result<u64, RepositoryError> {
+        Ok(self.load_binary_file(relative_path)?.len() as u64)
+    }
+
     /// Write raw bytes to `relative_path`, creating parent directories as needed.
     fn save_binary_file(&self, relative_path: &str, content: &[u8]) -> Result<(), RepositoryError>;
 
@@ -1855,6 +1862,13 @@ impl RepositoryStore for FileStore {
     fn load_binary_file(&self, relative_path: &str) -> Result<Vec<u8>, RepositoryError> {
         let path = self.abs(relative_path);
         std::fs::read(&path).map_err(|source| RepositoryError::Io { path, source })
+    }
+
+    fn file_byte_len(&self, relative_path: &str) -> Result<u64, RepositoryError> {
+        let path = self.abs(relative_path);
+        std::fs::metadata(&path)
+            .map(|m| m.len())
+            .map_err(|source| RepositoryError::Io { path, source })
     }
 
     fn save_binary_file(&self, relative_path: &str, content: &[u8]) -> Result<(), RepositoryError> {
