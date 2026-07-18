@@ -169,14 +169,12 @@ pub fn migrate_identity(
             writer::write_manifest(store, &manifest)?;
             // Load the real container file (which holds pre-existing section members),
             // patch in the new identity pointer and member, then save — mirrors the
-            // non-None branch. Falls back to the manifest embed if no container file
-            // exists yet (ContainerNotFound), in which case there are no existing
-            // members to preserve.
+            // non-None branch. Falls back to mc (the pre-batch container snapshot) if
+            // no container file exists yet; mc has no new_id in members yet, so the
+            // push below adds it exactly once.
             let mut persisted_container = match store.load_container(&mc.container_id) {
                 Ok(c) => c,
-                Err(RepositoryError::ContainerNotFound { .. }) => {
-                    manifest.container.clone().unwrap()
-                }
+                Err(RepositoryError::ContainerNotFound { .. }) => mc.clone(),
                 Err(e) => return Err(e),
             };
             persisted_container.identity_instance_id = Some(new_id.clone());
@@ -873,6 +871,40 @@ mod tests {
         assert!(
             matches!(&err, RepositoryError::InvalidInput { message } if message.contains("no migration needed")),
             "expected already-migrated error on FileStore repo, got: {err:?}"
+        );
+    }
+
+    /// Regression test for #607: None-branch migration must not erase pre-existing section
+    /// members from the container file. Before the fix, `save_container(&manifest.container)`
+    /// persisted the manifest embed (containing only the new identity member), overwriting the
+    /// real container file and losing all section members.
+    #[test]
+    fn none_branch_migration_preserves_pre_existing_section_members() {
+        let section_member_id = "aaaa0000-0000-4000-8000-000000000001";
+
+        let store = MemoryStore::default();
+        let container_id = "660e8400-e29b-41d4-a716-446655440099";
+        let mut container = bare_container(container_id);
+        container.title = "My Repo".to_string();
+        container.description = Some("We build SRS.".to_string());
+        // Pre-existing section member that must survive migration.
+        container.member_instance_ids = Some(vec![section_member_id.to_string()]);
+        create_container(&store, container.clone()).unwrap();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.container = Some(container);
+        write_manifest(&store, &manifest).unwrap();
+
+        let result = migrate_identity(&store).unwrap();
+
+        let persisted = get_container(&store, container_id).unwrap();
+        let members = persisted.member_instance_ids.unwrap_or_default();
+        assert!(
+            members.contains(&section_member_id.to_string()),
+            "pre-existing section member must survive None-branch migration, got: {members:?}"
+        );
+        assert!(
+            members.contains(&result.new_identity_id),
+            "new identity must also be in container members, got: {members:?}"
         );
     }
 }
