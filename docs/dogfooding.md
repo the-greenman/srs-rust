@@ -2341,6 +2341,50 @@ srs render export-bundle --repo /tmp/empty-repo --view "00000000-…" --instance
 
 ---
 
+## S39 — Read the repository's attachment policy (`srs attachment policy-get`, #281)
+
+**Intention:** *"Before uploading files into this repository, I want to know what size and MIME-type limits are configured — so I can reject oversized or disallowed files at the client before attempting an add."*
+
+**Capabilities exercised.** RFC-017 Change B optional `com.semanticops.base/repo_settings` record; `read_attachment_policy` service; default behaviour when no policy is configured.
+
+**CLI surface.** `attachment policy-get`
+
+**Steps.**
+
+```bash
+SRS=./target/debug/srs
+REPO=/tmp/dogfood-s39
+
+$SRS repo create --repo $REPO --namespace com.example.dogfood
+```
+
+**Step 1 — default policy (no repo_settings record).**
+```bash
+$SRS attachment policy-get --repo $REPO --pretty
+```
+Returns `ok: true`, `payload.policyRecordPresent: false`. No limit fields present.
+
+**Step 2 — policy record present with limits.**
+
+Manually add a `com.semanticops.base/repo_settings` record (until `srs#193` ships, this requires writing the package and record files directly — see S37 for setup pattern). After setup:
+
+```bash
+$SRS attachment policy-get --repo $REPO --pretty
+```
+Returns `ok: true`, `payload.policyRecordPresent: true`, and all four limit fields set per the record's `fieldValues`.
+
+**Negative case — missing repository.**
+```bash
+$SRS attachment policy-get --repo /tmp/no-such-repo --pretty
+```
+Returns `ok: false`. Exit code 1.
+
+**Done when.** Empty repo returns `policyRecordPresent: false` with no limit fields. A repo with a valid `repo_settings` record returns `policyRecordPresent: true` and all configured limits. `allowedMimeTypes` stored as a JSON-array string (`"[\"a\",\"b\"]"`) is returned as a parsed array. Missing repo returns `ok: false`.
+
+**Verified 2026-07-18 (#281).** Happy path (no policy): `policyRecordPresent: false`, no limit fields ✓. Happy path (policy record with all four limits via manual setup): `policyRecordPresent: true`, `allowedMimeTypes: ["application/pdf","text/plain"]`, `maxPerFileBytes: 10485760`, `maxDocBytes: 52428800`, `maxTotalBytes: 104857600` ✓. JSON-array string parsed correctly ✓. `repo validate` 0 diagnostics ✓. Service coverage: 11 unit tests (`read_policy_*`) covering all field types, missing package, multiple records, and FileStore roundtrip.
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -2406,6 +2450,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `attachment add` | S32 |
 | `attachment link` | S34 (#283); service-layer tests in `attachment_service.rs` (MemoryStore + FileStore). WASM binding is a follow-up. |
 | `attachment resolve-view-attachments` (resolve sourceRefs attachments for a set of record IDs, RFC-017 Rev 3 [R1]) | S36 (#286); service-layer tests in `attachment_service.rs` (MemoryStore + FileStore, 7 tests); WASM binding (`SrsRepository::resolve_document_view_attachments`) verified via 2 integration tests in `crates/srs-bindings/tests/resolve_view_attachments.rs` |
+| `attachment policy-get` (read optional `com.semanticops.base/repo_settings` policy; defaults when absent, #281) | S39 (#281); service-layer: 11 unit tests in `attachment_policy_service.rs` (MemoryStore + FileStore roundtrip, all field types, missing package, multiple records, `allowedMimeTypes` as array/JSON-string/plain-string/malformed). WASM binding deferred to #638. |
 | `srs-gov attachment add` / `srs-gov attachment list` | S33 |
 | `repo validate` — RFC-017 I-107 attachment_policy size/MIME diagnostics (#284) | S37 (**partial gap** — full end-to-end blocked pending srs#193 `com.semanticops.base` package); regression verified 2026-07-18: 0 policy diagnostics on spec repo and fresh repos; 12 unit tests in `validation.rs` cover maxPerFileBytes, maxDocBytes, maxTotalBytes, allowedMimeTypes (array + bare-string), tombstone skip (ADR-031), multiple-records Change B error, and both per-file limits firing independently |
 | `archive pack` / `archive unpack` (**gap** — no CLI surface yet, #276) + WASM `loadArchive` / `exportArchive` (#290) + WASM `getAttachmentBytes` (#291) | Library functions `archive_pack` / `archive_unpack` / `archive_to_vec` / `JsonStore::from_archive` are implemented in `srs-repository` (ADR-033) and verified via 13 unit/integration tests: 8 original unit tests (roundtrip, determinism, entry order, timestamps, error paths, FileStore roundtrip, cross-store roundtrip) + `test_archive_no_extra_fields_and_deflated` + `test_archive_golden_fixture` + `test_archive_golden_roundtrip` (#277) + `test_load_from_archive_roundtrip` + `test_load_from_archive_rejects_invalid_bytes` (#290). WASM bindings `SrsRepository::load_archive(bytes)` and `SrsRepository::export_archive()` verified via `archive_service_roundtrip_smoke` in `crates/srs-bindings/src/lib.rs` and `cargo build --target wasm32-unknown-unknown -p srs-bindings` (#290). `JsonStore::save_binary_file`/`load_binary_file` now store bytes in memory (ADR-031 amendment, #291) enabling `SrsRepository::get_attachment_bytes(documentId)` → `Uint8Array` (RFC-017 Gate D); verified via 3 integration tests in `crates/srs-bindings/tests/attachment_bytes.rs` (archive roundtrip, unknown documentId, srsj tombstone) and 5 unit tests in `json_store.rs` (#291). CLI handlers `srs archive pack` / `srs archive unpack` are a future deliverable (#276 follow-up). A meaningful CLI dogfood scenario requires that surface to exist — the intention would be: *"I want to hand off a self-contained snapshot of a repository — all records, relations, package definition, and binary attachments — as a single portable file."* Add a scenario (S31 or similar) when `srs archive pack`/`srs archive unpack` are wired up. |
