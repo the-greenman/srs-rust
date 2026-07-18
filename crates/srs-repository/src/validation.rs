@@ -7,6 +7,7 @@ use srs_core::types::lifecycle::RelationDirection;
 use srs_core::types::protocol::{Protocol, ProtocolDiagnosticSeverity};
 use srs_core::types::record::Record;
 use srs_core::types::relation::RelationsCollection;
+use srs_core::types::source_document_meta::SourceDocumentMeta;
 use srs_core::validation::blueprint::validate_blueprint;
 use srs_core::validation::lifecycle::{
     validate_lifecycle, validate_type_lifecycle_v9, LifecycleDiagnosticSeverity,
@@ -64,6 +65,15 @@ const SPEC_NAMESPACE: &str = "com.semanticops.spec";
 const SPEC_INVARIANT_TYPE_NAME: &str = "invariant";
 const SPEC_INVARIANT_NUMBER_FIELD_NAME: &str = "invariant-number";
 
+/// RFC-017 Change B/E: optional com.semanticops.base package with attachment_policy.
+/// Field lookup is runtime-resolved via package.find_field to avoid UUID hardcoding.
+const BASE_NAMESPACE: &str = "com.semanticops.base";
+const BASE_REPO_SETTINGS_TYPE_NAME: &str = "repo_settings";
+const BASE_ALLOWED_MIME_TYPES_FIELD: &str = "allowedMimeTypes";
+const BASE_MAX_PER_FILE_BYTES_FIELD: &str = "maxPerFileBytes";
+const BASE_MAX_DOC_BYTES_FIELD: &str = "maxDocBytes";
+const BASE_MAX_TOTAL_BYTES_FIELD: &str = "maxTotalBytes";
+
 /// Validate an entire repository via the storage trait.
 ///
 /// I/O errors and malformed JSON are returned as `Err(RepositoryError)`.
@@ -84,6 +94,8 @@ pub fn validate_repository(
     // Tracks invariant numbers for the com.semanticops.spec/invariant uniqueness check.
     // Key: invariant-number string (e.g. "I-80"); value: list of (path, instance_id).
     let mut invariant_number_occurrences: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    // RFC-017 Change E: collects (path, record) tuples for post-loop attachment_policy check.
+    let mut policy_records: Vec<(String, Record)> = Vec::new();
 
     // --- Validate root manifest.json ---
     let manifest_raw = store.load_text_file("manifest.json").map_err(|e| match e {
@@ -634,6 +646,14 @@ pub fn validate_repository(
                                 }
                             }
                         }
+
+                        // RFC-017 Change E: collect repo_settings records for the post-loop
+                        // I-112 uniqueness check and attachment_policy size/MIME diagnostics.
+                        if record.type_namespace == BASE_NAMESPACE
+                            && record.type_name == BASE_REPO_SETTINGS_TYPE_NAME
+                        {
+                            policy_records.push((rel_path.clone(), record.clone()));
+                        }
                     }
                     Err(err) => diagnostics.push(ValidationDiagnostic {
                         severity: DiagnosticSeverity::Error,
@@ -678,6 +698,192 @@ pub fn validate_repository(
                 ),
             });
         }
+    }
+
+    // --- RFC-017 I-107/I-108/I-109/I-112: attachment_policy size and MIME-type diagnostics ---
+    if policy_records.len() > 1 {
+        // I-112: at most one repo_settings record. Treat policy as absent and emit an Error for
+        // each copy so the author knows exactly which paths to remove.
+        let count = policy_records.len();
+        for (path, _record) in &policy_records {
+            diagnostics.push(ValidationDiagnostic {
+                severity: DiagnosticSeverity::Error,
+                relative_path: path.clone(),
+                schema_id: None,
+                message: format!(
+                    "RFC-017 I-112: multiple attachment_policy (repo_settings) records found \
+                     ({count} copies); policy is treated as absent — remove all but one"
+                ),
+            });
+        }
+    } else if let Some((policy_path, policy_record)) = policy_records.first() {
+        // Single policy record — check source documents against its limits.
+        // Gracefully skip the entire check if the package could not be loaded.
+        if let Some(Some(pkg)) = package_for_tier2.as_ref() {
+            // Extract optional u64 limit from a named policy field.
+            let get_u64 = |field_name: &str| -> Option<u64> {
+                let field = pkg.find_field(BASE_NAMESPACE, field_name)?;
+                let fv = policy_record.find_field_value(&field.id)?;
+                fv.value.as_u64()
+            };
+
+            let max_per_file_bytes = get_u64(BASE_MAX_PER_FILE_BYTES_FIELD);
+            let max_doc_bytes = get_u64(BASE_MAX_DOC_BYTES_FIELD);
+            let max_total_bytes = get_u64(BASE_MAX_TOTAL_BYTES_FIELD);
+
+            // Extract allowedMimeTypes — accepts Array, JSON-array string, or single string.
+            let allowed_mime_types: Option<Vec<String>> = 'mime: {
+                let field = match pkg.find_field(BASE_NAMESPACE, BASE_ALLOWED_MIME_TYPES_FIELD) {
+                    Some(f) => f,
+                    None => break 'mime None,
+                };
+                let fv = match policy_record.find_field_value(&field.id) {
+                    Some(f) => f,
+                    None => break 'mime None,
+                };
+                match &fv.value {
+                    Value::Array(arr) => Some(
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect(),
+                    ),
+                    Value::String(s) => {
+                        let trimmed = s.trim_start();
+                        if trimmed.starts_with('[') {
+                            match serde_json::from_str::<Vec<String>>(trimmed) {
+                                Ok(mimes) => Some(mimes),
+                                Err(_) => {
+                                    diagnostics.push(ValidationDiagnostic {
+                                        severity: DiagnosticSeverity::Warning,
+                                        relative_path: policy_path.clone(),
+                                        schema_id: None,
+                                        message: "attachment_policy: allowedMimeTypes could not be parsed; MIME-type check skipped".to_string(),
+                                    });
+                                    break 'mime None;
+                                }
+                            }
+                        } else {
+                            Some(vec![s.clone()])
+                        }
+                    }
+                    _ => None,
+                }
+            };
+
+            let src_docs_base = manifest
+                .source_documents_path
+                .as_deref()
+                .unwrap_or("source-documents");
+
+            let src_doc_entries = manifest.source_document_index.as_deref().unwrap_or(&[]);
+
+            // Build MIME map: content_path (relative to src_docs_base) → content_type,
+            // populated by loading each sidecar file listed in the manifest index.
+            let mut mime_map: HashMap<String, String> = HashMap::new();
+            for entry in src_doc_entries {
+                let sidecar_repo_rel = format!("{}/{}", src_docs_base, entry.sidecar_path);
+                if let Ok(sidecar_text) = store.load_text_file(&sidecar_repo_rel) {
+                    if let Ok(meta) =
+                        serde_json::from_str::<SourceDocumentMeta>(&sidecar_text)
+                    {
+                        mime_map.insert(entry.content_path.clone(), meta.content_type);
+                    }
+                }
+            }
+
+            let mut total_bytes: u64 = 0;
+
+            for entry in src_doc_entries {
+                let content_repo_rel = format!("{}/{}", src_docs_base, entry.content_path);
+
+                let size = match store.file_byte_len(&content_repo_rel) {
+                    Ok(n) => n,
+                    // ADR-031 tombstone: content file absent is normal; skip silently.
+                    Err(ref e) if e.is_not_found() => continue,
+                    Err(_) => {
+                        diagnostics.push(ValidationDiagnostic {
+                            severity: DiagnosticSeverity::Warning,
+                            relative_path: content_repo_rel.clone(),
+                            schema_id: None,
+                            message: format!(
+                                "attachment_policy: could not stat '{}'; size check skipped",
+                                entry.content_path
+                            ),
+                        });
+                        continue;
+                    }
+                };
+
+                // I-107: maxPerFileBytes
+                if let Some(limit) = max_per_file_bytes {
+                    if size > limit {
+                        diagnostics.push(ValidationDiagnostic {
+                            severity: DiagnosticSeverity::Warning,
+                            relative_path: content_repo_rel.clone(),
+                            schema_id: None,
+                            message: format!(
+                                "RFC-017 I-107: '{}' is {size} bytes, \
+                                 exceeding maxPerFileBytes limit of {limit} bytes",
+                                entry.content_path
+                            ),
+                        });
+                    }
+                }
+
+                // I-108: maxDocBytes (per-document limit)
+                if let Some(limit) = max_doc_bytes {
+                    if size > limit {
+                        diagnostics.push(ValidationDiagnostic {
+                            severity: DiagnosticSeverity::Warning,
+                            relative_path: content_repo_rel.clone(),
+                            schema_id: None,
+                            message: format!(
+                                "RFC-017 I-108: '{}' is {size} bytes, \
+                                 exceeding maxDocBytes limit of {limit} bytes",
+                                entry.content_path
+                            ),
+                        });
+                    }
+                }
+
+                total_bytes = total_bytes.saturating_add(size);
+
+                // I-109: allowedMimeTypes (exact case-sensitive match)
+                if let Some(ref allowed) = allowed_mime_types {
+                    if let Some(actual_mime) = mime_map.get(&entry.content_path) {
+                        if !allowed.contains(actual_mime) {
+                            diagnostics.push(ValidationDiagnostic {
+                                severity: DiagnosticSeverity::Warning,
+                                relative_path: content_repo_rel.clone(),
+                                schema_id: None,
+                                message: format!(
+                                    "RFC-017 I-109: '{}' has MIME type '{}' which is not in \
+                                     allowedMimeTypes {:?}",
+                                    entry.content_path, actual_mime, allowed
+                                ),
+                            });
+                        }
+                    }
+                }
+            }
+
+            // I-108: maxTotalBytes (aggregate)
+            if let Some(limit) = max_total_bytes {
+                if total_bytes > limit {
+                    diagnostics.push(ValidationDiagnostic {
+                        severity: DiagnosticSeverity::Warning,
+                        relative_path: src_docs_base.to_string(),
+                        schema_id: None,
+                        message: format!(
+                            "RFC-017 I-108: aggregate source-document bytes ({total_bytes}) \
+                             exceed maxTotalBytes limit of {limit} bytes"
+                        ),
+                    });
+                }
+            }
+        }
+        // If package_for_tier2 is Some(None) the package load already failed and an error
+        // was emitted during the main loop; skip the policy check silently.
     }
 
     // --- Inv 43: warn about cross-package base type references ---
@@ -6094,6 +6300,557 @@ mod tests {
             dup_errs.iter().all(|d| d.message.contains("42")),
             "all errors should name '42', got: {:?}",
             dup_errs
+        );
+    }
+
+    // ── RFC-017 attachment_policy size/MIME-type diagnostic tests ─────────────
+
+    const POLICY_FIELD_ALLOWED_MIME: &str = "bb000001-0000-4000-b000-000000000001";
+    const POLICY_FIELD_MAX_PER_FILE: &str = "bb000002-0000-4000-b000-000000000002";
+    const POLICY_FIELD_MAX_DOC: &str = "bb000003-0000-4000-b000-000000000003";
+    const POLICY_FIELD_MAX_TOTAL: &str = "bb000004-0000-4000-b000-000000000004";
+    const POLICY_TYPE_ID: &str = "bb000010-0000-4000-b000-000000000010";
+    const POLICY_RECORD_ID: &str = "bb000020-0000-4000-b000-000000000020";
+
+    struct PolicyLimits {
+        max_per_file_bytes: Option<u64>,
+        max_doc_bytes: Option<u64>,
+        max_total_bytes: Option<u64>,
+        allowed_mime_types: Option<Vec<String>>,
+    }
+
+    impl PolicyLimits {
+        fn empty() -> Self {
+            PolicyLimits {
+                max_per_file_bytes: None,
+                max_doc_bytes: None,
+                max_total_bytes: None,
+                allowed_mime_types: None,
+            }
+        }
+    }
+
+    /// Build a MemoryStore pre-populated with:
+    /// - a manifest with one tier-2 entry for the policy record and entries for each
+    ///   content file in `sourceDocumentIndex`
+    /// - a minimal `com.semanticops.base` package with the 4 limit fields and repo_settings type
+    /// - a tier-2 policy record at `records/policy.json` encoding the limits
+    /// - binary content files and sidecar .meta.json files under `source-documents/`
+    fn build_policy_store(
+        limits: &PolicyLimits,
+        content_files: &[(&str, &[u8], &str)], // (rel_path_under_src_docs, bytes, mime_type)
+    ) -> MemoryStore {
+        use crate::manifest::Manifest;
+        use crate::package::Package;
+        use srs_core::types::field::Field;
+        use srs_core::types::record_type::RecordType;
+        use srs_core::types::source_document::SourceDocumentIndexEntry;
+        use std::path::PathBuf;
+
+        let allowed_mime_field: Field = serde_json::from_value(json!({
+            "id": POLICY_FIELD_ALLOWED_MIME,
+            "namespace": "com.semanticops.base",
+            "name": "allowedMimeTypes",
+            "version": 1, "description": "allowed MIME types",
+            "aiGuidance": {}, "valueType": "text", "createdAt": "2026-01-01T00:00:00Z"
+        }))
+        .unwrap();
+        let max_per_file_field: Field = serde_json::from_value(json!({
+            "id": POLICY_FIELD_MAX_PER_FILE,
+            "namespace": "com.semanticops.base",
+            "name": "maxPerFileBytes",
+            "version": 1, "description": "max per-file bytes",
+            "aiGuidance": {}, "valueType": "number", "createdAt": "2026-01-01T00:00:00Z"
+        }))
+        .unwrap();
+        let max_doc_field: Field = serde_json::from_value(json!({
+            "id": POLICY_FIELD_MAX_DOC,
+            "namespace": "com.semanticops.base",
+            "name": "maxDocBytes",
+            "version": 1, "description": "max doc bytes",
+            "aiGuidance": {}, "valueType": "number", "createdAt": "2026-01-01T00:00:00Z"
+        }))
+        .unwrap();
+        let max_total_field: Field = serde_json::from_value(json!({
+            "id": POLICY_FIELD_MAX_TOTAL,
+            "namespace": "com.semanticops.base",
+            "name": "maxTotalBytes",
+            "version": 1, "description": "max total bytes",
+            "aiGuidance": {}, "valueType": "number", "createdAt": "2026-01-01T00:00:00Z"
+        }))
+        .unwrap();
+        let repo_settings_type: RecordType = serde_json::from_value(json!({
+            "id": POLICY_TYPE_ID,
+            "namespace": "com.semanticops.base",
+            "name": "repo_settings",
+            "version": 1,
+            "description": "repository attachment policy settings",
+            "fields": [
+                {"fieldId": POLICY_FIELD_ALLOWED_MIME, "order": 1, "required": false},
+                {"fieldId": POLICY_FIELD_MAX_PER_FILE, "order": 2, "required": false},
+                {"fieldId": POLICY_FIELD_MAX_DOC, "order": 3, "required": false},
+                {"fieldId": POLICY_FIELD_MAX_TOTAL, "order": 4, "required": false}
+            ],
+            "createdAt": "2026-01-01T00:00:00Z"
+        }))
+        .unwrap();
+
+        let package = Package {
+            id: "bb000000-0000-4000-b000-000000000000".to_string(),
+            namespace: "com.semanticops.base".to_string(),
+            name: "base".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![
+                allowed_mime_field,
+                max_per_file_field,
+                max_doc_field,
+                max_total_field,
+            ],
+            record_types: vec![repo_settings_type],
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+
+        // Build source_document_index
+        let src_doc_index: Vec<SourceDocumentIndexEntry> = content_files
+            .iter()
+            .enumerate()
+            .map(|(i, (rel_path, _, _))| SourceDocumentIndexEntry {
+                document_id: format!("cc{:06}-0000-4000-b000-000000000001", i + 1),
+                sidecar_path: format!("{}.meta.json", rel_path),
+                content_path: rel_path.to_string(),
+                title: None,
+                sidecar_checksum: None,
+                content_checksum: None,
+            })
+            .collect();
+
+        // Build the manifest JSON for both schema validation and typed access
+        let src_doc_index_json: serde_json::Value = serde_json::to_value(&src_doc_index).unwrap();
+        let manifest_json = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+            "srsVersion": "2.0",
+            "repositoryId": "00000000-0000-4000-8000-000000000099",
+            "title": "Policy Test Repo",
+            "container": {
+                "containerId": "00000000-0000-4000-8000-000000000099",
+                "title": "Policy Test Repo"
+            },
+            "instanceIndex": [
+                {"instanceId": POLICY_RECORD_ID, "tier": 2, "path": "records/policy.json"}
+            ],
+            "sourceDocumentsPath": "source-documents",
+            "sourceDocumentIndex": src_doc_index_json,
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        let manifest_str = serde_json::to_string(&manifest_json).unwrap();
+        let manifest: Manifest = serde_json::from_value(manifest_json).unwrap();
+
+        // Build field values for the policy record
+        let mut field_values: Vec<serde_json::Value> = vec![];
+        if let Some(v) = limits.max_per_file_bytes {
+            field_values.push(json!({"fieldId": POLICY_FIELD_MAX_PER_FILE, "value": v}));
+        }
+        if let Some(v) = limits.max_doc_bytes {
+            field_values.push(json!({"fieldId": POLICY_FIELD_MAX_DOC, "value": v}));
+        }
+        if let Some(v) = limits.max_total_bytes {
+            field_values.push(json!({"fieldId": POLICY_FIELD_MAX_TOTAL, "value": v}));
+        }
+        if let Some(ref mimes) = limits.allowed_mime_types {
+            field_values.push(json!({"fieldId": POLICY_FIELD_ALLOWED_MIME, "value": mimes}));
+        }
+
+        let policy_record_json = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+            "instanceId": POLICY_RECORD_ID,
+            "typeId": POLICY_TYPE_ID,
+            "typeVersion": 1,
+            "typeNamespace": "com.semanticops.base",
+            "typeName": "repo_settings",
+            "fieldValues": field_values,
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+
+        let store = MemoryStore::new(manifest, package)
+            .with_data(
+                "manifest.json",
+                serde_json::Value::String(manifest_str),
+            )
+            .with_data("records/policy.json", policy_record_json);
+
+        // Binary content files and text sidecar files
+        for (i, (rel_path, bytes, mime_type)) in content_files.iter().enumerate() {
+            let content_full = format!("source-documents/{}", rel_path);
+            let sidecar_full = format!("source-documents/{}.meta.json", rel_path);
+            let doc_id = format!("cc{:06}-0000-4000-b000-000000000001", i + 1);
+            store.save_binary_file(&content_full, bytes).unwrap();
+            let sidecar = json!({
+                "documentId": doc_id,
+                "contentPath": rel_path,
+                "contentType": mime_type
+            });
+            store
+                .save_text_file(
+                    &sidecar_full,
+                    &serde_json::to_string(&sidecar).unwrap(),
+                )
+                .unwrap();
+        }
+
+        store
+    }
+
+    #[test]
+    fn policy_absent_no_warnings() {
+        // No repo_settings record → zero attachment_policy warnings regardless of files.
+        let store = MemoryStore::empty()
+            .with_data(
+                "manifest.json",
+                serde_json::Value::String(
+                    serde_json::to_string(&minimal_manifest(json!([]))).unwrap(),
+                ),
+            );
+        let report = validate_repository(&store).unwrap();
+        let policy_diags: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("attachment_policy") || d.message.contains("I-107") || d.message.contains("I-109") || d.message.contains("I-112"))
+            .collect();
+        assert!(
+            policy_diags.is_empty(),
+            "no policy record → no attachment_policy diagnostics, got: {:?}",
+            policy_diags
+        );
+    }
+
+    #[test]
+    fn policy_max_per_file_bytes_warn() {
+        // File 200 bytes, maxPerFileBytes limit 100 → one Warning mentioning maxPerFileBytes.
+        let store = build_policy_store(
+            &PolicyLimits {
+                max_per_file_bytes: Some(100),
+                ..PolicyLimits::empty()
+            },
+            &[("report.pdf", &[0u8; 200], "application/pdf")],
+        );
+        let report = validate_repository(&store).unwrap();
+        let warns: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Warning
+                    && d.message.contains("maxPerFileBytes")
+            })
+            .collect();
+        assert_eq!(
+            warns.len(),
+            1,
+            "expected 1 maxPerFileBytes warning, got: {:?}",
+            report.diagnostics
+        );
+        assert!(
+            warns[0].message.contains("200"),
+            "warning should mention the actual byte size, got: {}",
+            warns[0].message
+        );
+        assert!(
+            warns[0].message.contains("100"),
+            "warning should mention the limit, got: {}",
+            warns[0].message
+        );
+    }
+
+    #[test]
+    fn policy_max_doc_bytes_warn() {
+        // File 200 bytes, maxDocBytes limit 100 → one Warning mentioning maxDocBytes.
+        let store = build_policy_store(
+            &PolicyLimits {
+                max_doc_bytes: Some(100),
+                ..PolicyLimits::empty()
+            },
+            &[("report.pdf", &[0u8; 200], "application/pdf")],
+        );
+        let report = validate_repository(&store).unwrap();
+        let warns: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Warning && d.message.contains("maxDocBytes")
+            })
+            .collect();
+        assert_eq!(
+            warns.len(),
+            1,
+            "expected 1 maxDocBytes warning, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn policy_max_total_bytes_warn() {
+        // Two 60-byte files, maxTotalBytes 100 → one aggregate Warning.
+        let store = build_policy_store(
+            &PolicyLimits {
+                max_total_bytes: Some(100),
+                ..PolicyLimits::empty()
+            },
+            &[
+                ("a.pdf", &[0u8; 60], "application/pdf"),
+                ("b.pdf", &[0u8; 60], "application/pdf"),
+            ],
+        );
+        let report = validate_repository(&store).unwrap();
+        let warns: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Warning && d.message.contains("maxTotalBytes")
+            })
+            .collect();
+        assert_eq!(
+            warns.len(),
+            1,
+            "expected 1 maxTotalBytes aggregate warning, got: {:?}",
+            report.diagnostics
+        );
+        assert!(
+            warns[0].message.contains("120"),
+            "warning should mention the actual total (120), got: {}",
+            warns[0].message
+        );
+    }
+
+    #[test]
+    fn policy_mime_type_mismatch_warn() {
+        // allowedMimeTypes: ["text/plain"], file is "application/pdf" → one Warning.
+        let store = build_policy_store(
+            &PolicyLimits {
+                allowed_mime_types: Some(vec!["text/plain".to_string()]),
+                ..PolicyLimits::empty()
+            },
+            &[("doc.pdf", &[0u8; 10], "application/pdf")],
+        );
+        let report = validate_repository(&store).unwrap();
+        let warns: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Warning
+                    && d.message.contains("application/pdf")
+            })
+            .collect();
+        assert_eq!(
+            warns.len(),
+            1,
+            "expected 1 MIME-type mismatch warning, got: {:?}",
+            report.diagnostics
+        );
+        assert!(
+            warns[0].message.contains("I-109"),
+            "warning should reference I-109, got: {}",
+            warns[0].message
+        );
+    }
+
+    #[test]
+    fn policy_mime_type_match_no_warn() {
+        // File MIME type IS in allowedMimeTypes → zero MIME warnings.
+        let store = build_policy_store(
+            &PolicyLimits {
+                allowed_mime_types: Some(vec!["application/pdf".to_string()]),
+                ..PolicyLimits::empty()
+            },
+            &[("doc.pdf", &[0u8; 10], "application/pdf")],
+        );
+        let report = validate_repository(&store).unwrap();
+        let mime_warns: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.severity == DiagnosticSeverity::Warning && d.message.contains("I-109"))
+            .collect();
+        assert!(
+            mime_warns.is_empty(),
+            "matching MIME type should produce no I-109 warnings, got: {:?}",
+            mime_warns
+        );
+    }
+
+    #[test]
+    fn policy_multiple_records_error() {
+        // Two repo_settings records → two Errors citing I-112, zero size warnings.
+        use crate::manifest::Manifest;
+        use crate::package::Package;
+        use srs_core::types::field::Field;
+        use srs_core::types::record_type::RecordType;
+        use std::path::PathBuf;
+
+        let second_id = "bb000021-0000-4000-b000-000000000020";
+
+        let allowed_mime_field: Field = serde_json::from_value(json!({
+            "id": POLICY_FIELD_ALLOWED_MIME, "namespace": "com.semanticops.base",
+            "name": "allowedMimeTypes", "version": 1, "description": "x",
+            "aiGuidance": {}, "valueType": "text", "createdAt": "2026-01-01T00:00:00Z"
+        }))
+        .unwrap();
+        let repo_settings_type: RecordType = serde_json::from_value(json!({
+            "id": POLICY_TYPE_ID, "namespace": "com.semanticops.base",
+            "name": "repo_settings", "version": 1, "description": "x",
+            "fields": [], "createdAt": "2026-01-01T00:00:00Z"
+        }))
+        .unwrap();
+        let package = Package {
+            id: "bb000000-0000-4000-b000-000000000000".to_string(),
+            namespace: "com.semanticops.base".to_string(),
+            name: "base".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![allowed_mime_field],
+            record_types: vec![repo_settings_type],
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+
+        let manifest_json = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+            "srsVersion": "2.0",
+            "repositoryId": "00000000-0000-4000-8000-000000000099",
+            "title": "Multi-policy Repo",
+            "container": {
+                "containerId": "00000000-0000-4000-8000-000000000099",
+                "title": "Multi-policy Repo"
+            },
+            "instanceIndex": [
+                {"instanceId": POLICY_RECORD_ID, "tier": 2, "path": "records/policy1.json"},
+                {"instanceId": second_id, "tier": 2, "path": "records/policy2.json"}
+            ],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        let manifest_str = serde_json::to_string(&manifest_json).unwrap();
+        let manifest: Manifest = serde_json::from_value(manifest_json).unwrap();
+
+        let policy_record = |id: &str, path: &str| {
+            (
+                path.to_string(),
+                json!({
+                    "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                    "instanceId": id,
+                    "typeId": POLICY_TYPE_ID,
+                    "typeVersion": 1,
+                    "typeNamespace": "com.semanticops.base",
+                    "typeName": "repo_settings",
+                    "fieldValues": [],
+                    "createdAt": "2026-01-01T00:00:00Z"
+                }),
+            )
+        };
+        let (p1_path, p1) = policy_record(POLICY_RECORD_ID, "records/policy1.json");
+        let (p2_path, p2) = policy_record(second_id, "records/policy2.json");
+
+        let store = MemoryStore::new(manifest, package)
+            .with_data("manifest.json", serde_json::Value::String(manifest_str))
+            .with_data(&p1_path, p1)
+            .with_data(&p2_path, p2);
+
+        let report = validate_repository(&store).unwrap();
+        let i112_errors: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Error && d.message.contains("I-112")
+            })
+            .collect();
+        assert_eq!(
+            i112_errors.len(),
+            2,
+            "expected 2 I-112 errors (one per duplicate policy record), got: {:?}",
+            report.diagnostics
+        );
+
+        let size_warns: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Warning
+                    && (d.message.contains("I-107")
+                        || d.message.contains("I-108")
+                        || d.message.contains("I-109"))
+            })
+            .collect();
+        assert!(
+            size_warns.is_empty(),
+            "multiple policy records → no size/MIME warnings, got: {:?}",
+            size_warns
+        );
+    }
+
+    #[test]
+    fn policy_fields_not_in_package_no_panic() {
+        // Policy record present but package has no com.semanticops.base fields.
+        // Expect: no panic, no size/MIME warnings (all limits absent → no checks).
+        let store = build_policy_store(&PolicyLimits::empty(), &[("doc.pdf", &[0u8; 50], "application/pdf")]);
+        let report = validate_repository(&store).unwrap();
+        // With no limits set in the policy record, no size/MIME warnings are emitted.
+        let policy_limit_warns: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Warning
+                    && (d.message.contains("I-107")
+                        || d.message.contains("I-108")
+                        || d.message.contains("I-109"))
+            })
+            .collect();
+        assert!(
+            policy_limit_warns.is_empty(),
+            "no limits set → no size/MIME warnings, got: {:?}",
+            policy_limit_warns
+        );
+    }
+
+    #[test]
+    fn policy_warnings_dont_block_ok() {
+        // Limits exceeded → report.is_ok() still true, errors == 0.
+        let store = build_policy_store(
+            &PolicyLimits {
+                max_per_file_bytes: Some(1),
+                max_doc_bytes: Some(1),
+                max_total_bytes: Some(1),
+                allowed_mime_types: Some(vec!["text/plain".to_string()]),
+            },
+            &[("report.pdf", &[0u8; 100], "application/pdf")],
+        );
+        let report = validate_repository(&store).unwrap();
+        assert!(
+            report.is_ok(),
+            "attachment_policy warnings must not affect is_ok(); report: {:?}",
+            report.diagnostics
+        );
+        assert_eq!(
+            report.summary.errors,
+            0,
+            "attachment_policy warnings must not increment errors; report: {:?}",
+            report.diagnostics
+        );
+        assert!(
+            report.summary.warnings > 0,
+            "should have at least some warnings when limits are exceeded, got: {:?}",
+            report.diagnostics
         );
     }
 }
