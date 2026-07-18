@@ -96,12 +96,13 @@ impl SrsRepository {
     /// top-level keys:
     ///
     /// - `diagnostics`: array of `{ severity, path, schemaId, message }` objects. Entries with
-    ///   `severity: "warning"` represent RFC-017 I-107 soft size-limit violations raised when an
-    ///   `attachment_policy` (`com.semanticops.base/repo_settings`) record is present; they do
-    ///   not affect `is_ok()` or `summary.errors`.
+    ///   `severity: "warning"` are non-blocking advisories; they do not affect `summary.errors`
+    ///   and the repository still passes validation when they are present. RFC-017 I-107
+    ///   attachment size-limit violations (emitted when a `com.semanticops.base/repo_settings`
+    ///   record specifies `maxPerFileBytes`) are one example of a warning source.
     /// - `summary`: `{ checked, errors, warnings }`. `summary.warnings` counts warning-severity
-    ///   diagnostics. `is_ok()` returns `true` when `summary.errors == 0`, even if warnings are
-    ///   present.
+    ///   diagnostics. A repository passes validation when `summary.errors === 0`, even if
+    ///   `summary.warnings > 0`.
     ///
     /// Callers should filter `diagnostics` by `severity` to distinguish errors from warnings.
     pub fn validate(&self) -> Result<JsValue, JsValue> {
