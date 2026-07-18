@@ -75,11 +75,12 @@ No changes to JSON schema files. `bash scripts/check-schema-sync.sh` must exit 0
 - [ ] Create `crates/srs-core/src/types/source_document_meta.rs`:
   - Derive `Debug, Clone, PartialEq, Serialize, Deserialize` on all structs
   - `#[serde(rename_all = "camelCase")]` on `SourceDocumentMeta`
-  - Add doc comment `// RFC-017 core type; belongs in types/, not extensions/ (see ADR-028)` to `SourceDocumentMeta`
+  - Add doc comment `// Core RFC-017 sidecar format; not an extension-defined external catalog type (ADR-028), so types/ is correct per the Protocol precedent (ADR-016).` to `SourceDocumentMeta`
   - Do **not** add `#[serde(deny_unknown_fields)]` — forward-compatible with future Rev 3 additions
   - All optional fields: `Option<T>` with `#[serde(skip_serializing_if = "Option::is_none")]`
   - Include a `$schema` field as `schema` (use `#[serde(rename = "$schema")]`): `pub schema: Option<String>`
-  - Required fields: `document_id: String`, `content_path: String`, `content_type: String`, `created_at: String`
+  - Required fields: `document_id: String`, `content_path: String`, `content_type: String`
+  - `created_at: Option<String>` with `skip_serializing_if = "Option::is_none"` — sidecars written by `add_attachment()` omit `createdAt`, so this field must be optional to avoid `SourceDocumentMetaLoad` errors when listing after adding
   - Optional fields: `encoding`, `language`, `title`, `description`, `processing_note`, `excerpt`, `date`, `tags`, `imported_at`, `meta` (as `Option<serde_json::Value>`)
   - Nested `SourceDocumentExcerpt` struct (camelCase serde): `source_document_id: String` (required), `anchor: Option<SourceAnchor>`, `captured_at: Option<String>`, `captured_by: Option<String>`, `source_checksum_at_capture: Option<String>`
   - Nested `SourceAnchor` struct (camelCase serde): `kind: String` (required), `value: String` (required), `note: Option<String>`
@@ -88,7 +89,7 @@ No changes to JSON schema files. `bash scripts/check-schema-sync.sh` must exit 0
 
 #### Acceptance Criteria
 
-- [ ] `SourceDocumentMeta` has all fields: `schema`, `document_id`, `content_path`, `content_type`, `encoding`, `language`, `title`, `description`, `processing_note`, `excerpt`, `date`, `tags`, `created_at`, `imported_at`, `meta`
+- [ ] `SourceDocumentMeta` has all fields: `schema`, `document_id`, `content_path`, `content_type`, `encoding`, `language`, `title`, `description`, `processing_note`, `excerpt`, `date`, `tags`, `created_at` (Option), `imported_at`, `meta`
 - [ ] `SourceDocumentExcerpt` has: `source_document_id`, `anchor`, `captured_at`, `captured_by`, `source_checksum_at_capture`
 - [ ] `SourceAnchor` has: `kind`, `value`, `note`
 - [ ] `cargo test -p srs-core source_document_meta` passes with roundtrip assertions
@@ -169,23 +170,25 @@ Specific tests to write or verify:
           .unwrap_or("source-documents")
           .to_string();
       let prefix = format!("{}/", src_docs_base);
-      let sidecar_paths: Vec<String> = store
+      // Use filter_map to strip prefix at collection time (consistent with list_attachments()).
+      // Any path that doesn't strip is silently dropped rather than producing a wrong value.
+      let sidecar_paths: Vec<(String, String)> = store
           .list_files_recursive(&src_docs_base)
           .into_iter()
           .filter(|p| p.ends_with(".meta.json"))
+          .filter_map(|repo_rel| {
+              repo_rel.strip_prefix(&prefix)
+                  .map(|rel| (repo_rel.clone(), rel.to_string()))
+          })
           .collect();
       let mut entries = Vec::with_capacity(sidecar_paths.len());
-      for repo_relative_path in sidecar_paths {
+      for (repo_relative_path, sidecar_path) in sidecar_paths {
           let json_str = store.load_text_file(&repo_relative_path)?;
           let meta = serde_json::from_str::<SourceDocumentMeta>(&json_str)
               .map_err(|source| RepositoryError::SourceDocumentMetaLoad {
                   path: std::path::PathBuf::from(&repo_relative_path),
                   source,
               })?;
-          let sidecar_path = repo_relative_path
-              .strip_prefix(&prefix)
-              .unwrap_or(&repo_relative_path)
-              .to_string();
           entries.push(SourceDocumentEntry { sidecar_path, meta });
       }
       Ok(entries)
