@@ -548,6 +548,56 @@ pub fn list_source_documents(
     Ok(entries)
 }
 
+// ── get_attachment_bytes ───────────────────────────────────────────────────────
+
+#[derive(Debug)]
+pub struct GetAttachmentBytesInput {
+    pub document_id: String,
+}
+
+#[derive(Debug)]
+pub struct GetAttachmentBytesResult {
+    pub document_id: String,
+    pub content_path: String,
+    pub bytes: Vec<u8>,
+}
+
+/// Return the raw bytes of a source-document attachment by `document_id`.
+///
+/// Errors:
+/// - `InvalidInput` if `document_id` is not in `manifest.sourceDocumentIndex`
+/// - `Io(NotFound)` if the binary file is absent (tombstone state per RFC-017)
+pub fn get_attachment_bytes(
+    store: &dyn RepositoryStore,
+    input: GetAttachmentBytesInput,
+) -> Result<GetAttachmentBytesResult, RepositoryError> {
+    let manifest = store.load_manifest()?;
+    let src_docs_base = manifest
+        .source_documents_path
+        .as_deref()
+        .unwrap_or("source-documents");
+    let index = manifest.source_document_index.as_deref().unwrap_or(&[]);
+
+    let entry = index
+        .iter()
+        .find(|e| e.document_id == input.document_id)
+        .ok_or_else(|| RepositoryError::InvalidInput {
+            message: format!(
+                "document '{}' not found in source-document index",
+                input.document_id
+            ),
+        })?;
+
+    let full_path = format!("{}/{}", src_docs_base, entry.content_path);
+    let bytes = store.load_binary_file(&full_path)?;
+
+    Ok(GetAttachmentBytesResult {
+        document_id: input.document_id,
+        content_path: entry.content_path.clone(),
+        bytes,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1722,5 +1772,136 @@ mod tests {
         assert_eq!(att.sidecar_path.as_deref(), Some("brief.meta.json"));
         assert_eq!(att.title.as_deref(), Some("Roundtrip Brief"));
         assert_eq!(att.content_checksum.as_deref(), Some("sha256:abc"));
+    }
+
+    // ── get_attachment_bytes tests ────────────────────────────────────────────
+
+    fn store_with_binary_attachment(doc_id: &str, content_path: &str, bytes: &[u8]) -> MemoryStore {
+        let manifest = manifest_with_index(
+            None,
+            vec![SourceDocumentIndexEntry {
+                document_id: doc_id.to_string(),
+                sidecar_path: format!("{}.meta.json", content_path.trim_end_matches(".pdf")),
+                content_path: content_path.to_string(),
+                title: None,
+                sidecar_checksum: None,
+                content_checksum: None,
+            }],
+        );
+        let store = store_with_manifest(manifest);
+        store
+            .save_binary_file(&format!("source-documents/{}", content_path), bytes)
+            .unwrap();
+        store
+    }
+
+    #[test]
+    fn get_attachment_bytes_returns_correct_bytes() {
+        const BYTES: &[u8] = b"\x89PNG test content";
+        let store = store_with_binary_attachment("doc-001", "figure.png", BYTES);
+        let result = get_attachment_bytes(
+            &store,
+            GetAttachmentBytesInput {
+                document_id: "doc-001".to_string(),
+            },
+        )
+        .unwrap();
+        assert_eq!(result.document_id, "doc-001");
+        assert_eq!(result.content_path, "figure.png");
+        assert_eq!(result.bytes, BYTES);
+    }
+
+    #[test]
+    fn get_attachment_bytes_unknown_document_id() {
+        let store = store_with_manifest(Manifest::default());
+        let err = get_attachment_bytes(
+            &store,
+            GetAttachmentBytesInput {
+                document_id: "no-such-doc".to_string(),
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::InvalidInput { .. }),
+            "unknown documentId must return InvalidInput, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn get_attachment_bytes_tombstone() {
+        let manifest = manifest_with_index(
+            None,
+            vec![SourceDocumentIndexEntry {
+                document_id: "tomb-doc".to_string(),
+                sidecar_path: "tombstone.meta.json".to_string(),
+                content_path: "tombstone.pdf".to_string(),
+                title: None,
+                sidecar_checksum: None,
+                content_checksum: None,
+            }],
+        );
+        // Index entry exists but no binary file stored (tombstone per RFC-017).
+        let store = store_with_manifest(manifest);
+        let err = get_attachment_bytes(
+            &store,
+            GetAttachmentBytesInput {
+                document_id: "tomb-doc".to_string(),
+            },
+        )
+        .unwrap_err();
+        assert!(
+            err.is_not_found(),
+            "tombstone must return not-found error, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn get_attachment_bytes_filestore_roundtrip() {
+        use crate::store::FileStore;
+        use tempfile::TempDir;
+
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+
+        // Minimal FileStore setup.
+        std::fs::create_dir_all(root.join(".srs")).unwrap();
+        std::fs::create_dir_all(root.join("source-documents")).unwrap();
+        std::fs::create_dir_all(root.join("package")).unwrap();
+
+        const BYTES: &[u8] = b"PDF binary content for filestore roundtrip";
+        std::fs::write(root.join("source-documents/spec.pdf"), BYTES).unwrap();
+
+        let doc_id = "fs-doc-001";
+        let manifest_json = serde_json::json!({
+            "instanceIndex": [],
+            "sourceDocumentsPath": "source-documents",
+            "sourceDocumentIndex": [{
+                "documentId": doc_id,
+                "sidecarPath": "spec.meta.json",
+                "contentPath": "spec.pdf"
+            }]
+        });
+        std::fs::write(root.join("manifest.json"), manifest_json.to_string()).unwrap();
+        std::fs::write(
+            root.join("package/package.json"),
+            serde_json::json!({
+                "id": "fs-pkg", "namespace": "com.test", "name": "test",
+                "version": "1.0.0", "fields": [], "types": []
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let store = FileStore::new(root);
+        let result = get_attachment_bytes(
+            &store,
+            GetAttachmentBytesInput {
+                document_id: doc_id.to_string(),
+            },
+        )
+        .unwrap();
+        assert_eq!(result.document_id, doc_id);
+        assert_eq!(result.content_path, "spec.pdf");
+        assert_eq!(result.bytes, BYTES);
     }
 }
