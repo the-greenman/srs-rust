@@ -63,17 +63,13 @@ pub fn export_record_bundle(
             let entry_key = if used_keys.contains(&candidate_key) {
                 // Two attachments share a basename: keep the bundle flat by
                 // appending the first 8 chars of the document ID as a suffix.
-                let id_prefix =
-                    &attachment.document_id[..8.min(attachment.document_id.len())];
+                let id_prefix = &attachment.document_id[..8.min(attachment.document_id.len())];
                 format!("attachments/{}_{}", basename, id_prefix)
             } else {
                 candidate_key
             };
             used_keys.insert(entry_key.clone());
-            let full_path = format!(
-                "{}/{}",
-                attach_result.source_documents_path, content_path
-            );
+            let full_path = format!("{}/{}", attach_result.source_documents_path, content_path);
             let bytes = store.load_binary_file(&full_path)?;
             entries.push((entry_key, bytes));
         }
@@ -309,7 +305,11 @@ mod tests {
 
         buf.set_position(0);
         let mut zip = ZipArchive::new(buf).expect("should be a valid zip");
-        assert_eq!(zip.len(), 2, "ZIP should contain decision.md + one attachment");
+        assert_eq!(
+            zip.len(),
+            2,
+            "ZIP should contain decision.md + one attachment"
+        );
 
         let names: Vec<String> = (0..zip.len())
             .map(|i| zip.by_index(i).unwrap().name().to_string())
@@ -320,7 +320,10 @@ mod tests {
         let mut entry = zip.by_name("attachments/report.pdf").unwrap();
         let mut content = Vec::new();
         std::io::Read::read_to_end(&mut entry, &mut content).unwrap();
-        assert_eq!(content, pdf_bytes, "attachment bytes must match source bytes");
+        assert_eq!(
+            content, pdf_bytes,
+            "attachment bytes must match source bytes"
+        );
     }
 
     #[test]
