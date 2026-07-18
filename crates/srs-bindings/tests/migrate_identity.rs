@@ -269,6 +269,12 @@ fn sections_survive_migrate_identity() {
                 "rootInstanceIds": [ARTICLES_RECORD_ID],
                 "createdAt": "2026-01-01T00:00:00Z"
             },
+            // "manifest.json" in data exercises the pre-#466 shadow-containerIndex
+            // open-time migration in JsonStore::from_srsj: when the top-level manifest
+            // has no containerIndex key, from_srsj reads data["manifest.json"] and
+            // promotes its containerIndex into the parsed manifest. This entry is
+            // intentional — it reflects how legacy .srsj bundles encode the container
+            // index, and ensures the migration path does not break navigation.
             "manifest.json": {
                 "containerIndex": [
                     {"containerId": ARTICLES_CTR_ID, "title": "Articles"}

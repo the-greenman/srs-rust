@@ -169,9 +169,11 @@ pub fn migrate_identity(
             writer::write_manifest(store, &manifest)?;
             // Load the real container file (which holds pre-existing section members),
             // patch in the new identity pointer and member, then save — mirrors the
-            // non-None branch. Falls back to mc (the pre-batch container snapshot) if
-            // no container file exists yet; mc has no new_id in members yet, so the
-            // push below adds it exactly once.
+            // non-None branch. Falls back to mc on ContainerNotFound. mc is the
+            // pre-batch snapshot from line 121 (before any batch writes), so new_id
+            // is NOT yet in mc.member_instance_ids; the push below adds it exactly
+            // once. (The within-batch manifest.container already has new_id pushed at
+            // lines 163-167 but is a distinct struct from the container file.)
             let mut persisted_container = match store.load_container(&mc.container_id) {
                 Ok(c) => c,
                 Err(RepositoryError::ContainerNotFound { .. }) => mc.clone(),
