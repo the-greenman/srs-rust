@@ -1258,11 +1258,10 @@ mod tests {
     #[test]
     fn file_store_list_source_documents_spec_repo() {
         use crate::store::FileStore;
-        let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../tests/fixtures/spec-repo");
+        let repo_root =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/spec-repo");
         let store = FileStore::new(&repo_root);
-        let result =
-            list_source_documents(&store, ListSourceDocumentsFilter::default()).unwrap();
+        let result = list_source_documents(&store, ListSourceDocumentsFilter::default()).unwrap();
         assert_eq!(
             result.len(),
             4,

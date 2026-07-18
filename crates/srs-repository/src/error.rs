@@ -578,8 +578,14 @@ impl PartialEq for RepositoryError {
                 },
             ) => a == b && sa.to_string() == sb.to_string(),
             (
-                RepositoryError::SourceDocumentMetaLoad { path: a, source: sa },
-                RepositoryError::SourceDocumentMetaLoad { path: b, source: sb },
+                RepositoryError::SourceDocumentMetaLoad {
+                    path: a,
+                    source: sa,
+                },
+                RepositoryError::SourceDocumentMetaLoad {
+                    path: b,
+                    source: sb,
+                },
             ) => a == b && sa.to_string() == sb.to_string(),
             (
                 RepositoryError::ThemeValidation {
