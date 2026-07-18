@@ -188,9 +188,8 @@ impl SrsRepository {
 
     /// Export the current repository state as a `.srs` binary archive (ZIP bytes).
     pub fn export_archive(&self) -> Result<js_sys::Uint8Array, JsValue> {
-        let mut buf = std::io::Cursor::new(Vec::new());
-        srs_repository::archive_pack(&self.store, &mut buf).map_err(js_err)?;
-        Ok(js_sys::Uint8Array::from(buf.into_inner().as_slice()))
+        let bytes = srs_repository::archive_to_vec(&self.store).map_err(js_err)?;
+        Ok(js_sys::Uint8Array::from(bytes.as_slice()))
     }
 
     /// Create a record. `input_json` is a JSON object with fields:
@@ -1857,9 +1856,9 @@ mod tests {
         assert_eq!(result.created[1].target_id, "id-c");
     }
 
-    // Note: load_archive / export_archive call through js_sys::Uint8Array and JsValue which
-    // are not meaningful on a native target. The test below validates the underlying service
-    // functions (archive_pack + JsonStore::from_archive) reachable from srs-bindings imports.
+    // Note: load_archive / export_archive route through js_sys::Uint8Array and JsValue, which
+    // are not meaningful on a native target. The test below validates the service functions
+    // (archive_to_vec + JsonStore::from_archive) that back the bindings.
     // The wasm32 build gate confirms the binding wrapper layer compiles and links correctly.
     #[test]
     fn archive_service_roundtrip_smoke() {
@@ -1867,9 +1866,7 @@ mod tests {
 
         let store = JsonStore::from_srsj(&srsj_with_note_and_type()).expect("load srsj");
 
-        let mut buf = std::io::Cursor::new(Vec::new());
-        srs_repository::archive_pack(&store, &mut buf).expect("archive_pack");
-        let bytes = buf.into_inner();
+        let bytes = srs_repository::archive_to_vec(&store).expect("archive_to_vec");
 
         let reloaded = JsonStore::from_archive(&bytes).expect("from_archive");
         let result = list_notes(&reloaded, ListNotesFilter::default()).expect("list notes");

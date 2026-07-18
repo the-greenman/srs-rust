@@ -360,6 +360,17 @@ pub fn archive_unpack(
     Ok(())
 }
 
+/// Pack a repository into a `.srs` binary archive and return the bytes.
+///
+/// Convenience wrapper over [`archive_pack`] for callers that need an in-memory byte buffer
+/// (e.g. WASM bindings). Equivalent to calling `archive_pack` with a `Cursor<Vec<u8>>` and
+/// extracting the inner `Vec` — provided so binding layers stay thin (ADR-010, ADR-033).
+pub fn archive_to_vec(source: &dyn RepositoryStore) -> Result<Vec<u8>, RepositoryError> {
+    let mut buf = std::io::Cursor::new(Vec::new());
+    archive_pack(source, &mut buf)?;
+    Ok(buf.into_inner())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
