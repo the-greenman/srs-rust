@@ -2199,6 +2199,36 @@ impl From<srs_repository::attachment_service::ResolveDocumentViewAttachmentsResu
     }
 }
 
+// ── Attachment policy payload ──────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentPolicyPayload {
+    pub policy_record_present: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allowed_mime_types: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_per_file_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_doc_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_total_bytes: Option<u64>,
+}
+
+impl From<srs_repository::attachment_policy_service::ReadAttachmentPolicyResult>
+    for AttachmentPolicyPayload
+{
+    fn from(r: srs_repository::attachment_policy_service::ReadAttachmentPolicyResult) -> Self {
+        Self {
+            policy_record_present: r.policy_record_present,
+            allowed_mime_types: r.policy.allowed_mime_types,
+            max_per_file_bytes: r.policy.max_per_file_bytes,
+            max_doc_bytes: r.policy.max_doc_bytes,
+            max_total_bytes: r.policy.max_total_bytes,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportBundlePayload {

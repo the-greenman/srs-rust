@@ -204,6 +204,7 @@ fn main() {
         "attachment-resolve-view-attachments",
         ResolveViewAttachmentsPayload
     );
+    write_schema!("attachment-policy-get", AttachmentPolicyPayload);
 
     // Package payloads
     write_schema!("package-list", PackageListPayload);

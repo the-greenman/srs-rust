@@ -359,6 +359,9 @@ pub enum AttachmentCommand {
     ///
     /// Input: `{"instanceIds": ["<uuid>", ...]}` (from a rendered document_view projection).
     ResolveViewAttachments,
+    /// Read the current attachment policy from the optional com.semanticops.base/repo_settings
+    /// record. Returns built-in defaults when no policy record exists.
+    PolicyGet,
 }
 
 #[derive(Subcommand)]
