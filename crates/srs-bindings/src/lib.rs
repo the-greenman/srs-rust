@@ -2,7 +2,7 @@ use serde::Deserialize;
 use srs_core::types::record::{FieldGroupValue, FieldValue};
 use srs_core::types::relation::Relation;
 use srs_repository::attachment_service::{
-    self as attachment_service, ResolveDocumentViewAttachmentsInput,
+    self as attachment_service, GetAttachmentBytesInput, ResolveDocumentViewAttachmentsInput,
 };
 use srs_repository::blueprint_schema_service::{self, BlueprintSchemaInput};
 use srs_repository::blueprint_service;
@@ -190,6 +190,26 @@ impl SrsRepository {
     pub fn export_archive(&self) -> Result<js_sys::Uint8Array, JsValue> {
         let bytes = srs_repository::archive_to_vec(&self.store).map_err(js_err)?;
         Ok(js_sys::Uint8Array::from(bytes.as_slice()))
+    }
+
+    /// Return the raw bytes of a source-document attachment by `documentId`.
+    ///
+    /// Repositories loaded via [`SrsRepository::load`] (from a `.srsj` string) never contain
+    /// binary file content — [`SrsRepository::load_archive`] is the path that populates binary
+    /// content. A `.srsj`-loaded repository will return an error for this method.
+    ///
+    /// Returns the attachment file bytes as a `Uint8Array`, or a JS error string when:
+    /// - `documentId` is not in `manifest.sourceDocumentIndex` (not found in index)
+    /// - binary content is absent (tombstone state — archive does not contain the file)
+    pub fn get_attachment_bytes(&self, document_id: &str) -> Result<js_sys::Uint8Array, JsValue> {
+        let result = attachment_service::get_attachment_bytes(
+            &self.store,
+            GetAttachmentBytesInput {
+                document_id: document_id.to_string(),
+            },
+        )
+        .map_err(js_err)?;
+        Ok(js_sys::Uint8Array::from(result.bytes.as_slice()))
     }
 
     /// Create a record. `input_json` is a JSON object with fields:

@@ -54,6 +54,12 @@ A third option — a separate out-of-band `HashMap<documentId, Vec<u8>>` return 
 
 `sourceDocumentsPath` and `sourceDocumentIndex` were promoted from `manifest.extra` to typed fields on the `Manifest` struct (`source_documents_path: Option<String>`, `source_document_index: Option<Vec<SourceDocumentIndexEntry>>`), following the same pattern as `federationPath` and `upstreamPackage`. All references in this ADR to `manifest.extra["sourceDocumentsPath"]` and `manifest.extra["sourceDocumentIndex"]` now refer to the typed fields instead. Serialisation round-trip behaviour is unchanged.
 
+## Amendment (2026-07-18, #291)
+
+`JsonStore` now stores binary files in an in-memory `binary_files: HashMap<String, Vec<u8>>` field on `JsonStoreState`. `save_binary_file` inserts into this map; `load_binary_file` looks up by path, returning a not-found error when absent. `to_srsj_string()` continues to serialise only the `data` JSON map — binary blobs are still excluded from `.srsj` output (RFC-017 invariant preserved).
+
+This replaces the ADR-031 original decision (point 7) that `JsonStore::save_binary_file` is a silent no-op and `load_binary_file` always returns not-found. Binary files loaded via `JsonStore::from_archive()` are now accessible via `load_binary_file`, enabling the `get_attachment_bytes` WASM binding to serve browser-side downloads from archive-loaded repositories.
+
 ## Amendment (2026-07-17, #278)
 
 `SourceDocumentSnapshot` gains three additional optional fields that mirror the optional metadata on `SourceDocumentIndexEntry`: `title: Option<String>`, `sidecarChecksum: Option<String>`, and `contentChecksum: Option<String>`. All three use `#[serde(default, skip_serializing_if = "Option::is_none")]` — existing serialised snapshots that lack these keys deserialise with `None`, preserving backward compatibility. The struct already carries `#[serde(rename_all = "camelCase")]`, so the snake_case Rust field names serialize automatically to the correct camelCase JSON keys (`sidecarChecksum`, `contentChecksum`).
