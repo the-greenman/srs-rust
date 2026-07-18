@@ -60,5 +60,5 @@ RFC-017 explicitly describes `manifest.json` at the ZIP root and names the file-
 **Neutral:**
 - The `zip` workspace dependency (`zip = { version = "2", default-features = false, features = ["deflate"] }`) was already added in plan #273. The `deflate` feature routes through `flate2` with the `miniz_oxide` backend (pure Rust, WASM-safe); the CI `cargo build --target wasm32-unknown-unknown -p srs-repository` job verifies this remains true.
 - A future `srs archive pack` / `srs archive unpack` CLI handler will be thin wrappers over these library functions; no new architectural decisions are needed for the CLI layer.
-- The future WASM binding for archive functions will use `Vec<u8>` I/O (returning bytes for pack, accepting bytes for unpack) rather than `impl Write + Seek` / `impl Read + Seek`, per ADR-013's JS-interop surface requirements.
+- The WASM binding for archive functions uses `Vec<u8>` I/O as predicted: `SrsRepository::load_archive(bytes: &[u8])` and `SrsRepository::export_archive() -> Uint8Array`, implemented in #290 via `JsonStore::from_archive` and `archive_to_vec`. The `<impl Write + Seek>` / `<impl Read + Seek>` signatures on the library functions are preserved — `archive_to_vec` is the bridge for callers that need `Vec<u8>`.
 - `srs-vscode` and `srs-web` are not affected by this decision.
