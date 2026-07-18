@@ -2160,6 +2160,69 @@ Prints `True` — `sourceRefs` is in the raw JSON record payload, no "Linked Att
 - Happy path (attachment linked): "Linked Attachments" section with path, title, doc ID (8 chars), and file size (85 B) ✓
 - JSON flag: raw payload with `sourceRefs` present, no presentation section ✓
 
+## S37 — Repository operator enforces attachment size and MIME-type limits (`repo validate` diagnostics, #284)
+
+**Intention:** *"I want our repository's validation to warn us when attached source documents exceed our agreed-upon size limits or contain disallowed file types — so that before we archive or distribute the repo, we know which files need to be trimmed or converted."*
+
+**Capabilities exercised.** RFC-017 I-107 non-blocking attachment_policy diagnostics in `repo validate`; `com.semanticops.base/repo_settings` record as the policy holder; `sourceDocumentIndex` enumeration; tombstone (missing content file) silent-skip (ADR-031); RFC-017 Change B multiple-policy-records guard.
+
+**CLI surface.** `repo validate` (new Warning diagnostics for `maxPerFileBytes`, `maxDocBytes`, `maxTotalBytes`, `allowedMimeTypes` limit violations; new Error diagnostics for RFC-017 Change B multiple `repo_settings` records).
+
+**Status — partial gap.** The `com.semanticops.base` package that carries `repo_settings` does not exist as a public SRS package yet (tracked in srs#193). Until that package ships, a full end-to-end CLI dogfood requires manually constructing the package JSON. The service-layer is fully implemented and covered by 12 unit tests in `validation.rs`. The steps below document the intended workflow for when srs#193 ships; the negative-case and regression steps below CAN be run today.
+
+**Steps (when `com.semanticops.base` package is available).**
+
+```bash
+SRS=./target/debug/srs
+REPO=/tmp/dogfood-s37
+$SRS repo create --repo $REPO --namespace com.example.dogfood
+
+# Install com.semanticops.base package (future: srs#193)
+# $SRS package install com.semanticops.base --repo $REPO
+
+# Add a large attachment
+dd if=/dev/zero bs=1 count=2000 > /tmp/big.pdf 2>/dev/null
+$SRS attachment add /tmp/big.pdf --repo $REPO --title "Big Doc"
+
+# Set a 1000-byte maxPerFileBytes policy (requires base package):
+# $SRS record create --repo $REPO --type com.semanticops.base/repo_settings \
+#   --stdin <<'JSON'
+#   {"fieldValues":[{"name":"maxPerFileBytes","value":1000}]}
+#   JSON
+
+# Validate — should show Warning: I-107 maxPerFileBytes exceeded
+$SRS repo validate --repo $REPO --pretty
+```
+
+Expected: `ok: true` (warnings never block), `diagnostics` contains one Warning with `"RFC-017 I-107"` and `"maxPerFileBytes"`.
+
+**Negative case — multiple policy records (Change B error).** If two `repo_settings` records exist, `repo validate` emits RFC-017 Change B Errors (not warnings) and treats the policy as absent (no size checks run).
+
+**Regression / safety case (runnable today).**
+```bash
+SRS=./target/debug/srs
+
+# Spec repo — no base package installed: zero policy diagnostics
+$SRS repo validate --repo /home/user/srs/srs --pretty \
+  | python3 -c "
+import sys,json
+r=json.load(sys.stdin)
+diags=[d for d in r['payload']['diagnostics'] if 'I-107' in d['message'] or 'attachment_policy' in d['message']]
+print('policy diags:', len(diags), '(expect 0)')
+assert len(diags)==0, 'REGRESSION: unexpected policy diagnostics'
+"
+
+# Fresh repo — no base package: zero policy diagnostics
+$SRS repo create --repo /tmp/dogfood-284 --namespace com.example.dogfood
+$SRS repo validate --repo /tmp/dogfood-284 | python3 -c "
+import sys,json; r=json.load(sys.stdin); print('ok:', r['ok'], '| diags:', len(r['payload']['diagnostics']))
+"
+```
+
+**Done when.** When `com.semanticops.base` ships: `repo validate` on a repo with source documents exceeding limits emits `DiagnosticSeverity::Warning` entries citing `"RFC-017 I-107"` and the violated limit name; `is_ok()` remains `true`; warnings list each offending file path; aggregate `maxTotalBytes` appears once per repo not per file. Repos with no base package installed produce zero policy diagnostics. Tombstone content files (registered in `sourceDocumentIndex` but absent from disk) are silently skipped.
+
+**Verified 2026-07-18 (#284) — regression only.** Full end-to-end blocked pending srs#193 (`com.semanticops.base` package). Regression case confirmed: `srs repo validate --repo /home/user/srs/srs` returns `ok: true` with 0 attachment_policy diagnostics. Fresh `repo create` + `repo validate` returns `ok: true`, 0 diagnostics. 12 unit tests in `crates/srs-repository/src/validation.rs` cover the full policy surface (maxPerFileBytes, maxDocBytes, maxTotalBytes, allowedMimeTypes, tombstone skip, multiple-records error, and both limits firing independently).
+
 ---
 
 ## Coverage matrix
@@ -2228,6 +2291,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `attachment link` | S34 (#283); service-layer tests in `attachment_service.rs` (MemoryStore + FileStore). WASM binding is a follow-up. |
 | `attachment resolve-view-attachments` (resolve sourceRefs attachments for a set of record IDs, RFC-017 Rev 3 [R1]) | S36 (#286); service-layer tests in `attachment_service.rs` (MemoryStore + FileStore, 7 tests); WASM binding (`SrsRepository::resolve_document_view_attachments`) verified via 2 integration tests in `crates/srs-bindings/tests/resolve_view_attachments.rs` |
 | `srs-gov attachment add` / `srs-gov attachment list` | S33 |
+| `repo validate` — RFC-017 I-107 attachment_policy size/MIME diagnostics (#284) | S37 (**partial gap** — full end-to-end blocked pending srs#193 `com.semanticops.base` package); regression verified 2026-07-18: 0 policy diagnostics on spec repo and fresh repos; 12 unit tests in `validation.rs` cover maxPerFileBytes, maxDocBytes, maxTotalBytes, allowedMimeTypes (array + bare-string), tombstone skip (ADR-031), multiple-records Change B error, and both per-file limits firing independently |
 | `archive pack` / `archive unpack` (**gap** — no CLI surface yet, #276) | Library functions `archive_pack` / `archive_unpack` are implemented in `srs-repository` (ADR-033) and verified via 11 unit/integration tests: 8 unit tests (roundtrip, determinism, entry order, timestamps, error paths, FileStore roundtrip, cross-store roundtrip) + `test_archive_no_extra_fields_and_deflated` (asserts all ZIP entries use Deflated and carry no host metadata extra fields) + `test_archive_golden_fixture` (byte-identical comparison against committed `tests/fixtures/golden-archive.srs`) + `test_archive_golden_roundtrip` (unpack committed golden → assert correct namespace, proving ZIP is valid and `archive_unpack` handles the format) (#277). CLI handlers `srs archive pack` / `srs archive unpack` are a future deliverable (#276 follow-up). A meaningful dogfood scenario requires the CLI surface to exist — the intention would be: *"I want to hand off a self-contained snapshot of a repository — all records, relations, package definition, and binary attachments — as a single portable file."* Add a scenario (S31 or similar) when `srs archive pack`/`srs archive unpack` are wired up. |
 
 Gaps are intentional and visible: they are the backlog of surfaces that need a meaningful scenario. Do not delete a gap row — fill it when a feature gives the surface a real workflow to demonstrate.
