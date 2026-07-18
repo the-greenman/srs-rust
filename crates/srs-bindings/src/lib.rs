@@ -92,7 +92,18 @@ impl SrsRepository {
         Ok(SrsRepository { store })
     }
 
-    /// Validate the repository. Returns a `RepositoryValidationReport` as a JS value.
+    /// Validate the repository. Returns a `RepositoryValidationReport` as a JS value with two
+    /// top-level keys:
+    ///
+    /// - `diagnostics`: array of `{ severity, path, schemaId, message }` objects. Entries with
+    ///   `severity: "warning"` represent RFC-017 I-107 soft size-limit violations raised when an
+    ///   `attachment_policy` (`com.semanticops.base/repo_settings`) record is present; they do
+    ///   not affect `is_ok()` or `summary.errors`.
+    /// - `summary`: `{ checked, errors, warnings }`. `summary.warnings` counts warning-severity
+    ///   diagnostics. `is_ok()` returns `true` when `summary.errors == 0`, even if warnings are
+    ///   present.
+    ///
+    /// Callers should filter `diagnostics` by `severity` to distinguish errors from warnings.
     pub fn validate(&self) -> Result<JsValue, JsValue> {
         let report = validation::validate_repository(&self.store).map_err(js_err)?;
         to_js(&report)
@@ -1893,6 +1904,141 @@ mod tests {
         assert!(
             !result.notes.is_empty(),
             "reloaded store should preserve the note"
+        );
+    }
+
+    // ── RFC-017 I-107 size-warning surface test ───────────────────────────────
+    //
+    // Proves that validation::validate_repository emits Warning-severity diagnostics
+    // for attachment-size violations and that they surface in the RepositoryValidationReport
+    // returned by the validate() binding. Uses JsonStore::from_srsj() consistent with the
+    // existing test style in this file; binary content is added via save_binary_file after
+    // loading because .srsj is a JSON-only format. The wasm32 build gate confirms the
+    // to_js(&report) call in validate() compiles and links correctly against this report shape.
+    #[test]
+    fn validate_size_warning_surfaces_through_report() {
+        use srs_repository::store::RepositoryStore;
+        use srs_repository::validation::{self, DiagnosticSeverity};
+
+        const MAX_FILE: &str = "bb000002-0000-4000-b000-000000000002";
+        const TYPE_ID: &str = "bb000010-0000-4000-b000-000000000010";
+        const RECORD_ID: &str = "bb000020-0000-4000-b000-000000000020";
+        const DOC_ID: &str = "cc000001-0000-4000-b000-000000000001";
+
+        let srsj = serde_json::json!({
+            "srsj": "1",
+            "manifest": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+                "srsVersion": "2.0",
+                "repositoryId": "00000000-0000-4000-8000-000000000099",
+                "title": "Size Warning Test",
+                "container": {
+                    "containerId": "00000000-0000-4000-8000-000000000099",
+                    "title": "Size Warning Test"
+                },
+                "instanceIndex": [
+                    {"instanceId": RECORD_ID, "tier": 2, "path": "records/policy.json"}
+                ],
+                "sourceDocumentsPath": "source-documents",
+                "sourceDocumentIndex": [{
+                    "documentId": DOC_ID,
+                    "sidecarPath": "big-file.bin.meta.json",
+                    "contentPath": "big-file.bin"
+                }],
+                "packageRef": {"mode": "local", "path": "package"},
+                "createdAt": "2026-01-01T00:00:00Z"
+            },
+            "data": {
+                "package/package.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                    "id": "bb000000-0000-4000-b000-000000000000",
+                    "namespace": "com.semanticops.base",
+                    "name": "base",
+                    "title": "Base Package",
+                    "description": "Attachment policy fields and types for size-warning tests.",
+                    "status": "active",
+                    "version": "1.0.0",
+                    "fields": ["fields/maxPerFileBytes.json"],
+                    "types": ["types/repo_settings.json"],
+                    "relationTypes": [],
+                    "views": [],
+                    "documentViews": [],
+                    "createdAt": "2026-01-01T00:00:00Z"
+                },
+                "package/fields/maxPerFileBytes.json": {
+                    "id": MAX_FILE,
+                    "namespace": "com.semanticops.base",
+                    "name": "maxPerFileBytes",
+                    "version": 1,
+                    "description": "max per-file bytes",
+                    "aiGuidance": null,
+                    "valueType": "number",
+                    "createdAt": "2026-01-01T00:00:00Z"
+                },
+                "package/types/repo_settings.json": {
+                    "id": TYPE_ID,
+                    "namespace": "com.semanticops.base",
+                    "name": "repo_settings",
+                    "version": 1,
+                    "description": "attachment policy",
+                    "fields": [{"fieldId": MAX_FILE, "order": 1, "required": false}],
+                    "createdAt": "2026-01-01T00:00:00Z"
+                },
+                "records/policy.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                    "instanceId": RECORD_ID,
+                    "typeId": TYPE_ID,
+                    "typeVersion": 1,
+                    "typeNamespace": "com.semanticops.base",
+                    "typeName": "repo_settings",
+                    "fieldValues": [{"fieldId": MAX_FILE, "value": 50}],
+                    "createdAt": "2026-01-01T00:00:00Z"
+                }
+            }
+        })
+        .to_string();
+
+        let store = JsonStore::from_srsj(&srsj).expect("load srsj fixture");
+
+        store
+            .save_binary_file("source-documents/big-file.bin", &[0u8; 200])
+            .expect("save binary content");
+        store
+            .save_text_file(
+                "source-documents/big-file.bin.meta.json",
+                &serde_json::to_string(&serde_json::json!({
+                    "documentId": DOC_ID,
+                    "contentPath": "big-file.bin",
+                    "contentType": "application/octet-stream"
+                }))
+                .unwrap(),
+            )
+            .expect("save sidecar");
+
+        let report =
+            validation::validate_repository(&store).expect("validate_repository should not error");
+
+        assert_eq!(
+            report.summary.errors,
+            0,
+            "size-limit violations must not raise errors (non-blocking); diagnostics: {:?}",
+            report.diagnostics
+        );
+        assert!(
+            report.is_ok(),
+            "is_ok() must return true when only warnings are present"
+        );
+        assert!(
+            report.summary.warnings > 0,
+            "expected at least one warning diagnostic, got: {:?}",
+            report.diagnostics
+        );
+        assert!(
+            report.diagnostics.iter().any(|d| {
+                d.severity == DiagnosticSeverity::Warning && d.message.contains("I-107")
+            }),
+            "expected a Warning-severity I-107 diagnostic, got: {:?}",
+            report.diagnostics
         );
     }
 }
