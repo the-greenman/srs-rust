@@ -40,7 +40,7 @@ New command: `srs render export-bundle --view <view-id> --instance <id> --output
 New payload struct in `crates/srs-cli/src/payload.rs`:
 
 ```rust
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportBundlePayload {
     pub rendered_filename: String,
@@ -93,16 +93,21 @@ No changes to JSON Schema files under `srs/docs/schema/2.0/`. No action required
   - `pub struct ExportBundleInput { pub instance_id: String, pub view_id: String, pub format: Option<String> }`
   - `pub struct ExportBundleMetadata { pub rendered_filename: String, pub attachment_count: usize, pub diagnostics: Vec<String> }`
   - `pub fn export_record_bundle(store: &dyn RepositoryStore, input: ExportBundleInput, writer: impl Write + Seek) -> Result<ExportBundleMetadata, RepositoryError>`
-- [ ] In `export_record_bundle`:
-  1. Call `render_document_view(RenderDocumentViewOptions { store, view_id: &input.view_id, format: input.format.as_deref(), theme_variant: None, container_id: None, instance_id_filter: Some(&input.instance_id) })` to get the rendered markdown string.
-  2. Call `resolve_document_view_attachments(store, ResolveDocumentViewAttachmentsInput { instance_ids: vec![input.instance_id.clone()] })` to get attachment entries.
-  3. Build ZIP entries sorted lexicographically:
-     - `decision.md` → rendered content bytes (UTF-8)
-     - For each `ResolvedAttachment` where `content_path.is_some()`: load bytes via `store.load_binary_file(&format!("{}/{}", result.source_documents_path, content_path))`; add as `attachments/<basename>` where `<basename>` = last path component of `content_path`.
-  4. Write all entries to `writer` using `zip::ZipWriter` with `CompressionMethod::Deflated` + `SimpleFileOptions::default().last_modified_time(zip::DateTime::default())`.
-  5. Entries sorted lexicographically by zip path (alphabetical: `attachments/*` before `decision.md` — or sort and write).
-  6. Return `ExportBundleMetadata { rendered_filename: "decision.md".to_string(), attachment_count, diagnostics: result.diagnostics }`.
-- [ ] Add `RepositoryError::ExportBundle { message: String }` variant to `crates/srs-repository/src/error.rs` (for read failures during bundling).
+- [ ] In `export_record_bundle` (required `use` statements at top of file: `use std::io::{Write, Seek}; use zip::{ZipWriter, CompressionMethod}; use zip::write::SimpleFileOptions;`):
+  1. Call `render_document_view(RenderDocumentViewOptions { store, view_id: &input.view_id, format: input.format.as_deref(), theme_variant: None, container_id: None, instance_id_filter: Some(&input.instance_id) })` → returns `RenderResult { rendered: String, diagnostics: Vec<String>, ... }`. Capture `render_result.rendered` as the document bytes and `render_result.diagnostics` as the diagnostics to return.
+  2. Call `resolve_document_view_attachments(store, ResolveDocumentViewAttachmentsInput { instance_ids: vec![input.instance_id.clone()] })` → returns `ResolveDocumentViewAttachmentsResult { source_documents_path, records }`. Note: this result has NO diagnostics field.
+  3. Build `Vec<(String, Vec<u8>)>` (path, bytes) pairs:
+     - `("decision.md".to_string(), render_result.rendered.into_bytes())`
+     - Flatten via `attach_result.records.iter().flat_map(|r| r.attachments.iter())` to get `&ResolvedAttachment` entries. For each `a` where `a.content_path.is_some()`:
+       - Compute `basename` = last path component of `a.content_path.unwrap()`.
+       - Compute entry key = `format!("attachments/{}", basename)`.
+       - **Collision check:** if `entries` already contains an entry with that key, use the full relative path instead: `format!("attachments/{}", a.content_path.as_ref().unwrap())`. This avoids silent overwrites when two attachments share a filename in different subdirectories.
+       - Load bytes: `store.load_binary_file(&format!("{}/{}", attach_result.source_documents_path, a.content_path.as_ref().unwrap()))`.
+       - Push `(entry_key, bytes)`.
+  4. Sort the `(path, bytes)` pairs lexicographically by path (alphabetically `attachments/*` < `decision.md`).
+  5. Create `let mut zip = ZipWriter::new(writer)`. Write each sorted entry with `CompressionMethod::Deflated` + `SimpleFileOptions::default().last_modified_time(zip::DateTime::default())`. After all entries, call `zip.finish().map_err(|e| RepositoryError::InvalidExportBundle { message: format!("failed to finalize ZIP: {}", e) })?;`
+  6. Return `ExportBundleMetadata { rendered_filename: "decision.md".to_string(), attachment_count, diagnostics: render_result.diagnostics }` (diagnostics from the render step, not from attachments).
+- [ ] Add `RepositoryError::InvalidExportBundle { message: String }` variant to `crates/srs-repository/src/error.rs` (follows `InvalidArchive` naming convention; for read/write failures during bundling).
 - [ ] Re-export `export_service` from `crates/srs-repository/src/lib.rs`:
   ```rust
   pub mod export_service;
@@ -114,7 +119,8 @@ No changes to JSON Schema files under `srs/docs/schema/2.0/`. No action required
 - [ ] `export_record_bundle` compiles against MemoryStore.
 - [ ] `test_export_bundle_no_attachments`: renders a doc + empty attachment list → ZIP contains only `decision.md`.
 - [ ] `test_export_bundle_with_attachments`: sets up a MemoryStore with a source-document binary, calls the service, verifies ZIP has `decision.md` + `attachments/<name>` with correct bytes.
-- [ ] `RepositoryError::ExportBundle` variant exists in `error.rs`.
+- [ ] `RepositoryError::InvalidExportBundle` variant exists in `error.rs`.
+- [ ] `test_export_bundle_cross_store_roundtrip`: packs via MemoryStore to a `tempfile::NamedTempFile`, re-opens with a zip reader, asserts `decision.md` is present and attachment bytes are byte-equal (required by CLAUDE.md Storage Boundary Rules).
 
 #### Testing
 
@@ -127,6 +133,7 @@ Specific tests to write in `crates/srs-repository/src/export_service.rs` (inline
 
 - `test_export_bundle_no_attachments` — MemoryStore with a type+view+record (no sourceRefs) → ZIP has exactly `decision.md`, no `attachments/` entries.
 - `test_export_bundle_with_attachments` — MemoryStore with a record that has `sourceRefs: [{sourceRole:"attaches", sourceType:"repository-document", sourceId:"doc-abc"}]` + a matching source-document index entry + binary content → ZIP has `decision.md` + `attachments/<filename>` with byte-equal content.
+- `test_export_bundle_cross_store_roundtrip` — packs via MemoryStore to a `tempfile::NamedTempFile`, opens the temp file with `zip::ZipArchive`, asserts `decision.md` is present by name, and asserts attachment file bytes are identical to the source bytes stored in the MemoryStore. Mirrors `test_archive_cross_store_roundtrip` in `archive.rs`.
 
 #### Milestone gate
 
@@ -167,15 +174,12 @@ Specific tests to write in `crates/srs-repository/src/export_service.rs` (inline
   RenderCommand::ExportBundle { view, instance, output } =>
       cmd_render_export_bundle(ctx, view, instance, output),
   ```
-  Handler body:
+  Handler body (use plain `File`, not `BufWriter` — `ZipWriter` calls `seek()` frequently and `BufWriter::seek` flushes the buffer before delegating, negating the performance benefit; this matches the `archive_pack` caller pattern in `archive.rs`):
   ```rust
   fn cmd_render_export_bundle(ctx: CliContext, view_id: String, instance_id: String, output: PathBuf) -> Result<String> {
       use srs_repository::export_service::{export_record_bundle, ExportBundleInput};
-      use std::io::BufWriter;
-      let mut file = BufWriter::new(
-          std::fs::File::create(&output)
-              .map_err(|e| anyhow::anyhow!("cannot create output file {:?}: {}", output, e))?
-      );
+      let mut file = std::fs::File::create(&output)
+          .map_err(|e| anyhow::anyhow!("cannot create output file {:?}: {}", output, e))?;
       let meta = with_store(&ctx, |store| {
           Ok(export_record_bundle(store, ExportBundleInput {
               instance_id: instance_id.clone(),
@@ -191,9 +195,9 @@ Specific tests to write in `crates/srs-repository/src/export_service.rs` (inline
       })
   }
   ```
-- [ ] Add `ExportBundlePayload` struct to `crates/srs-cli/src/payload.rs`:
+- [ ] Add `ExportBundlePayload` struct to `crates/srs-cli/src/payload.rs` (payload structs are output-only — `Deserialize` is NOT derived, consistent with every other struct in `payload.rs`):
   ```rust
-  #[derive(Debug, Serialize, Deserialize, JsonSchema)]
+  #[derive(Debug, Serialize, JsonSchema)]
   #[serde(rename_all = "camelCase")]
   pub struct ExportBundlePayload {
       pub rendered_filename: String,
@@ -251,12 +255,28 @@ Specific tests: no new integration test needed for the CLI handler (the service 
   },
   ```
 - [ ] Add `Some(Commands::ExportDecision { id, output }) => cmd_export_decision(&id, output.as_deref(), &cli.repo, cli.explain, cli.json),` to the `run()` match.
-- [ ] Implement `cmd_export_decision`:
+- [ ] Implement `cmd_export_decision` (explain mode pre-stages all three commands so the user sees all three underlying `srs` calls, not just the first):
   ```rust
   fn cmd_export_decision(id: &str, output: Option<&str>, repo: &str, explain: bool, json: bool) -> Result<()> {
+      // In explain mode, print all three underlying srs commands and return.
+      // Do NOT early-return after only the first run_srs call — all three must be shown.
+      if explain {
+          run_srs(&["record", "get", id], repo, true, false)?;
+          run_srs(
+              &["document-view", "list", "--namespace", "governance", "--name", "decision-deliberation"],
+              repo, true, false,
+          )?;
+          let out_path = output.unwrap_or("<id-prefix>.zip");
+          run_srs(
+              &["render", "export-bundle", "--view", "<view-id>", "--instance", "<instance-id>", "--output", out_path],
+              repo, true, false,
+          )?;
+          return Ok(());
+      }
+
       // 1. Resolve the instance ID (may be a prefix): call `srs record get <id>`
-      let record_payload = run_srs(&["record", "get", id], repo, explain, json)?;
-      if explain || json { return Ok(()); }
+      let record_payload = run_srs(&["record", "get", id], repo, false, json)?;
+      if json { return Ok(()); }
       let instance_id = record_payload["record"]["instanceId"]
           .as_str()
           .ok_or_else(|| anyhow::anyhow!("record not found: {id}"))?
@@ -345,6 +365,7 @@ Specific tests: no new srs-gov unit test needed (the service and CLI layer are t
 - [ ] `srs render export-bundle` command exists and writes a valid ZIP
 - [ ] `srs-gov export-decision <id>` command exists and produces a bundle
 - [ ] Gate C demo: a decision with attachments exports a ZIP containing `decision.md` + `attachments/<file>`
+- [ ] ADR-035 status promoted from `proposed` to `accepted` in `docs/adr/035-flat-export-bundle-format.md` (matching ADR-033 governance precedent)
 
 ## Coordination Rules
 
