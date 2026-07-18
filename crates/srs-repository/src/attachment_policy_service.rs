@@ -304,7 +304,10 @@ mod tests {
         assert_eq!(result.policy.max_total_bytes, Some(104857600));
         assert_eq!(
             result.policy.allowed_mime_types,
-            Some(vec!["application/pdf".to_string(), "text/plain".to_string()])
+            Some(vec![
+                "application/pdf".to_string(),
+                "text/plain".to_string()
+            ])
         );
     }
 
@@ -335,7 +338,10 @@ mod tests {
         let result = read_attachment_policy(&store).expect("should not error");
         assert_eq!(
             result.policy.allowed_mime_types,
-            Some(vec!["application/pdf".to_string(), "text/plain".to_string()])
+            Some(vec![
+                "application/pdf".to_string(),
+                "text/plain".to_string()
+            ])
         );
     }
 
@@ -488,14 +494,14 @@ mod tests {
         write_json(
             "package/types/repo_settings.json",
             json!({"id": TYPE_ID, "namespace": "com.semanticops.base",
-                "name": "repo_settings", "version": 1,
-                "description": "repo attachment policy",
-                "fields": [
-                    {"fieldId": FIELD_ALLOWED_MIME, "order": 1, "required": false},
-                    {"fieldId": FIELD_MAX_PER_FILE, "order": 2, "required": false},
-                    {"fieldId": FIELD_MAX_DOC, "order": 3, "required": false},
-                    {"fieldId": FIELD_MAX_TOTAL, "order": 4, "required": false}
-                ]}),
+            "name": "repo_settings", "version": 1,
+            "description": "repo attachment policy",
+            "fields": [
+                {"fieldId": FIELD_ALLOWED_MIME, "order": 1, "required": false},
+                {"fieldId": FIELD_MAX_PER_FILE, "order": 2, "required": false},
+                {"fieldId": FIELD_MAX_DOC, "order": 3, "required": false},
+                {"fieldId": FIELD_MAX_TOTAL, "order": 4, "required": false}
+            ]}),
         );
 
         // Write package.json referencing the field and type files.
@@ -541,7 +547,10 @@ mod tests {
         let store = FileStore::new(repo_root);
         let result = read_attachment_policy(&store).expect("should not error");
 
-        assert!(result.policy_record_present, "policy record should be present");
+        assert!(
+            result.policy_record_present,
+            "policy record should be present"
+        );
         assert_eq!(result.policy.max_per_file_bytes, Some(2097152));
         assert_eq!(result.policy.max_doc_bytes, Some(10485760));
         assert!(result.policy.max_total_bytes.is_none());

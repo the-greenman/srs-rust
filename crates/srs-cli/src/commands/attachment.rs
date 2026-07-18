@@ -1,8 +1,8 @@
 use crate::commands::{with_store, AttachmentCommand, CliContext};
 use crate::output;
 use crate::payload::{
-    AttachmentAddPayload, AttachmentLinkPayload, AttachmentListPayload,
-    AttachmentPolicyPayload, ResolveViewAttachmentsPayload,
+    AttachmentAddPayload, AttachmentLinkPayload, AttachmentListPayload, AttachmentPolicyPayload,
+    ResolveViewAttachmentsPayload,
 };
 use anyhow::{Context as _, Result};
 use srs_repository::attachment_policy_service;
@@ -33,7 +33,10 @@ fn cmd_attachment_policy_get(ctx: CliContext) -> Result<String> {
     let result = with_store(&ctx, |store| {
         Ok(attachment_policy_service::read_attachment_policy(store)?)
     })?;
-    output::serialize("attachment policy-get", AttachmentPolicyPayload::from(result))
+    output::serialize(
+        "attachment policy-get",
+        AttachmentPolicyPayload::from(result),
+    )
 }
 
 fn cmd_attachment_list(ctx: CliContext) -> Result<String> {
