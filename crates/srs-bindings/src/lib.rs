@@ -2020,8 +2020,7 @@ mod tests {
             validation::validate_repository(&store).expect("validate_repository should not error");
 
         assert_eq!(
-            report.summary.errors,
-            0,
+            report.summary.errors, 0,
             "size-limit violations must not raise errors (non-blocking); diagnostics: {:?}",
             report.diagnostics
         );
