@@ -1,6 +1,7 @@
 use serde::Deserialize;
 use srs_core::types::record::{FieldGroupValue, FieldValue};
 use srs_core::types::relation::Relation;
+use srs_repository::attachment_service::{self as attachment_service, ResolveDocumentViewAttachmentsInput};
 use srs_repository::blueprint_schema_service::{self, BlueprintSchemaInput};
 use srs_repository::blueprint_service;
 use srs_repository::container_service::{self, ContainerListFilter};
@@ -979,6 +980,23 @@ impl SrsRepository {
     pub fn protocol_run_abandon(&self, run_id: &str) -> Result<JsValue, JsValue> {
         let result = run_service::abandon_run(&self.store, run_id).map_err(js_err)?;
         to_js(&result.run)
+    }
+
+    /// Resolve linked attachments for a list of record instance IDs.
+    ///
+    /// `input_json` is `{"instanceIds": ["<uuid>", ...]}` (from a rendered document_view).
+    /// Returns `{sourceDocumentsPath, records: [{instanceId, attachments: [{documentId,
+    /// contentPath, sidecarPath, title?, contentChecksum?, sidecarChecksum?}]}]}`.
+    pub fn resolve_document_view_attachments(
+        &self,
+        input_json: &str,
+    ) -> Result<JsValue, JsValue> {
+        let input: ResolveDocumentViewAttachmentsInput = serde_json::from_str(input_json)
+            .map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let result =
+            attachment_service::resolve_document_view_attachments(&self.store, input)
+                .map_err(js_err)?;
+        to_js(&result)
     }
 }
 
