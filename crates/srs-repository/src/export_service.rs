@@ -422,4 +422,200 @@ mod tests {
             "attachment bytes must be byte-equal to source"
         );
     }
+
+    // ── Golden-fixture tests (ADR-035 determinism) ─────────────────────────────
+
+    /// Stable identifiers for the golden fixture store.
+    const GOLDEN_INSTANCE_ID: &str = "golden-exp-0000-4000-8000-000000000001";
+    const GOLDEN_VIEW_ID: &str = "golden-exp-view-0000-4000-8000-00000001";
+
+    /// Build a canonical MemoryStore for golden-fixture comparison.
+    ///
+    /// Uses a DocumentView with a static preamble (no `{{...}}` template variables)
+    /// and a TypeQuery section pointing to a non-existent semantic type with
+    /// `emptyBehavior: hide`. The rendered `decision.md` contains exactly the
+    /// preamble text — a single static heading — making the ZIP output byte-stable
+    /// across any number of runs without any timestamp pinning.
+    ///
+    /// No attachments are linked: the instance has no `sourceRefs`, so the bundle
+    /// contains only `decision.md`.
+    fn canonical_golden_store() -> MemoryStore {
+        let manifest = Manifest {
+            instance_index: vec![InstanceIndexEntry {
+                instance_id: GOLDEN_INSTANCE_ID.to_string(),
+                tier: 2,
+                path: "records/tier-2/golden-exp.json".to_string(),
+                title: None,
+                tags: None,
+            }],
+            ..Manifest::default()
+        };
+
+        let doc_view = DocumentView {
+            id: GOLDEN_VIEW_ID.to_string(),
+            namespace: "com.example.golden".to_string(),
+            name: "golden-export-view".to_string(),
+            version: 1,
+            description: "Golden export test view".to_string(),
+            container_type: None,
+            root_type_refs: None,
+            // Static preamble — no {{template}} variables — rendered output is byte-stable.
+            preamble: Some("# Golden Export Bundle".to_string()),
+            sections: vec![DocumentSection {
+                section_id: "content".to_string(),
+                title: None,
+                description: None,
+                order: 0,
+                source: SectionSource::TypeQuery {
+                    // Non-existent type — section always empty, hidden per EmptyBehavior::Hide.
+                    semantic_object_type: "com.example.golden/does-not-exist".to_string(),
+                    lifecycle_state: None,
+                    container_ids: None,
+                    lifecycle_states: None,
+                    exclude_lifecycle_states: None,
+                    container_scope: None,
+                },
+                render_view_id: None,
+                type_dispatch: None,
+                title_field_id: None,
+                ordering: None,
+                required: None,
+                empty_behavior: Some(EmptyBehavior::Hide),
+            }],
+            navigation_links: None,
+            format: Some("markdown".to_string()),
+            depth_offset: None,
+            theme_ref: None,
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let package = Package {
+            id: "golden-bundle-pkg".to_string(),
+            namespace: "com.example.golden".to_string(),
+            name: "golden-bundle".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![],
+            record_types: vec![],
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![doc_view],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+
+        let store = MemoryStore::new(manifest, package);
+        store
+            .save_instance_json(
+                "records/tier-2/golden-exp.json",
+                &serde_json::json!({
+                    "instanceId": GOLDEN_INSTANCE_ID,
+                    "typeId": "type-placeholder-001",
+                    "typeVersion": 1,
+                    "typeNamespace": "com.example.golden",
+                    "typeName": "placeholder",
+                    "fieldValues": []
+                }),
+            )
+            .expect("save golden instance");
+        store
+    }
+
+    /// Run export_record_bundle on the canonical golden store and return the ZIP bytes.
+    fn export_bundle_bytes() -> Vec<u8> {
+        let store = canonical_golden_store();
+        let mut buf = Cursor::new(Vec::new());
+        export_record_bundle(
+            &store,
+            ExportBundleInput {
+                instance_id: GOLDEN_INSTANCE_ID.to_string(),
+                view_id: GOLDEN_VIEW_ID.to_string(),
+                format: None,
+            },
+            &mut buf,
+        )
+        .expect("export_record_bundle failed on canonical golden store");
+        buf.into_inner()
+    }
+
+    fn golden_bundle_path() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/golden-export-bundle.zip")
+    }
+
+    /// Byte-stable golden-fixture test (ADR-035 determinism invariant).
+    ///
+    /// Regenerate after an intentional bundle format change:
+    ///   REGENERATE_GOLDEN=1 cargo test -p srs-repository -- test_export_bundle_golden_fixture
+    /// Then commit the updated golden-export-bundle.zip.
+    #[test]
+    fn test_export_bundle_golden_fixture() {
+        let actual = export_bundle_bytes();
+
+        if std::env::var("REGENERATE_GOLDEN").as_deref() == Ok("1") {
+            std::fs::write(golden_bundle_path(), &actual).expect("write golden fixture");
+            println!(
+                "golden-export-bundle.zip regenerated ({} bytes)",
+                actual.len()
+            );
+            return;
+        }
+
+        let expected = std::fs::read(golden_bundle_path()).expect(
+            "golden fixture missing — run: \
+            REGENERATE_GOLDEN=1 cargo test -p srs-repository -- test_export_bundle_golden_fixture",
+        );
+
+        assert_eq!(
+            actual, expected,
+            "export_record_bundle output differs from golden fixture.\n\
+            If the bundle format changed intentionally, regenerate with:\n\
+            REGENERATE_GOLDEN=1 cargo test -p srs-repository -- test_export_bundle_golden_fixture\n\
+            Then commit the updated golden-export-bundle.zip."
+        );
+    }
+
+    /// ADR-035: same record + attachments → identical bytes across independent runs.
+    #[test]
+    fn test_export_bundle_determinism() {
+        let run1 = export_bundle_bytes();
+        let run2 = export_bundle_bytes();
+        assert_eq!(
+            run1, run2,
+            "export_record_bundle must produce byte-identical output across independent runs \
+            (ADR-035 determinism invariant)"
+        );
+    }
+
+    /// Structural validation: verifies the bundle is a well-formed ZIP with the
+    /// expected entries and that decision.md contains the rendered preamble.
+    #[test]
+    fn test_export_bundle_zip_contents() {
+        let bytes = export_bundle_bytes();
+        let mut zip = ZipArchive::new(Cursor::new(bytes)).expect("should be a valid ZIP");
+
+        assert_eq!(
+            zip.len(),
+            1,
+            "canonical bundle (no attachments) must contain exactly one entry"
+        );
+
+        let mut entry = zip.by_index(0).expect("entry 0");
+        assert_eq!(entry.name(), "decision.md", "sole entry must be decision.md");
+
+        let mut content = String::new();
+        std::io::Read::read_to_string(&mut entry, &mut content).expect("read decision.md");
+        assert!(
+            content.starts_with("# Golden Export Bundle"),
+            "decision.md must start with the static preamble, got: {:?}",
+            &content[..content.len().min(80)]
+        );
+    }
 }
