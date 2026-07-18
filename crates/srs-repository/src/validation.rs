@@ -786,9 +786,7 @@ pub fn validate_repository(
             for entry in src_doc_entries {
                 let sidecar_repo_rel = format!("{}/{}", src_docs_base, entry.sidecar_path);
                 if let Ok(sidecar_text) = store.load_text_file(&sidecar_repo_rel) {
-                    if let Ok(meta) =
-                        serde_json::from_str::<SourceDocumentMeta>(&sidecar_text)
-                    {
+                    if let Ok(meta) = serde_json::from_str::<SourceDocumentMeta>(&sidecar_text) {
                         mime_map.insert(entry.content_path.clone(), meta.content_type);
                     }
                 }
@@ -6484,10 +6482,7 @@ mod tests {
         });
 
         let store = MemoryStore::new(manifest, package)
-            .with_data(
-                "manifest.json",
-                serde_json::Value::String(manifest_str),
-            )
+            .with_data("manifest.json", serde_json::Value::String(manifest_str))
             .with_data("records/policy.json", policy_record_json);
 
         // Binary content files and text sidecar files
@@ -6502,10 +6497,7 @@ mod tests {
                 "contentType": mime_type
             });
             store
-                .save_text_file(
-                    &sidecar_full,
-                    &serde_json::to_string(&sidecar).unwrap(),
-                )
+                .save_text_file(&sidecar_full, &serde_json::to_string(&sidecar).unwrap())
                 .unwrap();
         }
 
@@ -6515,18 +6507,19 @@ mod tests {
     #[test]
     fn policy_absent_no_warnings() {
         // No repo_settings record → zero attachment_policy warnings regardless of files.
-        let store = MemoryStore::empty()
-            .with_data(
-                "manifest.json",
-                serde_json::Value::String(
-                    serde_json::to_string(&minimal_manifest(json!([]))).unwrap(),
-                ),
-            );
+        let store = MemoryStore::empty().with_data(
+            "manifest.json",
+            serde_json::Value::String(serde_json::to_string(&minimal_manifest(json!([]))).unwrap()),
+        );
         let report = validate_repository(&store).unwrap();
         let policy_diags: Vec<_> = report
             .diagnostics
             .iter()
-            .filter(|d| d.message.contains("attachment_policy") || d.message.contains("I-107") || d.message.contains("Change B"))
+            .filter(|d| {
+                d.message.contains("attachment_policy")
+                    || d.message.contains("I-107")
+                    || d.message.contains("Change B")
+            })
             .collect();
         assert!(
             policy_diags.is_empty(),
@@ -6550,8 +6543,7 @@ mod tests {
             .diagnostics
             .iter()
             .filter(|d| {
-                d.severity == DiagnosticSeverity::Warning
-                    && d.message.contains("maxPerFileBytes")
+                d.severity == DiagnosticSeverity::Warning && d.message.contains("maxPerFileBytes")
             })
             .collect();
         assert_eq!(
@@ -6647,8 +6639,7 @@ mod tests {
             .diagnostics
             .iter()
             .filter(|d| {
-                d.severity == DiagnosticSeverity::Warning
-                    && d.message.contains("application/pdf")
+                d.severity == DiagnosticSeverity::Warning && d.message.contains("application/pdf")
             })
             .collect();
         assert_eq!(
@@ -6774,9 +6765,7 @@ mod tests {
         let change_b_errors: Vec<_> = report
             .diagnostics
             .iter()
-            .filter(|d| {
-                d.severity == DiagnosticSeverity::Error && d.message.contains("Change B")
-            })
+            .filter(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("Change B"))
             .collect();
         assert_eq!(
             change_b_errors.len(),
@@ -6788,9 +6777,7 @@ mod tests {
         let size_warns: Vec<_> = report
             .diagnostics
             .iter()
-            .filter(|d| {
-                d.severity == DiagnosticSeverity::Warning && d.message.contains("I-107")
-            })
+            .filter(|d| d.severity == DiagnosticSeverity::Warning && d.message.contains("I-107"))
             .collect();
         assert!(
             size_warns.is_empty(),
@@ -6803,15 +6790,16 @@ mod tests {
     fn policy_fields_not_in_package_no_panic() {
         // Policy record present but package has no com.semanticops.base fields.
         // Expect: no panic, no size/MIME warnings (all limits absent → no checks).
-        let store = build_policy_store(&PolicyLimits::empty(), &[("doc.pdf", &[0u8; 50], "application/pdf")]);
+        let store = build_policy_store(
+            &PolicyLimits::empty(),
+            &[("doc.pdf", &[0u8; 50], "application/pdf")],
+        );
         let report = validate_repository(&store).unwrap();
         // With no limits set in the policy record, no size/MIME warnings are emitted.
         let policy_limit_warns: Vec<_> = report
             .diagnostics
             .iter()
-            .filter(|d| {
-                d.severity == DiagnosticSeverity::Warning && d.message.contains("I-107")
-            })
+            .filter(|d| d.severity == DiagnosticSeverity::Warning && d.message.contains("I-107"))
             .collect();
         assert!(
             policy_limit_warns.is_empty(),
@@ -6839,8 +6827,7 @@ mod tests {
             report.diagnostics
         );
         assert_eq!(
-            report.summary.errors,
-            0,
+            report.summary.errors, 0,
             "attachment_policy warnings must not increment errors; report: {:?}",
             report.diagnostics
         );
@@ -6866,22 +6853,26 @@ mod tests {
             "id": POLICY_FIELD_ALLOWED_MIME, "namespace": "com.semanticops.base",
             "name": "allowedMimeTypes", "version": 1, "description": "",
             "aiGuidance": {}, "valueType": "text", "createdAt": "2026-01-01T00:00:00Z"
-        })).unwrap();
+        }))
+        .unwrap();
         let max_per_file_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_PER_FILE, "namespace": "com.semanticops.base",
             "name": "maxPerFileBytes", "version": 1, "description": "",
             "aiGuidance": {}, "valueType": "number", "createdAt": "2026-01-01T00:00:00Z"
-        })).unwrap();
+        }))
+        .unwrap();
         let max_doc_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_DOC, "namespace": "com.semanticops.base",
             "name": "maxDocBytes", "version": 1, "description": "",
             "aiGuidance": {}, "valueType": "number", "createdAt": "2026-01-01T00:00:00Z"
-        })).unwrap();
+        }))
+        .unwrap();
         let max_total_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_TOTAL, "namespace": "com.semanticops.base",
             "name": "maxTotalBytes", "version": 1, "description": "",
             "aiGuidance": {}, "valueType": "number", "createdAt": "2026-01-01T00:00:00Z"
-        })).unwrap();
+        }))
+        .unwrap();
         let repo_settings_type: RecordType = serde_json::from_value(json!({
             "id": POLICY_TYPE_ID, "namespace": "com.semanticops.base",
             "name": "repo_settings", "version": 1, "description": "",
@@ -6892,13 +6883,19 @@ mod tests {
                 {"fieldId": POLICY_FIELD_MAX_TOTAL, "order": 4, "required": false}
             ],
             "createdAt": "2026-01-01T00:00:00Z"
-        })).unwrap();
+        }))
+        .unwrap();
         let package = Package {
             id: "bb000000-0000-4000-b000-000000000000".to_string(),
             namespace: "com.semanticops.base".to_string(),
             name: "base".to_string(),
             version: "1.0.0".to_string(),
-            fields: vec![allowed_mime_field, max_per_file_field, max_doc_field, max_total_field],
+            fields: vec![
+                allowed_mime_field,
+                max_per_file_field,
+                max_doc_field,
+                max_total_field,
+            ],
             record_types: vec![repo_settings_type],
             relation_type_definitions: vec![],
             views: vec![],
@@ -6979,22 +6976,26 @@ mod tests {
             "id": POLICY_FIELD_ALLOWED_MIME, "namespace": "com.semanticops.base",
             "name": "allowedMimeTypes", "version": 1, "description": "",
             "aiGuidance": {}, "valueType": "text", "createdAt": "2026-01-01T00:00:00Z"
-        })).unwrap();
+        }))
+        .unwrap();
         let max_per_file_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_PER_FILE, "namespace": "com.semanticops.base",
             "name": "maxPerFileBytes", "version": 1, "description": "",
             "aiGuidance": {}, "valueType": "number", "createdAt": "2026-01-01T00:00:00Z"
-        })).unwrap();
+        }))
+        .unwrap();
         let max_doc_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_DOC, "namespace": "com.semanticops.base",
             "name": "maxDocBytes", "version": 1, "description": "",
             "aiGuidance": {}, "valueType": "number", "createdAt": "2026-01-01T00:00:00Z"
-        })).unwrap();
+        }))
+        .unwrap();
         let max_total_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_TOTAL, "namespace": "com.semanticops.base",
             "name": "maxTotalBytes", "version": 1, "description": "",
             "aiGuidance": {}, "valueType": "number", "createdAt": "2026-01-01T00:00:00Z"
-        })).unwrap();
+        }))
+        .unwrap();
         let repo_settings_type: RecordType = serde_json::from_value(json!({
             "id": POLICY_TYPE_ID, "namespace": "com.semanticops.base",
             "name": "repo_settings", "version": 1, "description": "",
@@ -7005,13 +7006,19 @@ mod tests {
                 {"fieldId": POLICY_FIELD_MAX_TOTAL, "order": 4, "required": false}
             ],
             "createdAt": "2026-01-01T00:00:00Z"
-        })).unwrap();
+        }))
+        .unwrap();
         let package = Package {
             id: "bb000000-0000-4000-b000-000000000000".to_string(),
             namespace: "com.semanticops.base".to_string(),
             name: "base".to_string(),
             version: "1.0.0".to_string(),
-            fields: vec![allowed_mime_field, max_per_file_field, max_doc_field, max_total_field],
+            fields: vec![
+                allowed_mime_field,
+                max_per_file_field,
+                max_doc_field,
+                max_total_field,
+            ],
             record_types: vec![repo_settings_type],
             relation_type_definitions: vec![],
             views: vec![],
@@ -7061,17 +7068,27 @@ mod tests {
         let store = MemoryStore::new(manifest, package)
             .with_data("manifest.json", serde_json::Value::String(manifest_str))
             .with_data("records/policy.json", policy_record_json);
-        store.save_binary_file("source-documents/report.pdf", &[0u8; 10]).unwrap();
+        store
+            .save_binary_file("source-documents/report.pdf", &[0u8; 10])
+            .unwrap();
         let sidecar = json!({"documentId": "cc000001-0000-4000-b000-000000000001",
             "contentPath": "report.pdf", "contentType": "application/pdf"});
-        store.save_text_file("source-documents/report.pdf.meta.json",
-            &serde_json::to_string(&sidecar).unwrap()).unwrap();
+        store
+            .save_text_file(
+                "source-documents/report.pdf.meta.json",
+                &serde_json::to_string(&sidecar).unwrap(),
+            )
+            .unwrap();
 
         let report = validate_repository(&store).unwrap();
         let i107_mime_warns: Vec<_> = report
             .diagnostics
             .iter()
-            .filter(|d| d.severity == DiagnosticSeverity::Warning && d.message.contains("I-107") && d.message.contains("application/pdf"))
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Warning
+                    && d.message.contains("I-107")
+                    && d.message.contains("application/pdf")
+            })
             .collect();
         assert_eq!(
             i107_mime_warns.len(), 1,
@@ -7096,15 +7113,32 @@ mod tests {
         let per_file_warns: Vec<_> = report
             .diagnostics
             .iter()
-            .filter(|d| d.severity == DiagnosticSeverity::Warning && d.message.contains("I-107") && d.message.contains("maxPerFileBytes"))
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Warning
+                    && d.message.contains("I-107")
+                    && d.message.contains("maxPerFileBytes")
+            })
             .collect();
         let doc_warns: Vec<_> = report
             .diagnostics
             .iter()
-            .filter(|d| d.severity == DiagnosticSeverity::Warning && d.message.contains("I-107")
-                && d.message.contains("maxDocBytes"))
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Warning
+                    && d.message.contains("I-107")
+                    && d.message.contains("maxDocBytes")
+            })
             .collect();
-        assert_eq!(per_file_warns.len(), 1, "expected I-107 (maxPerFileBytes) warning; got: {:?}", per_file_warns);
-        assert_eq!(doc_warns.len(), 1, "expected I-107 (maxDocBytes) warning; got: {:?}", doc_warns);
+        assert_eq!(
+            per_file_warns.len(),
+            1,
+            "expected I-107 (maxPerFileBytes) warning; got: {:?}",
+            per_file_warns
+        );
+        assert_eq!(
+            doc_warns.len(),
+            1,
+            "expected I-107 (maxDocBytes) warning; got: {:?}",
+            doc_warns
+        );
     }
 }
