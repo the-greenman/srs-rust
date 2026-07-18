@@ -1,6 +1,6 @@
 # ADR-035: Flat Export Bundle — Gate C Decision Export Format
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-07-18
 - **Supersedes:** —
 - **Superseded by:** —

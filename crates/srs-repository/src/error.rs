@@ -663,6 +663,10 @@ impl PartialEq for RepositoryError {
                 RepositoryError::InvalidArchive { message: b },
             ) => a == b,
             (
+                RepositoryError::InvalidExportBundle { message: a },
+                RepositoryError::InvalidExportBundle { message: b },
+            ) => a == b,
+            (
                 RepositoryError::PackageNotFound { selector: a },
                 RepositoryError::PackageNotFound { selector: b },
             ) => a == b,
