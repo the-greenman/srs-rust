@@ -44,18 +44,16 @@ No changes to JSON schema files. `bash scripts/check-schema-sync.sh` must exit 0
 ## Scope
 
 - `SourceDocumentMeta` struct (and nested `SourceDocumentExcerpt`, `SourceAnchor`) in `crates/srs-core/src/types/source_document_meta.rs`, mirroring all fields from `source-document-meta.json`
-- `list_source_document_sidecar_paths()` default method on `RepositoryStore` trait in `crates/srs-repository/src/store.rs`
-- `crates/srs-repository/src/source_document_service.rs` with:
-  - `SourceDocumentEntry { pub sidecar_path: String, pub meta: SourceDocumentMeta }`
-  - `ListSourceDocumentsFilter {}` (empty filter struct per ADR-010)
-  - `list_source_documents(store: &dyn RepositoryStore, filter: ListSourceDocumentsFilter) -> Result<Vec<SourceDocumentEntry>, RepositoryError>`
+- `SourceDocumentEntry` and `ListSourceDocumentsFilter` structs + `list_source_documents()` function added to **`crates/srs-repository/src/attachment_service.rs`** (existing home for all `source-documents/` operations — no new module; avoids DRY violation per architecture review)
+- `list_source_documents()` loads manifest, resolves `src_docs_base = manifest.source_documents_path.as_deref().unwrap_or("source-documents")`, calls `store.list_files_recursive(&src_docs_base)`, filters `.meta.json`, parses sidecars, strips `src_docs_base/` prefix so `sidecar_path` in `SourceDocumentEntry` is source-documents-relative (matching `SourceDocumentIndexEntry.sidecar_path` convention)
 - `SourceDocumentMetaLoad` error variant in `crates/srs-repository/src/error.rs`
-- Tests covering MemoryStore roundtrip and FileStore loading against `tests/fixtures/spec-repo/` fixture (4 sidecars across 2 subdirectories)
+- Tests in `attachment_service.rs` covering MemoryStore roundtrip and FileStore loading against `tests/fixtures/spec-repo/` fixture (4 sidecars across 2 subdirectories)
 
 **Out of scope:**
 
+- A new `source_document_service.rs` module — function lives in `attachment_service.rs` per DRY finding
+- `list_source_document_sidecar_paths()` store default method — path resolution requires manifest, so it belongs in the service, not the store trait
 - Binary content loading (`load_source_document_bytes`) — needed for #276 archive pack; deferred
-- `sourceDocumentsPath` manifest override — default `"source-documents"` is used; custom path support is a future extension
 - `sourceDocumentIndex`-based lookup optimization — directory scan is the primary approach; index is out of scope
 - CLI command `srs attachment list` — that is #279
 - WASM binding — deferred to the binding phase of the epic (#290+)
@@ -77,6 +75,7 @@ No changes to JSON schema files. `bash scripts/check-schema-sync.sh` must exit 0
 - [ ] Create `crates/srs-core/src/types/source_document_meta.rs`:
   - Derive `Debug, Clone, PartialEq, Serialize, Deserialize` on all structs
   - `#[serde(rename_all = "camelCase")]` on `SourceDocumentMeta`
+  - Add doc comment `// RFC-017 core type; belongs in types/, not extensions/ (see ADR-028)` to `SourceDocumentMeta`
   - Do **not** add `#[serde(deny_unknown_fields)]` — forward-compatible with future Rev 3 additions
   - All optional fields: `Option<T>` with `#[serde(skip_serializing_if = "Option::is_none")]`
   - Include a `$schema` field as `schema` (use `#[serde(rename = "$schema")]`): `pub schema: Option<String>`
@@ -103,8 +102,8 @@ cargo clippy -p srs-core -- -D warnings
 
 Specific tests to write or verify:
 
-- `source_document_meta_roundtrip_spec` — inline JSON from spec fixture, asserts `document_id == "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"`, roundtrips
-- `source_document_meta_roundtrip_ai_session` — inline JSON from ai-session fixture, asserts `content_type == "text/markdown"`, roundtrips
+- `source_document_meta_roundtrip_spec` — use raw string (`r#"{...}"#`) with spec fixture JSON; asserts `document_id == "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"`, roundtrips via `serde_json::to_value`/`from_value`
+- `source_document_meta_roundtrip_ai_session` — use raw string (`r#"{...}"#`) with ai-session fixture JSON; asserts `content_type == "text/markdown"`, roundtrips
 
 #### Milestone gate
 
@@ -117,24 +116,15 @@ Specific tests to write or verify:
 
 ---
 
-### Phase 2: Store default method + service function
+### Phase 2: `list_source_documents()` in `attachment_service.rs`
 
-**Goal:** `source_document_service::list_source_documents(store, filter)` returns a parsed `Vec<SourceDocumentEntry>` for all `.meta.json` sidecars in `source-documents/`.
+**Goal:** `attachment_service::list_source_documents(store, filter)` returns a parsed `Vec<SourceDocumentEntry>` for all `.meta.json` sidecars under the manifest-configured source-documents path.
 
 **Agent:** Repository Service Worker
 
 #### Tasks
 
-- [ ] In `crates/srs-repository/src/store.rs`, add after `has_revision_sidecars()`:
-  ```rust
-  fn list_source_document_sidecar_paths(&self) -> Vec<String> {
-      self.list_files_recursive("source-documents")
-          .into_iter()
-          .filter(|p| p.ends_with(".meta.json"))
-          .collect()
-  }
-  ```
-- [ ] Add to `crates/srs-repository/src/error.rs` — insert `SourceDocumentMetaLoad` variant after `ThemeLoad` (around line 154):
+- [ ] Add to `crates/srs-repository/src/error.rs` — insert `SourceDocumentMetaLoad` variant after `ThemeLoad` (line 154):
   ```rust
   #[error("failed to load source document metadata at {path:?}: {source}")]
   SourceDocumentMetaLoad {
@@ -149,35 +139,92 @@ Specific tests to write or verify:
       RepositoryError::SourceDocumentMetaLoad { path: b, source: sb },
   ) => a == b && sa.to_string() == sb.to_string(),
   ```
-- [ ] Create `crates/srs-repository/src/source_document_service.rs` with `SourceDocumentEntry`, `ListSourceDocumentsFilter`, and `list_source_documents()`
-- [ ] Add `pub mod source_document_service;` to `crates/srs-repository/src/lib.rs` (alphabetically in the `s` block, between `pub mod services;` and `pub mod srsj_migration_service;`)
-- [ ] Tests in `source_document_service.rs`:
-  - `memory_store_list_source_documents_empty`
-  - `memory_store_list_source_documents_single`
-  - `memory_store_list_source_documents_subdirectory`
-  - `memory_store_malformed_sidecar_returns_err`
-  - `file_store_list_source_documents_spec_repo` (expects exactly 4 sidecars)
+
+- [ ] In `crates/srs-repository/src/attachment_service.rs`, add the following (use `srs_core::types::source_document_meta::SourceDocumentMeta` in the import block):
+  ```rust
+  #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+  pub struct SourceDocumentEntry {
+      /// Path relative to the source-documents directory (e.g. "spec/srs-spec.md.meta.json").
+      /// Matches the convention of SourceDocumentIndexEntry.sidecar_path.
+      pub sidecar_path: String,
+      pub meta: SourceDocumentMeta,
+  }
+
+  #[derive(Debug, Clone, Default)]
+  pub struct ListSourceDocumentsFilter {}
+
+  /// Enumerate all source-document sidecars in the repository.
+  ///
+  /// Reads manifest to resolve the configured source-documents path
+  /// (defaults to "source-documents"). Scans recursively for *.meta.json files,
+  /// parses each, and returns entries with source-documents-relative sidecar paths.
+  pub fn list_source_documents(
+      store: &dyn RepositoryStore,
+      _filter: ListSourceDocumentsFilter,
+  ) -> Result<Vec<SourceDocumentEntry>, RepositoryError> {
+      let manifest = store.load_manifest()?;
+      let src_docs_base = manifest
+          .source_documents_path
+          .as_deref()
+          .unwrap_or("source-documents")
+          .to_string();
+      let prefix = format!("{}/", src_docs_base);
+      let sidecar_paths: Vec<String> = store
+          .list_files_recursive(&src_docs_base)
+          .into_iter()
+          .filter(|p| p.ends_with(".meta.json"))
+          .collect();
+      let mut entries = Vec::with_capacity(sidecar_paths.len());
+      for repo_relative_path in sidecar_paths {
+          let json_str = store.load_text_file(&repo_relative_path)?;
+          let meta = serde_json::from_str::<SourceDocumentMeta>(&json_str)
+              .map_err(|source| RepositoryError::SourceDocumentMetaLoad {
+                  path: std::path::PathBuf::from(&repo_relative_path),
+                  source,
+              })?;
+          let sidecar_path = repo_relative_path
+              .strip_prefix(&prefix)
+              .unwrap_or(&repo_relative_path)
+              .to_string();
+          entries.push(SourceDocumentEntry { sidecar_path, meta });
+      }
+      Ok(entries)
+  }
+  ```
+
+- [ ] Tests appended to the `#[cfg(test)] mod tests` block already in `attachment_service.rs`:
+  - `list_source_documents_empty` — fresh MemoryStore returns empty vec (no manifest `source_documents_path`, no files)
+  - `list_source_documents_single` — single `.meta.json` added to MemoryStore; result has 1 entry with source-documents-relative path
+  - `list_source_documents_subdirectory` — two `.meta.json` in subdirectory; result has 2 entries
+  - `list_source_documents_malformed_returns_err` — invalid JSON in sidecar; `Err(SourceDocumentMetaLoad)` returned
+  - `file_store_list_source_documents_spec_repo` — loads `tests/fixtures/spec-repo/`; expects exactly 4 entries with non-empty `document_id` and `content_type`
+
+  Note: MemoryStore tests need a minimal manifest written to `"manifest.json"` so `load_manifest()` succeeds. Write: `{"instanceId":"test","namespace":"com.example","schema":"https://srs.semanticops.com/schema/2.0/manifest.json"}`.
 
 #### Acceptance Criteria
 
-- [ ] `list_source_document_sidecar_paths()` default method present in `RepositoryStore` trait
+- [ ] `SourceDocumentEntry` and `ListSourceDocumentsFilter` defined in `attachment_service.rs`
+- [ ] `list_source_documents()` defined in `attachment_service.rs`, manifest-aware (no hardcoded path in logic)
+- [ ] Returns empty vec (no error) when `source-documents/` directory does not exist
+- [ ] `sidecar_path` in `SourceDocumentEntry` is source-documents-relative (not repo-relative)
 - [ ] MemoryStore: all 4 memory tests pass
 - [ ] FileStore: `file_store_list_source_documents_spec_repo` returns exactly 4 entries
-- [ ] `source_document_service` module registered in `lib.rs`
+- [ ] No changes to `store.rs` (no new store default method)
+- [ ] No new module in `lib.rs`
 
 #### Testing
 
 ```bash
-cargo test -p srs-repository source_document
+cargo test -p srs-repository list_source_documents
 cargo clippy -p srs-repository -- -D warnings
 ```
 
 Specific tests to write or verify:
 
-- `memory_store_list_source_documents_empty` — no entries for fresh store
-- `memory_store_list_source_documents_single` — single sidecar
-- `memory_store_list_source_documents_subdirectory` — two sidecars in subdirectory
-- `memory_store_malformed_sidecar_returns_err` — parse error propagates
+- `list_source_documents_empty` — fresh store, empty result
+- `list_source_documents_single` — single sidecar, source-documents-relative path in result
+- `list_source_documents_subdirectory` — two sidecars in subdirectory
+- `list_source_documents_malformed_returns_err` — parse error propagates as `SourceDocumentMetaLoad`
 - `file_store_list_source_documents_spec_repo` — 4 entries from fixture
 
 #### Milestone gate
@@ -186,7 +233,7 @@ Specific tests to write or verify:
 2. `cargo test -p srs-repository` passes (full suite — no regressions)
 3. `cargo clippy -p srs-repository -- -D warnings` passes
 4. Mark task checkboxes `[x]`
-5. Commit: `git commit -m "feat(repository): add source_document_service and store scan method (#275)"`
+5. Commit: `git commit -m "feat(repository): add list_source_documents to attachment_service (#275)"`
 
 ---
 
@@ -197,6 +244,7 @@ Specific tests to write or verify:
 - [ ] `cargo test --test payload_contracts` passes (no payload structs changed)
 - [ ] `bash scripts/check-schema-sync.sh` exits 0 (no entity schemas changed)
 - [ ] 4 sidecar entries returned from `tests/fixtures/spec-repo/` via FileStore
+- [ ] `sidecar_path` in results is source-documents-relative (not repo-relative)
 - [ ] MemoryStore roundtrip tests all pass
 - [ ] `srs repo validate --repo tests/fixtures/spec-repo` still exits 0 (no regressions)
 
