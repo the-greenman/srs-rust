@@ -1870,6 +1870,9 @@ mod tests {
 
         let reloaded = JsonStore::from_archive(&bytes).expect("from_archive");
         let result = list_notes(&reloaded, ListNotesFilter::default()).expect("list notes");
-        assert!(!result.notes.is_empty(), "reloaded store should preserve the note");
+        assert!(
+            !result.notes.is_empty(),
+            "reloaded store should preserve the note"
+        );
     }
 }

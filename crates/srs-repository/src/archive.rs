@@ -950,7 +950,9 @@ mod tests {
                 instance_id: note_id.clone(),
                 tier: 0,
                 path: format!("records/notes/{}.json", &note_id[..8]),
-                title: Some(serde_json::Value::String("Archive Service Note".to_string())),
+                title: Some(serde_json::Value::String(
+                    "Archive Service Note".to_string(),
+                )),
                 tags: None,
             });
         source.save_manifest(&manifest).expect("save manifest");
@@ -958,9 +960,13 @@ mod tests {
         let bytes = pack_to_bytes(&source);
 
         let store = crate::JsonStore::from_archive(&bytes).expect("from_archive should succeed");
-        let result = list_notes(&store, ListNotesFilter::default())
-            .expect("list_notes on reloaded store");
-        assert_eq!(result.notes.len(), 1, "should have exactly one note after roundtrip");
+        let result =
+            list_notes(&store, ListNotesFilter::default()).expect("list_notes on reloaded store");
+        assert_eq!(
+            result.notes.len(),
+            1,
+            "should have exactly one note after roundtrip"
+        );
         assert_eq!(result.notes[0].instance_id, note_id);
     }
 
