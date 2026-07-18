@@ -610,7 +610,11 @@ mod tests {
         );
 
         let mut entry = zip.by_index(0).expect("entry 0");
-        assert_eq!(entry.name(), "decision.md", "sole entry must be decision.md");
+        assert_eq!(
+            entry.name(),
+            "decision.md",
+            "sole entry must be decision.md"
+        );
 
         let mut content = String::new();
         std::io::Read::read_to_string(&mut entry, &mut content).expect("read decision.md");
