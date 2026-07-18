@@ -194,8 +194,9 @@ impl SrsRepository {
 
     /// Return the raw bytes of a source-document attachment by `documentId`.
     ///
-    /// Requires the repository to have been loaded via `load_archive()` — a `.srsj`-loaded
-    /// repository never contains binary content (tombstone per RFC-017) and will return an error.
+    /// Repositories loaded via [`SrsRepository::load`] (from a `.srsj` string) never contain
+    /// binary file content — [`SrsRepository::load_archive`] is the path that populates binary
+    /// content. A `.srsj`-loaded repository will return an error for this method.
     ///
     /// Returns the attachment file bytes as a `Uint8Array`, or a JS error string when:
     /// - `documentId` is not in `manifest.sourceDocumentIndex` (not found in index)
