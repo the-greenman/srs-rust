@@ -307,7 +307,7 @@ pub(crate) fn create_record_at_dir(
 }
 
 /// Load a record from the store.
-fn load_record(
+pub(crate) fn load_record(
     store: &dyn RepositoryStore,
     relative_path: &str,
 ) -> Result<Record, RepositoryError> {
