@@ -42,23 +42,26 @@ A typical inspection of a governance repository:
 srs-gov --repo governance.srsj
 
 # 2. List members of the Decision Log (hides superseded/closed by default)
-srs-gov decision_log list --repo governance.srsj
+srs-gov list decision_log --repo governance.srsj
 
 # 3. Show all states
-srs-gov decision_log list --all --repo governance.srsj
+srs-gov list decision_log --all --repo governance.srsj
 
 # 4. Narrow by content or tag
-srs-gov decision_log list --search "budget" --repo governance.srsj
-srs-gov decision_log list --tag "ratified" --repo governance.srsj
+srs-gov list decision_log --search "budget" --repo governance.srsj
+srs-gov list decision_log --tag "ratified" --repo governance.srsj
 
 # 5. Fetch a specific record (use IDs from step 2's "Member IDs" section)
-srs-gov decision_log get <instance-id> --repo governance.srsj
+#    If the record has source documents linked via `srs attachment link`, a
+#    "Linked Attachments" section appears below the field detail showing
+#    each attachment's relative path, title, document ID, and on-disk size.
+srs-gov get decision_log <instance-id> --repo governance.srsj
 
 # 6. Dry-run: see the command to create a new decision
-srs-gov decision_log create decision --repo governance.srsj
+srs-gov create decision_log decision --repo governance.srsj
 
 # 7. Inspect the underlying srs calls
-srs-gov --explain decision_log list --repo governance.srsj
+srs-gov --explain list decision_log --repo governance.srsj
 ```
 
 ## Why Not `containerType`?
@@ -86,7 +89,7 @@ sections by `typeNamespace`/`typeName`. The `containerType` field is not read by
 
 `srs-gov` is a thin client. There are two call paths:
 
-- **Shell-out via `run_srs()`** — used for all read operations (`cmd_top`, `cmd_list`, `cmd_get`, `resolve_container_id`). The `srs` binary's payload contract is the stable interface; no srs-repository crate dependency.
+- **Shell-out via `run_srs()`** — used for all read operations (`cmd_top`, `cmd_list`, `cmd_get`, `resolve_container_id`). The `srs` binary's payload contract is the stable interface; no srs-repository crate dependency. `cmd_get` makes a second best-effort call to `srs attachment list` to resolve linked attachments — it degrades gracefully (with a stderr warning) if that call fails.
 - **Direct library call** — used only for `cmd_repo_create`, which delegates to `srs-repository::governance_scaffold_service`. This avoids piping a complex binary payload through stdin; the scaffold is a single write-then-done operation where subprocess round-trip adds friction without benefit.
 
 New commands should default to the shell-out path unless they require a write operation where the binary payload contract would be awkward to thread through stdin.
