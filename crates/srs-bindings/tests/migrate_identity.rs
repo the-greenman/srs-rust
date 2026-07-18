@@ -7,11 +7,18 @@
 //! export compiles.
 
 use srs_repository::migrate_identity_service;
+use srs_repository::repository_navigation_service;
 use srs_repository::JsonStore;
 
 const NOTE_ID: &str = "00000000-0000-4000-8000-00000000b001";
 const ROOT_CONTAINER_ID: &str = "00000000-0000-4000-8000-00000000c000";
 const NO_ID_CONTAINER_ID: &str = "00000000-0000-4000-8000-00000000d000";
+
+// IDs for sections_survive_migrate_identity fixture
+const SECTIONS_ROOT_CTR_ID: &str = "00000000-0000-4000-8000-00000000e000";
+const ARTICLES_RECORD_ID: &str = "00000000-0000-4000-8000-00000000e100";
+const ARTICLES_CTR_ID: &str = "00000000-0000-4000-8000-00000000e200";
+const FIELD_TITLE_ID: &str = "00000000-0000-4000-8000-00000000f001";
 
 /// Minimal `.srsj` with a Tier-0 note as the `identityInstanceId`.
 fn tier0_fixture_srsj() -> String {
@@ -185,5 +192,111 @@ fn migrate_identity_already_migrated_returns_error() {
     assert!(
         msg.contains("already"),
         "error message must contain 'already', got: {msg}"
+    );
+}
+
+/// Regression test for #607: repository_navigation() must return non-empty sections after
+/// None-branch migrate_identity on a repo that has pre-existing section members.
+///
+/// Before the fix, the None-branch called `save_container(&manifest.container)` which
+/// overwrote the container file with the manifest embed — containing only the new identity
+/// member. A subsequent `repository_navigation()` then found only the identity in the
+/// container file, skipped it, and returned an empty sections list.
+#[test]
+fn sections_survive_migrate_identity() {
+    let fixture = serde_json::json!({
+        "srsj": "1",
+        "manifest": {
+            "repositoryId": "test-607-sections-survive",
+            "srsVersion": "2.0-draft",
+            "namespace": "com.test",
+            "container": {
+                "containerId": SECTIONS_ROOT_CTR_ID,
+                "title": "My Governance Repo",
+                "description": "We govern with SRS."
+                // No identityInstanceId — triggers None-branch
+            },
+            "instanceIndex": [
+                {
+                    "instanceId": ARTICLES_RECORD_ID,
+                    "path": format!("records/tier-2/{ARTICLES_RECORD_ID}.json"),
+                    "tier": 2
+                }
+            ],
+            "packageRef": {"mode": "local", "path": "package"}
+        },
+        "data": {
+            "package/package.json": {
+                "id": "pkg-607-test",
+                "namespace": "com.test",
+                "name": "test-package",
+                "version": "1.0.0",
+                "fields": [format!("fields/{FIELD_TITLE_ID}.json")],
+                "types": [],
+                "relationTypes": [],
+                "views": [],
+                "documentViews": [],
+                "blueprints": []
+            },
+            format!("package/fields/{FIELD_TITLE_ID}.json"): {
+                "id": FIELD_TITLE_ID,
+                "namespace": "com.test",
+                "name": "title",
+                "version": 1,
+                "description": "Title",
+                "aiGuidance": {},
+                "valueType": "string",
+                "createdAt": "2026-01-01T00:00:00Z"
+            },
+            format!("records/tier-2/{ARTICLES_RECORD_ID}.json"): {
+                "instanceId": ARTICLES_RECORD_ID,
+                "typeId": "type-section-607",
+                "typeVersion": 1,
+                "typeNamespace": "com.test",
+                "typeName": "section",
+                "fieldValues": [{"fieldId": FIELD_TITLE_ID, "value": "Articles"}]
+            },
+            // Container file with pre-existing section member — must survive migration.
+            format!("containers/{SECTIONS_ROOT_CTR_ID}.json"): {
+                "containerId": SECTIONS_ROOT_CTR_ID,
+                "title": "My Governance Repo",
+                "memberInstanceIds": [ARTICLES_RECORD_ID]
+            },
+            format!("containers/{ARTICLES_CTR_ID}.json"): {
+                "containerId": ARTICLES_CTR_ID,
+                "containerType": "document",
+                "title": "Articles",
+                "rootInstanceIds": [ARTICLES_RECORD_ID],
+                "createdAt": "2026-01-01T00:00:00Z"
+            },
+            "manifest.json": {
+                "containerIndex": [
+                    {"containerId": ARTICLES_CTR_ID, "title": "Articles"}
+                ]
+            }
+        }
+    })
+    .to_string();
+
+    let store = JsonStore::from_srsj(&fixture).expect("fixture must load");
+
+    // Run None-branch migration — must succeed.
+    let result = migrate_identity_service::migrate_identity(&store)
+        .expect("None-branch migration must succeed");
+    assert!(result.old_identity_id.is_none(), "should be None-branch");
+
+    // repository_navigation must return the pre-existing Articles section.
+    let nav = repository_navigation_service::repository_navigation(&store)
+        .expect("repository_navigation must succeed after None-branch migration");
+
+    assert_eq!(
+        nav.sections.len(),
+        1,
+        "Articles section must survive None-branch migration; sections: {:?}",
+        nav.sections
+    );
+    assert_eq!(
+        nav.sections[0].display_label, "Articles",
+        "section display_label must be Articles"
     );
 }
