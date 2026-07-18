@@ -167,11 +167,24 @@ pub fn migrate_identity(
                     .push(new_id.clone());
             }
             writer::write_manifest(store, &manifest)?;
-            // Persist container file so FileStore's load_container lookups succeed
-            // after migration (scaffold_purpose_record uses the same pattern).
-            if let Some(ref container) = manifest.container {
-                store.save_container(container)?;
-            }
+            // Load the real container file (which holds pre-existing section members),
+            // patch in the new identity pointer and member, then save — mirrors the
+            // non-None branch. Falls back to the manifest embed if no container file
+            // exists yet (ContainerNotFound), in which case there are no existing
+            // members to preserve.
+            let mut persisted_container = match store.load_container(&mc.container_id) {
+                Ok(c) => c,
+                Err(RepositoryError::ContainerNotFound { .. }) => {
+                    manifest.container.clone().unwrap()
+                }
+                Err(e) => return Err(e),
+            };
+            persisted_container.identity_instance_id = Some(new_id.clone());
+            persisted_container
+                .member_instance_ids
+                .get_or_insert_with(Vec::new)
+                .push(new_id.clone());
+            store.save_container(&persisted_container)?;
             Ok(new_id)
         })();
         match batch_result {
