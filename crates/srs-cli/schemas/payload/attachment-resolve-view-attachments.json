@@ -39,9 +39,7 @@
     "ResolvedAttachmentPayload": {
       "type": "object",
       "required": [
-        "contentPath",
-        "documentId",
-        "sidecarPath"
+        "documentId"
       ],
       "properties": {
         "contentChecksum": {
@@ -51,7 +49,10 @@
           ]
         },
         "contentPath": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "documentId": {
           "type": "string"
@@ -63,7 +64,10 @@
           ]
         },
         "sidecarPath": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "title": {
           "type": [

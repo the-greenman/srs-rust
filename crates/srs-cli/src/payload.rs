@@ -2132,8 +2132,10 @@ impl From<srs_repository::attachment_service::LinkAttachmentResult> for Attachme
 #[serde(rename_all = "camelCase")]
 pub struct ResolvedAttachmentPayload {
     pub document_id: String,
-    pub content_path: String,
-    pub sidecar_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sidecar_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

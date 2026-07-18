@@ -1,4 +1,5 @@
 use crate::error::RepositoryError;
+use crate::index::InstanceIndexEntry;
 use crate::record_store;
 use crate::store::RepositoryStore;
 use crate::writer::write_manifest;
@@ -385,8 +386,10 @@ pub struct ResolveDocumentViewAttachmentsInput {
 #[serde(rename_all = "camelCase")]
 pub struct ResolvedAttachment {
     pub document_id: String,
-    pub content_path: String,
-    pub sidecar_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sidecar_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -433,15 +436,17 @@ pub fn resolve_document_view_attachments(
         .map(|e| (e.document_id.as_str(), e))
         .collect();
 
+    let instance_map: HashMap<&str, &InstanceIndexEntry> = manifest
+        .instance_index
+        .iter()
+        .filter(|e| e.tier() == 2)
+        .map(|e| (e.instance_id(), e))
+        .collect();
+
     let mut records: Vec<RecordAttachments> = Vec::new();
 
     for instance_id in &input.instance_ids {
-        let entry = manifest
-            .instance_index
-            .iter()
-            .find(|e| e.instance_id() == instance_id.as_str() && e.tier() == 2);
-
-        let Some(entry) = entry else {
+        let Some(entry) = instance_map.get(instance_id.as_str()) else {
             continue;
         };
 
@@ -467,8 +472,8 @@ pub fn resolve_document_view_attachments(
                 let idx = index_map.get(r.source_id.as_str());
                 ResolvedAttachment {
                     document_id: r.source_id,
-                    content_path: idx.map(|e| e.content_path.clone()).unwrap_or_default(),
-                    sidecar_path: idx.map(|e| e.sidecar_path.clone()).unwrap_or_default(),
+                    content_path: idx.map(|e| e.content_path.clone()),
+                    sidecar_path: idx.map(|e| e.sidecar_path.clone()),
                     title: idx.and_then(|e| e.title.clone()),
                     content_checksum: idx.and_then(|e| e.content_checksum.clone()),
                     sidecar_checksum: idx.and_then(|e| e.sidecar_checksum.clone()),
@@ -1522,8 +1527,8 @@ mod tests {
         assert_eq!(rec.attachments.len(), 1);
         let att = &rec.attachments[0];
         assert_eq!(att.document_id, doc_id);
-        assert_eq!(att.content_path, "brief.pdf");
-        assert_eq!(att.sidecar_path, "brief.meta.json");
+        assert_eq!(att.content_path.as_deref(), Some("brief.pdf"));
+        assert_eq!(att.sidecar_path.as_deref(), Some("brief.meta.json"));
         assert_eq!(att.title.as_deref(), Some("Brief Title"));
         assert_eq!(att.content_checksum.as_deref(), Some("sha256:content"));
         assert_eq!(att.sidecar_checksum.as_deref(), Some("sha256:sidecar"));
@@ -1575,8 +1580,8 @@ mod tests {
         assert_eq!(result.records.len(), 1, "record with unindexed ref must still appear");
         let att = &result.records[0].attachments[0];
         assert_eq!(att.document_id, "nonexistent-doc-id");
-        assert_eq!(att.content_path, "", "unindexed doc should have empty content_path");
-        assert_eq!(att.sidecar_path, "", "unindexed doc should have empty sidecar_path");
+        assert!(att.content_path.is_none(), "unindexed doc should have no content_path");
+        assert!(att.sidecar_path.is_none(), "unindexed doc should have no sidecar_path");
         assert!(att.title.is_none());
         assert!(att.content_checksum.is_none());
         assert!(att.sidecar_checksum.is_none());
@@ -1691,8 +1696,8 @@ mod tests {
         assert_eq!(rec.attachments.len(), 1);
         let att = &rec.attachments[0];
         assert_eq!(att.document_id, doc_id);
-        assert_eq!(att.content_path, "brief.pdf");
-        assert_eq!(att.sidecar_path, "brief.meta.json");
+        assert_eq!(att.content_path.as_deref(), Some("brief.pdf"));
+        assert_eq!(att.sidecar_path.as_deref(), Some("brief.meta.json"));
         assert_eq!(att.title.as_deref(), Some("Roundtrip Brief"));
         assert_eq!(att.content_checksum.as_deref(), Some("sha256:abc"));
     }
