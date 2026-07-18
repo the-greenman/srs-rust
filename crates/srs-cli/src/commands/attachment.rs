@@ -1,10 +1,11 @@
 use crate::commands::{with_store, AttachmentCommand, CliContext};
 use crate::output;
 use crate::payload::{
-    AttachmentAddPayload, AttachmentLinkPayload, AttachmentListPayload,
+    AttachmentAddPayload, AttachmentLinkPayload, AttachmentListPayload, AttachmentPolicyPayload,
     ResolveViewAttachmentsPayload,
 };
 use anyhow::{Context as _, Result};
+use srs_repository::attachment_policy_service;
 use srs_repository::attachment_service::{
     self, AddAttachmentInput, LinkAttachmentInput, ListAttachmentsFilter,
     ResolveDocumentViewAttachmentsInput,
@@ -24,7 +25,18 @@ pub fn dispatch(ctx: CliContext, cmd: AttachmentCommand) -> Result<String> {
             document_id,
         } => cmd_attachment_link(ctx, instance_id, document_id),
         AttachmentCommand::ResolveViewAttachments => cmd_attachment_resolve_view_attachments(ctx),
+        AttachmentCommand::PolicyGet => cmd_attachment_policy_get(ctx),
     }
+}
+
+fn cmd_attachment_policy_get(ctx: CliContext) -> Result<String> {
+    let result = with_store(&ctx, |store| {
+        Ok(attachment_policy_service::read_attachment_policy(store)?)
+    })?;
+    output::serialize(
+        "attachment policy-get",
+        AttachmentPolicyPayload::from(result),
+    )
 }
 
 fn cmd_attachment_list(ctx: CliContext) -> Result<String> {
