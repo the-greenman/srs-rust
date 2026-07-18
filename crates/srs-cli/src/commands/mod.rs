@@ -1416,6 +1416,18 @@ pub enum RenderCommand {
         #[arg(long)]
         output: Option<PathBuf>,
     },
+    /// Export a record as a shareable ZIP bundle (rendered view + attachments)
+    ExportBundle {
+        /// DocumentView UUID
+        #[arg(long = "view")]
+        view: String,
+        /// Record instance UUID
+        #[arg(long)]
+        instance: String,
+        /// Output file path for the ZIP bundle
+        #[arg(long)]
+        output: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]

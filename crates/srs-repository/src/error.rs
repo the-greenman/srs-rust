@@ -219,6 +219,9 @@ pub enum RepositoryError {
     #[error("invalid archive: {message}")]
     InvalidArchive { message: String },
 
+    #[error("invalid export bundle: {message}")]
+    InvalidExportBundle { message: String },
+
     #[error("package not found: {selector:?}")]
     PackageNotFound { selector: Option<String> },
 
@@ -658,6 +661,10 @@ impl PartialEq for RepositoryError {
             (
                 RepositoryError::InvalidArchive { message: a },
                 RepositoryError::InvalidArchive { message: b },
+            ) => a == b,
+            (
+                RepositoryError::InvalidExportBundle { message: a },
+                RepositoryError::InvalidExportBundle { message: b },
             ) => a == b,
             (
                 RepositoryError::PackageNotFound { selector: a },

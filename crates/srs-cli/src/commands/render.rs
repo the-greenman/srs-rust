@@ -1,10 +1,11 @@
 use crate::commands::{with_store, CliContext, RenderCommand};
 use crate::output;
 use crate::payload::{
-    DocumentViewProjection, ProjectedFieldGroup, ProjectedGroupEntry, ProjectedRecord,
-    ProjectedSection, RenderDocumentViewPayload,
+    DocumentViewProjection, ExportBundlePayload, ProjectedFieldGroup, ProjectedGroupEntry,
+    ProjectedRecord, ProjectedSection, RenderDocumentViewPayload,
 };
 use anyhow::Result;
+use srs_repository::export_service::{export_record_bundle, ExportBundleInput};
 use srs_repository::render_service::{
     render_document_view, DocumentViewProjection as SvcProjection,
     ProjectedFieldGroup as SvcFieldGroup, ProjectedGroupEntry as SvcGroupEntry,
@@ -21,6 +22,11 @@ pub fn dispatch(ctx: CliContext, cmd: RenderCommand) -> Result<String> {
             instance,
             output,
         } => cmd_render_document_view(ctx, view, view_format, theme_variant, instance, output),
+        RenderCommand::ExportBundle {
+            view,
+            instance,
+            output,
+        } => cmd_render_export_bundle(ctx, view, instance, output),
     }
 }
 
@@ -119,5 +125,37 @@ fn cmd_render_document_view(
             )
         }
         Err(e) => Ok(output::err("render document-view", vec![e.to_string()])),
+    }
+}
+
+fn cmd_render_export_bundle(
+    ctx: CliContext,
+    view_id: String,
+    instance_id: String,
+    output_path: PathBuf,
+) -> Result<String> {
+    let mut file = std::fs::File::create(&output_path)
+        .map_err(|e| anyhow::anyhow!("cannot create output file {:?}: {}", output_path, e))?;
+    match with_store(&ctx, |store| {
+        Ok(export_record_bundle(
+            store,
+            ExportBundleInput {
+                instance_id: instance_id.clone(),
+                view_id: view_id.clone(),
+                format: None,
+            },
+            &mut file,
+        )?)
+    }) {
+        Ok(meta) => output::serialize(
+            "render export-bundle",
+            ExportBundlePayload {
+                rendered_filename: meta.rendered_filename,
+                attachment_count: meta.attachment_count,
+                output_path: output_path.to_string_lossy().into_owned(),
+                diagnostics: meta.diagnostics,
+            },
+        ),
+        Err(e) => Ok(output::err("render export-bundle", vec![e.to_string()])),
     }
 }

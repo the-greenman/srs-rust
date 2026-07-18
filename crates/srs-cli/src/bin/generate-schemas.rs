@@ -173,6 +173,7 @@ fn main() {
 
     // Render payloads
     write_schema!("render-document-view", RenderDocumentViewPayload);
+    write_schema!("render-export-bundle", ExportBundlePayload);
 
     // Repo payloads
     write_schema!("repo-create", RepoCreatePayload);

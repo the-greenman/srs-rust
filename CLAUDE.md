@@ -25,7 +25,7 @@ cargo run --bin generate-schemas          # regenerate payload JSON Schema golde
 | Crate | Owns | Hard constraints |
 |---|---|---|
 | `srs-core` | Canonical Rust types, serde shapes, in-memory validation | No file I/O. No async. No `schemars`. |
-| `srs-repository` | Repository loading, writing, package resolution, service functions, archive pack/unpack | Depends on `srs-core`. All business logic lives here, not in the CLI. |
+| `srs-repository` | Repository loading, writing, package resolution, service functions, archive pack/unpack, export bundle | Depends on `srs-core`. All business logic lives here, not in the CLI. |
 | `srs-cli` | Arg parsing, stdin handling, JSON envelope output | One service call per handler. No business logic. No direct filesystem access in handlers. |
 | `srs-bindings` | JSON-first binding surface over repository services | Calls the same services as the CLI. No duplicated logic. |
 | `srs-projection` | Rendering and export projections | Placeholder — no work until consumers exist. |

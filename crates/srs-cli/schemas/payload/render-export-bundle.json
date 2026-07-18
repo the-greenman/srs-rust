@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ExportBundlePayload",
+  "type": "object",
+  "required": [
+    "attachmentCount",
+    "diagnostics",
+    "outputPath",
+    "renderedFilename"
+  ],
+  "properties": {
+    "attachmentCount": {
+      "type": "integer",
+      "format": "uint",
+      "minimum": 0.0
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "outputPath": {
+      "type": "string"
+    },
+    "renderedFilename": {
+      "type": "string"
+    }
+  }
+}
