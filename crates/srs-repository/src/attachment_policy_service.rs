@@ -1,13 +1,13 @@
 use crate::error::RepositoryError;
 use crate::record_store;
 use crate::store::RepositoryStore;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value;
 
 const BASE_NAMESPACE: &str = "com.semanticops.base";
 const BASE_REPO_SETTINGS_TYPE_NAME: &str = "repo_settings";
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AttachmentPolicy {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -30,6 +30,8 @@ pub struct ReadAttachmentPolicyResult {
 /// when no `repo_settings` record exists, or when the package cannot be loaded.
 ///
 /// Never returns `Err` due to a missing or absent policy — the absence of a policy is not an error.
+///
+/// TODO(#638): expose via `srs-bindings` WASM binding.
 pub fn read_attachment_policy(
     store: &dyn RepositoryStore,
 ) -> Result<ReadAttachmentPolicyResult, RepositoryError> {
@@ -125,7 +127,7 @@ mod tests {
     use super::*;
     use crate::manifest::Manifest;
     use crate::package::Package;
-    use crate::store::memory::MemoryStore;
+    use crate::store::memory::{FailPoint, MemoryStore};
     use serde_json::json;
     use srs_core::types::field::Field;
     use srs_core::types::record_type::RecordType;
@@ -371,17 +373,22 @@ mod tests {
     }
 
     #[test]
-    fn read_policy_record_present_package_missing() {
-        // Store has a policy record in the index but the package load fails (empty package
-        // has a different namespace, so find_field returns None for all base fields — but
-        // the real test is that the function still returns policy_record_present: true even
-        // when load_package would error). We verify policy_record_present: true is set.
-        //
-        // Using MemoryStore with the base-namespace manifest but a store whose package does
-        // not have the base namespace — load_package succeeds but find_field returns None
-        // for all fields, so all limits are None.
+    fn read_policy_record_present_empty_field_values() {
+        // Policy record exists but has no field values set — all limits return None.
         let store = MemoryStore::new(manifest_with_policy_entry(), make_base_package())
             .with_data("records/policy.json", policy_record_json(json!([])));
+        let result = read_attachment_policy(&store).expect("should not error");
+        assert!(result.policy_record_present);
+        assert_eq!(result.policy, AttachmentPolicy::default());
+    }
+
+    #[test]
+    fn read_policy_record_present_package_load_error() {
+        // Policy record is in the index but load_package() fails (e.g. corrupt package.json).
+        // The service should return defaults with policy_record_present: true.
+        let store = MemoryStore::new(manifest_with_policy_entry(), make_base_package())
+            .with_data("records/policy.json", policy_record_json(json!([])))
+            .with_fail_at(FailPoint::LoadPackage);
         let result = read_attachment_policy(&store).expect("should not error");
         assert!(result.policy_record_present);
         assert_eq!(result.policy, AttachmentPolicy::default());

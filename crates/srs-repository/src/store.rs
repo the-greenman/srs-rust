@@ -2047,6 +2047,8 @@ pub mod memory {
         /// Fail the next container-index update in `save_container` (after data write).
         /// Simulates a crash between the file write and the index update for ADR-007 testing.
         SaveContainerIndex,
+        /// Fail the next `load_package` call.
+        LoadPackage,
     }
 
     /// In-memory implementation of [`RepositoryStore`] for unit tests.
@@ -2488,6 +2490,14 @@ pub mod memory {
         }
 
         fn load_package(&self) -> Result<Package, RepositoryError> {
+            let should_fail = matches!(*self.fail_at.borrow(), Some(FailPoint::LoadPackage));
+            if should_fail {
+                *self.fail_at.borrow_mut() = None;
+                return Err(RepositoryError::Io {
+                    path: std::path::PathBuf::from("package/package.json"),
+                    source: std::io::Error::other("injected fault: load_package"),
+                });
+            }
             let mut pkg = self.package.borrow().clone();
             // Supplement the static package with any protocols written via the
             // write path (save_instance_json + add_definition_to_boundary). This
