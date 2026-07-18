@@ -913,6 +913,55 @@ mod tests {
     }
 
     #[test]
+    fn test_load_from_archive_roundtrip() {
+        use crate::services::{list_notes, ListNotesFilter};
+        use crate::writer::new_instance_id;
+
+        let source = init_memory_store();
+
+        let note_id = new_instance_id();
+        let note_value = serde_json::json!({
+            "id": note_id,
+            "tier": 0,
+            "title": "Archive Service Note",
+            "sections": [{ "id": "s1", "title": "Body", "content": "test" }]
+        });
+        source
+            .save_instance_json(
+                &format!("records/notes/{}.json", &note_id[..8]),
+                &note_value,
+            )
+            .expect("save instance");
+        let mut manifest = source.load_manifest().expect("load manifest");
+        manifest
+            .instance_index
+            .push(crate::index::InstanceIndexEntry {
+                instance_id: note_id.clone(),
+                tier: 0,
+                path: format!("records/notes/{}.json", &note_id[..8]),
+                title: Some(serde_json::Value::String("Archive Service Note".to_string())),
+                tags: None,
+            });
+        source.save_manifest(&manifest).expect("save manifest");
+
+        let bytes = pack_to_bytes(&source);
+
+        let store = crate::JsonStore::from_archive(&bytes).expect("from_archive should succeed");
+        let result = list_notes(&store, ListNotesFilter::default())
+            .expect("list_notes on reloaded store");
+        assert_eq!(result.notes.len(), 1, "should have exactly one note after roundtrip");
+        assert_eq!(result.notes[0].instance_id, note_id);
+    }
+
+    #[test]
+    fn test_load_from_archive_rejects_invalid_bytes() {
+        assert!(
+            crate::JsonStore::from_archive(b"not a zip").is_err(),
+            "from_archive must fail on invalid bytes"
+        );
+    }
+
+    #[test]
     fn test_archive_no_extra_fields_and_deflated() {
         let store = init_memory_store();
         let bytes = pack_to_bytes(&store);

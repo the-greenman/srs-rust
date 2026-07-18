@@ -280,6 +280,37 @@ impl JsonStore {
         })
     }
 
+    /// Create an uninitialized in-memory store.
+    ///
+    /// The sentinel path `<memory>` suppresses all `flush()` calls. `initialized: false`
+    /// satisfies `ensure_target_empty` in `import_repository_snapshot`, making this suitable
+    /// as the target for `archive_unpack` and similar import operations.
+    pub(crate) fn new_in_memory() -> Self {
+        Self {
+            file_path: PathBuf::from("<memory>"),
+            state: RefCell::new(JsonStoreState {
+                initialized: false,
+                manifest: Manifest {
+                    root: PathBuf::from("."),
+                    ..Manifest::default()
+                },
+                data: BTreeMap::new(),
+                batching: false,
+            }),
+        }
+    }
+
+    /// Load a repository from a `.srs` binary archive (ZIP bytes) into an in-memory store.
+    ///
+    /// Analogous to [`Self::from_srsj`] for the binary archive format. The backing store uses
+    /// `<memory>` as its sentinel path so no filesystem writes occur.
+    pub fn from_archive(bytes: &[u8]) -> Result<Self, RepositoryError> {
+        let cursor = std::io::Cursor::new(bytes);
+        let store = Self::new_in_memory();
+        crate::archive::archive_unpack(cursor, &store)?;
+        Ok(store)
+    }
+
     /// Returns the canonical data-map key for a container stored in JsonStore-native format.
     /// Used in save_container, load_container (fallback), delete_container, and the open-time
     /// migration that derives paths for pre-#466 shadow containerIndex entries (#490).
