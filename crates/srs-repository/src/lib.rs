@@ -13,6 +13,7 @@ pub mod detect;
 pub mod diff;
 pub mod discovery_service;
 pub mod error;
+pub mod export_service;
 pub mod extension_service;
 pub mod federation_service;
 pub(crate) mod field_json;
@@ -61,6 +62,7 @@ pub mod vocabulary_service;
 pub mod writer;
 
 pub use archive::{archive_pack, archive_unpack};
+pub use export_service::{export_record_bundle, ExportBundleInput, ExportBundleMetadata};
 pub use json_store::JsonStore;
 pub use package::EffectiveLifecycle;
 pub use package_types::{

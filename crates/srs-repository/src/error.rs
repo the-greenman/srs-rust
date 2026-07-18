@@ -219,6 +219,9 @@ pub enum RepositoryError {
     #[error("invalid archive: {message}")]
     InvalidArchive { message: String },
 
+    #[error("invalid export bundle: {message}")]
+    InvalidExportBundle { message: String },
+
     #[error("package not found: {selector:?}")]
     PackageNotFound { selector: Option<String> },
 
