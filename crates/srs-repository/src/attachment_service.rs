@@ -454,12 +454,12 @@ pub fn resolve_document_view_attachments(
 
         let source_refs: Vec<SourceReference> = match record.extra.get("sourceRefs") {
             None => vec![],
-            Some(v) => serde_json::from_value(v.clone()).map_err(|e| {
-                RepositoryError::Serialize {
+            Some(v) => {
+                serde_json::from_value(v.clone()).map_err(|e| RepositoryError::Serialize {
                     path: std::path::PathBuf::from(entry.path()),
                     source: e,
-                }
-            })?,
+                })?
+            }
         };
 
         let attachments: Vec<ResolvedAttachment> = source_refs
@@ -1411,7 +1411,9 @@ mod tests {
         let store = store_with_manifest(Manifest::default());
         let result = resolve_document_view_attachments(
             &store,
-            ResolveDocumentViewAttachmentsInput { instance_ids: vec![] },
+            ResolveDocumentViewAttachmentsInput {
+                instance_ids: vec![],
+            },
         )
         .unwrap();
         assert!(result.records.is_empty());
@@ -1430,7 +1432,10 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(result.records.is_empty(), "record with no sourceRefs must not appear");
+        assert!(
+            result.records.is_empty(),
+            "record with no sourceRefs must not appear"
+        );
     }
 
     #[test]
@@ -1464,7 +1469,10 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(result.records.is_empty(), "sourceRole:evidence must not be included");
+        assert!(
+            result.records.is_empty(),
+            "sourceRole:evidence must not be included"
+        );
     }
 
     #[test]
@@ -1577,11 +1585,21 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.records.len(), 1, "record with unindexed ref must still appear");
+        assert_eq!(
+            result.records.len(),
+            1,
+            "record with unindexed ref must still appear"
+        );
         let att = &result.records[0].attachments[0];
         assert_eq!(att.document_id, "nonexistent-doc-id");
-        assert!(att.content_path.is_none(), "unindexed doc should have no content_path");
-        assert!(att.sidecar_path.is_none(), "unindexed doc should have no sidecar_path");
+        assert!(
+            att.content_path.is_none(),
+            "unindexed doc should have no content_path"
+        );
+        assert!(
+            att.sidecar_path.is_none(),
+            "unindexed doc should have no sidecar_path"
+        );
         assert!(att.title.is_none());
         assert!(att.content_checksum.is_none());
         assert!(att.sidecar_checksum.is_none());
@@ -1612,7 +1630,11 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.records.len(), 1, "missing instance must be silently skipped");
+        assert_eq!(
+            result.records.len(),
+            1,
+            "missing instance must be silently skipped"
+        );
         assert_eq!(result.records[0].instance_id, record_id);
     }
 

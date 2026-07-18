@@ -1,7 +1,9 @@
 use serde::Deserialize;
 use srs_core::types::record::{FieldGroupValue, FieldValue};
 use srs_core::types::relation::Relation;
-use srs_repository::attachment_service::{self as attachment_service, ResolveDocumentViewAttachmentsInput};
+use srs_repository::attachment_service::{
+    self as attachment_service, ResolveDocumentViewAttachmentsInput,
+};
 use srs_repository::blueprint_schema_service::{self, BlueprintSchemaInput};
 use srs_repository::blueprint_service;
 use srs_repository::container_service::{self, ContainerListFilter};
@@ -987,15 +989,11 @@ impl SrsRepository {
     /// `input_json` is `{"instanceIds": ["<uuid>", ...]}` (from a rendered document_view).
     /// Returns `{sourceDocumentsPath, records: [{instanceId, attachments: [{documentId,
     /// contentPath, sidecarPath, title?, contentChecksum?, sidecarChecksum?}]}]}`.
-    pub fn resolve_document_view_attachments(
-        &self,
-        input_json: &str,
-    ) -> Result<JsValue, JsValue> {
-        let input: ResolveDocumentViewAttachmentsInput = serde_json::from_str(input_json)
-            .map_err(|e| js_err(format!("invalid input: {e}")))?;
-        let result =
-            attachment_service::resolve_document_view_attachments(&self.store, input)
-                .map_err(js_err)?;
+    pub fn resolve_document_view_attachments(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: ResolveDocumentViewAttachmentsInput =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let result = attachment_service::resolve_document_view_attachments(&self.store, input)
+            .map_err(js_err)?;
         to_js(&result)
     }
 }

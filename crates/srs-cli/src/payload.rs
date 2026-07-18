@@ -2168,7 +2168,11 @@ impl From<srs_repository::attachment_service::RecordAttachments> for RecordAttac
     fn from(r: srs_repository::attachment_service::RecordAttachments) -> Self {
         Self {
             instance_id: r.instance_id,
-            attachments: r.attachments.into_iter().map(ResolvedAttachmentPayload::from).collect(),
+            attachments: r
+                .attachments
+                .into_iter()
+                .map(ResolvedAttachmentPayload::from)
+                .collect(),
         }
     }
 }
@@ -2183,12 +2187,14 @@ pub struct ResolveViewAttachmentsPayload {
 impl From<srs_repository::attachment_service::ResolveDocumentViewAttachmentsResult>
     for ResolveViewAttachmentsPayload
 {
-    fn from(
-        r: srs_repository::attachment_service::ResolveDocumentViewAttachmentsResult,
-    ) -> Self {
+    fn from(r: srs_repository::attachment_service::ResolveDocumentViewAttachmentsResult) -> Self {
         Self {
             source_documents_path: r.source_documents_path,
-            records: r.records.into_iter().map(RecordAttachmentsPayload::from).collect(),
+            records: r
+                .records
+                .into_iter()
+                .map(RecordAttachmentsPayload::from)
+                .collect(),
         }
     }
 }
