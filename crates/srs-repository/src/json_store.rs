@@ -1634,11 +1634,7 @@ impl RepositoryStore for JsonStore {
     ///
     /// The bytes are held in `JsonStoreState::binary_files` and are NOT serialised by
     /// `to_srsj_string()` — `.srsj` output remains binary-free per RFC-017.
-    fn save_binary_file(
-        &self,
-        relative_path: &str,
-        content: &[u8],
-    ) -> Result<(), RepositoryError> {
+    fn save_binary_file(&self, relative_path: &str, content: &[u8]) -> Result<(), RepositoryError> {
         self.state
             .borrow_mut()
             .binary_files
@@ -3368,9 +3364,7 @@ mod tests {
         store
             .save_binary_file("source-documents/secret.pdf", b"binary bytes")
             .expect("save must succeed");
-        let srsj = store
-            .to_srsj_string()
-            .expect("to_srsj_string must succeed");
+        let srsj = store.to_srsj_string().expect("to_srsj_string must succeed");
         assert!(
             !srsj.contains("source-documents/secret.pdf"),
             "binary file path must not appear in .srsj output"

@@ -6,8 +6,7 @@
 // layer compiles and links correctly.
 
 use srs_repository::attachment_service::{
-    get_attachment_bytes, AddAttachmentInput, GetAttachmentBytesInput,
-    add_attachment,
+    add_attachment, get_attachment_bytes, AddAttachmentInput, GetAttachmentBytesInput,
 };
 use srs_repository::error::RepositoryError;
 use srs_repository::{archive_to_vec, FileStore, JsonStore};
