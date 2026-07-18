@@ -355,6 +355,10 @@ pub enum AttachmentCommand {
         /// Document ID of the source document to link (must exist in source-documents/)
         document_id: String,
     },
+    /// Resolve linked attachments for a list of record instance IDs (reads JSON from stdin).
+    ///
+    /// Input: `{"instanceIds": ["<uuid>", ...]}` (from a rendered document_view projection).
+    ResolveViewAttachments,
 }
 
 #[derive(Subcommand)]
