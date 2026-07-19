@@ -2085,6 +2085,65 @@ echo '{"instanceIds":["00000000-0000-0000-0000-000000000000"]}' | $SRS attachmen
 
 ---
 
+## S40 — Look up source-document attachments for a single record (`srs record attachments`, #618)
+
+**Intention:** I have a record instance ID and I want to retrieve all source documents attached to it — so I can display linked files on a single-record detail view without rendering an entire document view.
+
+**CLI surface.** `record attachments --id <instanceId>`
+
+**Repo setup.**
+
+```bash
+SRS=target/debug/srs
+REPO=/tmp/dogfood-s40
+
+$SRS repo create --repo $REPO --namespace com.example.dogfood
+
+echo "Q3 financial summary." > /tmp/s40-brief.txt
+DOC_ID=$($SRS attachment add /tmp/s40-brief.txt --repo $REPO --title "Q3 Brief" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['documentId'])")
+
+FIELD_ID=$($SRS field create --repo $REPO <<< \
+  '{"namespace":"com.example.dogfood","name":"summary","version":1,"valueType":"string","description":"Summary"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['field']['id'])")
+
+TYPE_JSON=$(printf '{"namespace":"com.example.dogfood","name":"decision","version":1,"fields":[{"fieldId":"%s","order":1,"required":false}]}' "$FIELD_ID")
+$SRS type create --repo $REPO <<< "$TYPE_JSON" > /dev/null
+
+RECORD_ID=$($SRS record create --repo $REPO --type "com.example.dogfood/decision" <<< \
+  $(printf '{"typeVersion":1,"typeNamespace":"com.example.dogfood","typeName":"decision","fieldValues":[{"fieldId":"%s","value":"Approved."}]}' "$FIELD_ID") \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['record']['instanceId'])")
+
+$SRS attachment link "$RECORD_ID" "$DOC_ID" --repo $REPO > /dev/null
+```
+
+**Happy path.**
+
+```bash
+$SRS record attachments --id "$RECORD_ID" --repo $REPO --pretty
+```
+
+Expected: `ok: true`, `instanceId` matches the record, `attachments` array with one entry carrying `documentId`, `contentPath`, `sidecarPath`, `title`, and both checksums.
+
+**Negative cases.**
+
+```bash
+# Unknown record ID → ok: false with diagnostic
+$SRS record attachments --id "00000000-0000-0000-0000-000000000000" --repo $REPO --pretty
+
+# Record with no linked attachments → ok: true, attachments: []
+EMPTY_RECORD_ID=$($SRS record create --repo $REPO --type "com.example.dogfood/decision" <<< \
+  $(printf '{"typeVersion":1,"typeNamespace":"com.example.dogfood","typeName":"decision","fieldValues":[{"fieldId":"%s","value":"No attachments."}]}' "$FIELD_ID") \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['record']['instanceId'])")
+$SRS record attachments --id "$EMPTY_RECORD_ID" --repo $REPO --pretty
+```
+
+**Done when.** Happy path returns `ok: true` with `instanceId`, `sourceDocumentsPath`, and one attachment entry with all indexed fields (`documentId`, `contentPath`, `sidecarPath`, `title`, `contentChecksum`, `sidecarChecksum`). Unknown ID returns `ok: false` with a "Record not found" diagnostic. Record with no attaches-type sourceRefs returns `ok: true`, `attachments: []`. `repo validate` returns 0 errors throughout.
+
+**Verified 2026-07-19 (#618).** Live dogfood run against `/tmp/dogfood-s618`: happy path returned `ok: true`, `instanceId: "3b5964c2-…"`, `sourceDocumentsPath: "source-documents"`, one attachment with `documentId: "03474be2-…"`, `contentPath: "s618-brief.txt"`, `title: "Q3 Brief"`, and both checksums. Unknown ID returned `ok: false`, `diagnostics: ["Record '00000000-…' not found"]`. Record with no sourceRefs returned `ok: true`, `attachments: []`. `repo validate` → 0 errors.
+
+---
+
 ## S35 — Facilitator reviews a decision with its linked source documents (`srs-gov get`, #285)
 
 **Intention:** I want to review a decision record and see which source documents support it — so that I can confirm the decision has proper backing material before a governance meeting.
@@ -2451,6 +2510,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `attachment list` | S31 |
 | `attachment add` | S32 |
 | `attachment link` | S34 (#283); service-layer tests in `attachment_service.rs` (MemoryStore + FileStore). WASM binding is a follow-up. |
+| `record attachments` (typed service layer for single-record attachment lookup, R5 fix, #618) | S40 (#618); service-layer: 5 unit/integration tests in `attachment_service.rs` (MemoryStore × 3 + FileStore roundtrip + attaches-role filter test); WASM binding (`SrsRepository::get_record_attachments`) verified via 2 integration tests in `crates/srs-bindings/tests/get_record_attachments.rs` |
 | `attachment resolve-view-attachments` (resolve sourceRefs attachments for a set of record IDs, RFC-017 Rev 3 [R1]) | S36 (#286); service-layer tests in `attachment_service.rs` (MemoryStore + FileStore, 7 tests); WASM binding (`SrsRepository::resolve_document_view_attachments`) verified via 2 integration tests in `crates/srs-bindings/tests/resolve_view_attachments.rs` |
 | `attachment policy-get` (read optional `com.semanticops.base/repo_settings` policy; defaults when absent, #281) | S39 (#281); service-layer: 11 unit tests in `attachment_policy_service.rs` (MemoryStore + FileStore roundtrip, all field types, missing package, multiple records, `allowedMimeTypes` as array/JSON-string/plain-string/malformed). WASM binding deferred to #638. |
 | `srs-gov attachment add` / `srs-gov attachment list` | S33 |
