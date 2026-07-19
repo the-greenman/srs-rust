@@ -74,4 +74,46 @@ mod tests {
             Err(RepositoryError::NoteValidation { .. })
         ));
     }
+
+    #[test]
+    fn load_note_source_role_attaches_roundtrip() {
+        use srs_core::types::source_reference::{SourceReference, SourceRole, SourceType};
+
+        let note = Note {
+            instance_id: "attach-roundtrip-001".to_string(),
+            title: None,
+            tags: None,
+            sections: vec![NoteSection {
+                name: "body".to_string(),
+                label: None,
+                content: "content".to_string(),
+                content_hint: None,
+                tags: None,
+            }],
+            graduated_at: None,
+            source_refs: Some(vec![SourceReference {
+                source_type: SourceType::RepositoryDocument,
+                source_id: "doc-001".to_string(),
+                source_standard: None,
+                stream_id: None,
+                source_role: Some(SourceRole::Attaches),
+                relation_type: None,
+                confidence: None,
+                note: None,
+            }]),
+            created_at: None,
+            updated_at: None,
+            meta: None,
+        };
+        let val = serde_json::to_value(&note).unwrap();
+        // verify the JSON carries the typed value before storing
+        assert_eq!(val["sourceRefs"][0]["sourceRole"], "attaches");
+
+        let store = MemoryStore::default().with_data("records/notes/attach.json", val);
+        let loaded = load_note(&store, "records/notes/attach.json").unwrap();
+
+        let sr = loaded.source_refs.as_ref().unwrap().first().unwrap();
+        assert_eq!(sr.source_role, Some(SourceRole::Attaches));
+        assert!(sr.relation_type.is_none());
+    }
 }
