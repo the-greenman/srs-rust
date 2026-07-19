@@ -513,6 +513,7 @@ pub fn resolve_document_view_attachments(
 // ── get_record_attachments ─────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GetRecordAttachmentsInput {
     pub instance_id: String,
 }
@@ -562,7 +563,7 @@ pub fn get_record_attachments(
     let source_refs: Vec<SourceReference> = match record.extra.get("sourceRefs") {
         None => vec![],
         Some(v) => serde_json::from_value(v.clone()).map_err(|e| RepositoryError::Serialize {
-            path: std::path::PathBuf::from(&input.instance_id),
+            path: std::path::PathBuf::from(format!("record:{}/sourceRefs", input.instance_id)),
             source: e,
         })?,
     };
