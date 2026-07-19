@@ -1100,6 +1100,12 @@ pub enum RecordCommand {
         #[arg(long)]
         id: String,
     },
+    /// List attachments linked to a record
+    Attachments {
+        /// Record instance ID
+        #[arg(long)]
+        id: String,
+    },
     /// Revision management commands (ext:addressability)
     #[command(subcommand)]
     Revision(RecordRevisionCommand),

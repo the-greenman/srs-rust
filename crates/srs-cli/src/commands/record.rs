@@ -3,11 +3,13 @@ use crate::commands::{
 };
 use crate::output;
 use crate::payload::{
-    DeletedPayload, RecordAllowedTransitionsPayload, RecordGetPayload, RecordListPayload,
-    RecordPayload, RecordSuccessorPayload, RecordTagAddPayload, RecordTagListPayload,
-    RecordTransitionPayload, RecordValidatePayload, RevisionListPayload, RevisionPayload,
+    DeletedPayload, RecordAllowedTransitionsPayload, RecordGetAttachmentsPayload, RecordGetPayload,
+    RecordListPayload, RecordPayload, RecordSuccessorPayload, RecordTagAddPayload,
+    RecordTagListPayload, RecordTransitionPayload, RecordValidatePayload, RevisionListPayload,
+    RevisionPayload,
 };
 use anyhow::Result;
+use srs_repository::attachment_service::{get_record_attachments, GetRecordAttachmentsInput};
 use srs_repository::record_store::{
     add_record_tag, create_record_in_context, create_record_successor, delete_record_in_context,
     get_allowed_lifecycle_transitions, get_record_revision, get_record_summary_by_id,
@@ -37,6 +39,7 @@ pub fn dispatch(ctx: CliContext, cmd: RecordCommand) -> Result<String> {
         RecordCommand::Transition { id } => cmd_record_transition(ctx, id),
         RecordCommand::Successor { id } => cmd_record_successor(ctx, id),
         RecordCommand::AllowedTransitions { id } => cmd_record_allowed_transitions(ctx, id),
+        RecordCommand::Attachments { id } => cmd_record_attachments(ctx, id),
         RecordCommand::Revision(rev_cmd) => dispatch_revision(ctx, rev_cmd),
         RecordCommand::Tag(tag_cmd) => dispatch_tag(ctx, tag_cmd),
     }
@@ -315,6 +318,24 @@ fn cmd_record_allowed_transitions(ctx: CliContext, id: String) -> Result<String>
         Err(e) => Ok(output::err(
             "record allowed-transitions",
             vec![e.to_string()],
+        )),
+    }
+}
+
+fn cmd_record_attachments(ctx: CliContext, id: String) -> Result<String> {
+    match with_store(&ctx, |store| {
+        Ok(get_record_attachments(
+            store,
+            GetRecordAttachmentsInput { instance_id: id.clone() },
+        )?)
+    })? {
+        Some(result) => output::serialize(
+            "record attachments",
+            RecordGetAttachmentsPayload::from(result),
+        ),
+        None => Ok(output::err(
+            "record attachments",
+            vec![format!("Record '{id}' not found")],
         )),
     }
 }
