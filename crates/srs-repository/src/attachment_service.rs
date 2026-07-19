@@ -22,6 +22,8 @@ pub struct AttachmentEntry {
     pub content_checksum: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sidecar_checksum: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size_bytes: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -65,11 +67,17 @@ pub fn list_attachments(
 
     let mut entries: Vec<AttachmentEntry> = all_files
         .into_iter()
-        // Strip the base prefix to get the path relative to source-documents/.
-        .filter_map(|repo_rel| repo_rel.strip_prefix(&prefix).map(|s| s.to_string()))
+        // Capture the repo-relative path together with the stripped relative path.
+        .filter_map(|repo_rel| {
+            let rel = repo_rel.strip_prefix(&prefix)?.to_string();
+            Some((repo_rel, rel))
+        })
         // Exclude .meta.json sidecars.
-        .filter(|rel| !rel.ends_with(".meta.json"))
-        .map(|rel| {
+        .filter(|(_, rel)| !rel.ends_with(".meta.json"))
+        .map(|(full_rel, rel)| {
+            // Best-effort: FileStore returns the real byte count via fs::metadata;
+            // MemoryStore returns None (binary_data is separate from text data).
+            let size_bytes = store.file_byte_len(&full_rel).ok();
             if let Some(idx) = index_map.get(rel.as_str()) {
                 AttachmentEntry {
                     path: rel,
@@ -77,6 +85,7 @@ pub fn list_attachments(
                     title: idx.title.clone(),
                     content_checksum: idx.content_checksum.clone(),
                     sidecar_checksum: idx.sidecar_checksum.clone(),
+                    size_bytes,
                 }
             } else {
                 AttachmentEntry {
@@ -85,6 +94,7 @@ pub fn list_attachments(
                     title: None,
                     content_checksum: None,
                     sidecar_checksum: None,
+                    size_bytes,
                 }
             }
         })
@@ -685,6 +695,8 @@ mod tests {
         assert_eq!(e.title.as_deref(), Some("My Document"));
         assert_eq!(e.content_checksum.as_deref(), Some("sha256:bbb"));
         assert_eq!(e.sidecar_checksum.as_deref(), Some("sha256:aaa"));
+        // MemoryStore: touch writes to `data`, load_binary_file reads `binary_data` → None
+        assert!(e.size_bytes.is_none());
     }
 
     #[test]
@@ -699,6 +711,8 @@ mod tests {
         assert!(e.document_id.is_none());
         assert!(e.title.is_none());
         assert!(e.content_checksum.is_none());
+        // MemoryStore: touch writes to `data`, load_binary_file reads `binary_data` → None
+        assert!(e.size_bytes.is_none());
     }
 
     #[test]
@@ -810,6 +824,8 @@ mod tests {
             .unwrap();
         assert_eq!(brief.document_id.as_deref(), Some("roundtrip-uuid"));
         assert_eq!(brief.title.as_deref(), Some("Roundtrip Brief"));
+        // FileStore: size_bytes from fs::metadata ("pdf bytes" = 9 bytes)
+        assert_eq!(brief.size_bytes, Some(9));
         // subdirectory file is present but not indexed
         assert!(
             paths.contains(&"annexes/annex-a.pdf"),
@@ -821,6 +837,8 @@ mod tests {
             .find(|e| e.path == "annexes/annex-a.pdf")
             .unwrap();
         assert!(annex.document_id.is_none());
+        // FileStore: size_bytes from fs::metadata ("annex" = 5 bytes)
+        assert_eq!(annex.size_bytes, Some(5));
         // sidecar excluded
         assert!(!paths.contains(&"brief.meta.json"));
     }
