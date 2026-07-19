@@ -1815,7 +1815,7 @@ echo "annex bytes" > /tmp/dogfood-s31/source-documents/annexes/annex-a.pdf
 
 srs attachment list --repo /tmp/dogfood-s31 --pretty
 ```
-Returns 3 entries, each with only `path` populated: `annexes/annex-a.pdf`, `brief.pdf`, `report.docx`. Paths are relative to `source-documents/`, sorted lexicographically. No `documentId`, `title`, or checksum fields present.
+Returns 3 entries, each with `path` and `sizeBytes` populated: `annexes/annex-a.pdf`, `brief.pdf`, `report.docx`. Paths are relative to `source-documents/`, sorted lexicographically. No `documentId`, `title`, or checksum fields present.
 
 **Step 3 — add an indexed entry to the manifest.**
 ```bash
@@ -1838,7 +1838,7 @@ echo '{"documentId":"aaaabbbb-cccc-dddd-eeee-ffffffffffff"}' > /tmp/dogfood-s31/
 
 srs attachment list --repo /tmp/dogfood-s31 --pretty
 ```
-`brief.pdf` entry now carries `documentId`, `title`, `contentChecksum`, `sidecarChecksum`. `brief.meta.json` is absent from the listing (sidecar excluded). `annexes/annex-a.pdf` and `report.docx` remain without metadata.
+`brief.pdf` entry now carries `documentId`, `title`, `contentChecksum`, `sidecarChecksum`, and `sizeBytes`. `brief.meta.json` is absent from the listing (sidecar excluded). `annexes/annex-a.pdf` and `report.docx` remain without metadata but still carry `sizeBytes`.
 
 **Negative case — repository not found.**
 ```bash
@@ -1852,9 +1852,11 @@ srs repo validate --repo /tmp/dogfood-s31 --pretty
 ```
 0 diagnostics at every step — attachment files on disk are outside the `instanceIndex` and do not affect record validation.
 
-**Done when.** `attachment list` on an empty repo returns `entries: []`. Unindexed files appear with only `path`. An indexed file surfaces all four metadata fields. Sidecar `.meta.json` files are excluded. Subdirectory files appear with their relative path (`annexes/annex-a.pdf`, not `source-documents/annexes/annex-a.pdf`). Missing repo returns `ok: false` exit 1. `repo validate` stays at 0 errors throughout.
+**Done when.** `attachment list` on an empty repo returns `entries: []`. Unindexed files appear with `path` and `sizeBytes`. An indexed file surfaces all metadata fields including `sizeBytes`. Sidecar `.meta.json` files are excluded. Subdirectory files appear with their relative path (`annexes/annex-a.pdf`, not `source-documents/annexes/annex-a.pdf`). Missing repo returns `ok: false` exit 1. `repo validate` stays at 0 errors throughout.
 
 **Verified 2026-07-17 (#279).** All steps confirmed. Empty repo: `entries: []`. Unindexed files: 3 entries with path only, sorted lexicographically, `annexes/annex-a.pdf` correctly prefixed. Indexed entry: `brief.pdf` carried all metadata fields; `brief.meta.json` absent from listing. Missing repo: `ok: false` exit 1 with manifest-missing diagnostic. `repo validate`: 0 diagnostics.
+
+**Verified 2026-07-19 (#619).** `sizeBytes` confirmed populated for both indexed and unindexed files (correct byte counts: 11 for "hello world", 7 for "goodbye", 22 for unindexed manual.pdf). `repo validate`: 0 errors.
 
 ---
 
