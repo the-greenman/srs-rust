@@ -2,7 +2,8 @@ use serde::Deserialize;
 use srs_core::types::record::{FieldGroupValue, FieldValue};
 use srs_core::types::relation::Relation;
 use srs_repository::attachment_service::{
-    self as attachment_service, GetAttachmentBytesInput, ResolveDocumentViewAttachmentsInput,
+    self as attachment_service, AddAttachmentInput, GetAttachmentBytesInput, LinkAttachmentInput,
+    ListAttachmentsFilter, ResolveDocumentViewAttachmentsInput,
 };
 use srs_repository::blueprint_schema_service::{self, BlueprintSchemaInput};
 use srs_repository::blueprint_service;
@@ -1040,6 +1041,58 @@ impl SrsRepository {
             .map_err(js_err)?;
         to_js(&result)
     }
+
+    /// List source-document attachments.
+    ///
+    /// `filter_json` is reserved for future filter fields; pass `"{}"` for all attachments.
+    /// Returns `{"sourceDocumentsPath": "...", "entries": [{...}]}` as a JS value.
+    pub fn list_attachments(&self, filter_json: &str) -> Result<JsValue, JsValue> {
+        let filter: ListAttachmentsFilter = serde_json::from_str(filter_json)
+            .map_err(|e| js_err(format!("invalid filter: {e}")))?;
+        let result = attachment_service::list_attachments(&self.store, filter).map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Store a source-document attachment from raw bytes.
+    ///
+    /// `input_json` is `{"fileName":"...","subdir"?:"...","title"?:"...","contentType"?:"..."}`.
+    /// `file_bytes` is the raw file content (a `Uint8Array` on the JS side).
+    /// Returns `{"documentId","contentPath","sidecarPath","sourceDocumentsPath",
+    ///           "contentChecksum","sidecarChecksum"}` as a JS value.
+    pub fn add_attachment(&self, input_json: &str, file_bytes: &[u8]) -> Result<JsValue, JsValue> {
+        let input: AddAttachmentBindingInput =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let result = attachment_service::add_attachment(
+            &self.store,
+            AddAttachmentInput {
+                file_name: input.file_name,
+                content: file_bytes.to_vec(),
+                subdir: input.subdir,
+                title: input.title,
+                content_type: input.content_type,
+            },
+        )
+        .map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Link an existing source document to a record instance.
+    ///
+    /// `input_json` is `{"instanceId":"<uuid>","documentId":"<uuid>"}`.
+    /// Returns `{"instanceId","documentId","sourceRefsCount"}` as a JS value.
+    pub fn link_attachment(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: LinkAttachmentBindingInput =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let result = attachment_service::link_attachment(
+            &self.store,
+            LinkAttachmentInput {
+                instance_id: input.instance_id,
+                document_id: input.document_id,
+            },
+        )
+        .map_err(js_err)?;
+        to_js(&result)
+    }
 }
 
 // ── Repo-independent free functions (ADR-013 addendum) ───────────────────────
@@ -1182,6 +1235,25 @@ struct CreateRecordBindingInput {
     group_values: Option<Vec<FieldGroupValue>>,
     #[serde(default)]
     tags: Option<Vec<String>>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AddAttachmentBindingInput {
+    file_name: String,
+    #[serde(default)]
+    subdir: Option<String>,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    content_type: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LinkAttachmentBindingInput {
+    instance_id: String,
+    document_id: String,
 }
 
 #[cfg(test)]
@@ -2040,5 +2112,72 @@ mod tests {
             "expected a Warning-severity I-107 diagnostic, got: {:?}",
             report.diagnostics
         );
+    }
+
+    #[test]
+    fn list_attachments_result_serialises() {
+        use srs_repository::attachment_service::{AttachmentEntry, ListAttachmentsResult};
+        let result = ListAttachmentsResult {
+            source_documents_path: "source-documents".to_string(),
+            entries: vec![AttachmentEntry {
+                path: "foo.pdf".to_string(),
+                document_id: Some("doc-001".to_string()),
+                title: Some("Foo".to_string()),
+                content_checksum: Some("sha256:abc".to_string()),
+                sidecar_checksum: None,
+            }],
+        };
+        let json = serde_json::to_value(&result).expect("ListAttachmentsResult must serialize");
+        assert_eq!(
+            json["sourceDocumentsPath"].as_str(),
+            Some("source-documents")
+        );
+        assert!(json["entries"].is_array());
+        assert_eq!(json["entries"][0]["documentId"].as_str(), Some("doc-001"));
+        assert_eq!(
+            json["entries"][0]["contentChecksum"].as_str(),
+            Some("sha256:abc")
+        );
+        assert!(
+            json["entries"][0].get("sidecarChecksum").is_none(),
+            "skip_serializing_if absent"
+        );
+    }
+
+    #[test]
+    fn add_attachment_result_serialises() {
+        use srs_repository::attachment_service::AddAttachmentResult;
+        let result = AddAttachmentResult {
+            document_id: "doc-002".to_string(),
+            content_path: "brief.pdf".to_string(),
+            sidecar_path: "brief.meta.json".to_string(),
+            source_documents_path: "source-documents".to_string(),
+            content_checksum: "sha256:aaa".to_string(),
+            sidecar_checksum: "sha256:bbb".to_string(),
+        };
+        let json = serde_json::to_value(&result).expect("AddAttachmentResult must serialize");
+        assert_eq!(json["documentId"].as_str(), Some("doc-002"));
+        assert_eq!(json["contentPath"].as_str(), Some("brief.pdf"));
+        assert_eq!(json["sidecarPath"].as_str(), Some("brief.meta.json"));
+        assert_eq!(
+            json["sourceDocumentsPath"].as_str(),
+            Some("source-documents")
+        );
+        assert_eq!(json["contentChecksum"].as_str(), Some("sha256:aaa"));
+        assert_eq!(json["sidecarChecksum"].as_str(), Some("sha256:bbb"));
+    }
+
+    #[test]
+    fn link_attachment_result_serialises() {
+        use srs_repository::attachment_service::LinkAttachmentResult;
+        let result = LinkAttachmentResult {
+            instance_id: "inst-001".to_string(),
+            document_id: "doc-001".to_string(),
+            source_refs_count: 3,
+        };
+        let json = serde_json::to_value(&result).expect("LinkAttachmentResult must serialize");
+        assert_eq!(json["instanceId"].as_str(), Some("inst-001"));
+        assert_eq!(json["documentId"].as_str(), Some("doc-001"));
+        assert_eq!(json["sourceRefsCount"].as_u64(), Some(3));
     }
 }
