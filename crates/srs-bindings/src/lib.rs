@@ -2,8 +2,8 @@ use serde::Deserialize;
 use srs_core::types::record::{FieldGroupValue, FieldValue};
 use srs_core::types::relation::Relation;
 use srs_repository::attachment_service::{
-    self as attachment_service, AddAttachmentInput, GetAttachmentBytesInput,
-    LinkAttachmentInput, ListAttachmentsFilter, ResolveDocumentViewAttachmentsInput,
+    self as attachment_service, AddAttachmentInput, GetAttachmentBytesInput, LinkAttachmentInput,
+    ListAttachmentsFilter, ResolveDocumentViewAttachmentsInput,
 };
 use srs_repository::blueprint_schema_service::{self, BlueprintSchemaInput};
 use srs_repository::blueprint_service;
@@ -1060,8 +1060,8 @@ impl SrsRepository {
     /// Returns `{"documentId","contentPath","sidecarPath","sourceDocumentsPath",
     ///           "contentChecksum","sidecarChecksum"}` as a JS value.
     pub fn add_attachment(&self, input_json: &str, file_bytes: &[u8]) -> Result<JsValue, JsValue> {
-        let input: AddAttachmentBindingInput = serde_json::from_str(input_json)
-            .map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let input: AddAttachmentBindingInput =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
         let result = attachment_service::add_attachment(
             &self.store,
             AddAttachmentInput {
@@ -1081,8 +1081,8 @@ impl SrsRepository {
     /// `input_json` is `{"instanceId":"<uuid>","documentId":"<uuid>"}`.
     /// Returns `{"instanceId","documentId","sourceRefsCount"}` as a JS value.
     pub fn link_attachment(&self, input_json: &str) -> Result<JsValue, JsValue> {
-        let input: LinkAttachmentBindingInput = serde_json::from_str(input_json)
-            .map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let input: LinkAttachmentBindingInput =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
         let result = attachment_service::link_attachment(
             &self.store,
             LinkAttachmentInput {
@@ -2128,7 +2128,10 @@ mod tests {
             }],
         };
         let json = serde_json::to_value(&result).expect("ListAttachmentsResult must serialize");
-        assert_eq!(json["sourceDocumentsPath"].as_str(), Some("source-documents"));
+        assert_eq!(
+            json["sourceDocumentsPath"].as_str(),
+            Some("source-documents")
+        );
         assert!(json["entries"].is_array());
         assert_eq!(json["entries"][0]["documentId"].as_str(), Some("doc-001"));
         assert_eq!(
