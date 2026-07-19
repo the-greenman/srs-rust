@@ -1050,10 +1050,10 @@ impl SrsRepository {
     /// `{instanceId, sourceDocumentsPath, attachments: [{documentId, contentPath?,
     /// sidecarPath?, title?, contentChecksum?, sidecarChecksum?}]}` as a JS value.
     pub fn get_record_attachments(&self, input_json: &str) -> Result<JsValue, JsValue> {
-        let input: GetRecordAttachmentsInput = serde_json::from_str(input_json)
-            .map_err(|e| js_err(format!("invalid input: {e}")))?;
-        let result = attachment_service::get_record_attachments(&self.store, input)
-            .map_err(js_err)?;
+        let input: GetRecordAttachmentsInput =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let result =
+            attachment_service::get_record_attachments(&self.store, input).map_err(js_err)?;
         to_js(&result)
     }
 

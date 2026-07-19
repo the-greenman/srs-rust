@@ -326,7 +326,9 @@ fn cmd_record_attachments(ctx: CliContext, id: String) -> Result<String> {
     match with_store(&ctx, |store| {
         Ok(get_record_attachments(
             store,
-            GetRecordAttachmentsInput { instance_id: id.clone() },
+            GetRecordAttachmentsInput {
+                instance_id: id.clone(),
+            },
         )?)
     })? {
         Some(result) => output::serialize(
