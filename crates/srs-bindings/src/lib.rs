@@ -2119,13 +2119,24 @@ mod tests {
         use srs_repository::attachment_service::{AttachmentEntry, ListAttachmentsResult};
         let result = ListAttachmentsResult {
             source_documents_path: "source-documents".to_string(),
-            entries: vec![AttachmentEntry {
-                path: "foo.pdf".to_string(),
-                document_id: Some("doc-001".to_string()),
-                title: Some("Foo".to_string()),
-                content_checksum: Some("sha256:abc".to_string()),
-                sidecar_checksum: None,
-            }],
+            entries: vec![
+                AttachmentEntry {
+                    path: "foo.pdf".to_string(),
+                    document_id: Some("doc-001".to_string()),
+                    title: Some("Foo".to_string()),
+                    content_checksum: Some("sha256:abc".to_string()),
+                    sidecar_checksum: None,
+                    size_bytes: None,
+                },
+                AttachmentEntry {
+                    path: "bar.pdf".to_string(),
+                    document_id: None,
+                    title: None,
+                    content_checksum: None,
+                    sidecar_checksum: None,
+                    size_bytes: Some(99),
+                },
+            ],
         };
         let json = serde_json::to_value(&result).expect("ListAttachmentsResult must serialize");
         assert_eq!(
@@ -2141,6 +2152,15 @@ mod tests {
         assert!(
             json["entries"][0].get("sidecarChecksum").is_none(),
             "skip_serializing_if absent"
+        );
+        assert!(
+            json["entries"][0].get("sizeBytes").is_none(),
+            "None size_bytes skipped in serialization"
+        );
+        assert_eq!(
+            json["entries"][1]["sizeBytes"].as_u64(),
+            Some(99),
+            "Some size_bytes present in serialization"
         );
     }
 

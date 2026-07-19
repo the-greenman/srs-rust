@@ -2054,6 +2054,8 @@ pub struct AttachmentEntry {
     pub content_checksum: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sidecar_checksum: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size_bytes: Option<u64>,
 }
 
 impl From<srs_repository::attachment_service::AttachmentEntry> for AttachmentEntry {
@@ -2064,6 +2066,7 @@ impl From<srs_repository::attachment_service::AttachmentEntry> for AttachmentEnt
             title: e.title,
             content_checksum: e.content_checksum,
             sidecar_checksum: e.sidecar_checksum,
+            size_bytes: e.size_bytes,
         }
     }
 }
