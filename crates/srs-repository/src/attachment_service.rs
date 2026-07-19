@@ -11,6 +11,7 @@ use srs_core::types::source_reference::{SourceReference, SourceRole, SourceType}
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AttachmentEntry {
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -23,12 +24,14 @@ pub struct AttachmentEntry {
     pub sidecar_checksum: Option<String>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ListAttachmentsResult {
     pub source_documents_path: String,
     pub entries: Vec<AttachmentEntry>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct ListAttachmentsFilter {}
 
 /// List source document attachments by walking `source_documents_path` recursively.
@@ -113,7 +116,8 @@ pub struct AddAttachmentInput {
     pub content_type: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AddAttachmentResult {
     /// Generated UUID for this document.
     pub document_id: String,
@@ -311,7 +315,8 @@ pub struct LinkAttachmentInput {
 }
 
 /// Result for `link_attachment`.
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LinkAttachmentResult {
     pub instance_id: String,
     pub document_id: String,
