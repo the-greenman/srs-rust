@@ -980,7 +980,7 @@ mod tests {
         let attach_payload = serde_json::json!({
             "sourceDocumentsPath": "source-documents",
             "entries": [
-                { "documentId": "doc-abc12345", "path": "report.pdf", "title": "Q3 Report" }
+                { "documentId": "doc-abc12345", "path": "report.pdf", "title": "Q3 Report", "sizeBytes": 42 }
             ]
         });
         let result = build_linked_attachments(&record, &attach_payload);
@@ -989,7 +989,7 @@ mod tests {
         assert_eq!(result[0].title.as_deref(), Some("Q3 Report"));
         assert_eq!(result[0].content_path.as_deref(), Some("report.pdf"));
         // size_bytes comes from payload sizeBytes field (not from fs::metadata)
-        assert!(result[0].size_bytes.is_none());
+        assert_eq!(result[0].size_bytes, Some(42));
     }
 
     /// The vendored seed's decision-log DocumentView must carry the canonical authored
