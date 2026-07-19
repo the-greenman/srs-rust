@@ -490,7 +490,7 @@ fn resolve_linked_attachments(
     };
 
     // 3. Delegate cross-referencing to the pure function
-    build_linked_attachments(record, &attach_payload, repo)
+    build_linked_attachments(record, &attach_payload)
 }
 
 /// Pure function: cross-references sourceRefs against a pre-fetched attachment list payload.
@@ -498,7 +498,6 @@ fn resolve_linked_attachments(
 fn build_linked_attachments(
     record: &serde_json::Value,
     attach_payload: &serde_json::Value,
-    repo: &str,
 ) -> Vec<render::LinkedAttachment> {
     let empty = vec![];
     let source_refs = record["sourceRefs"].as_array().unwrap_or(&empty);
@@ -508,9 +507,6 @@ fn build_linked_attachments(
         .filter_map(|r| r["sourceId"].as_str())
         .collect();
 
-    let base_dir = attach_payload["sourceDocumentsPath"]
-        .as_str()
-        .unwrap_or("source-documents");
     let empty_entries = vec![];
     let entries = attach_payload["entries"]
         .as_array()
@@ -526,12 +522,7 @@ fn build_linked_attachments(
                 .find(|e| e["documentId"].as_str() == Some(doc_id));
             let content_path = entry.and_then(|e| e["path"].as_str()).map(String::from);
             let title = entry.and_then(|e| e["title"].as_str()).map(String::from);
-            // Compute on-disk size (best-effort; None on JSON-store repos or missing file)
-            // Known-debt: should come from sizeBytes in AttachmentEntry payload instead (#619)
-            let size_bytes = content_path.as_deref().and_then(|rel_path| {
-                let full = std::path::Path::new(repo).join(base_dir).join(rel_path);
-                std::fs::metadata(full).ok().map(|m| m.len())
-            });
+            let size_bytes = entry.and_then(|e| e["sizeBytes"].as_u64());
             render::LinkedAttachment {
                 document_id: doc_id.to_string(),
                 title,
@@ -992,11 +983,13 @@ mod tests {
                 { "documentId": "doc-abc12345", "path": "report.pdf", "title": "Q3 Report" }
             ]
         });
-        let result = build_linked_attachments(&record, &attach_payload, ".");
+        let result = build_linked_attachments(&record, &attach_payload);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].document_id, "doc-abc12345");
         assert_eq!(result[0].title.as_deref(), Some("Q3 Report"));
         assert_eq!(result[0].content_path.as_deref(), Some("report.pdf"));
+        // size_bytes comes from payload sizeBytes field (not from fs::metadata)
+        assert!(result[0].size_bytes.is_none());
     }
 
     /// The vendored seed's decision-log DocumentView must carry the canonical authored
