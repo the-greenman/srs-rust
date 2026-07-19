@@ -23,8 +23,9 @@ See [agents.md](agents.md) for role definitions.
 | [ADR-010](../docs/adr/010-service-boundary-contract.md) | `get_record_attachments` uses typed input/output structs; no `serde_json::Value` parameters; validation in the service | accepted |
 | [ADR-011](../docs/adr/011-cli-output-contract.md) | New `RecordGetAttachmentsPayload` struct in `payload.rs`; golden schema generated and committed | accepted |
 | [ADR-013](../docs/adr/013-wasm-binding-strategy.md) | WASM binding is a thin `get_record_attachments` method on `SrsRepository`; calls same service as CLI | accepted |
+| [ADR-034](../docs/adr/034-source-refs-in-record-extra.md) | Phase 1 accesses sourceRefs via `record.extra["sourceRefs"]` (not a typed field); deserialization failures surface as `RepositoryError::Serialize` following the same guard pattern as `resolve_document_view_attachments` | accepted |
 
-No new ADRs are needed — this plan implements existing rules (ADR-010, ADR-011, ADR-013) and closes a known R5 violation.
+No new ADRs are needed — this plan implements existing rules (ADR-010, ADR-011, ADR-013, ADR-034) and closes a known R5 violation.
 
 ---
 
@@ -73,11 +74,11 @@ No JSON Schema files under `srs/docs/schema/2.0/` are added or modified. No sche
 #### Tasks
 
 - [ ] Add `GetRecordAttachmentsInput { pub instance_id: String }` struct to `crates/srs-repository/src/attachment_service.rs`
-- [ ] Add `GetRecordAttachmentsResult { pub source_documents_path: String, pub instance_id: String, pub attachments: Vec<ResolvedAttachment> }` struct to `crates/srs-repository/src/attachment_service.rs`
+- [ ] Add `GetRecordAttachmentsResult { pub source_documents_path: String, pub instance_id: String, pub attachments: Vec<ResolvedAttachment> }` struct to `crates/srs-repository/src/attachment_service.rs`. Add a doc comment: "Single-record analog to `RecordAttachments`; carries `source_documents_path` inline because the multi-record path (`ResolveDocumentViewAttachmentsResult`) surfaces it at the top level instead."
 - [ ] Implement `pub fn get_record_attachments(store: &dyn RepositoryStore, input: GetRecordAttachmentsInput) -> Result<Option<GetRecordAttachmentsResult>, RepositoryError>` in `crates/srs-repository/src/attachment_service.rs`:
   - Load manifest for `source_documents_path` and `source_document_index`
   - Call `record_store::get_record_by_id(store, &input.instance_id)?` — return `Ok(None)` if absent
-  - Parse `record.extra["sourceRefs"]` as `Vec<SourceReference>`
+  - Parse `record.extra["sourceRefs"]` as `Vec<SourceReference>` (ADR-034: stored in extra map, not a typed field; map serde errors to `RepositoryError::Serialize`)
   - Filter by `r.source_role == Some(SourceRole::Attaches) && r.source_type == SourceType::RepositoryDocument` (typed enum, no string literals)
   - Cross-reference `r.source_id` against the source document index map
   - Return `Ok(Some(GetRecordAttachmentsResult { ... }))`
@@ -146,11 +147,21 @@ cargo clippy -p srs-repository -- -D warnings
       pub source_documents_path: String,
       pub attachments: Vec<ResolvedAttachmentPayload>,
   }
+
+  impl From<GetRecordAttachmentsResult> for RecordGetAttachmentsPayload {
+      fn from(r: GetRecordAttachmentsResult) -> Self {
+          Self {
+              instance_id: r.instance_id,
+              source_documents_path: r.source_documents_path,
+              attachments: r.attachments.into_iter().map(ResolvedAttachmentPayload::from).collect(),
+          }
+      }
+  }
   ```
-  Add `From<GetRecordAttachmentsResult>` impl that maps `GetRecordAttachmentsResult` fields.
-- [ ] Add `RecordCommand::Attachments { id: String }` variant to the `RecordCommand` enum in `crates/srs-cli/src/commands/mod.rs` (below the `AllowedTransitions` variant; clap doc: `/// List attachments linked to a record`)
+  (`#[serde(rename_all = "camelCase")]` means `instance_id` serializes as `instanceId`, `source_documents_path` as `sourceDocumentsPath` in the JSON output.)
+- [ ] Add `RecordCommand::Attachments { id: String }` variant to the `RecordCommand` enum in `crates/srs-cli/src/commands/mod.rs` below the `AllowedTransitions` variant, with the clap doc comment `/// List attachments linked to a record` on the line immediately above the variant (following the same doc-comment pattern as existing variants)
 - [ ] Add `RecordCommand::Attachments { id } => cmd_record_attachments(ctx, id)` dispatch arm in `crates/srs-cli/src/commands/record.rs`
-- [ ] Add handler `fn cmd_record_attachments(ctx: CliContext, id: String) -> Result<String>` in `crates/srs-cli/src/commands/record.rs`:
+- [ ] Add handler `fn cmd_record_attachments(ctx: CliContext, id: String) -> Result<String>` in `crates/srs-cli/src/commands/record.rs`. `output::not_found` does not exist — the established pattern (record.rs lines 139–142, 296–299) is `Ok(output::err(...))`:
   ```rust
   fn cmd_record_attachments(ctx: CliContext, id: String) -> Result<String> {
       match with_store(&ctx, |store| {
@@ -160,7 +171,10 @@ cargo clippy -p srs-repository -- -D warnings
           )?)
       })? {
           Some(result) => output::serialize("record attachments", RecordGetAttachmentsPayload::from(result)),
-          None => output::not_found(format!("Record '{id}' not found")),
+          None => Ok(output::err(
+              "record attachments",
+              vec![format!("Record '{id}' not found")],
+          )),
       }
   }
   ```
@@ -211,10 +225,33 @@ cargo clippy -p srs-cli -- -D warnings
 
 #### Tasks
 
-- [ ] In `crates/srs-gov/src/main.rs`, update `resolve_linked_attachments` to call `run_srs(&["record", "attachments", id], repo, false, false)` instead of performing the two-call cross-referencing pattern
-- [ ] Parse the result from `payload["attachments"]` (the `RecordGetAttachmentsPayload.attachments` array) and map each entry to `render::LinkedAttachment { document_id, title, content_path, size_bytes: None }`
-- [ ] Remove `build_linked_attachments` (pure cross-referencing function that will be fully replaced) — delete the function and update any tests that exercise it
-- [ ] Update `cmd_get` to pass the record's `instanceId` (not just the prefix `id`) to `resolve_linked_attachments` so the typed call can use the full instance ID
+- [ ] In `crates/srs-gov/src/main.rs`, change `resolve_linked_attachments` signature from `(record: &serde_json::Value, repo: &str)` to `(instance_id: &str, repo: &str)` — the instance ID is what the service call needs, not the full record JSON.
+- [ ] Update the call site in `cmd_get` (currently line 450: `resolve_linked_attachments(record, repo)`) to instead extract `instance_id` from `record["instanceId"].as_str().unwrap_or_default()` and call `resolve_linked_attachments(instance_id, repo)`.
+- [ ] Replace `resolve_linked_attachments` body with a single `run_srs` call:
+  ```rust
+  fn resolve_linked_attachments(instance_id: &str, repo: &str) -> Vec<render::LinkedAttachment> {
+      let payload = match run_srs(&["record", "attachments", instance_id], repo, false, false) {
+          Ok(p) => p,
+          Err(err) => {
+              // Graceful degradation: degrade to empty list on subprocess failure (same policy as before).
+              eprintln!("warn: could not fetch record attachments: {err}");
+              return vec![];
+          }
+      };
+      let empty = vec![];
+      let entries = payload["attachments"].as_array().unwrap_or(&empty);
+      entries.iter().map(|e| render::LinkedAttachment {
+          // RecordGetAttachmentsPayload.attachments[] uses camelCase field names in JSON
+          document_id: e["documentId"].as_str().unwrap_or_default().to_string(),
+          title: e["title"].as_str().map(String::from),
+          content_path: e["contentPath"].as_str().map(String::from),
+          size_bytes: None,  // not provided by the service; renders as "—"
+      }).collect()
+  }
+  ```
+- [ ] Remove `build_linked_attachments` (fully replaced by the service call) — delete the function and remove or update any tests that exercise it directly.
+
+Note on error handling: maintain **graceful degradation** (return `vec![]` on subprocess failure). This matches the prior policy where attachment resolution failure degrades rather than fails the entire `get` command. The new policy drops the "fallback to doc IDs" behavior since the service itself returns a proper empty list for records with no attachments; the only failure case is a subprocess error.
 
 Note on `size_bytes`: `size_bytes` is `None` after this change (the service doesn't include filesystem size). `render::linked_attachments` already handles `None` gracefully with `"—"`. This is a minor output change (deferred enhancement, not a regression).
 
@@ -270,6 +307,7 @@ cargo clippy -p srs-gov -- -D warnings
   /// Returns `{instanceId, sourceDocumentsPath, attachments: [{documentId, contentPath,
   /// sidecarPath, title, contentChecksum, sidecarChecksum}]}`, or a JS error when the
   /// record is not found or the store cannot be read.
+  #[wasm_bindgen]
   pub fn get_record_attachments(&self, instance_id: &str) -> Result<JsValue, JsValue> {
       let result = get_record_attachments(
           &self.store,
