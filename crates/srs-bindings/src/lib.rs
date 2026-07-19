@@ -2125,6 +2125,7 @@ mod tests {
                 title: Some("Foo".to_string()),
                 content_checksum: Some("sha256:abc".to_string()),
                 sidecar_checksum: None,
+                size_bytes: None,
             }],
         };
         let json = serde_json::to_value(&result).expect("ListAttachmentsResult must serialize");
