@@ -446,89 +446,37 @@ fn cmd_get(key: &str, id: &str, repo: &str, explain: bool, json: bool) -> Result
 
     record_detail(id, schema_props, &field_values);
 
-    // Show linked attachments (sourceRefs with sourceRole == "attaches")
-    let linked = resolve_linked_attachments(record, repo);
+    // Show linked attachments via the typed service (R5: semantic filtering in srs-repository)
+    let instance_id = record["instanceId"].as_str().unwrap_or_default();
+    let linked = resolve_linked_attachments(instance_id, repo);
     if !linked.is_empty() {
         render::linked_attachments(&linked);
     }
     Ok(())
 }
 
-/// Thin acquisition wrapper: calls run_srs to fetch the attachment list, then delegates
-/// all cross-referencing to `build_linked_attachments`.
-fn resolve_linked_attachments(
-    record: &serde_json::Value,
-    repo: &str,
-) -> Vec<render::LinkedAttachment> {
-    // 1. Extract sourceRefs with sourceRole == "attaches" (ADR-034: in record.extra["sourceRefs"])
-    let empty = vec![];
-    let source_refs = record["sourceRefs"].as_array().unwrap_or(&empty);
-    let has_attaches = source_refs
-        .iter()
-        .any(|r| r["sourceRole"].as_str() == Some("attaches"));
-    if !has_attaches {
-        return vec![];
-    }
-
-    // 2. Fetch attachment list from the store (best-effort: degrade to doc IDs on error)
-    let attach_payload = match run_srs(&["attachment", "list"], repo, false, false) {
+fn resolve_linked_attachments(instance_id: &str, repo: &str) -> Vec<render::LinkedAttachment> {
+    let payload = match run_srs(
+        &["record", "attachments", "--id", instance_id],
+        repo,
+        false,
+        false,
+    ) {
         Ok(p) => p,
         Err(err) => {
-            eprintln!("warn: could not fetch attachment list: {err}");
-            return source_refs
-                .iter()
-                .filter(|r| r["sourceRole"].as_str() == Some("attaches"))
-                .filter_map(|r| r["sourceId"].as_str())
-                .map(|id| render::LinkedAttachment {
-                    document_id: id.to_string(),
-                    title: None,
-                    content_path: None,
-                    size_bytes: None,
-                })
-                .collect();
+            eprintln!("warn: could not fetch record attachments: {err}");
+            return vec![];
         }
     };
-
-    // 3. Delegate cross-referencing to the pure function
-    build_linked_attachments(record, &attach_payload)
-}
-
-/// Pure function: cross-references sourceRefs against a pre-fetched attachment list payload.
-/// Accepts pre-fetched JSON so the logic is fully testable without spawning subprocesses.
-fn build_linked_attachments(
-    record: &serde_json::Value,
-    attach_payload: &serde_json::Value,
-) -> Vec<render::LinkedAttachment> {
     let empty = vec![];
-    let source_refs = record["sourceRefs"].as_array().unwrap_or(&empty);
-    let attached_doc_ids: Vec<&str> = source_refs
+    let entries = payload["attachments"].as_array().unwrap_or(&empty);
+    entries
         .iter()
-        .filter(|r| r["sourceRole"].as_str() == Some("attaches"))
-        .filter_map(|r| r["sourceId"].as_str())
-        .collect();
-
-    let empty_entries = vec![];
-    let entries = attach_payload["entries"]
-        .as_array()
-        .unwrap_or(&empty_entries);
-
-    // Cross-reference and build result (R5 known-debt: filtering by "attaches" string)
-    attached_doc_ids
-        .iter()
-        .map(|&doc_id| {
-            // AttachmentEntry has #[serde(rename_all = "camelCase")] → "documentId" in JSON
-            let entry = entries
-                .iter()
-                .find(|e| e["documentId"].as_str() == Some(doc_id));
-            let content_path = entry.and_then(|e| e["path"].as_str()).map(String::from);
-            let title = entry.and_then(|e| e["title"].as_str()).map(String::from);
-            let size_bytes = entry.and_then(|e| e["sizeBytes"].as_u64());
-            render::LinkedAttachment {
-                document_id: doc_id.to_string(),
-                title,
-                content_path,
-                size_bytes,
-            }
+        .map(|e| render::LinkedAttachment {
+            document_id: e["documentId"].as_str().unwrap_or_default().to_string(),
+            title: e["title"].as_str().map(String::from),
+            content_path: e["contentPath"].as_str().map(String::from),
+            size_bytes: None,
         })
         .collect()
 }
@@ -950,47 +898,7 @@ fn cmd_export_decision(
 
 #[cfg(test)]
 mod tests {
-    use super::{build_linked_attachments, resolve_linked_attachments, GOVERNANCE_SEED};
-
-    #[test]
-    fn resolve_linked_attachments_empty_refs() {
-        let record = serde_json::json!({});
-        let result = resolve_linked_attachments(&record, ".");
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn resolve_linked_attachments_no_attaches_role() {
-        let record = serde_json::json!({
-            "sourceRefs": [
-                { "sourceType": "repository-document", "sourceId": "doc-1", "sourceRole": "evidence" }
-            ]
-        });
-        let result = resolve_linked_attachments(&record, ".");
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn build_linked_attachments_matches_entry() {
-        let record = serde_json::json!({
-            "sourceRefs": [
-                { "sourceType": "repository-document", "sourceId": "doc-abc12345", "sourceRole": "attaches" }
-            ]
-        });
-        let attach_payload = serde_json::json!({
-            "sourceDocumentsPath": "source-documents",
-            "entries": [
-                { "documentId": "doc-abc12345", "path": "report.pdf", "title": "Q3 Report", "sizeBytes": 42 }
-            ]
-        });
-        let result = build_linked_attachments(&record, &attach_payload);
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].document_id, "doc-abc12345");
-        assert_eq!(result[0].title.as_deref(), Some("Q3 Report"));
-        assert_eq!(result[0].content_path.as_deref(), Some("report.pdf"));
-        // size_bytes comes from payload sizeBytes field (not from fs::metadata)
-        assert_eq!(result[0].size_bytes, Some(42));
-    }
+    use super::GOVERNANCE_SEED;
 
     /// The vendored seed's decision-log DocumentView must carry the canonical authored
     /// default-hidden states (the whole point of #298 — regenerate the derived copy).

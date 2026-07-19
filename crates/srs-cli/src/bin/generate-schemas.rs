@@ -56,6 +56,7 @@ fn main() {
         "record-allowed-transitions",
         RecordAllowedTransitionsPayload
     );
+    write_schema!("record-get-attachments", RecordGetAttachmentsPayload);
 
     // Relation payloads
     write_schema!("relation-list", RelationListPayload);

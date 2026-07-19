@@ -2202,6 +2202,32 @@ impl From<srs_repository::attachment_service::ResolveDocumentViewAttachmentsResu
     }
 }
 
+// ── Get record attachments payload ────────────────────────────────────────────
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordGetAttachmentsPayload {
+    pub instance_id: String,
+    pub source_documents_path: String,
+    pub attachments: Vec<ResolvedAttachmentPayload>,
+}
+
+impl From<srs_repository::attachment_service::GetRecordAttachmentsResult>
+    for RecordGetAttachmentsPayload
+{
+    fn from(r: srs_repository::attachment_service::GetRecordAttachmentsResult) -> Self {
+        Self {
+            instance_id: r.instance_id,
+            source_documents_path: r.source_documents_path,
+            attachments: r
+                .attachments
+                .into_iter()
+                .map(ResolvedAttachmentPayload::from)
+                .collect(),
+        }
+    }
+}
+
 // ── Attachment policy payload ──────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]

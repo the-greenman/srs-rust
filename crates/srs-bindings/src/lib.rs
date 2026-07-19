@@ -2,8 +2,9 @@ use serde::Deserialize;
 use srs_core::types::record::{FieldGroupValue, FieldValue};
 use srs_core::types::relation::Relation;
 use srs_repository::attachment_service::{
-    self as attachment_service, AddAttachmentInput, GetAttachmentBytesInput, LinkAttachmentInput,
-    ListAttachmentsFilter, ResolveDocumentViewAttachmentsInput,
+    self as attachment_service, AddAttachmentInput, GetAttachmentBytesInput,
+    GetRecordAttachmentsInput, LinkAttachmentInput, ListAttachmentsFilter,
+    ResolveDocumentViewAttachmentsInput,
 };
 use srs_repository::blueprint_schema_service::{self, BlueprintSchemaInput};
 use srs_repository::blueprint_service;
@@ -1039,6 +1040,20 @@ impl SrsRepository {
             serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
         let result = attachment_service::resolve_document_view_attachments(&self.store, input)
             .map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Retrieve attachments linked to a single record via its sourceRefs.
+    ///
+    /// `input_json` is `{"instanceId": "<uuid>"}`.
+    /// Returns `null` when the record is not found, or
+    /// `{instanceId, sourceDocumentsPath, attachments: [{documentId, contentPath?,
+    /// sidecarPath?, title?, contentChecksum?, sidecarChecksum?}]}` as a JS value.
+    pub fn get_record_attachments(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: GetRecordAttachmentsInput =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let result =
+            attachment_service::get_record_attachments(&self.store, input).map_err(js_err)?;
         to_js(&result)
     }
 
