@@ -12,8 +12,8 @@ pub fn dispatch(_ctx: CliContext, cmd: RegistryCommand) -> Result<String> {
         RegistryCommand::List {
             path,
             publisher,
-            tag,
-        } => cmd_registry_list(path, publisher, tag),
+            tags,
+        } => cmd_registry_list(path, publisher, tags),
         RegistryCommand::Get { path, package_name } => cmd_registry_get(path, package_name),
     }
 }
@@ -21,11 +21,11 @@ pub fn dispatch(_ctx: CliContext, cmd: RegistryCommand) -> Result<String> {
 fn cmd_registry_list(
     path: PathBuf,
     publisher: Option<String>,
-    tag: Option<String>,
+    tags: Vec<String>,
 ) -> Result<String> {
     let result = list_registry(ListRegistryInput {
         path,
-        filter: RegistryListFilter { publisher, tag },
+        filter: RegistryListFilter { publisher, tags },
     })
     .map_err(anyhow::Error::from)?;
     let entries = result
