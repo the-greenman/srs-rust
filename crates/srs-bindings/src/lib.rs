@@ -1132,7 +1132,8 @@ pub fn parse_registry(catalog_json: &str) -> Result<JsValue, JsValue> {
 /// object with optional `publisher` (string) and `tags` ([string]) keys; pass
 /// `"{}"` to return all entries. An empty or absent `tags` array matches all
 /// entries. Multiple tags are AND-conjoined — an entry must carry every listed
-/// tag.
+/// tag. (Note: the initial cut used a singular `"tag"` string key; that key is
+/// now rejected — use `"tags": [...]` instead.)
 ///
 /// Returns a `Registry` JS value whose `entries` array contains only the
 /// matching entries (all entries if no filter criteria are set).

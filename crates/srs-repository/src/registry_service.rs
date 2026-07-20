@@ -4,7 +4,7 @@ use srs_core::extensions::registry::{Registry, RegistryEntry};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RegistryListFilter {
     pub publisher: Option<String>,
     #[serde(default)]
