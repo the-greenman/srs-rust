@@ -1319,9 +1319,7 @@ srs registry list --path /tmp/nonexistent-registry.json --pretty
 - Combined filter (step 5) is strictly AND — only entries matching both criteria appear
 - Multi-tag step (step 4): passing `--tag governance --tag risk` returns only entries that carry **both** tags (`filteredCount` 1); entries missing either tag are excluded
 
-**Verified 2026-07-12 (#244):** Steps 1–3 and 5–8 passed. Optional fields omitted correctly; not-found and missing-file negative cases produce correct `ok: false` envelopes with exit code 1. WASM free functions (`parse_registry`, `list_registry_entries`) cover the browser-side path; CLI covers the agentic path.
-
-**Updated 2026-07-20 (#542):** Step 4 added for multi-tag AND-conjunction (`--tag` is now repeatable). `filter_json` for WASM callers uses `"tags": [...]` (previously `"tag": "..."`); unknown keys now produce an explicit parse error.
+**Verified 2026-07-20 (#542):** All eight steps passed. Step 4 (multi-tag AND: `--tag governance --tag risk`) returned `filteredCount=1` with only `com.semanticops.governance` (the only entry carrying both tags). Steps 7 and 8 produce correct `ok: false` envelopes with exit code 1. `filter_json` for WASM callers uses `"tags": [...]`; passing the old `"tag": "..."` key now produces an explicit parse error (`deny_unknown_fields`).
 
 ---
 
