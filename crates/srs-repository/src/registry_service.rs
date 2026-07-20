@@ -7,7 +7,8 @@ use std::path::PathBuf;
 #[serde(rename_all = "camelCase")]
 pub struct RegistryListFilter {
     pub publisher: Option<String>,
-    pub tag: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 fn read_registry_file(path: &std::path::Path) -> Result<Registry, RepositoryError> {
@@ -44,10 +45,10 @@ pub fn filter_registry_entries(mut registry: Registry, filter: &RegistryListFilt
                 return false;
             }
         }
-        if let Some(tag_filter) = &filter.tag {
+        for tag in &filter.tags {
             match &entry.tags {
                 Some(tags) => {
-                    if !tags.contains(tag_filter) {
+                    if !tags.contains(tag) {
                         return false;
                     }
                 }
@@ -211,7 +212,7 @@ mod tests {
             path: f.path().to_path_buf(),
             filter: RegistryListFilter {
                 publisher: Some("a.com".to_string()),
-                tag: None,
+                tags: vec![],
             },
         })
         .unwrap();
@@ -233,7 +234,7 @@ mod tests {
             path: f.path().to_path_buf(),
             filter: RegistryListFilter {
                 publisher: None,
-                tag: Some("governance".to_string()),
+                tags: vec!["governance".to_string()],
             },
         })
         .unwrap();
@@ -255,7 +256,29 @@ mod tests {
             path: f.path().to_path_buf(),
             filter: RegistryListFilter {
                 publisher: Some("a.com".to_string()),
-                tag: Some("governance".to_string()),
+                tags: vec!["governance".to_string()],
+            },
+        })
+        .unwrap();
+        assert_eq!(result.total_count, 3);
+        assert_eq!(result.filtered_count, 1);
+        assert_eq!(result.entries[0].package_name, "com.a.pkg");
+    }
+
+    #[test]
+    fn list_registry_filter_by_multiple_tags_and_conjunction() {
+        let entries = vec![
+            make_entry("com.a.pkg", "a.com", Some(vec!["governance", "risk"])),
+            make_entry("com.b.pkg", "b.com", Some(vec!["governance"])),
+            make_entry("com.c.pkg", "c.com", Some(vec!["risk"])),
+        ];
+        let registry = make_registry(entries);
+        let f = write_registry_file(&registry);
+        let result = list_registry(ListRegistryInput {
+            path: f.path().to_path_buf(),
+            filter: RegistryListFilter {
+                publisher: None,
+                tags: vec!["governance".to_string(), "risk".to_string()],
             },
         })
         .unwrap();

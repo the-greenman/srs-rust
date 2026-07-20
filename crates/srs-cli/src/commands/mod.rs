@@ -1587,9 +1587,9 @@ pub enum RegistryCommand {
         /// Filter by publisher domain (exact match)
         #[arg(long)]
         publisher: Option<String>,
-        /// Filter by tag (entry must carry this tag)
-        #[arg(long)]
-        tag: Option<String>,
+        /// Filter by tag; repeat to require multiple tags (AND-conjunction)
+        #[arg(long = "tag")]
+        tags: Vec<String>,
     },
     /// Get a single registry entry by package name
     Get {
