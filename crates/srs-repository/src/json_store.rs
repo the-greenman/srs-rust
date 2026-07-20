@@ -1564,6 +1564,7 @@ impl RepositoryStore for JsonStore {
 
     fn list_files_recursive(&self, relative_dir: &str) -> Vec<String> {
         let state = self.state.borrow();
+        // data and binary_files are disjoint per ADR-031; chain() is dedup-free.
         if relative_dir.is_empty() {
             return state
                 .data

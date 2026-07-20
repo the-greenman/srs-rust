@@ -3012,9 +3012,13 @@ pub mod memory {
         }
 
         fn list_files_recursive(&self, relative_dir: &str) -> Vec<String> {
-            let prefix = format!("{}/", relative_dir.trim_end_matches('/'));
             let data = self.data.borrow();
             let binary_data = self.binary_data.borrow();
+            // data and binary_data are disjoint per ADR-031; chain() is dedup-free.
+            if relative_dir.is_empty() {
+                return data.keys().chain(binary_data.keys()).cloned().collect();
+            }
+            let prefix = format!("{}/", relative_dir.trim_end_matches('/'));
             data.keys()
                 .chain(binary_data.keys())
                 .filter(|k| k.starts_with(&prefix))

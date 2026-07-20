@@ -1120,6 +1120,10 @@ mod tests {
             entry.content_checksum.as_deref(),
             Some(add_result.content_checksum.as_str())
         );
+        assert_eq!(
+            entry.sidecar_checksum.as_deref(),
+            Some(add_result.sidecar_checksum.as_str())
+        );
         // Binary paths are now visible via list_files_recursive; file_byte_len via
         // load_binary_file returns Some(n) for binary-data paths.
         assert_eq!(
@@ -1171,6 +1175,15 @@ mod tests {
         assert_eq!(
             entry.document_id.as_deref(),
             Some(add_result.document_id.as_str())
+        );
+        assert_eq!(entry.title.as_deref(), Some("Brief"));
+        assert_eq!(
+            entry.content_checksum.as_deref(),
+            Some(add_result.content_checksum.as_str())
+        );
+        assert_eq!(
+            entry.sidecar_checksum.as_deref(),
+            Some(add_result.sidecar_checksum.as_str())
         );
         assert_eq!(
             entry.size_bytes,
