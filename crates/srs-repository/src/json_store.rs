@@ -1563,14 +1563,21 @@ impl RepositoryStore for JsonStore {
     }
 
     fn list_files_recursive(&self, relative_dir: &str) -> Vec<String> {
+        let state = self.state.borrow();
+        // data and binary_files are disjoint per ADR-031; chain() is dedup-free.
         if relative_dir.is_empty() {
-            return self.state.borrow().data.keys().cloned().collect();
+            return state
+                .data
+                .keys()
+                .chain(state.binary_files.keys())
+                .cloned()
+                .collect();
         }
         let prefix = format!("{}/", relative_dir.trim_end_matches('/'));
-        self.state
-            .borrow()
+        state
             .data
             .keys()
+            .chain(state.binary_files.keys())
             .filter(|k| k.starts_with(&prefix))
             .cloned()
             .collect()

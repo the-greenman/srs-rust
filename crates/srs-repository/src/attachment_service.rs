@@ -76,7 +76,8 @@ pub fn list_attachments(
         .filter(|(_, rel)| !rel.ends_with(".meta.json"))
         .map(|(full_rel, rel)| {
             // Best-effort: FileStore returns the real byte count via fs::metadata;
-            // MemoryStore returns None (binary_data is separate from text data).
+            // MemoryStore returns Some(n) for binary paths (via binary_data) and None
+            // for text-only registrations (e.g. paths registered via save_text_file).
             let size_bytes = store.file_byte_len(&full_rel).ok();
             if let Some(idx) = index_map.get(rel.as_str()) {
                 AttachmentEntry {
@@ -741,8 +742,9 @@ mod tests {
         }
     }
 
-    // MemoryStore::list_files_recursive only scans the text-data store.
-    // In tests, use save_text_file (empty string suffices) to register a file path.
+    // `touch` registers a path in the text-data store (not binary_data).
+    // Use it when exercising the text-file listing path. For the binary-file
+    // path, use add_attachment directly (see add_then_list_attachments_memory_store).
     fn touch(store: &MemoryStore, path: &str) {
         store.save_text_file(path, "").unwrap();
     }
@@ -1078,6 +1080,115 @@ mod tests {
             sidecar["contentType"].as_str(),
             Some("application/custom"),
             "explicit content_type should not be overridden"
+        );
+    }
+
+    // ── add_attachment → list_attachments regression tests (issue #647) ──────────
+
+    /// Regression for #647: add_attachment writes content to binary_data; list_attachments
+    /// must find the entry via list_files_recursive on MemoryStore.
+    #[test]
+    fn add_then_list_attachments_memory_store() {
+        let store = empty_store();
+        let add_result = add_attachment(
+            &store,
+            AddAttachmentInput {
+                file_name: "report.pdf".to_string(),
+                content: b"PDF bytes".to_vec(),
+                subdir: None,
+                title: Some("Report".to_string()),
+                content_type: None,
+            },
+        )
+        .expect("add_attachment must succeed");
+
+        let list_result = list_attachments(&store, ListAttachmentsFilter::default())
+            .expect("list_attachments must succeed");
+        assert_eq!(
+            list_result.entries.len(),
+            1,
+            "add_attachment must be visible to list_attachments on MemoryStore"
+        );
+        let entry = &list_result.entries[0];
+        assert_eq!(entry.path, "report.pdf");
+        assert_eq!(
+            entry.document_id.as_deref(),
+            Some(add_result.document_id.as_str())
+        );
+        assert_eq!(entry.title.as_deref(), Some("Report"));
+        assert_eq!(
+            entry.content_checksum.as_deref(),
+            Some(add_result.content_checksum.as_str())
+        );
+        assert_eq!(
+            entry.sidecar_checksum.as_deref(),
+            Some(add_result.sidecar_checksum.as_str())
+        );
+        // Binary paths are now visible via list_files_recursive; file_byte_len via
+        // load_binary_file returns Some(n) for binary-data paths.
+        assert_eq!(
+            entry.size_bytes,
+            Some(9),
+            "size_bytes must reflect binary content length (b\"PDF bytes\" = 9)"
+        );
+    }
+
+    /// Regression for #647 (JsonStore / WASM path): add_attachment writes to binary_files;
+    /// list_attachments must find the entry via list_files_recursive on JsonStore.
+    #[test]
+    fn add_then_list_attachments_json_store() {
+        use crate::json_store::JsonStore;
+
+        let srsj = serde_json::json!({
+            "srsj": "1",
+            "manifest": {
+                "srsVersion": "2.0-draft",
+                "namespace": "com.test",
+                "instanceIndex": []
+            },
+            "data": {}
+        })
+        .to_string();
+        let store = JsonStore::from_srsj(&srsj).expect("valid minimal JsonStore");
+
+        let add_result = add_attachment(
+            &store,
+            AddAttachmentInput {
+                file_name: "brief.pdf".to_string(),
+                content: b"brief bytes".to_vec(),
+                subdir: None,
+                title: Some("Brief".to_string()),
+                content_type: None,
+            },
+        )
+        .expect("add_attachment must succeed");
+
+        let list_result = list_attachments(&store, ListAttachmentsFilter::default())
+            .expect("list_attachments must succeed");
+        assert_eq!(
+            list_result.entries.len(),
+            1,
+            "add_attachment must be visible to list_attachments on JsonStore (WASM path)"
+        );
+        let entry = &list_result.entries[0];
+        assert_eq!(entry.path, "brief.pdf");
+        assert_eq!(
+            entry.document_id.as_deref(),
+            Some(add_result.document_id.as_str())
+        );
+        assert_eq!(entry.title.as_deref(), Some("Brief"));
+        assert_eq!(
+            entry.content_checksum.as_deref(),
+            Some(add_result.content_checksum.as_str())
+        );
+        assert_eq!(
+            entry.sidecar_checksum.as_deref(),
+            Some(add_result.sidecar_checksum.as_str())
+        );
+        assert_eq!(
+            entry.size_bytes,
+            Some(11),
+            "size_bytes must reflect binary content length (b\"brief bytes\" = 11)"
         );
     }
 

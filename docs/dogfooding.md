@@ -1922,6 +1922,8 @@ $SRS repo validate --repo /tmp/dogfood-s32 --pretty
 
 **Verified 2026-07-17 (#280).** Happy path confirmed: PDF stored, sidecar written with correct `contentType: "application/pdf"`, manifest entry populated, `attachment list` returned the entry with all fields. Subdir (`annexes/`) confirmed: `contentPath: "annexes/annex-a.txt"`. Duplicate rejection confirmed: `ok: false` with the expected diagnostic. Missing-file case confirmed: `ok: false` with read-error diagnostic. `repo validate`: 0 diagnostics throughout.
 
+**Re-verified 2026-07-20 (#647).** `attachment list` immediately after `attachment add` on a freshly-created directory-format repo confirmed: one entry with `path`, `documentId`, `contentChecksum`, `sizeBytes`, and `title` all populated. `repo validate` stays at 0 errors. (Regression tests `add_then_list_attachments_memory_store` and `add_then_list_attachments_json_store` added in `attachment_service.rs` to guard the in-memory store path.)
+
 ---
 
 ## S33 — Governance operator adds a supporting file to a decision-log repo (`srs-gov attachment add/list`, #282)
@@ -1930,7 +1932,7 @@ $SRS repo validate --repo /tmp/dogfood-s32 --pretty
 
 **CLI surface.** `srs-gov attachment add`, `srs-gov attachment list`, `srs repo validate`.
 
-**Note on repo format.** `srs-gov attachment add/list` work on **directory-format** repos. The `.srsj` single-file format silently discards binary writes (JsonStore is text-only), so the content file is not stored and `attachment list` returns empty. Use `srs repo create` to create a directory-format repo for this scenario.
+**Note on repo format.** `srs-gov attachment add/list` work on **directory-format** repos. In the `.srsj` single-file format, binary content is not included in SRSJ serialisation (by design per RFC-017), so binary files do not survive a serialisation/deserialisation round-trip and `attachment list` returns empty after reload. Within a single in-memory WASM session the listing is correct (fixed in #647). Use `srs repo create` to create a directory-format repo for this scenario.
 
 ```bash
 # Prepare
