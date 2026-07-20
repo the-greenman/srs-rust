@@ -346,6 +346,16 @@ pub trait RepositoryStore {
             .any(|p| p.ends_with(".revisions.json"))
     }
 
+    /// List all `.meta.json` sidecar paths under `source-documents/` recursively.
+    /// Returns relative paths from the repository root.
+    /// Returns an empty Vec if the directory does not exist.
+    fn list_source_document_sidecar_paths(&self) -> Vec<String> {
+        self.list_files_recursive("source-documents")
+            .into_iter()
+            .filter(|p| p.ends_with(".meta.json"))
+            .collect()
+    }
+
     /// Read a text file at `relative_path` and return its contents.
     fn load_text_file(&self, relative_path: &str) -> Result<String, RepositoryError>;
 
