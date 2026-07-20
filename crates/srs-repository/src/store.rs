@@ -3013,9 +3013,10 @@ pub mod memory {
 
         fn list_files_recursive(&self, relative_dir: &str) -> Vec<String> {
             let prefix = format!("{}/", relative_dir.trim_end_matches('/'));
-            self.data
-                .borrow()
-                .keys()
+            let data = self.data.borrow();
+            let binary_data = self.binary_data.borrow();
+            data.keys()
+                .chain(binary_data.keys())
                 .filter(|k| k.starts_with(&prefix))
                 .cloned()
                 .collect()
