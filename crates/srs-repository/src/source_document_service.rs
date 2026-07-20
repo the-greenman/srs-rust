@@ -54,8 +54,7 @@ mod tests {
         store
             .save_text_file("source-documents/test.md.meta.json", meta_json)
             .unwrap();
-        let result =
-            list_source_documents(&store, ListSourceDocumentsFilter::default()).unwrap();
+        let result = list_source_documents(&store, ListSourceDocumentsFilter::default()).unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(
             result[0].document_id,
@@ -75,8 +74,7 @@ mod tests {
         store
             .save_text_file("source-documents/sub/b.pdf.meta.json", meta_json_b)
             .unwrap();
-        let result =
-            list_source_documents(&store, ListSourceDocumentsFilter::default()).unwrap();
+        let result = list_source_documents(&store, ListSourceDocumentsFilter::default()).unwrap();
         assert_eq!(result.len(), 2);
         let ids: Vec<_> = result.iter().map(|e| e.document_id.as_str()).collect();
         assert!(ids.contains(&"aaaaaaaa-0000-4000-8000-000000000001"));
@@ -112,8 +110,7 @@ mod tests {
             "/../../tests/fixtures/spec-repo"
         );
         let store = FileStore::new(repo_path);
-        let result =
-            list_source_documents(&store, ListSourceDocumentsFilter::default()).unwrap();
+        let result = list_source_documents(&store, ListSourceDocumentsFilter::default()).unwrap();
         // The spec-repo fixture has 4 .meta.json sidecars:
         //   source-documents/spec/srs-spec.md.meta.json
         //   source-documents/ai-sessions/chatgpt-origin.md.meta.json

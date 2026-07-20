@@ -85,10 +85,7 @@ mod tests {
             }
         }"#;
         let meta: SourceDocumentMeta = serde_json::from_str(json).unwrap();
-        assert_eq!(
-            meta.document_id,
-            "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
-        );
+        assert_eq!(meta.document_id, "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d");
         assert_eq!(meta.content_type, "text/markdown");
         assert_eq!(meta.title.as_deref(), Some("SRS Specification"));
         let tags = meta.tags.as_ref().unwrap();
@@ -117,10 +114,7 @@ mod tests {
             }
         }"#;
         let meta: SourceDocumentMeta = serde_json::from_str(json).unwrap();
-        assert_eq!(
-            meta.document_id,
-            "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e"
-        );
+        assert_eq!(meta.document_id, "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e");
         assert_eq!(meta.content_type, "text/markdown");
         assert_eq!(meta.title.as_deref(), Some("ChatGPT Origin Session"));
         let roundtripped: SourceDocumentMeta =
@@ -142,8 +136,14 @@ mod tests {
         assert!(meta.tags.is_none());
         assert!(meta.schema.is_none());
         let v = serde_json::to_value(&meta).unwrap();
-        assert!(v.get("$schema").is_none(), "schema should be omitted when None");
-        assert!(v.get("title").is_none(), "title should be omitted when None");
+        assert!(
+            v.get("$schema").is_none(),
+            "schema should be omitted when None"
+        );
+        assert!(
+            v.get("title").is_none(),
+            "title should be omitted when None"
+        );
     }
 
     #[test]
