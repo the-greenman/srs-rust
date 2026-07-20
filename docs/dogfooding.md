@@ -1276,31 +1276,37 @@ srs registry list --path /tmp/catalog.json --pretty
 srs registry list --path /tmp/catalog.json --publisher com.semanticops --pretty
 ```
 
-3. **Filter by tag.** Confirm only the governance entry appears; `filteredCount` is 1.
+3. **Filter by single tag.** Confirm only the governance entry appears; `filteredCount` is 1.
 
 ```bash
 srs registry list --path /tmp/catalog.json --tag governance --pretty
 ```
 
-4. **Combined filter (AND semantics).** Filter by `publisher com.semanticops` AND `tag risk`. Only the governance package carries both; `filteredCount` is 1.
+4. **Multi-tag AND-conjunction (#542).** Pass two `--tag` flags — both `governance` AND `risk` must be present. Only the governance entry carries both; `filteredCount` is 1. The research entry (`["research","evidence"]`) and hr entry (`["hr","compliance","policies"]`) are excluded.
+
+```bash
+srs registry list --path /tmp/catalog.json --tag governance --tag risk --pretty
+```
+
+5. **Combined filter (AND semantics).** Filter by `publisher com.semanticops` AND `tag risk`. Only the governance package carries both; `filteredCount` is 1.
 
 ```bash
 srs registry list --path /tmp/catalog.json --publisher com.semanticops --tag risk --pretty
 ```
 
-5. **Get a specific entry.** Confirm `ok: true` and the returned `entry.packageName` matches.
+6. **Get a specific entry.** Confirm `ok: true` and the returned `entry.packageName` matches.
 
 ```bash
 srs registry get --path /tmp/catalog.json --package-name com.semanticops.governance --pretty
 ```
 
-6. **Negative case — package not found.** Confirm `ok: false` with diagnostic `"registry entry not found: com.missing.package"`. Exit code must be 1.
+7. **Negative case — package not found.** Confirm `ok: false` with diagnostic `"registry entry not found: com.missing.package"`. Exit code must be 1.
 
 ```bash
 srs registry get --path /tmp/catalog.json --package-name com.missing.package --pretty
 ```
 
-7. **Negative case — missing file.** Confirm `ok: false` with a "not found" diagnostic. Exit code must be 1.
+8. **Negative case — missing file.** Confirm `ok: false` with a "not found" diagnostic. Exit code must be 1.
 
 ```bash
 srs registry list --path /tmp/nonexistent-registry.json --pretty
@@ -1309,10 +1315,13 @@ srs registry list --path /tmp/nonexistent-registry.json --pretty
 **Done when:**
 - `filteredCount` ≤ `totalCount` in all list responses
 - Optional fields (`homepage`, `tags`, `viewCount`, `protocolCount`, etc.) appear only when populated in the catalog
-- Steps 6 and 7 return `ok: false` with a descriptive diagnostic — no crash, no null entry
-- Combined filter (step 4) is strictly AND — only entries matching both criteria appear
+- Steps 7 and 8 return `ok: false` with a descriptive diagnostic — no crash, no null entry
+- Combined filter (step 5) is strictly AND — only entries matching both criteria appear
+- Multi-tag step (step 4): passing `--tag governance --tag risk` returns only entries that carry **both** tags (`filteredCount` 1); entries missing either tag are excluded
 
-**Verified 2026-07-12 (#244):** All seven steps passed. Optional fields omitted correctly (`schemaCount`, `relationTypeCount` absent from entries that don't specify them; `homepage` present at top level but absent per-entry when not set). Not-found and missing-file negative cases both produce correct `ok: false` envelopes with exit code 1. WASM free functions (`parse_registry`, `list_registry_entries`) cover the browser-side path; CLI covers the agentic path.
+**Verified 2026-07-12 (#244):** Steps 1–3 and 5–8 passed. Optional fields omitted correctly; not-found and missing-file negative cases produce correct `ok: false` envelopes with exit code 1. WASM free functions (`parse_registry`, `list_registry_entries`) cover the browser-side path; CLI covers the agentic path.
+
+**Updated 2026-07-20 (#542):** Step 4 added for multi-tag AND-conjunction (`--tag` is now repeatable). `filter_json` for WASM callers uses `"tags": [...]` (previously `"tag": "..."`); unknown keys now produce an explicit parse error.
 
 ---
 
