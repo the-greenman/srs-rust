@@ -252,7 +252,9 @@ pub fn with_store<T>(
 ///
 /// Used by commands that initialize a brand-new repository at a target
 /// directory (e.g. `archive unpack`). Unlike `with_store`, the store is
-/// always file-backed and the directory need not exist yet.
+/// always `FileStore` — the `--store` flag is intentionally ignored here
+/// because in-memory stores make no sense for commands that persist a new
+/// repository to disk.
 pub fn with_new_file_store<T>(
     path: &Path,
     f: impl FnOnce(&dyn RepositoryStore) -> Result<T>,

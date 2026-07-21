@@ -115,10 +115,14 @@ pub fn archive_pack(
     Ok(())
 }
 
+/// Unpack a `.srs` ZIP archive into a repository store and return the repository ID.
+///
+/// Returns the `repositoryId` extracted from the archive manifest so callers
+/// (CLI handler, WASM binding) do not need a second `load_manifest()` call.
 pub fn archive_unpack(
     reader: impl Read + Seek,
     target: &dyn RepositoryStore,
-) -> Result<(), RepositoryError> {
+) -> Result<String, RepositoryError> {
     let mut zip = zip::ZipArchive::new(reader).map_err(|e| RepositoryError::InvalidArchive {
         message: e.to_string(),
     })?;
@@ -355,9 +359,10 @@ pub fn archive_unpack(
         source_documents,
     };
 
+    let repository_id = snapshot.repository.repository_id.clone();
     import_repository_snapshot(target, &snapshot)?;
 
-    Ok(())
+    Ok(repository_id)
 }
 
 /// Pack a repository into a `.srs` binary archive and return the bytes.
