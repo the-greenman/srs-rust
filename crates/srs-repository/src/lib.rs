@@ -1,5 +1,7 @@
 pub mod analysis;
 pub mod archive;
+pub mod attachment_policy_service;
+pub mod attachment_service;
 pub mod blueprint_brief_service;
 pub mod blueprint_schema_service;
 pub mod blueprint_service;
@@ -12,6 +14,7 @@ pub mod detect;
 pub mod diff;
 pub mod discovery_service;
 pub mod error;
+pub mod export_service;
 pub mod extension_service;
 pub mod federation_service;
 pub(crate) mod field_json;
@@ -26,6 +29,7 @@ pub mod loader;
 pub mod manifest;
 pub mod manifest_service;
 pub mod migrate_identity_service;
+pub mod migration_registry_service;
 pub mod package;
 pub mod package_install_service;
 pub mod package_service;
@@ -46,6 +50,7 @@ pub mod revision_service;
 #[cfg(test)]
 mod selector_parity_tests;
 pub mod services;
+pub mod source_document_service;
 pub mod srsj_migration_service;
 pub mod store;
 pub mod tag_service;
@@ -59,6 +64,7 @@ pub mod vocabulary_service;
 pub mod writer;
 
 pub use archive::{archive_pack, archive_to_vec, archive_unpack};
+pub use export_service::{export_record_bundle, ExportBundleInput, ExportBundleMetadata};
 pub use json_store::JsonStore;
 pub use package::EffectiveLifecycle;
 pub use package_types::{

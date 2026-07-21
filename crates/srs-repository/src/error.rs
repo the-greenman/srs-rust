@@ -385,9 +385,6 @@ pub enum RepositoryError {
     #[error("protocol run '{run_id}' is not in a valid state for this operation: {message}")]
     RunInvalidState { run_id: String, message: String },
 
-    // ── archive errors (ADR-033) ──────────────────────────────────────────────
-    #[error("invalid .srs archive: {message}")]
-    InvalidArchive { message: String },
 }
 
 impl From<zip::result::ZipError> for RepositoryError {
@@ -875,10 +872,6 @@ impl PartialEq for RepositoryError {
                     message: mb,
                 },
             ) => a == b && ma == mb,
-            (
-                RepositoryError::InvalidArchive { message: a },
-                RepositoryError::InvalidArchive { message: b },
-            ) => a == b,
             _ => false,
         }
     }
