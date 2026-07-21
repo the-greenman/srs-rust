@@ -204,21 +204,6 @@ mod tests {
         }
     }
 
-    fn make_empty_manifest() -> Manifest {
-        Manifest {
-            instance_index: vec![],
-            container: None,
-            container_index: None,
-            federation_path: None,
-            upstream_package: None,
-            federation_events_path: None,
-            extra: std::collections::HashMap::new(),
-            source_documents_path: None,
-            source_document_index: None,
-            root: PathBuf::from("/memory"),
-        }
-    }
-
     fn policy_record_json(field_values: serde_json::Value) -> serde_json::Value {
         json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/record.json",

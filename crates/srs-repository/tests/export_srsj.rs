@@ -16,15 +16,12 @@ fn find_gallery_fixture() -> Option<std::path::PathBuf> {
             return Some(candidate);
         }
         // Also look for it as a sibling of the current directory.
-        if let Some(parent) = dir.parent() {
-            let sibling = parent.join("srs/docs/spec/examples/gallery.srsj");
-            if sibling.exists() {
-                return Some(sibling);
-            }
-            dir = parent;
-        } else {
-            return None;
+        let parent = dir.parent()?;
+        let sibling = parent.join("srs/docs/spec/examples/gallery.srsj");
+        if sibling.exists() {
+            return Some(sibling);
         }
+        dir = parent;
     }
 }
 
