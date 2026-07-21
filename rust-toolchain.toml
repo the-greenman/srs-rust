@@ -1,0 +1,19 @@
+# Pin the Rust toolchain so CI and rustup-based contributors build and lint
+# with one known-good compiler + clippy version. Without a pin,
+# `dtolnay/rust-toolchain@stable` in CI silently tracks whatever the latest
+# stable is, so a new clippy release can turn unrelated PRs red with lints that
+# were clean when the code merged (this is what motivated #659).
+#
+# Bumping the toolchain: change `channel`, then run
+#   cargo clippy --workspace --all-targets -- -D warnings
+# and fix any newly-surfaced lints in the same PR.
+#
+# Note: rust-toolchain.toml is a rustup feature. It governs GitHub CI (the
+# runners use rustup via dtolnay/rust-toolchain) and any contributor whose Rust
+# is managed by rustup. A distro-managed Rust (e.g. Arch's /usr/bin/rustc)
+# does not read this file — keep such an install on the pinned version manually.
+[toolchain]
+channel = "1.97.0"
+components = ["clippy", "rustfmt"]
+targets = ["wasm32-unknown-unknown"]
+profile = "minimal"
