@@ -217,6 +217,10 @@ pub(crate) fn relation_type_to_property_key(s: &str) -> String {
 /// Parse a cardinality string into (minItems, maxItems) optional values.
 ///
 /// Formats supported:
+/// - Canonical word forms (RFC-009 blueprint `cardinality` enum) — mapped by the
+///   *target* side, since the projected array holds the relation's targets:
+///   - `"one-to-one"` / `"many-to-one"` → exactly one target → minItems 1, maxItems 1
+///   - `"one-to-many"` / `"many-to-many"` → unbounded targets → both omitted
 /// - `"N..*"` → minItems N (omit when N=0)
 /// - `"N..M"` → minItems N (omit when N=0), maxItems M
 /// - `"N"` → minItems N, maxItems N (omit minItems when N=0)
@@ -229,6 +233,15 @@ fn parse_cardinality(
     let Some(s) = s else {
         return (None, None);
     };
+
+    // Canonical word-form cardinalities are the spec's normative values
+    // (blueprint.json enum: one-to-one | one-to-many | many-to-one | many-to-many).
+    // Match these first so they never fall through to the numeric parser's diagnostic.
+    match s.to_ascii_lowercase().as_str() {
+        "one-to-one" | "many-to-one" => return (Some(1), Some(1)),
+        "one-to-many" | "many-to-many" => return (None, None),
+        _ => {}
+    }
 
     if let Some(dot_pos) = s.find("..") {
         let n_str = &s[..dot_pos];
@@ -600,6 +613,40 @@ mod tests {
         assert_eq!(min, None);
         assert_eq!(max, None);
         assert!(!diag.is_empty());
+    }
+
+    #[test]
+    fn blueprint_schema_cardinality_word_forms() {
+        // Canonical RFC-009 enum values must parse without emitting a diagnostic.
+        let mut diag = Vec::new();
+        // "-to-one" forms → exactly one target
+        assert_eq!(
+            parse_cardinality(Some("one-to-one"), "contains", &mut diag),
+            (Some(1), Some(1))
+        );
+        assert_eq!(
+            parse_cardinality(Some("many-to-one"), "contains", &mut diag),
+            (Some(1), Some(1))
+        );
+        // "-to-many" forms → unbounded targets, no bounds emitted
+        assert_eq!(
+            parse_cardinality(Some("one-to-many"), "contains", &mut diag),
+            (None, None)
+        );
+        assert_eq!(
+            parse_cardinality(Some("many-to-many"), "contains", &mut diag),
+            (None, None)
+        );
+        // Case-insensitive, and never a diagnostic for canonical forms.
+        assert_eq!(
+            parse_cardinality(Some("One-To-Many"), "contains", &mut diag),
+            (None, None)
+        );
+        assert!(
+            diag.is_empty(),
+            "canonical cardinality word forms must not warn: {:?}",
+            diag
+        );
     }
 
     // ── Single vs multiple targets ────────────────────────────────────────────
