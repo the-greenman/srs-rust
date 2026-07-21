@@ -69,6 +69,17 @@ pub fn archive_pack(
         entries.push((entry.path.clone(), content.into_bytes()));
     }
 
+    // Container JSON files — referenced by containerIndex paths, not instanceIndex.
+    // These must be packed explicitly or they are lost on unpack.
+    if let Some(index) = &manifest.container_index {
+        for entry in index {
+            if let Some(path) = &entry.path {
+                let content = source.load_text_file(path)?;
+                entries.push((path.clone(), content.into_bytes()));
+            }
+        }
+    }
+
     let src_docs_dir = snapshot
         .source_documents_path
         .as_deref()
@@ -346,12 +357,31 @@ pub fn archive_unpack(
         .get("containerIndex")
         .and_then(|v| serde_json::from_value(v.clone()).ok());
 
+    // Restore container JSON files from the archive so import_repository_snapshot
+    // can call create_container() for each one. Without this, the manifest references
+    // container paths that don't exist on disk, causing validate to fail.
+    let mut containers: Vec<Container> = Vec::new();
+    if let Some(index) = &container_index {
+        for entry in index {
+            if let Some(path) = &entry.path {
+                if let Some(bytes) = bytes_map.get(path.as_str()) {
+                    let container: Container = serde_json::from_slice(bytes).map_err(|e| {
+                        RepositoryError::InvalidArchive {
+                            message: format!("invalid container JSON at '{path}': {e}"),
+                        }
+                    })?;
+                    containers.push(container);
+                }
+            }
+        }
+    }
+
     let snapshot = RepositorySnapshot {
         repository: repo_meta,
         declared_extensions,
         packages: vec![primary_pkg],
         instances,
-        containers: Vec::new(),
+        containers,
         root_container,
         container_index,
         relations,
