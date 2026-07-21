@@ -1,155 +1,123 @@
 # srs-rust
 
-Rust workspace for the Semantic Record System implementation.
+Rust reference implementation of the **Semantic Record System (SRS)** — the runtime side of the [SemanticOps ecosystem](#the-ecosystem). It provides the canonical Rust types, repository loading/validation services, embedded schema validation, the machine-facing `srs` CLI, and the WASM bindings that browser clients consume.
 
-This repo is the runtime implementation side of SRS. The sibling [`srs`](../srs) repo is the spec/source-of-truth side (RFCs, schemas, and the live SRS repository used in tests).
+The sibling [`srs`](../srs) repo is the spec / source-of-truth side (RFCs, JSON schemas, and the live SRS repository used as test fixtures). This repo *follows* the spec; it does not define it.
 
-## Repo Relationship
+## The ecosystem
 
-Expected local layout:
+Expected local layout (each is an independent git repo under a shared parent):
 
 ```text
 semanticops/
-├── srs
-└── srs-rust
+├── srs           spec text, RFCs, schema source, canonical SRS data (srs/srs)
+├── srs-rust      this repo — Rust engine, srs CLI, WASM bindings
+├── srs-vscode    VS Code extension (thin client over the srs CLI)
+└── srs-web       governance web editor (thin client over the WASM bindings)
 ```
 
-- `../srs`: spec text, RFCs, schema source, canonical SRS repository data (`srs/srs`)
-- `./srs-rust`: Rust types, services, CLI, and embedded schema validation
+**Architecture is library-first** (ADR-001): every capability is built once as a typed service in `srs-repository`, then exposed through *both* the CLI and the WASM bindings as thin adapters. Clients add presentation only — never semantics. See [`docs/architecture/capability-layering.md`](docs/architecture/capability-layering.md) before implementing any new capability.
 
-## Workspace Layout
+## Workspace layout (7 crates)
 
-- `crates/srs-core` — core SRS types + validation
-- `crates/srs-schema` — embedded JSON schemas
-- `crates/srs-repository` — repository loading/writing/services/validation
-- `crates/srs-cli` — `srs` CLI binary
-- `crates/srs-projection` — projection/export crate (early stage)
-- `crates/srs-bindings` — bindings support
-- `plans/` — implementation plans and phase docs
-
-## Spec To Implementation Map (Current)
-
-As of 2026-06-27. See `docs/roadmap/extension-implementation.md` for the full extension roadmap and conformance review.
-
-| Area | Spec Status | Rust Implementation Status |
+| Crate | Responsibility | Constraints |
 |---|---|---|
-| Notes (`note`) | Defined and stable | Implemented (CRUD, tagging, audits) |
-| Tags (`tag`) | Defined and stable | Implemented (CRUD) |
-| Records (`record`) | Defined and stable | Implemented (CRUD with type validation) |
-| Relations (`relation`) | Defined and stable | Implemented (CRUD + validation paths) |
-| Relation Types (`relation-type`) | Incorporated (RFC-005) | Implemented (status lifecycle + resolver behavior; mandatory resolution per RFC-005) |
-| Containers (`container`) | Defined + invariants | Implemented (CRUD, members, roots, invariant validation, `resolve-view` structured container view, `--container` scoping for list/create/delete on note/tag/record) |
-| Fields (`field`) | Defined | Implemented (list, get, create — update/delete not exposed) |
-| Types (`type`) | Defined | Read-only via CLI (list, get); authoring is via package files |
-| Extensions (`extension`) | Defined | Implemented (CRUD) |
-| Protocols (`protocol`) | Defined | Implemented (CRUD, validation, stages, import/export) |
-| Package refs (`srs package`) | Defined | Implemented (list, create, import, update, slice alias; enable/disable deprecated) |
-| Views L1 (`ext:views-l1`) | Incorporated (RFC-001) | Implemented — `srs view list/get/create/update/delete`; views stored in package |
-| Views L2 / Document Views (`ext:views-l2`) | Incorporated (RFC-001) | Implemented — `srs document-view list/get/create/update/delete` and `srs render document-view`; section sourcing via TypeQuery/RelationQuery/FixedInstances/ContainerSubset; repeatable fields and field groups rendered |
-| Repeatable field entries (`ext:repeatable-fields`) | In schema/spec | Implemented (typed model, validation constraints, rendering) |
-| Field groups (`ext:field-groups`) | In schema/spec | Implemented (typed model, required/group-count validation, rendering) |
-| Blueprints (`blueprint`) | Defined | Implemented (CRUD, validate, structure listing) |
-| Lifecycle state machine (`ext:lifecycle`) | In progress | Implemented — transition validation (`transition_record_lifecycle`), initial-state injection at create, V7–V9 invariants enforced; verification pass tracked in roadmap Epic 1 |
-| Type inheritance (`ext:type-inheritance`) | In planning | Implemented — `extends_type_id`/`field_order` resolved via `effective_fields()`, cycle detection; note: no `ext-type-inheritance` spec record exists yet (roadmap D2) |
-| Themes (`ext:themes-l1`) | Incorporated (RFC-002) | Implemented — renderer resolves `themeRef`/`themeVariants` for matching output formats and supports CLI `--theme-variant` |
-| Addressability (`ext:addressability`) | Declared | Not implemented |
-| Recommended relations (`ext:recommended-relations`) | Retired (RFC-005, incorporated) | Retired — canonical vocabulary now provided as `RelationTypeDefinition` records in the `com.semanticops.srs` package |
-| Federation (`ext:federation`) | Not declared | Not implemented |
-| Subsection nesting in renders | In spec (via relations) | Implemented — `contains` relations traversed recursively; subsections rendered at `heading_level + 1`; ordered via `precedes` chain; requires `titleFieldId` on the section to activate structured mode |
-| Table value type | Mentioned in planning | Not implemented (not in `ValueType` enum or field schemas) |
+| `srs-core` | Canonical SRS types, serde shapes, in-memory validation | No file I/O, no async, no `schemars` |
+| `srs-schema` | Embedded JSON schemas (compile-time), mirror of `../srs/docs/schema/2.0/` | Read-only mirror |
+| `srs-repository` | Repository loading/writing, package resolution, ~47 service modules — **all business logic** | Depends on `srs-core` |
+| `srs-cli` | The `srs` binary — clap arg parsing + JSON envelope output | One service call per handler, no business logic |
+| `srs-bindings` | JSON-first `wasm-bindgen` surface over the same repository services | No logic duplicated from the CLI |
+| `srs-gov` | The `srs-gov` binary — governance-flow CLI + ratatui TUI composing `srs` verbs | Exploratory client |
+| `srs-projection` | Placeholder for SQL/search/graph projections | No work until a consumer exists |
 
-## Current CLI Surface
+Roughly **82K LOC** of Rust, with `srs-repository` (~52K) the dominant crate. Additional binaries under `crates/srs-cli/src/bin/`: `generate-schemas` and `generate-governance-seed`.
 
-Top-level command groups currently available:
+## The `srs` CLI
 
-- `note` — CRUD, tag management, audits
-- `repo` — validate, map, extensions list/enable/disable
-- `migrate` — packet
-- `tag` — CRUD
-- `relation-type` — list, get
-- `field` — list, get, create
-- `type` — list, get
-- `record` — CRUD
-- `relation` — CRUD
-- `extension` — CRUD
-- `protocol` — CRUD, validation, stages, import/export
-- `container` — CRUD, members, roots, validate, `resolve-view` (root + ordered members + DocumentView column spec)
-- `package` — list, create, import, update, slice (alias for create); enable/disable deprecated
-- `blueprint` — CRUD, validate, structure
-- `view` — CRUD
-- `document-view` — CRUD
-- `render` — `document-view` (render to stdout or `--output <file>`)
+Every command returns a JSON envelope — `{ "ok": true, "command": "...", "payload": { ... } }` — with diagnostics reported in a top-level `diagnostics[]` array. **Exit code `0` means the command ran, not that the data is valid** — check `payload.diagnostics` separately.
 
-Global flags:
+Command groups:
 
-- `--repo <path>`: explicit repository root
-- `--container <container-id>`: scope boundary for list/create/delete on note/tag/record
-- `--format json|text`: JSON is fully supported; text is currently planned/diagnostic-only
-- `--pretty`: pretty JSON output
-
-Check current command help:
-
-```bash
-cargo run -p srs -- --help
+```
+note  repo  migrate  tag  relation-type  field  type  record  relation
+extension  protocol  blueprint  container  render  package  theme  view
+document-view  vocabulary  lifecycle  term  tree  find
 ```
 
-## Install / Run
+Most groups are CRUD. Notable non-CRUD surface: `repo validate|map|diff|copy|extensions`, `container resolve-view` (root + ordered members + DocumentView column spec), `render document-view`, `lifecycle` transitions, `tree`, and `find` (the discovery contract).
 
-Install CLI:
+Global flags (accepted by all commands):
 
-```bash
-cargo install --path crates/srs-cli
+```
+--repo <PATH>        explicit repository root (auto-detected from cwd if omitted)
+--container <ID>     scope list/create/delete to a container's membership
+--format json|yaml|text   output format (JSON is the stable contract)
+--pretty             pretty-print output
 ```
 
-Run without install:
+See the live help for the authoritative list:
 
 ```bash
-cargo run -p srs -- --help
+cargo run --bin srs -- --help
+cargo run --bin srs -- <group> --help
 ```
 
-## Development Workflow
+## WASM bindings
 
-Run full tests:
+`crates/srs-bindings` is a **real** `wasm-bindgen` surface (cdylib), not a placeholder — it wraps ~20 repository services (records, relations, containers, blueprints, discovery/find, render, navigation, lifecycle, migrate-identity, …) and is covered by integration tests under `crates/srs-bindings/tests/`. It is built for `wasm32-unknown-unknown` in CI and published as `srs-bindings-web.tar.gz` on every merge to `master` (`release.yml`), which `srs-web` fetches at build time.
+
+Build it locally against a `srs-web` checkout:
 
 ```bash
-cargo test
+wasm-pack build crates/srs-bindings --target web --out-dir ../srs-web/src/lib/srs_bindings
 ```
 
-Run lints:
+## Install / run
 
 ```bash
+cargo install --path crates/srs-cli     # install the `srs` binary
+cargo run --bin srs -- --help           # or run without installing
+cargo run --bin srs-gov -- --help       # governance-flow TUI/CLI
+```
+
+## Development
+
+```bash
+cargo build                                          # build all crates
+cargo test                                           # run all tests (~1,400 tests)
+cargo test -p srs-core                               # one crate
 cargo clippy --all-targets --all-features -- -D warnings
+cargo run --bin srs -- --repo ../srs/srs repo validate   # validate the live spec repo (0 errors)
+cargo run --bin generate-schemas                     # regenerate payload JSON Schema golden files
 ```
 
-Validate live SRS repo data:
+After changing any struct in `crates/srs-cli/src/payload.rs`, run `generate-schemas` and commit the updated files under `crates/srs-cli/schemas/payload/` — the `payload_contracts` golden test and the pre-commit hook enforce this (ADR-011).
+
+**CI** (`.github/workflows/ci.yml`, on `master`) runs four jobs: Test (checks out sibling `srs` as fixtures), Lint (clippy `-D warnings` + `fmt --check`), WASM Build, and Schema Drift.
+
+## Schema sync
+
+`crates/srs-schema/schemas/2.0/` is a **read-only mirror** of `../srs/docs/schema/2.0/`. Never edit it directly.
 
 ```bash
-cargo run -p srs -- --repo ../srs/srs repo validate
+scripts/sync-schemas-from-spec.sh        # copy *.json + regenerate SHA256SUMS
+scripts/check-schema-drift.sh ../srs     # verify (also the CI `schema-drift` job)
 ```
 
-## Schema Sync
+`srs-vscode/schemas/2.0/` is a second mirror with the same constraint — sync both when spec schemas change. See `CLAUDE.md` for the multi-repo merge order.
 
-Source-of-truth schema files are in `../srs/docs/schema/2.0/`.
+## Capability status (summary)
 
-Sync into embedded Rust schema crate:
+The full, current implementation/conformance status lives in [`docs/roadmap/extension-implementation.md`](docs/roadmap/extension-implementation.md). In brief:
 
-```bash
-scripts/sync-schemas-from-spec.sh
-scripts/check-schema-drift.sh
-```
+- **Implemented** — notes, tags, records, relations, relation types (RFC-005 mandatory resolution), containers (+ `resolve-view`, `--container` scoping), fields (read + create), types (read-only via CLI), extensions, protocols, packages, blueprints, Views L1 & L2 / document views, repeatable fields, field groups, themes (`ext:themes-l1`), type inheritance, lifecycle transitions.
+- **Not yet implemented** — `ext:addressability`, `ext:federation`, and the `table` value type.
 
-Pre-commit should run schema drift checks before commit:
+## Documentation
 
-```bash
-hooks/pre-commit
-```
-
-## Near-Term Roadmap
-
-- Implement lifecycle state enforcement (`ext:lifecycle` state machine)
-- Decide and implement table-like value modeling (if kept in spec scope)
-
-## Notes
-
-- Architecture boundaries are documented in [ARCHITECTURE.md](ARCHITECTURE.md).
-- Active implementation planning lives in [plans/](plans/).
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — crate boundaries and design overview.
+- [`docs/architecture/capability-layering.md`](docs/architecture/capability-layering.md) — where functionality belongs (required reading before adding a capability).
+- [`docs/adr/`](docs/adr/) — 27 architecture decision records.
+- [`docs/project-management.md`](docs/project-management.md) — the canonical issue/priority process (Project #5).
+- [`plans/`](plans/) — active implementation and phase plans.
+- [`CLAUDE.md`](CLAUDE.md) — contributor rules (crate authority, handler pattern, payload contract).
