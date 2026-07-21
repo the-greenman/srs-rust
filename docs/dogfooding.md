@@ -2153,6 +2153,92 @@ $SRS record attachments --id "$EMPTY_RECORD_ID" --repo $REPO --pretty
 
 ---
 
+## S41 — Hand off a self-contained repository snapshot as a portable archive (`srs archive pack` / `srs archive unpack`, #630)
+
+**Intention:** I want to hand off a self-contained snapshot of a repository — all records, relations, package definition, and binary attachments — as a single portable `.srs` file so a colleague can restore it without access to the original filesystem.
+
+**CLI surface.** `archive pack --output <path.srs>` / `archive unpack <path.srs> --target <dir>`
+
+**Repo setup.**
+
+```bash
+SRS=target/debug/srs
+REPO=/tmp/dogfood-s41
+ARCHIVE=/tmp/dogfood-s41.srs
+RESTORED=/tmp/dogfood-s41-restored
+
+$SRS repo create --repo $REPO --namespace com.example.dogfood
+
+# Add a typed field and record so there is real content to round-trip
+FIELD_ID=$($SRS field create --repo $REPO <<< \
+  '{"namespace":"com.example.dogfood","name":"decision","version":1,"valueType":"string","description":"Decision text"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['field']['id'])")
+
+TYPE_JSON=$(printf '{"namespace":"com.example.dogfood","name":"resolution","version":1,"fields":[{"fieldId":"%s","order":1,"required":true}]}' "$FIELD_ID")
+$SRS type create --repo $REPO <<< "$TYPE_JSON" > /dev/null
+
+$SRS record create --repo $REPO --type "com.example.dogfood/resolution" <<< \
+  $(printf '{"typeVersion":1,"typeNamespace":"com.example.dogfood","typeName":"resolution","fieldValues":[{"fieldId":"%s","value":"Approved for release."}]}' "$FIELD_ID") \
+  > /dev/null
+
+# Attach a source document so the archive includes binary content
+echo "Supporting evidence for the release decision." > /tmp/s41-evidence.txt
+$SRS attachment add /tmp/s41-evidence.txt --repo $REPO --title "Release Evidence" > /dev/null
+```
+
+**Happy path — pack then unpack.**
+
+```bash
+# Pack the repository into a .srs archive
+$SRS archive pack --output $ARCHIVE --repo $REPO --pretty
+```
+
+Expected: `ok: true`, `outputPath` ending in `.srs`, `fileSizeBytes` > 0.
+
+```bash
+# Unpack into a fresh directory
+$SRS archive unpack $ARCHIVE --target $RESTORED --pretty
+```
+
+Expected: `ok: true`, `targetDir` matches the restore path, `repositoryId` is a non-empty UUID string.
+
+```bash
+# Validate the restored repository — must be 0 errors
+$SRS repo validate --repo $RESTORED --pretty
+```
+
+Expected: `ok: true`, `summary.errors: 0`.
+
+```bash
+# Confirm records survived the roundtrip
+$SRS record list --repo $RESTORED --pretty
+```
+
+Expected: `ok: true`, one record of type `com.example.dogfood/resolution` with field value "Approved for release.".
+
+```bash
+# Confirm attachments survived
+$SRS attachment list --repo $RESTORED --pretty
+```
+
+Expected: `ok: true`, one source document with `title: "Release Evidence"`.
+
+**Negative cases.**
+
+```bash
+# Non-existent archive → ok: false with descriptive error
+$SRS archive unpack /tmp/no-such-file.srs --target /tmp/no-such-target --pretty
+
+# Target directory already exists with content → ok: false (repo already initialised)
+$SRS archive unpack $ARCHIVE --target $RESTORED --pretty
+```
+
+**Done when.** Pack returns `ok: true` with a positive `fileSizeBytes`. Unpack returns `ok: true` with the correct `repositoryId`. `repo validate` on the restored repository reports 0 errors. `record list` and `attachment list` confirm all content survived the roundtrip. A second unpack into the same non-empty target returns `ok: false`. Non-existent source returns `ok: false`.
+
+**Verified 2026-07-21 (#630).** Live dogfood run against `/tmp/dogfood-s41`: pack returned `ok: true`, `fileSizeBytes: 6062`; unpack returned `ok: true` with the correct `repositoryId`; `repo validate` → 0 errors; `record list` showed 1 record of type `com.example.dogfood/resolution`; `attachment list` showed 1 document "Release Evidence". Non-existent source returned `ok: false`. Pre-existing container roundtrip bug (containers not packed/unpacked) fixed in this PR.
+
+---
+
 ## S35 — Facilitator reviews a decision with its linked source documents (`srs-gov get`, #285)
 
 **Intention:** I want to review a decision record and see which source documents support it — so that I can confirm the decision has proper backing material before a governance meeting.
@@ -2524,7 +2610,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `attachment policy-get` (read optional `com.semanticops.base/repo_settings` policy; defaults when absent, #281) | S39 (#281); service-layer: 11 unit tests in `attachment_policy_service.rs` (MemoryStore + FileStore roundtrip, all field types, missing package, multiple records, `allowedMimeTypes` as array/JSON-string/plain-string/malformed). WASM binding deferred to #638. |
 | `srs-gov attachment add` / `srs-gov attachment list` | S33 |
 | `repo validate` — RFC-017 I-107 attachment_policy size/MIME diagnostics (#284) | S37 (**partial gap** — full end-to-end blocked pending srs#193 `com.semanticops.base` package); regression verified 2026-07-18: 0 policy diagnostics on spec repo and fresh repos; 12 unit tests in `validation.rs` cover maxPerFileBytes, maxDocBytes, maxTotalBytes, allowedMimeTypes (array + bare-string), tombstone skip (ADR-031), multiple-records Change B error, and both per-file limits firing independently |
-| `archive pack` / `archive unpack` (**gap** — no CLI surface yet, #276) + WASM `loadArchive` / `exportArchive` (#290) + WASM `getAttachmentBytes` (#291) | Library functions `archive_pack` / `archive_unpack` / `archive_to_vec` / `JsonStore::from_archive` are implemented in `srs-repository` (ADR-033) and verified via 13 unit/integration tests: 8 original unit tests (roundtrip, determinism, entry order, timestamps, error paths, FileStore roundtrip, cross-store roundtrip) + `test_archive_no_extra_fields_and_deflated` + `test_archive_golden_fixture` + `test_archive_golden_roundtrip` (#277) + `test_load_from_archive_roundtrip` + `test_load_from_archive_rejects_invalid_bytes` (#290). WASM bindings `SrsRepository::load_archive(bytes)` and `SrsRepository::export_archive()` verified via `archive_service_roundtrip_smoke` in `crates/srs-bindings/src/lib.rs` and `cargo build --target wasm32-unknown-unknown -p srs-bindings` (#290). `JsonStore::save_binary_file`/`load_binary_file` now store bytes in memory (ADR-031 amendment, #291) enabling `SrsRepository::get_attachment_bytes(documentId)` → `Uint8Array` (RFC-017 Gate D); verified via 3 integration tests in `crates/srs-bindings/tests/attachment_bytes.rs` (archive roundtrip, unknown documentId, srsj tombstone) and 5 unit tests in `json_store.rs` (#291). CLI handlers `srs archive pack` / `srs archive unpack` are a future deliverable (#276 follow-up). A meaningful CLI dogfood scenario requires that surface to exist — the intention would be: *"I want to hand off a self-contained snapshot of a repository — all records, relations, package definition, and binary attachments — as a single portable file."* Add a scenario (S31 or similar) when `srs archive pack`/`srs archive unpack` are wired up. |
+| `archive pack` / `archive unpack` (#630) + WASM `loadArchive` / `exportArchive` (#290) + WASM `getAttachmentBytes` (#291) | S41 (#630); CLI handlers `srs archive pack` / `srs archive unpack` added in `crates/srs-cli/src/commands/archive.rs`; container roundtrip bug fixed (containerIndex files now packed and unpacked). Library functions `archive_pack` / `archive_unpack` / `archive_to_vec` / `JsonStore::from_archive` implemented in `srs-repository` (ADR-033) and verified via 13 unit/integration tests: 8 original unit tests (roundtrip, determinism, entry order, timestamps, error paths, FileStore roundtrip, cross-store roundtrip) + `test_archive_no_extra_fields_and_deflated` + `test_archive_golden_fixture` + `test_archive_golden_roundtrip` (#277) + `test_load_from_archive_roundtrip` + `test_load_from_archive_rejects_invalid_bytes` (#290). WASM bindings `SrsRepository::load_archive(bytes)` and `SrsRepository::export_archive()` verified via `archive_service_roundtrip_smoke` in `crates/srs-bindings/src/lib.rs` and `cargo build --target wasm32-unknown-unknown -p srs-bindings` (#290). `JsonStore::save_binary_file`/`load_binary_file` now store bytes in memory (ADR-031 amendment, #291) enabling `SrsRepository::get_attachment_bytes(documentId)` → `Uint8Array` (RFC-017 Gate D); verified via 3 integration tests in `crates/srs-bindings/tests/attachment_bytes.rs` (archive roundtrip, unknown documentId, srsj tombstone) and 5 unit tests in `json_store.rs` (#291). |
 | `render export-bundle` (flat ZIP export: rendered doc + attachments, ADR-035, #289) | S38 (#289); service-layer tests in `export_service.rs` (3 tests: no-attachment, with-attachment, cross-store roundtrip via `tempfile::NamedTempFile`). |
 | `srs-gov export-decision` (governance operator exports shareable bundle, #289) | S38 (#289); exercises record lookup → view discovery → `render export-bundle` chain; `--explain` pre-stages all 3 underlying srs calls; default output filename (`<id8>.zip`). |
 
