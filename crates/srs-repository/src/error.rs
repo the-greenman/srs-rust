@@ -384,7 +384,6 @@ pub enum RepositoryError {
     // ── ext:protocol run errors ───────────────────────────────────────────────
     #[error("protocol run '{run_id}' is not in a valid state for this operation: {message}")]
     RunInvalidState { run_id: String, message: String },
-
 }
 
 impl From<zip::result::ZipError> for RepositoryError {
