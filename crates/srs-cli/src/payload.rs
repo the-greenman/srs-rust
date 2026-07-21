@@ -2268,6 +2268,26 @@ pub struct ExportBundlePayload {
     pub diagnostics: Vec<String>,
 }
 
+// ── Archive payloads ──────────────────────────────────────────────────────────
+
+/// Payload for `srs archive pack`.
+/// Output format is `.srs` (SRSzip, deterministic ZIP). Re-packing the same
+/// repository state produces byte-identical output. See ADR-033, ADR-036.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchivePackPayload {
+    pub output_path: String,
+    pub file_size_bytes: u64,
+}
+
+/// Payload for `srs archive unpack`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiveUnpackPayload {
+    pub target_dir: String,
+    pub repository_id: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

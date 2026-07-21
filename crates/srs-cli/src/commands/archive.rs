@@ -1,0 +1,47 @@
+use crate::commands::{with_new_file_store, with_store, ArchiveCommand, CliContext};
+use crate::output;
+use crate::payload::{ArchivePackPayload, ArchiveUnpackPayload};
+use anyhow::Result;
+use std::path::PathBuf;
+
+pub fn dispatch(ctx: CliContext, cmd: ArchiveCommand) -> Result<String> {
+    match cmd {
+        ArchiveCommand::Pack { output } => cmd_archive_pack(ctx, output),
+        ArchiveCommand::Unpack { source, target } => cmd_archive_unpack(source, target),
+    }
+}
+
+fn cmd_archive_pack(ctx: CliContext, output: PathBuf) -> Result<String> {
+    let mut file = std::fs::File::create(&output)
+        .map_err(|e| anyhow::anyhow!("cannot create output file {:?}: {}", output, e))?;
+    with_store(&ctx, |store| {
+        srs_repository::archive_pack(store, &mut file).map_err(anyhow::Error::from)
+    })?;
+    let file_size_bytes = std::fs::metadata(&output)
+        .map_err(|e| anyhow::anyhow!("cannot stat output file {:?}: {}", output, e))?
+        .len();
+    output::serialize(
+        "archive pack",
+        ArchivePackPayload {
+            output_path: output.to_string_lossy().into_owned(),
+            file_size_bytes,
+        },
+    )
+}
+
+fn cmd_archive_unpack(source: PathBuf, target: PathBuf) -> Result<String> {
+    let file = std::fs::File::open(&source)
+        .map_err(|e| anyhow::anyhow!("cannot open archive {:?}: {}", source, e))?;
+    // archive_unpack returns the repositoryId extracted from the manifest,
+    // so a second load_manifest() call is not needed (ADR-010).
+    let repository_id = with_new_file_store(&target, |store| {
+        srs_repository::archive_unpack(file, store).map_err(anyhow::Error::from)
+    })?;
+    output::serialize(
+        "archive unpack",
+        ArchiveUnpackPayload {
+            target_dir: target.to_string_lossy().into_owned(),
+            repository_id,
+        },
+    )
+}
