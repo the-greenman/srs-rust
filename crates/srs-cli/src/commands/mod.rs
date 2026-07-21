@@ -1,3 +1,4 @@
+pub mod archive;
 pub mod attachment;
 pub mod blueprint;
 pub mod container;
@@ -247,6 +248,19 @@ pub fn with_store<T>(
     }
 }
 
+/// Create a new file-backed store at `path` and call `f` with it.
+///
+/// Used by commands that initialize a brand-new repository at a target
+/// directory (e.g. `archive unpack`). Unlike `with_store`, the store is
+/// always file-backed and the directory need not exist yet.
+pub fn with_new_file_store<T>(
+    path: &Path,
+    f: impl FnOnce(&dyn RepositoryStore) -> Result<T>,
+) -> Result<T> {
+    let store = FileStore::new(path);
+    f(&store)
+}
+
 #[derive(Subcommand)]
 pub enum Commands {
     /// Note management commands
@@ -328,6 +342,9 @@ pub enum Commands {
     /// Source document attachment commands
     #[command(subcommand)]
     Attachment(AttachmentCommand),
+    /// Archive pack/unpack commands (.srs SRSzip format, ADR-036)
+    #[command(subcommand)]
+    Archive(ArchiveCommand),
 }
 
 #[derive(Subcommand)]
@@ -362,6 +379,25 @@ pub enum AttachmentCommand {
     /// Read the current attachment policy from the optional com.semanticops.base/repo_settings
     /// record. Returns built-in defaults when no policy record exists.
     PolicyGet,
+}
+
+#[derive(Subcommand)]
+pub enum ArchiveCommand {
+    /// Pack the current repository into a deterministic .srs archive (SRSzip).
+    /// Output is byte-identical across runs on the same repository state (ADR-033, ADR-036).
+    Pack {
+        /// Output file path for the .srs archive
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Unpack a .srs archive into a new repository directory.
+    Unpack {
+        /// Path to the .srs archive file to unpack
+        source: PathBuf,
+        /// Target directory to create the repository in
+        #[arg(long)]
+        target: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1652,6 +1688,12 @@ pub fn dispatch(cli: Cli) -> Result<String> {
             path: std::path::PathBuf::from("."),
             store: StoreBackend::File,
         },
+        // archive unpack creates a new repository at --target; it does not need an
+        // existing source repository. The placeholder is never used by the handler.
+        Commands::Archive(ArchiveCommand::Unpack { .. }) => RepositoryLocation {
+            path: std::path::PathBuf::from("."),
+            store: StoreBackend::File,
+        },
         _ => resolve_repo(cli.repo.clone(), cli.store)?,
     };
 
@@ -1692,5 +1734,6 @@ pub fn dispatch(cli: Cli) -> Result<String> {
         Commands::Federation(federation_cmd) => federation::dispatch(ctx, federation_cmd),
         Commands::Context(ctx_cmd) => context::dispatch(ctx, ctx_cmd),
         Commands::Attachment(cmd) => attachment::dispatch(ctx, cmd),
+        Commands::Archive(archive_cmd) => archive::dispatch(ctx, archive_cmd),
     }
 }

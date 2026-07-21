@@ -259,5 +259,9 @@ fn main() {
     write_schema!("context-record", ContextRecordPayload);
     write_schema!("context-revision", ContextRevisionTracePayload);
 
+    // Archive payloads (ADR-033, ADR-036)
+    write_schema!("archive-pack", ArchivePackPayload);
+    write_schema!("archive-unpack", ArchiveUnpackPayload);
+
     println!("done.");
 }
