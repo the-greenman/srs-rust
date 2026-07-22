@@ -173,24 +173,24 @@ Steps 1–5 as Phase 1. Commit (`feat(srs-mcp): read resources — map, navigati
 
 #### Tasks
 
-- [ ] `crates/srs-mcp/src/tools.rs` — schemars-1-derived input structs local to `srs-mcp` (serde names matching the CLI stdin shapes in `srs-usage.md`): `FindToolInput`, `RecordCreateToolInput { type_filter (serialized as "type" via #[serde(rename = "type")] — reserved keyword): "namespace/name", typeVersion?, fieldValues, groupValues?, tags?, containerId? }`, `RelationCreateToolInput`, `NoteCreateToolInput`; `repo_validate` takes no input.
-- [ ] Drift guard for the shadow input shapes (they must field-for-field track the canonical service inputs): implement `From<RecordCreateToolInput> for record_store::CreateRecordInput`, `From<RelationCreateToolInput> for srs_core Relation`, `From<NoteCreateToolInput> for services::CreateNoteInput`, `From<FindToolInput> for DiscoveryQuery` — handlers may only reach services through these conversions — plus unit test `tool_input_conversion_exercises_every_field` populating every field of each tool input and asserting the converted service input carries all of them.
-- [ ] Tool description strings defined once as `pub const` items in `tools.rs` (single source; no inline literals at call sites). The Stage-7.5 docs pass writes the `srs-usage.md` MCP section from these constants. (A CI drift check against `srs-usage.md` is deliberately not added: it lives in the sibling `srs` repo, which srs-rust CI does not check out — spec independence.)
-- [ ] Tool handlers — each exactly one service call, mirroring the CLI handler for the same operation:
+- [x] `crates/srs-mcp/src/tools.rs` — schemars-1-derived input structs local to `srs-mcp` (serde names matching the CLI stdin shapes in `srs-usage.md`): `FindToolInput`, `RecordCreateToolInput { type_filter (serialized as "type" via #[serde(rename = "type")] — reserved keyword): "namespace/name", typeVersion?, fieldValues, groupValues?, tags?, containerId? }`, `RelationCreateToolInput`, `NoteCreateToolInput`; `repo_validate` takes no input.
+- [x] Drift guard for the shadow input shapes (they must field-for-field track the canonical service inputs): implement `From<RecordCreateToolInput> for record_store::CreateRecordInput`, `From<RelationCreateToolInput> for srs_core Relation`, `From<NoteCreateToolInput> for services::CreateNoteInput`, `From<FindToolInput> for DiscoveryQuery` — handlers may only reach services through these conversions — plus unit test `tool_input_conversion_exercises_every_field` populating every field of each tool input and asserting the converted service input carries all of them.
+- [x] Tool description strings defined once as `pub const` items in `tools.rs` (single source; no inline literals at call sites). The Stage-7.5 docs pass writes the `srs-usage.md` MCP section from these constants. (A CI drift check against `srs-usage.md` is deliberately not added: it lives in the sibling `srs` repo, which srs-rust CI does not check out — spec independence.)
+- [x] Tool handlers — each exactly one service call, mirroring the CLI handler for the same operation:
   - `repo_validate` → `validation::validate_repository`
   - `find` → `discovery_service::find` (map input onto `DiscoveryQuery` — all axes)
   - `record_create` → `record_store::create_record_in_context(store, type_filter, type_version, input, container_id, None)`
   - `relation_create` → `relation_service::create_relation_auto`
   - `note_create` → `srs_repository::services::create_note_in_context` (verified: the exact import `commands/note.rs` uses — `services` is the real module name, not a placeholder)
-- [ ] Result mapping: success → `CallToolResult` with the service result serialized as JSON text content (and `structured_content` where rmcp supports it); service validation failure → `CallToolResult { is_error: true }` whose text carries the service error/diagnostics verbatim — a rejected write is a *tool-level* result the model can read, not a protocol error.
-- [ ] `tools/list` advertises all five tools using the single-source description constants above (agents get the same guidance in both surfaces; `srs-usage.md`'s MCP section is written from these constants at the docs pass).
+- [x] Result mapping: success → `CallToolResult` with the service result serialized as JSON text content (and `structured_content` where rmcp supports it); service validation failure → `CallToolResult { is_error: true }` whose text carries the service error/diagnostics verbatim — a rejected write is a *tool-level* result the model can read, not a protocol error.
+- [x] `tools/list` advertises all five tools using the single-source description constants above (agents get the same guidance in both surfaces; `srs-usage.md`'s MCP section is written from these constants at the docs pass).
 
 #### Acceptance Criteria
 
-- [ ] Each tool's happy path writes/reads exactly what the equivalent CLI command produces against the same fixture repo (asserted via a follow-up service read, not string comparison with the CLI).
-- [ ] `record_create` with a missing required field returns `is_error: true` with the service's diagnostic listing the field — nothing is written (verified by `repo_validate` + record list).
-- [ ] `relation_create` with an uninstalled `relationType` is rejected with the RFC-005 resolution error; nothing is written.
-- [ ] `find` results equal `discovery_service::find` called directly with the same query.
+- [x] Each tool's happy path writes/reads exactly what the equivalent CLI command produces against the same fixture repo (asserted via a follow-up service read, not string comparison with the CLI).
+- [x] `record_create` with a missing required field returns `is_error: true` with the service's diagnostic listing the field — nothing is written (verified by `repo_validate` + record list).
+- [x] `relation_create` with an uninstalled `relationType` is rejected with the RFC-005 resolution error; nothing is written.
+- [x] `find` results equal `discovery_service::find` called directly with the same query.
 
 #### Testing
 
