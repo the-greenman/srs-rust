@@ -1,0 +1,25 @@
+[package]
+name = "srs-mcp"
+description = "MCP (Model Context Protocol) adapter over srs-repository services — thin server, no business logic (ADR-037)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+srs-core = { workspace = true }
+srs-repository = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+uuid = { workspace = true }
+rmcp = { workspace = true }
+tokio = { workspace = true }
+# schemars 1.x for MCP tool input schemas only. Coexists with srs-cli's 0.8
+# (different majors do not unify features); library crates gain no schemars dep (ADR-011).
+schemars = "1"
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true, features = ["io-util", "rt-multi-thread"] }
+rmcp = { workspace = true, features = ["client"] }
