@@ -1,0 +1,24 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+  "blueprints": [],
+  "createdAt": "2026-01-01T00:00:00Z",
+  "description": "",
+  "documentViews": [],
+  "fields": [
+    "fields/title-22222222.json",
+    "fields/approved-22222222.json"
+  ],
+  "id": "5c2581da-6017-4d69-a7e5-f23f76b962ea",
+  "name": "primary",
+  "namespace": "com.example.treefix",
+  "relationTypes": [
+    "relation-types/precedes-66666666.json"
+  ],
+  "status": "active",
+  "title": "primary",
+  "types": [
+    "types/decision-33333333.json"
+  ],
+  "version": "1.0.0",
+  "views": []
+}

@@ -1,0 +1,12 @@
+{
+  "aiGuidance": {
+    "purpose": ""
+  },
+  "createdAt": "2026-07-22T00:00:00Z",
+  "description": "Approved flag",
+  "id": "22222222-2222-4222-8222-222222222222",
+  "name": "approved",
+  "namespace": "com.example.treefix",
+  "valueType": "boolean",
+  "version": 1
+}
