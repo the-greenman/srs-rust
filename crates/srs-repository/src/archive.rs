@@ -802,20 +802,24 @@ mod tests {
 
     #[test]
     fn test_archive_determinism_from_jsonstore() {
-        use crate::repository_portability::copy_repository;
-        use tempfile::TempDir;
+        // Build a .srsj whose extra keys arrive in non-alphabetical order ("zzz" before "aaa").
+        // Without the to_value fix, load_text_file("manifest.json") emits them in HashMap
+        // iteration order (non-deterministic across process runs). With the fix, to_value
+        // normalises all keys — typed fields and extra — into BTreeMap (sorted) order (ADR-017).
+        let srsj = r#"{"srsj":"1","manifest":{"instanceIndex":[],"repositoryId":"det-test-id","namespace":"com.example.det","srsVersion":"2.0-draft","title":"Det Test","zzz":"last","aaa":"first","createdAt":"2026-01-01T00:00:00Z"},"data":{"package/package.json":{"id":"p","namespace":"com.example.det","name":"n","version":"1","fields":[],"types":[],"relationTypes":[],"views":[],"documentViews":[]}}}"#;
 
-        let tmp = TempDir::new().unwrap();
-        let srsj_path = tmp.path().join("repo.srsj");
-        let json_store = crate::JsonStore::create(&srsj_path).unwrap();
-        let mem_store = init_memory_store();
-        copy_repository(&mem_store, &json_store).unwrap();
+        let store = crate::JsonStore::from_srsj(srsj).unwrap();
+        let archive_bytes = pack_to_bytes(&store);
 
-        let bytes1 = pack_to_bytes(&json_store);
-        let bytes2 = pack_to_bytes(&json_store);
-        assert_eq!(
-            bytes1, bytes2,
-            "archive_pack from JsonStore is not byte-identical across runs (issue #654)"
+        // Read the raw (unreparsed) manifest.json bytes from the archive.
+        let raw = extract_zip_entry(&archive_bytes, "manifest.json");
+        let manifest_text = std::str::from_utf8(&raw).expect("manifest.json is UTF-8");
+
+        let pos_aaa = manifest_text.find("\"aaa\"").expect("\"aaa\" key must be present");
+        let pos_zzz = manifest_text.find("\"zzz\"").expect("\"zzz\" key must be present");
+        assert!(
+            pos_aaa < pos_zzz,
+            "manifest.json keys not sorted: \"zzz\" appears before \"aaa\" (issue #654)"
         );
     }
 

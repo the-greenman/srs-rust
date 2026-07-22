@@ -559,10 +559,12 @@ impl RepositoryStore for JsonStore {
             });
         }
         // `extra` is a HashMap (insertion order non-deterministic), but that is safe for
-        // `.srsj` determinism: `to_srsj_string` serialises the manifest via
-        // `serde_json::to_value`, which normalises these flattened keys into sorted order
-        // through serde_json's BTreeMap-backed Map. Only the top-level `data` map is
-        // serialised directly, which is why it (and not this) had to become a BTreeMap (ADR-017).
+        // both `.srsj` determinism and archive pack determinism: `to_srsj_string` serialises
+        // the manifest via `serde_json::to_value`, which normalises the flattened keys into
+        // sorted order through serde_json's BTreeMap-backed Map; `load_text_file("manifest.json")`
+        // applies the same `to_value` step before `to_string_pretty` (ADR-017, ADR-033).
+        // Only the top-level `data` map is serialised directly, which is why it (and not this)
+        // had to become a BTreeMap (ADR-017).
         let title = input
             .repository
             .title
