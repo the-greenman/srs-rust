@@ -1441,7 +1441,15 @@ impl RepositoryStore for JsonStore {
     fn load_text_file(&self, relative_path: &str) -> Result<String, RepositoryError> {
         if relative_path == "manifest.json" {
             let manifest = self.load_manifest()?;
-            return serde_json::to_string_pretty(&manifest).map_err(|source| {
+            // Route through to_value so the flattened `extra` HashMap keys are
+            // normalised into BTreeMap order before serialization (ADR-017, ADR-033).
+            let value = serde_json::to_value(&manifest).map_err(|source| {
+                RepositoryError::Serialize {
+                    path: PathBuf::from(relative_path),
+                    source,
+                }
+            })?;
+            return serde_json::to_string_pretty(&value).map_err(|source| {
                 RepositoryError::Serialize {
                     path: PathBuf::from(relative_path),
                     source,
