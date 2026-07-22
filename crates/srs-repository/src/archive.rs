@@ -792,6 +792,101 @@ mod tests {
         assert_eq!(bytes1, bytes2, "archive_pack is not deterministic");
     }
 
+    fn extract_zip_entry(zip_bytes: &[u8], entry_name: &str) -> Vec<u8> {
+        let mut zip = zip::ZipArchive::new(Cursor::new(zip_bytes)).expect("open zip");
+        let mut entry = zip.by_name(entry_name).expect("entry not found");
+        let mut buf = Vec::new();
+        std::io::Read::read_to_end(&mut entry, &mut buf).expect("read entry");
+        buf
+    }
+
+    #[test]
+    fn test_archive_determinism_from_jsonstore() {
+        // Build a .srsj whose extra keys arrive in non-alphabetical order ("zzz" before "aaa").
+        // Without the to_value fix, load_text_file("manifest.json") emits them in HashMap
+        // iteration order (non-deterministic across process runs). With the fix, to_value
+        // normalises all keys — typed fields and extra — into BTreeMap (sorted) order (ADR-017).
+        let srsj = r#"{"srsj":"1","manifest":{"instanceIndex":[],"repositoryId":"det-test-id","namespace":"com.example.det","srsVersion":"2.0-draft","title":"Det Test","zzz":"last","aaa":"first","createdAt":"2026-01-01T00:00:00Z"},"data":{"package/package.json":{"id":"p","namespace":"com.example.det","name":"n","version":"1","fields":[],"types":[],"relationTypes":[],"views":[],"documentViews":[]}}}"#;
+
+        let store = crate::JsonStore::from_srsj(srsj).unwrap();
+        let archive_bytes = pack_to_bytes(&store);
+
+        // Read the raw (unreparsed) manifest.json bytes from the archive.
+        let raw = extract_zip_entry(&archive_bytes, "manifest.json");
+        let manifest_text = std::str::from_utf8(&raw).expect("manifest.json is UTF-8");
+
+        let pos_aaa = manifest_text
+            .find("\"aaa\"")
+            .expect("\"aaa\" key must be present");
+        let pos_zzz = manifest_text
+            .find("\"zzz\"")
+            .expect("\"zzz\" key must be present");
+        assert!(
+            pos_aaa < pos_zzz,
+            "manifest.json keys not sorted: \"zzz\" appears before \"aaa\" (issue #654)"
+        );
+    }
+
+    #[test]
+    fn test_archive_manifest_bytes_identical_filestore_vs_jsonstore() {
+        use crate::repository_lifecycle::RepositoryMetadata;
+        use crate::store::FileStore;
+        use tempfile::TempDir;
+
+        let init_input = InitializeRepositoryInput {
+            repository: RepositoryMetadata {
+                repository_id: "cross-store-determinism-00000000000000000000000000".to_string(),
+                namespace: "com.example.test".to_string(),
+                srs_version: "2.0-draft".to_string(),
+                title: Some("Cross-Store Determinism Test".to_string()),
+                description: None,
+            },
+            primary_package: PrimaryPackageMetadata {
+                id: "cross-store-pkg-00000000-0000-0000-0000-000000000001".to_string(),
+                namespace: "com.example.test".to_string(),
+                name: "test-package".to_string(),
+                version: "1.0.0".to_string(),
+            },
+        };
+
+        // Initialize FileStore and pin createdAt to a fixed value.
+        let file_dir = TempDir::new().unwrap();
+        let file_store = FileStore::new(file_dir.path());
+        file_store
+            .initialize_repository(&init_input)
+            .expect("initialize file store");
+        let mut manifest = file_store.load_manifest().unwrap();
+        manifest.extra.insert(
+            "createdAt".to_string(),
+            serde_json::json!("2026-01-01T00:00:00Z"),
+        );
+        file_store.save_manifest(&manifest).unwrap();
+
+        // Initialize JsonStore with the same input and pin the same createdAt.
+        let json_dir = TempDir::new().unwrap();
+        let json_path = json_dir.path().join("repo.srsj");
+        let json_store = crate::JsonStore::create(&json_path).unwrap();
+        json_store
+            .initialize_repository(&init_input)
+            .expect("initialize json store");
+        let mut json_manifest = json_store.load_manifest().unwrap();
+        json_manifest.extra.insert(
+            "createdAt".to_string(),
+            serde_json::json!("2026-01-01T00:00:00Z"),
+        );
+        json_store.save_manifest(&json_manifest).unwrap();
+
+        let file_bytes = pack_to_bytes(&file_store);
+        let json_bytes = pack_to_bytes(&json_store);
+
+        let manifest_from_file = extract_zip_entry(&file_bytes, "manifest.json");
+        let manifest_from_json = extract_zip_entry(&json_bytes, "manifest.json");
+        assert_eq!(
+            manifest_from_file, manifest_from_json,
+            "manifest.json differs between FileStore and JsonStore packs (issue #654)"
+        );
+    }
+
     #[test]
     fn test_archive_zip_entry_order() {
         let store = init_memory_store();
