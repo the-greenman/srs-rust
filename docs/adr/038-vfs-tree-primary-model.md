@@ -1,6 +1,6 @@
 # ADR-038: Vfs seam — the in-memory file tree is the primary operational model
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-07-22
 - **Supersedes:** ADR-013 (bundle-format rationale only — the "rejected alternative" of a
   `{path: content}` map); amends ADR-015 ("the WASM `SrsRepository` wraps a `JsonStore`")
