@@ -5,11 +5,20 @@
 //! per-invocation `with_store` semantics: no shared mutable state, and on-disk
 //! changes are visible between calls (ADR-037).
 
+use std::future::{ready, Future};
 use std::path::PathBuf;
 
-use rmcp::model::{Implementation, InitializeResult, ServerCapabilities, ServerInfo};
-use rmcp::ServerHandler;
+use rmcp::model::{
+    Implementation, InitializeResult, ListResourceTemplatesResult, ListResourcesResult,
+    PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResult, ServerCapabilities,
+    ServerInfo,
+};
+use rmcp::service::RequestContext;
+use rmcp::ErrorData as McpError;
+use rmcp::{RoleServer, ServerHandler};
 use srs_repository::store::{FileStore, RepositoryStore};
+
+use crate::resources;
 
 /// Guidance shown to MCP clients at initialize time. Mirrors the discovery
 /// ladder in `srs-usage.md`: orient first, then read, then write, then validate.
@@ -57,7 +66,6 @@ impl SrsMcpServer {
     }
 
     /// A fresh store for one request — per-invocation semantics, like the CLI.
-    #[allow(dead_code)] // consumed by resources (Phase 2) and tools (Phase 3)
     pub(crate) fn open_store(&self) -> FileStore {
         FileStore::new(&self.repo_path)
     }
@@ -73,6 +81,34 @@ impl ServerHandler for SrsMcpServer {
         )
         .with_server_info(Implementation::new("srs-mcp", env!("CARGO_PKG_VERSION")))
         .with_instructions(INSTRUCTIONS)
+    }
+
+    // Handlers are synchronous service calls wrapped in ready futures: the
+    // stdio server is single-client, and blocking file I/O here is accepted
+    // (ADR-037). Async never reaches the services.
+
+    fn list_resources(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> impl Future<Output = Result<ListResourcesResult, McpError>> + Send + '_ {
+        ready(resources::list_resources(self))
+    }
+
+    fn list_resource_templates(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> impl Future<Output = Result<ListResourceTemplatesResult, McpError>> + Send + '_ {
+        ready(Ok(resources::list_resource_templates(self)))
+    }
+
+    fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> impl Future<Output = Result<ReadResourceResult, McpError>> + Send + '_ {
+        ready(resources::read_resource(self, &request.uri))
     }
 }
 

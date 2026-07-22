@@ -122,27 +122,27 @@ Specific tests to write or verify:
 
 #### Tasks
 
-- [ ] `crates/srs-mcp/src/uri.rs`: parse/format the tooling-only scheme (documented in ADR-037):
+- [x] `crates/srs-mcp/src/uri.rs`: parse/format the tooling-only scheme (documented in ADR-037):
   - `srs://<repositoryId>/map`
   - `srs://<repositoryId>/navigation`
   - `srs://<repositoryId>/record/<instanceId>`
   - `srs://<repositoryId>/container/<containerId>`
   - `srs://<repositoryId>/view/<documentViewId>`
   Unit-tested round-trip; unknown shapes → typed parse error.
-- [ ] `crates/srs-mcp/src/resources.rs` — `list_resources` returns concrete resources: map (`application/json`), navigation (`application/json`), one per container from `container_service::list_containers` (name = container title), one per document view from the loaded package (name = `DocumentView.name` qualified with `namespace` — the struct has no `title` field; `text/markdown`). Records are **not** enumerated concretely; `list_resource_templates` exposes `srs://<repositoryId>/record/{instanceId}`.
-- [ ] `read_resource` dispatch — each arm exactly one service call, serialized with `serde_json::to_string` (values produced by service structs; no `json!()` literals):
+- [x] `crates/srs-mcp/src/resources.rs` — `list_resources` returns concrete resources: map (`application/json`), navigation (`application/json`), one per container from `container_service::list_containers` (name = container title), one per document view from the loaded package (name = `DocumentView.name` qualified with `namespace` — the struct has no `title` field; `text/markdown`). Records are **not** enumerated concretely; `list_resource_templates` exposes `srs://<repositoryId>/record/{instanceId}`.
+- [x] `read_resource` dispatch — each arm exactly one service call, serialized with `serde_json::to_string` (values produced by service structs; no `json!()` literals):
   - map → `analysis::build_repo_map`
   - navigation → `repository_navigation_service::repository_navigation`
   - record → `record_store::get_record_by_id`
   - container → `container_view_service::resolve_container_view` (ADR-020: authored columns + ordered members + `isVisibleByDefault`)
   - view → `render_service::render_document_view` with markdown format → `text/markdown` contents
-- [ ] Error mapping: a genuine `Err(RepositoryError)` from a service → MCP resource error carrying the service's error message verbatim (no invented text). The `Ok(None)` branch of `record_store::get_record_by_id` (missing record is not a service error) → a fixed adapter-authored `resource not found: <uri>` MCP error. Malformed URIs → the `uri.rs` parse error.
+- [x] Error mapping: a genuine `Err(RepositoryError)` from a service → MCP resource error carrying the service's error message verbatim (no invented text). The `Ok(None)` branch of `record_store::get_record_by_id` (missing record is not a service error) → a fixed adapter-authored `resource not found: <uri>` MCP error. Malformed URIs → the `uri.rs` parse error.
 
 #### Acceptance Criteria
 
-- [ ] Against a fixture repo, `resources/list` returns map + navigation + every container + every document view, and `resources/templates/list` returns the record template.
-- [ ] `resources/read` on each URI kind returns contents matching the corresponding service output byte-for-byte (JSON) / the rendered markdown (view).
-- [ ] Unknown record id and malformed URI produce MCP errors, not panics; messages surface the service error.
+- [x] Against a fixture repo, `resources/list` returns map + navigation + every container + every document view, and `resources/templates/list` returns the record template.
+- [x] `resources/read` on each URI kind returns contents matching the corresponding service output byte-for-byte (JSON) / the rendered markdown (view).
+- [x] Unknown record id and malformed URI produce MCP errors, not panics; messages surface the service error.
 
 #### Testing
 

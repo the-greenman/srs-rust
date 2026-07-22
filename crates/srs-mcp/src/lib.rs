@@ -5,7 +5,9 @@
 //! input → exactly one `srs-repository` service call → the service's typed
 //! result serialized. No business logic lives here.
 
+mod resources;
 pub mod server;
+mod uri;
 
 pub use server::SrsMcpServer;
 
