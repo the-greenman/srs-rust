@@ -2541,6 +2541,51 @@ Returns `ok: false`. Exit code 1.
 
 ---
 
+## S42 — An MCP-connected agent supersedes a governance decision (`srs mcp serve`, #676)
+
+**Intention:** *"My AI agent (Claude Code, Cursor, …) should read my governance repository and record a superseding decision through its own tool channel — with the same validated write contract the CLI enforces, and without me shelling out to `srs` by hand."*
+
+**Capabilities exercised.** MCP stdio serving from the single `srs` binary (ADR-037); resource read surface (map, navigation, containers as `srs://` URIs); validated writes over MCP (`record_create`, `relation_create`); rejected writes returning service diagnostics as tool-level errors (nothing written); `repo_validate` + `find` closing the loop.
+
+**CLI surface.** `mcp serve` (stdio MCP: `initialize`, `resources/list`, `resources/read`, `tools/list`, `tools/call` for `repo_validate` / `find` / `record_create` / `relation_create` / `note_create`).
+
+**Repo setup.**
+
+```bash
+SRS=target/debug/srs
+REPO=/tmp/dogfood-s42
+
+$SRS repo create --repo $REPO --namespace com.example.dogfood --title "Dogfood Governance"
+# decision type: title (string, required) + decision_statement (text)
+echo '{"id":"<title-uuid>","namespace":"com.example.dogfood","name":"title","version":1,"valueType":"string"}' | $SRS field create --repo $REPO
+echo '{"id":"<stmt-uuid>","namespace":"com.example.dogfood","name":"decision_statement","version":1,"valueType":"text"}' | $SRS field create --repo $REPO
+echo '{"id":"<type-uuid>","namespace":"com.example.dogfood","name":"decision","version":1,"fields":[{"fieldId":"<title-uuid>","order":1,"required":true},{"fieldId":"<stmt-uuid>","order":2,"required":false}]}' | $SRS type create --repo $REPO
+# Install the relation vocabulary the agent will assert (see gap note below):
+echo '{"id":"<rt-uuid>","version":1,"key":"supersedes","namespace":"com.example.dogfood","label":"Supersedes","description":"Newer decision replaces older","category":"lifecycle"}' | $SRS relation-type create --repo $REPO
+```
+
+Real-client registration (Claude Code `.mcp.json`): `{"mcpServers": {"dogfood": {"command": "srs", "args": ["mcp", "serve", "--repo", "/tmp/dogfood-s42"]}}}` — for scripted dogfooding, drive the same stdio protocol directly (newline-delimited JSON-RPC on the process's stdin/stdout).
+
+**Steps** (one session: `$SRS mcp serve --repo $REPO`).
+
+1. `initialize` (protocolVersion `2025-06-18`) → serverInfo `name: "srs-mcp"`, resources + tools capabilities, discovery-ladder instructions; send `notifications/initialized`.
+2. `resources/list` → map + navigation + one entry per container (the root container appears under its title).
+3. `resources/read` the map URI → same JSON as `repo map`.
+4. `tools/call record_create` → decision v1 ("Meet weekly"). Result `isError: false`, structuredContent carries the record.
+5. `tools/call record_create` → decision v2 ("Meet fortnightly").
+6. `tools/call relation_create` `{relationType: "supersedes", source: v2, target: v1}` → asserted.
+7. `tools/call repo_validate` → `diagnostics: []`.
+8. `tools/call find` `{contentMatch: "fortnightly"}` → exactly the v2 record.
+9. Close stdin → process exits `0`; stdout carried only JSON-RPC throughout.
+
+**Negative case.** `record_create` with the required `title` field omitted → `isError: true`, text carries the service diagnostic (`missing required field: <fieldId>`), and **nothing is written** (instance count unchanged, `repo_validate` still clean). Also: `relation_create` with an uninstalled `relationType` ("amends") → `isError: true` with the RFC-005 E1 resolution error.
+
+**Done when.** The supersession chain exists (v2 —supersedes→ v1) and was authored entirely over MCP; both negative cases were rejected as *tool-level* errors the agent can read (not protocol errors, not partial writes); `repo_validate` reports zero diagnostics; `find` returns the successor; the server exits cleanly on stdin close with protocol-clean stdout.
+
+**Verified 2026-07-22 (#676).** Full session against the branch binary: initialize ✓ (proto 2025-06-18), resources/list 3 entries ✓, map read ✓, v1+v2 created ✓, missing-required rejected with diagnostic naming the fieldId + no write ✓, supersedes asserted ✓, unknown type rejected (E1) ✓, validate 0 diagnostics ✓, find 1 hit = v2 ✓, clean exit 0 ✓. **Gap found and filed:** the ADR-025 implicit core merge carries fields + record types only — the canonical relation vocabulary (`supersedes`, `depends-on`, …) does **not** resolve in fresh repos despite `srs-usage.md` §4 stating the seven canonical types ship in the core package; the setup above installs `supersedes` manually as the workaround (filed as a bug from this scenario).
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -2613,6 +2658,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `archive pack` / `archive unpack` (#630) + WASM `loadArchive` / `exportArchive` (#290) + WASM `getAttachmentBytes` (#291) | S41 (#630); CLI handlers `srs archive pack` / `srs archive unpack` added in `crates/srs-cli/src/commands/archive.rs`; container roundtrip bug fixed (containerIndex files now packed and unpacked). Library functions `archive_pack` / `archive_unpack` / `archive_to_vec` / `JsonStore::from_archive` implemented in `srs-repository` (ADR-033) and verified via 13 unit/integration tests: 8 original unit tests (roundtrip, determinism, entry order, timestamps, error paths, FileStore roundtrip, cross-store roundtrip) + `test_archive_no_extra_fields_and_deflated` + `test_archive_golden_fixture` + `test_archive_golden_roundtrip` (#277) + `test_load_from_archive_roundtrip` + `test_load_from_archive_rejects_invalid_bytes` (#290). WASM bindings `SrsRepository::load_archive(bytes)` and `SrsRepository::export_archive()` verified via `archive_service_roundtrip_smoke` in `crates/srs-bindings/src/lib.rs` and `cargo build --target wasm32-unknown-unknown -p srs-bindings` (#290). `JsonStore::save_binary_file`/`load_binary_file` now store bytes in memory (ADR-031 amendment, #291) enabling `SrsRepository::get_attachment_bytes(documentId)` → `Uint8Array` (RFC-017 Gate D); verified via 3 integration tests in `crates/srs-bindings/tests/attachment_bytes.rs` (archive roundtrip, unknown documentId, srsj tombstone) and 5 unit tests in `json_store.rs` (#291). |
 | `render export-bundle` (flat ZIP export: rendered doc + attachments, ADR-035, #289) | S38 (#289); service-layer tests in `export_service.rs` (3 tests: no-attachment, with-attachment, cross-store roundtrip via `tempfile::NamedTempFile`). |
 | `srs-gov export-decision` (governance operator exports shareable bundle, #289) | S38 (#289); exercises record lookup → view discovery → `render export-bundle` chain; `--explain` pre-stages all 3 underlying srs calls; default output filename (`<id8>.zip`). |
+| `mcp serve` (MCP stdio server: resources map/navigation/record/container/view + tools `repo_validate`/`find`/`record_create`/`relation_create`/`note_create`, ADR-037, #676) | S42; 12 crate tests in `crates/srs-mcp/` (unit + duplex-transport integration incl. e2e session) + 2 binary-level handshake tests in `crates/srs-cli/tests/mcp_serve.rs` |
 
 Gaps are intentional and visible: they are the backlog of surfaces that need a meaningful scenario. Do not delete a gap row — fill it when a feature gives the surface a real workflow to demonstrate.
 
