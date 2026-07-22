@@ -1,0 +1,45 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+  "container": {
+    "containerId": "11111111-1111-4111-8111-111111111111",
+    "identityInstanceId": "b3b90185-00a6-435f-b322-62fe8ecbeb86",
+    "memberInstanceIds": [
+      "b3b90185-00a6-435f-b322-62fe8ecbeb86"
+    ],
+    "title": "com.example.treefix"
+  },
+  "containerIndex": [
+    {
+      "containerId": "11111111-1111-4111-8111-111111111111",
+      "path": "containers/com-example-treefix-11111111.json",
+      "title": "com.example.treefix"
+    },
+    {
+      "containerId": "55555555-5555-4555-8555-555555555551",
+      "path": "containers/decisions-55555555.json",
+      "title": "Decisions"
+    }
+  ],
+  "createdAt": "2026-07-22T12:06:41.596010916+00:00",
+  "instanceIndex": [
+    {
+      "instanceId": "b3b90185-00a6-435f-b322-62fe8ecbeb86",
+      "path": "records/tier-2/purpose-b3b90185.json",
+      "tier": 2
+    },
+    {
+      "instanceId": "0ce8cbdd-5a77-4740-a34a-83b3afa63a3e",
+      "path": "records/tier-2/decision-0ce8cbdd.json",
+      "tier": 2
+    },
+    {
+      "instanceId": "75e926a4-2355-4571-a2de-cdeeb2279224",
+      "path": "records/tier-2/decision-75e926a4.json",
+      "tier": 2
+    }
+  ],
+  "namespace": "com.example.treefix",
+  "repositoryId": "11111111-1111-4111-8111-111111111111",
+  "srsVersion": "2.0-draft",
+  "title": "com.example.treefix"
+}

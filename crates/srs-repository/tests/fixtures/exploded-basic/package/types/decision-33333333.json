@@ -1,0 +1,24 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "aiGuidance": "A decision made by the group. Title states the decision; approved records whether it was ratified.",
+  "createdAt": "2026-07-22T00:00:00Z",
+  "description": "A decision record",
+  "fields": [
+    {
+      "fieldId": "22222222-2222-4222-8222-222222222221",
+      "order": 1,
+      "repeatable": false,
+      "required": true
+    },
+    {
+      "fieldId": "22222222-2222-4222-8222-222222222222",
+      "order": 2,
+      "repeatable": false,
+      "required": false
+    }
+  ],
+  "id": "33333333-3333-4333-8333-333333333331",
+  "name": "decision",
+  "namespace": "com.example.treefix",
+  "version": 1
+}

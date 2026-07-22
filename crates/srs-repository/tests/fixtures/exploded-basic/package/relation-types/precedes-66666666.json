@@ -1,0 +1,10 @@
+{
+  "category": "sequence",
+  "createdAt": "2026-07-22T00:00:00Z",
+  "description": "Source comes before target in document order",
+  "id": "66666666-6666-4666-8666-666666666661",
+  "key": "precedes",
+  "label": "Precedes",
+  "namespace": "com.example.treefix",
+  "version": 1
+}

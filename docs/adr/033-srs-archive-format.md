@@ -3,7 +3,7 @@
 - **Status:** accepted
 - **Date:** 2026-07-17
 - **Supersedes:** —
-- **Superseded by:** —
+- **Superseded by:** [ADR-038](038-srs-archive-pure-tree-zip.md) (items 8–9: the snapshot-driven content model and `package/package.snapshot.json`; determinism requirements remain in force)
 
 ## Context
 

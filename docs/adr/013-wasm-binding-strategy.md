@@ -3,7 +3,7 @@
 - **Status:** accepted — see Addendum (Repo-Independent Free Functions, 2026-07-12, #244)
 - **Date:** 2026-06-06
 - **Supersedes:** —
-- **Superseded by:** —
+- **Superseded by:** [ADR-037](037-vfs-tree-primary-model.md) (bundle-format rationale only — the rejected `{path: content}` map model is now the primary operational model; binding-thinness rules and the wasm32 CI gate remain in force)
 
 ## Context
 
