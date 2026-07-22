@@ -9,6 +9,7 @@ pub mod federation;
 pub mod field;
 pub mod find;
 pub mod lifecycle;
+pub mod mcp;
 pub mod migrate;
 pub mod note;
 pub mod package;
@@ -328,6 +329,9 @@ pub enum Commands {
     /// Term definition commands (RFC-006)
     #[command(subcommand)]
     Term(TermCommand),
+    /// Model Context Protocol server (stdio)
+    #[command(subcommand)]
+    Mcp(mcp::McpCommand),
     /// Show the hierarchical record tree rooted at top-level or specified instances
     Tree(TreeArgs),
     /// Discover instances by structured filters + content search (ext:discovery)
@@ -1737,5 +1741,6 @@ pub fn dispatch(cli: Cli) -> Result<String> {
         Commands::Context(ctx_cmd) => context::dispatch(ctx, ctx_cmd),
         Commands::Attachment(cmd) => attachment::dispatch(ctx, cmd),
         Commands::Archive(archive_cmd) => archive::dispatch(ctx, archive_cmd),
+        Commands::Mcp(mcp_cmd) => mcp::dispatch(ctx, mcp_cmd),
     }
 }

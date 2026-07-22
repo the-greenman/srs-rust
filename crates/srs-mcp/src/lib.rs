@@ -22,8 +22,10 @@ use std::path::PathBuf;
 pub fn serve_stdio(repo_path: PathBuf) -> anyhow::Result<()> {
     let server = SrsMcpServer::new(repo_path)?;
     // Stdio transport uses tokio's blocking pool for stdin/stdout — no I/O
-    // driver or timer needed on the runtime.
-    let runtime = tokio::runtime::Builder::new_current_thread().build()?;
+    // driver needed. Timers ARE needed: rmcp's shutdown path uses tokio::time.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()?;
     runtime.block_on(async move {
         let service = rmcp::ServiceExt::serve(server, rmcp::transport::stdio()).await?;
         service.waiting().await?;
