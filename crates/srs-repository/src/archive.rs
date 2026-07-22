@@ -54,7 +54,11 @@ const DEFINITION_KEYS: [&str; 10] = [
 /// containerIndex files, and the whole `source-documents/` subtree.
 /// Deliberately not a blind directory sweep, so a git working tree's `.git/`
 /// is never archived from disk.
-fn tree_entries(
+///
+/// This is the single authoritative faithful store→tree enumeration, reused by both
+/// `archive_pack` (ADR-039) and `tree_session::materialize_tree` (ADR-040), so a `.srsj`
+/// load reproduces the source's real paths instead of re-canonicalizing them (srs-rust#696).
+pub(crate) fn tree_entries(
     source: &dyn RepositoryStore,
 ) -> Result<BTreeMap<String, Vec<u8>>, RepositoryError> {
     if let Some(map) = source.as_tree_snapshot() {
@@ -595,6 +599,10 @@ fn legacy_snapshot_from_map(
         relations,
         source_documents_path,
         source_documents,
+        upstream_package: manifest_val
+            .get("upstreamPackage")
+            .and_then(|v| serde_json::from_value(v.clone()).ok()),
+        meta: manifest_val.get("meta").cloned(),
     })
 }
 

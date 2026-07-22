@@ -7,6 +7,7 @@
 
 use srs_core::types::record::FieldValue;
 use srs_repository::json_store::JsonStore;
+use srs_repository::migration_registry_service::{list_migrations, MigrationStatus};
 use srs_repository::record_store::{
     list_record_summaries, update_record, RecordListFilter, UpdateRecordInput,
 };
@@ -291,4 +292,113 @@ fn materialize_from_srsj_parity() {
     ids_tree.sort();
     ids_direct.sort();
     assert_eq!(ids_tree, ids_direct, "record inventory parity");
+}
+
+/// Rewrite `base` so every instance file sits at a bare full-UUID path
+/// (`records/tier-N/<uuid>.json`) instead of the canonical slug-id8 form, mirroring a
+/// repository authored before the slug-id8 convention (as srs-web's gallery/sample `.srsj`
+/// fixtures are). Returns a `.srsj` envelope string.
+fn srsj_with_noncanonical_instance_paths(base: &BTreeMap<String, Vec<u8>>) -> String {
+    let mut manifest: serde_json::Value = serde_json::from_slice(&base["manifest.json"]).unwrap();
+    let mut renamed: BTreeMap<String, String> = BTreeMap::new();
+    for entry in manifest["instanceIndex"].as_array_mut().unwrap() {
+        let id = entry["instanceId"].as_str().unwrap().to_string();
+        let old = entry["path"].as_str().unwrap().to_string();
+        let dir = old.rsplit_once('/').map(|(d, _)| d).unwrap_or("records");
+        let non_canonical = format!("{dir}/{id}.json");
+        entry["path"] = serde_json::json!(non_canonical);
+        renamed.insert(old, non_canonical);
+    }
+    let mut data = serde_json::Map::new();
+    for (path, bytes) in base {
+        if path == "manifest.json" || !path.ends_with(".json") || path.starts_with(".github/") {
+            continue;
+        }
+        let key = renamed.get(path).cloned().unwrap_or_else(|| path.clone());
+        data.insert(
+            key,
+            serde_json::from_slice::<serde_json::Value>(bytes).unwrap(),
+        );
+    }
+    serde_json::json!({ "srsj": "1", "manifest": manifest, "data": data }).to_string()
+}
+
+#[test]
+fn materialize_preserves_noncanonical_paths_and_keeps_repo_upgrade_detectable() {
+    // Regression 2 (srs-rust#696): loading a `.srsj` whose instance files sit at NON-canonical
+    // paths (bare full-UUID filenames, as srs-web's gallery/sample fixtures use) must preserve
+    // those paths through `materialize_tree` rather than re-canonicalizing on load. Otherwise the
+    // `repo-upgrade` ("Normalise instance file paths") migration can no longer detect the repo as
+    // needing normalization — the build.226 regression where the Needed badge vanished.
+    let base = fixture_map();
+    let json_store = JsonStore::from_srsj(&srsj_with_noncanonical_instance_paths(&base)).unwrap();
+
+    let tree = materialize_tree(&json_store).unwrap();
+
+    // (a) Real paths preserved — not re-canonicalized to the slug-id8 form on load.
+    let out = tree.load_manifest().unwrap();
+    assert!(
+        !out.instance_index.is_empty(),
+        "fixture must carry instances"
+    );
+    for e in &out.instance_index {
+        assert!(
+            e.path().ends_with(&format!("/{}.json", e.instance_id)),
+            "materialize must preserve the non-canonical full-UUID path, got {}",
+            e.path()
+        );
+    }
+
+    // (b) repo-upgrade is detectable again (was AlreadyApplied in build.226).
+    let migrations = list_migrations(&tree).unwrap();
+    let repo_upgrade = migrations
+        .iter()
+        .find(|m| m.id == "repo-upgrade")
+        .expect("repo-upgrade migration must be listed");
+    assert_eq!(
+        repo_upgrade.status,
+        MigrationStatus::Needed,
+        "a non-canonical repo must report repo-upgrade as Needed (srs-rust#696 Regression 2)"
+    );
+}
+
+#[test]
+fn materialize_preserves_definition_extras() {
+    // Review should-fix (srs-rust#696): materialize_tree is now the mainstream `.srsj` browser
+    // load path, running through the faithful `tree_entries` enumeration — package definition
+    // extras (`$schema`, `aiGuidance`) must survive it, not just a direct tree open.
+    let base = fixture_map();
+    let mut data = serde_json::Map::new();
+    let mut manifest = serde_json::Value::Null;
+    for (path, bytes) in &base {
+        if path == "manifest.json" {
+            manifest = serde_json::from_slice(bytes).unwrap();
+            continue;
+        }
+        if !path.ends_with(".json") || path.starts_with(".github/") {
+            continue;
+        }
+        data.insert(
+            path.clone(),
+            serde_json::from_slice::<serde_json::Value>(bytes).unwrap(),
+        );
+    }
+    let envelope = serde_json::json!({ "srsj": "1", "manifest": manifest, "data": data });
+    let json_store = JsonStore::from_srsj(&envelope.to_string()).unwrap();
+
+    let tree = materialize_tree(&json_store).unwrap();
+    let exported = export_tree(&tree).unwrap();
+    let type_file: serde_json::Value =
+        serde_json::from_slice(&exported["package/types/decision-33333333.json"])
+            .expect("materialized tree must contain the decision type file");
+    assert_eq!(
+        type_file["$schema"], "https://srs.semanticops.com/schema/2.0/type.json",
+        "$schema must survive materialize_tree from a JsonStore"
+    );
+    assert!(
+        type_file["aiGuidance"]
+            .as_str()
+            .is_some_and(|s| s.starts_with("A decision made")),
+        "aiGuidance must survive materialize_tree from a JsonStore"
+    );
 }
