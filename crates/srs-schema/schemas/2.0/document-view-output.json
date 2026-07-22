@@ -85,6 +85,46 @@
           "type": "array",
           "items": { "$ref": "#/$defs/ProjectedFieldGroup" },
           "description": "Structured field group data. Present only when the record's type defines fieldGroups and the record has matching groupValues. Omitted entirely when no groups have data."
+        },
+        "relations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ProjectedRelationRow" },
+          "description": "RFC-027 [I-027-8]. Present only when the section declares relationsPresentation and this record has surviving link rows; rows in display order. Omitted when no edges survive selection."
+        }
+      }
+    },
+    "ProjectedRelationRow": {
+      "type": "object",
+      "required": ["relationType", "direction", "label", "targets"],
+      "additionalProperties": false,
+      "properties": {
+        "relationType": { "type": "string" },
+        "direction": {
+          "type": "string",
+          "enum": ["forward", "inverse"],
+          "description": "Whether the record is the source (forward) or target (inverse) of the listed edges. Display-only; only forward edges are stored (Invariant 16)."
+        },
+        "label": {
+          "type": "string",
+          "description": "Resolved row label per RFC-027 Change B."
+        },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/ProjectedRelationTarget" },
+          "description": "Related instances in display order: display label ascending, instanceId ascending tiebreak, both by Unicode code point (RFC-027 [I-027-5])."
+        }
+      }
+    },
+    "ProjectedRelationTarget": {
+      "type": "object",
+      "required": ["instanceId", "displayLabel"],
+      "additionalProperties": false,
+      "properties": {
+        "instanceId": { "type": "string", "format": "uuid" },
+        "displayLabel": {
+          "type": "string",
+          "description": "Resolved per RFC-027 Change C rule 5 (effective identityFieldId → section titleFieldId → instanceId)."
         }
       }
     },
