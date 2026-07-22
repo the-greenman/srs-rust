@@ -40,7 +40,7 @@ test("labelCreateArgs is idempotent (--force) and repo-scoped", () => {
 });
 
 test("MIRROR_REPOS covers the routine-touched ecosystem repos", () => {
-  for (const r of ["srs", "srs-rust", "srs-web"]) assert.ok(MIRROR_REPOS.includes(r), `missing repo: ${r}`);
+  for (const r of ["srs", "srs-rust", "srs-web", "srs-vscode"]) assert.ok(MIRROR_REPOS.includes(r), `missing repo: ${r}`);
   assert.ok(MIRROR_REPOS.some((r) => r.toLowerCase() === "mudemocracy.org"), "missing story repo");
 });
 
