@@ -79,6 +79,11 @@ A spec change is required if the feature:
 3. **ADR check:** read every file in `srs-rust/docs/adr/`. Identify:
    - Existing ADRs that govern choices in this plan (cite them in the Architecture Decisions table).
    - Choices that require a **new ADR** — any decision that establishes a new architectural constraint, rejects a plausible alternative others might revisit, or changes a prior decision.
+
+   **Interop/positioning research consult:** if the plan touches interoperability, export/import formats, agent-facing surfaces (CLI contract, bindings, MCP), or portability, also read the positioning research in the `srs` repo — `docs/research/alignment-opportunities.md` (the weighted adopt/align/watch register; authoritative for these decisions) plus, as needed, its landscape surveys (`spec-driven-development-landscape.md`, `semantic-document-landscape.md`). Cite the relevant register entries (item number + disposition) in the plan's Architecture Decisions table and in any new ADR; if the plan contradicts a register entry, the ADR must record why. Locating the docs: use the sibling checkout `../srs/docs/research/` if present; in a cloud session (no sibling) fetch from GitHub:
+   ```bash
+   gh api repos/the-greenman/srs/contents/docs/research/alignment-opportunities.md --jq .content | base64 -d
+   ```
 4. **Design decision pause:** before finalising the plan, identify any decision that has **long-term consequences** — a new public API shape, a new payload contract, a cross-crate dependency direction, a new extension model, or anything that would be painful to reverse later. For each such decision, present it clearly to the user with the trade-offs and **wait for their input** before continuing. Record their decision in the plan's Architecture Decisions table (and draft a new ADR if warranted). This is the one deliberate pause in the autonomous pipeline.
 5. After input is received and decisions are recorded, finalise the plan and draft any new ADRs in `srs-rust/docs/adr/NNN-title.md` using `ADR-TEMPLATE.md` (status: `proposed`).
 6. Set the issue body to the plan: `gh issue edit N --body-file srs-rust/plans/<slug>.md`.
