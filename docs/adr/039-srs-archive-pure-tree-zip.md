@@ -1,6 +1,6 @@
 # ADR-039: `.srs` archive is a pure tree zip (no snapshot file)
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-07-22
 - **Supersedes:** ADR-033 items 8–9 (snapshot-driven content model and the
   `package/package.snapshot.json` deviation); determinism requirements of ADR-033 remain in

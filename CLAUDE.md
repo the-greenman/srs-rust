@@ -25,7 +25,7 @@ cargo run --bin generate-schemas          # regenerate payload JSON Schema golde
 | Crate | Owns | Hard constraints |
 |---|---|---|
 | `srs-core` | Canonical Rust types, serde shapes, in-memory validation | No file I/O. No async. No `schemars`. |
-| `srs-repository` | Repository loading, writing, package resolution, service functions, archive pack/unpack, export bundle | Depends on `srs-core`. All business logic lives here, not in the CLI. |
+| `srs-repository` | Repository loading, writing, package resolution, service functions, Vfs seam (`DiskVfs`/`MemVfs`) + tree sessions (ADR-038), archive pack/unpack, export bundle | Depends on `srs-core`. All business logic lives here, not in the CLI. |
 | `srs-cli` | Arg parsing, stdin handling, JSON envelope output | One service call per handler. No business logic. No direct filesystem access in handlers. |
 | `srs-bindings` | JSON-first binding surface over repository services | Calls the same services as the CLI. No duplicated logic. |
 | `srs-mcp` | MCP stdio server over repository services (`srs mcp serve`, ADR-037) | Sole owner of `rmcp`/`tokio`. One service call per handler. Tool inputs are shadow structs with mandatory `From` conversions. No business logic. |
@@ -72,7 +72,7 @@ Service functions in `srs-repository` must use:
 
 ## Storage Boundary Rules
 
-- `FileStore` owns all file paths. Path strings (`records/`, `.srs/`, `manifest.json`) must not appear in service logic.
+- `FileStore` owns all file paths. Path strings (`records/`, `.srs/`, `manifest.json`) must not appear in service logic. All I/O routes through the `Vfs` seam (ADR-038): `DiskVfs` on disk (CLI), `MemVfs` for in-memory tree sessions (WASM). Untouched files in a tree session round-trip byte-identically — never regress this.
 - `MemoryStore` is the canonical test double — tests that only work against `FileStore` are testing the adapter, not the service.
 - New service features need at least one cross-store roundtrip test (e.g. memory → json → file).
 - Do not introduce `async` traits until there is a concrete async consumer.

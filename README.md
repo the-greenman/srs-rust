@@ -64,7 +64,7 @@ cargo run --bin srs -- <group> --help
 
 ## WASM bindings
 
-`crates/srs-bindings` is a **real** `wasm-bindgen` surface (cdylib), not a placeholder — it wraps ~20 repository services (records, relations, containers, blueprints, discovery/find, render, navigation, lifecycle, migrate-identity, …) and is covered by integration tests under `crates/srs-bindings/tests/`. It is built for `wasm32-unknown-unknown` in CI and published as `srs-bindings-web.tar.gz` on every merge to `master` (`release.yml`), which `srs-web` fetches at build time.
+`crates/srs-bindings` is a **real** `wasm-bindgen` surface (cdylib), not a placeholder — it wraps ~20 repository services (records, relations, containers, blueprints, discovery/find, render, navigation, lifecycle, migrate-identity, …) and is covered by integration tests under `crates/srs-bindings/tests/`. Every load path (`load` for `.srsj`, `load_archive` for `.srs`, `load_tree` for an exploded file tree) yields the same in-memory tree session — a `FileStore` over `MemVfs` (ADR-038) — and `export_tree` returns the tree with untouched files byte-identical, which is what makes clean git diffs possible for browser clients. It is built for `wasm32-unknown-unknown` in CI and published as `srs-bindings-web.tar.gz` on every merge to `master` (`release.yml`), which `srs-web` fetches at build time.
 
 Build it locally against a `srs-web` checkout:
 
