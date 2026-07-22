@@ -6571,7 +6571,9 @@ mod tests {
             "expected zero-records diagnostic on JSON path; got: {:?}",
             result.diagnostics
         );
-        let projection = result.projection.expect("JSON path must produce a projection");
+        let projection = result
+            .projection
+            .expect("JSON path must produce a projection");
         assert!(
             projection.sections[0].records.is_empty(),
             "section records should be empty; got: {:?}",
@@ -6633,9 +6635,12 @@ mod tests {
         })
         .unwrap();
         assert!(
-            result.diagnostics.iter().any(|d| d.contains("[section:s-hide]")
-                && d.contains("type-query")
-                && d.contains("matched 0 records")),
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.contains("[section:s-hide]")
+                    && d.contains("type-query")
+                    && d.contains("matched 0 records")),
             "emptyBehavior:hide must not suppress the diagnostic; got: {:?}",
             result.diagnostics
         );
