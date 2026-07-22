@@ -228,7 +228,7 @@ untouched, and single edits produce single-file diffs.
 
 #### Tasks
 
-- [ ] Create `crates/srs-repository/src/tree_session.rs`:
+- [x] Create `crates/srs-repository/src/tree_session.rs`:
   - `pub fn open_tree(files: BTreeMap<String, Vec<u8>>) -> Result<FileStore, RepositoryError>` —
     errors if `manifest.json` absent; populates a `MemVfs`; registers the `SRS_MARKER_DIR`
     explicit dir when no `.srs` entry exists (git cannot track empty dirs;
@@ -243,7 +243,7 @@ untouched, and single edits produce single-file diffs.
     `import_repository_snapshot` into a fresh MemVfs-backed FileStore. The bridge that turns
     any codec-loaded repo (JsonStore srsj sessions, legacy archives) into the operational tree.
   - Re-export the three functions from `lib.rs`.
-- [ ] Fidelity fix via shared module (mirrors `field_json.rs`): extract
+- [x] Fidelity fix via shared module (mirrors `field_json.rs`): extract
   `crates/srs-repository/src/type_json.rs` with the `TypeJson` intermediate and a single
   `into_record_type()` that carries `#[serde(flatten)] _extra` into `RecordType.extra`
   (`RecordType` already has `#[serde(flatten)] pub extra` in
@@ -253,15 +253,15 @@ untouched, and single edits produce single-file diffs.
 
 #### Acceptance Criteria
 
-- [ ] `open_tree(fixture)` → no edits → `export_tree` returns a `BTreeMap` equal to the input
+- [x] `open_tree(fixture)` → no edits → `export_tree` returns a `BTreeMap` equal to the input
   map for every input path (full `BTreeMap<String, Vec<u8>>` equality; the only permitted
   delta is the added `.srs/.gitkeep` entry).
-- [ ] `open_tree` → `update_record` on one record → exported map differs from input in
+- [x] `open_tree` → `update_record` on one record → exported map differs from input in
   exactly that record's file (assert the precise changed-key set, not just "something
   changed"; manifest untouched when the index is unchanged).
-- [ ] Type definition edit preserves `$schema`/`aiGuidance` in the written file.
-- [ ] Decoy files are byte-identical in every scenario.
-- [ ] `materialize_tree(JsonStore::from_srsj(...))` yields a store whose `validate` and
+- [x] Type definition edit preserves `$schema`/`aiGuidance` in the written file.
+- [x] Decoy files are byte-identical in every scenario.
+- [x] `materialize_tree(JsonStore::from_srsj(...))` yields a store whose `validate` and
   `list_records` outputs match the JsonStore source.
 
 #### Testing

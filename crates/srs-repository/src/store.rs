@@ -11,9 +11,7 @@ use serde::de::Error as SerdeDeError;
 use srs_core::types::container::ContainerIndexEntry;
 use srs_core::types::field::Field;
 use srs_core::types::lifecycle::Lifecycle;
-use srs_core::types::record_type::{
-    CrossFieldRule, FieldAssignment, FieldAssignmentOverride, FieldGroup, RecordType, TypeLifecycle,
-};
+use srs_core::types::record_type::RecordType;
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::types::theme::Theme;
 use srs_core::types::view::{DocumentView, View};
@@ -517,77 +515,6 @@ struct PackageMetadata {
     lifecycles: Vec<String>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TypeJson {
-    id: String,
-    namespace: String,
-    name: String,
-    version: u32,
-    description: Option<String>,
-    fields: Vec<FieldAssignmentJson>,
-    #[serde(default)]
-    field_groups: Option<Vec<FieldGroupJson>>,
-    #[serde(default)]
-    extends_type_id: Option<String>,
-    #[serde(default)]
-    extends_type_version: Option<u32>,
-    #[serde(default)]
-    field_order: Option<Vec<String>>,
-    #[serde(default)]
-    field_assignment_overrides: Option<Vec<FieldAssignmentOverrideJson>>,
-    #[serde(default)]
-    identity_field_id: Option<String>,
-    #[serde(default)]
-    lifecycle: Option<TypeLifecycle>,
-    #[serde(default)]
-    lifecycle_ref: Option<String>,
-    #[serde(default)]
-    validation_rules: Option<Vec<CrossFieldRule>>,
-    created_at: Option<String>,
-    #[serde(flatten)]
-    _extra: HashMap<String, serde_json::Value>,
-}
-
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct FieldAssignmentJson {
-    field_id: String,
-    order: u32,
-    required: Option<bool>,
-    display_label: Option<String>,
-    #[serde(default)]
-    repeatable: bool,
-    min_items: Option<u32>,
-    max_items: Option<u32>,
-}
-
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct FieldGroupJson {
-    group_id: String,
-    order: u32,
-    fields: Vec<FieldAssignmentJson>,
-    label: Option<String>,
-    description: Option<String>,
-    #[serde(default)]
-    required: bool,
-    #[serde(default)]
-    repeatable: bool,
-    min_items: Option<u32>,
-    max_items: Option<u32>,
-    composite_renderer: Option<String>,
-}
-
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct FieldAssignmentOverrideJson {
-    field_id: String,
-    display_label: Option<String>,
-    display_hint: Option<String>,
-    required: Option<bool>,
-}
-
 #[allow(clippy::type_complexity)]
 fn load_package_from_dir(
     vfs: &dyn Vfs,
@@ -633,83 +560,12 @@ fn load_package_from_dir(
         let rel = vfs_join(prefix, type_path);
         let full_path = err_root.join(&rel);
         let content = vfs.read_to_string(&rel)?;
-        let tj: TypeJson =
+        let tj: crate::type_json::TypeJson =
             serde_json::from_str(&content).map_err(|e| RepositoryError::PackageLoad {
                 path: full_path.clone(),
                 source: e,
             })?;
-        let type_fields: Vec<FieldAssignment> = tj
-            .fields
-            .into_iter()
-            .map(|fa| FieldAssignment {
-                field_id: fa.field_id,
-                order: fa.order,
-                required: fa.required.unwrap_or(true),
-                display_label: fa.display_label,
-                repeatable: fa.repeatable,
-                min_items: fa.min_items,
-                max_items: fa.max_items,
-            })
-            .collect();
-        let field_groups = tj.field_groups.map(|groups| {
-            groups
-                .into_iter()
-                .map(|g| FieldGroup {
-                    group_id: g.group_id,
-                    order: g.order,
-                    fields: g
-                        .fields
-                        .into_iter()
-                        .map(|fa| FieldAssignment {
-                            field_id: fa.field_id,
-                            order: fa.order,
-                            required: fa.required.unwrap_or(true),
-                            display_label: fa.display_label,
-                            repeatable: fa.repeatable,
-                            min_items: fa.min_items,
-                            max_items: fa.max_items,
-                        })
-                        .collect(),
-                    label: g.label,
-                    description: g.description,
-                    required: g.required,
-                    repeatable: g.repeatable,
-                    min_items: g.min_items,
-                    max_items: g.max_items,
-                    composite_renderer: g.composite_renderer,
-                })
-                .collect()
-        });
-        let field_assignment_overrides = tj.field_assignment_overrides.map(|overrides| {
-            overrides
-                .into_iter()
-                .map(|o| FieldAssignmentOverride {
-                    field_id: o.field_id,
-                    display_label: o.display_label,
-                    display_hint: o.display_hint,
-                    required: o.required,
-                })
-                .collect()
-        });
-        record_types.push(RecordType {
-            id: tj.id,
-            namespace: tj.namespace,
-            name: tj.name,
-            version: tj.version,
-            description: tj.description.unwrap_or_default(),
-            fields: type_fields,
-            field_groups,
-            extends_type_id: tj.extends_type_id,
-            extends_type_version: tj.extends_type_version,
-            field_order: tj.field_order,
-            field_assignment_overrides,
-            identity_field_id: tj.identity_field_id,
-            lifecycle: tj.lifecycle,
-            lifecycle_ref: tj.lifecycle_ref,
-            validation_rules: tj.validation_rules,
-            created_at: tj.created_at.unwrap_or_default(),
-            extra: HashMap::new(),
-        });
+        record_types.push(tj.into_record_type());
     }
 
     for rt_path in &metadata.relation_types {
