@@ -5,6 +5,8 @@
 - **Supersedes:** ADR-013 (bundle-format rationale only — the "rejected alternative" of a
   `{path: content}` map); amends ADR-015 ("the WASM `SrsRepository` wraps a `JsonStore`")
 - **Superseded by:** —
+- **Amended by:** ADR-040 (§4 `materialize_tree` reproduces the source's real file tree instead of
+  the snapshot round-trip described below — see srs-rust#696)
 
 ## Context
 
@@ -54,8 +56,11 @@ tree) are codecs at the boundary and say nothing about how data is managed in me
    (synthesizes the `.srs/` marker dir — git cannot track empty directories),
    `export_tree(&FileStore) -> BTreeMap<String, Vec<u8>>` (raw map dump; emits
    `.srs/.gitkeep` iff no `.srs/` file exists), and
-   `materialize_tree(&dyn RepositoryStore) -> FileStore` (snapshot round-trip — the bridge
-   from any codec-loaded source into the operational tree).
+   `materialize_tree(&dyn RepositoryStore) -> FileStore` (the bridge from any codec-loaded
+   source into the operational tree). **Amended by ADR-040 (srs-rust#696):** this originally
+   round-tripped through the snapshot, which re-canonicalized instance paths; it now reproduces
+   the source's real file tree faithfully (via `archive::tree_entries` + `open_tree`), keeping
+   real paths.
 5. **All WASM load paths produce a MemVfs-backed `FileStore`**: `load(srsj)` goes
    `load_from_srsj` (codec + migrations) → `materialize_tree`; `load_archive` unzips to a
    tree; `load_tree` opens the tree directly. `SrsRepository` wraps `FileStore`, not
