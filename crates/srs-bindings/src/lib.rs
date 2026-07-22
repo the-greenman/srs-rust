@@ -51,7 +51,7 @@ use srs_repository::tag_service;
 use srs_repository::type_schema_service::{self, TypeSchemaInput};
 use srs_repository::validation;
 use srs_repository::view_service::{self, DocumentViewListFilter, GetViewResult};
-use srs_repository::JsonStore;
+use srs_repository::FileStore;
 use wasm_bindgen::prelude::*;
 
 /// Serialise `value` to a JSON string via serde_json (which respects all serde attributes
@@ -74,7 +74,7 @@ fn js_err(e: impl std::fmt::Display) -> JsValue {
 
 #[wasm_bindgen]
 pub struct SrsRepository {
-    store: JsonStore,
+    store: FileStore,
 }
 
 #[wasm_bindgen]
@@ -84,13 +84,45 @@ impl SrsRepository {
     /// Applies RFC-014 migration before loading (idempotent on already-migrated bundles),
     /// so callers do not need to migrate the seed separately.
     pub fn load(srsj: &str) -> Result<SrsRepository, JsValue> {
-        let store = srs_repository::srsj_migration_service::load_from_srsj(srsj).map_err(js_err)?;
+        // `.srsj` is a boundary codec (ADR-037): parse through JsonStore, then
+        // materialize the operational in-memory tree.
+        let codec = srs_repository::srsj_migration_service::load_from_srsj(srsj).map_err(js_err)?;
+        let store = srs_repository::materialize_tree(&codec).map_err(js_err)?;
         Ok(SrsRepository { store })
     }
 
     /// Load a repository from a `.srs` binary archive (ZIP bytes).
+    ///
+    /// Native tree archives (ADR-038) load layout-faithfully; legacy snapshot
+    /// archives take the migration ramp and are re-saved in the new format on
+    /// the next export.
     pub fn load_archive(bytes: &[u8]) -> Result<SrsRepository, JsValue> {
-        let store = JsonStore::from_archive(bytes).map_err(js_err)?;
+        let store = srs_repository::archive_to_tree(std::io::Cursor::new(bytes)).map_err(js_err)?;
+        Ok(SrsRepository { store })
+    }
+
+    /// Load a repository from an exploded file tree (ADR-037).
+    ///
+    /// `files` is a JS object mapping repo-relative forward-slash paths to
+    /// `Uint8Array` contents — e.g. every blob of a fetched git tree. Unknown
+    /// files (README, CI config) ride along untouched and reappear verbatim in
+    /// [`SrsRepository::export_tree`].
+    pub fn load_tree(files: JsValue) -> Result<SrsRepository, JsValue> {
+        let obj: js_sys::Object = files
+            .dyn_into()
+            .map_err(|_| js_err("load_tree expects an object of { path: Uint8Array }"))?;
+        let mut map = std::collections::BTreeMap::new();
+        for key in js_sys::Object::keys(&obj).iter() {
+            let path = key
+                .as_string()
+                .ok_or_else(|| js_err("load_tree keys must be strings"))?;
+            let value = js_sys::Reflect::get(&obj, &key).map_err(|_| js_err("bad tree entry"))?;
+            let bytes: js_sys::Uint8Array = value
+                .dyn_into()
+                .map_err(|_| js_err(format!("load_tree entry '{path}' must be a Uint8Array")))?;
+            map.insert(path, bytes.to_vec());
+        }
+        let store = srs_repository::open_tree(map).map_err(js_err)?;
         Ok(SrsRepository { store })
     }
 
@@ -197,7 +229,24 @@ impl SrsRepository {
     /// The browser caller can use this to offer a download of the edited repo.
     #[wasm_bindgen]
     pub fn export_srsj(&self) -> Result<String, JsValue> {
-        self.store.to_srsj_string().map_err(js_err)
+        srs_repository::srsj_migration_service::export_srsj_string(&self.store).map_err(js_err)
+    }
+
+    /// Export the session as an exploded file tree (ADR-037): a JS object of
+    /// `{ path: Uint8Array }`. Untouched files are byte-identical to what was
+    /// loaded — the clean-git-diff guarantee.
+    pub fn export_tree(&self) -> Result<JsValue, JsValue> {
+        let map = srs_repository::export_tree(&self.store).map_err(js_err)?;
+        let obj = js_sys::Object::new();
+        for (path, bytes) in &map {
+            js_sys::Reflect::set(
+                &obj,
+                &JsValue::from_str(path),
+                &js_sys::Uint8Array::from(bytes.as_slice()).into(),
+            )
+            .map_err(|_| js_err("failed to build export_tree object"))?;
+        }
+        Ok(obj.into())
     }
 
     /// Export the current repository state as a `.srs` binary archive (ZIP bytes).
