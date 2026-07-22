@@ -3321,4 +3321,55 @@ mod tests {
             .expect("binary must survive re-export roundtrip");
         assert_eq!(loaded, BYTES);
     }
+
+    #[test]
+    fn json_store_type_extras_survive_load() {
+        // Regression guard for the shared TypeJson fix (#684): $schema and
+        // aiGuidance on a type definition must reach RecordType.extra when the
+        // package loads from a .srsj envelope (previously dropped).
+        let srsj = serde_json::json!({
+            "srsj": "1",
+            "manifest": {
+                "repositoryId": "extras-repo",
+                "namespace": "com.test.extras",
+                "srsVersion": "2.0-draft",
+                "instanceIndex": []
+            },
+            "data": {
+                "package/package.json": {
+                    "id": "pkg-extras",
+                    "namespace": "com.test.extras",
+                    "name": "extras",
+                    "version": "1.0.0",
+                    "fields": [],
+                    "types": ["types/thing.json"]
+                },
+                "package/types/thing.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+                    "id": "type-extras-1",
+                    "namespace": "com.test.extras",
+                    "name": "thing",
+                    "version": 1,
+                    "aiGuidance": "guidance survives",
+                    "fields": []
+                }
+            }
+        })
+        .to_string();
+        let store = JsonStore::from_srsj(&srsj).expect("from_srsj");
+        let package = store.load_package().expect("load_package");
+        let rt = package
+            .record_types
+            .iter()
+            .find(|t| t.id == "type-extras-1")
+            .expect("type loaded");
+        assert_eq!(
+            rt.extra.get("aiGuidance").and_then(|v| v.as_str()),
+            Some("guidance survives")
+        );
+        assert_eq!(
+            rt.extra.get("$schema").and_then(|v| v.as_str()),
+            Some("https://srs.semanticops.com/schema/2.0/type.json")
+        );
+    }
 }

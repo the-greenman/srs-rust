@@ -21,7 +21,7 @@ use crate::repository_portability::{
 };
 use crate::store::{FileStore, RepositoryStore};
 use crate::tree_session::open_tree;
-use crate::vfs::vfs_join;
+use crate::vfs::{vfs_join, SRS_MARKER_DIR};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
 use srs_core::types::container::{Container, ContainerIndexEntry};
@@ -229,24 +229,44 @@ fn parse_manifest_value(
     Ok(manifest_val)
 }
 
-/// Referenced primary-package definition files absent from the map.
+/// Referenced definition files (primary package and every local sub-package
+/// boundary in the manifest's `packageRefs`) absent from the map.
 /// Empty ⇒ the archive is loadable as a native tree.
-fn missing_primary_definitions(bytes_map: &HashMap<String, Vec<u8>>) -> Vec<String> {
-    let Some(pkg_bytes) = bytes_map.get("package/package.json") else {
-        return vec!["package/package.json".to_string()];
-    };
-    let Ok(pkg_val) = serde_json::from_slice::<serde_json::Value>(pkg_bytes) else {
-        return vec!["package/package.json".to_string()];
-    };
+fn missing_tree_definitions(
+    bytes_map: &HashMap<String, Vec<u8>>,
+    manifest_val: &serde_json::Value,
+) -> Vec<String> {
+    let mut prefixes = vec!["package".to_string()];
+    if let Some(refs) = manifest_val.get("packageRefs").and_then(|v| v.as_array()) {
+        for pkg_ref in refs {
+            if pkg_ref.get("mode").and_then(|m| m.as_str()) == Some("local") {
+                if let Some(path) = pkg_ref.get("path").and_then(|p| p.as_str()) {
+                    prefixes.push(path.to_string());
+                }
+            }
+        }
+    }
+
     let mut missing = Vec::new();
-    for key in DEFINITION_KEYS {
-        let Some(arr) = pkg_val.get(key).and_then(|v| v.as_array()) else {
+    for prefix in prefixes {
+        let pkg_rel = vfs_join(&prefix, "package.json");
+        let Some(pkg_bytes) = bytes_map.get(&pkg_rel) else {
+            missing.push(pkg_rel);
             continue;
         };
-        for rel in arr.iter().filter_map(|v| v.as_str()) {
-            let full = vfs_join("package", rel);
-            if !bytes_map.contains_key(&full) {
-                missing.push(full);
+        let Ok(pkg_val) = serde_json::from_slice::<serde_json::Value>(pkg_bytes) else {
+            missing.push(pkg_rel);
+            continue;
+        };
+        for key in DEFINITION_KEYS {
+            let Some(arr) = pkg_val.get(key).and_then(|v| v.as_array()) else {
+                continue;
+            };
+            for rel in arr.iter().filter_map(|v| v.as_str()) {
+                let full = vfs_join(&prefix, rel);
+                if !bytes_map.contains_key(&full) {
+                    missing.push(full);
+                }
             }
         }
     }
@@ -270,7 +290,7 @@ pub fn archive_unpack(
         .unwrap_or_default()
         .to_string();
 
-    let missing = missing_primary_definitions(&bytes_map);
+    let missing = missing_tree_definitions(&bytes_map, &manifest_val);
     if missing.is_empty() {
         // Native tree archive. A stray legacy snapshot (old archive of an
         // empty package) is metadata, not tree content — drop it.
@@ -278,12 +298,13 @@ pub fn archive_unpack(
         let tree: BTreeMap<String, Vec<u8>> = bytes_map.into_iter().collect();
         if target.is_file_tree_store() {
             // Layout-faithful: raw files, no re-canonicalization.
-            let has_marker = tree.keys().any(|k| k.starts_with(".srs/"));
+            let marker_prefix = format!("{SRS_MARKER_DIR}/");
+            let has_marker = tree.keys().any(|k| k.starts_with(&marker_prefix));
             for (path, bytes) in &tree {
                 target.save_binary_file(path, bytes)?;
             }
             if !has_marker {
-                target.save_binary_file(".srs/.gitkeep", &[])?;
+                target.save_binary_file(&format!("{SRS_MARKER_DIR}/.gitkeep"), &[])?;
             }
         } else {
             let session = open_tree(tree)?;
@@ -323,7 +344,7 @@ pub fn archive_to_tree(reader: impl Read + Seek) -> Result<FileStore, Repository
     let mut bytes_map = read_zip_to_map(reader)?;
     let manifest_val = parse_manifest_value(&bytes_map)?;
 
-    let missing = missing_primary_definitions(&bytes_map);
+    let missing = missing_tree_definitions(&bytes_map, &manifest_val);
     if missing.is_empty() {
         bytes_map.remove("package/package.snapshot.json");
         return open_tree(bytes_map.into_iter().collect());

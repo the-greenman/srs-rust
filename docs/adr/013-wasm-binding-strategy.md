@@ -53,7 +53,11 @@ Write operations (create/update/delete) are deferred to a future plan. The `flus
 
 ### `FileStore` and `detect.rs` on Wasm
 
-`FileStore` and `detect::find_repo_root` use `std::fs` and are not callable from Wasm. No `#[cfg]` guards are needed: the Rust compiler and linker dead-strip unreachable code from the `wasm32-unknown-unknown` target, so these types compile but are simply absent from the output `.wasm` because nothing in `srs-bindings` references them. All service functions accept `&dyn RepositoryStore` and are unaffected.
+*(Superseded by ADR-038.)* Originally, `FileStore` used `std::fs` directly and was not
+callable from Wasm. Since ADR-038, `FileStore` runs over the `Vfs` seam and — backed by
+`MemVfs` — is the **primary WASM session store**. What remains true: `DiskVfs` and
+`detect::find_repo_root` use `std::fs` and are unreachable from binding paths (dead-stripped
+from the `.wasm`); all service functions accept `&dyn RepositoryStore` and are unaffected.
 
 ## Consequences
 

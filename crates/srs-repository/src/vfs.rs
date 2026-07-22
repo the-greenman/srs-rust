@@ -207,6 +207,9 @@ impl Vfs for DiskVfs {
         if !candidate_canonical.starts_with(&root_canonical) {
             return Ok(DirCheck::OutsideRoot);
         }
+        if !candidate_canonical.is_dir() {
+            return Ok(DirCheck::Missing);
+        }
         Ok(DirCheck::Ok)
     }
 
