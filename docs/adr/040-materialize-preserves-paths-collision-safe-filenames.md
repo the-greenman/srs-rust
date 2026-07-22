@@ -1,6 +1,6 @@
 # ADR-040: `materialize_tree` preserves real paths; canonical filenames disambiguate id-prefix collisions
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-07-22
 - **Supersedes:** —
 - **Superseded by:** —
