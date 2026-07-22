@@ -358,28 +358,28 @@ formats are codecs at the boundary.
 
 #### Tasks
 
-- [ ] `SrsRepository { store: FileStore }` (was `JsonStore`) — service call sites unchanged
+- [x] `SrsRepository { store: FileStore }` (was `JsonStore`) — service call sites unchanged
   (`&self.store` coerces to `&dyn RepositoryStore`).
-- [ ] `load(srsj)` → `srsj_migration_service::load_from_srsj` (codec, keeps RFC-014 + srsj
+- [x] `load(srsj)` → `srsj_migration_service::load_from_srsj` (codec, keeps RFC-014 + srsj
   open-time migrations) → `materialize_tree`.
-- [ ] `load_archive(bytes)` → `archive_to_tree`.
-- [ ] `load_tree(files: JsValue)` (new) — JS object `{ "<path>": Uint8Array }` → `open_tree`.
-- [ ] `export_tree() -> JsValue` (new) — `tree_session::export_tree` → JS object of
+- [x] `load_archive(bytes)` → `archive_to_tree`.
+- [x] `load_tree(files: JsValue)` (new) — JS object `{ "<path>": Uint8Array }` → `open_tree`.
+- [x] `export_tree() -> JsValue` (new) — `tree_session::export_tree` → JS object of
   `Uint8Array`s.
-- [ ] `export_srsj()` — snapshot → fresh in-memory `JsonStore` codec → `to_srsj_string`
+- [x] `export_srsj()` — snapshot → fresh in-memory `JsonStore` codec → `to_srsj_string`
   (documented: this projection re-canonicalizes paths; `.srsj` is an interchange format,
   not the session state).
-- [ ] `export_archive()` — unchanged call (`archive_to_vec(&self.store)`).
-- [ ] `get_attachment_bytes` now serves real bytes for tree/archive-loaded repos via
+- [x] `export_archive()` — unchanged call (`archive_to_vec(&self.store)`).
+- [x] `get_attachment_bytes` now serves real bytes for tree/archive-loaded repos via
   FileStore `load_binary_file`.
 
 #### Acceptance Criteria
 
-- [ ] All existing srs-bindings native tests pass unmodified (or with mechanical updates only).
-- [ ] `load` → edit → `export_srsj` → `load` round-trip: validate/list parity.
-- [ ] `load_tree`/`export_tree` round-trip byte-identity (native test via the underlying
+- [x] All existing srs-bindings native tests pass unmodified (or with mechanical updates only).
+- [x] `load` → edit → `export_srsj` → `load` round-trip: validate/list parity.
+- [x] `load_tree`/`export_tree` round-trip byte-identity (native test via the underlying
   service functions; js-sys types are covered by the wasm32 build gate per ADR-013).
-- [ ] `cargo build --target wasm32-unknown-unknown -p srs-bindings` succeeds.
+- [x] `cargo build --target wasm32-unknown-unknown -p srs-bindings` succeeds.
 
 #### Testing
 

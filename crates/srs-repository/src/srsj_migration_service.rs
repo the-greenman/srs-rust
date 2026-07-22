@@ -21,6 +21,26 @@ pub fn load_from_srsj(srsj_str: &str) -> Result<crate::JsonStore, RepositoryErro
     crate::JsonStore::from_srsj(&migrated)
 }
 
+/// Project any repository as a `.srsj` string (ADR-037: `.srsj` is a boundary
+/// codec, not session state).
+///
+/// Snapshot export → in-memory `JsonStore` → `to_srsj_string`. The projection
+/// re-canonicalizes instance/definition paths — acceptable for an interchange
+/// format; the operational tree keeps real paths.
+pub fn export_srsj_string(
+    source: &dyn crate::store::RepositoryStore,
+) -> Result<String, RepositoryError> {
+    let snapshot = crate::repository_portability::export_repository_snapshot_with_options(
+        source,
+        crate::repository_portability::ExportSnapshotOptions {
+            include_content_blobs: true,
+        },
+    )?;
+    let codec = crate::JsonStore::new_in_memory();
+    crate::repository_portability::import_repository_snapshot(&codec, &snapshot)?;
+    codec.to_srsj_string()
+}
+
 /// Apply the RFC-014 manifest migration to a raw `.srsj` JSON string.
 ///
 /// - Moves `manifest.meta.upstreamPackage` to `manifest.upstreamPackage` if it is
