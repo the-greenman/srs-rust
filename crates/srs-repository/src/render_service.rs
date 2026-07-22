@@ -1320,7 +1320,9 @@ fn resolve_section_instances(
                         diagnostics.push(
                             "[N+27] containerScope 'subtree' with no containerIds — returning empty result".to_string(),
                         );
-                        records.clear();
+                        // Return early: the [N+27] message already names the reason;
+                        // the generic zero-records diagnostic would be noise.
+                        return Ok(Vec::new());
                     }
                 }
                 ContainerScope::Explicit => {
@@ -6641,6 +6643,30 @@ mod tests {
             !result.rendered.contains("Hidden Section"),
             "emptyBehavior:hide must still hide the section title from rendered output; got:\n{}",
             result.rendered
+        );
+    }
+
+    #[test]
+    fn type_query_nonzero_records_no_spurious_diagnostic() {
+        // Confirm the zero-records diagnostic is absent when the TypeQuery has matches.
+        let dv = rfc011_dv("dv-nonzero", None, None, None, None, None);
+        let store = make_rfc011_store(dv, &[("r1", None)]); // one record of com.test/decision
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-nonzero",
+            format: Some("markdown"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .unwrap();
+        assert!(
+            !result
+                .diagnostics
+                .iter()
+                .any(|d| d.contains("matched 0 records")),
+            "no zero-records diagnostic expected when TypeQuery has matches; got: {:?}",
+            result.diagnostics
         );
     }
 
