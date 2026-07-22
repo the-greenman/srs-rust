@@ -297,6 +297,9 @@ pub fn archive_unpack(
         bytes_map.remove("package/package.snapshot.json");
         let tree: BTreeMap<String, Vec<u8>> = bytes_map.into_iter().collect();
         if target.is_file_tree_store() {
+            // Same emptiness contract as the snapshot import path: never
+            // write into a target that already holds content.
+            crate::repository_portability::ensure_target_empty(target)?;
             // Layout-faithful: raw files, no re-canonicalization.
             let marker_prefix = format!("{SRS_MARKER_DIR}/");
             let has_marker = tree.keys().any(|k| k.starts_with(&marker_prefix));
@@ -1335,6 +1338,24 @@ mod tests {
         assert!(
             msg.contains("package/fields/ghost.json"),
             "error must name the missing path: {msg}"
+        );
+    }
+
+    #[test]
+    fn native_unpack_rejects_non_empty_target() {
+        use crate::store::FileStore;
+        use tempfile::tempdir;
+
+        let source = FileStore::new(FIXTURE);
+        let bytes = pack_to_bytes(&source);
+
+        let target_dir = tempdir().unwrap();
+        let target = FileStore::new(target_dir.path());
+        archive_unpack(Cursor::new(&bytes), &target).expect("first unpack");
+        let err = archive_unpack(Cursor::new(&bytes), &target).unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::RepositoryNotEmpty { .. }),
+            "second unpack into a populated target must fail, got {err:?}"
         );
     }
 }
