@@ -296,9 +296,9 @@ This is the muSrs guide pattern: `guide-body-view` has a default `themeRef` targ
 
 **Intention.** *"I want to move my notes repository from one place to another — maybe from a local path to a shared drive, or from a `.srsj` bundle back to a file store — and I want to see my familiar filenames, not raw UUIDs, when I open the target directory."*
 
-**Capabilities exercised.** `srs repo copy` (file → file and `.srsj` bundle → file); the `{slug}-{id8}.json` filename convention; copy rejection on a non-empty target; `repo validate` confirming structural integrity after copy.
+**Capabilities exercised.** `srs repo copy` (file → file and `.srsj` bundle → file); the `{slug}-{id8}.json` filename convention *and* its collision-safe widening to `{slug}-{full-uuid}.json` when two instances share an 8-hex-char id prefix (srs-rust#696); copy rejection on a non-empty target; `repo validate` confirming structural integrity after copy.
 
-**CLI surface.** `repo create`, `note create`, `repo copy`, `repo validate`.
+**CLI surface.** `repo create`, `note create`, `repo copy` (incl. `--from-store json`), `repo validate`.
 
 **Steps.**
 
@@ -355,6 +355,17 @@ This is the muSrs guide pattern: `guide-body-view` has a default `themeRef` targ
    cmp /tmp/s9-src/source-documents/${DOC_ID}.pdf /tmp/s9-dst/source-documents/${DOC_ID}.pdf && echo IDENTICAL
    ```
 
+8. **Prefix-colliding UUIDs (srs-rust#696).** *Intention: "My repository uses deterministic UUIDs, two of which happen to share their first 8 hex characters — copying it must not crash or silently drop a record."* Copy a `.srsj` whose instances collide in their `id8` prefix — the LiMoMa gallery fixture has two decisions `…5801`/`…5802` (both start `00000000`):
+   ```bash
+   rm -rf /tmp/s9-collide
+   srs repo copy --from ../srs-web/e2e/fixtures/gallery.srsj --from-store json \
+     --to /tmp/s9-collide --to-store file          # ok: true (before #696: "canonical path collision")
+   ls /tmp/s9-collide/records/tier-2/ | grep 5801   # decision-00000000-0000-4000-8000-000000005801.json
+   ls /tmp/s9-collide/records/tier-2/ | grep 5802   # decision-00000000-0000-4000-8000-000000005802.json
+   srs repo validate --repo /tmp/s9-collide         # ok: true, 0 errors, all instances checked
+   srs repo upgrade  --repo /tmp/s9-collide         # renames: [] — the widened paths are already canonical
+   ```
+
 **Negative case.** Run `srs repo copy` a second time targeting the same non-empty `/tmp/s9-dst` — confirm `ok: false` and a diagnostic naming "target is not empty".
 
 **Done when.**
@@ -364,6 +375,7 @@ This is the muSrs guide pattern: `guide-body-view` has a default `themeRef` targ
 - `srs repo validate` on the destination returns `ok: true` with 0 errors and `summary.checked` equal to the instance count.
 - The non-empty-target copy returns `ok: false` with a clear diagnostic.
 - Source-document sidecar, binary content, and `sourceDocumentIndex` manifest entry are all present in the copy destination unchanged.
+- The prefix-colliding copy (step 8) returns `ok: true`; both colliding instances land on **distinct** files widened to their full-uuid form (`decision-…5801.json` / `decision-…5802.json`), the copy validates with 0 errors, and `repo upgrade` on it is a no-op (`renames: []`) — the widened paths are already canonical.
 
 ---
 
@@ -371,7 +383,7 @@ This is the muSrs guide pattern: `guide-body-view` has a default `themeRef` targ
 
 **Intention.** *"My repository was created before the `{slug}-{id8}.json` convention was enforced. I want to normalise all file paths in-place without creating a full copy, so that the filenames are human-readable."*
 
-**Capabilities exercised.** `srs repo upgrade` (in-place path normalisation); idempotency guarantee; FileStore-only restriction; `repo validate` confirming structural integrity after upgrade.
+**Capabilities exercised.** `srs repo upgrade` (in-place path normalisation); idempotency guarantee; FileStore-only restriction; `repo validate` confirming structural integrity after upgrade. Instances whose `{slug}-{id8}` short form collides widen to their full-uuid form so each stays unique (srs-rust#696) — normalisation never errors or clobbers on prefix-colliding UUIDs.
 
 **CLI surface.** `repo create`, `repo upgrade`, `repo validate`.
 
