@@ -65,7 +65,7 @@ const MIRROR_LABELS = [
   { name: "blocked", color: "E4E669", description: "Unmet prerequisites — auto-topup skips this issue; remove when unblocked" },
 ];
 // Repos whose merges/routines depend on the mirror set existing. Overridable for tests/forks.
-const MIRROR_REPOS = (process.env.GHP_MIRROR_REPOS || `srs,srs-rust,srs-web,${STORY_REPO}`)
+const MIRROR_REPOS = (process.env.GHP_MIRROR_REPOS || `srs,srs-rust,srs-web,srs-vscode,${STORY_REPO}`)
   .split(",").map((s) => s.trim()).filter(Boolean);
 
 // Board Status → plain-label mirror. The routines can't read Projects v2 Status through the
