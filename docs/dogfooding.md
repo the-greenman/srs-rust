@@ -515,13 +515,15 @@ This is the RFC-011 capability: `type-query` SectionSource extended with `lifecy
    }
    ```
    Place in `package/document-views/`, add to `package.json "documentViews"`, then render. Confirm all 7 ratified decisions appear, diagnostics is `[]`.
-3. **Inclusive filter** — create a second view with `"lifecycleStates": ["draft"]`. Render — confirm 0 decisions appear and the section is hidden (`emptyBehavior: "hide"` default).
-4. **Exclusion of all** — create a view with `"excludeLifecycleStates": ["ratified"]`. Render — confirm 0 decisions appear (all excluded).
+3. **Inclusive filter** — create a second view with `"lifecycleStates": ["draft"]`. Render — confirm 0 decisions appear and the section is hidden (`emptyBehavior: "hide"` default). Confirm `payload.diagnostics` contains `[section:…] type-query 'governance/decision' matched 0 records` — the zero-records diagnostic fires regardless of `emptyBehavior` (#697).
+4. **Exclusion of all** — create a view with `"excludeLifecycleStates": ["ratified"]`. Render — confirm 0 decisions appear (all excluded) and `payload.diagnostics` contains `[section:…] type-query 'governance/decision' matched 0 records`.
 5. `srs repo validate --repo <copied-repo>` after adding views — must still report `ok: true`, `summary.errors: 0`.
 
-**Negative case.** A `type-query` with `lifecycleStates: ["active"]` applied to the gallery (no decisions have state `active`) returns an empty section with `ok: true`, no error. A record without `lifecycleState` is **not** excluded by `excludeLifecycleStates` but **is** excluded when `lifecycleStates` is non-empty.
+**Negative case.** A `type-query` with `lifecycleStates: ["active"]` applied to the gallery (no decisions have state `active`) returns an empty section with `ok: true` **and** a `[section:…] type-query 'governance/decision' matched 0 records` diagnostic in `payload.diagnostics` (#697). A record without `lifecycleState` is **not** excluded by `excludeLifecycleStates` but **is** excluded when `lifecycleStates` is non-empty.
 
-**Done when.** The exclude-filter view renders exactly the non-excluded records; the include-filter view renders only records matching the listed states; a non-matching inclusive filter yields an empty-but-valid render; `repo validate` still reports 0 errors after adding RFC-011 views; `diagnostics` is empty for `containerScope: "repository"` (no noise).
+**Done when.** The exclude-filter view renders exactly the non-excluded records; the include-filter view renders only records matching the listed states; a non-matching inclusive filter yields an empty-but-valid render **with a `[section:…] type-query '…' matched 0 records` diagnostic** — the warning fires regardless of `emptyBehavior` (the section is hidden when `emptyBehavior: "hide"` but the diagnostic is always present); `repo validate` still reports 0 errors after adding RFC-011 views; `diagnostics` is empty **only** when records are found (`containerScope: "repository"` with matching records produces no noise).
+
+**Verified 2026-07-22 (#697):** dogfood repo `/tmp/dogfood-697` — `com.example.dogfood/widget` type with `containerScope: "repository"` TypeQuery section. Zero widgets: `payload.diagnostics = ["[section:widgets] type-query 'com.example.dogfood/widget' matched 0 records"]`, section rendered empty. One widget: `payload.diagnostics = []`, section rendered with one record. `emptyBehavior: "hide"` leaves section absent from rendered output while preserving the diagnostic.
 
 ---
 
@@ -2668,7 +2670,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `document-view` (create/get/list/…) | S4, S5, S11 |
 | `render document-view` | S4, S5, S8, S11; **RFC-020 Rule [N+37]** identity-field fallback heading (no `titleFieldId` → Type's `identityFieldId` → `### <value>` per record; structured mode NOT activated by fallback, #453) — see S5 step 8; **`{{container-title}}` fallback to container file when index entry has no title** (#484): `resolve_container_title` now calls `store.load_container` when the containerIndex entry is absent or has no title — dogfooded on branch: `srs render document-view --view <dv> --repo /tmp/dogfood-resolve-container-title --container <cid>` returns `"Container: Recognising decisions"` when manifest has a pathless-title containerIndex entry (previously returned repo title "DogfoodRepo"); negative case (no `--container`) returns `"Container: DogfoodRepo"` (manifest title fallback correct) |
 | `container-subset` section + `typeFilter` / `typeDispatch` (RFC-008) | S11 |
-| `type-query` lifecycle filter (`lifecycleStates`, `excludeLifecycleStates`, `containerScope`) (RFC-011) | S12 |
+| `type-query` lifecycle filter (`lifecycleStates`, `excludeLifecycleStates`, `containerScope`) (RFC-011); **zero-records diagnostic** (`[section:…] type-query '…' matched 0 records` emitted whenever TypeQuery resolves to 0 instances, regardless of `emptyBehavior`, #697) | S12 |
 | `view` (L1 — `view list`, `view get`) | CLI surface: _gap — no CLI scenario yet_; WASM read bindings (`list_views`, `get_view`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330) |
 | `tree` | S5 |
 | `vocabulary` (create/get/list/term-create/derive-tag-set/promote) | S6 |
