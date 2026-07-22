@@ -19,12 +19,16 @@ service call, and no business logic lives here.
 | `srs://<repositoryId>/record/{instanceId}` | One record, any tier (JSON; resource template) |
 | `srs://<repositoryId>/container/<containerId>` | Container resolve-view: authored columns + ordered members (JSON) |
 | `srs://<repositoryId>/view/<documentViewId>` | Rendered document view (markdown) |
+| `srs://<repositoryId>/type/{typeId}` | Type authoring schema: fieldIds, required flags, aiGuidance (JSON; enumerated + template) |
 
 The `srs://` scheme is implementation tooling, not spec — every component is an
 existing SRS identifier (see ADR-037 §6).
 
 **Tools**: `repo_validate`, `find`, `record_create`, `relation_create`,
-`note_create` — the validated write workflows. Rejected writes return
+`note_create`, `type_schema` — the validated write workflows plus discovery.
+Read a type's schema (`type_schema` or the `type/{typeId}` resource) before
+authoring: each property's `x-srs-field-id` is the UUID `record_create`
+needs. Rejected writes return
 `isError: true` with the service diagnostics; nothing is written on rejection.
 Tool descriptions live as `pub const` items in [`src/tools.rs`](src/tools.rs)
 (single source; the `srs-usage.md` MCP section mirrors them).

@@ -34,3 +34,17 @@ Owner decisions (2026-07-22, issue #676): prefer a single binary if the size cos
 **Negative / trade-offs:** ~75 new locked packages and an async runtime enter the workspace (confined to one adapter crate); binary grows ~21%; a second schemars major (1.x) rides along; the envelope carve-out means one CLI command is intentionally outside the payload-contract test net — its behaviour is covered by MCP integration tests instead. The ADR-011 "no schemars in library crates" rule forces `srs-mcp`'s tool-input structs to be *shadow copies* of the canonical service inputs — a drift risk of the same class ADR-011 closed for outputs; mitigated by mandatory `From<ToolInput>` conversions (handlers may only reach services through them) plus a unit test exercising every field. Tool description text is likewise single-sourced as constants in `srs-mcp`, with the `srs-usage.md` MCP section written from them; cross-repo CI drift enforcement is deliberately not added (srs-rust CI does not check out the sibling `srs` repo — spec independence).
 
 **Neutral:** The server is single-repo per process (`--repo` at startup), matching the CLI's invocation model. Multi-repo serving, subscriptions/notifications, prompts, and HTTP transport are follow-up issues, not part of this decision.
+
+## Amendment (2026-07-22, #692) — type discovery
+
+The URI enumeration in §6 gains `srs://<repositoryId>/type/<typeId>`. Type schemas are
+exposed **both** as resources (concrete enumeration of every loaded-package type in
+`resources/list`, plus a `type/{typeId}` template) **and** as a `type_schema` tool — the
+dual exposure is deliberate: resources serve browsing/enumeration, while MCP clients
+surface tools to the model more reliably, and the schema is the authoring contract an
+agent must read before `record_create`. Both forms serve the existing
+`type_schema_service::type_schema` projection verbatim (`{schema, diagnostics}` — the
+`field_to_property` schema whose properties carry `x-srs-field-id`, `x-srs-ai-guidance`,
+`x-srs-widget`, and ADR-026's `x-srs-description`/`x-srs-instructions`). No new
+dependency, no new semantics; the shadow-input/`From`-conversion drift guard extends to
+`TypeSchemaToolInput`.

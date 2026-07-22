@@ -5,6 +5,7 @@
 //! `srs://<repositoryId>/record/<instanceId>`
 //! `srs://<repositoryId>/container/<containerId>`
 //! `srs://<repositoryId>/view/<documentViewId>`
+//! `srs://<repositoryId>/type/<typeId>`
 //!
 //! Every component is an existing SRS identifier; the scheme adds no semantics.
 
@@ -20,6 +21,7 @@ pub enum SrsUri {
     Record(String),
     Container(String),
     View(String),
+    Type(String),
 }
 
 /// Failure to parse an `srs://` URI.
@@ -58,6 +60,7 @@ pub fn parse(uri: &str, repository_id: &str) -> Result<SrsUri, UriError> {
             "record" => Ok(SrsUri::Record(id.to_string())),
             "container" => Ok(SrsUri::Container(id.to_string())),
             "view" => Ok(SrsUri::View(id.to_string())),
+            "type" => Ok(SrsUri::Type(id.to_string())),
             other => Err(UriError(format!("unknown resource kind '{other}'"))),
         },
         Some(_) => Err(UriError(format!("malformed resource path in '{uri}'"))),
@@ -72,12 +75,18 @@ pub fn format(kind: &SrsUri, repository_id: &str) -> String {
         SrsUri::Record(id) => format!("{SCHEME}{repository_id}/record/{id}"),
         SrsUri::Container(id) => format!("{SCHEME}{repository_id}/container/{id}"),
         SrsUri::View(id) => format!("{SCHEME}{repository_id}/view/{id}"),
+        SrsUri::Type(id) => format!("{SCHEME}{repository_id}/type/{id}"),
     }
 }
 
 /// RFC 6570 template for record resources.
 pub fn record_template(repository_id: &str) -> String {
     format!("{SCHEME}{repository_id}/record/{{instanceId}}")
+}
+
+/// RFC 6570 template for type-schema resources.
+pub fn type_template(repository_id: &str) -> String {
+    format!("{SCHEME}{repository_id}/type/{{typeId}}")
 }
 
 #[cfg(test)]
@@ -94,6 +103,7 @@ mod tests {
             SrsUri::Record("abc".into()),
             SrsUri::Container("def".into()),
             SrsUri::View("ghi".into()),
+            SrsUri::Type("jkl".into()),
         ];
         for kind in kinds {
             let uri = format(&kind, REPO);
@@ -107,6 +117,7 @@ mod tests {
         assert!(parse("srs://other-repo/map", REPO).is_err());
         assert!(parse(&format!("srs://{REPO}/unknown"), REPO).is_err());
         assert!(parse(&format!("srs://{REPO}/record/"), REPO).is_err());
+        assert!(parse(&format!("srs://{REPO}/type/"), REPO).is_err());
         assert!(parse(&format!("srs://{REPO}/record/a/b"), REPO).is_err());
         assert!(parse(&format!("srs://{REPO}"), REPO).is_err());
     }

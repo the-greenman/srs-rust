@@ -9,6 +9,7 @@ use rmcp::ServiceExt;
 use srs_mcp::SrsMcpServer;
 use srs_repository::analysis::build_repo_map;
 use srs_repository::container_view_service::{resolve_container_view, ResolveContainerViewInput};
+use srs_repository::package_service::{create_field_normalized, create_type_normalized};
 use srs_repository::record_store::get_record_by_id;
 use srs_repository::render_service::{render_document_view, RenderDocumentViewOptions};
 use srs_repository::repository_lifecycle::{
@@ -17,6 +18,7 @@ use srs_repository::repository_lifecycle::{
 };
 use srs_repository::repository_navigation_service::repository_navigation;
 use srs_repository::store::FileStore;
+use srs_repository::type_schema_service::{type_schema, TypeSchemaInput};
 use srs_repository::view_service::create_document_view_normalized;
 
 struct Fixture {
@@ -26,6 +28,7 @@ struct Fixture {
     identity_id: String,
     view_id: String,
     container_id: String,
+    type_id: String,
 }
 
 fn make_fixture() -> Fixture {
@@ -73,6 +76,39 @@ fn make_fixture() -> Fixture {
     )
     .unwrap();
 
+    // One authored type with a guidance-carrying required field, so the
+    // type-discovery resources have something real to enumerate and read.
+    let field_id = uuid::Uuid::new_v4().to_string();
+    create_field_normalized(
+        &store,
+        serde_json::json!({
+            "id": field_id,
+            "namespace": "com.example.mcptest",
+            "name": "title",
+            "version": 1,
+            "valueType": "string",
+            "aiGuidance": {
+                "purpose": "A short, specific title for the decision.",
+                "negativeGuidance": "Avoid generic phrasing."
+            }
+        }),
+        None,
+    )
+    .unwrap();
+    let type_id = uuid::Uuid::new_v4().to_string();
+    create_type_normalized(
+        &store,
+        serde_json::json!({
+            "id": type_id,
+            "namespace": "com.example.mcptest",
+            "name": "decision",
+            "version": 1,
+            "fields": [{ "fieldId": field_id, "order": 1, "required": true }]
+        }),
+        None,
+    )
+    .unwrap();
+
     let manifest = srs_repository::store::RepositoryStore::load_manifest(&store).unwrap();
     let container_id = manifest.container.as_ref().unwrap().container_id.clone();
 
@@ -82,6 +118,7 @@ fn make_fixture() -> Fixture {
         identity_id: result.identity_instance_id.expect("identity scaffolded"),
         view_id,
         container_id,
+        type_id,
     }
 }
 
@@ -126,17 +163,17 @@ async fn list_resources_enumerates_containers_and_views() {
         .unwrap();
     assert_eq!(view.name, "com.example.mcptest/test-view");
 
-    // Records are exposed via template, not enumerated.
+    // Records are exposed via template, not enumerated; types get both a
+    // template and concrete enumeration.
     let templates = client
         .list_resource_templates(None)
         .await
         .unwrap()
         .resource_templates;
-    assert_eq!(templates.len(), 1);
-    assert_eq!(
-        templates[0].uri_template,
-        format!("srs://{}/record/{{instanceId}}", fx.repo_id)
-    );
+    assert_eq!(templates.len(), 2);
+    let tmpl_uris: Vec<&str> = templates.iter().map(|t| t.uri_template.as_str()).collect();
+    assert!(tmpl_uris.contains(&format!("srs://{}/record/{{instanceId}}", fx.repo_id).as_str()));
+    assert!(tmpl_uris.contains(&format!("srs://{}/type/{{typeId}}", fx.repo_id).as_str()));
 
     client.cancel().await.unwrap();
 }
@@ -274,6 +311,67 @@ async fn read_unknown_record_is_mcp_error() {
 
     let after = client.list_resources(None).await.unwrap();
     assert!(!after.resources.is_empty());
+
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn list_resources_enumerates_types() {
+    let fx = make_fixture();
+    let client = connect(&fx).await;
+
+    let listed = client.list_resources(None).await.unwrap().resources;
+    let type_res = listed
+        .iter()
+        .find(|r| r.uri == format!("srs://{}/type/{}", fx.repo_id, fx.type_id))
+        .expect("type resource enumerated");
+    assert_eq!(type_res.name, "com.example.mcptest/decision");
+
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn read_type_schema_matches_service_output() {
+    let fx = make_fixture();
+    let client = connect(&fx).await;
+
+    let (mime, text) =
+        read_text(&client, format!("srs://{}/type/{}", fx.repo_id, fx.type_id)).await;
+    assert_eq!(mime.as_deref(), Some("application/json"));
+
+    let expected = type_schema(
+        &store_for(&fx),
+        TypeSchemaInput {
+            type_id: fx.type_id.clone(),
+            type_version: None,
+        },
+    )
+    .unwrap();
+    // Pretty-printed byte-equality with the service result — not compact.
+    assert_eq!(text, serde_json::to_string_pretty(&expected).unwrap());
+    assert!(
+        text.contains("x-srs-field-id"),
+        "schema must carry fieldIds"
+    );
+    assert!(
+        text.contains("x-srs-ai-guidance") || text.contains("Avoid generic phrasing"),
+        "schema must surface the field's aiGuidance"
+    );
+
+    // Unknown typeId → MCP error carrying the service's TypeNotFound message.
+    let missing = uuid::Uuid::new_v4().to_string();
+    let err = client
+        .read_resource(ReadResourceRequestParams::new(format!(
+            "srs://{}/type/{}",
+            fx.repo_id, missing
+        )))
+        .await
+        .unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.to_lowercase().contains("not found") || msg.contains(&missing),
+        "expected TypeNotFound surface, got: {msg}"
+    );
 
     client.cancel().await.unwrap();
 }

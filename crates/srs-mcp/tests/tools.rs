@@ -22,6 +22,7 @@ struct Fixture {
     dir: tempfile::TempDir,
     title_field_id: String,
     body_field_id: String,
+    type_id: String,
 }
 
 /// Repo with one type `com.example.mcptest/decision`:
@@ -109,6 +110,7 @@ fn make_fixture() -> Fixture {
         dir,
         title_field_id,
         body_field_id,
+        type_id,
     }
 }
 
@@ -415,6 +417,60 @@ async fn tool_call_malformed_args_invalid_params() {
 
     let still_alive = call(&client, "repo_validate", serde_json::json!({})).await;
     assert_eq!(still_alive.is_error, Some(false));
+
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn tool_type_schema_happy_and_unknown_id() {
+    let fx = make_fixture();
+    let client = connect(&fx).await;
+
+    let result = call(
+        &client,
+        "type_schema",
+        serde_json::json!({ "typeId": fx.type_id }),
+    )
+    .await;
+    assert_eq!(
+        result.is_error,
+        Some(false),
+        "type_schema failed: {result:?}"
+    );
+    let structured = result.structured_content.as_ref().unwrap();
+
+    let direct = srs_repository::type_schema_service::type_schema(
+        &FileStore::new(fx.dir.path()),
+        srs_repository::type_schema_service::TypeSchemaInput {
+            type_id: fx.type_id.clone(),
+            type_version: None,
+        },
+    )
+    .unwrap();
+    assert_eq!(structured, &serde_json::to_value(&direct).unwrap());
+    let text = serde_json::to_string(structured).unwrap();
+    assert!(text.contains("x-srs-field-id"));
+    assert!(
+        text.contains(&fx.title_field_id),
+        "fieldId discoverable in schema"
+    );
+
+    // Unknown id → tool-level error, server keeps serving.
+    let missing = uuid::Uuid::new_v4().to_string();
+    let bad = call(
+        &client,
+        "type_schema",
+        serde_json::json!({ "typeId": missing }),
+    )
+    .await;
+    assert_eq!(bad.is_error, Some(true));
+    assert!(
+        text_of(&bad).to_lowercase().contains("not found") || text_of(&bad).contains(&missing),
+        "expected TypeNotFound text: {}",
+        text_of(&bad)
+    );
+    let alive = call(&client, "repo_validate", serde_json::json!({})).await;
+    assert_eq!(alive.is_error, Some(false));
 
     client.cancel().await.unwrap();
 }
