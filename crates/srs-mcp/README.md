@@ -46,3 +46,7 @@ Claude Code (`.mcp.json` in your project):
 
 One repository per server process — register one entry per repo. `--repo`
 defaults to auto-detection from the working directory.
+
+**Scope limits (first cut):** file-backed repositories only (`.srsj`/JsonStore
+repos are not servable — ADR-037 §5); the CLI's `--dir` storage override is not
+exposed; global `--pretty`/`--container` parse but are ignored.
