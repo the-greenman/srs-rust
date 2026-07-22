@@ -24,10 +24,11 @@ service call, and no business logic lives here.
 The `srs://` scheme is implementation tooling, not spec — every component is an
 existing SRS identifier (see ADR-037 §6).
 
-**Tools**: `repo_validate`, `find`, `type_schema`, `record_create`,
-`relation_create`, `note_create` — discovery plus the validated write workflows.
+**Tools**: `repo_validate`, `find`, `record_create`, `relation_create`,
+`note_create`, `type_schema` — the validated write workflows plus discovery.
 Read a type's schema (`type_schema` or the `type/{typeId}` resource) before
-authoring: each property's `x-srs-field-id` is the UUID `record_create` needs. Rejected writes return
+authoring: each property's `x-srs-field-id` is the UUID `record_create`
+needs. Rejected writes return
 `isError: true` with the service diagnostics; nothing is written on rejection.
 Tool descriptions live as `pub const` items in [`src/tools.rs`](src/tools.rs)
 (single source; the `srs-usage.md` MCP section mirrors them).

@@ -52,9 +52,10 @@ with instanceId, label, type, lifecycleState, snippet, and matchedFields. This b
 Tier 2 (typed Records); other tier values return zero hits with a diagnostic.";
 
 pub const DESC_RECORD_CREATE: &str = "Create a typed Tier-2 Record. 'type' is \
-'namespace/name'; resolve the type's fieldAssignments first via the type_schema tool or the \
-srs://<repositoryId>/type/{typeId} resource (each property's x-srs-field-id is the UUID to \
-use here) — fieldValues entries are keyed by fieldId UUID, never by field name. Validation is enforced: missing required fields or unknown fields \
+'namespace/name'; resolve the type's fieldAssignments first via the type_schema tool \
+or the srs://<repositoryId>/type/{typeId} resource (each property's x-srs-field-id \
+is the UUID to use here) — fieldValues entries are keyed by fieldId UUID, never by \
+field name. Validation is enforced: missing required fields or unknown fields \
 are rejected with diagnostics and nothing is written. Optional containerId adds the record to \
 a container atomically.";
 

@@ -152,12 +152,12 @@ Standard; commit `docs: ADR-037 amendment + README for type discovery (#692)`.
 
 ## Final Acceptance
 
-- [ ] `cargo test` passes (workspace); `cargo clippy --all-targets -- -D warnings` passes
-- [ ] `payload_contracts` untouched and green; no entity schemas changed
-- [ ] No new dependencies; rmcp/tokio still confined to `srs-mcp`
-- [ ] e2e proves the teaching loop: schema discovered over MCP → fieldIds extracted from `x-srs-field-id` → record authored → validate clean
-- [ ] Dogfood S42 extension run on the branch binary against the S42 scratch repo: `resources/list` shows the decision type; `type_schema` (tool) on its UUID returns `x-srs-field-id` for both title and decision_statement; a record is created using those discovered ids; `repo_validate` → zero diagnostics; `docs/dogfooding.md` updated accordingly
-- [ ] Companion `srs` PR (`docs/692-mcp-type-usage`) opened alongside this PR
+- [x] `cargo test` passes (workspace); `cargo clippy --all-targets -- -D warnings` passes
+- [x] `payload_contracts` untouched and green; no entity schemas changed
+- [x] No new dependencies; rmcp/tokio still confined to `srs-mcp`
+- [x] e2e proves the teaching loop: schema discovered over MCP → fieldIds extracted from `x-srs-field-id` → record authored → validate clean
+- [x] Dogfood S42 extension run on the branch binary against the S42 scratch repo: `resources/list` shows the decision type; `type_schema` (tool) on its UUID returns `x-srs-field-id` for both title and decision_statement; a record is created using those discovered ids; `repo_validate` → zero diagnostics; `docs/dogfooding.md` updated accordingly
+- [x] Companion `srs` PR (`docs/692-mcp-type-usage`) opened alongside this PR
 
 ## Coordination Rules
 
