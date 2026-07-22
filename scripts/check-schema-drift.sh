@@ -6,7 +6,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-SPEC_DIR="${SRS_SPEC_DIR:-${WORKSPACE_DIR}/../srs}"
+# Positional arg wins (as the usage line and CI invocation promise), then env, then sibling.
+SPEC_DIR="${1:-${SRS_SPEC_DIR:-${WORKSPACE_DIR}/../srs}}"
 SRC="${SPEC_DIR}/docs/schema/2.0"
 DST="${WORKSPACE_DIR}/crates/srs-schema/schemas/2.0"
 

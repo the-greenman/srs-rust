@@ -146,6 +146,51 @@
           "type": "string",
           "enum": ["hide", "show-placeholder"],
           "description": "What to do when the section has no records. Default: hide."
+        },
+        "relationsPresentation": {
+          "$ref": "#/$defs/RelationsPresentation",
+          "description": "RFC-027. When present, render a deterministic per-member links block (the member's Relations of the declared types) after each member this section renders. Applies to every SectionSource variant and every member tier. Independent of emptyBehavior: a member with no surviving edges emits no block."
+        }
+      }
+    },
+    "RelationsPresentation": {
+      "type": "object",
+      "required": ["include"],
+      "additionalProperties": false,
+      "properties": {
+        "include": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/RelationPresentationEntry" },
+          "description": "Which relation types to display, in display order. Duplicate relationType entries are a repository-validation diagnostic (RFC-027 [I-027-2a])."
+        },
+        "label": {
+          "type": "string",
+          "description": "Reserved for a future grouped/headed presentation. RFC-027 defines no rendering behaviour for it; implementations MUST ignore it when rendering."
+        }
+      }
+    },
+    "RelationPresentationEntry": {
+      "type": "object",
+      "required": ["relationType"],
+      "additionalProperties": false,
+      "properties": {
+        "relationType": {
+          "type": "string",
+          "description": "Relation type key (bare canonical, e.g. 'supersedes', or namespace/name for custom types). Expected to resolve to an installed RelationTypeDefinition; checked at repository validation time, and skipped with a diagnostic at render time when non-resolving, retired-only, or conflict-ambiguous (RFC-027 [I-027-2a]/[I-027-2b])."
+        },
+        "directions": {
+          "type": "string",
+          "enum": ["forward", "inverse", "both"],
+          "description": "Which edge directions to display for the member. Default: 'forward'. Display-only — inverse Relations are never stored or synthesised (Invariant 16, RFC-027 [I-027-3])."
+        },
+        "forwardLabel": {
+          "type": "string",
+          "description": "Row-label override for edges where the member is the source. Default ladder: installed RelationTypeDefinition.label, then humanized relation type key (RFC-027 Change B)."
+        },
+        "inverseLabel": {
+          "type": "string",
+          "description": "Row-label override for edges where the member is the target. Default ladder: humanized declared inverseType query label (RFC-005), then forward label + ' (incoming)' (RFC-027 Change B)."
         }
       }
     },
