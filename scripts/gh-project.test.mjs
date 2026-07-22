@@ -6,8 +6,8 @@ import assert from "node:assert/strict";
 import {
   MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs,
   STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant,
-  planPromotions, PROMOTE_INTENT_LABEL, epicRank,
-  bandTargets, SIZE_WEIGHT, derivePriority, parseIssueRef,
+  planPromotions, PROMOTE_INTENT_LABEL, epicRank, epicFeedRank, startedEpics,
+  bandTargets, SIZE_WEIGHT, derivePriority, parseIssueRef, MOSCOW_DEFAULT, EPIC_PRIORITY_DEFAULT,
   planStaleClaims, STALE_CLAIM_HOURS_DEFAULT,
   planTopup, TOPUP_TARGET_DEFAULT,
   isWorkItem, isConsumableReady, countConsumableReady,
@@ -123,6 +123,44 @@ test("epicRank orders by Priority first, then issue number", () => {
   assert.ok(epicRank(p1) < epicRank(none), "set priority beats unset");
 });
 
+// Epic continuity (#664): the WORK FEED drains a started epic before opening the next
+// one in the same Priority tier — the board must not fill with half-finished epics.
+test("epicFeedRank: a started epic beats an untouched one in the same tier", () => {
+  const startedEpic = { priority: "P1", num: 90 };
+  const untouched = { priority: "P1", num: 10 };
+  const started = new Set([90]);
+  assert.ok(epicFeedRank(startedEpic, started) < epicFeedRank(untouched, started),
+    "started wins within the tier even with a higher issue number");
+});
+
+test("epicFeedRank: Priority tier still dominates — a started P1 epic never beats an untouched P0", () => {
+  const startedP1 = { priority: "P1", num: 1 };
+  const untouchedP0 = { priority: "P0", num: 99 };
+  const started = new Set([1]);
+  assert.ok(epicFeedRank(untouchedP0, started) < epicFeedRank(startedP1, started));
+});
+
+test("epicFeedRank: neither started — falls back to issue number within the tier", () => {
+  const a = { priority: "P2", num: 5 };
+  const b = { priority: "P2", num: 6 };
+  assert.ok(epicFeedRank(a, new Set()) < epicFeedRank(b, new Set()));
+});
+
+test("startedEpics: claimed/in-review/done/closed descendants start an epic; Ready does not", () => {
+  const desc = new Map([
+    ["srs-rust#1", 100], // In progress → starts 100
+    ["srs-rust#2", 200], // Ready → queued is not begun
+    ["srs-rust#3", 300], // CLOSED → starts 300
+    ["srs-rust#4", 400], // not on the board → unknown, does not start
+  ]);
+  const b = new Map([
+    ["srs-rust#1", { state: "OPEN", status: "In progress" }],
+    ["srs-rust#2", { state: "OPEN", status: "Ready" }],
+    ["srs-rust#3", { state: "CLOSED", status: "Done" }],
+  ]);
+  assert.deepEqual([...startedEpics(desc, b)].sort(), [100, 300]);
+});
+
 // bandTargets slices an ordered weight stream into N ~equal-effort bands, preserving order.
 test("bandTargets fills equal-effort bands in order", () => {
   // 10 unit weights, 5 bands → 2 per band.
@@ -157,16 +195,66 @@ test("derivePriority: epic fallback inherits epic Priority one tier down, floore
   }
 });
 
-test("derivePriority: epic without a Priority gives nothing to inherit — orphaned", () => {
-  const { p, stages } = derivePriority(prow(), null, stories, { num: 30, priority: null });
-  assert.equal(p, null);
-  assert.equal(stages.kind, "orphaned");
+// Blank-means-Could (#664): a blank must never make an issue invisible to the feed.
+// Only an explicit Won't on every served story excludes.
+
+test("derivePriority: blank story MoSCoW defaults to Could → P2 (never null)", () => {
+  const blankStories = new Map([[40, { moscow: null }]]);
+  const { p, stages } = derivePriority(prow(), new Set([40]), blankStories, null);
+  assert.equal(p, "P2");
+  assert.equal(stages.kind, "story-derived");
+  assert.equal(stages.storyValues[0].defaulted, true);
+  assert.equal(MOSCOW_DEFAULT, "Could");
 });
 
-test("derivePriority: no story, no epic — orphaned (flagged, never silently dropped)", () => {
+test("derivePriority: a story missing from the story map (unlabelled/off-list) still defaults to Could", () => {
+  const { p } = derivePriority(prow(), new Set([999]), new Map(), null);
+  assert.equal(p, "P2");
+});
+
+test("derivePriority: epic without a Priority now counts as P2 — its work still flows", () => {
+  const { p, stages } = derivePriority(prow(), null, stories, { num: 30, priority: null });
+  assert.equal(p, "P2"); // blank epic Priority ⇒ P2, one tier down ⇒ still P2
+  assert.equal(stages.kind, "epic-derived");
+  assert.equal(stages.epicFallback.applied, true);
+  assert.equal(stages.epicFallback.defaulted, true);
+  assert.equal(EPIC_PRIORITY_DEFAULT, "P2");
+});
+
+test("derivePriority: no story, no epic — orphaned but P2-floored (flagged, never lost)", () => {
   const { p, stages } = derivePriority(prow(), null, stories, null);
+  assert.equal(p, "P2"); // default floor: the orphan enters the feed at the bottom
+  assert.equal(stages.kind, "orphaned"); // …but stays flagged for linking hygiene
+  assert.equal(stages.defaultFloor.applied, true);
+});
+
+test("derivePriority: explicit Won't on every served story excludes — no fallback, no floor", () => {
+  const wontStories = new Map([[50, { moscow: "Won't" }]]);
+  // Even under a P0 epic, an explicit Won't is the one deliberate opt-out.
+  const { p, stages } = derivePriority(prow(), new Set([50]), wontStories, { num: 30, priority: "P0" });
   assert.equal(p, null);
-  assert.equal(stages.kind, "orphaned");
+  assert.equal(stages.wontExcluded, true);
+  assert.equal(stages.epicFallback.applied, false);
+  assert.equal(stages.defaultFloor.applied, false);
+});
+
+test("derivePriority: Won't mixed with a blank story — the blank's Could default wins", () => {
+  const mixed = new Map([[50, { moscow: "Won't" }], [51, { moscow: null }]]);
+  const { p, stages } = derivePriority(prow(), new Set([50, 51]), mixed, null);
+  assert.equal(p, "P2");
+  assert.equal(stages.wontExcluded, false);
+});
+
+test("derivePriority: a bug under a Won't story keeps the P1 floor — bugs are never lost", () => {
+  const wontStories = new Map([[50, { moscow: "Won't" }]]);
+  const { p } = derivePriority(prow(["bug"]), new Set([50]), wontStories, null);
+  assert.equal(p, "P1");
+});
+
+test("derivePriority: bump applies on top of the orphan floor (P2 → P1)", () => {
+  const { p, stages } = derivePriority(prow(["critical-path"]), null, stories, null);
+  assert.equal(stages.defaultFloor.applied, true);
+  assert.equal(p, "P1");
 });
 
 test("derivePriority: bug floor still applies on top of the epic fallback", () => {

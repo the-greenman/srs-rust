@@ -49,18 +49,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Promote, reconcile and rollup
+      # ONE invocation, ONE process (#664): `sync` runs the whole pipeline
+      # (stories-sync → rollup → release-sync → topup → promote → stale-claims →
+      # reconcile) on a single board fetch and a batched sub-issue prefetch. The
+      # previous six separate invocations each re-fetched the board and re-walked
+      # the sub-issue graph one REST call per issue — thousands of API requests per
+      # day, regular rate-limit stalls. Do not split this back into per-step calls.
+      - name: Sync the board (rollup, release, topup, promote, stale-claims, reconcile)
         run: |
           if [ -z "${GH_TOKEN}" ]; then
             echo "::error::Board PAT not set — board sync cannot run. Add a PAT with 'project' scope as the BOARD_SECRET secret. A silent skip here means labels drift from the board and routines pick up stale work, so this is a hard failure."
             exit 1
           fi
-          node scripts/gh-project.mjs topup --fix
-          node scripts/gh-project.mjs promote --fix
-          node scripts/gh-project.mjs stale-claims --fix
-          node scripts/gh-project.mjs reconcile --fix
-          node scripts/gh-project.mjs rollup --fix
-          node scripts/gh-project.mjs release-sync
+          node scripts/gh-project.mjs sync
         env:
           # Accept either secret name; BOARD_SECRET is the one currently configured.
           GH_TOKEN: ${{ secrets.BOARD_SECRET || secrets.BOARD_TOKEN }}

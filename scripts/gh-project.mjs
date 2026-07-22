@@ -6,14 +6,46 @@
 // GH_TOKEN). Works inside an isolated single-repo checkout: every operation hits
 // the GitHub API, so nothing here depends on a sibling repo being present on disk.
 //
-// Priority model: user stories (label `user-story`, in muDemocracy.org) carry a MoSCoW
-// value on the board; implementation issues are their sub-issues (native GitHub
-// sub-issues) and inherit a derived `priority: Pn` label (highest served story, bumped
-// one tier if gate-blocking). An issue with no story ancestry but reachable from an
-// epic inherits the epic's roadmap Priority one tier down (P0→P1, P1→P2, P2→P2) —
-// engineering/enabling work rides its release's rank but sits below the release's
-// story work unless a bump label raises it. Bugs floor at P1 even without a story;
-// an issue under neither a story nor an epic is flagged as orphaned, never lost.
+// ── THE MODEL (read this before changing anything) ───────────────────────────
+//
+// Entities — all native GitHub issues, linked by native sub-issues:
+//   epic  (label `epic`, in muDemocracy.org)       an epic IS a release (1:1); hand-set
+//                                                  board Priority (roadmap rank) + Release (identity)
+//   story (label `user-story`, in muDemocracy.org) the human value layer; hand-set MoSCoW
+//   work item (any other open issue, any repo)     everything derived, nothing hand-set
+//
+// Priority derivation (pure: derivePriority; walk one issue via `explain <repo> <#>`):
+//   1 served stories  walk sub-issue ancestry up to the user stories the issue serves
+//   2 MoSCoW → P      Must→P0 · Should→P1 · Could→P2 · blank→Could(P2) · Won't→excluded
+//   3 base            highest P across served stories
+//   4 epic fallback   no story: claiming epic's Priority one tier down (blank epic ⇒ P2)
+//   5 bug floor       a `bug` is never weaker than P1
+//   6 default floor   still nothing (orphan)? ⇒ P2 — NOTHING is ever left unprioritised
+//   7 bump            +1 tier (cap P0) for {critical-path, blocks-gate, regression}
+// BLANK MEANS COULD: an unset MoSCoW/Priority is a value nobody assigned yet, never an
+// exclusion — the issue still enters the feed, at the bottom. The ONE deliberate "no"
+// is an explicit Won't on every served story. Orphans (no story, no epic) get the P2
+// floor but are STILL flagged in rollup/coverage reports — the floor removes the loss,
+// not the linking-hygiene signal.
+//
+// The continuous feed (what the hourly routines consume): `sync` runs the whole
+// pipeline in ONE process on ONE board fetch:
+//   rollup --fix → release-sync → topup --fix → promote --fix → stale-claims --fix → reconcile --fix
+// topup nominates in IMPLEMENTATION ORDER — epic-major: epic Priority, STARTED epics
+// first within a tier, then issue priority, then sub-issue position — so a started
+// epic is drained to completion before the next one opens, never abandoned mid-flow.
+//
+// API strategy (board-sync runs hourly; quota matters):
+//   - ONE paginated GraphQL query reads the whole board (board(), cached per process).
+//   - Sub-issue edges are prefetched in BATCHED GraphQL queries (primeSubIssues,
+//     ~40 issues/request, transitive closure) instead of one REST call per issue.
+//   - Label writes are REST. The proxy-bound cloud routines can ONLY do REST — that is
+//     why board state is mirrored to plain labels (ready / status: in progress /
+//     priority: Pn) and why promotion is split into intent (label) + privileged write.
+//   - Every mutation also patches the in-process board cache (_board), so later steps
+//     of a `sync` run see earlier writes — without this, reconcile would undo promote.
+//   - Every subprocess call carries a timeout: a hung network call fails loudly and the
+//     next hourly run retries; it never wedges the pipeline.
 //
 // Release model: an epic (label `epic`, in muDemocracy.org) IS a release. The epic
 // declares its release once (its own Release field value) and ranks the roadmap via its
@@ -35,6 +67,11 @@ const STORY_REPO = process.env.GHP_STORY_REPO || "muDemocracy.org";
 const STORY_LABEL = "user-story";
 
 const MOSCOW_TO_P = { Must: "P0", Should: "P1", Could: "P2", "Won't": null };
+// Blank-means-Could (#664): an unset MoSCoW (story) / Priority (epic) is a value nobody
+// assigned yet — it defaults to Could/P2 so the work still feeds the queue, at the
+// bottom. A blank must never make an issue invisible; only an explicit Won't excludes.
+const MOSCOW_DEFAULT = "Could";
+const EPIC_PRIORITY_DEFAULT = "P2";
 const P_ORDER = ["P0", "P1", "P2"]; // index 0 = highest
 const pRank = (p) => { const i = P_ORDER.indexOf(p); return i < 0 ? 99 : i; }; // unset sorts last
 const BUG_FLOOR = "P1"; // bugs are fixed ASAP even with no story
@@ -100,11 +137,17 @@ function gh(args, opts = {}) {
   return GH_AVAILABLE ? ghCli(args, opts) : ghHttp(args, opts);
 }
 
+// Hard ceiling on any single gh/curl subprocess. This tool runs unattended (hourly CI
+// and cloud routines); a hung network call must fail loudly and let the next run retry
+// — it must never wedge the pipeline. Applied to every execFileSync below.
+const SUBPROCESS_TIMEOUT_MS = 180_000;
+
 function ghCli(args, { input } = {}) {
   return execFileSync("gh", args, {
     encoding: "utf8",
     input,
     maxBuffer: 64 * 1024 * 1024,
+    timeout: SUBPROCESS_TIMEOUT_MS,
   });
 }
 
@@ -127,7 +170,7 @@ function curlGet(url, { paginate = false } = {}) {
     let body = "";
     try {
       body = execFileSync("curl", ["-s", "-D", hf, ...authHeaders, nextUrl], {
-        encoding: "utf8", maxBuffer: 64 * 1024 * 1024,
+        encoding: "utf8", maxBuffer: 64 * 1024 * 1024, timeout: SUBPROCESS_TIMEOUT_MS,
       });
     } finally {
       nextUrl = null;
@@ -161,7 +204,7 @@ function curlMutate(method, url, body) {
     args.push("-H", "Content-Type: application/json", "-d", JSON.stringify(body));
   }
   args.push(url);
-  return execFileSync("curl", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  return execFileSync("curl", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, timeout: SUBPROCESS_TIMEOUT_MS });
 }
 
 function curlMutateStatus(method, url, body) {
@@ -174,7 +217,7 @@ function curlMutateStatus(method, url, body) {
     "-d", JSON.stringify(body),
     url,
   ];
-  const raw = execFileSync("curl", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  const raw = execFileSync("curl", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, timeout: SUBPROCESS_TIMEOUT_MS });
   const nl = raw.lastIndexOf("\n");
   return { body: raw.slice(0, nl), status: parseInt(raw.slice(nl + 1), 10) };
 }
@@ -220,7 +263,7 @@ function ghHttpApi(args) {
       "-H", "X-GitHub-Api-Version: 2022-11-28",
       "-d", reqBody,
       "https://api.github.com/graphql",
-    ], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+    ], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, timeout: SUBPROCESS_TIMEOUT_MS });
   }
 
   // Paginated REST: ["--paginate", "path"]
@@ -440,6 +483,27 @@ function board() {
 }
 
 // ---------------------------------------------------------------------------
+// In-process board-cache patching. Every mutation below also updates the cached
+// row, so a multi-step run (`sync`) stays self-consistent: reconcile must see the
+// Status that promote just wrote, or it would "repair" (undo) it. Best-effort —
+// a row not in the cache (an off-board issue) is simply skipped, and the next
+// hourly run reads truth from the API anyway.
+// ---------------------------------------------------------------------------
+const FIELD_TO_ROW_PROP = { Status: "status", Priority: "priority", Release: "release", MoSCoW: "moscow" };
+function patchRowByItemId(itemId, fieldName, value) {
+  const prop = FIELD_TO_ROW_PROP[fieldName];
+  if (!prop || !_board) return; // Iteration/Band/Size fields are never re-read within a run
+  for (const row of _board.values()) if (row.itemId === itemId) { row[prop] = value; return; }
+}
+// Label-group patch with exactly-one semantics: drop `remove`, ensure `add`.
+function patchRowLabels(repo, num, add, remove) {
+  const row = _board?.get(`${repo}#${num}`);
+  if (!row) return;
+  row.labels = row.labels.filter((l) => !remove.includes(l));
+  for (const l of add) if (!row.labels.includes(l)) row.labels.push(l);
+}
+
+// ---------------------------------------------------------------------------
 // Sub-issue graph: map every descendant impl issue -> set of ancestor stories
 // ---------------------------------------------------------------------------
 const _subCache = new Map(); // "owner/repo#num" -> child issue objects
@@ -464,8 +528,68 @@ function ownerRepoOf(c) {
   return m ? { owner: m[1], repo: m[2] } : { owner: OWNER, repo: null };
 }
 
+// Bulk sub-issue prefetch (#664). Walking the graph with one REST call per issue node
+// cost hundreds of requests per run — the main quota burner, and slow enough to look
+// "stuck". This fills _subCache for the TRANSITIVE CLOSURE of the given roots plus
+// every board issue, in batched GraphQL queries (~40 issues per request, aliased per
+// issue, grouped per repo): a whole-board walk costs a handful of requests instead.
+// On any GraphQL error it stops quietly and subIssues() falls back to per-issue REST
+// for whatever is missing (e.g. proxy-bound sessions where GraphQL is blocked).
+// Child objects are shaped like the REST payload where consumers care: number, title,
+// state (GraphQL's OPEN/CLOSED — consumers upcase anyway), repository.owner/name.
+const PRIME_BATCH = 40;
+let _primeBroken = false;
+function primeSubIssues(roots = []) {
+  if (_primeBroken) return;
+  const wanted = new Map(); // "owner/repo#num" -> {owner, repo, num}
+  const want = (owner, repo, num) => {
+    const k = `${owner}/${repo}#${num}`;
+    if (!_subCache.has(k) && !wanted.has(k)) wanted.set(k, { owner, repo, num });
+  };
+  for (const r of roots) want(OWNER, r.repo ?? STORY_REPO, r.num);
+  // Seed from the board only if it is already loaded — never force a board fetch here
+  // (tree <n> must keep working in REST-only sessions where board() would die).
+  if (_board) for (const row of _board.values()) want(OWNER, row.repo, row.num);
+  while (wanted.size) {
+    const batch = [...wanted.values()].slice(0, PRIME_BATCH);
+    for (const b of batch) wanted.delete(`${b.owner}/${b.repo}#${b.num}`);
+    // One aliased query per batch: r0: repository { i263: issue { subIssues } ... } ...
+    const byRepo = new Map();
+    for (const b of batch) {
+      const rk = `${b.owner}/${b.repo}`;
+      if (!byRepo.has(rk)) byRepo.set(rk, { owner: b.owner, repo: b.repo, nums: [] });
+      byRepo.get(rk).nums.push(b.num);
+    }
+    const parts = [];
+    const aliasIndex = new Map(); // "rAlias.iAlias" -> {owner, repo, num}
+    let ri = 0;
+    for (const { owner, repo, nums } of byRepo.values()) {
+      const issues = nums.map((n) => {
+        aliasIndex.set(`r${ri}.i${n}`, { owner, repo, num: n });
+        return `i${n}: issue(number:${n}){ subIssues(first:100){ nodes{ number title state repository{ name owner{ login } } } } }`;
+      });
+      parts.push(`r${ri}: repository(owner:${JSON.stringify(owner)}, name:${JSON.stringify(repo)}){ ${issues.join(" ")} }`);
+      ri++;
+    }
+    let data;
+    try { data = graphql(`query{ ${parts.join(" ")} }`); } catch { data = null; }
+    if (!data) { _primeBroken = true; return; } // REST fallback takes over
+    for (const [path, ref] of aliasIndex) {
+      const [ra, ia] = path.split(".");
+      const kids = data?.[ra]?.[ia]?.subIssues?.nodes ?? [];
+      _subCache.set(`${ref.owner}/${ref.repo}#${ref.num}`, kids);
+      // Enqueue newly discovered children so the closure keeps going down the graph.
+      for (const c of kids) {
+        const { owner, repo } = ownerRepoOf(c);
+        if (repo && owner === OWNER) want(owner, repo, c.number);
+      }
+    }
+  }
+}
+
 // Returns Map<"repo#num", Set<storyNumber>> of descendants per story.
 function storyDescendants(stories) {
+  primeSubIssues(stories.map((s) => ({ repo: STORY_REPO, num: s.num }))); // batch, not N× REST
   const map = new Map();
   for (const story of stories) {
     const visited = new Set();
@@ -514,6 +638,7 @@ function setSingleSelect(itemId, fieldName, optionName, dryRun) {
        updateProjectV2ItemFieldValue(input:{projectId:$p,itemId:$i,fieldId:$f,value:{singleSelectOptionId:$o}}){ projectV2Item{ id } } }`,
     { p: meta().id, i: itemId, f: fid, o: oid }
   );
+  patchRowByItemId(itemId, fieldName, optionName);
 }
 
 function clearField(itemId, fieldName, dryRun) {
@@ -523,6 +648,7 @@ function clearField(itemId, fieldName, dryRun) {
        clearProjectV2ItemFieldValue(input:{projectId:$p,itemId:$i,fieldId:$f}){ projectV2Item{ id } } }`,
     { p: meta().id, i: itemId, f: field(fieldName).id }
   );
+  patchRowByItemId(itemId, fieldName, null);
 }
 
 function setIteration(itemId, title, dryRun) {
@@ -569,6 +695,7 @@ function setPriorityLabel(repo, num, p, dryRun) {
   for (const l of remove) args.push("--remove-label", l);
   if (add.length || remove.length) {
     try { gh(args); } catch { /* label may not be present; non-fatal */ }
+    patchRowLabels(repo, num, add, remove);
   }
 }
 
@@ -584,6 +711,7 @@ function setStatusLabel(repo, num, want, dryRun) {
   for (const l of add) args.push("--add-label", l);
   for (const l of remove) args.push("--remove-label", l);
   try { gh(args); } catch { /* label may not be present; non-fatal */ }
+  patchRowLabels(repo, num, add, remove);
 }
 
 // Desired status-mirror label for a board row: only OPEN issues in a mirrored status carry one.
@@ -652,6 +780,7 @@ function planTopup(candidates, readyCount, target) {
 function removeLabel(repo, num, label) {
   try { gh(["issue", "edit", String(num), "--repo", `${OWNER}/${repo}`, "--remove-label", label]); }
   catch { /* label not present — non-fatal */ }
+  patchRowLabels(repo, num, [], [label]);
 }
 
 // `gh label create` args for one mirror label in a repo. Idempotent via --force
@@ -740,7 +869,10 @@ function setSizeLabel(repo, num, size, dryRun) {
   const args = ["issue", "edit", String(num), "--repo", `${OWNER}/${repo}`];
   for (const l of add) args.push("--add-label", l);
   for (const l of remove) args.push("--remove-label", l);
-  if (add.length || remove.length) { try { gh(args); } catch { /* label may not be present; non-fatal */ } }
+  if (add.length || remove.length) {
+    try { gh(args); } catch { /* label may not be present; non-fatal */ }
+    patchRowLabels(repo, num, add, remove);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -751,29 +883,44 @@ const higher = (a, b) => (a && (!b || P_ORDER.indexOf(a) < P_ORDER.indexOf(b)) ?
 // Derive an issue's priority AND record every stage of the calculation, so the
 // reasoning is explainable (see `summary` / `explain`). `epicInfo` is the claiming
 // epic (`{num, priority}`) from epicDescendants, or null if under no epic.
+// Guarantee (#664): every open work item gets a priority — blanks default (story
+// MoSCoW → Could, epic Priority → P2, orphan → P2 floor). The ONLY way out of the
+// feed is an explicit Won't on every served story.
 function derivePriority(row, served, storiesByNum, epicInfo = null) {
   const isBug = row.labels.includes("bug");
   const servedArr = served ? [...served] : [];
 
-  // Stage 1–2: served stories and each one's MoSCoW → P.
+  // Stage 1–2: served stories and each one's MoSCoW → P. A blank MoSCoW defaults to
+  // Could (P2): a story nobody has valued yet still feeds the queue, at the bottom.
+  // An explicit "Won't" maps to null — a deliberate exclusion, not a blank.
   const storyValues = servedArr.map((sn) => {
     const moscow = storiesByNum.get(sn)?.moscow ?? null;
-    return { story: sn, moscow, p: moscow ? MOSCOW_TO_P[moscow] : null };
+    // Unknown values (a renamed board option) also default to Could — they must
+    // never silently act like Won't.
+    const known = moscow != null && moscow in MOSCOW_TO_P;
+    return { story: sn, moscow, defaulted: !known, p: MOSCOW_TO_P[known ? moscow : MOSCOW_DEFAULT] };
   });
 
   // Stage 3: base = highest (most urgent) P across served stories.
   let base = null;
   for (const sv of storyValues) base = higher(sv.p, base);
 
-  // Stage 4: epic fallback — no story value, but the issue is reachable from an
-  // epic: inherit the epic's roadmap Priority one tier down (P0→P1, P1→P2, P2→P2).
+  // Won't-excluded: it serves stories, and every one is an explicit Won't. This is the
+  // one deliberate "do not feed this" signal — neither the epic fallback nor the
+  // default floor may resurrect it. (The bug floor still applies: bugs are never lost.)
+  const wontExcluded = storyValues.length > 0 && base === null;
+
+  // Stage 4: epic fallback — no story, but the issue is reachable from an epic:
+  // inherit the epic's roadmap Priority one tier down (P0→P1, P1→P2, P2→P2).
   // Engineering/enabling work rides its release's rank but sits below the release's
-  // story work by default; a bump label (stage 6) raises a specific issue.
+  // story work by default; a bump label (stage 7) raises a specific issue. An epic
+  // with no Priority set counts as P2 (blank-means-Could) so its work still flows.
   let p = base;
-  let epicFallback = { applied: false, epic: epicInfo?.num ?? null, epicPriority: epicInfo?.priority ?? null, to: null };
-  if (p === null && epicInfo?.priority) {
-    const to = P_ORDER[Math.min(P_ORDER.length - 1, P_ORDER.indexOf(epicInfo.priority) + 1)];
-    epicFallback = { applied: true, epic: epicInfo.num, epicPriority: epicInfo.priority, to };
+  let epicFallback = { applied: false, epic: epicInfo?.num ?? null, epicPriority: epicInfo?.priority ?? null, defaulted: false, to: null };
+  if (p === null && !wontExcluded && epicInfo) {
+    const epicP = epicInfo.priority ?? EPIC_PRIORITY_DEFAULT;
+    const to = P_ORDER[Math.min(P_ORDER.length - 1, P_ORDER.indexOf(epicP) + 1)];
+    epicFallback = { applied: true, epic: epicInfo.num, epicPriority: epicP, defaulted: epicInfo.priority == null, to };
     p = to;
   }
 
@@ -785,7 +932,16 @@ function derivePriority(row, served, storiesByNum, epicInfo = null) {
     p = to;
   }
 
-  // Stage 6: bump one tier (cap P0) if a bump-signal label is present.
+  // Stage 6: default floor — an orphan (no story, no epic, not a bug) gets P2 so it
+  // enters the feed at the bottom instead of vanishing. It is STILL reported as
+  // orphaned by rollup/coverage — the floor removes the loss, not the hygiene signal.
+  let defaultFloor = { applied: false, to: null };
+  if (p === null && !wontExcluded) {
+    defaultFloor = { applied: true, to: "P2" };
+    p = "P2";
+  }
+
+  // Stage 7: bump one tier (cap P0) if a bump-signal label is present.
   const bumpLabels = row.labels.filter((l) => BUMP_LABELS.has(l));
   let bump = { labels: bumpLabels, applied: false, from: p, to: p };
   if (p && bumpLabels.length) {
@@ -795,7 +951,7 @@ function derivePriority(row, served, storiesByNum, epicInfo = null) {
   }
 
   const kind = servedArr.length ? "story-derived" : isBug ? "bug-floor" : epicFallback.applied ? "epic-derived" : "orphaned";
-  return { p, stages: { kind, isBug, served: servedArr, storyValues, base, epicFallback, bugFloor, bump, final: p } };
+  return { p, stages: { kind, isBug, served: servedArr, storyValues, base, wontExcluded, epicFallback, bugFloor, defaultFloor, bump, final: p } };
 }
 
 function computeRollup() {
@@ -816,10 +972,11 @@ function computeRollup() {
 
   const derived = []; // {row, p, stages, basis}
   const bugs = [];
-  const unlinked = []; // orphaned: under neither a story nor an epic
+  const unlinked = []; // orphaned: under neither a story nor an epic — default P2 floor, still flagged
   for (const row of b.values()) {
     if (row.state !== "OPEN") continue;
-    if (row.repo === STORY_REPO) continue; // skip stories/epics themselves
+    // Skip stories/epics/plans BY LABEL, not by repo: plain work items in the story
+    // repo (site bugs, chores) are real work and must derive a priority too. (#664)
     if (row.labels.includes(STORY_LABEL) || row.labels.includes("epic") || row.labels.includes("plan")) continue;
     const claiming = epicDesc.get(row.key);
     const epicInfo = claiming != null ? { num: claiming, priority: epicByNum.get(claiming)?.priority ?? null } : null;
@@ -828,8 +985,8 @@ function computeRollup() {
       derived.push({ row, p, stages, basis: `stories ${stages.served.map((n) => "#" + n).join(",")}` });
     else if (stages.kind === "bug-floor") bugs.push({ row, p, stages, basis: "bug floor (no story)" });
     else if (stages.kind === "epic-derived")
-      derived.push({ row, p, stages, basis: `epic #${stages.epicFallback.epic} ${stages.epicFallback.epicPriority}→${stages.epicFallback.to}` });
-    else unlinked.push({ row, stages });
+      derived.push({ row, p, stages, basis: `epic #${stages.epicFallback.epic} ${stages.epicFallback.epicPriority}${stages.epicFallback.defaulted ? "*" : ""}→${stages.epicFallback.to}` });
+    else unlinked.push({ row, p, stages, basis: "default floor (orphaned — link to a story/epic)" });
   }
   const uncovered = [...storiesByNum.values()].filter(
     (s) => ![...descendants.values()].some((set) => set.has(s.num))
@@ -866,6 +1023,31 @@ function epicRank(epic) {
   return pRank(epic.priority) * 1e6 + epic.num;
 }
 
+// Epic ordering for the WORK FEED (topup / bands): Priority tier first, then — the
+// epic-continuity rule (#664) — STARTED epics before untouched ones, then issue number.
+// Once an epic is begun, the feed drains it to completion before opening the next one
+// in the same tier, instead of abandoning it mid-flow whenever a sibling epic appears.
+// Roadmap DISPLAY (`epics`, `tree`) and diamond-claiming keep plain epicRank —
+// startedness is a feed concern, not part of an epic's identity.
+function epicFeedRank(epic, started) {
+  return pRank(epic.priority) * 1e7 + (started.has(epic.num) ? 0 : 1e6) + epic.num;
+}
+
+// The set of epic numbers with ≥1 STARTED descendant: any descendant that has moved
+// past the queue (claimed, in review, done, or closed). Status=Ready does not count —
+// queued is not begun. `desc` is the epicDescendants map, `b` the board map.
+function startedEpics(desc, b) {
+  const started = new Set();
+  for (const [key, epicNum] of desc) {
+    if (started.has(epicNum)) continue;
+    const row = b.get(key);
+    if (!row) continue;
+    if (row.state === "CLOSED" || ["In progress", "In review", "Done"].includes(row.status))
+      started.add(epicNum);
+  }
+  return started;
+}
+
 // Open epics in the story repo, joined to their board row (Release identity + Priority).
 function openEpics() {
   const rows = (ghJson([
@@ -886,6 +1068,7 @@ function openEpics() {
 // Map<"repo#num", epicNum> for every descendant of any epic. A node reachable from
 // more than one epic is claimed by the highest-Priority epic (ties: lowest #).
 function epicDescendants(epics) {
+  primeSubIssues(epics.map((e) => ({ repo: STORY_REPO, num: e.num }))); // batch, not N× REST
   const map = new Map();
   for (const epic of [...epics].sort((a, b) => epicRank(a) - epicRank(b))) {
     const visited = new Set();
@@ -1027,7 +1210,9 @@ function computeImplementationOrder() {
   const pByKey = new Map();
   for (const e of [...roll.derived, ...roll.bugs, ...roll.unlinked]) pByKey.set(e.row.key, e.p ?? null);
 
-  const sortedEpics = [...epics].sort((a, c) => epicRank(a) - epicRank(c));
+  // Feed order: epic Priority → started epics first within the tier → epic number.
+  const started = startedEpics(desc, b);
+  const sortedEpics = [...epics].sort((a, c) => epicFeedRank(a, started) - epicFeedRank(c, started));
   const seen = new Set();
   const ordered = [];
   for (const epic of sortedEpics) {
@@ -1061,6 +1246,8 @@ function computeImplementationOrder() {
     if (row.state !== "OPEN" || !isWorkItem(row) || seen.has(row.key)) continue;
     unlinkedLeaves.push({ row, epic: null, p: pByKey.get(row.key) ?? null });
   }
+  // Deterministic tail: orphans trail the epic-ordered feed, best priority first.
+  unlinkedLeaves.sort((x, y) => pRank(x.p) - pRank(y.p) || x.row.key.localeCompare(y.row.key));
   return { ordered, unlinkedLeaves, epics: sortedEpics };
 }
 
@@ -1314,10 +1501,11 @@ function cmdRollup(argv) {
     }
   };
   section("## Story-derived", r.derived.filter((e) => e.stages.kind === "story-derived"));
-  section("## Epic-derived (no story — epic Priority one tier down)", r.derived.filter((e) => e.stages.kind === "epic-derived"));
+  section("## Epic-derived (no story — epic Priority one tier down; * = defaulted blank)", r.derived.filter((e) => e.stages.kind === "epic-derived"));
   section("## Bugs — fix ASAP (no story)", r.bugs);
-  lines.push("## Orphaned — could get lost (non-bug, under no story and no epic)");
-  for (const u of r.unlinked) lines.push(`  ${u.row.key}  ${u.row.title}`);
+  // Orphans get the default P2 floor so they stay in the feed, but stay flagged here
+  // until someone links them to the story/epic they serve.
+  section("## Orphaned — default P2 floor; link to a story/epic", r.unlinked);
   lines.push("## Uncovered stories (no implementation children)");
   for (const s of r.uncovered) lines.push(`  ${STORY_REPO}#${s.num}  ${s.title}`);
   console.log(lines.join("\n"));
@@ -1336,24 +1524,28 @@ function cmdCoverage() {
   }));
 }
 
-// Compact "moscow→base" cell, e.g. "Must,Should→P0", "epic P0→P1", or "—".
+// Compact "moscow→base" cell, e.g. "Must,Should→P0", "epic P0→P1", "floor→P2", or
+// "Won't→excluded". A trailing * marks a defaulted (blank ⇒ Could/P2) value.
 function moscowCell(stages) {
   if (!stages.storyValues.length) {
-    if (stages.epicFallback?.applied) return `epic ${stages.epicFallback.epicPriority}→${stages.epicFallback.to}`;
+    if (stages.epicFallback?.applied)
+      return `epic ${stages.epicFallback.epicPriority}${stages.epicFallback.defaulted ? "*" : ""}→${stages.epicFallback.to}`;
+    if (stages.defaultFloor?.applied) return "floor→P2";
     return "—";
   }
-  const ms = stages.storyValues.map((sv) => sv.moscow ?? "?").join(",");
-  return `${ms}→${stages.base ?? "none"}`;
+  const ms = stages.storyValues.map((sv) => (sv.defaulted ? "Could*" : sv.moscow)).join(",");
+  return `${ms}→${stages.base ?? "excluded"}`;
 }
 
 const STAGE_LEGEND = [
   ["1 served stories", "walk the sub-issue graph up to the user stories an issue serves"],
-  ["2 MoSCoW → P", "Must→P0 · Should→P1 · Could→P2 · Won't→(none)"],
+  ["2 MoSCoW → P", "Must→P0 · Should→P1 · Could→P2 · blank→Could (P2) · Won't→excluded"],
   ["3 base", "highest (most urgent) P across the served stories"],
-  ["4 epic fallback", "no story: inherit the claiming epic's Priority one tier down (P0→P1, P1→P2, P2→P2)"],
+  ["4 epic fallback", "no story: inherit the claiming epic's Priority one tier down (P0→P1, P1→P2, P2→P2; blank epic Priority ⇒ P2)"],
   ["5 bug floor", "a `bug` is never weaker than P1 (even with no story)"],
-  ["6 bump", "+1 tier (cap P0) if a label is in {" + [...BUMP_LABELS].join(", ") + "}"],
-  ["7 final", "the derived priority (written as the `priority: Pn` label + board mirror)"],
+  ["6 default floor", "orphan (no story, no epic, not a bug) ⇒ P2 — nothing is ever left unprioritised"],
+  ["7 bump", "+1 tier (cap P0) if a label is in {" + [...BUMP_LABELS].join(", ") + "}"],
+  ["8 final", "the derived priority (label + board mirror); explicit Won't on every served story ⇒ excluded"],
 ];
 
 function cmdSummary(argv) {
@@ -1365,7 +1557,8 @@ function cmdSummary(argv) {
   }
   const r = computeRollup();
   const keep = (row) => (!fRepo || row.repo === fRepo) && (!fRelease || row.release === fRelease);
-  const estimates = [...r.derived, ...r.bugs].filter((e) => keep(e.row)).sort((a, b) => pRank(a.p) - pRank(b.p));
+  // Orphans carry the default P2 floor, so they are estimates too — never off the books.
+  const estimates = [...r.derived, ...r.bugs, ...r.unlinked].filter((e) => keep(e.row)).sort((a, b) => pRank(a.p) - pRank(b.p));
 
   const L = [];
   L.push("PRIORITY ESTIMATE — how it is calculated");
@@ -1438,23 +1631,21 @@ function cmdExplain(argv) {
   L.push("");
   L.push("Stage 1 · served stories (sub-issue graph)");
   L.push(s.served.length ? s.served.map((n) => `    ${STORY_REPO}#${n}`).join("\n") : "    (none — this issue serves no user story)");
-  L.push("Stage 2 · story value (MoSCoW → P)");
+  L.push("Stage 2 · story value (MoSCoW → P; blank ⇒ Could, explicit Won't ⇒ excluded)");
   L.push(
     s.storyValues.length
-      ? s.storyValues.map((sv) => `    #${sv.story}  ${sv.moscow ?? "no MoSCoW set"} → ${sv.p ?? "(none)"}`).join("\n")
+      ? s.storyValues.map((sv) => `    #${sv.story}  ${sv.defaulted ? "blank → Could (default)" : sv.moscow} → ${sv.p ?? "excluded"}`).join("\n")
       : "    n/a"
   );
   L.push("Stage 3 · base = highest served story");
-  L.push(`    ${s.base ?? "(none)"}`);
-  L.push("Stage 4 · epic fallback (no story: epic Priority one tier down)");
+  L.push(`    ${s.base ?? (s.wontExcluded ? "(excluded — every served story is an explicit Won't)" : "(none)")}`);
+  L.push("Stage 4 · epic fallback (no story: epic Priority one tier down; blank ⇒ P2)");
   L.push(
     s.served.length
       ? "    n/a — story-derived"
       : s.epicFallback?.applied
-        ? `    applied: epic ${STORY_REPO}#${s.epicFallback.epic} Priority ${s.epicFallback.epicPriority} → ${s.epicFallback.to}`
-        : s.epicFallback?.epic != null
-          ? `    under epic ${STORY_REPO}#${s.epicFallback.epic}, but it has no Priority set — nothing to inherit`
-          : "    n/a — not under any epic (orphaned)"
+        ? `    applied: epic ${STORY_REPO}#${s.epicFallback.epic} Priority ${s.epicFallback.epicPriority}${s.epicFallback.defaulted ? " (blank → P2 default)" : ""} → ${s.epicFallback.to}`
+        : "    n/a — not under any epic"
   );
   L.push("Stage 5 · bug floor (a bug is never weaker than P1)");
   L.push(
@@ -1464,7 +1655,15 @@ function cmdExplain(argv) {
         ? `    applied: ${s.bugFloor.from ?? "(none)"} → ${s.bugFloor.to}`
         : `    not needed — base ${s.bugFloor.from} already ≥ P1`
   );
-  L.push(`Stage 6 · bump (labels in {${[...BUMP_LABELS].join(", ")}})`);
+  L.push("Stage 6 · default floor (orphan ⇒ P2 — nothing is ever left unprioritised)");
+  L.push(
+    s.defaultFloor?.applied
+      ? "    applied: (none) → P2 — orphan floor; link this issue to the story/epic it serves"
+      : s.wontExcluded
+        ? "    n/a — excluded by explicit Won't (the one deliberate opt-out)"
+        : "    n/a — already has a value"
+  );
+  L.push(`Stage 7 · bump (labels in {${[...BUMP_LABELS].join(", ")}})`);
   L.push(
     s.bump.labels.length
       ? s.bump.applied
@@ -1472,7 +1671,7 @@ function cmdExplain(argv) {
         : `    signal present (${s.bump.labels.join(", ")}) but already at P0`
       : "    none"
   );
-  L.push("Stage 7 · final");
+  L.push("Stage 8 · final");
   const label = row.labels.find((l) => l.startsWith("priority: ")) ?? "(no label)";
   const sync = (p ? `priority: ${p}` : "(none)") === label && (p ?? null) === (row.priority ?? null);
   L.push(`    ${p ?? "(none)"}   [board: ${row.priority ?? "—"} · label: ${label}]  ${sync ? "✓ in sync" : "⚠ stale — run rollup --fix"}`);
@@ -1513,6 +1712,7 @@ function cmdAdd(argv) {
 function intentRows() {
   const byKey = new Map([...board().values()].map((r) => [r.key, r]));
   const rows = [];
+  const seen = new Set();
   for (const repo of MIRROR_REPOS) {
     const list = ghJson([
       "issue", "list", "--repo", `${OWNER}/${repo}`,
@@ -1521,6 +1721,7 @@ function intentRows() {
     ]) || [];
     for (const i of list) {
       const key = `${repo}#${i.number}`;
+      seen.add(key);
       rows.push({
         repo, num: i.number, key,
         state: String(i.state).toUpperCase(),        // gh returns OPEN|CLOSED
@@ -1528,6 +1729,13 @@ function intentRows() {
         labels: (i.labels || []).map((l) => l.name),
       });
     }
+  }
+  // Also trust the in-process board cache: a `sync` run's topup step writes intents
+  // moments before promote runs, and the REST label search can lag fresh writes.
+  for (const r of board().values()) {
+    if (seen.has(r.key) || !r.labels.includes(PROMOTE_INTENT_LABEL)) continue;
+    if (!MIRROR_REPOS.includes(r.repo)) continue;
+    rows.push({ repo: r.repo, num: r.num, key: r.key, state: r.state, status: r.status, labels: r.labels });
   }
   return rows;
 }
@@ -1601,8 +1809,9 @@ function cmdStaleClaims(argv) {
 }
 
 // topup [--fix] [--target N] — keep the Ready queue at target depth by writing `promote:ready`
-// intents to the highest-priority unblocked Backlog leaves. Runs before `promote --fix` in
-// board-sync.yml so the intents are converted to board Status=Ready on the same run. Idempotent:
+// intents to the next unblocked Backlog leaves in IMPLEMENTATION ORDER (epic-major, started
+// epics first — see computeImplementationOrder; #664). Runs before `promote --fix` in
+// board-sync so the intents are converted to board Status=Ready on the same run. Idempotent:
 // if the queue is already at or above target, nothing is written. Issues with the `blocked` label
 // are skipped. readyCount counts only *consumable* Ready leaves (countConsumableReady): OPEN
 // work-items (no epic/story/plan) that are Status=Ready or carry a `promote:ready` intent and are
@@ -1623,18 +1832,26 @@ function cmdTopup(argv) {
   const b = board();
   const readyCount = countConsumableReady([...b.values()]);
 
+  // Feed candidates in IMPLEMENTATION ORDER — epic-major: epic Priority, started epics
+  // first within a tier, then issue priority, then sub-issue position — NOT by flat
+  // priority label. Flat priority interleaved epics: a new epic's P1 work preempted the
+  // current epic's P2 tail and the board filled with half-finished epics. (#664)
+  // Won't-excluded issues (every served story an explicit Won't ⇒ derived p null) never
+  // enter the feed; everything else has a priority now (defaults), so nothing is lost.
+  const { ordered, unlinkedLeaves } = computeImplementationOrder();
+  const feed = [...ordered, ...unlinkedLeaves];
+  const orderIndex = new Map(feed.map((it, i) => [it.row.key, i]));
+  const wontExcluded = new Set(feed.filter((it) => it.p === null).map((it) => it.row.key));
+
   const candidates = [...b.values()].filter((row) =>
     row.state === "OPEN" &&
     isWorkItem(row) &&
     (row.status === "Backlog" || row.status == null) &&
     !row.labels.includes("blocked") &&
-    !row.labels.includes(PROMOTE_INTENT_LABEL)
+    !row.labels.includes(PROMOTE_INTENT_LABEL) &&
+    !wontExcluded.has(row.key)
   );
-  candidates.sort((a, b) => {
-    const pa = a.labels.find((l) => l.startsWith("priority: "));
-    const pb = b.labels.find((l) => l.startsWith("priority: "));
-    return pRank(pa ? pa.replace("priority: ", "") : null) - pRank(pb ? pb.replace("priority: ", "") : null);
-  });
+  candidates.sort((x, y) => (orderIndex.get(x.key) ?? Infinity) - (orderIndex.get(y.key) ?? Infinity));
 
   const result = planTopup(candidates, readyCount, target);
   for (const row of result.toNominate) {
@@ -1642,6 +1859,7 @@ function cmdTopup(argv) {
     console.log(`${dryRun ? "[dry-run] " : ""}topup: ${row.key} (${p}) → promote:ready`);
     if (!dryRun) {
       gh(["issue", "edit", String(row.num), "--repo", `${OWNER}/${row.repo}`, "--add-label", PROMOTE_INTENT_LABEL]);
+      patchRowLabels(row.repo, row.num, [PROMOTE_INTENT_LABEL], []);
     }
   }
   console.log(`Ready: ${readyCount} · target: ${target} · deficit: ${result.deficit} · nominated: ${result.toNominate.length}`);
@@ -1684,8 +1902,8 @@ function cmdReconcile(argv) {
       if (!dryRun) setSingleSelect(row.itemId, "Status", "Done", false);
     }
   }
-  // Rollup-stale priorities
-  for (const e of [...r.derived, ...r.bugs]) {
+  // Rollup-stale priorities (orphans included — the default P2 floor is a real label)
+  for (const e of [...r.derived, ...r.bugs, ...r.unlinked]) {
     const want = e.p ? `priority: ${e.p}` : null;
     const have = e.row.labels.find((l) => l.startsWith("priority: ")) || null;
     if ((want || null) !== (have || null)) {
@@ -1719,6 +1937,30 @@ function cmdReconcile(argv) {
   if (dryRun && issues.length) console.log("\n(dry-run; pass --fix to repair closed-not-done + rollup-stale + status-mirror)");
 }
 
+// sync [--dry-run] — the whole board-sync pipeline in ONE process, on ONE board fetch:
+//   stories-sync → rollup --fix → release-sync → topup --fix → promote --fix
+//   → stale-claims --fix → reconcile --fix
+// This is what the hourly board-sync GitHub Action runs (#664). One process means the
+// board and the sub-issue graph are fetched once (a handful of API calls) instead of
+// once per step — six separate invocations used to re-fetch everything and burned
+// thousands of requests a day. Each step's writes patch the in-memory cache (see
+// patchRow*) so later steps see them — e.g. reconcile must not un-mirror the `ready`
+// label promote just set. Order matters: stories onto the board first, then priorities
+// (they drive topup's feed order), release inheritance, queue topup + promotion,
+// claim recovery, and reconcile mopping up last.
+function cmdSync(argv) {
+  const dryRun = argv.includes("--dry-run");
+  const flags = dryRun ? [] : ["--fix"];
+  const step = (name, fn) => { console.log(`\n── ${name} ${"─".repeat(Math.max(3, 60 - name.length))}`); fn(); };
+  step("stories-sync", () => cmdStoriesSync(dryRun));
+  step("rollup", () => cmdRollup(flags));
+  step("release-sync", () => cmdReleaseSync(dryRun));
+  step("topup", () => cmdTopup(flags));
+  step("promote", () => cmdPromote(flags));
+  step("stale-claims", () => cmdStaleClaims(flags));
+  step("reconcile", () => cmdReconcile(flags));
+}
+
 function help() {
   console.log(`gh-project — story-driven priority for SRS Project #${PROJECT_NUMBER} (${OWNER})
 
@@ -1747,8 +1989,12 @@ function help() {
                                   (the privileged half of promotion; a REST-only judge adds the
                                   intent label, this converts it — run in CI/local, not the routines)
   topup [--fix] [--target N]      keep Ready queue at target depth (default 3, GHP_TOPUP_TARGET)
-                                  by writing \`promote:ready\` to the highest-priority unblocked
-                                  Backlog leaves; skips \`blocked\` issues; \`promote\` converts intents
+                                  by writing \`promote:ready\` to the next unblocked Backlog leaves
+                                  in implementation order (epic-major, started epics first);
+                                  skips \`blocked\` issues; \`promote\` converts intents
+  sync [--dry-run]                the whole hourly pipeline in one process, one board fetch:
+                                  stories-sync → rollup → release-sync → topup → promote →
+                                  stale-claims → reconcile (what the board-sync Action runs)
   size <repo> <issue#> <small|medium|large|xl> [--dry-run]   effort estimate (label + board Size field)
   bands [--count N] [--tree] [--assign] [--dry-run]
                                   implementation order in N equal-effort bands (default 10);
@@ -1758,7 +2004,8 @@ function help() {
                                   recover dead \`In progress\` claims (default 24h) — resets Status
                                   to Ready + comments; nothing else in the pipeline revisits a claim
 
-Priority stages: served stories → MoSCoW→P → base(max) → epic fallback(−1 tier) → bug floor(P1) → bump(+1) → final.
+Priority stages: served stories → MoSCoW→P (blank⇒Could) → base(max) → epic fallback(−1 tier, blank⇒P2)
+→ bug floor(P1) → default floor(P2, orphans) → bump(+1) → final. Explicit Won't on every served story ⇒ excluded.
 Env: GHP_OWNER, GHP_PROJECT, GHP_STORY_REPO.
 Auth: requires an authenticated \`gh\` CLI, or GITHUB_TOKEN/GH_TOKEN env var (curl fallback).`);
 }
@@ -1767,7 +2014,7 @@ Auth: requires an authenticated \`gh\` CLI, or GITHUB_TOKEN/GH_TOKEN env var (cu
 // Dispatch
 // ---------------------------------------------------------------------------
 // Pure helpers exported for unit tests. Importing the module must NOT run the CLI.
-export { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs, STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant, planPromotions, PROMOTE_INTENT_LABEL, epicRank, bandTargets, SIZE_WEIGHT, derivePriority, parseIssueRef, planStaleClaims, STALE_CLAIM_HOURS_DEFAULT, planTopup, TOPUP_TARGET_DEFAULT, isWorkItem, isConsumableReady, countConsumableReady };
+export { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs, STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant, planPromotions, PROMOTE_INTENT_LABEL, epicRank, epicFeedRank, startedEpics, bandTargets, SIZE_WEIGHT, derivePriority, parseIssueRef, planStaleClaims, STALE_CLAIM_HOURS_DEFAULT, planTopup, TOPUP_TARGET_DEFAULT, isWorkItem, isConsumableReady, countConsumableReady, MOSCOW_DEFAULT, EPIC_PRIORITY_DEFAULT };
 
 // Only dispatch when run directly (`node gh-project.mjs ...`), not when imported.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -1798,6 +2045,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       case "set": cmdSet(rest); break;
       case "topup": cmdTopup(rest); break;
       case "promote": cmdPromote(rest); break;
+      case "sync": cmdSync(rest); break;
       case "size": cmdSize(rest); break;
       case "bands": cmdBands(rest); break;
       case "reconcile": cmdReconcile(rest); break;
