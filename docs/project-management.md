@@ -34,7 +34,12 @@ IMPLEMENTATION ISSUE  (srs / srs-rust / srs-vscode / srs-web)
 The tool rolls that down to implementation issues:
 
 - An impl issue that **serves ≥1 story** → priority = **highest** served MoSCoW:
-  `Must→P0 · Should→P1 · Could→P2 · Won't→none`.
+  `Must→P0 · Should→P1 · Could→P2 · Won't→excluded`.
+- **Blank means Could.** A story with **no MoSCoW set** counts as **Could (P2)** — a value nobody
+  has assigned yet is *not* an exclusion. Same for an epic with no Priority: it counts as **P2**.
+  A blank must never make work invisible to the feed; issues used to get lost exactly this way
+  (story missed the `user-story` label → never on the MoSCoW view → never valued → children
+  unprioritised forever).
 - An issue with **no story ancestry** but reachable from an **epic** → **epic fallback**: it
   inherits the epic's roadmap Priority **one tier down** (`P0→P1 · P1→P2 · P2→P2`). This is how
   **engineering work** (refactors, extension implementations, tooling, spec chores filed under an
@@ -43,10 +48,15 @@ The tool rolls that down to implementation issues:
   specific issue back up.
 - A **`bug`** with no story → **P1 floor** (bugs are fixed ASAP and are *never* lost). A
   release-blocking bug bumps to P0.
+- An **orphaned non-bug** issue (under **no story and no epic**) gets the **default P2 floor** —
+  it enters the feed at the bottom instead of vanishing — and is *still* **flagged** in the
+  orphan report: the floor removes the loss, not the linking-hygiene signal. Link it to the
+  story/epic it serves. This applies to plain work items in muDemocracy.org too (they are
+  ordinary work items; only `user-story`/`epic`/`plan` labels exempt an issue from the rollup).
 - **Bump one tier** (cap P0) when an issue carries a bump signal label: `critical-path`,
   `blocks-gate`, or (bug) `regression`.
-- An **orphaned non-bug** issue (under **no story and no epic**) gets **no** derived priority and
-  is **flagged** in the "could get lost" report — link it or justify it. Nothing is silently dropped.
+- The **only** way an issue leaves the feed is an **explicit Won't** on *every* story it serves —
+  the one deliberate opt-out. (A bug keeps its P1 floor even then.)
 
 **Linkage = native GitHub sub-issues.** Make an implementation issue a sub-issue of the story
 (or epic) it serves. Epics may sit in between; the rollup traverses transitively to the leaves.
@@ -115,6 +125,7 @@ node /tmp/gh-project.mjs help
 Common commands:
 
 ```bash
+node /tmp/gh-project.mjs sync                                          # the whole hourly pipeline, one process
 node /tmp/gh-project.mjs board --repo srs-rust --status Ready --open   # the work queue
 node /tmp/gh-project.mjs rollup                                        # dry-run: derived priorities
 node /tmp/gh-project.mjs rollup --fix                                  # apply labels + board mirror
@@ -156,6 +167,21 @@ in the UI; the tool assigns whatever exists and reports how many more to add.
 
 The tool **self-discovers** the project field/option/iteration IDs — never hardcode them in a
 prompt or doc. `node /tmp/gh-project.mjs fields` dumps them if you need to inspect.
+
+## API budget
+
+The tool runs hourly and against a rate-limited API, so call volume is a design constraint:
+
+- The whole board is read in **one paginated GraphQL query** (cached per process).
+- Sub-issue edges are prefetched in **batched GraphQL queries** (~40 issues per request,
+  transitive closure) instead of one REST call per issue — a full-board walk costs a handful of
+  requests, not hundreds. If GraphQL is unavailable (proxy-bound session), it falls back to
+  per-issue REST automatically.
+- The hourly Action runs **`sync`** — the whole pipeline in one process on one fetch. Never split
+  it back into per-step invocations: six separate processes re-fetching everything is how the
+  quota used to burn out.
+- Every subprocess call has a **timeout** — a hung network call fails the run loudly and the next
+  hourly run retries; nothing wedges.
 
 ## The plain-label mirror set
 
@@ -221,8 +247,14 @@ overridable via `--target N` or the `GHP_TOPUP_TARGET` environment variable). It
 - Counts `readyCount`: board issues that are OPEN and either Status=Ready or already carry
   `promote:ready`.
 - Builds candidates: OPEN work-items (not epic/plan/user-story) with Status=Backlog or no Status,
-  **excluding** issues carrying the `blocked` label or an existing `promote:ready` intent.
-- Sorts candidates by derived priority label (P0 first, then P1, then P2, then unlabelled).
+  **excluding** issues carrying the `blocked` label, an existing `promote:ready` intent, or a
+  Won't-exclusion (every served story explicitly Won't).
+- Orders candidates in **implementation order** — epic-major: **epic Priority → started epics
+  first within a tier → issue priority → sub-issue position**. This is the **epic-continuity
+  rule**: once an epic has begun (any descendant claimed, in review, done, or closed), the feed
+  drains it to completion before opening the next epic in the same tier. The old flat priority
+  sort interleaved epics — a new epic's P1 work preempted the current epic's P2 tail, and the
+  board filled with half-finished epics.
 - Nominates the top `deficit = max(0, target − readyCount)` candidates and writes `promote:ready`
   to each. If fewer candidates exist than the deficit, all are nominated — no error.
 
@@ -237,9 +269,11 @@ node /tmp/gh-project.mjs topup --fix            # write promote:ready intents
 node /tmp/gh-project.mjs topup --fix --target 0 # fill to 0 (no-op, safe check)
 ```
 
-The `board-sync` Action runs `promote --fix` on three triggers: **push** to master (post-merge),
-an **hourly schedule** (so the queue refills even during quiet periods, matching the hourly consumer),
-and **workflow_dispatch** — a cloud session can label issues then kick promotion immediately with
+The `board-sync` Action runs `gh-project sync` — the whole pipeline (stories-sync → rollup →
+release-sync → topup → promote → stale-claims → reconcile) in **one process on one board fetch**
+(see "API budget") — on three triggers: **push** to master (post-merge), an **hourly schedule**
+(so the queue refills even during quiet periods, matching the hourly consumer), and
+**workflow_dispatch** — a cloud session can label issues then kick promotion immediately with
 `gh workflow run board-sync.yml --repo the-greenman/srs-rust` (REST, allowed) instead of waiting
 for the schedule.
 
@@ -293,14 +327,19 @@ Every implementation issue's `priority: Pn` is *derived*, and the derivation is 
 — `summary` shows all estimates with the stages; `explain <repo> <#>` walks one issue through them:
 
 1. **served stories** — walk the sub-issue graph up to the user stories the issue serves.
-2. **MoSCoW → P** — each served story's value maps: `Must→P0 · Should→P1 · Could→P2 · Won't→(none)`.
+2. **MoSCoW → P** — each served story's value maps:
+   `Must→P0 · Should→P1 · Could→P2 · blank→Could (P2) · Won't→excluded`.
 3. **base** — the **highest** (most urgent) P across the served stories.
 4. **epic fallback** — no story: inherit the claiming epic's Priority **one tier down**
-   (`P0→P1 · P1→P2 · P2→P2`); a diamond is claimed by the higher-Priority epic.
+   (`P0→P1 · P1→P2 · P2→P2`; a blank epic Priority counts as P2); a diamond is claimed by the
+   higher-Priority epic.
 5. **bug floor** — a `bug` is never weaker than **P1**, even with no story.
-6. **bump** — **+1 tier** (capped at P0) if the issue carries a label in
+6. **default floor** — an orphan (no story, no epic, not a bug) gets **P2** — nothing is ever
+   left unprioritised; it stays flagged as orphaned until linked.
+7. **bump** — **+1 tier** (capped at P0) if the issue carries a label in
    `{critical-path, blocks-gate, regression}`.
-7. **final** — the derived priority, written as the `priority: Pn` label + the board Priority mirror.
+8. **final** — the derived priority, written as the `priority: Pn` label + the board Priority
+   mirror. An explicit **Won't** on every served story ⇒ excluded (no priority, out of the feed).
 
 `summary [--repo R] [--release X] [--brief]` prints the stage legend, TOTALS (P0/P1/P2 + bugs /
 unlinked / uncovered counts), a BY RELEASE breakdown, and a per-issue stage table. Use it to sense-
