@@ -149,6 +149,10 @@
       },
       "description": "RFC-015 [N+31]. Declared presentations for this repository. A conformant viewer selects the first entry with isDefault:true as the default; when none carry isDefault, the first entry is the default. When absent or empty, viewer falls back to implementation-defined selection."
     },
+    "slice": {
+      "$ref": "#/$defs/Slice",
+      "description": "ext:slices (RFC-026). Present when this archive is a partial export (slice) of a source repository."
+    },
     "createdAt": {
       "type": "string",
       "format": "date-time"
@@ -450,6 +454,80 @@
           "type": "string",
           "format": "date-time",
           "description": "When this upstream Package version was installed into the repository."
+        }
+      }
+    },
+    "Slice": {
+      "type": "object",
+      "required": ["origin", "spec", "exportedAt"],
+      "additionalProperties": false,
+      "description": "ext:slices (RFC-026). Present when this archive is a partial export (slice) of a source repository.",
+      "properties": {
+        "origin": {
+          "type": "object",
+          "required": ["repositoryId"],
+          "additionalProperties": false,
+          "properties": {
+            "repositoryId": {
+              "type": "string",
+              "format": "uuid",
+              "description": "repositoryId of the source repository this slice was exported from."
+            }
+          }
+        },
+        "spec": { "$ref": "#/$defs/SliceSpec" },
+        "exportedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When this slice was produced."
+        },
+        "externalRelationRefs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/SliceExternalRef" },
+          "description": "Relations cut at export because exactly one endpoint fell outside the closure. Provenance only — not a validation error (RFC-026 R8). Relations where both endpoints are outside the closure are omitted entirely."
+        }
+      }
+    },
+    "SliceSpec": {
+      "type": "object",
+      "required": ["type", "id"],
+      "additionalProperties": false,
+      "description": "Identifies the closure rule and boundary that scoped this slice.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["container"],
+          "description": "Closure rule. 'container' = container-membership closure (records, relations, definitions, and source documents reachable from a container). Package export is not a slice: a package's definitions are distributed as a package-bundle.json (RFC-003), not as a slice type."
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The boundary UUID: a containerId present in the source repository's containerIndex."
+        }
+      }
+    },
+    "SliceExternalRef": {
+      "type": "object",
+      "required": ["relationId", "sourceInstanceId", "targetInstanceId", "relationType"],
+      "additionalProperties": false,
+      "description": "A relation cut at export time because exactly one endpoint was outside the closure. The relationType field is a provenance copy and is NOT subject to RFC-005 definition-lookup in the slice archive (RFC-026 R15).",
+      "properties": {
+        "relationId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable UUID of the original relation. Preserved for future reintegration (RFC-026 Open Question 1)."
+        },
+        "sourceInstanceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "targetInstanceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "relationType": {
+          "type": "string",
+          "description": "The relationType of the cut relation. Canonical types: contains, depends-on, supersedes, refines, derived-from, evidences, precedes. Custom types use namespace/name format. NOT subject to RFC-005 definition-lookup in the slice archive."
         }
       }
     }
