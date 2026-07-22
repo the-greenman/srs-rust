@@ -815,8 +815,12 @@ mod tests {
         let raw = extract_zip_entry(&archive_bytes, "manifest.json");
         let manifest_text = std::str::from_utf8(&raw).expect("manifest.json is UTF-8");
 
-        let pos_aaa = manifest_text.find("\"aaa\"").expect("\"aaa\" key must be present");
-        let pos_zzz = manifest_text.find("\"zzz\"").expect("\"zzz\" key must be present");
+        let pos_aaa = manifest_text
+            .find("\"aaa\"")
+            .expect("\"aaa\" key must be present");
+        let pos_zzz = manifest_text
+            .find("\"zzz\"")
+            .expect("\"zzz\" key must be present");
         assert!(
             pos_aaa < pos_zzz,
             "manifest.json keys not sorted: \"zzz\" appears before \"aaa\" (issue #654)"
@@ -878,8 +882,7 @@ mod tests {
         let manifest_from_file = extract_zip_entry(&file_bytes, "manifest.json");
         let manifest_from_json = extract_zip_entry(&json_bytes, "manifest.json");
         assert_eq!(
-            manifest_from_file,
-            manifest_from_json,
+            manifest_from_file, manifest_from_json,
             "manifest.json differs between FileStore and JsonStore packs (issue #654)"
         );
     }

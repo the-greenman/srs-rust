@@ -2871,13 +2871,12 @@ pub mod memory {
         fn load_manifest_raw_text(&self) -> Result<String, RepositoryError> {
             // Route through to_value so the flattened `extra` HashMap keys are
             // normalised into BTreeMap order before serialization (ADR-017, ADR-033).
-            let value =
-                serde_json::to_value(&*self.manifest.borrow()).map_err(|e| {
-                    RepositoryError::Serialize {
-                        path: PathBuf::from("manifest.json"),
-                        source: e,
-                    }
-                })?;
+            let value = serde_json::to_value(&*self.manifest.borrow()).map_err(|e| {
+                RepositoryError::Serialize {
+                    path: PathBuf::from("manifest.json"),
+                    source: e,
+                }
+            })?;
             serde_json::to_string_pretty(&value).map_err(|e| RepositoryError::Serialize {
                 path: PathBuf::from("manifest.json"),
                 source: e,
