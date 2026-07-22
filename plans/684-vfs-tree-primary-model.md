@@ -31,9 +31,9 @@ ramp so old archives can still be opened in order to be updated.
 
 | ADR | Decision | Status |
 |---|---|---|
-| [ADR-037](../docs/adr/037-vfs-tree-primary-model.md) | Vfs seam; FileStore over Vfs; the in-memory file tree (FileStore + MemVfs) is the primary operational model for all WASM sessions; JsonStore demoted to `.srsj` codec. Partially supersedes ADR-013 (which rejected the "map of `{path: content}`" model) and amends ADR-015 ("WASM `SrsRepository` wraps a `JsonStore`"). | proposed |
-| [ADR-038](../docs/adr/038-srs-archive-pure-tree-zip.md) | `.srs` archive = deterministic zip of the exploded tree, per-definition files included (all package boundaries), no `package/package.snapshot.json`. Supersedes ADR-033 items 8–9. Legacy snapshot archives remain **readable** as a migration ramp only. | proposed |
-| [ADR-013](../docs/adr/013-wasm-binding-strategy.md) | Governs bindings thinness and the wasm32 CI gate. Bundle-format rationale partially superseded by ADR-037 (reciprocal header update is a Phase 0 task). | accepted |
+| [ADR-038](../docs/adr/038-vfs-tree-primary-model.md) | Vfs seam; FileStore over Vfs; the in-memory file tree (FileStore + MemVfs) is the primary operational model for all WASM sessions; JsonStore demoted to `.srsj` codec. Partially supersedes ADR-013 (which rejected the "map of `{path: content}`" model) and amends ADR-015 ("WASM `SrsRepository` wraps a `JsonStore`"). | proposed |
+| [ADR-039](../docs/adr/039-srs-archive-pure-tree-zip.md) | `.srs` archive = deterministic zip of the exploded tree, per-definition files included (all package boundaries), no `package/package.snapshot.json`. Supersedes ADR-033 items 8–9. Legacy snapshot archives remain **readable** as a migration ramp only. | proposed |
+| [ADR-013](../docs/adr/013-wasm-binding-strategy.md) | Governs bindings thinness and the wasm32 CI gate. Bundle-format rationale partially superseded by ADR-038 (reciprocal header update is a Phase 0 task). | accepted |
 | [ADR-008](../docs/adr/008-repository-lifecycle-and-portability.md) | `materialize_tree` consumes the `ensure_target_empty` / `initialize_repository` import contract unchanged. | accepted |
 | [ADR-031](../docs/adr/031-source-doc-blob-portability.md) | `materialize_tree` uses `include_content_blobs: true`; source-doc binaries land as MemVfs files. | accepted |
 | [ADR-017](../docs/adr/017-deterministic-srsj-serialization.md) | Determinism: `preserve_order` stays disabled; MemVfs uses `BTreeMap` for the same reason. | accepted |
@@ -127,15 +127,15 @@ reciprocal headers — before any functional code changes land.
   `srs archive pack` against the exploded fixture. Verify it contains
   `package/package.snapshot.json` and no `package/fields|types/*.json` entries before
   committing.
-- [x] Reciprocal ADR headers: ADR-013 gains `Superseded by: ADR-037 (bundle-format rationale
-  only)`; ADR-015 gains `Amended by: ADR-037`; ADR-033 gains `Superseded by: ADR-038 (items
+- [x] Reciprocal ADR headers: ADR-013 gains `Superseded by: ADR-038 (bundle-format rationale
+  only)`; ADR-015 gains `Amended by: ADR-038`; ADR-033 gains `Superseded by: ADR-039 (items
   8–9)`.
 
 #### Acceptance Criteria
 
 - [x] Both fixtures committed; legacy archive verifiably in old format (snapshot present, no
   per-definition entries).
-- [x] ADR-013/-015/-033 headers updated; ADR-037/-038 committed as `proposed`.
+- [x] ADR-013/-015/-033 headers updated; ADR-038/-038 committed as `proposed`.
 
 #### Testing
 
@@ -302,7 +302,7 @@ Standard gate; commit.
 - [x] `archive.rs` pack: replace the snapshot-driven entry list.
   - MemVfs-backed store: zip the `export_tree` map verbatim (decoys included — the archive is
     a faithful snapshot of the session tree; divergence from the disk path is documented in
-    ADR-038).
+    ADR-039).
   - Disk store: enumerate from the store — manifest raw, **every package boundary's**
     `package.json` raw plus every per-definition file each references (closes the pre-existing
     sub-package pack gap), relations raw, instanceIndex files, containerIndex files,

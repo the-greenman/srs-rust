@@ -1,15 +1,15 @@
 //! `.srs` archive pack/unpack — a deterministic ZIP of the exploded tree
-//! (ADR-038; determinism requirements inherited from ADR-033).
+//! (ADR-039; determinism requirements inherited from ADR-033).
 //!
 //! Pack writes the repository's file tree verbatim: tree-backed sessions dump
 //! their `MemVfs` snapshot; other stores are enumerated from the manifest and
-//! every package boundary (per-definition files included — the pre-ADR-038
+//! every package boundary (per-definition files included — the pre-ADR-039
 //! pack omitted them). `package/package.snapshot.json` is never written.
 //!
 //! Unpack prefers the native tree layout (layout-faithful, no
 //! re-canonicalization). Archives carrying `package/package.snapshot.json`
 //! without per-definition files take the legacy snapshot-import path — a
-//! migration ramp only, kept so pre-ADR-038 archives can be opened in order
+//! migration ramp only, kept so pre-ADR-039 archives can be opened in order
 //! to be re-saved in the new format. Remove after ecosystem archives are
 //! migrated (#688).
 
@@ -96,7 +96,7 @@ fn tree_entries(
             for rel in arr.iter().filter_map(|v| v.as_str()) {
                 let full = vfs_join(&prefix, rel);
                 // A dangling reference is a hard error naming the missing
-                // path — never a silent skip (ADR-038).
+                // path — never a silent skip (ADR-039).
                 let text = source.load_text_file(&full).map_err(|e| {
                     if e.is_not_found() {
                         RepositoryError::InvalidArchive {
@@ -315,7 +315,7 @@ pub fn archive_unpack(
     })
 }
 
-/// Open a `.srs` archive as an in-memory tree session (ADR-037).
+/// Open a `.srs` archive as an in-memory tree session (ADR-038).
 ///
 /// Native archives load layout-faithfully; legacy snapshot archives are
 /// materialized through the migration ramp (canonical paths).
@@ -346,7 +346,7 @@ pub fn archive_to_tree(reader: impl Read + Seek) -> Result<FileStore, Repository
     })
 }
 
-/// Legacy (pre-ADR-038) archive: reconstruct a `RepositorySnapshot` from the
+/// Legacy (pre-ADR-039) archive: reconstruct a `RepositorySnapshot` from the
 /// `package/package.snapshot.json` content model. Migration ramp only (#688).
 fn legacy_snapshot_from_map(
     bytes_map: &HashMap<String, Vec<u8>>,
@@ -1237,7 +1237,7 @@ mod tests {
         assert!(names.contains(&"package/relation-types/precedes-66666666.json".to_string()));
         assert!(
             !names.iter().any(|n| n.contains("package.snapshot.json")),
-            "snapshot file must never be written again (ADR-038): {names:?}"
+            "snapshot file must never be written again (ADR-039): {names:?}"
         );
     }
 
@@ -1250,7 +1250,7 @@ mod tests {
         let bytes = pack_to_bytes(&source);
 
         // Every packed entry unpacks byte-identically at its original path —
-        // no re-canonicalization (ADR-038).
+        // no re-canonicalization (ADR-039).
         let target_dir = tempdir().unwrap();
         let target = FileStore::new(target_dir.path());
         archive_unpack(Cursor::new(&bytes), &target).expect("native unpack");
@@ -1286,7 +1286,7 @@ mod tests {
     #[test]
     fn legacy_snapshot_archive_still_loads() {
         // Migration ramp (#688): the committed fixture was packed by the
-        // pre-ADR-038 code (package.snapshot.json, no per-definition files).
+        // pre-ADR-039 code (package.snapshot.json, no per-definition files).
         let bytes = std::fs::read(LEGACY).expect("legacy fixture committed?");
         let tree = crate::archive::archive_to_tree(Cursor::new(bytes)).expect("legacy load");
         let report = crate::validation::validate_repository(&tree).expect("validate");

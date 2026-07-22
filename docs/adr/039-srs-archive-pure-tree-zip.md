@@ -1,4 +1,4 @@
-# ADR-038: `.srs` archive is a pure tree zip (no snapshot file)
+# ADR-039: `.srs` archive is a pure tree zip (no snapshot file)
 
 - **Status:** proposed
 - **Date:** 2026-07-22
@@ -20,7 +20,7 @@ and an archive without data loss"):
 - Unpack re-canonicalized instance/definition paths and synthesized `package/package.json`
   (hardcoded metadata), so pack→unpack was not layout-faithful.
 
-With ADR-037 the operational model **is** the file tree, so the archive can be exactly what
+With ADR-038 the operational model **is** the file tree, so the archive can be exactly what
 the spec says it is. Owner decision (2026-07-22): **no backwards compatibility** — existing
 repos and archives are force-updated to the new form on their next save/export.
 

@@ -1,4 +1,4 @@
-# ADR-037: Vfs seam — the in-memory file tree is the primary operational model
+# ADR-038: Vfs seam — the in-memory file tree is the primary operational model
 
 - **Status:** proposed
 - **Date:** 2026-07-22

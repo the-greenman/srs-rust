@@ -84,7 +84,7 @@ impl SrsRepository {
     /// Applies RFC-014 migration before loading (idempotent on already-migrated bundles),
     /// so callers do not need to migrate the seed separately.
     pub fn load(srsj: &str) -> Result<SrsRepository, JsValue> {
-        // `.srsj` is a boundary codec (ADR-037): parse through JsonStore, then
+        // `.srsj` is a boundary codec (ADR-038): parse through JsonStore, then
         // materialize the operational in-memory tree.
         let codec = srs_repository::srsj_migration_service::load_from_srsj(srsj).map_err(js_err)?;
         let store = srs_repository::materialize_tree(&codec).map_err(js_err)?;
@@ -93,7 +93,7 @@ impl SrsRepository {
 
     /// Load a repository from a `.srs` binary archive (ZIP bytes).
     ///
-    /// Native tree archives (ADR-038) load layout-faithfully; legacy snapshot
+    /// Native tree archives (ADR-039) load layout-faithfully; legacy snapshot
     /// archives take the migration ramp and are re-saved in the new format on
     /// the next export.
     pub fn load_archive(bytes: &[u8]) -> Result<SrsRepository, JsValue> {
@@ -101,7 +101,7 @@ impl SrsRepository {
         Ok(SrsRepository { store })
     }
 
-    /// Load a repository from an exploded file tree (ADR-037).
+    /// Load a repository from an exploded file tree (ADR-038).
     ///
     /// `files` is a JS object mapping repo-relative forward-slash paths to
     /// `Uint8Array` contents — e.g. every blob of a fetched git tree. Unknown
@@ -232,7 +232,7 @@ impl SrsRepository {
         srs_repository::srsj_migration_service::export_srsj_string(&self.store).map_err(js_err)
     }
 
-    /// Export the session as an exploded file tree (ADR-037): a JS object of
+    /// Export the session as an exploded file tree (ADR-038): a JS object of
     /// `{ path: Uint8Array }`. Untouched files are byte-identical to what was
     /// loaded — the clean-git-diff guarantee.
     pub fn export_tree(&self) -> Result<JsValue, JsValue> {
