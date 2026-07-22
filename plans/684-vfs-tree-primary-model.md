@@ -299,7 +299,7 @@ Standard gate; commit.
 
 #### Tasks
 
-- [ ] `archive.rs` pack: replace the snapshot-driven entry list.
+- [x] `archive.rs` pack: replace the snapshot-driven entry list.
   - MemVfs-backed store: zip the `export_tree` map verbatim (decoys included — the archive is
     a faithful snapshot of the session tree; divergence from the disk path is documented in
     ADR-038).
@@ -310,24 +310,24 @@ Standard gate; commit.
     error** naming the missing path — never a silent skip.
   - Drop the `package/package.snapshot.json` entry. Keep ADR-033 determinism (sorted entries,
     zeroed timestamps, Deflated).
-- [ ] `archive.rs` unpack: try native tree load first (`open_tree` over the unzipped map —
+- [x] `archive.rs` unpack: try native tree load first (`open_tree` over the unzipped map —
   requires `package/package.json` present with resolvable definition files); if the zip
   carries `package/package.snapshot.json` **and** lacks per-definition files, fall back to
   the legacy snapshot import (existing code path) into a MemVfs-backed FileStore target —
   marked `// legacy migration ramp — remove after ecosystem archives are migrated (#<follow-up>)`.
-- [ ] `archive_unpack(reader, target)` keeps its signature (CLI unpack-to-disk unchanged);
+- [x] `archive_unpack(reader, target)` keeps its signature (CLI unpack-to-disk unchanged);
   add `archive_to_tree(reader) -> Result<FileStore, RepositoryError>` for in-memory callers.
-- [ ] Update existing archive tests for the new entry list; keep determinism tests.
+- [x] Update existing archive tests for the new entry list; keep determinism tests.
 
 #### Acceptance Criteria
 
-- [ ] Packed archives contain per-definition files for all boundaries and **no**
+- [x] Packed archives contain per-definition files for all boundaries and **no**
   `package.snapshot.json`.
-- [ ] New-format pack → unpack round-trip is byte-faithful (paths preserved, no
+- [x] New-format pack → unpack round-trip is byte-faithful (paths preserved, no
   re-canonicalization) for tree-backed sources.
-- [ ] `tests/fixtures/legacy-snapshot.srs` still unpacks and validates via the ramp.
-- [ ] A pack with a dangling definition reference fails with the missing path in the error.
-- [ ] Determinism tests (`test_archive_determinism`, `test_archive_zip_entry_order`) pass.
+- [x] `tests/fixtures/legacy-snapshot.srs` still unpacks and validates via the ramp.
+- [x] A pack with a dangling definition reference fails with the missing path in the error.
+- [x] Determinism tests (`test_archive_determinism`, `test_archive_zip_entry_order`) pass.
 
 #### Testing
 

@@ -66,7 +66,7 @@ pub mod view_service;
 pub mod vocabulary_service;
 pub mod writer;
 
-pub use archive::{archive_pack, archive_to_vec, archive_unpack};
+pub use archive::{archive_pack, archive_to_tree, archive_to_vec, archive_unpack};
 pub use export_service::{export_record_bundle, ExportBundleInput, ExportBundleMetadata};
 pub use json_store::JsonStore;
 pub use package::EffectiveLifecycle;
