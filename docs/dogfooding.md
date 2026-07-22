@@ -2233,7 +2233,33 @@ $SRS archive unpack /tmp/no-such-file.srs --target /tmp/no-such-target --pretty
 $SRS archive unpack $ARCHIVE --target $RESTORED --pretty
 ```
 
-**Done when.** Pack returns `ok: true` with a positive `fileSizeBytes`. Unpack returns `ok: true` with the correct `repositoryId`. `repo validate` on the restored repository reports 0 errors. `record list` and `attachment list` confirm all content survived the roundtrip. A second unpack into the same non-empty target returns `ok: false`. Non-existent source returns `ok: false`.
+```bash
+# NEW (ADR-039): the archive is a byte-faithful tree — per-definition files
+# present, no package.snapshot.json, and every entry unpacks byte-identical
+python3 - <<'EOF'
+import zipfile, pathlib
+z = zipfile.ZipFile("/tmp/dogfood-s41.srs")
+names = z.namelist()
+assert any(n.startswith("package/fields/") for n in names), "definition files missing"
+assert not any("package.snapshot.json" in n for n in names), "snapshot must be absent"
+root = pathlib.Path("/tmp/dogfood-s41-restored")
+assert all((root / n).read_bytes() == z.read(n) for n in names), "byte drift"
+print("tree archive verified")
+EOF
+
+# NEW (ADR-039): a dangling definition reference fails pack, naming the path
+python3 -c "
+import json, pathlib
+p = pathlib.Path('/tmp/dogfood-s41/package/package.json')
+d = json.loads(p.read_text()); d['fields'].append('fields/ghost.json')
+p.write_text(json.dumps(d, indent=2))"
+$SRS archive pack --output /tmp/dogfood-s41-bad.srs --repo $REPO --pretty
+# Expected: ok: false, diagnostics naming package/fields/ghost.json
+```
+
+**Done when.** Pack returns `ok: true` with a positive `fileSizeBytes`. The archive contains every per-definition package file and no `package.snapshot.json`; every packed entry unpacks byte-identical (layout-faithful, ADR-039). Unpack returns `ok: true` with the correct `repositoryId`. `repo validate` on the restored repository reports 0 errors. `record list` and `attachment list` confirm all content survived the roundtrip. A second unpack into the same non-empty target returns `ok: false`. Non-existent source returns `ok: false`. A dangling definition reference fails pack with the missing path named. Legacy pre-ADR-039 archives (snapshot-based) still unpack and validate cleanly via the migration ramp (#688 tracks ramp removal).
+
+**Verified 2026-07-22 (#684).** Live run against `/tmp/dogfood-s41` on the ADR-038/039 tree model: pack `ok: true` (3592 bytes) with `package/fields/…` + `package/types/…` present and no snapshot entry; all 9 entries unpacked byte-identical; validate → 0 errors; record + attachment survived; reused-target and missing-source negatives `ok: false` (the reused-target guard was a live regression caught by this dogfood run and fixed with `ensure_target_empty` in the native unpack path); dangling-ref pack failed naming `package/fields/ghost.json`; the committed legacy fixture unpacked and validated with 0 errors.
 
 **Verified 2026-07-21 (#630).** Live dogfood run against `/tmp/dogfood-s41`: pack returned `ok: true`, `fileSizeBytes: 6062`; unpack returned `ok: true` with the correct `repositoryId`; `repo validate` → 0 errors; `record list` showed 1 record of type `com.example.dogfood/resolution`; `attachment list` showed 1 document "Release Evidence". Non-existent source returned `ok: false`. Pre-existing container roundtrip bug (containers not packed/unpacked) fixed in this PR.
 

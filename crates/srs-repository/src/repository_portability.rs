@@ -821,7 +821,7 @@ fn ensure_instance_parent(
     target.ensure_instance_dir(parent)
 }
 
-fn ensure_target_empty(target: &dyn RepositoryStore) -> Result<(), RepositoryError> {
+pub(crate) fn ensure_target_empty(target: &dyn RepositoryStore) -> Result<(), RepositoryError> {
     let files = target.list_files_recursive("");
     if !files.is_empty() {
         return Err(RepositoryError::RepositoryNotEmpty {
