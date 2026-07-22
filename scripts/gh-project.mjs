@@ -34,6 +34,10 @@
 // topup nominates in IMPLEMENTATION ORDER — epic-major: epic Priority, STARTED epics
 // first within a tier, then issue priority, then sub-issue position — so a started
 // epic is drained to completion before the next one opens, never abandoned mid-flow.
+// Blocking (native GitHub issue dependencies, #671): an issue with open blocked-by
+// edges never enters the feed. With edges the `blocked` label is DERIVED (reconcile
+// auto-clears it when the last blocker closes); with no edges it is human-owned
+// (external blocks). Judges write edges over REST (`dep add`), like sub-issue links.
 //
 // API strategy (board-sync runs hourly; quota matters):
 //   - ONE paginated GraphQL query reads the whole board (board(), cached per process).
@@ -99,7 +103,7 @@ const MIRROR_LABELS = [
   { name: "priority: P2", color: "FBCA04", description: "Derived priority (highest served story)" },
   { name: "status: in progress", color: "1D76DB", description: "Claimed in progress by the SRS jobs routine" },
   { name: PROMOTE_INTENT_LABEL, color: "5319E7", description: "Judged unblocked; awaiting CI promotion to board Status=Ready (write this, not `ready`)" },
-  { name: "blocked", color: "E4E669", description: "Unmet prerequisites — auto-topup skips this issue; remove when unblocked" },
+  { name: "blocked", color: "E4E669", description: "Derived from blocked-by edges when present (auto-clears); hand-set only for non-issue blocks" },
 ];
 // Repos whose merges/routines depend on the mirror set existing. Overridable for tests/forks.
 const MIRROR_REPOS = (process.env.GHP_MIRROR_REPOS || `srs,srs-rust,srs-web,srs-vscode,${STORY_REPO}`)
@@ -440,6 +444,7 @@ function board() {
         content{ ... on Issue {
           number state title repository { name }
           labels(first:30){ nodes{ name } }
+          blockedBy(first:20){ nodes{ number state repository{ name } } }
         } }
       }
     } } }
@@ -469,6 +474,10 @@ function board() {
         state: c.state,
         title: c.title,
         labels: c.labels.nodes.map((l) => l.name),
+        // Native "blocked by" dependency edges (#671), with each blocker's live state —
+        // enough to derive blockedness without any further lookups. first:20 above is a
+        // practical cap; >20 blockers on one issue is a modelling problem, not a real case.
+        blockedBy: (c.blockedBy?.nodes ?? []).map((x) => ({ key: `${x.repository.name}#${x.number}`, state: x.state })),
         status: n.status?.name ?? null,
         priority: n.priority?.name ?? null,
         moscow: n.moscow?.name ?? null,
@@ -830,6 +839,30 @@ function isWorkItem(row) {
     && !row.labels.includes(STORY_LABEL)
     && !row.labels.includes("plan");
 }
+
+// ---------------------------------------------------------------------------
+// Blocking — native GitHub "blocked by" dependencies (#671). Ownership rule, one
+// sentence: if an issue HAS blocked-by edges, the `blocked` label is DERIVED
+// (tool-owned, present iff ≥1 blocker is still open); if it has NO edges, the label
+// is human-owned (external / non-issue blocks) and the tool never touches it.
+// Judges record issue blockers as edges (`dep add`, plain REST) instead of
+// hand-setting the label; `reconcile` then auto-clears the label when the last
+// blocker closes and the feed picks the issue up on the next hourly run — an edge,
+// unlike a bare label, unblocks itself.
+// ---------------------------------------------------------------------------
+function hasOpenBlockers(row) {
+  return (row.blockedBy ?? []).some((b) => b.state === "OPEN");
+}
+// The feed's blocking test (topup): edges are authoritative when present, else the label.
+function isBlocked(row) {
+  return (row.blockedBy?.length ?? 0) > 0 ? hasOpenBlockers(row) : row.labels.includes("blocked");
+}
+// Desired `blocked` label for reconcile: true/false when derived from edges,
+// null = no edges, leave the label alone (human-owned).
+function blockedLabelWant(row) {
+  if (!(row.blockedBy?.length)) return null;
+  return hasOpenBlockers(row);
+}
 // The Ready-queue depth as the hourly *consumer* sees it: OPEN leaf work-items (no epic/story/plan)
 // that are actually pickable — Status=Ready (or a `promote:ready` intent about to become Ready) and
 // NOT already claimed (`status: in progress`). This MUST match what the consumer skips, or topup
@@ -1181,6 +1214,28 @@ function cmdLink(argv, dryRun) {
   if (!c?.id) die(`could not resolve issue id for ${child.repo}#${child.num}`);
   console.log(`${dryRun ? "[dry-run] " : ""}link ${child.repo}#${child.num} under ${parent.repo}#${parent.num}`);
   if (!dryRun) gh(["api", "-X", "POST", `repos/${OWNER}/${parent.repo}/issues/${parent.num}/sub_issues`, "-F", `sub_issue_id=${c.id}`]);
+}
+
+// `dep add|rm <blocked-repo>#<n> <blocker-repo>#<n>` — native GitHub issue dependency
+// (REST, works cross-repo within the owner), the blocking counterpart of `link`.
+// FIRST ref is the blocked issue, SECOND its blocker. Proxy-bound judge routines can
+// run this — prefer an edge over hand-setting the `blocked` label whenever the blocker
+// IS an issue: `reconcile` derives the label from edges and auto-clears it when the
+// last blocker closes, so the issue re-enters the feed with no further judgment.
+function cmdDep(argv, dryRun) {
+  const sub = argv[0];
+  const refs = argv.slice(1).filter((a) => !a.startsWith("--"));
+  const blocked = parseIssueRef(refs[0]);
+  const blocker = parseIssueRef(refs[1]);
+  if (!["add", "rm"].includes(sub) || !blocked || !blocker)
+    die("usage: dep add|rm <blocked-repo>#<n> <blocker-repo>#<n>   (e.g. dep add srs-web#116 srs-rust#330)");
+  const b = ghJson(["api", `repos/${OWNER}/${blocker.repo}/issues/${blocker.num}`, "--jq", "{id:.id}"]);
+  if (!b?.id) die(`could not resolve issue id for ${blocker.repo}#${blocker.num}`);
+  console.log(`${dryRun ? "[dry-run] " : ""}${blocked.repo}#${blocked.num} ${sub === "add" ? "blocked by" : "unblocked from"} ${blocker.repo}#${blocker.num}`);
+  if (dryRun) return;
+  const base = `repos/${OWNER}/${blocked.repo}/issues/${blocked.num}/dependencies/blocked_by`;
+  if (sub === "add") gh(["api", "-X", "POST", base, "-F", `issue_id=${b.id}`]);
+  else gh(["api", "-X", "DELETE", `${base}/${b.id}`]);
 }
 
 // `epic add-story <epic#> <story#>` — backfill: link a story under an epic as a native
@@ -1847,7 +1902,9 @@ function cmdTopup(argv) {
     row.state === "OPEN" &&
     isWorkItem(row) &&
     (row.status === "Backlog" || row.status == null) &&
-    !row.labels.includes("blocked") &&
+    // isBlocked consults blocked-by edges directly (#671), so a freshly-unblocked
+    // issue is feedable this run even before reconcile updates the label mirror.
+    !isBlocked(row) &&
     !row.labels.includes(PROMOTE_INTENT_LABEL) &&
     !wontExcluded.has(row.key)
   );
@@ -1921,6 +1978,23 @@ function cmdReconcile(argv) {
       if (!dryRun) setStatusLabel(row.repo, row.num, want, false);
     }
   }
+  // Blocked-label derivation (#671): issues WITH blocked-by edges get the label set
+  // from live blocker state — auto-unblock when the last blocker closes. Issues
+  // without edges are human-owned (external blocks) and left alone.
+  for (const row of board().values()) {
+    if (row.state !== "OPEN") continue;
+    const want = blockedLabelWant(row);
+    if (want == null) continue;
+    const have = row.labels.includes("blocked");
+    if (want === have) continue;
+    const open = row.blockedBy.filter((b) => b.state === "OPEN").map((b) => b.key).join(",");
+    issues.push(`blocked-stale: ${row.key} ${want ? `set (open blockers: ${open})` : "clear (all blockers closed)"}`);
+    if (!dryRun) {
+      try { gh(["issue", "edit", String(row.num), "--repo", `${OWNER}/${row.repo}`, want ? "--add-label" : "--remove-label", "blocked"]); }
+      catch { /* label may not exist yet; non-fatal */ }
+      patchRowLabels(row.repo, row.num, want ? ["blocked"] : [], want ? [] : ["blocked"]);
+    }
+  }
   // Open bug with no priority
   for (const e of r.bugs) {
     if (!e.row.priority && !e.row.labels.some((l) => l.startsWith("priority: ")))
@@ -1934,7 +2008,7 @@ function cmdReconcile(argv) {
   // Leaf work items with no size — bands weight on this; assign one at triage (report-only)
   for (const row of unsizedLeaves()) issues.push(`unsized: ${row.key}`);
   console.log(issues.length ? issues.join("\n") : "no drift");
-  if (dryRun && issues.length) console.log("\n(dry-run; pass --fix to repair closed-not-done + rollup-stale + status-mirror)");
+  if (dryRun && issues.length) console.log("\n(dry-run; pass --fix to repair closed-not-done + rollup-stale + status-mirror + blocked-derive)");
 }
 
 // sync [--dry-run] — the whole board-sync pipeline in ONE process, on ONE board fetch:
@@ -1983,6 +2057,9 @@ function help() {
   epic add-story <epic#> <story#>            link a story under an epic (sub-issue)
   link <parent-repo>#<n> <child-repo>#<n>    generic sub-issue link (cross-repo, REST) — parent a
                                              filed issue under the story/epic it serves
+  dep add|rm <blocked>#<n> <blocker>#<n>     native blocked-by dependency (cross-repo, REST) —
+                                             reconcile derives the \`blocked\` label from edges and
+                                             auto-clears it when the last blocker closes
   release-sync [--dry-run]        derive each descendant's Release from its epic (writes; --dry-run previews)
   set <repo> <issue#> [--status --priority --iteration] [--dry-run]
   promote [--fix]                 promote every \`promote:ready\`-labelled issue to board Status=Ready
@@ -2014,7 +2091,7 @@ Auth: requires an authenticated \`gh\` CLI, or GITHUB_TOKEN/GH_TOKEN env var (cu
 // Dispatch
 // ---------------------------------------------------------------------------
 // Pure helpers exported for unit tests. Importing the module must NOT run the CLI.
-export { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs, STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant, planPromotions, PROMOTE_INTENT_LABEL, epicRank, epicFeedRank, startedEpics, bandTargets, SIZE_WEIGHT, derivePriority, parseIssueRef, planStaleClaims, STALE_CLAIM_HOURS_DEFAULT, planTopup, TOPUP_TARGET_DEFAULT, isWorkItem, isConsumableReady, countConsumableReady, MOSCOW_DEFAULT, EPIC_PRIORITY_DEFAULT };
+export { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs, STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant, planPromotions, PROMOTE_INTENT_LABEL, epicRank, epicFeedRank, startedEpics, bandTargets, SIZE_WEIGHT, derivePriority, parseIssueRef, planStaleClaims, STALE_CLAIM_HOURS_DEFAULT, planTopup, TOPUP_TARGET_DEFAULT, isWorkItem, isConsumableReady, countConsumableReady, MOSCOW_DEFAULT, EPIC_PRIORITY_DEFAULT, hasOpenBlockers, isBlocked, blockedLabelWant };
 
 // Only dispatch when run directly (`node gh-project.mjs ...`), not when imported.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -2042,6 +2119,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         else die("usage: epic set <num> --priority P [--release R] | epic add-story <epic#> <story#>");
         break;
       case "link": cmdLink(rest, dry); break;
+      case "dep": cmdDep(rest, dry); break;
       case "set": cmdSet(rest); break;
       case "topup": cmdTopup(rest); break;
       case "promote": cmdPromote(rest); break;
