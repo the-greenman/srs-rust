@@ -8,9 +8,6 @@
 //! is built on. Unknown files (README, CI config) ride through unchanged.
 
 use crate::error::RepositoryError;
-use crate::repository_portability::{
-    export_repository_snapshot_with_options, import_repository_snapshot, ExportSnapshotOptions,
-};
 use crate::store::{FileStore, RepositoryStore};
 use crate::vfs::{MemVfs, Vfs, SRS_MARKER_DIR};
 use std::collections::BTreeMap;
@@ -59,18 +56,17 @@ pub fn export_tree(store: &FileStore) -> Result<BTreeMap<String, Vec<u8>>, Repos
 
 /// Materialize any repository into a fresh in-memory tree session.
 ///
-/// The bridge from codec-loaded sources (a `JsonStore` `.srsj` session, a
-/// legacy snapshot archive) into the operational tree model: snapshot export
-/// (with content blobs, ADR-031) → snapshot import into a MemVfs-backed
-/// `FileStore` (canonical paths, ADR-008 contract).
+/// The bridge from codec-loaded sources (a `JsonStore` `.srsj` session, a legacy snapshot
+/// archive) into the operational tree model. It reproduces the source's **real** file tree
+/// faithfully — the same authoritative enumeration `archive_pack` uses
+/// (`archive::tree_entries`) — then opens it as a MemVfs-backed `FileStore`.
+///
+/// Crucially it does **not** re-canonicalize instance paths (the old snapshot round-trip did).
+/// Re-canonicalization collapsed deterministic-UUID siblings that share an 8-hex-char id prefix
+/// onto one path — crashing valid repositories on load — and pre-normalized paths so the
+/// `repo-upgrade` migration could no longer detect a repository as needing normalization
+/// (srs-rust#696). Keeping real paths honors ADR-038's stated goal ("the operational tree keeps
+/// real paths") and the ADR-039 byte-faithful guarantee (ADR-040).
 pub fn materialize_tree(source: &dyn RepositoryStore) -> Result<FileStore, RepositoryError> {
-    let snapshot = export_repository_snapshot_with_options(
-        source,
-        ExportSnapshotOptions {
-            include_content_blobs: true,
-        },
-    )?;
-    let store = FileStore::from_vfs(Rc::new(MemVfs::new()));
-    import_repository_snapshot(&store, &snapshot)?;
-    Ok(store)
+    open_tree(crate::archive::tree_entries(source)?)
 }

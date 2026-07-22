@@ -477,6 +477,8 @@ mod tests {
             relations,
             source_documents_path: None,
             source_documents: vec![],
+            upstream_package: None,
+            meta: None,
         }
     }
 
@@ -553,6 +555,8 @@ mod tests {
             relations: vec![],
             source_documents_path: None,
             source_documents: vec![],
+            upstream_package: None,
+            meta: None,
         }
     }
 

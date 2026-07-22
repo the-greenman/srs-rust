@@ -12,6 +12,7 @@ use crate::store::{RecordTier, RepositoryStore};
 use crate::writer::slugify_instance_name;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
+use srs_core::extensions::import_tracking::UpstreamPackage;
 use srs_core::types::blueprint::Blueprint;
 use srs_core::types::container::{Container, ContainerIndexEntry};
 use srs_core::types::field::Field;
@@ -23,7 +24,7 @@ use srs_core::types::source_document::SourceDocumentIndexEntry;
 use srs_core::types::theme::Theme;
 use srs_core::types::view::{DocumentView, View};
 use srs_core::types::vocabulary::Vocabulary;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -117,6 +118,16 @@ pub struct RepositorySnapshot {
     /// or on a text-only export with no index.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub source_documents: Vec<SourceDocumentSnapshot>,
+    /// RFC-014 upstream-package provenance. ADR-008's snapshot is *path*-free, but that
+    /// never meant provenance-free: dropping `manifest.upstreamPackage` on a `.srsj` load
+    /// breaks `scaffold_new_repository`, which requires the seed to carry upstream
+    /// provenance (srs-rust#696 — the create-document / walkthrough flows).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upstream_package: Option<UpstreamPackage>,
+    /// `manifest.meta` (e.g. `sourceOfTruth`) — repository metadata preserved so a load
+    /// round-trip keeps it rather than silently dropping it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub meta: Option<serde_json::Value>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -352,6 +363,8 @@ pub fn export_repository_snapshot_with_options(
             Some(src_docs_base.to_string())
         },
         source_documents,
+        upstream_package: manifest.upstream_package.clone(),
+        meta: manifest.extra.get("meta").cloned(),
     })
 }
 
@@ -423,25 +436,27 @@ fn do_import(
         );
     }
 
-    let mut used_paths: HashMap<String, String> = HashMap::with_capacity(snapshot.instances.len());
+    // Widen id8 → full id for any instances that share a short canonical path (srs-rust#696),
+    // so a valid repository with prefix-colliding UUIDs still materializes to distinct files.
+    let instance_paths = collision_safe_instance_paths(&snapshot.instances, target)?;
+    let mut used_paths: HashSet<&str> = HashSet::with_capacity(snapshot.instances.len());
     manifest.instance_index = Vec::new();
-    for instance in &snapshot.instances {
-        let rel_path = canonical_instance_path(instance, target)?;
-        if let Some(first_id) = used_paths.get(&rel_path) {
+    for (instance, rel_path) in snapshot.instances.iter().zip(&instance_paths) {
+        // After widening, an identical path can only mean a genuine duplicate instance id.
+        if !used_paths.insert(rel_path.as_str()) {
             return Err(RepositoryError::InvalidSnapshotData {
                 message: format!(
-                    "canonical path collision at '{}': instance '{}' and '{}' both map to the same path",
-                    rel_path, first_id, instance.instance_id
+                    "duplicate instance id '{}' — two instances map to the same path '{rel_path}'",
+                    instance.instance_id
                 ),
             });
         }
-        used_paths.insert(rel_path.clone(), instance.instance_id.clone());
-        ensure_instance_parent(target, &rel_path)?;
-        target.save_instance_json(&rel_path, &instance.value)?;
+        ensure_instance_parent(target, rel_path)?;
+        target.save_instance_json(rel_path, &instance.value)?;
         manifest.instance_index.push(InstanceIndexEntry {
             instance_id: instance.instance_id.clone(),
             tier: instance.tier,
-            path: rel_path,
+            path: rel_path.clone(),
             title: instance.title.clone(),
             tags: instance.tags.clone(),
         });
@@ -500,6 +515,16 @@ fn do_import(
         }
         manifest.source_documents_path = Some(src_docs_base.to_string());
         manifest.source_document_index = Some(source_doc_index);
+    }
+
+    // Restore repository-level provenance the snapshot carries (srs-rust#696): the
+    // path-free RepositorySnapshot still preserves upstreamPackage + meta so a `.srsj`
+    // load → scaffold keeps the seed's upstream provenance instead of dropping it.
+    if snapshot.upstream_package.is_some() {
+        manifest.upstream_package = snapshot.upstream_package.clone();
+    }
+    if let Some(meta) = &snapshot.meta {
+        manifest.extra.insert("meta".to_string(), meta.clone());
     }
 
     target.save_manifest(&manifest)?;
@@ -869,25 +894,32 @@ fn collect_planned_renames(
     store: &dyn RepositoryStore,
     manifest: &crate::manifest::Manifest,
 ) -> Result<Vec<PlannedRename>, RepositoryError> {
-    use std::collections::HashSet;
+    // Load every instance first so canonical paths can be derived over the whole set at once
+    // (srs-rust#696): id8-colliding siblings normalise to their full-id form — order-independent,
+    // never a collision error — so path normalization stays applicable to valid repositories
+    // with prefix-colliding UUIDs.
+    let instances: Vec<SnapshotInstance> = manifest
+        .instance_index
+        .iter()
+        .map(|entry| {
+            Ok(SnapshotInstance {
+                instance_id: entry.instance_id.clone(),
+                tier: entry.tier,
+                title: entry.title.clone(),
+                tags: entry.tags.clone(),
+                value: store.load_instance_json(entry.path())?,
+            })
+        })
+        .collect::<Result<_, RepositoryError>>()?;
+    let canonical_paths = collision_safe_instance_paths(&instances, store)?;
 
     let mut planned: Vec<PlannedRename> = Vec::new();
-    let mut canonical_paths: HashSet<String> = HashSet::new();
-    for (idx, entry) in manifest.instance_index.iter().enumerate() {
-        let value = store.load_instance_json(entry.path())?;
-        let instance = SnapshotInstance {
-            instance_id: entry.instance_id.clone(),
-            tier: entry.tier,
-            title: entry.title.clone(),
-            tags: entry.tags.clone(),
-            value: value.clone(),
-        };
-        let canonical = canonical_instance_path(&instance, store)?;
-        if !canonical_paths.insert(canonical.clone()) {
-            return Err(RepositoryError::InvalidSnapshotData {
-                message: format!("path collision: two instances would normalise to '{canonical}'"),
-            });
-        }
+    for ((idx, entry), (instance, canonical)) in manifest
+        .instance_index
+        .iter()
+        .enumerate()
+        .zip(instances.iter().zip(&canonical_paths))
+    {
         if entry.path() != canonical {
             let old_sidecar = sidecar_path_for(entry.path());
             let sidecar_value = match store.load_instance_json(&old_sidecar) {
@@ -904,8 +936,8 @@ fn collect_planned_renames(
                 manifest_index: idx,
                 instance_id: entry.instance_id.clone(),
                 from_path: entry.path().to_string(),
-                to_path: canonical,
-                value,
+                to_path: canonical.clone(),
+                value: instance.value.clone(),
                 sidecar_value,
             });
         }
@@ -985,11 +1017,22 @@ pub(crate) fn canonical_instance_path(
     store: &dyn RepositoryStore,
 ) -> Result<String, RepositoryError> {
     let id = &instance.instance_id;
-    assert!(
-        id.len() >= 8,
-        "instance_id '{id}' must be at least 8 characters"
-    );
-    let id8 = &id[..8];
+    if id.len() < 8 {
+        return Err(RepositoryError::InvalidSnapshotData {
+            message: format!("instance_id '{id}' must be at least 8 characters"),
+        });
+    }
+    instance_path_with_id_fragment(instance, store, &id[..8])
+}
+
+/// Storage path for an instance whose id fragment is `id_fragment` (a prefix of, or the
+/// whole, `instance_id`). Factored out of [`canonical_instance_path`] so a colliding short
+/// form can be widened to the full id without duplicating slug/tier-dir logic.
+fn instance_path_with_id_fragment(
+    instance: &SnapshotInstance,
+    store: &dyn RepositoryStore,
+    id_fragment: &str,
+) -> Result<String, RepositoryError> {
     let slug = match instance.tier {
         0 => instance
             .title
@@ -1006,9 +1049,9 @@ pub(crate) fn canonical_instance_path(
         _ => String::new(),
     };
     let filename = if slug.is_empty() {
-        format!("{id8}.json")
+        format!("{id_fragment}.json")
     } else {
-        format!("{slug}-{id8}.json")
+        format!("{slug}-{id_fragment}.json")
     };
     let dir = match instance.tier {
         0 => store.record_tier_dir(RecordTier::Note),
@@ -1024,6 +1067,50 @@ pub(crate) fn canonical_instance_path(
         }
     };
     Ok(format!("{dir}/{filename}"))
+}
+
+/// Repository-unique storage paths for `instances`, returned in the same order.
+///
+/// Each instance keeps the readable `slug-id8` short form (see [`canonical_instance_path`])
+/// unless two or more instances in the set map to the same short form; **every** instance in
+/// such a colliding group instead uses its full instance id (`slug-<full-uuid>.json`), which
+/// is unique within a repository by construction.
+///
+/// The widening decision is a pure function of the whole instance set, so it is independent
+/// of iteration order: the same repository always yields the same paths regardless of how the
+/// instance index happens to be ordered. That order-independence is what keeps
+/// `upgrade_repository_paths` idempotent and free of write-before-delete clobbering across
+/// repeated passes.
+///
+/// This fixes srs-rust#696 (see ADR-040): two distinct, legitimately-valid instances can share
+/// their first 8 hex characters — e.g. deterministic UUID5s like gallery.srsj's decision
+/// instances `…5801`/`…5802`, both of which start `00000000` — and the id8-only scheme mapped
+/// them to the same file, making an otherwise valid repository fail to load or copy.
+fn collision_safe_instance_paths(
+    instances: &[SnapshotInstance],
+    store: &dyn RepositoryStore,
+) -> Result<Vec<String>, RepositoryError> {
+    let shorts: Vec<String> = instances
+        .iter()
+        .map(|instance| canonical_instance_path(instance, store))
+        .collect::<Result<_, _>>()?;
+
+    let mut short_counts: HashMap<&str, usize> = HashMap::with_capacity(shorts.len());
+    for short in &shorts {
+        *short_counts.entry(short.as_str()).or_default() += 1;
+    }
+
+    instances
+        .iter()
+        .zip(&shorts)
+        .map(|(instance, short)| {
+            if short_counts[short.as_str()] > 1 {
+                instance_path_with_id_fragment(instance, store, &instance.instance_id)
+            } else {
+                Ok(short.clone())
+            }
+        })
+        .collect()
 }
 
 fn slugify(name: &str) -> String {
@@ -1054,6 +1141,7 @@ mod tests {
     use crate::store::memory::MemoryStore;
     use crate::store::{FileStore, RepositoryStore};
     use crate::validation::validate_repository;
+    use std::collections::HashMap;
     use tempfile::TempDir;
 
     fn make_input() -> InitializeRepositoryInput {
@@ -1649,11 +1737,12 @@ mod tests {
     }
 
     #[test]
-    fn import_fails_on_canonical_path_collision() {
-        // Two tier-0 instances with the same slug AND the same first 8 UUID
-        // characters both map to "records/notes/same-title-aaaaaaaa.json".
-        // The import must return InvalidSnapshotData naming both instance IDs
-        // and the colliding path, rather than silently overwriting the first.
+    fn import_widens_path_on_id8_collision() {
+        // srs-rust#696: two tier-0 instances with the same slug AND the same first 8 UUID
+        // characters both want "records/notes/same-title-aaaaaaaa.json". A valid repository
+        // may legitimately contain such instances (e.g. deterministic UUID5s), so the import
+        // must NOT fail. Widening is order-independent (ADR-040): every instance in a colliding
+        // group takes its full-id form, so neither instance is dropped or silently overwritten.
         let source = MemoryStore::uninitialized();
         source.initialize_repository(&make_input()).unwrap();
         let mut snapshot = export_repository_snapshot(&source).unwrap();
@@ -1678,25 +1767,144 @@ mod tests {
         });
 
         let target = MemoryStore::uninitialized();
-        let result = import_repository_snapshot(&target, &snapshot);
+        import_repository_snapshot(&target, &snapshot)
+            .expect("prefix-colliding instances must import, not error (srs-rust#696)");
 
-        match result {
-            Err(RepositoryError::InvalidSnapshotData { ref message }) => {
-                assert!(
-                    message.contains("records/notes/same-title-aaaaaaaa.json"),
-                    "error must name the collision path: {message}"
-                );
-                assert!(
-                    message.contains("aaaaaaaa-0000-4000-8000-000000000001"),
-                    "error must name first instance: {message}"
-                );
-                assert!(
-                    message.contains("aaaaaaaa-0000-4000-8000-000000000002"),
-                    "error must name second instance: {message}"
-                );
-            }
-            other => panic!("expected InvalidSnapshotData error, got: {other:?}"),
-        }
+        let manifest = target.load_manifest().unwrap();
+        let path_of = |id: &str| -> String {
+            manifest
+                .instance_index
+                .iter()
+                .find(|e| e.instance_id == id)
+                .unwrap_or_else(|| panic!("instance {id} missing from index"))
+                .path()
+                .to_string()
+        };
+        let p1 = path_of("aaaaaaaa-0000-4000-8000-000000000001");
+        let p2 = path_of("aaaaaaaa-0000-4000-8000-000000000002");
+
+        // Order-independent widening: BOTH colliding instances take their full-id form, so the
+        // result does not depend on index order (ADR-040). Distinct files, neither dropped.
+        assert_eq!(
+            p1, "records/notes/same-title-aaaaaaaa-0000-4000-8000-000000000001.json",
+            "first widens to full id"
+        );
+        assert_eq!(
+            p2, "records/notes/same-title-aaaaaaaa-0000-4000-8000-000000000002.json",
+            "second widens to full id"
+        );
+        assert_ne!(p1, p2, "colliding instances must land on distinct paths");
+
+        // Both files are materialized and carry the right instance.
+        assert_eq!(
+            target.load_instance_json(&p1).unwrap()["instanceId"],
+            serde_json::json!("aaaaaaaa-0000-4000-8000-000000000001")
+        );
+        assert_eq!(
+            target.load_instance_json(&p2).unwrap()["instanceId"],
+            serde_json::json!("aaaaaaaa-0000-4000-8000-000000000002")
+        );
+    }
+
+    #[test]
+    fn copy_repository_widens_id8_colliding_instances() {
+        // The issue's CLI reproduction — `srs repo copy --from <colliding>.srsj` — must succeed on
+        // a repository whose deterministic UUIDs collide in their first 8 hex chars (srs-rust#696).
+        // copy_repository = export + import; both colliding instances must land on distinct files,
+        // and re-copying the resulting repository is stable (idempotent, order-independent).
+        let colliding = |suffix: &str| SnapshotInstance {
+            instance_id: format!("aaaaaaaa-0000-4000-8000-00000000000{suffix}"),
+            tier: 0,
+            title: Some(serde_json::json!("same title")),
+            tags: None,
+            value: serde_json::json!({
+                "instanceId": format!("aaaaaaaa-0000-4000-8000-00000000000{suffix}")
+            }),
+        };
+
+        let seed = MemoryStore::uninitialized();
+        seed.initialize_repository(&make_input()).unwrap();
+        let mut snapshot = export_repository_snapshot(&seed).unwrap();
+        snapshot.instances.push(colliding("1"));
+        snapshot.instances.push(colliding("2"));
+
+        let first = MemoryStore::uninitialized();
+        import_repository_snapshot(&first, &snapshot).unwrap();
+
+        // Copy the whole colliding repository — the operation the issue reproduces.
+        let second = MemoryStore::uninitialized();
+        copy_repository(&first, &second)
+            .expect("repo copy must not fail on prefix-colliding UUIDs (srs-rust#696)");
+
+        let paths: Vec<String> = second
+            .load_manifest()
+            .unwrap()
+            .instance_index
+            .iter()
+            .filter(|e| {
+                e.instance_id
+                    .starts_with("aaaaaaaa-0000-4000-8000-0000000000")
+            })
+            .map(|e| e.path().to_string())
+            .collect();
+        assert_eq!(paths.len(), 2, "both colliding instances must be copied");
+        assert_ne!(
+            paths[0], paths[1],
+            "colliding instances copied to distinct paths"
+        );
+        // Both widened to full-id form (order-independent, ADR-040).
+        assert!(
+            paths
+                .iter()
+                .all(|p| p.ends_with("1.json") || p.ends_with("2.json")),
+            "widened paths carry the full instance id: {paths:?}"
+        );
+    }
+
+    #[test]
+    fn snapshot_preserves_upstream_package_and_meta() {
+        // srs-rust#696: the path-free RepositorySnapshot must still carry repository
+        // provenance, so a `.srsj` load (export snapshot → import into a MemVfs) keeps
+        // `upstreamPackage` — required by scaffold_new_repository — and `meta`, rather
+        // than dropping them (which broke the create-document / walkthrough flows).
+        let source = MemoryStore::uninitialized();
+        source.initialize_repository(&make_input()).unwrap();
+        let mut manifest = source.load_manifest().unwrap();
+        manifest.upstream_package = Some(UpstreamPackage {
+            package_id: "pkg-123".to_string(),
+            namespace: "com.example.seed".to_string(),
+            name: "seed".to_string(),
+            version: "1.0.0".to_string(),
+            installed_at: "2026-01-01T00:00:00Z".to_string(),
+        });
+        manifest.extra.insert(
+            "meta".to_string(),
+            serde_json::json!({"sourceOfTruth": "records"}),
+        );
+        source.save_manifest(&manifest).unwrap();
+
+        let snapshot = export_repository_snapshot(&source).unwrap();
+        assert!(
+            snapshot.upstream_package.is_some(),
+            "export must capture upstreamPackage"
+        );
+        assert_eq!(
+            snapshot.meta,
+            Some(serde_json::json!({"sourceOfTruth": "records"}))
+        );
+
+        let target = MemoryStore::uninitialized();
+        import_repository_snapshot(&target, &snapshot).unwrap();
+        let out = target.load_manifest().unwrap();
+        let up = out
+            .upstream_package
+            .expect("import must restore upstreamPackage");
+        assert_eq!(up.package_id, "pkg-123");
+        assert_eq!(up.namespace, "com.example.seed");
+        assert_eq!(
+            out.extra.get("meta"),
+            Some(&serde_json::json!({"sourceOfTruth": "records"}))
+        );
     }
 
     #[test]
@@ -1745,9 +1953,10 @@ mod tests {
             export_repository_snapshot(&source).unwrap()
         };
 
-        // Instance 3 shares the first 8 chars of its instance_id with instance 1
-        // and the same tier/slug, producing a canonical path collision that triggers
-        // InvalidSnapshotData after instances 1 and 2 have been saved in-memory.
+        // Instance 3 has an unknown tier, which cannot be mapped to a storage path and
+        // triggers InvalidSnapshotData after instances 1 and 2 have been saved in-memory.
+        // (A plain id8 path collision is no longer an error — see srs-rust#696 — so this
+        // uses a genuine per-instance failure to exercise abort_batch's rollback.)
         snapshot.instances = vec![
             SnapshotInstance {
                 instance_id: "aaaaaaaa-0001-0001-0001-000000000001".to_string(),
@@ -1764,18 +1973,18 @@ mod tests {
                 value: serde_json::json!({"instanceId":"bbbbbbbb-0002-0002-0002-000000000002"}),
             },
             SnapshotInstance {
-                instance_id: "aaaaaaaa-0003-0003-0003-000000000003".to_string(),
-                tier: 0,
+                instance_id: "cccccccc-0003-0003-0003-000000000003".to_string(),
+                tier: 9,
                 title: None,
                 tags: None,
-                value: serde_json::json!({"instanceId":"aaaaaaaa-0003-0003-0003-000000000003"}),
+                value: serde_json::json!({"instanceId":"cccccccc-0003-0003-0003-000000000003"}),
             },
         ];
 
         let result = import_repository_snapshot(&target, &snapshot);
         assert!(
             matches!(result, Err(RepositoryError::InvalidSnapshotData { .. })),
-            "expected InvalidSnapshotData from path collision, got: {result:?}"
+            "expected InvalidSnapshotData from unknown tier, got: {result:?}"
         );
 
         let final_contents = std::fs::read_to_string(&srsj_path).unwrap();
