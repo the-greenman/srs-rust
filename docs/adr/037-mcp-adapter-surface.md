@@ -1,6 +1,6 @@
 # ADR-037: MCP Adapter Surface
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-07-22
 - **Supersedes:** —
 - **Superseded by:** —
@@ -23,7 +23,7 @@ Owner decisions (2026-07-22, issue #676): prefer a single binary if the size cos
 
 4. **Envelope carve-out.** `srs mcp serve` is the one CLI command that does not emit the ADR-011 `{ok, command, payload}` envelope: it is a long-running server speaking MCP JSON-RPC on stdout, not a "one service call + output envelope" handler. It has no payload struct and no golden schema. Pre-serve failures (no repository found) go to stderr with a non-zero exit; stdout stays protocol-clean. The global CLI flags `--pretty` and `--container` (clap `global = true`) parse on this command but are accepted-and-ignored: there is no envelope to prettify, and container-scoping the served surface is a deliberate non-feature of this cut (a follow-up may add it as explicit behaviour, never as a silent half-implementation).
 
-5. **Async stays contained.** `serve_stdio` builds a tokio current_thread runtime internally and blocks. No `srs-repository`/`srs-core` signature becomes async. Handlers call sync services directly and construct a fresh `FileStore` per request (mirroring the CLI's per-invocation semantics: no shared mutable state, on-disk changes visible between calls). Blocking file I/O inside async handlers is accepted for a single-client stdio server; revisit if a multi-client transport lands.
+5. **Async stays contained.** `serve_stdio` builds a tokio current_thread runtime internally and blocks. No `srs-repository`/`srs-core` signature becomes async. Handlers call sync services directly and construct a fresh `FileStore` per request (mirroring the CLI's per-invocation semantics: no shared mutable state, on-disk changes visible between calls). Blocking file I/O inside async handlers is accepted for a single-client stdio server; revisit if a multi-client transport lands. **Explicit scope limit:** the MCP server serves file-backed repositories only — `.srsj` (JsonStore) repos are not servable in this cut (unlike the CLI's `--store` switch). A follow-up may wire the store selection through; until then this is a named limitation, not an oversight.
 
 6. **The `srs://` URI scheme is implementation tooling, not spec.** Resources use `srs://<repositoryId>/{map|navigation|record/<instanceId>|container/<containerId>|view/<documentViewId>}`. This maps onto existing spec ID components (ext:addressability defines component-based Addresses, Invariant 34 — not a URI syntax), so no spec change is required (spec-gate ruling on #676). If a canonical URI syntax is later wanted, that is a tooling-only spec note under ext:addressability — a deferred follow-up, not constrained by this ADR beyond "addresses are built from existing ID components".
 

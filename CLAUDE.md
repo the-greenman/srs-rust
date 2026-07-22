@@ -1,6 +1,6 @@
 # CLAUDE.md — srs-rust
 
-Rust implementation of the SRS system: `srs-core`, `srs-repository`, `srs-cli`, `srs-bindings`, `srs-projection`.
+Rust implementation of the SRS system: `srs-core`, `srs-repository`, `srs-cli`, `srs-bindings`, `srs-mcp`, `srs-projection`.
 
 The top-level `semanticops/CLAUDE.md` contains the full SRS data model, CLI reference, and agentic usage rules. Read that first. This file adds rules specific to working inside the Rust codebase.
 
@@ -28,6 +28,7 @@ cargo run --bin generate-schemas          # regenerate payload JSON Schema golde
 | `srs-repository` | Repository loading, writing, package resolution, service functions, archive pack/unpack, export bundle | Depends on `srs-core`. All business logic lives here, not in the CLI. |
 | `srs-cli` | Arg parsing, stdin handling, JSON envelope output | One service call per handler. No business logic. No direct filesystem access in handlers. |
 | `srs-bindings` | JSON-first binding surface over repository services | Calls the same services as the CLI. No duplicated logic. |
+| `srs-mcp` | MCP stdio server over repository services (`srs mcp serve`, ADR-037) | Sole owner of `rmcp`/`tokio`. One service call per handler. Tool inputs are shadow structs with mandatory `From` conversions. No business logic. |
 | `srs-projection` | Rendering and export projections | Placeholder — no work until consumers exist. |
 
 When in doubt about where logic belongs: if it would also be needed by an HTTP API or Python binding, it belongs in `srs-repository`, not `srs-cli`.
@@ -45,6 +46,8 @@ fn cmd_note_create(ctx: CliContext) -> Result<OutputDTO> {
 ```
 
 If a handler exceeds ~15 lines, the excess is almost certainly business logic that belongs in `srs-repository`.
+
+**One sanctioned exception:** `commands/mcp.rs` (`srs mcp serve`) calls `std::process::exit` directly instead of returning a `String` for `main` to render — it is a long-running server whose stdout carries MCP JSON-RPC, so it must never fall through to the envelope printer (ADR-037 §4). Do not copy this pattern for ordinary commands.
 
 ## Payload Contract (ADR-011)
 

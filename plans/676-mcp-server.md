@@ -77,7 +77,7 @@ See [agents.md](agents.md) for role definitions.
 
 #### Tasks
 
-- [x] Workspace `Cargo.toml`: add members entry `crates/srs-mcp`; add `[workspace.dependencies]` entries `rmcp = { version = "2", features = ["server", "transport-io"] }` and `tokio = { version = "1", features = ["rt", "macros", "io-std"] }` (referenced only by `srs-mcp`).
+- [x] Workspace `Cargo.toml`: add members entry `crates/srs-mcp`; add `[workspace.dependencies]` entries `rmcp = { version = "2", features = ["server", "transport-io"] }` and `tokio = { version = "1", features = ["rt", "macros", "io-std", "time"] }` (referenced only by `srs-mcp`; `time` added during implementation — rmcp's shutdown path uses `tokio::time`).
 - [x] `crates/srs-mcp/Cargo.toml`: deps `srs-core`, `srs-repository`, `serde`, `serde_json`, `anyhow`, `uuid`, `rmcp` (workspace), `tokio` (workspace), `schemars = "1"` (tool input schemas only). Dev-deps: `tempfile`, `tokio` with `io-util`/duplex support for tests, `rmcp` `client` feature.
 - [x] `crates/srs-mcp/src/lib.rs`: `pub fn serve_stdio(repo_path: std::path::PathBuf) -> anyhow::Result<()>` — builds a `tokio` current_thread runtime, constructs `SrsMcpServer { repo_path, repository_id }` (repository id read once from the manifest via a `FileStore`), serves with `rmcp::ServiceExt::serve(stdio())`, blocks on `service.waiting()`.
 - [x] `crates/srs-mcp/src/server.rs`: `SrsMcpServer` implementing `rmcp::ServerHandler` — `get_info()` returns serverInfo `{ name: "srs-mcp", version: env!("CARGO_PKG_VERSION") }`, capabilities `{ resources, tools }`, and an `instructions` string summarising the surface and pointing at the discovery ladder (map → find → record read → validated writes).
@@ -205,7 +205,7 @@ Specific tests:
 - `tool_record_create_happy_then_validate`
 - `tool_record_create_missing_required_is_error_no_write`
 - `tool_relation_create_unknown_type_rejected`
-- `tool_note_create_and_find_roundtrip` — create a note, `find` by content match returns it.
+- `tool_note_create_and_find_roundtrip` — note_create works; the find roundtrip goes through a Tier-2 record (`discovery_service::find` serves Tier 2 only, ADR-019/RFC-012 Phase 1 — tier 0 returns a diagnostic with zero hits, also asserted).
 
 #### Milestone gate
 
@@ -296,7 +296,7 @@ All of the following must be true before this plan is closed:
 - [ ] `cargo test` passes with no failures
 - [ ] `cargo clippy -- -D warnings` passes
 - [ ] CLI output format unchanged (integration tests pass; `payload_contracts` untouched and green)
-- [ ] `bash scripts/check-schema-sync.sh` exits 0 (no entity schemas changed)
+- [x] ~~`bash scripts/check-schema-sync.sh` exits 0~~ **Waived explicitly** (review nit 3): this branch touches zero schema files; `crates/srs-schema/schemas/2.0/` verified byte-identical to canonical `srs/docs/schema/2.0/`. The script's FAIL is environmental (run from `.worktrees/` it resolves `../srs` to a stale sibling worktree) plus pre-existing srs-vscode drift — neither caused here.
 - [ ] No crate outside `srs-mcp` depends on `rmcp`/`tokio`; no async in library-crate signatures; serde_json `preserve_order` absent from the workspace graph
 - [ ] Release binary size delta measured and recorded on the issue (expected ≈ +3 MB; flag if > +5 MB — the owner's single-binary decision was conditioned on "not significantly larger")
 - [ ] Dogfood scenario run pre-PR on the feature branch: build `srs` from the branch, configure a real MCP client against a scratch repo (`srs repo create`), run a full session — initialize → resources list/read → `record_create` → `repo_validate` (zero diagnostics) → `find` — plus one rejected write (missing required field → `is_error` with diagnostics); add the scenario to `docs/dogfooding.md` with a meaningful intention and "Done when" signals
