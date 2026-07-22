@@ -9,16 +9,16 @@ use std::future::{ready, Future};
 use std::path::PathBuf;
 
 use rmcp::model::{
-    Implementation, InitializeResult, ListResourceTemplatesResult, ListResourcesResult,
-    PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResult, ServerCapabilities,
-    ServerInfo,
+    CallToolRequestParams, CallToolResult, Implementation, InitializeResult,
+    ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, PaginatedRequestParams,
+    ReadResourceRequestParams, ReadResourceResult, ServerCapabilities, ServerInfo,
 };
 use rmcp::service::RequestContext;
 use rmcp::ErrorData as McpError;
 use rmcp::{RoleServer, ServerHandler};
 use srs_repository::store::{FileStore, RepositoryStore};
 
-use crate::resources;
+use crate::{resources, tools};
 
 /// Guidance shown to MCP clients at initialize time. Mirrors the discovery
 /// ladder in `srs-usage.md`: orient first, then read, then write, then validate.
@@ -109,6 +109,22 @@ impl ServerHandler for SrsMcpServer {
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ReadResourceResult, McpError>> + Send + '_ {
         ready(resources::read_resource(self, &request.uri))
+    }
+
+    fn list_tools(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> impl Future<Output = Result<ListToolsResult, McpError>> + Send + '_ {
+        ready(Ok(tools::list_tools()))
+    }
+
+    fn call_tool(
+        &self,
+        request: CallToolRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> impl Future<Output = Result<CallToolResult, McpError>> + Send + '_ {
+        ready(tools::call_tool(self, &request.name, request.arguments))
     }
 }
 

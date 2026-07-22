@@ -7,6 +7,7 @@
 
 mod resources;
 pub mod server;
+pub mod tools;
 mod uri;
 
 pub use server::SrsMcpServer;
