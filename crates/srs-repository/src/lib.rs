@@ -57,6 +57,8 @@ pub mod tag_service;
 pub mod text_projection;
 pub mod theme_service;
 pub mod tree_service;
+pub mod tree_session;
+mod type_json;
 pub mod type_schema_service;
 pub mod validation;
 pub mod vfs;
@@ -76,3 +78,4 @@ pub use repository_portability::{
     upgrade_repository_paths, InstancePathRename, UpgradeRepositoryPathsResult,
 };
 pub use store::{FileStore, RepositoryStore};
+pub use tree_session::{export_tree, materialize_tree, open_tree};
