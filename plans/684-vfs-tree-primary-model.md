@@ -158,7 +158,7 @@ byte-identical; full suite green with zero behavioral test changes.
 
 #### Tasks
 
-- [ ] Create `crates/srs-repository/src/vfs.rs`:
+- [x] Create `crates/srs-repository/src/vfs.rs`:
   - `pub trait Vfs: std::fmt::Debug` (Debug supertrait — `FileStore` derives `Debug` over
     `Rc<dyn Vfs>`): `read_bytes(&self, rel: &str) -> Result<Vec<u8>, RepositoryError>`,
     `read_to_string`, `write(&self, rel: &str, bytes: &[u8])`, `remove` (idempotent),
@@ -178,7 +178,7 @@ byte-identical; full suite green with zero behavioral test changes.
   - `MemVfs`: `RefCell<BTreeMap<String, Vec<u8>>>` files + `RefCell<BTreeSet<String>>`
     explicit dirs; `is_dir` = explicit dir ∨ any key has `"{rel}/"` prefix; listings via
     BTreeMap prefix range scans; lexical `..`-escape check.
-- [ ] Refactor `store.rs`: `FileStore { repo_root: PathBuf, vfs: Rc<dyn Vfs> }` — `repo_root`
+- [x] Refactor `store.rs`: `FileStore { repo_root: PathBuf, vfs: Rc<dyn Vfs> }` — `repo_root`
   becomes **display-only** (feeds `repository_root()`; MemVfs-backed stores use
   `PathBuf::from("<memory>")` per the ADR-021 sentinel convention); all I/O routes through
   `vfs`. `FileStore::new(root)` keeps its signature (wraps `DiskVfs`); add
@@ -189,14 +189,14 @@ byte-identical; full suite green with zero behavioral test changes.
   `#[cfg(test)]` fixture builders stay on `std::fs` (they construct real on-disk repos).
   `validate_package_ref_path` **remains** a `RepositoryStore` trait method — its
   implementation delegates to `Vfs::check_within_root` + existence checks.
-- [ ] Delete the dead free fn `manifest.rs::load_manifest` (only caller is its own test);
+- [x] Delete the dead free fn `manifest.rs::load_manifest` (only caller is its own test);
   keep `FileStore::load_manifest` as the single implementation.
 
 #### Acceptance Criteria
 
-- [ ] `cargo test -p srs-repository` passes with no behavioral test changes.
-- [ ] `FileStore::new` public signature unchanged; all existing callers compile untouched.
-- [ ] MemVfs not-found errors satisfy `RepositoryError::is_not_found()`.
+- [x] `cargo test -p srs-repository` passes with no behavioral test changes.
+- [x] `FileStore::new` public signature unchanged; all existing callers compile untouched.
+- [x] MemVfs not-found errors satisfy `RepositoryError::is_not_found()`.
 
 #### Testing
 

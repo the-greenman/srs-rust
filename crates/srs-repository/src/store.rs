@@ -6,6 +6,7 @@ use crate::package_types::{DefinitionKind, PackageBoundary, PackageSelector};
 use crate::repository_lifecycle::{
     default_repository_container, CreateRepositoryResult, InitializeRepositoryInput,
 };
+use crate::vfs::{vfs_join, DirCheck, DiskVfs, Vfs, SRS_MARKER_DIR};
 use serde::de::Error as SerdeDeError;
 use srs_core::types::container::ContainerIndexEntry;
 use srs_core::types::field::Field;
@@ -22,6 +23,7 @@ use srs_core::validation::theme::validate_theme;
 use srs_core::validation::view::{validate_document_view, validate_view};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::rc::Rc;
 
 // ---------------------------------------------------------------------------
 // RecordTier — logical storage tier for instance records
@@ -416,17 +418,31 @@ pub trait RepositoryStore {
 
 /// File-backed implementation of [`RepositoryStore`].
 ///
-/// All `std::fs` calls in `srs-repository` are funnelled through this type.
+/// All I/O is funnelled through the [`Vfs`] seam (ADR-037): `DiskVfs` for the
+/// CLI's on-disk repositories, `MemVfs` for in-memory tree sessions (WASM).
 /// Service functions must not import `std::fs` directly.
 #[derive(Debug, Clone)]
 pub struct FileStore {
+    /// Display-only root: feeds `repository_root()` and error paths. All I/O
+    /// goes through `vfs`. MemVfs-backed stores use the `"<memory>"` sentinel
+    /// (ADR-021 convention).
     repo_root: PathBuf,
+    vfs: Rc<dyn Vfs>,
 }
 
 impl FileStore {
     pub fn new(repo_root: impl Into<PathBuf>) -> Self {
+        let repo_root = repo_root.into();
+        let vfs = Rc::new(DiskVfs::new(repo_root.clone()));
+        Self { repo_root, vfs }
+    }
+
+    /// Construct over an arbitrary [`Vfs`] (e.g. `MemVfs` for tree sessions).
+    /// `repository_root()` reports the `"<memory>"` sentinel.
+    pub fn from_vfs(vfs: Rc<dyn Vfs>) -> Self {
         Self {
-            repo_root: repo_root.into(),
+            repo_root: PathBuf::from("<memory>"),
+            vfs,
         }
     }
 
@@ -434,51 +450,37 @@ impl FileStore {
         &self.repo_root
     }
 
+    pub(crate) fn vfs(&self) -> &dyn Vfs {
+        self.vfs.as_ref()
+    }
+
+    /// Display path for error reporting only — never used for I/O.
     fn abs(&self, relative_path: &str) -> PathBuf {
         self.repo_root.join(relative_path)
     }
 
-    fn read_json(&self, path: &std::path::Path) -> Result<serde_json::Value, RepositoryError> {
-        let content = std::fs::read_to_string(path).map_err(|e| RepositoryError::Io {
-            path: path.to_path_buf(),
-            source: e,
-        })?;
+    fn read_json(&self, rel: &str) -> Result<serde_json::Value, RepositoryError> {
+        let content = self.vfs.read_to_string(rel)?;
         serde_json::from_str(&content).map_err(|e| RepositoryError::Serialize {
-            path: path.to_path_buf(),
+            path: self.abs(rel),
             source: e,
         })
     }
 
-    fn write_json(
-        &self,
-        path: &std::path::Path,
-        value: &serde_json::Value,
-    ) -> Result<(), RepositoryError> {
+    fn write_json(&self, rel: &str, value: &serde_json::Value) -> Result<(), RepositoryError> {
         let json = serde_json::to_string_pretty(value).map_err(|e| RepositoryError::Serialize {
-            path: path.to_path_buf(),
+            path: self.abs(rel),
             source: e,
         })?;
-        std::fs::write(path, json).map_err(|e| RepositoryError::Io {
-            path: path.to_path_buf(),
-            source: e,
-        })
+        self.vfs.write(rel, json.as_bytes())
     }
 
-    fn ensure_dir(&self, path: &std::path::Path) -> Result<(), RepositoryError> {
-        std::fs::create_dir_all(path).map_err(|e| RepositoryError::Io {
-            path: path.to_path_buf(),
-            source: e,
-        })
+    fn ensure_dir(&self, rel: &str) -> Result<(), RepositoryError> {
+        self.vfs.create_dir_all(rel)
     }
 
-    fn delete_file(&self, path: &std::path::Path) -> Result<(), RepositoryError> {
-        if path.exists() {
-            std::fs::remove_file(path).map_err(|e| RepositoryError::Io {
-                path: path.to_path_buf(),
-                source: e,
-            })?;
-        }
-        Ok(())
+    fn delete_file(&self, rel: &str) -> Result<(), RepositoryError> {
+        self.vfs.remove(rel)
     }
 }
 
@@ -588,7 +590,9 @@ struct FieldAssignmentOverrideJson {
 
 #[allow(clippy::type_complexity)]
 fn load_package_from_dir(
-    package_dir: &std::path::Path,
+    vfs: &dyn Vfs,
+    prefix: &str,
+    err_root: &std::path::Path,
     rt_by_type: &mut HashMap<String, (RelationTypeDefinition, PathBuf)>,
 ) -> Result<
     (
@@ -603,25 +607,19 @@ fn load_package_from_dir(
     ),
     RepositoryError,
 > {
-    let package_json_path = package_dir.join("package.json");
-    let package_content =
-        std::fs::read_to_string(&package_json_path).map_err(|e| RepositoryError::Io {
-            path: package_json_path.clone(),
-            source: e,
-        })?;
+    let package_json_rel = vfs_join(prefix, "package.json");
+    let package_content = vfs.read_to_string(&package_json_rel)?;
     let metadata: PackageMetadata =
         serde_json::from_str(&package_content).map_err(|e| RepositoryError::PackageLoad {
-            path: package_json_path,
+            path: err_root.join(&package_json_rel),
             source: e,
         })?;
 
     let mut fields = Vec::new();
     for field_path in &metadata.fields {
-        let full_path = package_dir.join(field_path);
-        let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
-            path: full_path.clone(),
-            source: e,
-        })?;
+        let rel = vfs_join(prefix, field_path);
+        let full_path = err_root.join(&rel);
+        let content = vfs.read_to_string(&rel)?;
         let fj: FieldJson =
             serde_json::from_str(&content).map_err(|e| RepositoryError::PackageLoad {
                 path: full_path.clone(),
@@ -632,11 +630,9 @@ fn load_package_from_dir(
 
     let mut record_types = Vec::new();
     for type_path in &metadata.types {
-        let full_path = package_dir.join(type_path);
-        let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
-            path: full_path.clone(),
-            source: e,
-        })?;
+        let rel = vfs_join(prefix, type_path);
+        let full_path = err_root.join(&rel);
+        let content = vfs.read_to_string(&rel)?;
         let tj: TypeJson =
             serde_json::from_str(&content).map_err(|e| RepositoryError::PackageLoad {
                 path: full_path.clone(),
@@ -717,11 +713,9 @@ fn load_package_from_dir(
     }
 
     for rt_path in &metadata.relation_types {
-        let full_path = package_dir.join(rt_path);
-        let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
-            path: full_path.clone(),
-            source: e,
-        })?;
+        let rel = vfs_join(prefix, rt_path);
+        let full_path = err_root.join(&rel);
+        let content = vfs.read_to_string(&rel)?;
         let def: RelationTypeDefinition =
             serde_json::from_str(&content).map_err(|e| RepositoryError::PackageLoad {
                 path: full_path.clone(),
@@ -748,11 +742,9 @@ fn load_package_from_dir(
 
     let mut views = Vec::new();
     for view_path in &metadata.views {
-        let full_path = package_dir.join(view_path);
-        let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
-            path: full_path.clone(),
-            source: e,
-        })?;
+        let rel = vfs_join(prefix, view_path);
+        let full_path = err_root.join(&rel);
+        let content = vfs.read_to_string(&rel)?;
         let view: View =
             serde_json::from_str(&content).map_err(|source| RepositoryError::ViewLoad {
                 path: full_path.clone(),
@@ -767,11 +759,9 @@ fn load_package_from_dir(
 
     let mut document_views = Vec::new();
     for dv_path in &metadata.document_views {
-        let full_path = package_dir.join(dv_path);
-        let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
-            path: full_path.clone(),
-            source: e,
-        })?;
+        let rel = vfs_join(prefix, dv_path);
+        let full_path = err_root.join(&rel);
+        let content = vfs.read_to_string(&rel)?;
         let dv: DocumentView =
             serde_json::from_str(&content).map_err(|source| RepositoryError::DocumentViewLoad {
                 path: full_path.clone(),
@@ -786,11 +776,9 @@ fn load_package_from_dir(
 
     let mut themes = Vec::new();
     for theme_path in &metadata.themes {
-        let full_path = package_dir.join(theme_path);
-        let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
-            path: full_path.clone(),
-            source: e,
-        })?;
+        let rel = vfs_join(prefix, theme_path);
+        let full_path = err_root.join(&rel);
+        let content = vfs.read_to_string(&rel)?;
         let theme: Theme =
             serde_json::from_str(&content).map_err(|source| RepositoryError::ThemeLoad {
                 path: full_path.clone(),
@@ -805,11 +793,9 @@ fn load_package_from_dir(
 
     let mut blueprints: Vec<crate::package::LoadedBlueprint> = Vec::new();
     for blueprint_path in &metadata.blueprints {
-        let full_path = package_dir.join(blueprint_path);
-        let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
-            path: full_path.clone(),
-            source: e,
-        })?;
+        let rel = vfs_join(prefix, blueprint_path);
+        let full_path = err_root.join(&rel);
+        let content = vfs.read_to_string(&rel)?;
         let blueprint: srs_core::types::blueprint::Blueprint = serde_json::from_str(&content)
             .map_err(|source| RepositoryError::PackageLoad {
                 path: full_path.clone(),
@@ -823,11 +809,9 @@ fn load_package_from_dir(
 
     let mut protocols: Vec<crate::package::LoadedProtocol> = Vec::new();
     for protocol_path in &metadata.protocols {
-        let full_path = package_dir.join(protocol_path);
-        let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
-            path: full_path.clone(),
-            source: e,
-        })?;
+        let rel = vfs_join(prefix, protocol_path);
+        let full_path = err_root.join(&rel);
+        let content = vfs.read_to_string(&rel)?;
         let raw: serde_json::Value =
             serde_json::from_str(&content).map_err(|source| RepositoryError::PackageLoad {
                 path: full_path.clone(),
@@ -847,11 +831,9 @@ fn load_package_from_dir(
 
     let mut lifecycles: Vec<Lifecycle> = Vec::new();
     for lc_path in &metadata.lifecycles {
-        let full_path = package_dir.join(lc_path);
-        let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
-            path: full_path.clone(),
-            source: e,
-        })?;
+        let rel = vfs_join(prefix, lc_path);
+        let full_path = err_root.join(&rel);
+        let content = vfs.read_to_string(&rel)?;
         let lc: Lifecycle =
             serde_json::from_str(&content).map_err(|e| RepositoryError::PackageLoad {
                 path: full_path,
@@ -878,10 +860,9 @@ impl RepositoryStore for FileStore {
     }
 
     fn repository_exists(&self) -> Result<bool, RepositoryError> {
-        let srs_dir = self.repo_root.join(".srs");
-        let manifest = self.repo_root.join("manifest.json");
-        let package = self.repo_root.join("package/package.json");
-        Ok(srs_dir.is_dir() && manifest.is_file() && package.is_file())
+        Ok(self.vfs.is_dir(SRS_MARKER_DIR)
+            && self.vfs.is_file("manifest.json")
+            && self.vfs.is_file("package/package.json"))
     }
 
     fn initialize_repository(
@@ -894,8 +875,8 @@ impl RepositoryStore for FileStore {
             });
         }
 
-        self.ensure_dir(&self.repo_root.join(".srs"))?;
-        self.ensure_dir(&self.repo_root.join("package"))?;
+        self.ensure_dir(SRS_MARKER_DIR)?;
+        self.ensure_dir("package")?;
 
         let title = input
             .repository
@@ -922,7 +903,7 @@ impl RepositoryStore for FileStore {
         if let Some(desc) = &input.repository.description {
             manifest["description"] = serde_json::Value::String(desc.clone());
         }
-        self.write_json(&self.repo_root.join("manifest.json"), &manifest)?;
+        self.write_json("manifest.json", &manifest)?;
 
         let package = serde_json::json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
@@ -941,7 +922,7 @@ impl RepositoryStore for FileStore {
             "documentViews": [],
             "blueprints": []
         });
-        self.write_json(&self.repo_root.join("package/package.json"), &package)?;
+        self.write_json("package/package.json", &package)?;
 
         Ok(CreateRepositoryResult {
             repo_root: self.repo_root.clone(),
@@ -954,16 +935,13 @@ impl RepositoryStore for FileStore {
     // --- Manifest ---
 
     fn load_manifest(&self) -> Result<Manifest, RepositoryError> {
-        let manifest_path = self.repo_root.join("manifest.json");
-        if !manifest_path.exists() {
+        let manifest_path = self.abs("manifest.json");
+        if !self.vfs.is_file("manifest.json") {
             return Err(RepositoryError::ManifestMissing {
                 path: manifest_path,
             });
         }
-        let content = std::fs::read_to_string(&manifest_path).map_err(|e| RepositoryError::Io {
-            path: manifest_path.clone(),
-            source: e,
-        })?;
+        let content = self.vfs.read_to_string("manifest.json")?;
         let mut raw: serde_json::Value =
             serde_json::from_str(&content).map_err(|e| RepositoryError::ManifestParse {
                 path: manifest_path.clone(),
@@ -980,28 +958,22 @@ impl RepositoryStore for FileStore {
     }
 
     fn save_manifest(&self, manifest: &Manifest) -> Result<(), RepositoryError> {
-        let manifest_path = self.repo_root.join("manifest.json");
         let value = serde_json::to_value(manifest).map_err(|e| RepositoryError::Serialize {
-            path: manifest_path.clone(),
+            path: self.abs("manifest.json"),
             source: e,
         })?;
-        self.write_json(&manifest_path, &value)
+        self.write_json("manifest.json", &value)
     }
 
     // --- Package ---
 
     fn load_package(&self) -> Result<Package, RepositoryError> {
         let package_dir = self.repo_root.join("package");
-        let package_json_path = package_dir.join("package.json");
 
-        let package_content =
-            std::fs::read_to_string(&package_json_path).map_err(|e| RepositoryError::Io {
-                path: package_json_path.clone(),
-                source: e,
-            })?;
+        let package_content = self.vfs.read_to_string("package/package.json")?;
         let metadata: PackageMetadata =
             serde_json::from_str(&package_content).map_err(|e| RepositoryError::PackageLoad {
-                path: package_json_path,
+                path: self.abs("package/package.json"),
                 source: e,
             })?;
 
@@ -1015,7 +987,7 @@ impl RepositoryStore for FileStore {
             mut blueprints,
             mut protocols,
             mut lifecycles,
-        ) = load_package_from_dir(&package_dir, &mut rt_by_type)?;
+        ) = load_package_from_dir(self.vfs(), "package", &self.repo_root, &mut rt_by_type)?;
 
         // Merge sub-packages from manifest packageRefs
         let manifest = self.load_manifest()?;
@@ -1059,7 +1031,7 @@ impl RepositoryStore for FileStore {
                     None => continue,
                 };
                 let sub_dir = self.repo_root.join(rel_path);
-                if !sub_dir.join("package.json").exists() {
+                if !self.vfs.is_file(&vfs_join(rel_path, "package.json")) {
                     return Err(RepositoryError::PackageRefMissing {
                         path: rel_path.to_string(),
                     });
@@ -1073,7 +1045,7 @@ impl RepositoryStore for FileStore {
                     sub_blueprints,
                     sub_protocols,
                     sub_lifecycles,
-                ) = load_package_from_dir(&sub_dir, &mut rt_by_type)?;
+                ) = load_package_from_dir(self.vfs(), rel_path, &self.repo_root, &mut rt_by_type)?;
 
                 for field in sub_fields {
                     if let Some(first_path) = field_sources.get(&field.id) {
@@ -1231,11 +1203,9 @@ impl RepositoryStore for FileStore {
 
         let mut vocabularies: Vec<Vocabulary> = Vec::new();
         for vocab_path in &metadata.vocabularies {
+            let rel = vfs_join("package", vocab_path);
             let full_path = package_dir.join(vocab_path);
-            let content = std::fs::read_to_string(&full_path).map_err(|e| RepositoryError::Io {
-                path: full_path.clone(),
-                source: e,
-            })?;
+            let content = self.vfs.read_to_string(&rel)?;
             let vocab: Vocabulary =
                 serde_json::from_str(&content).map_err(|e| RepositoryError::PackageLoad {
                     path: full_path,
@@ -1269,11 +1239,11 @@ impl RepositoryStore for FileStore {
     // --- Package JSON ---
 
     fn load_package_json(&self) -> Result<serde_json::Value, RepositoryError> {
-        self.read_json(&self.repo_root.join("package/package.json"))
+        self.read_json("package/package.json")
     }
 
     fn save_package_json(&self, value: &serde_json::Value) -> Result<(), RepositoryError> {
-        self.write_json(&self.repo_root.join("package/package.json"), value)
+        self.write_json("package/package.json", value)
     }
 
     // --- Fields ---
@@ -1283,7 +1253,7 @@ impl RepositoryStore for FileStore {
             path: self.abs(relative_path),
             source: e,
         })?;
-        self.write_json(&self.abs(relative_path), &value)
+        self.write_json(relative_path, &value)
     }
 
     fn update_field_file(&self, relative_path: &str, field: &Field) -> Result<(), RepositoryError> {
@@ -1291,11 +1261,11 @@ impl RepositoryStore for FileStore {
     }
 
     fn delete_field_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-        self.delete_file(&self.abs(relative_path))
+        self.delete_file(relative_path)
     }
 
     fn ensure_fields_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
-        self.ensure_dir(&self.abs(relative_dir))
+        self.ensure_dir(relative_dir)
     }
 
     // --- Types ---
@@ -1309,7 +1279,7 @@ impl RepositoryStore for FileStore {
             path: self.abs(relative_path),
             source: e,
         })?;
-        self.write_json(&self.abs(relative_path), &value)
+        self.write_json(relative_path, &value)
     }
 
     fn update_type_file(
@@ -1321,11 +1291,11 @@ impl RepositoryStore for FileStore {
     }
 
     fn delete_type_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-        self.delete_file(&self.abs(relative_path))
+        self.delete_file(relative_path)
     }
 
     fn ensure_types_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
-        self.ensure_dir(&self.abs(relative_dir))
+        self.ensure_dir(relative_dir)
     }
 
     fn save_relation_type_definition(
@@ -1338,15 +1308,15 @@ impl RepositoryStore for FileStore {
                 path: self.abs(relative_path),
                 source: e,
             })?;
-        self.write_json(&self.abs(relative_path), &value)
+        self.write_json(relative_path, &value)
     }
 
     fn delete_relation_type_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-        self.delete_file(&self.abs(relative_path))
+        self.delete_file(relative_path)
     }
 
     fn ensure_relation_types_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
-        self.ensure_dir(&self.abs(relative_dir))
+        self.ensure_dir(relative_dir)
     }
 
     // --- Views (L1) ---
@@ -1356,7 +1326,7 @@ impl RepositoryStore for FileStore {
             path: self.abs(relative_path),
             source: e,
         })?;
-        self.write_json(&self.abs(relative_path), &value)
+        self.write_json(relative_path, &value)
     }
 
     fn update_view_file(&self, relative_path: &str, view: &View) -> Result<(), RepositoryError> {
@@ -1364,11 +1334,11 @@ impl RepositoryStore for FileStore {
     }
 
     fn delete_view_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-        self.delete_file(&self.abs(relative_path))
+        self.delete_file(relative_path)
     }
 
     fn ensure_views_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
-        self.ensure_dir(&self.abs(relative_dir))
+        self.ensure_dir(relative_dir)
     }
 
     // --- Document Views (L2) ---
@@ -1382,7 +1352,7 @@ impl RepositoryStore for FileStore {
             path: self.abs(relative_path),
             source: e,
         })?;
-        self.write_json(&self.abs(relative_path), &value)
+        self.write_json(relative_path, &value)
     }
 
     fn update_document_view_file(
@@ -1394,11 +1364,11 @@ impl RepositoryStore for FileStore {
     }
 
     fn delete_document_view_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-        self.delete_file(&self.abs(relative_path))
+        self.delete_file(relative_path)
     }
 
     fn ensure_document_views_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
-        self.ensure_dir(&self.abs(relative_dir))
+        self.ensure_dir(relative_dir)
     }
 
     // --- Themes ---
@@ -1412,7 +1382,7 @@ impl RepositoryStore for FileStore {
             path: self.abs(relative_path),
             source: e,
         })?;
-        self.write_json(&self.abs(relative_path), &value)
+        self.write_json(relative_path, &value)
     }
 
     fn update_theme_file(
@@ -1424,11 +1394,11 @@ impl RepositoryStore for FileStore {
     }
 
     fn delete_theme_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-        self.delete_file(&self.abs(relative_path))
+        self.delete_file(relative_path)
     }
 
     fn ensure_themes_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
-        self.ensure_dir(&self.abs(relative_dir))
+        self.ensure_dir(relative_dir)
     }
 
     // --- Blueprints ---
@@ -1442,7 +1412,7 @@ impl RepositoryStore for FileStore {
             path: self.abs(relative_path),
             source: e,
         })?;
-        self.write_json(&self.abs(relative_path), &value)
+        self.write_json(relative_path, &value)
     }
 
     fn update_blueprint_file(
@@ -1454,11 +1424,11 @@ impl RepositoryStore for FileStore {
     }
 
     fn delete_blueprint_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-        self.delete_file(&self.abs(relative_path))
+        self.delete_file(relative_path)
     }
 
     fn ensure_blueprints_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
-        self.ensure_dir(&self.abs(relative_dir))
+        self.ensure_dir(relative_dir)
     }
 
     fn save_vocabulary(
@@ -1470,11 +1440,11 @@ impl RepositoryStore for FileStore {
             path: self.abs(relative_path),
             source: e,
         })?;
-        self.write_json(&self.abs(relative_path), &value)
+        self.write_json(relative_path, &value)
     }
 
     fn ensure_vocabularies_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
-        self.ensure_dir(&self.abs(relative_dir))
+        self.ensure_dir(relative_dir)
     }
 
     fn save_lifecycle(
@@ -1486,11 +1456,11 @@ impl RepositoryStore for FileStore {
             path: self.abs(relative_path),
             source: e,
         })?;
-        self.write_json(&self.abs(relative_path), &value)
+        self.write_json(relative_path, &value)
     }
 
     fn ensure_lifecycles_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
-        self.ensure_dir(&self.abs(relative_dir))
+        self.ensure_dir(relative_dir)
     }
 
     // --- Instances ---
@@ -1499,7 +1469,7 @@ impl RepositoryStore for FileStore {
         &self,
         relative_path: &str,
     ) -> Result<serde_json::Value, RepositoryError> {
-        self.read_json(&self.abs(relative_path))
+        self.read_json(relative_path)
     }
 
     fn save_instance_json(
@@ -1507,36 +1477,22 @@ impl RepositoryStore for FileStore {
         relative_path: &str,
         value: &serde_json::Value,
     ) -> Result<(), RepositoryError> {
-        self.write_json(&self.abs(relative_path), value)
+        self.write_json(relative_path, value)
     }
 
     fn delete_instance_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-        self.delete_file(&self.abs(relative_path))
+        self.delete_file(relative_path)
     }
 
     fn ensure_instance_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
-        self.ensure_dir(&self.abs(relative_dir))
+        self.ensure_dir(relative_dir)
     }
 
     fn list_instance_files(&self, relative_dir: &str) -> Result<Vec<String>, RepositoryError> {
-        let dir = self.abs(relative_dir);
-        if !dir.exists() {
-            return Ok(vec![]);
-        }
         let mut paths = Vec::new();
-        for entry in std::fs::read_dir(&dir).map_err(|e| RepositoryError::Io {
-            path: dir.clone(),
-            source: e,
-        })? {
-            let entry = entry.map_err(|e| RepositoryError::Io {
-                path: dir.clone(),
-                source: e,
-            })?;
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("json") {
-                if let Ok(rel) = path.strip_prefix(&self.repo_root) {
-                    paths.push(rel.to_string_lossy().into_owned());
-                }
+        for entry in self.vfs.list_dir(relative_dir)? {
+            if !entry.is_dir && entry.name.ends_with(".json") {
+                paths.push(vfs_join(relative_dir, &entry.name));
             }
         }
         Ok(paths)
@@ -1552,7 +1508,7 @@ impl RepositoryStore for FileStore {
         &self,
         relative_path: &str,
     ) -> Result<serde_json::Value, RepositoryError> {
-        self.read_json(&self.abs(relative_path))
+        self.read_json(relative_path)
     }
 
     fn save_relations_json(
@@ -1560,11 +1516,11 @@ impl RepositoryStore for FileStore {
         relative_path: &str,
         value: &serde_json::Value,
     ) -> Result<(), RepositoryError> {
-        self.write_json(&self.abs(relative_path), value)
+        self.write_json(relative_path, value)
     }
 
     fn ensure_relations_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
-        self.ensure_dir(&self.abs(relative_dir))
+        self.ensure_dir(relative_dir)
     }
 
     // --- Containers ---
@@ -1574,7 +1530,7 @@ impl RepositoryStore for FileStore {
         container_id: &str,
     ) -> Result<srs_core::types::container::Container, RepositoryError> {
         let path = file_store_find_container_path(self, container_id)?;
-        let val = self.read_json(&self.abs(&path))?;
+        let val = self.read_json(&path)?;
         serde_json::from_value(val).map_err(|source| RepositoryError::ManifestParse {
             path: self.abs(&path),
             source,
@@ -1590,11 +1546,11 @@ impl RepositoryStore for FileStore {
             path: std::path::PathBuf::from("containers"),
             source,
         })?;
-        self.ensure_dir(&self.repo_root.join("containers"))?;
+        self.ensure_dir("containers")?;
         match file_store_find_container_path(self, id) {
             Ok(path) => {
                 // Existing container — overwrite file in place; index unchanged
-                self.write_json(&self.abs(&path), &val)
+                self.write_json(&path, &val)
             }
             Err(RepositoryError::ContainerNotFound { .. }) => {
                 // New container — file-before-index (ADR-007: orphaned file is safe,
@@ -1607,7 +1563,7 @@ impl RepositoryStore for FileStore {
                     .collect::<String>();
                 let prefix = &id[..id.len().min(8)];
                 let filename = format!("containers/{slug}-{prefix}.json");
-                self.write_json(&self.abs(&filename), &val)?;
+                self.write_json(&filename, &val)?;
                 file_store_upsert_container_index(self, id, &container.title, &filename)
             }
             Err(e) => Err(e),
@@ -1619,7 +1575,7 @@ impl RepositoryStore for FileStore {
         // Remove from index
         file_store_remove_container_index(self, container_id)?;
         // Delete file (ignore missing-file errors)
-        let _ = self.delete_file(&self.abs(&path));
+        let _ = self.delete_file(&path);
         Ok(())
     }
 
@@ -1636,7 +1592,7 @@ impl RepositoryStore for FileStore {
         &self,
         relative_path: &str,
     ) -> Result<serde_json::Value, RepositoryError> {
-        self.read_json(&self.abs(relative_path))
+        self.read_json(relative_path)
     }
 
     #[allow(deprecated)]
@@ -1645,17 +1601,17 @@ impl RepositoryStore for FileStore {
         relative_path: &str,
         value: &serde_json::Value,
     ) -> Result<(), RepositoryError> {
-        self.write_json(&self.abs(relative_path), value)
+        self.write_json(relative_path, value)
     }
 
     #[allow(deprecated)]
     fn delete_container_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-        self.delete_file(&self.abs(relative_path))
+        self.delete_file(relative_path)
     }
 
     #[allow(deprecated)]
     fn ensure_containers_dir(&self) -> Result<(), RepositoryError> {
-        self.ensure_dir(&self.repo_root.join("containers"))
+        self.ensure_dir("containers")
     }
 
     // --- Package boundaries ---
@@ -1664,7 +1620,7 @@ impl RepositoryStore for FileStore {
         let mut result = Vec::new();
 
         // Primary package
-        let primary_json = self.read_json(&self.repo_root.join("package/package.json"))?;
+        let primary_json = self.read_json("package/package.json")?;
         result.push(PackageBoundary::from_pkg_json(&primary_json, None));
 
         // Sub-packages from manifest packageRefs
@@ -1675,8 +1631,8 @@ impl RepositoryStore for FileStore {
                     continue;
                 }
                 if let Some(path) = pkg_ref.get("path").and_then(|p| p.as_str()) {
-                    let pkg_json_path = self.repo_root.join(path).join("package.json");
-                    if let Ok(pkg_json) = self.read_json(&pkg_json_path) {
+                    let pkg_json_rel = vfs_join(path, "package.json");
+                    if let Ok(pkg_json) = self.read_json(&pkg_json_rel) {
                         result.push(PackageBoundary::from_pkg_json(
                             &pkg_json,
                             Some(path.to_string()),
@@ -1692,12 +1648,12 @@ impl RepositoryStore for FileStore {
         &self,
         selector: &PackageSelector,
     ) -> Result<PackageBoundary, RepositoryError> {
-        let pkg_json_path = match selector {
-            None => self.repo_root.join("package/package.json"),
-            Some(path) => self.repo_root.join(path).join("package.json"),
+        let pkg_json_rel = match selector {
+            None => "package/package.json".to_string(),
+            Some(path) => vfs_join(path, "package.json"),
         };
         let pkg_json =
-            self.read_json(&pkg_json_path)
+            self.read_json(&pkg_json_rel)
                 .map_err(|_| RepositoryError::PackageNotFound {
                     selector: selector.clone(),
                 })?;
@@ -1708,13 +1664,13 @@ impl RepositoryStore for FileStore {
         &self,
         boundary: &PackageBoundary,
     ) -> Result<(), RepositoryError> {
-        let pkg_json_path = match &boundary.selector {
-            None => self.repo_root.join("package/package.json"),
-            Some(path) => self.repo_root.join(path).join("package.json"),
+        let pkg_json_rel = match &boundary.selector {
+            None => "package/package.json".to_string(),
+            Some(path) => vfs_join(path, "package.json"),
         };
         // Load existing or create a skeleton
-        let mut pkg_json = if pkg_json_path.exists() {
-            self.read_json(&pkg_json_path)?
+        let mut pkg_json = if self.vfs.is_file(&pkg_json_rel) {
+            self.read_json(&pkg_json_rel)?
         } else {
             serde_json::json!({
                 "fields": [],
@@ -1734,7 +1690,7 @@ impl RepositoryStore for FileStore {
             obj.insert("name".to_string(), serde_json::json!(boundary.name));
             obj.insert("version".to_string(), serde_json::json!(boundary.version));
         }
-        self.write_json(&pkg_json_path, &pkg_json)
+        self.write_json(&pkg_json_rel, &pkg_json)
     }
 
     fn register_package_boundary(&self, selector: &PackageSelector) -> Result<(), RepositoryError> {
@@ -1773,11 +1729,11 @@ impl RepositoryStore for FileStore {
         kind: DefinitionKind,
         path: &str,
     ) -> Result<(), RepositoryError> {
-        let pkg_json_path = match selector {
-            None => self.repo_root.join("package/package.json"),
-            Some(p) => self.repo_root.join(p).join("package.json"),
+        let pkg_json_rel = match selector {
+            None => "package/package.json".to_string(),
+            Some(p) => vfs_join(p, "package.json"),
         };
-        let mut pkg_json = self.read_json(&pkg_json_path)?;
+        let mut pkg_json = self.read_json(&pkg_json_rel)?;
         let key = definition_kind_key(kind);
         // Insert an empty array if the key is absent (e.g. pre-RFC-006 package.json files).
         if pkg_json[key].is_null() {
@@ -1786,13 +1742,13 @@ impl RepositoryStore for FileStore {
         let arr = pkg_json[key]
             .as_array_mut()
             .ok_or_else(|| RepositoryError::PackageLoad {
-                path: pkg_json_path.clone(),
+                path: self.abs(&pkg_json_rel),
                 source: serde_json::Error::custom(format!("{key} is not an array")),
             })?;
         if !arr.iter().any(|e| e.as_str() == Some(path)) {
             arr.push(serde_json::json!(path));
         }
-        self.write_json(&pkg_json_path, &pkg_json)
+        self.write_json(&pkg_json_rel, &pkg_json)
     }
 
     fn remove_definition_from_boundary(
@@ -1801,16 +1757,16 @@ impl RepositoryStore for FileStore {
         kind: DefinitionKind,
         path: &str,
     ) -> Result<(), RepositoryError> {
-        let pkg_json_path = match selector {
-            None => self.repo_root.join("package/package.json"),
-            Some(p) => self.repo_root.join(p).join("package.json"),
+        let pkg_json_rel = match selector {
+            None => "package/package.json".to_string(),
+            Some(p) => vfs_join(p, "package.json"),
         };
-        let mut pkg_json = self.read_json(&pkg_json_path)?;
+        let mut pkg_json = self.read_json(&pkg_json_rel)?;
         let key = definition_kind_key(kind);
         if let Some(arr) = pkg_json[key].as_array_mut() {
             arr.retain(|e| e.as_str() != Some(path));
         }
-        self.write_json(&pkg_json_path, &pkg_json)
+        self.write_json(&pkg_json_rel, &pkg_json)
     }
 
     fn resolve_definition_owner(
@@ -1821,16 +1777,16 @@ impl RepositoryStore for FileStore {
         let boundaries = self.list_package_boundaries()?;
         let key = definition_kind_key(kind);
         for boundary in &boundaries {
-            let boundary_dir = match &boundary.selector {
-                None => self.repo_root.join("package"),
-                Some(p) => self.repo_root.join(p),
+            let boundary_prefix = match &boundary.selector {
+                None => "package".to_string(),
+                Some(p) => p.clone(),
             };
-            let pkg_json_path = boundary_dir.join("package.json");
-            if let Ok(pkg_json) = self.read_json(&pkg_json_path) {
+            let pkg_json_rel = vfs_join(&boundary_prefix, "package.json");
+            if let Ok(pkg_json) = self.read_json(&pkg_json_rel) {
                 if let Some(paths) = pkg_json[key].as_array() {
                     for entry in paths {
                         if let Some(rel) = entry.as_str() {
-                            let full = boundary_dir.join(rel);
+                            let full = vfs_join(&boundary_prefix, rel);
                             if let Ok(def_json) = self.read_json(&full) {
                                 if def_json["id"].as_str() == Some(id) {
                                     return Ok(boundary.selector.clone());
@@ -1847,83 +1803,54 @@ impl RepositoryStore for FileStore {
     // --- Generic file access ---
 
     fn list_files_recursive(&self, relative_dir: &str) -> Vec<String> {
-        let dir = self.abs(relative_dir);
-        let mut result = Vec::new();
-        collect_paths_recursive(&self.repo_root, &dir, &mut result);
-        result
+        self.vfs.list_recursive(relative_dir)
     }
 
     fn load_text_file(&self, relative_path: &str) -> Result<String, RepositoryError> {
-        let path = self.abs(relative_path);
-        std::fs::read_to_string(&path).map_err(|source| RepositoryError::Io { path, source })
+        self.vfs.read_to_string(relative_path)
     }
 
     fn save_text_file(&self, relative_path: &str, content: &str) -> Result<(), RepositoryError> {
-        let path = self.abs(relative_path);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|source| RepositoryError::Io {
-                path: parent.to_path_buf(),
-                source,
-            })?;
+        if let Some((parent, _)) = relative_path.rsplit_once('/') {
+            self.vfs.create_dir_all(parent)?;
         }
-        std::fs::write(&path, content).map_err(|source| RepositoryError::Io { path, source })
+        self.vfs.write(relative_path, content.as_bytes())
     }
 
     fn load_binary_file(&self, relative_path: &str) -> Result<Vec<u8>, RepositoryError> {
-        let path = self.abs(relative_path);
-        std::fs::read(&path).map_err(|source| RepositoryError::Io { path, source })
+        self.vfs.read_bytes(relative_path)
     }
 
     fn file_byte_len(&self, relative_path: &str) -> Result<u64, RepositoryError> {
-        let path = self.abs(relative_path);
-        std::fs::metadata(&path)
-            .map(|m| m.len())
-            .map_err(|source| RepositoryError::Io { path, source })
+        self.vfs.byte_len(relative_path)
     }
 
     fn save_binary_file(&self, relative_path: &str, content: &[u8]) -> Result<(), RepositoryError> {
-        let path = self.abs(relative_path);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|source| RepositoryError::Io {
-                path: parent.to_path_buf(),
-                source,
-            })?;
+        if let Some((parent, _)) = relative_path.rsplit_once('/') {
+            self.vfs.create_dir_all(parent)?;
         }
-        std::fs::write(&path, content).map_err(|source| RepositoryError::Io { path, source })
+        self.vfs.write(relative_path, content)
     }
 
     // --- Sub-package path validation ---
 
     fn validate_package_ref_path(&self, relative_path: &str) -> Result<(), RepositoryError> {
-        let repo_root_canonical =
-            self.repo_root
-                .canonicalize()
-                .map_err(|source| RepositoryError::Io {
-                    path: self.repo_root.clone(),
-                    source,
-                })?;
-
-        let candidate = self.repo_root.join(relative_path);
-        let candidate_canonical =
-            candidate
-                .canonicalize()
-                .map_err(|_| RepositoryError::PackageRefMissing {
-                    path: relative_path.to_string(),
-                })?;
-
-        if !candidate_canonical.starts_with(&repo_root_canonical) {
-            return Err(RepositoryError::PackageRefOutsideRepo {
+        match self.vfs.check_dir_within_root(relative_path)? {
+            DirCheck::Missing => Err(RepositoryError::PackageRefMissing {
                 path: relative_path.to_string(),
-            });
-        }
-
-        if !candidate_canonical.join("package.json").exists() {
-            return Err(RepositoryError::PackageRefMissing {
+            }),
+            DirCheck::OutsideRoot => Err(RepositoryError::PackageRefOutsideRepo {
                 path: relative_path.to_string(),
-            });
+            }),
+            DirCheck::Ok => {
+                if !self.vfs.is_file(&vfs_join(relative_path, "package.json")) {
+                    return Err(RepositoryError::PackageRefMissing {
+                        path: relative_path.to_string(),
+                    });
+                }
+                Ok(())
+            }
         }
-
-        Ok(())
     }
 }
 
@@ -2010,31 +1937,6 @@ fn file_store_remove_container_index(
         Some(entries)
     };
     store.save_manifest(&manifest)
-}
-
-/// Recursively collect file paths under `dir`, storing relative paths from `root`.
-fn collect_paths_recursive(
-    root: &std::path::Path,
-    dir: &std::path::Path,
-    result: &mut Vec<String>,
-) {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            collect_paths_recursive(root, &path, result);
-        } else {
-            let relative = path
-                .strip_prefix(root)
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .replace('\\', "/");
-            result.push(relative);
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------

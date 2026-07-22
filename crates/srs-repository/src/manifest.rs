@@ -1,11 +1,10 @@
-use crate::error::RepositoryError;
 use crate::index::InstanceIndexEntry;
 use serde::{Deserialize, Serialize};
 use srs_core::extensions::import_tracking::UpstreamPackage;
 use srs_core::types::container::{Container, ContainerIndexEntry};
 use srs_core::types::source_document::SourceDocumentIndexEntry;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -49,38 +48,6 @@ impl Default for Manifest {
             root: PathBuf::new(),
         }
     }
-}
-
-pub fn load_manifest(repo_root: &Path) -> Result<Manifest, RepositoryError> {
-    let manifest_path = repo_root.join("manifest.json");
-
-    if !manifest_path.exists() {
-        return Err(RepositoryError::ManifestMissing {
-            path: manifest_path,
-        });
-    }
-
-    let content = std::fs::read_to_string(&manifest_path).map_err(|e| RepositoryError::Io {
-        path: manifest_path.clone(),
-        source: e,
-    })?;
-
-    let mut raw: serde_json::Value =
-        serde_json::from_str(&content).map_err(|e| RepositoryError::ManifestParse {
-            path: manifest_path.clone(),
-            source: e,
-        })?;
-
-    migrate_upstream_package(&mut raw);
-
-    let mut manifest: Manifest =
-        serde_json::from_value(raw).map_err(|e| RepositoryError::ManifestParse {
-            path: manifest_path.clone(),
-            source: e,
-        })?;
-
-    manifest.root = repo_root.to_path_buf();
-    Ok(manifest)
 }
 
 /// Normalize upstreamPackage across legacy formats so the typed field deserialises cleanly.
@@ -150,7 +117,9 @@ mod tests {
     #[test]
     fn live_manifest_loads_and_has_correct_first_entry() {
         let repo_root = srs_spec_repo();
-        let manifest = load_manifest(&repo_root).unwrap();
+        let manifest =
+            crate::store::RepositoryStore::load_manifest(&crate::store::FileStore::new(&repo_root))
+                .unwrap();
 
         assert!(!manifest.instance_index.is_empty());
         assert_eq!(
