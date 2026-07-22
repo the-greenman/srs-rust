@@ -261,15 +261,15 @@ Steps 1–5 as Phase 1. Commit (`feat(cli): srs mcp serve subcommand (#676)`).
 
 #### Tasks
 
-- [ ] `crates/srs-mcp/tests/e2e.rs`: one scripted session over an in-process duplex transport — initialize (assert negotiated protocol version + both capabilities) → `resources/list` → `resources/read` (map, one record) → `tools/call record_create` → `tools/call repo_validate` (zero diagnostics) → `tools/call find` returns the created record.
-- [ ] Concurrency/robustness pass: malformed tool arguments (schema violation) are answered as rmcp invalid-params, not a crash; oversized/unknown URIs handled.
-- [ ] Verification Agent run: crate-boundary audit (no business logic in `srs-mcp`, no rmcp/tokio outside it), duplication report (tool handlers vs CLI handlers call identical service functions), full test transcript.
+- [x] `crates/srs-mcp/tests/e2e.rs`: one scripted session over an in-process duplex transport — initialize (assert negotiated protocol version + both capabilities) → `resources/list` → `resources/read` (map, one record) → `tools/call record_create` → `tools/call repo_validate` (zero diagnostics) → `tools/call find` returns the created record.
+- [x] Concurrency/robustness pass: malformed tool arguments (schema violation) are answered as rmcp invalid-params, not a crash; oversized/unknown URIs handled.
+- [x] Verification Agent run: crate-boundary audit (no business logic in `srs-mcp`, no rmcp/tokio outside it), duplication report (tool handlers vs CLI handlers call identical service functions), full test transcript.
 
 #### Acceptance Criteria
 
-- [ ] e2e session test green.
-- [ ] `cargo test` (workspace) and `cargo clippy -- -D warnings` green.
-- [ ] Verification report: zero boundary violations, zero duplicated business logic.
+- [x] e2e session test green.
+- [x] `cargo test` (workspace) and `cargo clippy -- -D warnings` green.
+- [x] Verification report: zero boundary violations, zero duplicated business logic.
 
 #### Testing
 
