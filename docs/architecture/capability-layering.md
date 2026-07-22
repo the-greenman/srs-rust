@@ -90,7 +90,12 @@ a **guaranteed-recall floor**: an accelerator MAY add semantically-related resul
 MAY reorder by score, but MUST NOT drop anything the contract matched.
 
 Most features only ever need Layer 1. Reach for Layer 2 only when there is a measured
-need, and only behind the consistency rule.
+need, and only behind the consistency rule. A Layer-2 accelerator (SQLite FTS, graph, or
+vector) is the recommended *first* way to introduce SQL into the stack — it lives in
+`srs-projection` as an optional derived projection over the ground-truth store and never
+becomes the system of record. The storage-backend guardrails, including this Layer-2 rule
+and the separate question of a SQL *primary* store, are recorded in
+[ADR-041](../adr/041-storage-backend-guardrails.md).
 
 ## "Where does this logic go?" decision table
 

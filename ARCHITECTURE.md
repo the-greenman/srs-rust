@@ -45,6 +45,10 @@ This file is written for humans and AI agents that need to understand the repo q
 - Do not introduce async traits until there is a concrete async consumer.
 - Do not split a new file-adapter crate until a second storage adapter creates real pressure.
 - Keep storage boundaries visible so a database-backed implementation can be introduced later.
+- The consolidated guardrails that keep a future SQL/NoSQL backend feasible — the `RepositoryStore`
+  seam, the logical-id trait shape, the synchronous-and-embedded boundary (networked/multi-user
+  integrates via export/import, not a native async store), and the conformance-harness admission
+  gate — are recorded in [ADR-041](docs/adr/041-storage-backend-guardrails.md).
 
 ## Repository Lifecycle And Portability
 
