@@ -8,6 +8,7 @@ members = [
     "crates/srs-projection",
     "crates/srs-bindings",
     "crates/srs-gov",
+    "crates/srs-mcp",
 ]
 
 [workspace.package]
@@ -38,3 +39,7 @@ hex = "0.4"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 ratatui = "0.28"
 crossterm = "0.28"
+# MCP adapter surface (ADR-037): rmcp + tokio are referenced ONLY by srs-mcp.
+# rmcp's serde_json tree audited: does NOT enable preserve_order (ADR-017).
+rmcp = { version = "2", features = ["server", "transport-io"] }
+tokio = { version = "1", features = ["rt", "macros", "io-std"] }

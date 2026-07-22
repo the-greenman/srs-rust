@@ -57,6 +57,18 @@ Standard agent roles for SRS Rust implementation work. Reference this file in pl
 
 ---
 
+## MCP Adapter Worker
+
+- **Owns:** The MCP server adapter in `srs-mcp` — protocol wiring, resource/tool handlers, URI scheme.
+- **Write scope:** `crates/srs-mcp/**`
+- **Constraints:**
+  - Every resource/tool handler is a thin wrapper: parse typed input → exactly one `srs-repository` service call → serialize the service's typed result. No business logic, no validation beyond input deserialization (ADR-010, ADR-037).
+  - `srs-mcp` is the sole crate depending on `rmcp`/`tokio`; the async runtime never leaks into library-crate signatures.
+  - No `json!({...})` result construction — serialize service structs directly.
+  - Tool handlers call the exact same service functions as the equivalent CLI handlers — divergence is a bug.
+
+---
+
 ## Verification Agent
 
 - **Owns:** Test runs, architecture audits, and duplication checks.
