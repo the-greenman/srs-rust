@@ -221,18 +221,18 @@ Steps 1–5 as Phase 1. Commit (`feat(srs-mcp): tools — repo_validate, find, r
 
 #### Tasks
 
-- [ ] `crates/srs-cli/Cargo.toml`: add `srs-mcp = { path = "../srs-mcp" }` (and workspace dep entry).
-- [ ] `crates/srs-cli/src/commands/mcp.rs`: `McpCommands::Serve` — handler resolves the repo root exactly as other commands (global `--repo`, cwd auto-detect via existing context), then makes **one** call: `srs_mcp::serve_stdio(repo_path)`. No envelope output (ADR-037 carve-out). ≤ 15 lines.
-- [ ] Register `Mcp` subcommand in `commands/mod.rs` clap tree with help text: "Serve this repository over the Model Context Protocol (stdio)".
-- [ ] Global flags: `--pretty` and `--container` (clap `global = true`) parse on `mcp serve` but are **accepted-and-ignored** in this cut (no envelope to prettify; container scoping of the served surface is a possible follow-up, not silently half-implemented). Recorded in ADR-037.
-- [ ] `crates/srs-mcp/README.md`: what the crate is, the URI scheme, tool list, one client-config example (Claude Code `.mcp.json` snippet using `srs mcp serve --repo <path>`).
+- [x] `crates/srs-cli/Cargo.toml`: add `srs-mcp = { path = "../srs-mcp" }` (and workspace dep entry).
+- [x] `crates/srs-cli/src/commands/mcp.rs`: `McpCommands::Serve` — handler resolves the repo root exactly as other commands (global `--repo`, cwd auto-detect via existing context), then makes **one** call: `srs_mcp::serve_stdio(repo_path)`. No envelope output (ADR-037 carve-out). ≤ 15 lines.
+- [x] Register `Mcp` subcommand in `commands/mod.rs` clap tree with help text: "Serve this repository over the Model Context Protocol (stdio)".
+- [x] Global flags: `--pretty` and `--container` (clap `global = true`) parse on `mcp serve` but are **accepted-and-ignored** in this cut (no envelope to prettify; container scoping of the served surface is a possible follow-up, not silently half-implemented). Recorded in ADR-037.
+- [x] `crates/srs-mcp/README.md`: what the crate is, the URI scheme, tool list, one client-config example (Claude Code `.mcp.json` snippet using `srs mcp serve --repo <path>`).
 
 #### Acceptance Criteria
 
-- [ ] `srs mcp serve --repo <fixture>` starts, answers an `initialize` handshake on stdio, and exits cleanly on stdin close (verified by integration test driving the real binary).
-- [ ] `srs mcp serve` with no repo in cwd and no `--repo` exits non-zero with a clear error on stderr (stdout stays protocol-clean).
-- [ ] `cargo test --test payload_contracts` passes with zero schema changes (no envelope, no payload struct).
-- [ ] Handler is a single delegation call — no logic.
+- [x] `srs mcp serve --repo <fixture>` starts, answers an `initialize` handshake on stdio, and exits cleanly on stdin close (verified by integration test driving the real binary).
+- [x] `srs mcp serve` with no repo in cwd and no `--repo` exits non-zero with a clear error on stderr (stdout stays protocol-clean).
+- [x] `cargo test --test payload_contracts` passes with zero schema changes (no envelope, no payload struct).
+- [x] Handler is a single delegation call — no logic.
 
 #### Testing
 
