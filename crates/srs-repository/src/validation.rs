@@ -17,7 +17,7 @@ use srs_core::validation::record::validate_record;
 use srs_core::validation::record_type::validate_cross_field_rules;
 use srs_core::validation::relation::{validate_relation, RelationValidationContext};
 use srs_schema::{SchemaRegistry, NOTE_SCHEMA_ID, RECORD_SCHEMA_ID};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -268,7 +268,8 @@ pub fn validate_repository(
                 // RFC-013 I-80/R2: membership = memberInstanceIds ∪ rootInstanceIds.
                 if let Some(ref ci) = manifest.container_index {
                     if !ci.is_empty() {
-                        let union_members: HashSet<&str> = full_container
+                        // BTreeSet for deterministic iteration order (ADR-017).
+                        let union_members: BTreeSet<&str> = full_container
                             .member_instance_ids
                             .as_deref()
                             .unwrap_or(&[])
@@ -4400,6 +4401,75 @@ mod tests {
             i82_for_section.len(),
             1,
             "expected exactly one I-82 for section_id (not two), got: {:?}",
+            i82_for_section
+        );
+    }
+
+    #[test]
+    fn i82_no_warning_for_root_instance_ids_member_that_roots_a_section_container() {
+        // Happy-path: a member declared via rootInstanceIds only that IS the root of a section
+        // container in containerIndex must NOT trigger I-82.  This guards against a regression
+        // where union_members grows to cover rootInstanceIds but section_container_roots is still
+        // only populated from memberInstanceIds.
+        let root_id = "00000000-0000-4000-8000-000000000c00";
+        let identity_id = "00000000-0000-4000-8000-000000000c01";
+        let section_id = "00000000-0000-4000-8000-000000000c02";
+        let section_container_id = "00000000-0000-4000-8000-000000000c03";
+
+        // section_id is declared via rootInstanceIds only (not memberInstanceIds).
+        let root_container = srs_core::types::container::Container {
+            container_id: root_id.to_string(),
+            title: "Root".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            identity_instance_id: Some(identity_id.to_string()),
+            member_instance_ids: Some(vec![identity_id.to_string()]),
+            root_instance_ids: Some(vec![section_id.to_string()]),
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: std::collections::HashMap::new(),
+        };
+        // Section container that roots section_id.
+        let section_container = rfc013_container(section_container_id, &[section_id], &[section_id]);
+
+        let manifest_val = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+            "srsVersion": "2.0",
+            "repositoryId": root_id,
+            "title": "I-82 happy-path test",
+            "container": {"containerId": root_id, "title": "Root", "identityInstanceId": identity_id},
+            "containerIndex": [
+                {"containerId": section_container_id, "title": "Section"}
+            ],
+            "instanceIndex": [
+                rfc013_instance_entry(identity_id),
+                rfc013_instance_entry(section_id),
+            ],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        let store = manifest_store(manifest_val)
+            .with_data(
+                &format!("containers/{root_id}.json"),
+                serde_json::to_value(root_container).unwrap(),
+            )
+            .with_data(
+                &format!("containers/{section_container_id}.json"),
+                serde_json::to_value(section_container).unwrap(),
+            );
+
+        let report = validate_repository(&store).unwrap();
+        let i82_for_section: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("I-82") && d.message.contains(section_id))
+            .collect();
+        assert!(
+            i82_for_section.is_empty(),
+            "expected no I-82 for section_id that roots a section container, got: {:?}",
             i82_for_section
         );
     }
