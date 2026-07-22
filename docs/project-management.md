@@ -387,6 +387,29 @@ check the model — e.g. "everything is P0" usually means every story is set **M
   absent headless).
 - **`gh-project` is the only writer of Projects v2 fields** (Status/Priority/Iteration/MoSCoW).
 
+## Weekly story-planning audit
+
+Stories that are *just stories* — no implementation sub-issues — produce no work items, so they sit
+outside the delivery feed until someone breaks them down. The **SRS Story Planning Auditor** cloud
+routine (Mondays 08:00 UTC) keeps them visible and easy to plan:
+
+- **Tags** every open `user-story` with zero sub-issues as **`story:unplanned`** in muDemocracy.org,
+  and clears the tag once the story gains children. The routine is the label's **only writer** —
+  it is *not* part of the gh-project mirror set and gh-project neither reads nor writes it.
+- **Suggests** an implementation approach as an issue comment where intent is derivable from
+  context (story body, epic, planned sibling stories, repo docs). When an epic has **≥2 unplanned
+  stories, they are planned together**: one joint comment on the epic (shared components, repo
+  split per capability-layering, build order, rough sizes) so the breakdown is coherent, with
+  pointer comments on the covered stories. Comments carry the marker
+  `<!-- srs-story-planning-audit -->` and are updated in place, never duplicated.
+- **Reports** into the "Story planning radar" issue in muDemocracy.org (labeled `plan`, which
+  keeps it out of the delivery feed): unplanned stories grouped by epic, plus a "needs owner
+  input" list for stories whose intent can't be derived — those need a body, not a guess.
+
+The suggestions are **proposals** — a human (or `/stories` / `/triage`) ratifies them by filing
+and linking the implementation issues. The routine never files or links issues and never touches
+priority/status/promotion labels or the board.
+
 ## Skills
 
 - `/triage <scope>` — sync stories, `rollup --fix`, set readiness + iteration, reconcile, report.
