@@ -15,9 +15,11 @@ use srs_repository::analysis::build_repo_map;
 use srs_repository::container_service::{list_containers, ContainerListFilter};
 use srs_repository::container_view_service::{resolve_container_view, ResolveContainerViewInput};
 use srs_repository::error::RepositoryError;
+use srs_repository::package_service::{list_types_filtered, TypeListFilter};
 use srs_repository::record_store::get_record_by_id;
 use srs_repository::render_service::{render_document_view, RenderDocumentViewOptions};
 use srs_repository::repository_navigation_service::repository_navigation;
+use srs_repository::type_schema_service::{type_schema, TypeSchemaInput};
 use srs_repository::view_service::{list_document_views_summary, DocumentViewListFilter};
 
 use crate::server::SrsMcpServer;
@@ -84,6 +86,19 @@ pub(crate) fn list_resources(server: &SrsMcpServer) -> Result<ListResourcesResul
         );
     }
 
+    for t in list_types_filtered(&store, TypeListFilter::default()).map_err(service_err)? {
+        resources.push(
+            Resource::new(
+                uri::format(&SrsUri::Type(t.id.clone()), repo_id),
+                format!("{}/{}", t.namespace, t.name),
+            )
+            .with_description(t.description.unwrap_or_else(|| {
+                "Type schema: fieldAssignments + aiGuidance for authoring".to_string()
+            }))
+            .with_mime_type(MIME_JSON),
+        );
+    }
+
     Ok(ListResourcesResult::with_all_items(resources))
 }
 
@@ -95,7 +110,14 @@ pub(crate) fn list_resource_templates(server: &SrsMcpServer) -> ListResourceTemp
              Discover instanceIds via the find tool or container resources.",
         )
         .with_mime_type(MIME_JSON);
-    ListResourceTemplatesResult::with_all_items(vec![template])
+    let type_tmpl = ResourceTemplate::new(uri::type_template(server.repository_id()), "type")
+        .with_title("Type authoring schema by type id")
+        .with_description(
+            "Authoring schema for a type: fieldIds, required flags, and aiGuidance \
+             — read before record_create on an unfamiliar type.",
+        )
+        .with_mime_type(MIME_JSON);
+    ListResourceTemplatesResult::with_all_items(vec![template, type_tmpl])
 }
 
 pub(crate) fn read_resource(
@@ -148,6 +170,19 @@ pub(crate) fn read_resource(
             })
             .map_err(service_err)?;
             ResourceContents::text(result.rendered, raw_uri).with_mime_type(MIME_MARKDOWN)
+        }
+        // Same pattern as the Container/View arms: `type_schema` returns
+        // Err(RepositoryError::TypeNotFound) for unknown ids — no Ok(None) branch.
+        SrsUri::Type(id) => {
+            let result = type_schema(
+                &store,
+                TypeSchemaInput {
+                    type_id: id,
+                    type_version: None,
+                },
+            )
+            .map_err(service_err)?;
+            json_text(&result, raw_uri)?
         }
     };
 

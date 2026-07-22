@@ -87,14 +87,45 @@ async fn e2e_full_session_read_write_validate() {
         .unwrap();
     assert_eq!(map.contents.len(), 1);
 
-    // ── Write: record_create through the validated contract ──────────────────
+    // ── Discover: type_schema teaches the authoring contract ─────────────────
+    // The session finds the type in resources/list, reads its schema, and
+    // extracts the fieldId from x-srs-field-id — the full teaching loop; the
+    // fixture's own variables are deliberately NOT used for the write below.
+    let type_res = resources
+        .iter()
+        .find(|r| r.name == format!("{NS}/decision"))
+        .expect("type enumerated in resources/list");
+    let type_id_discovered = type_res.uri.rsplit('/').next().unwrap().to_string();
+    let schema_result = client
+        .call_tool(
+            CallToolRequestParams::new("type_schema").with_arguments(
+                serde_json::json!({ "typeId": type_id_discovered })
+                    .as_object()
+                    .cloned()
+                    .unwrap(),
+            ),
+        )
+        .await
+        .unwrap();
+    assert_eq!(schema_result.is_error, Some(false));
+    let schema = &schema_result.structured_content.as_ref().unwrap()["schema"];
+    let discovered_field_id = schema["properties"]["title"]["x-srs-field-id"]
+        .as_str()
+        .expect("title property carries x-srs-field-id")
+        .to_string();
+    assert_eq!(
+        discovered_field_id, title_field_id,
+        "discovery matches ground truth"
+    );
+
+    // ── Write: record_create using the DISCOVERED fieldId ────────────────────
     let created = client
         .call_tool(
             CallToolRequestParams::new("record_create").with_arguments(
                 serde_json::json!({
                     "type": format!("{NS}/decision"),
                     "fieldValues": [
-                        { "fieldId": title_field_id, "value": "Adopt MCP" }
+                        { "fieldId": discovered_field_id, "value": "Adopt MCP" }
                     ]
                 })
                 .as_object()

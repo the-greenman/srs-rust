@@ -23,6 +23,7 @@ use srs_repository::discovery_service::{self, DiscoveryQuery};
 use srs_repository::record_store::{self, CreateRecordInput};
 use srs_repository::relation_service;
 use srs_repository::services::{self, CreateNoteInput};
+use srs_repository::type_schema_service::{self, TypeSchemaInput};
 use srs_repository::validation::validate_repository;
 
 use crate::server::SrsMcpServer;
@@ -34,6 +35,7 @@ pub const TOOL_FIND: &str = "find";
 pub const TOOL_RECORD_CREATE: &str = "record_create";
 pub const TOOL_RELATION_CREATE: &str = "relation_create";
 pub const TOOL_NOTE_CREATE: &str = "note_create";
+pub const TOOL_TYPE_SCHEMA: &str = "type_schema";
 
 // ── Tool descriptions — single source (srs-usage.md MCP section mirrors these) ─
 
@@ -50,9 +52,9 @@ with instanceId, label, type, lifecycleState, snippet, and matchedFields. This b
 Tier 2 (typed Records); other tier values return zero hits with a diagnostic.";
 
 pub const DESC_RECORD_CREATE: &str = "Create a typed Tier-2 Record. 'type' is \
-'namespace/name'; resolve the type's fieldAssignments first (read the container or map \
-resources, or find existing records of the type) — fieldValues entries are keyed by fieldId \
-UUID, never by field name. Validation is enforced: missing required fields or unknown fields \
+'namespace/name'; resolve the type's fieldAssignments first via the type_schema tool or the \
+srs://<repositoryId>/type/{typeId} resource (each property's x-srs-field-id is the UUID to \
+use here) — fieldValues entries are keyed by fieldId UUID, never by field name. Validation is enforced: missing required fields or unknown fields \
 are rejected with diagnostics and nothing is written. Optional containerId adds the record to \
 a container atomically.";
 
@@ -67,6 +69,13 @@ pub const DESC_NOTE_CREATE: &str = "Create a Tier-0 Note (free-text sections, no
 binding). Each section has a name, content, and optional label. Optional containerId adds the \
 note to a container atomically. Notes are the capture tier — graduate one to a typed Record \
 later when its structure stabilises.";
+
+pub const DESC_TYPE_SCHEMA: &str = "Get the authoring schema for a type by its UUID \
+(typeVersion optional; latest when omitted). The result is a JSON Schema whose properties \
+carry x-srs-field-id (the UUID to use in record_create fieldValues), x-srs-ai-guidance, \
+x-srs-description, and x-srs-instructions; required fields are listed in 'required'. Read \
+this before creating records of an unfamiliar type — discover typeIds from the type \
+resources in resources/list.";
 
 // ── Shadow input structs (see module docs) ────────────────────────────────────
 
@@ -363,6 +372,25 @@ impl From<NoteCreateToolInput> for CreateNoteInput {
     }
 }
 
+/// Mirrors `type_schema_service::TypeSchemaInput` field-for-field.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TypeSchemaToolInput {
+    /// The type's UUID (discover via the type resources in resources/list).
+    pub type_id: String,
+    /// Pin a specific type version (default: latest).
+    pub type_version: Option<u32>,
+}
+
+impl From<TypeSchemaToolInput> for TypeSchemaInput {
+    fn from(input: TypeSchemaToolInput) -> Self {
+        TypeSchemaInput {
+            type_id: input.type_id,
+            type_version: input.type_version,
+        }
+    }
+}
+
 // ── Tool listing ──────────────────────────────────────────────────────────────
 
 fn input_schema<T: JsonSchema>() -> Arc<JsonObject> {
@@ -395,6 +423,11 @@ pub(crate) fn list_tools() -> ListToolsResult {
             TOOL_NOTE_CREATE,
             DESC_NOTE_CREATE,
             input_schema::<NoteCreateToolInput>(),
+        ),
+        Tool::new(
+            TOOL_TYPE_SCHEMA,
+            DESC_TYPE_SCHEMA,
+            input_schema::<TypeSchemaToolInput>(),
         ),
     ])
 }
@@ -471,6 +504,13 @@ pub(crate) fn call_tool(
             let input: NoteCreateToolInput = parse_args(arguments)?;
             match services::create_note_in_context(&store, input.into()) {
                 Ok(result) => tool_ok(&result.note),
+                Err(e) => Ok(tool_err(e.to_string())),
+            }
+        }
+        TOOL_TYPE_SCHEMA => {
+            let input: TypeSchemaToolInput = parse_args(arguments)?;
+            match type_schema_service::type_schema(&store, input.into()) {
+                Ok(result) => tool_ok(&result),
                 Err(e) => Ok(tool_err(e.to_string())),
             }
         }
@@ -618,10 +658,19 @@ mod tests {
         assert_eq!(ni.note.sections[0].tags, Some(vec!["s".to_string()]));
         assert_eq!(ni.note.created_at.as_deref(), Some("now"));
         assert_eq!(ni.container_id.as_deref(), Some("cid"));
+
+        // TypeSchema → TypeSchemaInput
+        let ts = TypeSchemaToolInput {
+            type_id: "tid".into(),
+            type_version: Some(4),
+        };
+        let tsi: TypeSchemaInput = ts.into();
+        assert_eq!(tsi.type_id, "tid");
+        assert_eq!(tsi.type_version, Some(4));
     }
 
     #[test]
-    fn list_tools_advertises_all_five_with_schemas() {
+    fn list_tools_advertises_all_six_with_schemas() {
         let tools = list_tools().tools;
         let names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
         assert_eq!(
@@ -631,7 +680,8 @@ mod tests {
                 TOOL_FIND,
                 TOOL_RECORD_CREATE,
                 TOOL_RELATION_CREATE,
-                TOOL_NOTE_CREATE
+                TOOL_NOTE_CREATE,
+                TOOL_TYPE_SCHEMA
             ]
         );
         for tool in &tools {
