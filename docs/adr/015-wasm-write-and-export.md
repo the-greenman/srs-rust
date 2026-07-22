@@ -3,7 +3,7 @@
 - **Status:** accepted
 - **Date:** 2026-06-07
 - **Supersedes:** —
-- **Amended by:** [ADR-037](037-vfs-tree-primary-model.md) — the WASM `SrsRepository` now wraps a MemVfs-backed `FileStore`; `JsonStore`/`to_srsj_string` remains the `.srsj` codec behind `export_srsj()`
+- **Amended by:** [ADR-038](038-vfs-tree-primary-model.md) — the WASM `SrsRepository` now wraps a MemVfs-backed `FileStore`; `JsonStore`/`to_srsj_string` remains the `.srsj` codec behind `export_srsj()`
 
 ## Context
 

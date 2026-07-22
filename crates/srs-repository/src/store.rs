@@ -376,14 +376,14 @@ pub trait RepositoryStore {
     fn save_binary_file(&self, relative_path: &str, content: &[u8]) -> Result<(), RepositoryError>;
 
     /// A verbatim snapshot of the store's file tree, when the backend is an
-    /// in-memory tree session (ADR-037/038). `None` for every other store.
+    /// in-memory tree session (ADR-038/038). `None` for every other store.
     fn as_tree_snapshot(&self) -> Option<std::collections::BTreeMap<String, Vec<u8>>> {
         None
     }
 
     /// True when the store persists files verbatim as a tree (`FileStore` over
     /// any Vfs backend). The native archive unpack writes raw files into such
-    /// stores without snapshot re-canonicalization (ADR-038).
+    /// stores without snapshot re-canonicalization (ADR-039).
     fn is_file_tree_store(&self) -> bool {
         false
     }
@@ -429,7 +429,7 @@ pub trait RepositoryStore {
 
 /// File-backed implementation of [`RepositoryStore`].
 ///
-/// All I/O is funnelled through the [`Vfs`] seam (ADR-037): `DiskVfs` for the
+/// All I/O is funnelled through the [`Vfs`] seam (ADR-038): `DiskVfs` for the
 /// CLI's on-disk repositories, `MemVfs` for in-memory tree sessions (WASM).
 /// Service functions must not import `std::fs` directly.
 #[derive(Debug, Clone)]

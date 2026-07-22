@@ -1,4 +1,4 @@
-//! Filesystem seam for [`crate::store::FileStore`] (ADR-037).
+//! Filesystem seam for [`crate::store::FileStore`] (ADR-038).
 //!
 //! A [`Vfs`] speaks **repo-relative, forward-slash** paths. `DiskVfs` resolves
 //! them against a root directory on the real filesystem (the CLI path);
@@ -67,7 +67,7 @@ pub trait Vfs: std::fmt::Debug {
     fn check_dir_within_root(&self, rel: &str) -> Result<DirCheck, RepositoryError>;
     /// `Some(map)` for memory-backed implementations: a snapshot of every file.
     /// The Mem/Disk discriminator used by `tree_session::export_tree` and the
-    /// archive pack branch (ADR-037/038) — no `Any` downcasting.
+    /// archive pack branch (ADR-038/038) — no `Any` downcasting.
     fn as_mem_snapshot(&self) -> Option<BTreeMap<String, Vec<u8>>>;
 }
 

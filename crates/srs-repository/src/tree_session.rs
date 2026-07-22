@@ -1,5 +1,5 @@
 //! Tree sessions — open, export, and materialize in-memory file trees
-//! (ADR-037).
+//! (ADR-038).
 //!
 //! A tree session is a [`FileStore`] over a [`MemVfs`]: the exact store the
 //! CLI runs on disk, serving an in-memory path→bytes map. Untouched entries

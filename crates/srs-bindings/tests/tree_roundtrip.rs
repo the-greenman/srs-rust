@@ -1,5 +1,5 @@
 //! Native coverage for the tree-session paths the WASM bindings expose
-//! (#684, ADR-037/038).
+//! (#684, ADR-038/038).
 //!
 //! `SrsRepository::{load_tree, export_tree, load, load_archive, export_srsj}`
 //! route through js-sys types that cannot be constructed natively (the wasm32
@@ -131,7 +131,7 @@ fn srsj_codec_flow_roundtrip_parity() {
 }
 
 /// The export_archive → load_archive binding flow preserves the tree
-/// byte-for-byte (new-format archives, ADR-038).
+/// byte-for-byte (new-format archives, ADR-039).
 #[test]
 fn archive_binding_flow_byte_faithful() {
     let base = fixture_map();

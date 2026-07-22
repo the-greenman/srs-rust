@@ -21,7 +21,7 @@ pub fn load_from_srsj(srsj_str: &str) -> Result<crate::JsonStore, RepositoryErro
     crate::JsonStore::from_srsj(&migrated)
 }
 
-/// Project any repository as a `.srsj` string (ADR-037: `.srsj` is a boundary
+/// Project any repository as a `.srsj` string (ADR-038: `.srsj` is a boundary
 /// codec, not session state).
 ///
 /// Snapshot export → in-memory `JsonStore` → `to_srsj_string`. The projection
