@@ -363,6 +363,58 @@ fn materialize_preserves_noncanonical_paths_and_keeps_repo_upgrade_detectable() 
 }
 
 #[test]
+fn materialize_loads_id8_colliding_records() {
+    // Regression 1, the browser-load symptom (srs-rust#696): a `.srsj` whose two records share
+    // their first 8 hex chars — like gallery.srsj's `…5801`/`…5802` decisions — at unique
+    // full-UUID paths must load. The old materialize_tree re-canonicalized both onto one
+    // slug-id8 path (`decision-0ce8cbdd.json`) and failed with "canonical path collision".
+    let base = fixture_map();
+    let mut manifest: serde_json::Value = serde_json::from_slice(&base["manifest.json"]).unwrap();
+    let mut data = serde_json::Map::new();
+    for (path, bytes) in &base {
+        if path == "manifest.json" || !path.ends_with(".json") || path.starts_with(".github/") {
+            continue;
+        }
+        data.insert(
+            path.clone(),
+            serde_json::from_slice::<serde_json::Value>(bytes).unwrap(),
+        );
+    }
+
+    // Clone the fixture's decision (id 0ce8cbdd-…) into an id8-colliding sibling stored at a
+    // unique full-UUID path — exactly the shape that crashed on gallery.srsj.
+    let colliding_id = "0ce8cbdd-ffff-4fff-bfff-ffffffffffff"; // same id8 "0ce8cbdd"
+    let mut clone = data["records/tier-2/decision-0ce8cbdd.json"].clone();
+    clone["instanceId"] = serde_json::json!(colliding_id);
+    let clone_path = format!("records/tier-2/{colliding_id}.json");
+    data.insert(clone_path.clone(), clone);
+    manifest["instanceIndex"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({ "instanceId": colliding_id, "tier": 2, "path": clone_path }));
+
+    let envelope = serde_json::json!({ "srsj": "1", "manifest": manifest, "data": data });
+    let json_store = JsonStore::from_srsj(&envelope.to_string()).unwrap();
+
+    let tree = materialize_tree(&json_store)
+        .expect("id8-colliding records must materialize, not collide (srs-rust#696)");
+
+    let ids: Vec<String> = list_record_summaries(&tree, RecordListFilter::default())
+        .unwrap()
+        .into_iter()
+        .map(|r| r.instance_id)
+        .collect();
+    assert!(
+        ids.contains(&RECORD_1.to_string()),
+        "original decision present: {ids:?}"
+    );
+    assert!(
+        ids.contains(&colliding_id.to_string()),
+        "id8-colliding sibling present: {ids:?}"
+    );
+}
+
+#[test]
 fn materialize_preserves_definition_extras() {
     // Review should-fix (srs-rust#696): materialize_tree is now the mainstream `.srsj` browser
     // load path, running through the faithful `tree_entries` enumeration — package definition

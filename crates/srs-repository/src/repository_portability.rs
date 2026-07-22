@@ -439,14 +439,15 @@ fn do_import(
     // Widen id8 → full id for any instances that share a short canonical path (srs-rust#696),
     // so a valid repository with prefix-colliding UUIDs still materializes to distinct files.
     let instance_paths = collision_safe_instance_paths(&snapshot.instances, target)?;
-    let mut used_paths: HashSet<&str> = HashSet::with_capacity(snapshot.instances.len());
+    let mut used_paths: HashMap<&str, &str> = HashMap::with_capacity(snapshot.instances.len());
     manifest.instance_index = Vec::new();
     for (instance, rel_path) in snapshot.instances.iter().zip(&instance_paths) {
         // After widening, an identical path can only mean a genuine duplicate instance id.
-        if !used_paths.insert(rel_path.as_str()) {
+        if let Some(first_id) = used_paths.insert(rel_path.as_str(), instance.instance_id.as_str())
+        {
             return Err(RepositoryError::InvalidSnapshotData {
                 message: format!(
-                    "duplicate instance id '{}' — two instances map to the same path '{rel_path}'",
+                    "duplicate instance id — '{first_id}' and '{}' both map to the same path '{rel_path}'",
                     instance.instance_id
                 ),
             });
@@ -912,6 +913,21 @@ fn collect_planned_renames(
         })
         .collect::<Result<_, RepositoryError>>()?;
     let canonical_paths = collision_safe_instance_paths(&instances, store)?;
+
+    // After widening, two identical canonical paths can only mean a genuine duplicate instance
+    // id in the index (ADR-040) — a corrupt manifest. Reject it rather than silently planning a
+    // rename that would clobber one file with another in `upgrade_repository_paths`.
+    let mut seen: HashSet<&str> = HashSet::with_capacity(canonical_paths.len());
+    for (entry, canonical) in manifest.instance_index.iter().zip(&canonical_paths) {
+        if !seen.insert(canonical.as_str()) {
+            return Err(RepositoryError::InvalidSnapshotData {
+                message: format!(
+                    "duplicate instance id '{}' — two index entries normalise to the same path '{canonical}'",
+                    entry.instance_id
+                ),
+            });
+        }
+    }
 
     let mut planned: Vec<PlannedRename> = Vec::new();
     for ((idx, entry), (instance, canonical)) in manifest
@@ -2130,6 +2146,84 @@ mod tests {
         let second = upgrade_repository_paths(&store).unwrap();
         assert_eq!(second.renames.len(), 0, "second run should be a no-op");
         assert_eq!(second.total_instances, 1);
+    }
+
+    #[test]
+    fn upgrade_widens_id8_colliding_instances() {
+        // srs-rust#696: repo-upgrade must normalise a repository whose deterministic UUIDs collide
+        // in their first 8 hex chars WITHOUT erroring — both siblings widen to their full-id form,
+        // land on distinct canonical files, and a second pass is a no-op (order-independent,
+        // ADR-040). Exercises `collect_planned_renames`/`upgrade_repository_paths` directly, the
+        // path the `repo-upgrade` migration and `srs repo upgrade` run.
+        let store = MemoryStore::uninitialized();
+        store.initialize_repository(&make_upgrade_input()).unwrap();
+
+        let id1 = "00000000-0000-4000-8000-000000005801";
+        let id2 = "00000000-0000-4000-8000-000000005802";
+        inject_non_canonical_instance(
+            &store,
+            id1,
+            2,
+            &format!("records/tier-2/{id1}.json"),
+            serde_json::json!({"typeName": "com.example/decision", "id": id1}),
+        );
+        inject_non_canonical_instance(
+            &store,
+            id2,
+            2,
+            &format!("records/tier-2/{id2}.json"),
+            serde_json::json!({"typeName": "com.example/decision", "id": id2}),
+        );
+
+        let result =
+            upgrade_repository_paths(&store).expect("upgrade must not fail on an id8 collision");
+        assert_eq!(result.renames.len(), 2, "both colliding instances renamed");
+
+        let manifest = store.load_manifest().unwrap();
+        let path_of = |id: &str| -> String {
+            manifest
+                .instance_index
+                .iter()
+                .find(|e| e.instance_id == id)
+                .unwrap()
+                .path()
+                .to_string()
+        };
+        let p1 = path_of(id1);
+        let p2 = path_of(id2);
+        // Both widened to their full id (order-independent), on distinct files that exist.
+        assert!(p1.ends_with(&format!("-{id1}.json")), "id1 widened: {p1}");
+        assert!(p2.ends_with(&format!("-{id2}.json")), "id2 widened: {p2}");
+        assert_ne!(p1, p2);
+        assert!(store.load_instance_json(&p1).is_ok());
+        assert!(store.load_instance_json(&p2).is_ok());
+
+        let second = upgrade_repository_paths(&store).unwrap();
+        assert_eq!(
+            second.renames.len(),
+            0,
+            "second upgrade pass must be a no-op (idempotent, clobber-free)"
+        );
+    }
+
+    #[test]
+    fn upgrade_rejects_duplicate_instance_id() {
+        // A corrupt manifest with two index entries sharing an instance id must be rejected by the
+        // rename planner (ADR-040) rather than silently clobbering one file with the other during
+        // `upgrade_repository_paths`.
+        let store = MemoryStore::uninitialized();
+        store.initialize_repository(&make_upgrade_input()).unwrap();
+
+        let id = "dddddddd-0000-4000-8000-000000000009";
+        let value = serde_json::json!({"typeName": "com.example/decision", "id": id});
+        inject_non_canonical_instance(&store, id, 2, "records/tier-2/a.json", value.clone());
+        inject_non_canonical_instance(&store, id, 2, "records/tier-2/b.json", value);
+
+        let err = upgrade_repository_paths(&store).unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::InvalidSnapshotData { .. }),
+            "duplicate instance id must be rejected, got: {err:?}"
+        );
     }
 
     #[test]
