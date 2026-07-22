@@ -12,7 +12,7 @@ use crate::relation_service;
 use crate::store::RepositoryStore;
 use serde::{Deserialize, Serialize};
 use srs_core::types::record::Record;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -108,7 +108,16 @@ pub fn repository_navigation(
             }
         };
 
-    let member_ids = root_container.member_instance_ids.unwrap_or_default();
+    // RFC-013 I-80/R2: root-container membership = memberInstanceIds ∪ rootInstanceIds.
+    let member_ids: Vec<String> = {
+        let mut ids: HashSet<String> = root_container
+            .member_instance_ids
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+        ids.extend(root_container.root_instance_ids.unwrap_or_default());
+        ids.into_iter().collect()
+    };
     let mut section_records = Vec::new();
     for id in &member_ids {
         if id == &identity_id {
@@ -776,6 +785,201 @@ mod tests {
         assert_eq!(
             nav.sections[1].section_container_id.as_deref(),
             Some("00000000-0000-4000-8000-00000000c000")
+        );
+        assert!(nav.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn repository_navigation_root_instance_ids_only_yields_same_sections() {
+        // Regression for: rootInstanceIds was effectively dead for the root container.
+        // RFC-013 I-80/R2: membership = memberInstanceIds ∪ rootInstanceIds.
+        // This test constructs a root container where all section IDs are in
+        // rootInstanceIds only (memberInstanceIds contains only the identity), and
+        // asserts that navigation returns the same sections as if they were in memberInstanceIds.
+        let manifest = Manifest {
+            instance_index: vec![],
+            container: Some(Container {
+                container_id: "00000000-0000-4000-8000-00000000e000".to_string(),
+                title: "Root IDs Only".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: Some("00000000-0000-4000-8000-00000000e100".to_string()),
+                root_instance_ids: None,
+                member_instance_ids: None,
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: HashMap::new(),
+            }),
+            container_index: None,
+            federation_path: None,
+            upstream_package: None,
+            federation_events_path: None,
+            extra: HashMap::new(),
+            source_documents_path: None,
+            source_document_index: None,
+            root: PathBuf::from("/memory"),
+        };
+        let store = MemoryStore::new(manifest, empty_package());
+        let store = add_record(
+            store,
+            record(
+                "00000000-0000-4000-8000-00000000e100",
+                "Root IDs Governance",
+                "2026-01-01T00:00:00Z",
+            ),
+            "records/identity.json",
+        );
+        let store = add_record(
+            store,
+            record(
+                "00000000-0000-4000-8000-00000000e200",
+                "Section Alpha",
+                "2026-01-02T00:00:00Z",
+            ),
+            "records/section-alpha.json",
+        );
+        let store = add_record(
+            store,
+            record(
+                "00000000-0000-4000-8000-00000000e300",
+                "Section Beta",
+                "2026-01-03T00:00:00Z",
+            ),
+            "records/section-beta.json",
+        );
+
+        // Sections declared via rootInstanceIds only; memberInstanceIds has only the identity.
+        container_service::create_container(
+            &store,
+            Container {
+                container_id: "00000000-0000-4000-8000-00000000e000".to_string(),
+                title: "Root IDs Only".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: None,
+                member_instance_ids: Some(vec![
+                    "00000000-0000-4000-8000-00000000e100".to_string(),
+                ]),
+                root_instance_ids: Some(vec![
+                    "00000000-0000-4000-8000-00000000e200".to_string(),
+                    "00000000-0000-4000-8000-00000000e300".to_string(),
+                ]),
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: HashMap::new(),
+            },
+        )
+        .unwrap();
+
+        let nav = super::repository_navigation(&store).unwrap();
+
+        assert_eq!(
+            nav.identity.instance_id,
+            "00000000-0000-4000-8000-00000000e100"
+        );
+        assert_eq!(nav.sections.len(), 2, "both rootInstanceIds sections must appear");
+        let section_ids: std::collections::HashSet<&str> = nav
+            .sections
+            .iter()
+            .map(|s| s.instance_id.as_str())
+            .collect();
+        assert!(section_ids.contains("00000000-0000-4000-8000-00000000e200"));
+        assert!(section_ids.contains("00000000-0000-4000-8000-00000000e300"));
+        assert!(nav.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn repository_navigation_union_deduplicates_ids_in_both_arrays() {
+        // When an ID appears in both rootInstanceIds and memberInstanceIds, it must appear
+        // as a section exactly once (no duplicate NavigationNode).
+        let manifest = Manifest {
+            instance_index: vec![],
+            container: Some(Container {
+                container_id: "00000000-0000-4000-8000-00000000f000".to_string(),
+                title: "Dedup Test".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: Some("00000000-0000-4000-8000-00000000f100".to_string()),
+                root_instance_ids: None,
+                member_instance_ids: None,
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: HashMap::new(),
+            }),
+            container_index: None,
+            federation_path: None,
+            upstream_package: None,
+            federation_events_path: None,
+            extra: HashMap::new(),
+            source_documents_path: None,
+            source_document_index: None,
+            root: PathBuf::from("/memory"),
+        };
+        let store = MemoryStore::new(manifest, empty_package());
+        let store = add_record(
+            store,
+            record(
+                "00000000-0000-4000-8000-00000000f100",
+                "Dedup Governance",
+                "2026-01-01T00:00:00Z",
+            ),
+            "records/identity.json",
+        );
+        let store = add_record(
+            store,
+            record(
+                "00000000-0000-4000-8000-00000000f200",
+                "Section Gamma",
+                "2026-01-02T00:00:00Z",
+            ),
+            "records/section-gamma.json",
+        );
+
+        // Section ID appears in BOTH arrays.
+        container_service::create_container(
+            &store,
+            Container {
+                container_id: "00000000-0000-4000-8000-00000000f000".to_string(),
+                title: "Dedup Test".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: None,
+                member_instance_ids: Some(vec![
+                    "00000000-0000-4000-8000-00000000f100".to_string(),
+                    "00000000-0000-4000-8000-00000000f200".to_string(),
+                ]),
+                root_instance_ids: Some(vec![
+                    "00000000-0000-4000-8000-00000000f200".to_string(),
+                ]),
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: HashMap::new(),
+            },
+        )
+        .unwrap();
+
+        let nav = super::repository_navigation(&store).unwrap();
+
+        assert_eq!(nav.sections.len(), 1, "duplicate ID must appear only once");
+        assert_eq!(
+            nav.sections[0].instance_id,
+            "00000000-0000-4000-8000-00000000f200"
         );
         assert!(nav.diagnostics.is_empty());
     }

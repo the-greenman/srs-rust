@@ -264,10 +264,26 @@ pub fn validate_repository(
                 }
 
                 // I-82: every non-identity member should root a container (warning; suppressed
-                // when containerIndex is absent or empty)
+                // when containerIndex is absent or empty).
+                // RFC-013 I-80/R2: membership = memberInstanceIds ∪ rootInstanceIds.
                 if let Some(ref ci) = manifest.container_index {
                     if !ci.is_empty() {
-                        if let Some(ref members) = full_container.member_instance_ids {
+                        let union_members: HashSet<&str> = full_container
+                            .member_instance_ids
+                            .as_deref()
+                            .unwrap_or(&[])
+                            .iter()
+                            .map(String::as_str)
+                            .chain(
+                                full_container
+                                    .root_instance_ids
+                                    .as_deref()
+                                    .unwrap_or(&[])
+                                    .iter()
+                                    .map(String::as_str),
+                            )
+                            .collect();
+                        if !union_members.is_empty() {
                             let mut section_container_roots: HashSet<String> = HashSet::new();
                             for entry in ci {
                                 if let Ok(c) = store.load_container(&entry.container_id) {
@@ -277,11 +293,11 @@ pub fn validate_repository(
                                 }
                             }
                             let identity_id = root.identity_instance_id.as_deref().unwrap_or("");
-                            for member_id in members {
-                                if member_id.as_str() == identity_id {
+                            for member_id in &union_members {
+                                if *member_id == identity_id {
                                     continue;
                                 }
-                                if !section_container_roots.contains(member_id.as_str()) {
+                                if !section_container_roots.contains(*member_id) {
                                     diagnostics.push(ValidationDiagnostic {
                                         severity: DiagnosticSeverity::Warning,
                                         relative_path: "manifest.json".to_string(),
@@ -4243,6 +4259,148 @@ mod tests {
             !i82_warnings.is_empty(),
             "expected I-82 warning when member doesn't root any section container, got: {:?}",
             report.diagnostics
+        );
+    }
+
+    #[test]
+    fn i82_fires_for_root_instance_ids_member() {
+        // RFC-013 I-80/R2: membership = memberInstanceIds ∪ rootInstanceIds.
+        // A section declared via rootInstanceIds only (not in memberInstanceIds) must also
+        // trigger I-82 when it does not root any section container.
+        let root_id = "00000000-0000-4000-8000-000000000a00";
+        let identity_id = "00000000-0000-4000-8000-000000000a01";
+        let section_id = "00000000-0000-4000-8000-000000000a02";
+        let section_container_id = "00000000-0000-4000-8000-000000000a03";
+        let other_id = "00000000-0000-4000-8000-000000000a04";
+
+        // Root container: section_id in rootInstanceIds only; memberInstanceIds has only identity.
+        let root_container = srs_core::types::container::Container {
+            container_id: root_id.to_string(),
+            title: "Root".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            identity_instance_id: Some(identity_id.to_string()),
+            member_instance_ids: Some(vec![identity_id.to_string()]),
+            root_instance_ids: Some(vec![section_id.to_string()]),
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: std::collections::HashMap::new(),
+        };
+        // Section container roots other_id, not section_id
+        let section_container = rfc013_container(section_container_id, &[other_id], &[other_id]);
+
+        let manifest_val = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+            "srsVersion": "2.0",
+            "repositoryId": root_id,
+            "title": "I-82 rootInstanceIds test",
+            "container": {"containerId": root_id, "title": "Root", "identityInstanceId": identity_id},
+            "containerIndex": [
+                {"containerId": section_container_id, "title": "Section"}
+            ],
+            "instanceIndex": [
+                rfc013_instance_entry(identity_id),
+                rfc013_instance_entry(section_id),
+            ],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        let store = manifest_store(manifest_val)
+            .with_data(
+                &format!("containers/{root_id}.json"),
+                serde_json::to_value(root_container).unwrap(),
+            )
+            .with_data(
+                &format!("containers/{section_container_id}.json"),
+                serde_json::to_value(section_container).unwrap(),
+            );
+
+        let report = validate_repository(&store).unwrap();
+        let i82_warnings: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("I-82"))
+            .collect();
+        assert!(
+            !i82_warnings.is_empty(),
+            "expected I-82 warning for section declared via rootInstanceIds only, got: {:?}",
+            report.diagnostics
+        );
+        assert!(
+            i82_warnings.iter().any(|d| d.message.contains(section_id)),
+            "I-82 warning must reference the section_id, got: {:?}",
+            i82_warnings
+        );
+    }
+
+    #[test]
+    fn i82_fires_for_both_arrays_no_duplicates() {
+        // When the same section ID appears in both rootInstanceIds and memberInstanceIds of the
+        // root container, exactly one I-82 warning must be emitted (not two).
+        let root_id = "00000000-0000-4000-8000-000000000b00";
+        let identity_id = "00000000-0000-4000-8000-000000000b01";
+        let section_id = "00000000-0000-4000-8000-000000000b02";
+        let section_container_id = "00000000-0000-4000-8000-000000000b03";
+        let other_id = "00000000-0000-4000-8000-000000000b04";
+
+        // section_id appears in BOTH memberInstanceIds and rootInstanceIds.
+        let root_container = srs_core::types::container::Container {
+            container_id: root_id.to_string(),
+            title: "Root".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            identity_instance_id: Some(identity_id.to_string()),
+            member_instance_ids: Some(vec![identity_id.to_string(), section_id.to_string()]),
+            root_instance_ids: Some(vec![section_id.to_string()]),
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: std::collections::HashMap::new(),
+        };
+        let section_container = rfc013_container(section_container_id, &[other_id], &[other_id]);
+
+        let manifest_val = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+            "srsVersion": "2.0",
+            "repositoryId": root_id,
+            "title": "I-82 dedup test",
+            "container": {"containerId": root_id, "title": "Root", "identityInstanceId": identity_id},
+            "containerIndex": [
+                {"containerId": section_container_id, "title": "Section"}
+            ],
+            "instanceIndex": [
+                rfc013_instance_entry(identity_id),
+                rfc013_instance_entry(section_id),
+            ],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        let store = manifest_store(manifest_val)
+            .with_data(
+                &format!("containers/{root_id}.json"),
+                serde_json::to_value(root_container).unwrap(),
+            )
+            .with_data(
+                &format!("containers/{section_container_id}.json"),
+                serde_json::to_value(section_container).unwrap(),
+            );
+
+        let report = validate_repository(&store).unwrap();
+        let i82_for_section: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("I-82") && d.message.contains(section_id))
+            .collect();
+        assert_eq!(
+            i82_for_section.len(),
+            1,
+            "expected exactly one I-82 for section_id (not two), got: {:?}",
+            i82_for_section
         );
     }
 
