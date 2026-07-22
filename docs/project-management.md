@@ -196,7 +196,7 @@ The canonical set:
 | `promote:ready` | promotion **intent** — judged unblocked, awaiting the privileged board write | the judge: progress-review routine / human / rule (REST) |
 | `priority: P0` / `P1` / `P2` | derived priority (§ the priority model) | `rollup --fix` |
 | `status: in progress` | claimed / in flight | "Do the SRS jobs" routine (reclaimed by `stale-claims --fix` if the claim goes stale — see below) |
-| `blocked` | Unmet prerequisites — auto-topup skips this issue; remove when resolved | judge / human |
+| `blocked` | not feedable — **derived** from native blocked-by dependencies when edges exist (auto-cleared when the last blocker closes); hand-set **only** for non-issue blocks | `reconcile --fix` (derived) / human (external blocks only) |
 
 `gh-project` is the single source of truth for this set (`MIRROR_LABELS` in the script) and creates
 any missing labels on demand — so it **can't drift**:
@@ -247,8 +247,9 @@ overridable via `--target N` or the `GHP_TOPUP_TARGET` environment variable). It
 - Counts `readyCount`: board issues that are OPEN and either Status=Ready or already carry
   `promote:ready`.
 - Builds candidates: OPEN work-items (not epic/plan/user-story) with Status=Backlog or no Status,
-  **excluding** issues carrying the `blocked` label, an existing `promote:ready` intent, or a
-  Won't-exclusion (every served story explicitly Won't).
+  **excluding** blocked issues (open blocked-by edges are checked directly, else the `blocked`
+  label — see "Dependencies" below), issues with an existing `promote:ready` intent, and
+  Won't-exclusions (every served story explicitly Won't).
 - Orders candidates in **implementation order** — epic-major: **epic Priority → started epics
   first within a tier → issue priority → sub-issue position**. This is the **epic-continuity
   rule**: once an epic has begun (any descendant claimed, in review, done, or closed), the feed
@@ -258,9 +259,37 @@ overridable via `--target N` or the `GHP_TOPUP_TARGET` environment variable). It
 - Nominates the top `deficit = max(0, target − readyCount)` candidates and writes `promote:ready`
   to each. If fewer candidates exist than the deficit, all are nominated — no error.
 
-The **`blocked` label** is the machine-readable "do not auto-promote" signal. A judge or human adds
-it to an issue whose prerequisites are unmet; removing it makes the issue eligible again on the next
-topup run. It is part of `MIRROR_LABELS` so `ensureLabels` creates it in all ecosystem repos.
+### Dependencies (blocked by)
+
+Blocking is recorded as **native GitHub issue dependencies** — the same class of structure as
+sub-issues, and like them writable over **plain REST**, so proxy-bound judge routines can create
+edges. Cross-repo within the owner works. Write them with the tool or raw REST:
+
+```bash
+gh-project dep add srs-web#116 srs-rust#330      # srs-web#116 is blocked by srs-rust#330
+gh-project dep rm  srs-web#116 srs-rust#330      # remove the edge
+
+# raw REST equivalent (works in proxy-bound routines):
+BLOCKER_ID=$(gh api repos/the-greenman/<blocker-repo>/issues/<blocker#> --jq .id)
+gh api -X POST repos/the-greenman/<blocked-repo>/issues/<blocked#>/dependencies/blocked_by -F issue_id=$BLOCKER_ID
+```
+
+**Ownership rule (one sentence):** if an issue has *any* blocked-by edges, the `blocked` label is
+**derived** — `reconcile` sets it while a blocker is open and auto-clears it when the last blocker
+closes; if it has *no* edges, the label is **human-owned** (external, non-issue blocks: a pending
+decision, a third-party dependency) and the tool never touches it.
+
+This is why an edge beats a bare label: **it unblocks itself.** `topup` checks edges directly, so
+a freshly-unblocked issue is feedable on the very next hourly run — no judge has to notice that a
+prerequisite closed. Judges should record an issue-blocker as an edge instead of hand-setting
+`blocked`, and reserve the bare label for blocks that aren't issues.
+
+Scope note: blocked-by is deliberately the **only** relation the tooling adopts. Intra-epic build
+order is owned by **sub-issue position** (one ordering primitive — no parallel `requires`/`precedes`
+graph), and relations without a pipeline consumer are not added.
+
+The `blocked` label remains part of `MIRROR_LABELS`, so `ensureLabels` creates it in all ecosystem
+repos.
 
 ```bash
 node /tmp/gh-project.mjs topup                  # dry-run: shows what would be nominated

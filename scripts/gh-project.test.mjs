@@ -11,7 +11,42 @@ import {
   planStaleClaims, STALE_CLAIM_HOURS_DEFAULT,
   planTopup, TOPUP_TARGET_DEFAULT,
   isWorkItem, isConsumableReady, countConsumableReady,
+  hasOpenBlockers, isBlocked, blockedLabelWant,
 } from "./gh-project.mjs";
+
+// Blocking via native blocked-by dependencies (#671). Ownership rule: edges present
+// ⇒ the `blocked` label is derived (tool-owned); no edges ⇒ human-owned, left alone.
+const brow = (o = {}) => ({ repo: "srs-rust", num: 1, key: "srs-rust#1", state: "OPEN", status: "Backlog", labels: [], blockedBy: [], ...o });
+
+test("isBlocked: an open blocker edge blocks, regardless of the label", () => {
+  assert.equal(isBlocked(brow({ blockedBy: [{ key: "srs#10", state: "OPEN" }] })), true);
+  assert.equal(isBlocked(brow({ blockedBy: [{ key: "srs#10", state: "OPEN" }], labels: [] })), true);
+});
+
+test("isBlocked: edges are authoritative — all blockers closed unblocks even with a stale label", () => {
+  // Auto-unblock: the feed must not wait for the label mirror to catch up.
+  assert.equal(isBlocked(brow({ blockedBy: [{ key: "srs#10", state: "CLOSED" }], labels: ["blocked"] })), false);
+});
+
+test("isBlocked: no edges — the hand-set label governs (external, non-issue blocks)", () => {
+  assert.equal(isBlocked(brow({ labels: ["blocked"] })), true);
+  assert.equal(isBlocked(brow({ labels: [] })), false);
+  assert.equal(isBlocked(brow({ blockedBy: undefined, labels: ["blocked"] })), true); // rows without the field (tests/fixtures)
+});
+
+test("isBlocked: mixed blockers — one still-open blocker keeps it blocked", () => {
+  assert.equal(isBlocked(brow({ blockedBy: [{ key: "srs#10", state: "CLOSED" }, { key: "srs-web#5", state: "OPEN" }] })), true);
+});
+
+test("blockedLabelWant: derives only when edges exist; null means leave the label alone", () => {
+  assert.equal(blockedLabelWant(brow()), null);                                                    // no edges → human-owned
+  assert.equal(blockedLabelWant(brow({ blockedBy: [{ key: "srs#10", state: "OPEN" }] })), true);    // set it
+  assert.equal(blockedLabelWant(brow({ blockedBy: [{ key: "srs#10", state: "CLOSED" }] })), false); // clear it
+});
+
+test("hasOpenBlockers tolerates rows without the blockedBy field", () => {
+  assert.equal(hasOpenBlockers({ labels: [] }), false);
+});
 
 // The labels the scheduled cloud routines read/write. Missing any one hard-fails a
 // `gh issue edit --add-label` in a repo that lacks it — the whole point of #335.
