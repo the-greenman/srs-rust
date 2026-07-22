@@ -32,8 +32,10 @@
 // pipeline in ONE process on ONE board fetch:
 //   rollup --fix → release-sync → topup --fix → promote --fix → stale-claims --fix → reconcile --fix
 // topup nominates in IMPLEMENTATION ORDER — epic-major: epic Priority, STARTED epics
-// first within a tier, then issue priority, then sub-issue position — so a started
-// epic is drained to completion before the next one opens, never abandoned mid-flow.
+// first within a tier, then the roadmap prefix (the "NN" the owner maintains on
+// Release names / "Epic NN:" titles — #711), then issue priority, then sub-issue
+// position — so a started epic is drained before the next one opens, and epics open
+// in roadmap sequence, not filing chronology.
 // Blocking (native GitHub issue dependencies, #671): an issue with open blocked-by
 // edges never enters the feed. With edges the `blocked` label is DERIVED (reconcile
 // auto-clears it when the last blocker closes); with no edges it is human-owned
@@ -1051,19 +1053,33 @@ function applyPriority(entry, dryRun) {
 // ---------------------------------------------------------------------------
 const EPIC_LABEL = "epic";
 
-// Rank an epic for roadmap order and diamond tie-breaking: Priority first, then #.
+// Rank an epic for DIAMOND-CLAIMING only (a descendant reachable from two epics is
+// claimed by the lower epicRank): Priority first, then issue number. This must stay
+// STABLE — changing it silently re-parents shared descendants and rewrites their
+// derived Release — so it deliberately does NOT use the roadmap prefix or startedness.
+// Every user-visible ordering (feed, `epics`, `tree`) uses epicFeedRank instead.
 function epicRank(epic) {
   return pRank(epic.priority) * 1e6 + epic.num;
 }
 
-// Epic ordering for the WORK FEED (topup / bands): Priority tier first, then — the
-// epic-continuity rule (#664) — STARTED epics before untouched ones, then issue number.
-// Once an epic is begun, the feed drains it to completion before opening the next one
-// in the same tier, instead of abandoning it mid-flow whenever a sibling epic appears.
-// Roadmap DISPLAY (`epics`, `tree`) and diamond-claiming keep plain epicRank —
-// startedness is a feed concern, not part of an epic's identity.
+// Roadmap sequence (#711): the numeric prefix the owner already hand-maintains on the
+// Release name ("04 Generic Semantic Editor") or the epic title ("Epic 04: …").
+// Returns the number, or null when neither carries one. This IS the intended epic
+// order — issue numbers are filing chronology and get it wrong (real case: Epic 08 is
+// issue #60, Epic 07 is issue #94). Renumbering the roadmap = renaming a Release
+// option / retitling the epic; no new field, no new process.
+function epicRoadmapSeq(epic) {
+  const m = /^\s*(\d+)\b/.exec(epic.release ?? "") ?? /^epic\s+(\d+)\b/i.exec(epic.title ?? "");
+  return m ? parseInt(m[1], 10) : null;
+}
+
+// Epic ordering for the WORK FEED (topup / bands) and every display (`epics`, `tree`):
+//   Priority tier → STARTED epics first (the #664 epic-continuity rule: once begun,
+//   an epic is drained before the next one opens) → roadmap prefix (#711) → issue #.
+// Unnumbered epics sort after numbered ones within their tier+startedness group.
 function epicFeedRank(epic, started) {
-  return pRank(epic.priority) * 1e7 + (started.has(epic.num) ? 0 : 1e6) + epic.num;
+  const seq = epicRoadmapSeq(epic) ?? 999;
+  return pRank(epic.priority) * 1e10 + (started.has(epic.num) ? 0 : 1e9) + seq * 1e6 + epic.num;
 }
 
 // The set of epic numbers with ≥1 STARTED descendant: any descendant that has moved
@@ -1158,21 +1174,25 @@ function cmdReleaseSync(dryRun) {
   if (dryRun) console.log("(dry-run; run without --dry-run to write)");
 }
 
-// `epics` — roadmap read: epics ordered by Priority with release identity + coverage.
+// `epics` — roadmap read: epics in FEED order (Priority → started → roadmap prefix →
+// #), i.e. exactly the order topup/bands will consume them, with coverage + hygiene flags.
 function cmdEpics() {
   const { epics, desc, orphanStories } = computeReleaseRollup();
   const b = board();
+  const started = startedEpics(desc, b);
   const kidsByEpic = new Map(epics.map((e) => [e.num, []]));
   for (const [key, epicNum] of desc) kidsByEpic.get(epicNum)?.push(key);
-  const out = [...epics].sort((a, c) => epicRank(a) - epicRank(c)).map((e) => {
+  const out = [...epics].sort((a, c) => epicFeedRank(a, started) - epicFeedRank(c, started)).map((e) => {
     const kids = kidsByEpic.get(e.num) || [];
     const rows = kids.map((k) => b.get(k)).filter(Boolean);
     const done = rows.filter((r) => r.state === "CLOSED" || r.status === "Done").length;
+    const seq = epicRoadmapSeq(e);
     const flags = [];
     if (!e.release) flags.push("missing-release");
     if (!e.priority) flags.push("missing-priority");
     if (!kids.length) flags.push("no-descendants");
-    return { epic: e.key, title: e.title, release: e.release, priority: e.priority, descendants: kids.length, done, flags };
+    if (seq == null) flags.push("missing-roadmap-number");
+    return { epic: e.key, title: e.title, release: e.release, priority: e.priority, seq, started: started.has(e.num), descendants: kids.length, done, flags };
   });
   console.log(fmt({
     epics: out,
@@ -1252,7 +1272,7 @@ function cmdEpicAddStory(argv, dryRun) {
 
 // ---------------------------------------------------------------------------
 // Implementation order + effort bands
-// Order: epic Priority (`epicRank`) → issue MoSCoW-derived priority → sub-issue
+// Order: epic feed rank (`epicFeedRank`) → issue MoSCoW-derived priority → sub-issue
 // position. Weight: `size:` label (default medium). Sliced into N equal-effort bands.
 // ---------------------------------------------------------------------------
 
@@ -1265,7 +1285,7 @@ function computeImplementationOrder() {
   const pByKey = new Map();
   for (const e of [...roll.derived, ...roll.bugs, ...roll.unlinked]) pByKey.set(e.row.key, e.p ?? null);
 
-  // Feed order: epic Priority → started epics first within the tier → epic number.
+  // Feed order: epic Priority → started first → roadmap prefix → epic number (#711).
   const started = startedEpics(desc, b);
   const sortedEpics = [...epics].sort((a, c) => epicFeedRank(a, started) - epicFeedRank(c, started));
   const seen = new Set();
@@ -1363,7 +1383,7 @@ function cmdBands(argv) {
   const L = [];
   if (showTree) { cmdTree(); L.push(""); }
   L.push(`IMPLEMENTATION BANDS — ${ordered.length} leaf issues · total effort ${total} · ~${target.toFixed(1)}/band · ${n} bands`);
-  L.push("order: epic Priority → MoSCoW-derived priority → sub-issue position · weight: size label (default medium)");
+  L.push("order: epic (Priority → started → roadmap prefix) → MoSCoW-derived priority → sub-issue position · weight: size label (default medium)");
   bands.forEach((band, i) => {
     L.push("");
     L.push(`Band ${i + 1}  (effort ~${band.effort} · ${band.items.length} issues)`);
@@ -1484,7 +1504,7 @@ function cmdBoard(argv) {
 }
 
 // `tree [<story#>]` — one story's sub-issue tree, or (no arg) the whole board:
-// every epic in roadmap (epicRank) order with its subtree.
+// every epic in FEED order (epicFeedRank) with its subtree.
 function cmdTree(storyNum) {
   const seen = new Set();
   const render = (owner, repo, num, depth) => {
@@ -1504,8 +1524,9 @@ function cmdTree(storyNum) {
     render(OWNER, STORY_REPO, storyNum, 1);
     return;
   }
-  const { epics } = computeReleaseRollup();
-  for (const e of [...epics].sort((a, c) => epicRank(a) - epicRank(c))) {
+  const { epics, desc } = computeReleaseRollup();
+  const started = startedEpics(desc, board());
+  for (const e of [...epics].sort((a, c) => epicFeedRank(a, started) - epicFeedRank(c, started))) {
     console.log(`${e.key} [${e.priority ?? "—"}] ${e.title}${e.release ? ` · ${e.release}` : ""}`);
     render(OWNER, STORY_REPO, e.num, 1);
   }
@@ -2067,7 +2088,8 @@ function help() {
                                   intent label, this converts it — run in CI/local, not the routines)
   topup [--fix] [--target N]      keep Ready queue at target depth (default 3, GHP_TOPUP_TARGET)
                                   by writing \`promote:ready\` to the next unblocked Backlog leaves
-                                  in implementation order (epic-major, started epics first);
+                                  in implementation order (epic-major: Priority → started
+                                  first → roadmap prefix "NN" → sub-issue position);
                                   skips \`blocked\` issues; \`promote\` converts intents
   sync [--dry-run]                the whole hourly pipeline in one process, one board fetch:
                                   stories-sync → rollup → release-sync → topup → promote →
@@ -2091,7 +2113,7 @@ Auth: requires an authenticated \`gh\` CLI, or GITHUB_TOKEN/GH_TOKEN env var (cu
 // Dispatch
 // ---------------------------------------------------------------------------
 // Pure helpers exported for unit tests. Importing the module must NOT run the CLI.
-export { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs, STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant, planPromotions, PROMOTE_INTENT_LABEL, epicRank, epicFeedRank, startedEpics, bandTargets, SIZE_WEIGHT, derivePriority, parseIssueRef, planStaleClaims, STALE_CLAIM_HOURS_DEFAULT, planTopup, TOPUP_TARGET_DEFAULT, isWorkItem, isConsumableReady, countConsumableReady, MOSCOW_DEFAULT, EPIC_PRIORITY_DEFAULT, hasOpenBlockers, isBlocked, blockedLabelWant };
+export { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs, STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant, planPromotions, PROMOTE_INTENT_LABEL, epicRank, epicFeedRank, epicRoadmapSeq, startedEpics, bandTargets, SIZE_WEIGHT, derivePriority, parseIssueRef, planStaleClaims, STALE_CLAIM_HOURS_DEFAULT, planTopup, TOPUP_TARGET_DEFAULT, isWorkItem, isConsumableReady, countConsumableReady, MOSCOW_DEFAULT, EPIC_PRIORITY_DEFAULT, hasOpenBlockers, isBlocked, blockedLabelWant };
 
 // Only dispatch when run directly (`node gh-project.mjs ...`), not when imported.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

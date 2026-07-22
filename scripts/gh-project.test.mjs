@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import {
   MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs,
   STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant,
-  planPromotions, PROMOTE_INTENT_LABEL, epicRank, epicFeedRank, startedEpics,
+  planPromotions, PROMOTE_INTENT_LABEL, epicRank, epicFeedRank, epicRoadmapSeq, startedEpics,
   bandTargets, SIZE_WEIGHT, derivePriority, parseIssueRef, MOSCOW_DEFAULT, EPIC_PRIORITY_DEFAULT,
   planStaleClaims, STALE_CLAIM_HOURS_DEFAULT,
   planTopup, TOPUP_TARGET_DEFAULT,
@@ -179,6 +179,41 @@ test("epicFeedRank: neither started — falls back to issue number within the ti
   const a = { priority: "P2", num: 5 };
   const b = { priority: "P2", num: 6 };
   assert.ok(epicFeedRank(a, new Set()) < epicFeedRank(b, new Set()));
+});
+
+// Roadmap prefix (#711): the "NN" the owner hand-maintains on Release names and
+// "Epic NN:" titles is the intended epic sequence — issue numbers are filing
+// chronology and get it wrong.
+test("epicRoadmapSeq: reads the Release-name prefix, falls back to the title prefix", () => {
+  assert.equal(epicRoadmapSeq({ release: "04 Generic Semantic Editor", title: "whatever" }), 4);
+  assert.equal(epicRoadmapSeq({ release: null, title: "Epic 07: Offline editor" }), 7);
+  assert.equal(epicRoadmapSeq({ release: "12 SRS VS Code Extension", title: "SRS VS Code Extension" }), 12);
+  // Release wins over a conflicting title prefix (Release is the curated identity).
+  assert.equal(epicRoadmapSeq({ release: "03 Workflow editor", title: "Epic 99: old name" }), 3);
+  assert.equal(epicRoadmapSeq({ release: null, title: "SRS VS Code Extension" }), null);
+});
+
+test("epicFeedRank: roadmap prefix beats issue number — the real Epic 07/08 inversion", () => {
+  // Epic 08 is issue #60, Epic 07 is issue #94: number order would run 08 before 07.
+  const epic08 = { priority: "P2", num: 60, release: "08 AI Assisted Decision log" };
+  const epic07 = { priority: "P2", num: 94, release: "07 Offline editor" };
+  assert.ok(epicFeedRank(epic07, new Set()) < epicFeedRank(epic08, new Set()),
+    "roadmap 07 must precede roadmap 08 regardless of issue numbers");
+});
+
+test("epicFeedRank: an unnumbered epic sorts after numbered ones in its tier", () => {
+  const numbered = { priority: "P2", num: 999, release: "11 Snapshot export" };
+  const unnumbered = { priority: "P2", num: 1, release: null, title: "Some epic" };
+  assert.ok(epicFeedRank(numbered, new Set()) < epicFeedRank(unnumbered, new Set()));
+});
+
+test("epicFeedRank: started still beats a lower roadmap prefix within the tier", () => {
+  // Continuity outranks sequence: a begun epic is drained before an earlier-numbered
+  // untouched one opens.
+  const startedLater = { priority: "P1", num: 83, release: "04 Generic Semantic Editor" };
+  const untouchedEarlier = { priority: "P1", num: 76, release: "03 Workflow editor" };
+  const started = new Set([83]);
+  assert.ok(epicFeedRank(startedLater, started) < epicFeedRank(untouchedEarlier, started));
 });
 
 test("startedEpics: claimed/in-review/done/closed descendants start an epic; Ready does not", () => {

@@ -83,8 +83,16 @@ audit — do not guess a parent.
 An **epic** (label `epic`, in muDemocracy.org) **is a release** — there is no separate release
 entity. Each epic carries two hand-set inputs and nothing else:
 
-- its **Release** field value — the epic's identity (`Decision Logger v1`, `Governance app`, …);
-- its **Priority** (P0/P1/P2) — the epic's rank on the roadmap.
+- its **Release** field value — the epic's identity (`02 Governance app`, `04 Generic Semantic
+  Editor`, …). The **leading `NN` prefix is load-bearing**: it is the epic's **roadmap sequence**,
+  read by the feed and every epic listing (falls back to an `Epic NN:` title prefix; an epic with
+  neither is flagged `missing-roadmap-number` and sorts after numbered epics in its tier).
+  Renumbering the roadmap = renaming the Release option / retitling the epic.
+- its **Priority** (P0/P1/P2) — the epic's urgency tier, which overrides roadmap sequence.
+
+Epic ordering everywhere (the feed, `epics`, `tree`) is: **Priority tier → started epics first
+(continuity) → roadmap `NN` prefix → issue number**. Issue numbers are filing chronology and only
+break final ties.
 
 Everything below the epic **inherits its Release**: `release-sync` walks each epic's sub-issue graph
 and stamps the epic's Release onto every descendant story and implementation issue. So **Release is
@@ -159,7 +167,8 @@ unsized. Weighting decays if unmaintained, so the **SRS issue assessment** routi
 schedule and `/triage` sizes anything new.
 
 `bands [--count N]` (default 10) prints the whole task list as an **implementation order** sliced into N
-**equal-effort bands**: ordered by **epic Priority → MoSCoW-derived priority → sub-issue position**, and
+**equal-effort bands**: ordered by **epic (Priority → started → roadmap prefix) → MoSCoW-derived
+priority → sub-issue position**, and
 weighted by the `size:` label (unsized ⇒ medium). Leaves under no epic are listed as a trailing *unlinked*
 group (link them via `/triage`). `bands --assign` writes each band onto the **Iteration** field (band k →
 the k-th upcoming iteration) — but GitHub can't create iterations via API, so you first create N iterations
@@ -251,11 +260,12 @@ overridable via `--target N` or the `GHP_TOPUP_TARGET` environment variable). It
   label — see "Dependencies" below), issues with an existing `promote:ready` intent, and
   Won't-exclusions (every served story explicitly Won't).
 - Orders candidates in **implementation order** — epic-major: **epic Priority → started epics
-  first within a tier → issue priority → sub-issue position**. This is the **epic-continuity
-  rule**: once an epic has begun (any descendant claimed, in review, done, or closed), the feed
-  drains it to completion before opening the next epic in the same tier. The old flat priority
-  sort interleaved epics — a new epic's P1 work preempted the current epic's P2 tail, and the
-  board filled with half-finished epics.
+  first within a tier → roadmap `NN` prefix → issue priority → sub-issue position**. This is the
+  **epic-continuity rule**: once an epic has begun (any descendant claimed, in review, done, or
+  closed), the feed drains it to completion before opening the next epic in the same tier — and
+  new epics open in **roadmap sequence** (the `NN` prefix), not filing chronology. The old flat
+  priority sort interleaved epics — a new epic's P1 work preempted the current epic's P2 tail,
+  and the board filled with half-finished epics.
 - Nominates the top `deficit = max(0, target − readyCount)` candidates and writes `promote:ready`
   to each. If fewer candidates exist than the deficit, all are nominated — no error.
 
