@@ -127,15 +127,15 @@ Standard steps 1–5 (criteria checked, tests exist and pass, `cargo test -p srs
 
 #### Tasks
 
-- [ ] `docs/adr/037-mcp-adapter-surface.md`: add **Amendment (2026-07-22, #692)** section — URI enumeration gains `type/<typeId>`; type schemas exposed as both resources (browse/enumeration) and a tool (model-invocable; clients surface tools more reliably); result is the `type_schema` projection served verbatim.
-- [ ] `crates/srs-mcp/README.md`: resource-table row for `type/{typeId}` + sixth tool in the tools list.
-- [ ] Stale-wording sweep in srs-rust: `rg -n "five tools|all_five" --glob '!target' .` → fix every hit this change made stale.
+- [x] `docs/adr/037-mcp-adapter-surface.md`: add **Amendment (2026-07-22, #692)** section — URI enumeration gains `type/<typeId>`; type schemas exposed as both resources (browse/enumeration) and a tool (model-invocable; clients surface tools more reliably); result is the `type_schema` projection served verbatim.
+- [x] `crates/srs-mcp/README.md`: resource-table row for `type/{typeId}` + sixth tool in the tools list.
+- [x] Stale-wording sweep in srs-rust: `rg -n "five tools|all_five" --glob '!target' .` → fix every hit this change made stale.
 
 *(Stage 7.5, Lead Integrator, separate `srs` repo branch `docs/692-mcp-type-usage` → companion PR: `srs-usage.md` §5i resource-table row + `type_schema` tool bullet + record_create bullet update. Stage 7.6, Lead Integrator, srs-rust this PR: `docs/dogfooding.md` S42 extension + matrix row — after actually running the scenario.)*
 
 #### Acceptance Criteria
 
-- [ ] ADR-037 amendment present; README matches the shipped surface; the sweep grep returns zero stale hits in srs-rust.
+- [x] ADR-037 amendment present; README matches the shipped surface; the sweep grep returns zero stale hits in srs-rust.
 
 #### Testing
 
