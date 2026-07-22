@@ -4434,7 +4434,8 @@ mod tests {
             extra: std::collections::HashMap::new(),
         };
         // Section container that roots section_id.
-        let section_container = rfc013_container(section_container_id, &[section_id], &[section_id]);
+        let section_container =
+            rfc013_container(section_container_id, &[section_id], &[section_id]);
 
         let manifest_val = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",

@@ -863,9 +863,7 @@ mod tests {
                 description: None,
                 container_type: None,
                 identity_instance_id: None,
-                member_instance_ids: Some(vec![
-                    "00000000-0000-4000-8000-00000000e100".to_string(),
-                ]),
+                member_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000e100".to_string()]),
                 root_instance_ids: Some(vec![
                     "00000000-0000-4000-8000-00000000e200".to_string(),
                     "00000000-0000-4000-8000-00000000e300".to_string(),
@@ -885,7 +883,11 @@ mod tests {
             nav.identity.instance_id,
             "00000000-0000-4000-8000-00000000e100"
         );
-        assert_eq!(nav.sections.len(), 2, "both rootInstanceIds sections must appear");
+        assert_eq!(
+            nav.sections.len(),
+            2,
+            "both rootInstanceIds sections must appear"
+        );
         let section_ids: std::collections::HashSet<&str> = nav
             .sections
             .iter()
@@ -962,9 +964,7 @@ mod tests {
                     "00000000-0000-4000-8000-00000000f100".to_string(),
                     "00000000-0000-4000-8000-00000000f200".to_string(),
                 ]),
-                root_instance_ids: Some(vec![
-                    "00000000-0000-4000-8000-00000000f200".to_string(),
-                ]),
+                root_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000f200".to_string()]),
                 tags: None,
                 created_at: None,
                 updated_at: None,
