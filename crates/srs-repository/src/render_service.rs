@@ -1320,7 +1320,9 @@ fn resolve_section_instances(
                         diagnostics.push(
                             "[N+27] containerScope 'subtree' with no containerIds — returning empty result".to_string(),
                         );
-                        records.clear();
+                        // Return early: the [N+27] message already names the reason;
+                        // the generic zero-records diagnostic would be noise.
+                        return Ok(Vec::new());
                     }
                 }
                 ContainerScope::Explicit => {
@@ -1382,7 +1384,15 @@ fn resolve_section_instances(
                 }
             }
 
-            Ok(records.into_iter().map(LoadedInstance::Record).collect())
+            let result: Vec<LoadedInstance> =
+                records.into_iter().map(LoadedInstance::Record).collect();
+            if result.is_empty() {
+                diagnostics.push(format!(
+                    "[section:{}] type-query '{}' matched 0 records",
+                    section.section_id, semantic_object_type
+                ));
+            }
+            Ok(result)
         }
         SectionSource::RelationQuery {
             from_instance_id,
@@ -6503,6 +6513,165 @@ mod tests {
             ids.len(),
             2,
             "both records must appear with repository scope: {ids:?}"
+        );
+    }
+
+    // ── #697 type-query zero-records diagnostic ───────────────────────────────
+
+    #[test]
+    fn type_query_zero_records_emits_diagnostic_markdown() {
+        // #697: a TypeQuery that matches 0 records must emit a warning diagnostic.
+        // The section output is still empty (emptyBehavior hide / default).
+        let dv = rfc011_dv("dv-zero", None, None, None, None, None);
+        let store = make_rfc011_store(dv, &[]); // no records of com.test/decision
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-zero",
+            format: Some("markdown"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .unwrap();
+        assert!(
+            result.diagnostics.iter().any(|d| d.contains("[section:s1]")
+                && d.contains("type-query")
+                && d.contains("com.test/decision")
+                && d.contains("matched 0 records")),
+            "expected zero-records diagnostic; got: {:?}",
+            result.diagnostics
+        );
+        // Output should still be empty (only the preamble, no section content).
+        assert!(
+            !result.rendered.contains("decision"),
+            "section content should be empty; got:\n{}",
+            result.rendered
+        );
+    }
+
+    #[test]
+    fn type_query_zero_records_emits_diagnostic_json() {
+        // #697: the JSON projection path must also emit the diagnostic.
+        let dv = rfc011_dv("dv-zero-json", None, None, None, None, None);
+        let store = make_rfc011_store(dv, &[]);
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-zero-json",
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .unwrap();
+        assert!(
+            result.diagnostics.iter().any(|d| d.contains("[section:s1]")
+                && d.contains("type-query")
+                && d.contains("com.test/decision")
+                && d.contains("matched 0 records")),
+            "expected zero-records diagnostic on JSON path; got: {:?}",
+            result.diagnostics
+        );
+        let projection = result
+            .projection
+            .expect("JSON path must produce a projection");
+        assert!(
+            projection.sections[0].records.is_empty(),
+            "section records should be empty; got: {:?}",
+            projection.sections[0].records
+        );
+    }
+
+    #[test]
+    fn type_query_zero_records_empty_behavior_hide_still_warns() {
+        // #697: emptyBehavior:hide suppresses the output block, not the diagnostic.
+        use srs_core::types::view::{DocumentSection, DocumentView, EmptyBehavior, SectionSource};
+
+        let dv = DocumentView {
+            id: "dv-zero-hide".to_string(),
+            namespace: "com.test".to_string(),
+            name: "dv-zero-hide".to_string(),
+            version: 1,
+            description: "zero-records hide test".to_string(),
+            container_type: None,
+            root_type_refs: None,
+            sections: vec![DocumentSection {
+                section_id: "s-hide".to_string(),
+                title: Some("Hidden Section".to_string()),
+                description: None,
+                order: 0,
+                source: SectionSource::TypeQuery {
+                    semantic_object_type: "com.test/decision".to_string(),
+                    lifecycle_state: None,
+                    container_ids: None,
+                    lifecycle_states: None,
+                    exclude_lifecycle_states: None,
+                    container_scope: None,
+                },
+                render_view_id: None,
+                type_dispatch: None,
+                title_field_id: None,
+                ordering: None,
+                required: None,
+                empty_behavior: Some(EmptyBehavior::Hide),
+            }],
+            navigation_links: None,
+            preamble: None,
+            format: Some("markdown".to_string()),
+            depth_offset: None,
+            theme_ref: None,
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: std::collections::HashMap::new(),
+        };
+        let store = make_rfc011_store(dv, &[]);
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-zero-hide",
+            format: Some("markdown"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .unwrap();
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.contains("[section:s-hide]")
+                    && d.contains("type-query")
+                    && d.contains("matched 0 records")),
+            "emptyBehavior:hide must not suppress the diagnostic; got: {:?}",
+            result.diagnostics
+        );
+        assert!(
+            !result.rendered.contains("Hidden Section"),
+            "emptyBehavior:hide must still hide the section title from rendered output; got:\n{}",
+            result.rendered
+        );
+    }
+
+    #[test]
+    fn type_query_nonzero_records_no_spurious_diagnostic() {
+        // Confirm the zero-records diagnostic is absent when the TypeQuery has matches.
+        let dv = rfc011_dv("dv-nonzero", None, None, None, None, None);
+        let store = make_rfc011_store(dv, &[("r1", None)]); // one record of com.test/decision
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-nonzero",
+            format: Some("markdown"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .unwrap();
+        assert!(
+            !result
+                .diagnostics
+                .iter()
+                .any(|d| d.contains("matched 0 records")),
+            "no zero-records diagnostic expected when TypeQuery has matches; got: {:?}",
+            result.diagnostics
         );
     }
 
