@@ -375,6 +375,19 @@ pub trait RepositoryStore {
     /// Write raw bytes to `relative_path`, creating parent directories as needed.
     fn save_binary_file(&self, relative_path: &str, content: &[u8]) -> Result<(), RepositoryError>;
 
+    /// A verbatim snapshot of the store's file tree, when the backend is an
+    /// in-memory tree session (ADR-037/038). `None` for every other store.
+    fn as_tree_snapshot(&self) -> Option<std::collections::BTreeMap<String, Vec<u8>>> {
+        None
+    }
+
+    /// True when the store persists files verbatim as a tree (`FileStore` over
+    /// any Vfs backend). The native archive unpack writes raw files into such
+    /// stores without snapshot re-canonicalization (ADR-038).
+    fn is_file_tree_store(&self) -> bool {
+        false
+    }
+
     /// Verify that `relative_path` (relative to repo root) points to a directory
     /// containing a `package.json`.
     ///
@@ -1689,6 +1702,14 @@ impl RepositoryStore for FileStore {
     }
 
     // --- Sub-package path validation ---
+
+    fn as_tree_snapshot(&self) -> Option<std::collections::BTreeMap<String, Vec<u8>>> {
+        self.vfs.as_mem_snapshot()
+    }
+
+    fn is_file_tree_store(&self) -> bool {
+        true
+    }
 
     fn validate_package_ref_path(&self, relative_path: &str) -> Result<(), RepositoryError> {
         match self.vfs.check_dir_within_root(relative_path)? {

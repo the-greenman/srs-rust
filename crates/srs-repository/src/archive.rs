@@ -1,115 +1,176 @@
+//! `.srs` archive pack/unpack — a deterministic ZIP of the exploded tree
+//! (ADR-038; determinism requirements inherited from ADR-033).
+//!
+//! Pack writes the repository's file tree verbatim: tree-backed sessions dump
+//! their `MemVfs` snapshot; other stores are enumerated from the manifest and
+//! every package boundary (per-definition files included — the pre-ADR-038
+//! pack omitted them). `package/package.snapshot.json` is never written.
+//!
+//! Unpack prefers the native tree layout (layout-faithful, no
+//! re-canonicalization). Archives carrying `package/package.snapshot.json`
+//! without per-definition files take the legacy snapshot-import path — a
+//! migration ramp only, kept so pre-ADR-038 archives can be opened in order
+//! to be re-saved in the new format. Remove after ecosystem archives are
+//! migrated (#688).
+
 use crate::error::RepositoryError;
 use crate::repository_lifecycle::RepositoryMetadata;
 use crate::repository_portability::{
     export_repository_snapshot_with_options, import_repository_snapshot, ExportSnapshotOptions,
     PackageBoundarySnapshot, RepositorySnapshot, SnapshotInstance, SourceDocumentSnapshot,
 };
-use crate::store::RepositoryStore;
+use crate::store::{FileStore, RepositoryStore};
+use crate::tree_session::open_tree;
+use crate::vfs::vfs_join;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
 use srs_core::types::container::{Container, ContainerIndexEntry};
 use srs_core::types::relation::Relation;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Seek, Write};
 use zip::write::SimpleFileOptions;
+
+/// `package.json` array keys naming per-definition files (all definition kinds).
+const DEFINITION_KEYS: [&str; 10] = [
+    "fields",
+    "types",
+    "relationTypes",
+    "views",
+    "documentViews",
+    "themes",
+    "blueprints",
+    "protocols",
+    "vocabularies",
+    "lifecycles",
+];
+
+/// Enumerate the repository as a path→bytes tree.
+///
+/// Tree-backed sessions return their snapshot verbatim (unknown files — README,
+/// CI config — ride along: the archive is a faithful snapshot of the session
+/// tree). Other stores are enumerated from the manifest: raw manifest, every
+/// package boundary's `package.json` plus every per-definition file it
+/// references, relations (real filename preserved), instanceIndex files,
+/// containerIndex files, and the whole `source-documents/` subtree.
+/// Deliberately not a blind directory sweep, so a git working tree's `.git/`
+/// is never archived from disk.
+fn tree_entries(
+    source: &dyn RepositoryStore,
+) -> Result<BTreeMap<String, Vec<u8>>, RepositoryError> {
+    if let Some(map) = source.as_tree_snapshot() {
+        return Ok(map);
+    }
+
+    let manifest = source.load_manifest()?;
+    let mut entries: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+
+    entries.insert(
+        "manifest.json".to_string(),
+        source.load_manifest_raw_text()?.into_bytes(),
+    );
+
+    // Primary package via the raw-text trait method (works on every store),
+    // then any sub-package boundaries by their manifest packageRefs path.
+    let mut package_prefixes: Vec<(String, String)> = vec![(
+        "package".to_string(),
+        source.load_primary_package_raw_text()?,
+    )];
+    for boundary in source.list_package_boundaries()? {
+        if let Some(prefix) = boundary.selector.clone() {
+            let pkg_rel = vfs_join(&prefix, "package.json");
+            package_prefixes.push((prefix, source.load_text_file(&pkg_rel)?));
+        }
+    }
+    for (prefix, pkg_text) in package_prefixes {
+        let pkg_rel = vfs_join(&prefix, "package.json");
+        let pkg_val: serde_json::Value =
+            serde_json::from_str(&pkg_text).map_err(|e| RepositoryError::InvalidArchive {
+                message: format!("invalid {pkg_rel}: {e}"),
+            })?;
+        entries.insert(pkg_rel.clone(), pkg_text.into_bytes());
+
+        for key in DEFINITION_KEYS {
+            let Some(arr) = pkg_val.get(key).and_then(|v| v.as_array()) else {
+                continue;
+            };
+            for rel in arr.iter().filter_map(|v| v.as_str()) {
+                let full = vfs_join(&prefix, rel);
+                // A dangling reference is a hard error naming the missing
+                // path — never a silent skip (ADR-038).
+                let text = source.load_text_file(&full).map_err(|e| {
+                    if e.is_not_found() {
+                        RepositoryError::InvalidArchive {
+                            message: format!(
+                                "package file missing: {full} (referenced by {pkg_rel})"
+                            ),
+                        }
+                    } else {
+                        e
+                    }
+                })?;
+                entries.insert(full, text.into_bytes());
+            }
+        }
+    }
+
+    // Preserve the real relations filename (canonical first, then legacy).
+    for name in [
+        "relations/relations-collection.json",
+        "relations/relations.json",
+    ] {
+        match source.load_text_file(name) {
+            Ok(text) => {
+                entries.insert(name.to_string(), text.into_bytes());
+                break;
+            }
+            Err(e) if e.is_not_found() => {}
+            Err(e) => return Err(e),
+        }
+    }
+
+    // Instance files at their real storage paths (may predate canonicalization).
+    for entry in &manifest.instance_index {
+        let content = source.load_text_file(&entry.path)?;
+        entries.insert(entry.path.clone(), content.into_bytes());
+    }
+
+    // Container JSON files — referenced by containerIndex paths, not instanceIndex.
+    if let Some(index) = &manifest.container_index {
+        for entry in index {
+            if let Some(path) = &entry.path {
+                let content = source.load_text_file(path)?;
+                entries.insert(path.clone(), content.into_bytes());
+            }
+        }
+    }
+
+    // The whole source-documents subtree (sidecars + binary content).
+    let src_docs_dir = manifest
+        .source_documents_path
+        .as_deref()
+        .unwrap_or("source-documents");
+    for path in source.list_files_recursive(src_docs_dir) {
+        let bytes = match source.load_binary_file(&path) {
+            Ok(b) => b,
+            // Stores that keep text and binary content separately (MemoryStore,
+            // JsonStore) serve sidecars through the text path.
+            Err(e) if e.is_not_found() => source.load_text_file(&path)?.into_bytes(),
+            Err(e) => return Err(e),
+        };
+        entries.insert(path, bytes);
+    }
+
+    Ok(entries)
+}
 
 pub fn archive_pack(
     source: &dyn RepositoryStore,
     writer: impl Write + Seek,
 ) -> Result<(), RepositoryError> {
-    let snapshot = export_repository_snapshot_with_options(
-        source,
-        ExportSnapshotOptions {
-            include_content_blobs: true,
-        },
-    )?;
+    let entries = tree_entries(source)?;
 
-    // Load the manifest to get the actual storage paths for each instance —
-    // these may not be canonical (e.g. the file predates canonicalization),
-    // so we mirror the real on-disk layout rather than re-deriving paths.
-    let manifest = source.load_manifest()?;
-
-    let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
-
-    entries.push((
-        "manifest.json".to_string(),
-        source.load_manifest_raw_text()?.into_bytes(),
-    ));
-
-    entries.push((
-        "package/package.json".to_string(),
-        source.load_primary_package_raw_text()?.into_bytes(),
-    ));
-
-    if let Some(pkg) = snapshot.packages.iter().find(|p| p.boundary_path.is_none()) {
-        // Route through to_value() so serde_json::Map (BTreeMap-backed) sorts all
-        // HashMap<String,Value> fields, making the snapshot byte-stable across process runs.
-        // See ADR-017: preserve_order must remain disabled or this guarantee breaks.
-        let pkg_value =
-            serde_json::to_value(pkg).map_err(|e| RepositoryError::InvalidSnapshotData {
-                message: e.to_string(),
-            })?;
-        let pkg_bytes = serde_json::to_vec_pretty(&pkg_value).map_err(|e| {
-            RepositoryError::InvalidSnapshotData {
-                message: e.to_string(),
-            }
-        })?;
-        entries.push(("package/package.snapshot.json".to_string(), pkg_bytes));
-    }
-
-    if let Some(text) = source.load_relations_raw_text()? {
-        entries.push((
-            "relations/relations-collection.json".to_string(),
-            text.into_bytes(),
-        ));
-    }
-
-    for entry in &manifest.instance_index {
-        let content = source.load_text_file(&entry.path)?;
-        entries.push((entry.path.clone(), content.into_bytes()));
-    }
-
-    // Container JSON files — referenced by containerIndex paths, not instanceIndex.
-    // These must be packed explicitly or they are lost on unpack.
-    if let Some(index) = &manifest.container_index {
-        for entry in index {
-            if let Some(path) = &entry.path {
-                let content = source.load_text_file(path)?;
-                entries.push((path.clone(), content.into_bytes()));
-            }
-        }
-    }
-
-    let src_docs_dir = snapshot
-        .source_documents_path
-        .as_deref()
-        .unwrap_or("source-documents");
-    for doc in &snapshot.source_documents {
-        let sidecar_bytes = serde_json::to_vec_pretty(&doc.sidecar).map_err(|e| {
-            RepositoryError::InvalidSnapshotData {
-                message: e.to_string(),
-            }
-        })?;
-        entries.push((
-            format!("{}/{}", src_docs_dir, doc.sidecar_path),
-            sidecar_bytes,
-        ));
-        if let Some(b64) = &doc.content_base64 {
-            let content_bytes =
-                BASE64
-                    .decode(b64)
-                    .map_err(|e| RepositoryError::InvalidSnapshotData {
-                        message: e.to_string(),
-                    })?;
-            entries.push((
-                format!("{}/{}", src_docs_dir, doc.content_path),
-                content_bytes,
-            ));
-        }
-    }
-
-    entries.sort_by(|a, b| a.0.cmp(&b.0));
-
+    // BTreeMap iteration is already lexicographic — the ADR-033 entry-order
+    // and determinism guarantees hold by construction.
     let mut zip = zip::ZipWriter::new(writer);
     for (path, bytes) in &entries {
         let options = SimpleFileOptions::default()
@@ -126,18 +187,11 @@ pub fn archive_pack(
     Ok(())
 }
 
-/// Unpack a `.srs` ZIP archive into a repository store and return the repository ID.
-///
-/// Returns the `repositoryId` extracted from the archive manifest so callers
-/// (CLI handler, WASM binding) do not need a second `load_manifest()` call.
-pub fn archive_unpack(
-    reader: impl Read + Seek,
-    target: &dyn RepositoryStore,
-) -> Result<String, RepositoryError> {
+/// Read a ZIP into a path→bytes map (directory entries skipped).
+fn read_zip_to_map(reader: impl Read + Seek) -> Result<HashMap<String, Vec<u8>>, RepositoryError> {
     let mut zip = zip::ZipArchive::new(reader).map_err(|e| RepositoryError::InvalidArchive {
         message: e.to_string(),
     })?;
-
     let file_count = zip.len();
     let mut bytes_map: HashMap<String, Vec<u8>> = HashMap::with_capacity(file_count);
     for i in 0..file_count {
@@ -154,7 +208,13 @@ pub fn archive_unpack(
             })?;
         bytes_map.insert(name, buf);
     }
+    Ok(bytes_map)
+}
 
+/// Parse and RFC-014-migrate the archive manifest.
+fn parse_manifest_value(
+    bytes_map: &HashMap<String, Vec<u8>>,
+) -> Result<serde_json::Value, RepositoryError> {
     let manifest_bytes =
         bytes_map
             .get("manifest.json")
@@ -166,7 +226,132 @@ pub fn archive_unpack(
             message: e.to_string(),
         })?;
     crate::manifest::migrate_upstream_package(&mut manifest_val);
+    Ok(manifest_val)
+}
 
+/// Referenced primary-package definition files absent from the map.
+/// Empty ⇒ the archive is loadable as a native tree.
+fn missing_primary_definitions(bytes_map: &HashMap<String, Vec<u8>>) -> Vec<String> {
+    let Some(pkg_bytes) = bytes_map.get("package/package.json") else {
+        return vec!["package/package.json".to_string()];
+    };
+    let Ok(pkg_val) = serde_json::from_slice::<serde_json::Value>(pkg_bytes) else {
+        return vec!["package/package.json".to_string()];
+    };
+    let mut missing = Vec::new();
+    for key in DEFINITION_KEYS {
+        let Some(arr) = pkg_val.get(key).and_then(|v| v.as_array()) else {
+            continue;
+        };
+        for rel in arr.iter().filter_map(|v| v.as_str()) {
+            let full = vfs_join("package", rel);
+            if !bytes_map.contains_key(&full) {
+                missing.push(full);
+            }
+        }
+    }
+    missing
+}
+
+/// Unpack a `.srs` ZIP archive into a repository store and return the repository ID.
+///
+/// Native tree archives are written layout-faithfully: verbatim raw files into
+/// file-tree stores (`FileStore`), or via a tree session + snapshot import for
+/// other store kinds. Legacy snapshot archives take the migration ramp.
+pub fn archive_unpack(
+    reader: impl Read + Seek,
+    target: &dyn RepositoryStore,
+) -> Result<String, RepositoryError> {
+    let mut bytes_map = read_zip_to_map(reader)?;
+    let manifest_val = parse_manifest_value(&bytes_map)?;
+    let repository_id = manifest_val
+        .get("repositoryId")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+
+    let missing = missing_primary_definitions(&bytes_map);
+    if missing.is_empty() {
+        // Native tree archive. A stray legacy snapshot (old archive of an
+        // empty package) is metadata, not tree content — drop it.
+        bytes_map.remove("package/package.snapshot.json");
+        let tree: BTreeMap<String, Vec<u8>> = bytes_map.into_iter().collect();
+        if target.is_file_tree_store() {
+            // Layout-faithful: raw files, no re-canonicalization.
+            let has_marker = tree.keys().any(|k| k.starts_with(".srs/"));
+            for (path, bytes) in &tree {
+                target.save_binary_file(path, bytes)?;
+            }
+            if !has_marker {
+                target.save_binary_file(".srs/.gitkeep", &[])?;
+            }
+        } else {
+            let session = open_tree(tree)?;
+            let snapshot = export_repository_snapshot_with_options(
+                &session,
+                ExportSnapshotOptions {
+                    include_content_blobs: true,
+                },
+            )?;
+            import_repository_snapshot(target, &snapshot)?;
+        }
+        return Ok(repository_id);
+    }
+
+    if bytes_map.contains_key("package/package.snapshot.json") {
+        // Legacy migration ramp — remove after ecosystem archives are migrated (#688).
+        let snapshot = legacy_snapshot_from_map(&bytes_map, &manifest_val)?;
+        let repository_id = snapshot.repository.repository_id.clone();
+        import_repository_snapshot(target, &snapshot)?;
+        return Ok(repository_id);
+    }
+
+    Err(RepositoryError::InvalidArchive {
+        message: format!(
+            "archive is not a valid tree ({} missing, e.g. {}) and carries no legacy snapshot",
+            missing.len(),
+            missing[0]
+        ),
+    })
+}
+
+/// Open a `.srs` archive as an in-memory tree session (ADR-037).
+///
+/// Native archives load layout-faithfully; legacy snapshot archives are
+/// materialized through the migration ramp (canonical paths).
+pub fn archive_to_tree(reader: impl Read + Seek) -> Result<FileStore, RepositoryError> {
+    let mut bytes_map = read_zip_to_map(reader)?;
+    let manifest_val = parse_manifest_value(&bytes_map)?;
+
+    let missing = missing_primary_definitions(&bytes_map);
+    if missing.is_empty() {
+        bytes_map.remove("package/package.snapshot.json");
+        return open_tree(bytes_map.into_iter().collect());
+    }
+
+    if bytes_map.contains_key("package/package.snapshot.json") {
+        // Legacy migration ramp — remove after ecosystem archives are migrated (#688).
+        let snapshot = legacy_snapshot_from_map(&bytes_map, &manifest_val)?;
+        let store = FileStore::from_vfs(std::rc::Rc::new(crate::vfs::MemVfs::new()));
+        import_repository_snapshot(&store, &snapshot)?;
+        return Ok(store);
+    }
+
+    Err(RepositoryError::InvalidArchive {
+        message: format!(
+            "archive is not a valid tree ({} missing, e.g. {}) and carries no legacy snapshot",
+            missing.len(),
+            missing[0]
+        ),
+    })
+}
+
+/// Legacy (pre-ADR-038) archive: reconstruct a `RepositorySnapshot` from the
+/// `package/package.snapshot.json` content model. Migration ramp only (#688).
+fn legacy_snapshot_from_map(
+    bytes_map: &HashMap<String, Vec<u8>>,
+    manifest_val: &serde_json::Value,
+) -> Result<RepositorySnapshot, RepositoryError> {
     let repo_meta = RepositoryMetadata {
         repository_id: manifest_val
             .get("repositoryId")
@@ -358,8 +543,7 @@ pub fn archive_unpack(
         .and_then(|v| serde_json::from_value(v.clone()).ok());
 
     // Restore container JSON files from the archive so import_repository_snapshot
-    // can call create_container() for each one. Without this, the manifest references
-    // container paths that don't exist on disk, causing validate to fail.
+    // can call create_container() for each one.
     let mut containers: Vec<Container> = Vec::new();
     if let Some(index) = &container_index {
         for entry in index {
@@ -376,7 +560,7 @@ pub fn archive_unpack(
         }
     }
 
-    let snapshot = RepositorySnapshot {
+    Ok(RepositorySnapshot {
         repository: repo_meta,
         declared_extensions,
         packages: vec![primary_pkg],
@@ -387,12 +571,7 @@ pub fn archive_unpack(
         relations,
         source_documents_path,
         source_documents,
-    };
-
-    let repository_id = snapshot.repository.repository_id.clone();
-    import_repository_snapshot(target, &snapshot)?;
-
-    Ok(repository_id)
+    })
 }
 
 /// Pack a repository into a `.srs` binary archive and return the bytes.
@@ -1035,5 +1214,106 @@ mod tests {
                 entry.compression()
             );
         }
+    }
+
+    const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/exploded-basic");
+    const LEGACY: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/legacy-snapshot.srs"
+    );
+
+    #[test]
+    fn pack_contains_definition_files_no_snapshot() {
+        use crate::store::FileStore;
+        let store = FileStore::new(FIXTURE);
+        let bytes = pack_to_bytes(&store);
+        let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).expect("open zip");
+        let names: Vec<String> = (0..zip.len())
+            .map(|i| zip.by_index(i).unwrap().name().to_string())
+            .collect();
+        assert!(names.contains(&"package/fields/title-22222222.json".to_string()));
+        assert!(names.contains(&"package/fields/approved-22222222.json".to_string()));
+        assert!(names.contains(&"package/types/decision-33333333.json".to_string()));
+        assert!(names.contains(&"package/relation-types/precedes-66666666.json".to_string()));
+        assert!(
+            !names.iter().any(|n| n.contains("package.snapshot.json")),
+            "snapshot file must never be written again (ADR-038): {names:?}"
+        );
+    }
+
+    #[test]
+    fn pack_unpack_tree_roundtrip_byte_faithful() {
+        use crate::store::FileStore;
+        use tempfile::tempdir;
+
+        let source = FileStore::new(FIXTURE);
+        let bytes = pack_to_bytes(&source);
+
+        // Every packed entry unpacks byte-identically at its original path —
+        // no re-canonicalization (ADR-038).
+        let target_dir = tempdir().unwrap();
+        let target = FileStore::new(target_dir.path());
+        archive_unpack(Cursor::new(&bytes), &target).expect("native unpack");
+
+        let mut zip = zip::ZipArchive::new(Cursor::new(&bytes)).expect("open zip");
+        for i in 0..zip.len() {
+            let mut entry = zip.by_index(i).unwrap();
+            let name = entry.name().to_string();
+            let mut packed = Vec::new();
+            entry.read_to_end(&mut packed).unwrap();
+            let unpacked = std::fs::read(target_dir.path().join(&name))
+                .unwrap_or_else(|e| panic!("missing unpacked file {name}: {e}"));
+            assert_eq!(packed, unpacked, "byte drift at {name}");
+        }
+        assert!(
+            !target_dir
+                .path()
+                .join("package/package.snapshot.json")
+                .exists(),
+            "no snapshot file may appear on unpack"
+        );
+        // The re-materialized repository is a working repo.
+        assert!(target.repository_exists().unwrap());
+        let report = crate::validation::validate_repository(&target).expect("validate");
+        let errors: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| format!("{d:?}").contains("Error"))
+            .collect();
+        assert!(errors.is_empty(), "unpacked repo has errors: {errors:?}");
+    }
+
+    #[test]
+    fn legacy_snapshot_archive_still_loads() {
+        // Migration ramp (#688): the committed fixture was packed by the
+        // pre-ADR-038 code (package.snapshot.json, no per-definition files).
+        let bytes = std::fs::read(LEGACY).expect("legacy fixture committed?");
+        let tree = crate::archive::archive_to_tree(Cursor::new(bytes)).expect("legacy load");
+        let report = crate::validation::validate_repository(&tree).expect("validate");
+        let errors: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| format!("{d:?}").contains("Error"))
+            .collect();
+        assert!(errors.is_empty(), "legacy archive invalid: {errors:?}");
+    }
+
+    #[test]
+    fn pack_missing_definition_file_errors() {
+        let store = init_memory_store();
+        let mut pkg = store.load_package_json().expect("pkg json");
+        pkg["fields"]
+            .as_array_mut()
+            .expect("fields array")
+            .push(serde_json::json!("fields/ghost.json"));
+        store.save_package_json(&pkg).expect("save pkg json");
+
+        let mut buf = Vec::new();
+        let err = archive_pack(&store, Cursor::new(&mut buf)).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("package/fields/ghost.json"),
+            "error must name the missing path: {msg}"
+        );
     }
 }
