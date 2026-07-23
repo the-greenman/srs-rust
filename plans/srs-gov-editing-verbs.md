@@ -232,7 +232,7 @@ cargo clippy -p srs-gov -- -D warnings
       println!();
       println!("  New state:  {state}");
       println!();
-      println!("  Run: srs-gov get decision_log {id}  to see the full record");
+      println!("  Run: srs record get --id {id}  to see the full record");
       println!();
   }
   ```
@@ -320,7 +320,8 @@ cargo clippy -p srs-gov -- -D warnings
 - [ ] In `crates/srs-gov/src/main.rs`, implement `cmd_relations(id, repo, explain, json)`:
   - If `explain`: call `run_srs(&["relation", "list", "--source", id], repo, true, false)?` and `run_srs(&["relation", "list", "--target", id], repo, true, false)?`, return.
   - Otherwise: call `srs relation list --source <id>` and `srs relation list --target <id>` (two calls), merge the `relations` arrays (deduplicating by `relationId`), call `render::relations_list(id, &merged)`.
-  - `json` mode: pipe the raw envelope from the `srs relation list --source <id>` call only (outgoing relations).
+  - `json` mode: pipe the raw envelope from the `srs relation list --source <id>` call only (outgoing relations). The `--json` flag help text must document this limitation: `"Output raw JSON (outgoing relations only; for full graph use srs relation list --source/--target directly)"`.
+
 - [ ] Add `render::relations_list(id: &str, relations: &[serde_json::Value])` in `crates/srs-gov/src/render.rs`:
   - Print a header `Relations  —  <short_id>`.
   - Print a table: `  DIRECTION  TYPE                 SOURCE           TARGET           ID`.
@@ -329,9 +330,17 @@ cargo clippy -p srs-gov -- -D warnings
   - Print a footer: `  Run: srs-gov unrelate <ID>  to remove a relation`.
 - [ ] In `crates/srs-gov/src/main.rs`, implement `cmd_relate(id, relation_type, target, repo, explain, json)`:
   - Validate `relation_type` is `supersedes` or `depends-on`; error otherwise with `anyhow::bail!`.
-  - Resolve the full instance ID for `id` and `target` via `run_srs(&["record", "get", id], ...)` → `payload["record"]["instanceId"]` (needed because the user may pass a prefix; `srs relation create` requires full UUIDs).
+  - **If `explain = true`**: early-return IMMEDIATELY before any `run_srs` calls, printing placeholder-based command previews:
+    ```
+    # Would run:
+    srs record get --id <id> --repo <repo>
+    srs record get --id <target> --repo <repo>
+    srs relation create --repo <repo>
+    # stdin: {"relationType": "<relation_type>", "sourceInstanceId": "<source-id>", "targetInstanceId": "<target-id>"}
+    ```
+    Then `return Ok(())`.
+  - Resolve the full instance ID for `id` and `target` via `run_srs(&["record", "get", id], ...)` → `payload["record"]["instanceId"]` (needed because the user may pass a prefix; `srs relation create` requires full UUIDs). This resolution step only runs when `explain = false`.
   - Build `stdin_json = json!({"relationType": relation_type, "sourceInstanceId": full_source, "targetInstanceId": full_target}).to_string()`.
-  - `explain` mode: print `srs relation create` command + JSON body.
   - Normal mode: call `run_srs_with_stdin(&["relation", "create"], repo, &stdin_json, false, json)`.
   - Extract `payload["relation"]["relationId"]` and call `render::relation_created(...)`.
 - [ ] Add `render::relation_created(relation_id: &str, relation_type: &str, source_id: &str, target_id: &str)` in `crates/srs-gov/src/render.rs`:
