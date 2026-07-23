@@ -147,19 +147,19 @@ tests pass. No service caller uses them yet.
 
 #### Tasks
 
-- [ ] In `src/index.rs`, add `InstanceRef { instance_id, tier, title: Option<String>, tags: Vec<String> }`
+- [x] In `src/index.rs`, add `InstanceRef { instance_id, tier, title: Option<String>, tags: Vec<String> }`
       and `InstanceQuery { tier: Option<u8>, tag: Option<String> }` (derive `Debug, Clone, Default`;
       internal to the adapter layer — **no `Serialize`/`Deserialize`** needed). Add
       `InstanceQuery::matches(&InstanceIndexEntry) -> bool` with a doc comment stating the
       combinator: `tier` is exact-match; `tag` is a single **contains** predicate (present in the
       entry's tags); both `None` ⇒ match all.
-- [ ] In `src/store.rs` trait, add the seven methods under a new `// --- Instances (logical-id +
+- [x] In `src/store.rs` trait, add the seven methods under a new `// --- Instances (logical-id +
       typed; ADR-042) ---` block, doc comments citing ADR-007 ordering, the existing-path/new-path
       branch rule (incl. denormalized-field refresh), and G3/G5. Doc-comment `delete_instance(id)`
       to distinguish it from the pre-existing generic-shim `delete_instance_file(path)`. Annotate
       the existing Value/path instance block as the transitional generic-JSON shim (doc note
       pointing at the generic-seam follow-up issue #726).
-- [ ] FileStore impl (`src/store.rs`): `file_store_find_instance_path(store, id) -> Option<String>`
+- [x] FileStore impl (`src/store.rs`): `file_store_find_instance_path(store, id) -> Option<String>`
       and typed `file_store_{load,upsert,remove}_instance_index` helpers.
       - `save_record`/`save_note`: **two branches, mirroring `save_container` (`store.rs:1409-1440`)** —
         if the id is already indexed, overwrite the entity **at its existing path** (path + `tier`
@@ -173,25 +173,25 @@ tests pass. No service caller uses them yet.
       - `delete_instance`: remove the index entry **then** the file (ignore missing file);
         `…NotFound` for an unknown id.
       - `find_instance`/`list_instances`: answer from `manifest.instance_index` (no body loads).
-- [ ] JsonStore impl (`src/json_store.rs`): key by `records/tier-{n}/…` in the data map, maintain
+- [x] JsonStore impl (`src/json_store.rs`): key by `records/tier-{n}/…` in the data map, maintain
       the index in the manifest exactly as the container methods do, `flush()` after writes
       (inherits ADR-021 batch safety). Same two-branch save shape.
-- [ ] MemoryStore impl (`src/store.rs` `mod memory`): mirror **FileStore** against the in-memory map
+- [x] MemoryStore impl (`src/store.rs` `mod memory`): mirror **FileStore** against the in-memory map
       (do **not** copy `delete_container`'s data-first delete inversion — `delete_instance` is
       index-first). Add `FailPoint::SaveInstanceIndex` and honour it between data write and index
       update.
 
 #### Acceptance Criteria
 
-- [ ] All three impls compile; `save_record`/`save_note` round-trip an entity by id through each store.
-- [ ] `save_record` on an **existing** id overwrites at the existing path with the index unchanged;
+- [x] All three impls compile; `save_record`/`save_note` round-trip an entity by id through each store.
+- [x] `save_record` on an **existing** id overwrites at the existing path with the index unchanged;
       on a **new** id writes file-before-index. With `FailPoint::SaveInstanceIndex` armed, the data
       file exists and the index entry is absent (orphan-safe, ADR-007).
-- [ ] `delete_instance` removes the index entry before the file and returns `…NotFound` for an
+- [x] `delete_instance` removes the index entry before the file and returns `…NotFound` for an
       unknown id.
-- [ ] `list_instances(InstanceQuery::default())` returns every instance; a `tier`/`tag` filter
+- [x] `list_instances(InstanceQuery::default())` returns every instance; a `tier`/`tag` filter
       narrows correctly, answered without loading entity bodies.
-- [ ] `find_instance(id)` returns the tier for a known id and `None` for an unknown id.
+- [x] `find_instance(id)` returns the tier for a known id and `None` for an unknown id.
 
 #### Testing
 
@@ -233,31 +233,31 @@ suite green.
 
 #### Tasks (migrate — the complete enumerated set)
 
-- [ ] `record_store.rs` readers → `list_instances`/`find_instance` + `load_record_by_id`:
+- [x] `record_store.rs` readers → `list_instances`/`find_instance` + `load_record_by_id`:
       `list_all_records`, `list_records_by_type`, `get_record_by_id`, `get_instance_by_id`
       (uses `find_instance` for the tier then the typed loader; `LoadedInstance` dispatch unchanged),
       `list_records_filtered`, `list_record_summaries`, `list_record_tags`.
-- [ ] `record_store.rs` writers → `save_record`: `create_record_at_dir`/`write_record` (Tier-2
+- [x] `record_store.rs` writers → `save_record`: `create_record_at_dir`/`write_record` (Tier-2
       new-id branch), `update_record` (existing-id branch — path preserved, index tags refreshed),
       `add_record_tag`, `remove_record_tag`, `append_source_ref`, `create_record_successor`,
       `write_new_record` (the second Tier-2 write path used by `repository_lifecycle.rs:120`).
       These lose their manual `write_record`+`upsert_record_index_entry` pairs (subsumed by
       `save_record`) — they get **shorter**. (`delete_record` is carved out — see below.)
-- [ ] `writer.rs::write_note` → `save_note`; `services.rs` `note_service`: `list_notes`,
+- [x] `writer.rs::write_note` → `save_note`; `services.rs` `note_service`: `list_notes`,
       `get_note_by_id`, note create, `update_note`, `delete_note`, `add_note_tag`, `remove_note_tag`
       → typed methods.
-- [ ] Keep `record_store::load_record(store, path)` and `loader::load_note(store, path)` as
+- [x] Keep `record_store::load_record(store, path)` and `loader::load_note(store, path)` as
       transitional path helpers (**signatures unchanged**) — after this phase their only callers are
       the deferred readers + revision-coupled trio.
-- [ ] **Keep `dir_override`** on `create_record_in_context` — it backs the `srs record create --dir`
+- [x] **Keep `dir_override`** on `create_record_in_context` — it backs the `srs record create --dir`
       CLI flag (`srs-cli/.../record.rs`) and the MCP `record_create` tool; it is not dead. The
       routing lives in `create_record_at_dir` instead (next task).
-- [ ] `create_record_at_dir` is still used by `extension_service.rs` (Extension dir), so **keep it**;
+- [x] `create_record_at_dir` is still used by `extension_service.rs` (Extension dir), so **keep it**;
       its Tier-2 internal path delegates to `save_record`, the Extension-dir path stays transitional.
 
 #### Tasks (carve out — do NOT migrate; allow-list in Phase 3)
 
-- [ ] `delete_record`, `transition_record_lifecycle`, `list_record_revisions`, `get_record_revision`:
+- [x] `delete_record`, `transition_record_lifecycle`, `list_record_revisions`, `get_record_revision`:
       retain their `instance_index` → `path` lookup **only** to pass the path to `revision_service`
       (`delete_sidecar`/`append`/`list`/`get`). `delete_record` already does an ADR-007 index-first
       delete and does not load by path; where a function writes the record
@@ -266,15 +266,15 @@ suite green.
 
 #### Acceptance Criteria
 
-- [ ] All readers/enumerators/writers listed above in `record_store.rs` and `note_service` no longer
+- [x] All readers/enumerators/writers listed above in `record_store.rs` and `note_service` no longer
       call `entry.path()` / `load_record(path)` / `load_note(path)`.
-- [ ] `save_record`'s existing-id branch refreshes the index entry's `tags` (and note `title`) so
+- [x] `save_record`'s existing-id branch refreshes the index entry's `tags` (and note `title`) so
       `add_record_tag`/`update_note`/etc. keep the discovery columns correct — verified by the
       existing tag tests (e.g. `services.rs` note-tag tests, record-tag tests).
-- [ ] `create_record` / `create_record_in_container` / `create_record_in_context` / `update_record`
+- [x] `create_record` / `create_record_in_container` / `create_record_in_context` / `update_record`
       / `transition_record_lifecycle` / `create_record_successor` still pass their existing tests.
-- [ ] Notes create/read/update/delete/tag unchanged in behaviour.
-- [ ] No behavioural change to CLI output (integration tests green).
+- [x] Notes create/read/update/delete/tag unchanged in behaviour.
+- [x] No behavioural change to CLI output (integration tests green).
 
 #### Testing
 
@@ -309,15 +309,15 @@ proven id-based by a **crate-wide** gate with an explicit allow-list of the defe
 
 #### Tasks
 
-- [ ] Doc-comment `InstanceIndexEntry.path` / `path()` in `src/index.rs`: "adapter-private key;
+- [x] Doc-comment `InstanceIndexEntry.path` / `path()` in `src/index.rs`: "adapter-private key;
       migrated service code addresses instances by id via the store's typed methods (ADR-041 G5,
       ADR-042). Remaining path-based readers are tracked in the deferred follow-up."
-- [ ] Stage 7.5 docs (see that stage): `srs-rust/CLAUDE.md` Storage Boundary note; `ARCHITECTURE.md`
+- [x] Stage 7.5 docs (see that stage): `srs-rust/CLAUDE.md` Storage Boundary note; `ARCHITECTURE.md`
       Store Matrix / Storage Direction pointer to ADR-042; flip ADR-042 status to `accepted` at merge.
 
 #### Acceptance Criteria
 
-- [ ] **Crate-wide gate (exhaustive allow-list):** a grep over `crates/srs-repository/src` for the
+- [x] **Crate-wide gate (exhaustive allow-list):** a grep over `crates/srs-repository/src` for the
       pattern "iterate `manifest.instance_index` then load by `entry.path()`" (i.e. `entry.path()`/
       `e.path()` feeding `load_record`/`load_note`/`load_instance_json`) returns hits **only** in the
       allow-list below. `record_store.rs` and `services.rs` appear **only** for their transitional
@@ -336,7 +336,7 @@ proven id-based by a **crate-wide** gate with an explicit allow-list of the defe
       - Archive/export packers (need paths to copy files): `archive.rs`, `export_service.rs`,
         `repository_portability.rs`
       No **new** or **unlisted** file walks the index by path for instance loads.
-- [ ] Docs updated; ADR cross-referenced.
+- [x] Docs updated; ADR cross-referenced.
 
 #### Milestone gate
 
@@ -351,21 +351,21 @@ Commit: `docs: InstanceIndexEntry.path opaque (scoped) + ADR-042 pointers (#724)
 
 ## Final Acceptance
 
-- [ ] `cargo test` passes with no failures
-- [ ] `cargo clippy -- -D warnings` passes
-- [ ] CLI output format unchanged (integration tests pass)
-- [ ] `cargo test --test payload_contracts` passes (no payload structs changed)
-- [ ] `bash scripts/check-schema-sync.sh` exits 0 (no entity schemas changed)
-- [ ] New typed instance methods implemented on all three stores with store-matrix parity tests
-- [ ] ADR-007 fault-injection test for `save_record` passes (`FailPoint::SaveInstanceIndex`)
-- [ ] `save_record` existing-id path-stability test passes (no rename on type-version migration)
-- [ ] The **entire** `record_store.rs` + `note_service` instance funnel (every enumerated reader/
+- [x] `cargo test` passes with no failures
+- [x] `cargo clippy -- -D warnings` passes
+- [x] CLI output format unchanged (integration tests pass)
+- [x] `cargo test --test payload_contracts` passes (no payload structs changed)
+- [x] `bash scripts/check-schema-sync.sh` exits 0 (no entity schemas changed)
+- [x] New typed instance methods implemented on all three stores with store-matrix parity tests
+- [x] ADR-007 fault-injection test for `save_record` passes (`FailPoint::SaveInstanceIndex`)
+- [x] `save_record` existing-id path-stability test passes (no rename on type-version migration)
+- [x] The **entire** `record_store.rs` + `note_service` instance funnel (every enumerated reader/
       writer, minus the revision-coupled trio) no longer walks `manifest.instance_index` by
       `entry.path()`; every remaining path-based instance load is named in the exhaustive Phase-3
       allow-list (crate-wide gate)
-- [ ] `dir_override` retained (`--dir` CLI flag preserved); default Tier-2 writes route through
+- [x] `dir_override` retained (`--dir` CLI flag preserved); default Tier-2 writes route through
       `save_record`, custom/Extension dirs through the legacy write in `create_record_at_dir`
-- [ ] Child stories filed and linked under #704 for the deferred readers, the generic seam, and the
+- [x] Child stories filed and linked under #704 for the deferred readers, the generic seam, and the
       remaining entity families
 
 ## Coordination Rules
