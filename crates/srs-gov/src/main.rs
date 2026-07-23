@@ -795,7 +795,13 @@ fn cmd_repo_create(
         .context("failed to serialise store")?;
     std::fs::File::create(out_path)?.write_all(final_srsj.as_bytes())?;
 
-    render::repo_created(output, title, namespace, &result.repository_id, purpose.is_some());
+    render::repo_created(
+        output,
+        title,
+        namespace,
+        &result.repository_id,
+        purpose.is_some(),
+    );
     Ok(())
 }
 

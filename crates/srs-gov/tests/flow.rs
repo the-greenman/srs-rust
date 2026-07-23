@@ -460,7 +460,15 @@ fn repo_create_empty_namespace_is_rejected() {
     let srs = srs_bin();
     let out = std::process::Command::new(&gov)
         .env("SRS_BIN", &srs)
-        .args(["repo-create", "--output", &path, "--title", "Test", "--namespace", ""])
+        .args([
+            "repo-create",
+            "--output",
+            &path,
+            "--title",
+            "Test",
+            "--namespace",
+            "",
+        ])
         .output()
         .expect("run srs-gov repo-create --namespace empty");
     assert!(
