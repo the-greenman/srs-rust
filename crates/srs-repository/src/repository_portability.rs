@@ -208,8 +208,28 @@ pub fn export_repository_snapshot_with_options(
         });
     }
 
+    // Identify the embed-only root container ID, if any. An embed-only root exists in
+    // `manifest.container` but has no entry in `containerIndex` — it is already
+    // preserved in `root_container` below, so including it in `containers` would
+    // double-capture it and cause `create_container` UUID-validation failures on import
+    // for repositories whose id pre-dates the UUID requirement (e.g. legacy test repos).
+    let embed_only_root_id: Option<String> = manifest.container.as_ref().and_then(|mc| {
+        let in_index = manifest
+            .container_index
+            .as_ref()
+            .is_some_and(|idx| idx.iter().any(|e| e.container_id == mc.container_id));
+        if in_index {
+            None
+        } else {
+            Some(mc.container_id.clone())
+        }
+    });
+
     let mut containers = Vec::new();
     for summary in list_containers(source, &ContainerListFilter::default())? {
+        if embed_only_root_id.as_deref() == Some(summary.container_id.as_str()) {
+            continue;
+        }
         containers.push(get_container(source, &summary.container_id)?);
     }
 
@@ -1503,7 +1523,8 @@ mod tests {
         let copied = target.load_manifest().unwrap();
         assert_eq!(copied.instance_index.len(), 1);
         let summaries = list_containers(&target, &ContainerListFilter::default()).unwrap();
-        assert_eq!(summaries.len(), 1);
+        // 2 = root container (embed-only, from manifest.container) + explicitly added container.
+        assert_eq!(summaries.len(), 2);
         assert_eq!(load_relations(&target).unwrap().len(), 1);
     }
 

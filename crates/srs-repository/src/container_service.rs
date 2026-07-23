@@ -74,11 +74,22 @@ pub fn list_containers(
     store: &dyn RepositoryStore,
     filter: &ContainerListFilter,
 ) -> Result<Vec<ContainerSummary>, RepositoryError> {
-    let summaries_raw = store.list_container_summaries()?;
-    let mut summaries = Vec::new();
+    let mut summaries_raw = store.list_container_summaries()?;
 
+    // Include manifest.container embed root if not already in containerIndex (RFC-013).
+    let manifest = store.load_manifest()?;
+    if let Some(ref embed) = manifest.container {
+        if !summaries_raw
+            .iter()
+            .any(|(id, _)| id == &embed.container_id)
+        {
+            summaries_raw.insert(0, (embed.container_id.clone(), embed.title.clone()));
+        }
+    }
+
+    let mut summaries = Vec::new();
     for (container_id, _title) in summaries_raw {
-        let container = store.load_container(&container_id)?;
+        let (container, _) = load_container_with_embed_fallback(store, &container_id)?;
         if let Some(ref ct) = filter.container_type {
             if container.container_type.as_deref() != Some(ct.as_str()) {
                 continue;
@@ -160,7 +171,8 @@ pub fn get_container(
     store: &dyn RepositoryStore,
     container_id: &str,
 ) -> Result<Container, RepositoryError> {
-    store.load_container(container_id)
+    let (container, _) = load_container_with_embed_fallback(store, container_id)?;
+    Ok(container)
 }
 
 /// Resolve the repository's root container declared by `manifest.container`.
@@ -189,12 +201,93 @@ pub fn resolve_root_container(
     }
 }
 
+fn load_container_with_embed_fallback(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+) -> Result<(Container, bool), RepositoryError> {
+    match store.load_container(container_id) {
+        Ok(c) => Ok((c, false)),
+        Err(RepositoryError::ContainerNotFound { .. }) => {
+            let manifest = store.load_manifest()?;
+            match resolve_root_container(store, &manifest)? {
+                Some(c) if c.container_id == container_id => Ok((c, true)),
+                _ => Err(RepositoryError::ContainerNotFound {
+                    container_id: container_id.to_string(),
+                }),
+            }
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Save a container, syncing `manifest.container` when appropriate.
+///
+/// `sync_file_backed_root`: when true and the container is a file-backed root, do a
+/// dual write (file + manifest) under the batch seam (ADR-041 G6). When false, only
+/// the file is written — callers that manage manifest.container themselves (e.g.
+/// `migrate_identity`) pass false to avoid overwriting their own manifest writes.
+fn save_container_syncing_embed(
+    store: &dyn RepositoryStore,
+    container: &Container,
+    is_embed_only: bool,
+    sync_file_backed_root: bool,
+) -> Result<(), RepositoryError> {
+    if is_embed_only {
+        // Caller guarantees is_embed_only=true only when container_id matches manifest.container
+        // (load_container_with_embed_fallback enforces this). If the ID somehow doesn't match,
+        // assert loudly rather than silently returning Ok without writing.
+        let mut manifest = store.load_manifest()?;
+        debug_assert_eq!(
+            manifest.container.as_ref().map(|mc| mc.container_id.as_str()),
+            Some(container.container_id.as_str()),
+            "save_container_syncing_embed: is_embed_only=true but container_id does not match manifest.container"
+        );
+        if manifest
+            .container
+            .as_ref()
+            .map(|mc| mc.container_id.as_str())
+            == Some(container.container_id.as_str())
+        {
+            manifest.container = Some(container.clone());
+            write_manifest(store, &manifest)?;
+        }
+        return Ok(());
+    }
+    if sync_file_backed_root {
+        let mut manifest = store.load_manifest()?;
+        let is_root = manifest
+            .container
+            .as_ref()
+            .map(|mc| mc.container_id.as_str())
+            == Some(container.container_id.as_str());
+        if is_root {
+            manifest.container = Some(container.clone());
+            store.begin_batch();
+            if let Err(e) = store.save_container(container) {
+                store.abort_batch();
+                return Err(e);
+            }
+            if let Err(e) = write_manifest(store, &manifest) {
+                store.abort_batch();
+                return Err(e);
+            }
+            if let Err(e) = store.commit_batch() {
+                store.abort_batch();
+                return Err(e);
+            }
+            return Ok(());
+        }
+    }
+    store.save_container(container)?;
+    Ok(())
+}
+
 pub fn update_container(
     store: &dyn RepositoryStore,
     container_id: &str,
     patch: ContainerPatch,
 ) -> Result<Container, RepositoryError> {
-    let mut container = get_container(store, container_id)?;
+    let (mut container, is_embed_only) = load_container_with_embed_fallback(store, container_id)?;
     if let Some(v) = patch.title {
         container.title = v;
     }
@@ -232,49 +325,20 @@ pub fn update_container(
 
     // Schema validation at service boundary (after patch application)
     let raw = serde_json::to_value(&container).map_err(|e| RepositoryError::Serialize {
-        path: std::path::PathBuf::from(format!("containers/{container_id}.json")),
+        path: std::path::PathBuf::from(container_id),
         source: e,
     })?;
     SchemaRegistry::global()
         .validate_by_id(CONTAINER_SCHEMA_ID, &raw)
         .map_err(|e| RepositoryError::SchemaValidation {
-            path: std::path::PathBuf::from(format!("containers/{container_id}.json")),
+            path: std::path::PathBuf::from(container_id),
             message: e.to_string(),
         })?;
 
     validate_container(&container)
         .map_err(|source| RepositoryError::ContainerValidation { source })?;
 
-    // If repointing identityInstanceId on the root container, sync manifest too (ADR-021 batch).
-    if let Some(new_identity_id) = patch.identity_instance_id {
-        let mut manifest = store.load_manifest()?;
-        let is_root = manifest
-            .container
-            .as_ref()
-            .map(|mc| mc.container_id.as_str() == container_id)
-            .unwrap_or(false);
-        if is_root {
-            if let Some(ref mut mc) = manifest.container {
-                mc.identity_instance_id = Some(new_identity_id);
-            }
-            store.begin_batch();
-            if let Err(e) = store.save_container(&container) {
-                store.abort_batch();
-                return Err(e);
-            }
-            if let Err(e) = write_manifest(store, &manifest) {
-                store.abort_batch();
-                return Err(e);
-            }
-            if let Err(e) = store.commit_batch() {
-                store.abort_batch();
-                return Err(e);
-            }
-            return Ok(container);
-        }
-    }
-
-    store.save_container(&container)?;
+    save_container_syncing_embed(store, &container, is_embed_only, true)?;
     Ok(container)
 }
 
@@ -307,7 +371,7 @@ pub fn add_member(
     container_id: &str,
     instance_id: &str,
 ) -> Result<Vec<String>, RepositoryError> {
-    let mut container = get_container(store, container_id)?;
+    let (mut container, is_embed_only) = load_container_with_embed_fallback(store, container_id)?;
     let mut members = container.member_instance_ids.unwrap_or_default();
     if members.iter().any(|id| id == instance_id) {
         return Ok(members);
@@ -315,7 +379,7 @@ pub fn add_member(
     members.push(instance_id.to_string());
     members.sort();
     container.member_instance_ids = Some(members.clone());
-    store.save_container(&container)?;
+    save_container_syncing_embed(store, &container, is_embed_only, false)?;
     Ok(members)
 }
 
@@ -324,7 +388,7 @@ pub fn remove_member(
     container_id: &str,
     instance_id: &str,
 ) -> Result<Vec<String>, RepositoryError> {
-    let mut container = get_container(store, container_id)?;
+    let (mut container, is_embed_only) = load_container_with_embed_fallback(store, container_id)?;
     let mut members = container.member_instance_ids.unwrap_or_default();
     members.retain(|id| id != instance_id);
     if members.is_empty() {
@@ -332,7 +396,7 @@ pub fn remove_member(
     } else {
         container.member_instance_ids = Some(members.clone());
     }
-    store.save_container(&container)?;
+    save_container_syncing_embed(store, &container, is_embed_only, false)?;
     Ok(container.member_instance_ids.unwrap_or_default())
 }
 
@@ -349,7 +413,7 @@ pub fn add_root(
     container_id: &str,
     instance_id: &str,
 ) -> Result<Vec<String>, RepositoryError> {
-    let mut container = get_container(store, container_id)?;
+    let (mut container, is_embed_only) = load_container_with_embed_fallback(store, container_id)?;
     let mut roots = container.root_instance_ids.unwrap_or_default();
     if roots.iter().any(|id| id == instance_id) {
         return Ok(roots);
@@ -357,7 +421,7 @@ pub fn add_root(
     roots.push(instance_id.to_string());
     roots.sort();
     container.root_instance_ids = Some(roots.clone());
-    store.save_container(&container)?;
+    save_container_syncing_embed(store, &container, is_embed_only, false)?;
     Ok(container.root_instance_ids.unwrap_or_default())
 }
 
@@ -366,7 +430,7 @@ pub fn remove_root(
     container_id: &str,
     instance_id: &str,
 ) -> Result<Vec<String>, RepositoryError> {
-    let mut container = get_container(store, container_id)?;
+    let (mut container, is_embed_only) = load_container_with_embed_fallback(store, container_id)?;
     let mut roots = container.root_instance_ids.unwrap_or_default();
     roots.retain(|id| id != instance_id);
     if roots.is_empty() {
@@ -374,7 +438,7 @@ pub fn remove_root(
     } else {
         container.root_instance_ids = Some(roots.clone());
     }
-    store.save_container(&container)?;
+    save_container_syncing_embed(store, &container, is_embed_only, false)?;
     Ok(container.root_instance_ids.unwrap_or_default())
 }
 
@@ -1192,5 +1256,195 @@ mod tests {
             result.is_err(),
             "unknown fields in ContainerPatch must fail deserialization, not silently drop"
         );
+    }
+
+    // --- Phase 1: embed-only read path ---
+
+    fn embed_only_store(embed_id: &str, title: &str) -> MemoryStore {
+        let store = MemoryStore::default();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.container = Some(minimal_container(embed_id, title));
+        store.save_manifest(&manifest).unwrap();
+        store
+    }
+
+    #[test]
+    fn embed_only_get_container_returns_embed() {
+        let embed_id = "aaa00000-0000-4000-8000-000000000001";
+        let store = embed_only_store(embed_id, "Root");
+        let c = get_container(&store, embed_id).unwrap();
+        assert_eq!(c.container_id, embed_id);
+        assert_eq!(c.title, "Root");
+    }
+
+    #[test]
+    fn embed_only_get_container_not_found_for_unknown_id() {
+        let embed_id = "aaa00000-0000-4000-8000-000000000001";
+        let store = embed_only_store(embed_id, "Root");
+        let err = get_container(&store, "00000000-0000-4000-8000-000000000099").unwrap_err();
+        assert!(matches!(err, RepositoryError::ContainerNotFound { .. }));
+    }
+
+    #[test]
+    fn embed_only_list_includes_root() {
+        let embed_id = "aaa00000-0000-4000-8000-000000000001";
+        let store = embed_only_store(embed_id, "Root");
+        let listed = list_containers(&store, &ContainerListFilter::default()).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].container_id, embed_id);
+    }
+
+    #[test]
+    fn list_no_duplicate_when_root_in_index() {
+        let embed_id = "aaa00000-0000-4000-8000-000000000001";
+        let store = MemoryStore::default();
+        create_container(&store, minimal_container(embed_id, "Root")).unwrap();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.container = Some(minimal_container(embed_id, "Root"));
+        store.save_manifest(&manifest).unwrap();
+        let listed = list_containers(&store, &ContainerListFilter::default()).unwrap();
+        assert_eq!(
+            listed.len(),
+            1,
+            "embed root must not appear twice when already in containerIndex"
+        );
+    }
+
+    #[test]
+    fn embed_only_filestore_get_container_returns_embed() {
+        use tempfile::TempDir;
+        let temp = TempDir::new().unwrap();
+        let embed_id = "aaa00000-0000-4000-8000-000000000001";
+        let manifest_json = format!(
+            r#"{{"srsVersion":"2.0-draft","repositoryId":"test","instanceIndex":[],"container":{{"containerId":"{embed_id}","title":"Root"}}}}"#
+        );
+        std::fs::write(temp.path().join("manifest.json"), &manifest_json).unwrap();
+        let store = crate::FileStore::new(temp.path());
+        let c = get_container(&store, embed_id).unwrap();
+        assert_eq!(c.container_id, embed_id);
+        assert_eq!(c.title, "Root");
+    }
+
+    // --- Phase 2: embed-only and dual-write path ---
+
+    #[test]
+    fn embed_only_add_member_updates_manifest() {
+        let embed_id = "aaa00000-0000-4000-8000-000000000001";
+        let store = embed_only_store(embed_id, "Root");
+        let member = "11111111-1111-4111-8111-111111111111";
+        add_member(&store, embed_id, member).unwrap();
+        let manifest = store.load_manifest().unwrap();
+        let embed = manifest.container.unwrap();
+        assert!(embed
+            .member_instance_ids
+            .as_ref()
+            .is_some_and(|ids| ids.contains(&member.to_string())));
+    }
+
+    #[test]
+    fn embed_only_remove_member_updates_manifest() {
+        let embed_id = "aaa00000-0000-4000-8000-000000000001";
+        let store = embed_only_store(embed_id, "Root");
+        let member = "11111111-1111-4111-8111-111111111111";
+        add_member(&store, embed_id, member).unwrap();
+        remove_member(&store, embed_id, member).unwrap();
+        let manifest = store.load_manifest().unwrap();
+        let embed = manifest.container.unwrap();
+        assert!(embed
+            .member_instance_ids
+            .as_ref()
+            .map_or(true, |ids| !ids.contains(&member.to_string())));
+    }
+
+    #[test]
+    fn embed_only_add_root_updates_manifest() {
+        let embed_id = "aaa00000-0000-4000-8000-000000000001";
+        let store = embed_only_store(embed_id, "Root");
+        let root = "11111111-1111-4111-8111-111111111111";
+        add_root(&store, embed_id, root).unwrap();
+        let manifest = store.load_manifest().unwrap();
+        let embed = manifest.container.unwrap();
+        assert!(embed
+            .root_instance_ids
+            .as_ref()
+            .is_some_and(|ids| ids.contains(&root.to_string())));
+    }
+
+    #[test]
+    fn embed_only_remove_root_updates_manifest() {
+        let embed_id = "aaa00000-0000-4000-8000-000000000001";
+        let store = embed_only_store(embed_id, "Root");
+        let root = "11111111-1111-4111-8111-111111111111";
+        add_root(&store, embed_id, root).unwrap();
+        remove_root(&store, embed_id, root).unwrap();
+        let manifest = store.load_manifest().unwrap();
+        let embed = manifest.container.unwrap();
+        assert!(embed
+            .root_instance_ids
+            .as_ref()
+            .map_or(true, |ids| !ids.contains(&root.to_string())));
+    }
+
+    #[test]
+    fn embed_only_update_container_title_updates_manifest() {
+        let embed_id = "aaa00000-0000-4000-8000-000000000001";
+        let store = embed_only_store(embed_id, "Root");
+        let patch = ContainerPatch {
+            title: Some("Updated Root".to_string()),
+            ..ContainerPatch::default()
+        };
+        let updated = update_container(&store, embed_id, patch).unwrap();
+        assert_eq!(updated.title, "Updated Root");
+        let manifest = store.load_manifest().unwrap();
+        assert_eq!(manifest.container.unwrap().title, "Updated Root");
+    }
+
+    #[test]
+    fn file_backed_root_add_member_updates_file() {
+        // For file-backed containers, add_member writes to the container file only.
+        // manifest.container is NOT synced by membership writes — only by update_container.
+        let embed_id = "aaa00000-0000-4000-8000-000000000001";
+        let store = MemoryStore::default();
+        create_container(&store, minimal_container(embed_id, "Root")).unwrap();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.container = Some(minimal_container(embed_id, "Root"));
+        store.save_manifest(&manifest).unwrap();
+        let member = "11111111-1111-4111-8111-111111111111";
+        add_member(&store, embed_id, member).unwrap();
+        let from_store = store.load_container(embed_id).unwrap();
+        assert!(from_store
+            .member_instance_ids
+            .as_ref()
+            .is_some_and(|ids| ids.contains(&member.to_string())));
+        // manifest.container must NOT be synced by membership writes on a file-backed root.
+        let post_manifest = store.load_manifest().unwrap();
+        assert!(
+            post_manifest
+                .container
+                .unwrap()
+                .member_instance_ids
+                .is_none(),
+            "add_member on file-backed root must not update manifest.container"
+        );
+    }
+
+    #[test]
+    fn update_container_all_fields_sync_to_manifest() {
+        let embed_id = "aaa00000-0000-4000-8000-000000000001";
+        let store = MemoryStore::default();
+        create_container(&store, minimal_container(embed_id, "Root")).unwrap();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.container = Some(minimal_container(embed_id, "Root"));
+        store.save_manifest(&manifest).unwrap();
+        let patch = ContainerPatch {
+            title: Some("New Title".to_string()),
+            description: Some("A description".to_string()),
+            ..ContainerPatch::default()
+        };
+        update_container(&store, embed_id, patch).unwrap();
+        let manifest = store.load_manifest().unwrap();
+        let embed = manifest.container.unwrap();
+        assert_eq!(embed.title, "New Title");
+        assert_eq!(embed.description.as_deref(), Some("A description"));
     }
 }
