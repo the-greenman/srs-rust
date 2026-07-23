@@ -19,7 +19,7 @@ mod tui_state;
 
 use governance::{by_key, by_root_type, GOVERNANCE_CONTAINERS};
 use render::{container_list, record_detail, section, ContainerRow};
-use srs::run_srs;
+use srs::{run_srs, run_srs_with_stdin};
 
 /// Governance-flow exploration CLI.
 ///
@@ -75,7 +75,7 @@ enum Commands {
         /// Instance ID (or unique prefix)
         id: String,
     },
-    /// Dry-run: print the srs command to create a new member record
+    /// Create a new member record (use --dry-run to preview the command)
     #[command(name = "create")]
     Create {
         /// Container key
@@ -88,6 +88,42 @@ enum Commands {
         /// Value for the decision_statement field (decisions only)
         #[arg(long)]
         statement: Option<String>,
+        /// Print the srs command without writing (old default behaviour)
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Transition a governance record's lifecycle state (ext:lifecycle)
+    #[command(name = "transition")]
+    Transition {
+        /// Instance ID (or unique prefix) of the record to transition
+        id: String,
+        /// Target lifecycle state (e.g. "proposed", "ratified", "superseded", "closed", "abandoned")
+        #[arg(long)]
+        to: String,
+    },
+    /// List outgoing and incoming relations for a governance record
+    #[command(name = "relations")]
+    Relations {
+        /// Instance ID (or unique prefix) of the record
+        id: String,
+    },
+    /// Create a relation between two governance records
+    #[command(name = "relate")]
+    Relate {
+        /// Source instance ID (or unique prefix)
+        id: String,
+        /// Relation type supported by this repository's package (e.g. supersedes, delegates)
+        #[arg(long = "type")]
+        relation_type: String,
+        /// Target instance ID (or unique prefix)
+        #[arg(long)]
+        target: String,
+    },
+    /// Delete a relation by its UUID
+    #[command(name = "unrelate")]
+    Unrelate {
+        /// Relation UUID to delete
+        relation_id: String,
     },
     /// Create a new governance repository from the canonical seed
     #[command(name = "repo-create")]
@@ -186,6 +222,7 @@ fn run() -> Result<()> {
             child,
             title,
             statement,
+            dry_run,
         }) => cmd_create(
             &key,
             &child,
@@ -193,7 +230,23 @@ fn run() -> Result<()> {
             statement.as_deref(),
             &cli.repo,
             cli.explain,
+            cli.json,
+            dry_run,
         ),
+        Some(Commands::Transition { id, to }) => {
+            cmd_transition(&id, &to, &cli.repo, cli.explain, cli.json)
+        }
+        Some(Commands::Relations { id }) => {
+            cmd_relations(&id, &cli.repo, cli.explain, cli.json)
+        }
+        Some(Commands::Relate {
+            id,
+            relation_type,
+            target,
+        }) => cmd_relate(&id, &relation_type, &target, &cli.repo, cli.explain, cli.json),
+        Some(Commands::Unrelate { relation_id }) => {
+            cmd_unrelate(&relation_id, &cli.repo, cli.explain, cli.json)
+        }
         Some(Commands::RepoCreate {
             output,
             title,
@@ -490,6 +543,7 @@ fn resolve_linked_attachments(instance_id: &str, repo: &str) -> Vec<render::Link
 // <key> create <child>  (dry-run)
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 fn cmd_create(
     key: &str,
     child: &str,
@@ -497,6 +551,8 @@ fn cmd_create(
     statement: Option<&str>,
     repo: &str,
     explain: bool,
+    json: bool,
+    dry_run: bool,
 ) -> Result<()> {
     let def = by_key(key)
         .ok_or_else(|| anyhow::anyhow!("unknown key '{key}'. Known: {}", known_keys()))?;
@@ -571,35 +627,184 @@ fn cmd_create(
     let input = serde_json::json!({ "fieldValues": fv_entries });
     let input_json = serde_json::to_string_pretty(&input)?;
 
-    println!();
-    println!(
-        "# Dry-run: command to create a new {child} in {}",
-        def.label
-    );
-    println!("# Run this to write. Nothing is written now.");
-    println!("#");
-    println!("# The --container flag creates the record AND adds it to the");
-    println!("# container in one step. Lifecycle defaults to 'draft'.");
-    println!();
-    println!(
-        "srs record create --type {type_ref} --container {container_id} --repo {repo} <<'EOF'"
-    );
-    println!("{input_json}");
-    println!("EOF");
-    println!();
-
-    if explain {
-        println!("# Container resolved via:");
-        run_srs(&["repo", "navigation"], repo, true, false)?;
-        println!("# Schema lookup used:");
-        run_srs(
-            &["type", "schema", &type_uuid, "--type-version", &tv],
-            repo,
-            true,
-            false,
-        )?;
+    if dry_run || explain {
+        println!();
+        println!(
+            "# Command to create a new {child} in {}",
+            def.label
+        );
+        println!("# The --container flag creates the record AND adds it to the");
+        println!("# container in one step. Lifecycle defaults to 'draft'.");
+        println!();
+        println!(
+            "srs record create --type {type_ref} --container {container_id} --repo {repo} <<'EOF'"
+        );
+        println!("{input_json}");
+        println!("EOF");
+        println!();
+        if explain {
+            println!("# Container resolved via:");
+            run_srs(&["repo", "navigation"], repo, true, false)?;
+            println!("# Schema lookup used:");
+            run_srs(
+                &["type", "schema", &type_uuid, "--type-version", &tv],
+                repo,
+                true,
+                false,
+            )?;
+        }
+        return Ok(());
     }
 
+    // Real write path
+    let payload = run_srs_with_stdin(
+        &["--container", &container_id, "record", "create", "--type", type_ref],
+        repo,
+        &input_json,
+        false,
+        json,
+    )?;
+    if json {
+        return Ok(());
+    }
+    let instance_id = payload["record"]["instanceId"].as_str().unwrap_or("(unknown)");
+    render::record_created(instance_id, child, &container_id);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// transition — advance a governance record's lifecycle state
+// ---------------------------------------------------------------------------
+
+fn cmd_transition(id: &str, to: &str, repo: &str, explain: bool, json: bool) -> Result<()> {
+    let stdin_json = serde_json::json!({"to": to}).to_string();
+
+    if explain {
+        println!("# Underlying srs commands:");
+        run_srs(&["record", "allowed-transitions", "--id", id], repo, true, false)?;
+        run_srs(&["record", "transition", "--id", id], repo, true, false)?;
+        println!("  # stdin: {stdin_json}");
+        return Ok(());
+    }
+
+    let payload = run_srs_with_stdin(
+        &["record", "transition", "--id", id],
+        repo,
+        &stdin_json,
+        false,
+        json,
+    )?;
+    if json {
+        return Ok(());
+    }
+    let state = payload["record"]["lifecycleState"].as_str().unwrap_or(to);
+    render::transition_applied(id, state);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// relations — list outgoing and incoming relations
+// ---------------------------------------------------------------------------
+
+fn cmd_relations(id: &str, repo: &str, explain: bool, json: bool) -> Result<()> {
+    if explain {
+        println!("# Underlying srs commands:");
+        run_srs(&["relation", "list", "--source", id], repo, true, false)?;
+        run_srs(&["relation", "list", "--target", id], repo, true, false)?;
+        return Ok(());
+    }
+
+    let out_payload = run_srs(&["relation", "list", "--source", id], repo, false, json)?;
+    if json {
+        return Ok(());
+    }
+    let in_payload = run_srs(&["relation", "list", "--target", id], repo, false, false)?;
+
+    let empty = vec![];
+    let mut outgoing: Vec<serde_json::Value> = out_payload["relations"]
+        .as_array()
+        .unwrap_or(&empty)
+        .to_vec();
+    let incoming: Vec<serde_json::Value> = in_payload["relations"]
+        .as_array()
+        .unwrap_or(&empty)
+        .iter()
+        .filter(|r| {
+            // dedup: skip any relation already in outgoing (source == id means it's also in outgoing)
+            let source = r["sourceInstanceId"].as_str().unwrap_or("");
+            source != id && !source.starts_with(id)
+        })
+        .cloned()
+        .collect();
+    outgoing.extend(incoming);
+
+    render::relations_list(id, &outgoing);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// relate — create a governance relation between two records
+// ---------------------------------------------------------------------------
+
+fn cmd_relate(
+    id: &str,
+    relation_type: &str,
+    target: &str,
+    repo: &str,
+    explain: bool,
+    json: bool,
+) -> Result<()> {
+    if explain {
+        println!("# Underlying srs commands:");
+        run_srs(&["record", "get", id], repo, true, false)?;
+        run_srs(&["record", "get", target], repo, true, false)?;
+        run_srs(&["relation", "create"], repo, true, false)?;
+        println!(
+            "  # stdin: {{\"relationType\": \"{relation_type}\", \"sourceInstanceId\": \"<source-id>\", \"targetInstanceId\": \"<target-id>\"}}"
+        );
+        return Ok(());
+    }
+
+    // Resolve full instance IDs (user may pass prefixes; srs relation create requires full UUIDs)
+    let src_payload = run_srs(&["record", "get", id], repo, false, false)?;
+    let full_source = src_payload["record"]["instanceId"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("could not resolve instance ID for source: {id}"))?
+        .to_string();
+
+    let tgt_payload = run_srs(&["record", "get", target], repo, false, false)?;
+    let full_target = tgt_payload["record"]["instanceId"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("could not resolve instance ID for target: {target}"))?
+        .to_string();
+
+    let stdin_json = serde_json::json!({
+        "relationType": relation_type,
+        "sourceInstanceId": full_source,
+        "targetInstanceId": full_target,
+    })
+    .to_string();
+
+    let payload = run_srs_with_stdin(&["relation", "create"], repo, &stdin_json, false, json)?;
+    if json {
+        return Ok(());
+    }
+    let relation_id = payload["relation"]["relationId"].as_str().unwrap_or("(unknown)");
+    render::relation_created(relation_id, relation_type, &full_source, &full_target);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// unrelate — delete a relation by UUID
+// ---------------------------------------------------------------------------
+
+fn cmd_unrelate(relation_id: &str, repo: &str, explain: bool, json: bool) -> Result<()> {
+    let payload = run_srs(&["relation", "delete", relation_id], repo, explain, json)?;
+    if json || explain {
+        return Ok(());
+    }
+    render::relation_deleted(relation_id);
+    let _ = payload; // deletion confirmed; relation_id is the authoritative ID
     Ok(())
 }
 
