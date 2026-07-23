@@ -21,7 +21,7 @@
 
 use crate::container_service;
 use crate::error::RepositoryError;
-use crate::index::InstanceIndexEntry;
+use crate::index::{InstanceIndexEntry, InstanceQuery};
 use crate::manifest::Manifest;
 use crate::package_service::{get_type_by_name, GetTypeResult};
 use crate::record_label;
@@ -46,14 +46,13 @@ use std::collections::HashMap;
 
 /// List all Tier 2 records in the repository, regardless of type.
 pub fn list_all_records(store: &dyn RepositoryStore) -> Result<Vec<Record>, RepositoryError> {
-    let manifest = store.load_manifest()?;
-    let mut records = Vec::new();
-
-    for entry in &manifest.instance_index {
-        if entry.tier() != 2 {
-            continue;
-        }
-        records.push(load_record(store, entry.path())?);
+    let refs = store.list_instances(&InstanceQuery {
+        tier: Some(2),
+        tag: None,
+    })?;
+    let mut records = Vec::with_capacity(refs.len());
+    for r in refs {
+        records.push(store.load_record_by_id(&r.instance_id)?);
     }
 
     Ok(records)
@@ -65,14 +64,14 @@ pub fn list_records_by_type(
     type_namespace: &str,
     type_name: &str,
 ) -> Result<Vec<Record>, RepositoryError> {
-    let manifest = store.load_manifest()?;
+    let refs = store.list_instances(&InstanceQuery {
+        tier: Some(2),
+        tag: None,
+    })?;
     let mut records = Vec::new();
 
-    for entry in &manifest.instance_index {
-        if entry.tier() != 2 {
-            continue;
-        }
-        let record = load_record(store, entry.path())?;
+    for r in refs {
+        let record = store.load_record_by_id(&r.instance_id)?;
         if record.type_namespace == type_namespace && record.type_name == type_name {
             records.push(record);
         }
@@ -86,19 +85,10 @@ pub fn get_record_by_id(
     store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<Option<Record>, RepositoryError> {
-    let manifest = store.load_manifest()?;
-
-    let entry = manifest
-        .instance_index
-        .iter()
-        .find(|e| e.instance_id() == id);
-
-    match entry {
-        Some(entry) => {
-            let record = load_record(store, entry.path())?;
-            Ok(Some(record))
-        }
-        None => Ok(None),
+    if store.find_instance(id)?.is_some() {
+        Ok(Some(store.load_record_by_id(id)?))
+    } else {
+        Ok(None)
     }
 }
 
@@ -152,22 +142,9 @@ pub fn get_instance_by_id(
     store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<Option<LoadedInstance>, RepositoryError> {
-    let manifest = store.load_manifest()?;
-
-    let entry = manifest
-        .instance_index
-        .iter()
-        .find(|e| e.instance_id() == id);
-
-    match entry {
-        Some(entry) if entry.is_note() => {
-            let note = crate::loader::load_note(store, entry.path())?;
-            Ok(Some(LoadedInstance::Note(note)))
-        }
-        Some(entry) => {
-            let record = load_record(store, entry.path())?;
-            Ok(Some(LoadedInstance::Record(record)))
-        }
+    match store.find_instance(id)? {
+        Some(r) if r.tier == 0 => Ok(Some(LoadedInstance::Note(store.load_note_by_id(id)?))),
+        Some(_) => Ok(Some(LoadedInstance::Record(store.load_record_by_id(id)?))),
         None => Ok(None),
     }
 }
@@ -288,20 +265,26 @@ pub(crate) fn create_record_at_dir(
 
     record.instance_id = new_instance_id();
 
-    store.ensure_instance_dir(relative_dir)?;
-
-    let type_slug = slugify_instance_name(&record.type_name);
-    let id8 = &record.instance_id[..8];
-    let relative_path = if type_slug.is_empty() {
-        format!("{relative_dir}/{id8}.json")
+    if relative_dir == store.record_tier_dir(RecordTier::Tier2) {
+        store.save_record(&record)?;
     } else {
-        format!("{relative_dir}/{type_slug}-{id8}.json")
-    };
-    write_record(store, &record, &relative_path)?;
+        // Extension/legacy directory — not covered by the typed logical-id surface
+        // (ADR-042 only defines Tier2/Note tiers); keep the manual write+index path.
+        store.ensure_instance_dir(relative_dir)?;
 
-    let mut manifest = store.load_manifest()?;
-    upsert_record_index_entry(&mut manifest, &record, &relative_path);
-    write_manifest(store, &manifest)?;
+        let type_slug = slugify_instance_name(&record.type_name);
+        let id8 = &record.instance_id[..8];
+        let relative_path = if type_slug.is_empty() {
+            format!("{relative_dir}/{id8}.json")
+        } else {
+            format!("{relative_dir}/{type_slug}-{id8}.json")
+        };
+        write_record(store, &record, &relative_path)?;
+
+        let mut manifest = store.load_manifest()?;
+        upsert_record_index_entry(&mut manifest, &record, &relative_path);
+        write_manifest(store, &manifest)?;
+    }
 
     Ok(record)
 }
@@ -424,19 +407,7 @@ pub fn update_record(
         }
     }
 
-    let mut manifest = store.load_manifest()?;
-    let entry = manifest
-        .instance_index
-        .iter()
-        .find(|e| e.instance_id() == instance_id)
-        .cloned()
-        .ok_or_else(|| RepositoryError::NotFound {
-            path: std::path::PathBuf::from("records"),
-        })?;
-
-    write_record(store, &updated_record, entry.path())?;
-    upsert_record_index_entry(&mut manifest, &updated_record, entry.path());
-    write_manifest(store, &manifest)?;
+    store.save_record(&updated_record)?;
 
     Ok(updated_record)
 }
@@ -694,34 +665,29 @@ pub fn list_records_filtered(
             None
         };
 
-    let manifest = store.load_manifest()?;
+    let refs = store.list_instances(&InstanceQuery {
+        tier: Some(2),
+        tag: None,
+    })?;
     let mut records = Vec::new();
 
-    for entry in &manifest.instance_index {
-        if entry.tier() != 2 {
-            continue;
-        }
-
+    for r in refs {
         // Container membership filter
         if let Some(ref member_set) = member_ids {
-            if !member_set.contains(entry.instance_id()) {
+            if !member_set.contains(&r.instance_id) {
                 continue;
             }
         }
 
-        // Tag filter — resolved from manifest index (no file load needed)
+        // Tag filter — resolved from the index (no file load needed)
         if let Some(ref tag_filter) = filter.tag {
-            let has_tag = entry
-                .tags
-                .as_ref()
-                .map(|tags| tags.iter().any(|t| t == tag_filter))
-                .unwrap_or(false);
+            let has_tag = r.tags.iter().any(|t| t == tag_filter);
             if !has_tag {
                 continue;
             }
         }
 
-        let record = load_record(store, entry.path())?;
+        let record = store.load_record_by_id(&r.instance_id)?;
 
         // Type namespace/name filter
         if let Some(ref ns) = filter.type_namespace {
@@ -1642,17 +1608,8 @@ pub fn create_record_successor(
                     });
                 }
             }
-            let manifest = store.load_manifest()?;
-            let entry = manifest
-                .instance_index
-                .iter()
-                .find(|e| e.instance_id() == successor.instance_id)
-                .cloned()
-                .ok_or_else(|| RepositoryError::NotFound {
-                    path: std::path::PathBuf::from("records"),
-                })?;
             successor.lifecycle_state = Some(explicit_state);
-            write_record(store, &successor, entry.path())?;
+            store.save_record(&successor)?;
         }
     }
 
@@ -1754,17 +1711,9 @@ pub fn add_record_tag(
     id: &str,
     tag: &str,
 ) -> Result<AddRecordTagResult, RepositoryError> {
-    let mut manifest = store.load_manifest()?;
-
-    let entry = manifest
-        .instance_index
-        .iter()
-        .find(|e| e.instance_id() == id && e.tier() == 2)
-        .cloned();
-
-    match entry {
-        Some(e) => {
-            let mut record = load_record(store, e.path())?;
+    match store.find_instance(id)? {
+        Some(r) if r.tier == 2 => {
+            let mut record = store.load_record_by_id(id)?;
 
             let tags = record.tags.get_or_insert_with(Vec::new);
             if tags.contains(&tag.to_string()) {
@@ -1775,16 +1724,14 @@ pub fn add_record_tag(
             }
             tags.push(tag.to_string());
 
-            write_record(store, &record, e.path())?;
-            upsert_record_index_entry(&mut manifest, &record, e.path());
-            write_manifest(store, &manifest)?;
+            store.save_record(&record)?;
 
             Ok(AddRecordTagResult::Added {
                 record,
                 tag: tag.to_string(),
             })
         }
-        None => Ok(AddRecordTagResult::NotFound),
+        _ => Ok(AddRecordTagResult::NotFound),
     }
 }
 
@@ -1797,17 +1744,9 @@ pub fn remove_record_tag(
     id: &str,
     tag: &str,
 ) -> Result<RemoveRecordTagResult, RepositoryError> {
-    let mut manifest = store.load_manifest()?;
-
-    let entry = manifest
-        .instance_index
-        .iter()
-        .find(|e| e.instance_id() == id && e.tier() == 2)
-        .cloned();
-
-    match entry {
-        Some(e) => {
-            let mut record = load_record(store, e.path())?;
+    match store.find_instance(id)? {
+        Some(r) if r.tier == 2 => {
+            let mut record = store.load_record_by_id(id)?;
 
             let tags = record.tags.get_or_insert_with(Vec::new);
             if !tags.contains(&tag.to_string()) {
@@ -1821,16 +1760,14 @@ pub fn remove_record_tag(
                 record.tags = None;
             }
 
-            write_record(store, &record, e.path())?;
-            upsert_record_index_entry(&mut manifest, &record, e.path());
-            write_manifest(store, &manifest)?;
+            store.save_record(&record)?;
 
             Ok(RemoveRecordTagResult::Removed {
                 record,
                 tag: tag.to_string(),
             })
         }
-        None => Ok(RemoveRecordTagResult::NotFound),
+        _ => Ok(RemoveRecordTagResult::NotFound),
     }
 }
 
@@ -1865,21 +1802,21 @@ pub fn list_record_tags(
         None
     };
 
-    let manifest = store.load_manifest()?;
+    let refs = store.list_instances(&InstanceQuery {
+        tier: Some(2),
+        tag: None,
+    })?;
     let mut counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
     let mut total_records = 0;
 
-    for entry in &manifest.instance_index {
-        if entry.tier() != 2 {
-            continue;
-        }
+    for r in &refs {
         if let Some(ref m) = member_ids {
-            if !m.contains(entry.instance_id()) {
+            if !m.contains(&r.instance_id) {
                 continue;
             }
         }
         total_records += 1;
-        for tag in entry.tags.iter().flatten() {
+        for tag in &r.tags {
             *counts.entry(tag.clone()).or_insert(0) += 1;
         }
     }
@@ -1974,22 +1911,21 @@ pub(crate) fn append_source_ref(
     source_ref: SourceReference,
     check_duplicate: bool,
 ) -> Result<Record, RepositoryError> {
-    let manifest = store.load_manifest()?;
-    let entry = manifest
-        .instance_index
-        .iter()
-        .find(|e| e.instance_id() == instance_id && e.tier() == 2)
-        .ok_or_else(|| RepositoryError::NotFound {
-            path: std::path::PathBuf::from("records"),
-        })?
-        .clone();
+    match store.find_instance(instance_id)? {
+        Some(r) if r.tier == 2 => {}
+        _ => {
+            return Err(RepositoryError::NotFound {
+                path: std::path::PathBuf::from("records"),
+            })
+        }
+    }
 
-    let mut record = load_record(store, entry.path())?;
+    let mut record = store.load_record_by_id(instance_id)?;
 
     let mut refs: Vec<SourceReference> = match record.extra.get("sourceRefs") {
         None => Vec::new(),
         Some(v) => serde_json::from_value(v.clone()).map_err(|e| RepositoryError::Serialize {
-            path: std::path::PathBuf::from(entry.path()),
+            path: std::path::PathBuf::from(instance_id),
             source: e,
         })?,
     };
@@ -2013,12 +1949,12 @@ pub(crate) fn append_source_ref(
     record.extra.insert(
         "sourceRefs".to_string(),
         serde_json::to_value(&refs).map_err(|e| RepositoryError::Serialize {
-            path: std::path::PathBuf::from(entry.path()),
+            path: std::path::PathBuf::from(instance_id),
             source: e,
         })?,
     );
 
-    write_record(store, &record, entry.path())?;
+    store.save_record(&record)?;
     Ok(record)
 }
 

@@ -1,5 +1,6 @@
 use crate::error::RepositoryError;
 use crate::field_json::FieldJson;
+use crate::index::{InstanceIndexEntry, InstanceQuery, InstanceRef};
 use crate::manifest::Manifest;
 use crate::package::Package;
 use crate::package_types::{DefinitionKind, PackageBoundary, PackageSelector};
@@ -11,6 +12,8 @@ use serde::de::Error as SerdeDeError;
 use srs_core::types::container::ContainerIndexEntry;
 use srs_core::types::field::Field;
 use srs_core::types::lifecycle::Lifecycle;
+use srs_core::types::note::Note;
+use srs_core::types::record::Record;
 use srs_core::types::record_type::RecordType;
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::types::theme::Theme;
@@ -19,6 +22,7 @@ use srs_core::types::vocabulary::Vocabulary;
 use srs_core::validation::relation_type_definition::validate_relation_type_definition;
 use srs_core::validation::theme::validate_theme;
 use srs_core::validation::view::{validate_document_view, validate_view};
+use srs_schema::{NOTE_SCHEMA_ID, RECORD_SCHEMA_ID};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -227,6 +231,50 @@ pub trait RepositoryStore {
     ///
     /// Required — each adapter declares its own layout explicitly.
     fn record_tier_dir(&self, tier: RecordTier) -> &'static str;
+
+    // --- Instances (logical-id + typed; ADR-042) ---
+    //
+    // The typed, logical-id-keyed instance surface (ADR-041 G3–G5). These
+    // address instances by `instance_id`, not by path — service code no longer
+    // walks `manifest.instance_index` by `InstanceIndexEntry.path`. The Value/path
+    // methods above are retained transitionally as a generic JSON shim (see #726);
+    // do not use them for instance persistence in new code.
+    //
+    // Tier is derived from the runtime type: `Note` → Tier 0, `Record` → Tier 2.
+
+    /// Persist a `Record` (Tier 2) by its logical id. Mirrors `save_container`'s
+    /// two branches: an existing id overwrites the entity **at its existing indexed
+    /// path** (path + tier preserved, no rename) and refreshes the index entry's
+    /// denormalized `tags`; a new id derives a collision-safe filename and writes
+    /// the **entity before the index entry** (ADR-007).
+    fn save_record(&self, record: &Record) -> Result<(), RepositoryError>;
+
+    /// Persist a `Note` (Tier 0) by its logical id. Same two-branch shape as
+    /// [`save_record`](Self::save_record); refreshes the index entry's `title`/`tags`.
+    fn save_note(&self, note: &Note) -> Result<(), RepositoryError>;
+
+    /// Load a `Record` by its logical id. Returns `InstanceNotFound` if no instance
+    /// with that id is indexed, or `RecordLoad` if the stored bytes fail to parse.
+    fn load_record_by_id(&self, instance_id: &str) -> Result<Record, RepositoryError>;
+
+    /// Load a `Note` by its logical id. Returns `InstanceNotFound` if no instance
+    /// with that id is indexed.
+    fn load_note_by_id(&self, instance_id: &str) -> Result<Note, RepositoryError>;
+
+    /// Delete an instance by its logical id, removing the **index entry before the
+    /// entity file** (ADR-007 index-first on delete). Returns `InstanceNotFound`
+    /// for an unknown id.
+    ///
+    /// Distinct from the transitional generic-shim `delete_instance_file(path)` above:
+    /// this is keyed by logical id and maintains the index.
+    fn delete_instance(&self, instance_id: &str) -> Result<(), RepositoryError>;
+
+    /// Look up one instance's index-answerable summary by id, or `None` if absent.
+    fn find_instance(&self, instance_id: &str) -> Result<Option<InstanceRef>, RepositoryError>;
+
+    /// Enumerate instances matching `query`, answered from the index without
+    /// loading entity bodies (G5). Order is not guaranteed.
+    fn list_instances(&self, query: &InstanceQuery) -> Result<Vec<InstanceRef>, RepositoryError>;
 
     // --- Relations ---
 
@@ -1371,6 +1419,93 @@ impl RepositoryStore for FileStore {
         tier.dir()
     }
 
+    // --- Instances (logical-id + typed; ADR-042) ---
+
+    fn save_record(&self, record: &Record) -> Result<(), RepositoryError> {
+        let val = record_to_value(record)?;
+        let tier_dir = self.record_tier_dir(RecordTier::Tier2);
+        self.ensure_dir(tier_dir)?;
+        file_store_save_instance(
+            self,
+            &record.instance_id,
+            &val,
+            tier_dir,
+            &record.type_name,
+            2,
+            None,
+            record.tags.clone(),
+        )
+    }
+
+    fn save_note(&self, note: &Note) -> Result<(), RepositoryError> {
+        let val = note_to_value(note)?;
+        let tier_dir = self.record_tier_dir(RecordTier::Note);
+        self.ensure_dir(tier_dir)?;
+        let slug_source = note.title.as_deref().unwrap_or("");
+        file_store_save_instance(
+            self,
+            &note.instance_id,
+            &val,
+            tier_dir,
+            slug_source,
+            0,
+            note.title.clone(),
+            note.tags.clone(),
+        )
+    }
+
+    fn load_record_by_id(&self, instance_id: &str) -> Result<Record, RepositoryError> {
+        let entry = file_store_find_instance_entry(self, instance_id)?.ok_or_else(|| {
+            RepositoryError::InstanceNotFound {
+                id: instance_id.to_string(),
+            }
+        })?;
+        let val = self.read_json(&entry.path)?;
+        serde_json::from_value(val).map_err(|source| RepositoryError::RecordLoad {
+            path: self.abs(&entry.path),
+            source,
+        })
+    }
+
+    fn load_note_by_id(&self, instance_id: &str) -> Result<Note, RepositoryError> {
+        let entry = file_store_find_instance_entry(self, instance_id)?.ok_or_else(|| {
+            RepositoryError::InstanceNotFound {
+                id: instance_id.to_string(),
+            }
+        })?;
+        let val = self.read_json(&entry.path)?;
+        // Parity with loader::load_note: parse (NoteLoad) + validate_note (NoteValidation).
+        note_from_value(val, &entry.path)
+    }
+
+    fn delete_instance(&self, instance_id: &str) -> Result<(), RepositoryError> {
+        let entry = file_store_find_instance_entry(self, instance_id)?.ok_or_else(|| {
+            RepositoryError::InstanceNotFound {
+                id: instance_id.to_string(),
+            }
+        })?;
+        // ADR-007: remove the index entry before the file.
+        file_store_remove_instance_index(self, instance_id)?;
+        let _ = self.delete_file(&entry.path);
+        Ok(())
+    }
+
+    fn find_instance(&self, instance_id: &str) -> Result<Option<InstanceRef>, RepositoryError> {
+        Ok(file_store_find_instance_entry(self, instance_id)?
+            .as_ref()
+            .map(InstanceRef::from_index_entry))
+    }
+
+    fn list_instances(&self, query: &InstanceQuery) -> Result<Vec<InstanceRef>, RepositoryError> {
+        let manifest = self.load_manifest()?;
+        Ok(manifest
+            .instance_index
+            .iter()
+            .filter(|e| query.matches(e))
+            .map(InstanceRef::from_index_entry)
+            .collect())
+    }
+
     // --- Relations ---
 
     fn load_relations_json(
@@ -1817,6 +1952,155 @@ fn file_store_remove_container_index(
 }
 
 // ---------------------------------------------------------------------------
+// Instance persistence helpers (ADR-042) — shared by the typed store methods.
+// ---------------------------------------------------------------------------
+
+/// Serialize a `Record` to its on-disk JSON value, injecting `$schema` (parity
+/// with the transitional `write_record`).
+pub(crate) fn record_to_value(record: &Record) -> Result<serde_json::Value, RepositoryError> {
+    let mut value = serde_json::to_value(record).map_err(|source| RepositoryError::Serialize {
+        path: PathBuf::from("records/tier-2"),
+        source,
+    })?;
+    if let serde_json::Value::Object(ref mut obj) = value {
+        obj.insert(
+            "$schema".to_string(),
+            serde_json::Value::String(RECORD_SCHEMA_ID.to_string()),
+        );
+    }
+    Ok(value)
+}
+
+/// Serialize a `Note` to its on-disk JSON value, injecting `$schema` (parity
+/// with the transitional `write_note`).
+pub(crate) fn note_to_value(note: &Note) -> Result<serde_json::Value, RepositoryError> {
+    let mut value = serde_json::to_value(note).map_err(|source| RepositoryError::Serialize {
+        path: PathBuf::from("records/notes"),
+        source,
+    })?;
+    if let serde_json::Value::Object(ref mut obj) = value {
+        obj.insert(
+            "$schema".to_string(),
+            serde_json::Value::String(NOTE_SCHEMA_ID.to_string()),
+        );
+    }
+    Ok(value)
+}
+
+/// Deserialize + validate a `Note` from its on-disk JSON value — the exact parity
+/// counterpart of `loader::load_note` (parse errors → `NoteLoad`, `validate_note`
+/// failures → `NoteValidation`), so `load_note_by_id` preserves the read-side
+/// validation the path-based loader performed.
+pub(crate) fn note_from_value(
+    value: serde_json::Value,
+    relative_path: &str,
+) -> Result<Note, RepositoryError> {
+    let note: Note = serde_json::from_value(value).map_err(|source| RepositoryError::NoteLoad {
+        path: PathBuf::from(relative_path),
+        source,
+    })?;
+    srs_core::validation::note::validate_note(&note).map_err(|source| {
+        RepositoryError::NoteValidation {
+            path: PathBuf::from(relative_path),
+            source,
+        }
+    })?;
+    Ok(note)
+}
+
+/// Collision-safe canonical filename for a new instance: `{tier_dir}/{slug}-{id8}.json`
+/// (id-only when the slug is empty). Reuses the scheme from `create_record_at_dir`
+/// (ADR-040 cited for reuse, not for its full-UUID disambiguation fallback).
+pub(crate) fn instance_filename(tier_dir: &str, slug_source: &str, instance_id: &str) -> String {
+    let slug = crate::writer::slugify_instance_name(slug_source);
+    let id8 = &instance_id[..instance_id.len().min(8)];
+    if slug.is_empty() {
+        format!("{tier_dir}/{id8}.json")
+    } else {
+        format!("{tier_dir}/{slug}-{id8}.json")
+    }
+}
+
+/// Find the manifest index entry for an instance by its logical id.
+fn file_store_find_instance_entry(
+    store: &FileStore,
+    instance_id: &str,
+) -> Result<Option<InstanceIndexEntry>, RepositoryError> {
+    let manifest = store.load_manifest()?;
+    Ok(manifest
+        .instance_index
+        .into_iter()
+        .find(|e| e.instance_id == instance_id))
+}
+
+/// Insert or replace an instance's manifest index entry.
+fn file_store_upsert_instance_index(
+    store: &FileStore,
+    entry: InstanceIndexEntry,
+) -> Result<(), RepositoryError> {
+    let mut manifest = store.load_manifest()?;
+    if let Some(pos) = manifest
+        .instance_index
+        .iter()
+        .position(|e| e.instance_id == entry.instance_id)
+    {
+        manifest.instance_index[pos] = entry;
+    } else {
+        manifest.instance_index.push(entry);
+    }
+    store.save_manifest(&manifest)
+}
+
+/// Remove an instance's manifest index entry.
+fn file_store_remove_instance_index(
+    store: &FileStore,
+    instance_id: &str,
+) -> Result<(), RepositoryError> {
+    let mut manifest = store.load_manifest()?;
+    manifest
+        .instance_index
+        .retain(|e| e.instance_id != instance_id);
+    store.save_manifest(&manifest)
+}
+
+/// The two-branch save shared by `save_record`/`save_note` (mirrors `save_container`):
+/// existing id ⇒ overwrite at the existing path (path + tier preserved, denormalized
+/// `title`/`tags` refreshed); new id ⇒ derive a filename and write entity-before-index
+/// (ADR-007). `title` is passed pre-normalized (records pass `None`).
+#[allow(clippy::too_many_arguments)]
+fn file_store_save_instance(
+    store: &FileStore,
+    instance_id: &str,
+    value: &serde_json::Value,
+    tier_dir: &str,
+    slug_source: &str,
+    new_tier: u8,
+    title: Option<String>,
+    tags: Option<Vec<String>>,
+) -> Result<(), RepositoryError> {
+    let existing = file_store_find_instance_entry(store, instance_id)?;
+    let (path, tier) = match &existing {
+        Some(e) => (e.path.clone(), e.tier), // preserve path + tier (no rename)
+        None => (
+            instance_filename(tier_dir, slug_source, instance_id),
+            new_tier,
+        ),
+    };
+    // Entity before index (ADR-007) in both branches.
+    store.write_json(&path, value)?;
+    file_store_upsert_instance_index(
+        store,
+        InstanceIndexEntry {
+            instance_id: instance_id.to_string(),
+            tier,
+            path,
+            title: title.map(serde_json::Value::String),
+            tags,
+        },
+    )
+}
+
+// ---------------------------------------------------------------------------
 // MemoryStore — in-memory test implementation
 // ---------------------------------------------------------------------------
 
@@ -1836,6 +2120,9 @@ pub mod memory {
         /// Fail the next container-index update in `save_container` (after data write).
         /// Simulates a crash between the file write and the index update for ADR-007 testing.
         SaveContainerIndex,
+        /// Fail the next instance-index update in `save_record`/`save_note` (after data write).
+        /// Simulates a crash between the file write and the index update for ADR-007 testing.
+        SaveInstanceIndex,
         /// Fail the next `load_package` call.
         LoadPackage,
     }
@@ -2107,6 +2394,78 @@ pub mod memory {
         /// Return a clone of all stored data (for assertions).
         pub fn all_data(&self) -> HashMap<String, serde_json::Value> {
             self.data.borrow().clone()
+        }
+
+        /// Resolve an instance's data key (path) from the manifest index (ADR-042).
+        fn mem_instance_path(&self, instance_id: &str) -> Result<String, RepositoryError> {
+            self.manifest
+                .borrow()
+                .instance_index
+                .iter()
+                .find(|e| e.instance_id == instance_id)
+                .map(|e| e.path.clone())
+                .ok_or_else(|| RepositoryError::InstanceNotFound {
+                    id: instance_id.to_string(),
+                })
+        }
+
+        /// The two-branch instance save shared by `save_record`/`save_note`
+        /// (mirrors `save_container`): existing id ⇒ overwrite at the existing path
+        /// (path + tier preserved, denormalized `title`/`tags` refreshed); new id ⇒
+        /// derive a filename and write data before index (ADR-007). Honours
+        /// `FailPoint::SaveInstanceIndex` between the two writes.
+        #[allow(clippy::too_many_arguments)]
+        fn mem_save_instance(
+            &self,
+            instance_id: &str,
+            value: &serde_json::Value,
+            tier_dir: &str,
+            slug_source: &str,
+            new_tier: u8,
+            title: Option<String>,
+            tags: Option<Vec<String>>,
+        ) -> Result<(), RepositoryError> {
+            let existing = self
+                .manifest
+                .borrow()
+                .instance_index
+                .iter()
+                .find(|e| e.instance_id == instance_id)
+                .map(|e| (e.path.clone(), e.tier));
+            let (path, tier) = match existing {
+                Some((p, t)) => (p, t),
+                None => (
+                    instance_filename(tier_dir, slug_source, instance_id),
+                    new_tier,
+                ),
+            };
+            // Data before index (ADR-007).
+            self.data.borrow_mut().insert(path.clone(), value.clone());
+            if matches!(*self.fail_at.borrow(), Some(FailPoint::SaveInstanceIndex)) {
+                *self.fail_at.borrow_mut() = None;
+                return Err(RepositoryError::Io {
+                    path: std::path::PathBuf::from("injected"),
+                    source: std::io::Error::other("injected fault: save_instance_index"),
+                });
+            }
+            let entry = InstanceIndexEntry {
+                instance_id: instance_id.to_string(),
+                tier,
+                path,
+                title: title.map(serde_json::Value::String),
+                tags,
+            };
+            let mut manifest = self.manifest.borrow_mut();
+            if let Some(pos) = manifest
+                .instance_index
+                .iter()
+                .position(|e| e.instance_id == instance_id)
+            {
+                manifest.instance_index[pos] = entry;
+            } else {
+                manifest.instance_index.push(entry);
+            }
+            Ok(())
         }
 
         /// Sync the `data["<prefix>/package.json"]` JSON entry when a definition
@@ -2653,6 +3012,89 @@ pub mod memory {
 
         fn record_tier_dir(&self, tier: RecordTier) -> &'static str {
             tier.dir()
+        }
+
+        // --- Instances (logical-id + typed; ADR-042) ---
+
+        fn save_record(&self, record: &Record) -> Result<(), RepositoryError> {
+            let val = record_to_value(record)?;
+            self.mem_save_instance(
+                &record.instance_id,
+                &val,
+                self.record_tier_dir(RecordTier::Tier2),
+                &record.type_name,
+                2,
+                None,
+                record.tags.clone(),
+            )
+        }
+
+        fn save_note(&self, note: &Note) -> Result<(), RepositoryError> {
+            let val = note_to_value(note)?;
+            self.mem_save_instance(
+                &note.instance_id,
+                &val,
+                self.record_tier_dir(RecordTier::Note),
+                note.title.as_deref().unwrap_or(""),
+                0,
+                note.title.clone(),
+                note.tags.clone(),
+            )
+        }
+
+        fn load_record_by_id(&self, instance_id: &str) -> Result<Record, RepositoryError> {
+            let path = self.mem_instance_path(instance_id)?;
+            let val = self.load_instance_json(&path)?;
+            serde_json::from_value(val).map_err(|source| RepositoryError::RecordLoad {
+                path: std::path::PathBuf::from(&path),
+                source,
+            })
+        }
+
+        fn load_note_by_id(&self, instance_id: &str) -> Result<Note, RepositoryError> {
+            let path = self.mem_instance_path(instance_id)?;
+            let val = self.load_instance_json(&path)?;
+            // Parity with loader::load_note: parse (NoteLoad) + validate_note (NoteValidation).
+            note_from_value(val, &path)
+        }
+
+        fn delete_instance(&self, instance_id: &str) -> Result<(), RepositoryError> {
+            let path = self.mem_instance_path(instance_id)?;
+            // ADR-007: remove the index entry before the data. Routed through
+            // `save_manifest`/`delete_instance_file` (rather than mutating `manifest`/
+            // `data` directly) so this honours `FailPoint::SaveManifest` and
+            // `FailPoint::DeleteInstanceFile` the same way the legacy write path did.
+            let mut manifest = self.manifest.borrow().clone();
+            manifest
+                .instance_index
+                .retain(|e| e.instance_id != instance_id);
+            self.save_manifest(&manifest)?;
+            let _ = self.delete_instance_file(&path);
+            Ok(())
+        }
+
+        fn find_instance(&self, instance_id: &str) -> Result<Option<InstanceRef>, RepositoryError> {
+            Ok(self
+                .manifest
+                .borrow()
+                .instance_index
+                .iter()
+                .find(|e| e.instance_id == instance_id)
+                .map(InstanceRef::from_index_entry))
+        }
+
+        fn list_instances(
+            &self,
+            query: &InstanceQuery,
+        ) -> Result<Vec<InstanceRef>, RepositoryError> {
+            Ok(self
+                .manifest
+                .borrow()
+                .instance_index
+                .iter()
+                .filter(|e| query.matches(e))
+                .map(InstanceRef::from_index_entry)
+                .collect())
         }
 
         fn load_relations_json(
@@ -3586,6 +4028,245 @@ mod tests {
             summaries.is_empty(),
             "container index must have no entry after failed index update (no dangling entry)"
         );
+    }
+
+    // --- Instance store tests (ADR-042) ---
+
+    fn minimal_record_for_store(id: &str, type_name: &str, tags: Option<Vec<String>>) -> Record {
+        Record {
+            instance_id: id.to_string(),
+            type_id: "type-xyz-0001".to_string(),
+            type_version: 1,
+            type_namespace: "com.example".to_string(),
+            type_name: type_name.to_string(),
+            field_values: vec![],
+            group_values: None,
+            lifecycle_state: None,
+            tags,
+            created_at: None,
+            updated_at: None,
+            extra: std::collections::HashMap::new(),
+        }
+    }
+
+    fn minimal_note_for_store(id: &str, title: &str, tags: Option<Vec<String>>) -> Note {
+        Note {
+            instance_id: id.to_string(),
+            title: Some(title.to_string()),
+            tags,
+            sections: vec![],
+            graduated_at: None,
+            source_refs: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+        }
+    }
+
+    #[test]
+    fn save_record_roundtrip_by_id_across_stores() {
+        let store = MemoryStore::empty();
+        let rec = minimal_record_for_store("rec-00000001-aaaa", "Decision", Some(vec!["u".into()]));
+        store.save_record(&rec).unwrap();
+
+        let loaded = store.load_record_by_id("rec-00000001-aaaa").unwrap();
+        assert_eq!(loaded.instance_id, "rec-00000001-aaaa");
+        assert_eq!(loaded.type_name, "Decision");
+
+        // memory -> file
+        let temp = tempfile::TempDir::new().unwrap();
+        let file_store = FileStore::new(temp.path());
+        crate::repository_portability::copy_repository(&store, &file_store).unwrap();
+        let from_file = file_store.load_record_by_id("rec-00000001-aaaa").unwrap();
+        assert_eq!(from_file.instance_id, "rec-00000001-aaaa");
+        assert_eq!(from_file.type_name, "Decision");
+    }
+
+    #[test]
+    fn save_note_roundtrip_by_id_across_stores() {
+        let store = MemoryStore::empty();
+        let note = minimal_note_for_store("note-00000002-bbbb", "My Note", None);
+        store.save_note(&note).unwrap();
+
+        let loaded = store.load_note_by_id("note-00000002-bbbb").unwrap();
+        assert_eq!(loaded.instance_id, "note-00000002-bbbb");
+        assert_eq!(loaded.title.as_deref(), Some("My Note"));
+
+        // note is Tier 0
+        let r = store.find_instance("note-00000002-bbbb").unwrap().unwrap();
+        assert_eq!(r.tier, 0);
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let file_store = FileStore::new(temp.path());
+        crate::repository_portability::copy_repository(&store, &file_store).unwrap();
+        let from_file = file_store.load_note_by_id("note-00000002-bbbb").unwrap();
+        assert_eq!(from_file.title.as_deref(), Some("My Note"));
+    }
+
+    #[test]
+    fn save_record_existing_id_preserves_path() {
+        // Existing-id save overwrites at the existing indexed path (no rename on slug change).
+        let store = MemoryStore::empty();
+        let rec = minimal_record_for_store("rec-00000003-cccc", "OldTypeName", None);
+        store.save_record(&rec).unwrap();
+        let path1 = store
+            .load_manifest()
+            .unwrap()
+            .instance_index
+            .iter()
+            .find(|e| e.instance_id == "rec-00000003-cccc")
+            .unwrap()
+            .path
+            .clone();
+
+        // Type-version migration changes type_name (hence the slug) — path must NOT change.
+        let mut rec2 = rec.clone();
+        rec2.type_name = "BrandNewTypeName".to_string();
+        rec2.tags = Some(vec!["added".to_string()]);
+        store.save_record(&rec2).unwrap();
+
+        let entry2 = store
+            .load_manifest()
+            .unwrap()
+            .instance_index
+            .into_iter()
+            .find(|e| e.instance_id == "rec-00000003-cccc")
+            .unwrap();
+        assert_eq!(
+            entry2.path, path1,
+            "existing-id save must not rename the file"
+        );
+        // Denormalized index tags refreshed from the entity.
+        assert_eq!(entry2.tags.as_deref(), Some(&["added".to_string()][..]));
+    }
+
+    #[test]
+    fn save_record_file_first_failed_index_leaves_orphaned_data_safe() {
+        // ADR-007: a failed index update after a successful data write leaves orphaned data,
+        // no dangling index entry. Mirrors the container fault-injection test.
+        use memory::FailPoint;
+        let store = MemoryStore::empty();
+        let rec = minimal_record_for_store("rec-00000004-dddd", "Thing", None);
+
+        store.arm_fail_at(FailPoint::SaveInstanceIndex);
+        let result = store.save_record(&rec);
+        assert!(
+            matches!(result, Err(RepositoryError::Io { .. })),
+            "save_record should return Io error when SaveInstanceIndex fail point is armed"
+        );
+        // Data written before the injected failure — orphaned entry present.
+        assert!(
+            store
+                .all_data()
+                .keys()
+                .any(|k| k.contains("rec-00000004-dddd") || k.starts_with("records/tier-2")),
+            "record data should exist as an orphaned entry after failed index update"
+        );
+        // No dangling index entry.
+        assert!(
+            store.find_instance("rec-00000004-dddd").unwrap().is_none(),
+            "instance index must have no entry after a failed index update"
+        );
+    }
+
+    #[test]
+    fn delete_instance_index_first_and_not_found() {
+        let store = MemoryStore::empty();
+        let rec = minimal_record_for_store("rec-00000005-eeee", "Thing", None);
+        store.save_record(&rec).unwrap();
+        assert!(store.find_instance("rec-00000005-eeee").unwrap().is_some());
+
+        store.delete_instance("rec-00000005-eeee").unwrap();
+        assert!(store.find_instance("rec-00000005-eeee").unwrap().is_none());
+        assert!(
+            store.load_record_by_id("rec-00000005-eeee").is_err(),
+            "loading a deleted instance must error"
+        );
+
+        // Unknown id -> InstanceNotFound.
+        assert!(matches!(
+            store.delete_instance("does-not-exist"),
+            Err(RepositoryError::InstanceNotFound { .. })
+        ));
+    }
+
+    #[test]
+    fn list_instances_filters_by_tier_and_tag_from_index() {
+        let store = MemoryStore::empty();
+        store
+            .save_record(&minimal_record_for_store(
+                "rec-00000006-ffff",
+                "R",
+                Some(vec!["alpha".to_string()]),
+            ))
+            .unwrap();
+        store
+            .save_note(&minimal_note_for_store(
+                "note-00000007-0000",
+                "N",
+                Some(vec!["beta".to_string()]),
+            ))
+            .unwrap();
+
+        let all = store.list_instances(&InstanceQuery::default()).unwrap();
+        assert_eq!(all.len(), 2, "default query returns every instance");
+
+        let tier2 = store
+            .list_instances(&InstanceQuery {
+                tier: Some(2),
+                tag: None,
+            })
+            .unwrap();
+        assert_eq!(tier2.len(), 1);
+        assert_eq!(tier2[0].instance_id, "rec-00000006-ffff");
+
+        let tagged = store
+            .list_instances(&InstanceQuery {
+                tier: None,
+                tag: Some("beta".to_string()),
+            })
+            .unwrap();
+        assert_eq!(tagged.len(), 1);
+        assert_eq!(tagged[0].instance_id, "note-00000007-0000");
+        assert_eq!(tagged[0].tier, 0);
+    }
+
+    #[test]
+    fn load_note_by_id_validates_note_body() {
+        // Read-side parity with loader::load_note (arch-review finding): an invalid
+        // note body (duplicate section names) must surface NoteValidation on load,
+        // not be silently accepted.
+        let store = MemoryStore::empty();
+        let mut note = minimal_note_for_store("note-00000009-2222", "Dup Sections", None);
+        let section = srs_core::types::note::NoteSection {
+            name: "s1".to_string(),
+            label: None,
+            content: "a".to_string(),
+            content_hint: None,
+            tags: None,
+        };
+        note.sections = vec![section.clone(), section];
+        // Bypass write-side validation deliberately: write the invalid body via the
+        // typed save (save_note does not validate; creation-time validation lives in
+        // note_service::create).
+        store.save_note(&note).unwrap();
+
+        let err = store.load_note_by_id("note-00000009-2222").unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::NoteValidation { .. }),
+            "invalid note body must fail load with NoteValidation, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn find_instance_returns_tier_or_none() {
+        let store = MemoryStore::empty();
+        store
+            .save_record(&minimal_record_for_store("rec-00000008-1111", "R", None))
+            .unwrap();
+        let found = store.find_instance("rec-00000008-1111").unwrap();
+        assert_eq!(found.map(|r| r.tier), Some(2));
+        assert!(store.find_instance("missing").unwrap().is_none());
     }
 
     // --- Package boundary tests ---

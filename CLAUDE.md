@@ -76,6 +76,7 @@ Service functions in `srs-repository` must use:
 - `MemoryStore` is the canonical test double — tests that only work against `FileStore` are testing the adapter, not the service.
 - New service features need at least one cross-store roundtrip test (e.g. memory → json → file).
 - Do not introduce `async` traits until there is a concrete async consumer.
+- **Instance persistence goes through the typed logical-id methods** (`save_record`, `save_note`, `load_record_by_id`, `load_note_by_id`, `delete_instance`, `find_instance`, `list_instances` — ADR-042), never `load_instance_json`/`save_instance_json` with a path. The Value/path methods survive only as a transitional generic-JSON shim (srs-rust#726) and for the explicitly deferred readers (srs-rust#725). `InstanceIndexEntry.path` is an adapter-private key — do not address instances by path in service code. ADR-042 is the template for migrating the remaining entity families (relations, fields, types, views — epic srs-rust#704).
 
 ## Tags in This Codebase
 

@@ -5,6 +5,11 @@ use serde::{Deserialize, Serialize};
 pub struct InstanceIndexEntry {
     pub instance_id: String,
     pub tier: u8,
+    /// Adapter-private key (ADR-041 G5, ADR-042) — the same contract-opaque status
+    /// `ContainerIndexEntry.path` has. Migrated service code addresses instances by
+    /// logical id via the store's typed methods (`load_record_by_id`, `find_instance`,
+    /// `list_instances`, …), not by this path. Only the FileStore/JsonStore adapters and
+    /// the explicitly-deferred readers (tracked in srs-rust#725) still read it directly.
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<serde_json::Value>,
@@ -34,6 +39,62 @@ impl InstanceIndexEntry {
 
     pub fn is_note(&self) -> bool {
         self.tier == 0
+    }
+}
+
+/// A lightweight, index-answerable summary of an instance — the columns a
+/// `RepositoryStore` can return without loading the entity body (ADR-041 G5,
+/// ADR-042). Mirrors [`InstanceIndexEntry`] minus its adapter-private `path`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct InstanceRef {
+    pub instance_id: String,
+    pub tier: u8,
+    pub title: Option<String>,
+    pub tags: Vec<String>,
+}
+
+impl InstanceRef {
+    pub(crate) fn from_index_entry(entry: &InstanceIndexEntry) -> Self {
+        InstanceRef {
+            instance_id: entry.instance_id.clone(),
+            tier: entry.tier,
+            title: entry.title(),
+            tags: entry.tags.clone().unwrap_or_default(),
+        }
+    }
+}
+
+/// Index-answerable predicate for [`RepositoryStore::list_instances`]. Only the
+/// axes a backend can satisfy from its index live here (ADR-042); richer
+/// predicates (type, lifecycle, content) stay in the service layer.
+///
+/// `tier` is an exact match; `tag` is a **single contains-predicate** (the
+/// instance's tags must contain this value), matching the existing singular
+/// `RecordListFilter.tag` / `ListNotesFilter.tag`. Both `None` ⇒ match all.
+#[derive(Debug, Clone, Default)]
+pub struct InstanceQuery {
+    pub tier: Option<u8>,
+    pub tag: Option<String>,
+}
+
+impl InstanceQuery {
+    /// Does `entry` satisfy this query? See the struct doc for combinator semantics.
+    pub fn matches(&self, entry: &InstanceIndexEntry) -> bool {
+        if let Some(tier) = self.tier {
+            if entry.tier != tier {
+                return false;
+            }
+        }
+        if let Some(ref tag) = self.tag {
+            let has_tag = entry
+                .tags
+                .as_ref()
+                .is_some_and(|tags| tags.iter().any(|t| t == tag));
+            if !has_tag {
+                return false;
+            }
+        }
+        true
     }
 }
 

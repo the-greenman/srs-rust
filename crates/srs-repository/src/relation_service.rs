@@ -1244,6 +1244,42 @@ mod tests {
             fn record_tier_dir(&self, _tier: RecordTier) -> &'static str {
                 unreachable!("record_tier_dir not expected in BrokenManifestStore tests")
             }
+            fn save_record(
+                &self,
+                _: &srs_core::types::record::Record,
+            ) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn save_note(&self, _: &srs_core::types::note::Note) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn load_record_by_id(
+                &self,
+                _: &str,
+            ) -> Result<srs_core::types::record::Record, RepositoryError> {
+                unimplemented!()
+            }
+            fn load_note_by_id(
+                &self,
+                _: &str,
+            ) -> Result<srs_core::types::note::Note, RepositoryError> {
+                unimplemented!()
+            }
+            fn delete_instance(&self, _: &str) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn find_instance(
+                &self,
+                _: &str,
+            ) -> Result<Option<crate::index::InstanceRef>, RepositoryError> {
+                unimplemented!()
+            }
+            fn list_instances(
+                &self,
+                _: &crate::index::InstanceQuery,
+            ) -> Result<Vec<crate::index::InstanceRef>, RepositoryError> {
+                unimplemented!()
+            }
             fn load_relations_json(&self, _: &str) -> Result<serde_json::Value, RepositoryError> {
                 unimplemented!()
             }
