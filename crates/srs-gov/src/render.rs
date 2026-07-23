@@ -196,8 +196,8 @@ pub fn relations_list(id: &str, relations: &[serde_json::Value]) {
     );
     println!("  {}", "─".repeat(80));
     for r in relations {
-        let source = r["sourceInstanceId"].as_str().unwrap_or("");
-        let target = r["targetInstanceId"].as_str().unwrap_or("");
+        let source = r["sourceId"].as_str().unwrap_or("");
+        let target = r["targetId"].as_str().unwrap_or("");
         let rtype = r["relationType"].as_str().unwrap_or("");
         let rid = r["relationId"].as_str().unwrap_or("");
         let direction = if source == id || source.starts_with(id) {

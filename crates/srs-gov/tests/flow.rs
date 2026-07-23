@@ -1051,6 +1051,17 @@ fn srs_gov_attachment_add_duplicate_rejected() {
 fn create_decision_writes_record() {
     let repo = setup_repo("create-write");
 
+    // Locate the decision_log container for membership verification
+    let nav = srs_json(&repo.path, &["repo", "navigation"], None);
+    let dl_container_id = nav["payload"]["navigation"]["sections"]
+        .as_array()
+        .expect("sections")
+        .iter()
+        .find(|s| s["typeName"] == "decision_log")
+        .and_then(|s| s["sectionContainerId"].as_str())
+        .expect("decision_log container ID")
+        .to_string();
+
     // Count decisions before
     let before = srs_json(&repo.path, &["record", "list", "--type", "governance/decision"], None);
     let before_count = before["payload"]["records"]
@@ -1072,10 +1083,16 @@ fn create_decision_writes_record() {
         ],
     );
     assert!(out.contains("Created"), "expected Created header\n{out}");
-    // Output must contain a UUID-shaped string (8 hex chars followed by -)
+    // Extract the instance ID from "  ID:         <uuid>" line
+    let instance_id = out
+        .lines()
+        .find(|l| l.trim_start().starts_with("ID:"))
+        .and_then(|l| l.split("ID:").nth(1))
+        .map(|s| s.trim().to_string())
+        .expect("instance ID in Created output");
     assert!(
-        out.chars().any(|c| c == '-') && out.len() > 20,
-        "expected UUID in output\n{out}"
+        instance_id.contains('-'),
+        "expected UUID in ID line: {instance_id}"
     );
 
     // Count must have increased
@@ -1087,6 +1104,16 @@ fn create_decision_writes_record() {
     assert!(
         after_count > before_count,
         "expected record count to increase: before={before_count} after={after_count}"
+    );
+
+    // New record must be a member of the decision_log container
+    let container = srs_json(&repo.path, &["container", "get", &dl_container_id], None);
+    let members = container["payload"]["container"]["memberInstanceIds"]
+        .as_array()
+        .expect("memberInstanceIds");
+    assert!(
+        members.iter().any(|m| m.as_str() == Some(&instance_id)),
+        "new record {instance_id} not found in decision_log container members"
     );
 
     // Validate must be clean
@@ -1225,11 +1252,26 @@ fn relate_and_unrelate() {
         "expected relation confirmation\n{out}"
     );
 
-    // relations list must show it
+    // relations list from source must show supersedes as outgoing
     let rel_out = gov_out(&repo.path, &["relations", &a_id]);
     assert!(
         rel_out.contains("supersedes"),
-        "relations list must show supersedes\n{rel_out}"
+        "relations list (source) must show supersedes\n{rel_out}"
+    );
+    assert!(
+        rel_out.contains("outgoing"),
+        "supersedes must appear as outgoing from source\n{rel_out}"
+    );
+
+    // relations list from target must show supersedes as incoming
+    let rel_out_target = gov_out(&repo.path, &["relations", &b_id]);
+    assert!(
+        rel_out_target.contains("supersedes"),
+        "relations list (target) must show supersedes as incoming\n{rel_out_target}"
+    );
+    assert!(
+        rel_out_target.contains("incoming"),
+        "supersedes must appear as incoming from target's perspective\n{rel_out_target}"
     );
 
     // Validate still clean

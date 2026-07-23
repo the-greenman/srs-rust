@@ -731,7 +731,7 @@ fn cmd_relations(id: &str, repo: &str, explain: bool, json: bool) -> Result<()> 
         .iter()
         .filter(|r| {
             // dedup: skip any relation already in outgoing (source == id means it's also in outgoing)
-            let source = r["sourceInstanceId"].as_str().unwrap_or("");
+            let source = r["sourceId"].as_str().unwrap_or("");
             source != id && !source.starts_with(id)
         })
         .cloned()
