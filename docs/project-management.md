@@ -206,6 +206,7 @@ The canonical set:
 | `priority: P0` / `P1` / `P2` | derived priority (§ the priority model) | `rollup --fix` |
 | `status: in progress` | claimed / in flight | "Do the SRS jobs" routine (reclaimed by `stale-claims --fix` if the claim goes stale — see below) |
 | `blocked` | not feedable — **derived** from native blocked-by dependencies when edges exist (auto-cleared when the last blocker closes); hand-set **only** for non-issue blocks | `reconcile --fix` (derived) / human (external blocks only) |
+| `needs-input` | stopped at a **human gate** — the question is in the issue comments; excluded from topup/consumable-Ready, never auto-reclaimed; **remove the label after answering** to re-feed | the stopping agent/routine (with the question as a comment) / human clears it |
 
 `gh-project` is the single source of truth for this set (`MIRROR_LABELS` in the script) and creates
 any missing labels on demand — so it **can't drift**:
@@ -249,7 +250,9 @@ the `ready` label directly, the next `reconcile` would wipe it (board Status sti
 
 ### Auto-topup (Backlog → promote:ready)
 
-`gh-project topup [--fix] [--target N]` keeps the Ready queue at a target depth (default **3**,
+`gh-project topup [--fix] [--target N]` keeps the Ready queue at a target depth (default **6** —
+deep enough to survive GitHub's cron landing 25–40 min late, a repo-mixed queue head, and a burst
+of completions between refills; 3 starved by evening in practice, #715 —
 overridable via `--target N` or the `GHP_TOPUP_TARGET` environment variable). It runs **before**
 `promote --fix` in `board-sync`, so any intents it writes are immediately realized on the same run:
 
@@ -331,29 +334,49 @@ issue — the "Do the SRS jobs" routine, another consumer, a human — crashes, 
 interrupted mid-task, the claim is permanent: the issue isn't Backlog (so `promote` can't touch it)
 and isn't Ready (so the queue consumer never picks it up again).
 
-`gh-project stale-claims [--hours N] [--fix]` closes that gap:
+`gh-project stale-claims [--hours N] [--fix]` closes that gap, and staleness is **activity-aware**
+(#715):
 
-1. Finds every OPEN board item with Status **In progress**.
-2. For each, reads the issue's REST event timeline for the most recent `labeled` event on
-   `status: in progress` — that's the claim's start time (Projects v2 has no per-field timestamp
-   reachable by the proxy-bound routines, so this reads the label history instead).
-3. Any claim older than the threshold (default **24h** — long enough that a real multi-hour
-   implementation task isn't falsely reclaimed, short enough to recover same-day given the hourly
-   schedule) is reset to **Status=Ready**, the `ready` label mirror is set immediately, and a comment
-   is left on the issue noting the auto-reclaim (so a still-genuinely-in-flight holder notices and
-   can re-claim it).
-4. A claim whose label event can't be resolved is reported as `unknown` rather than silently ignored
-   or wrongly reclaimed — it needs a human look.
+1. Finds every OPEN board item claimed in-progress (board Status or the label).
+2. For each, reads the issue's REST timeline once, extracting **two** timestamps: when
+   `status: in progress` was last applied (the claim's start), and the last **real activity** —
+   a comment, or a commit/PR referencing the issue (`commented` / `cross-referenced` /
+   `referenced` events). Label churn from the hourly sync deliberately does **not** count as
+   activity, or nothing would ever look stale.
+3. Age runs from the **later** of the two. Anything past the threshold (default **3h** —
+   consumers are single-session and terminal-at-PR, so a claim with no comments, commits, or PR
+   mentions for 3 hours is dead, not slow; a genuinely long-running task refreshes itself by
+   committing/commenting) is reset to **Status=Ready**, the `ready` mirror set immediately, and a
+   comment left noting the auto-reclaim.
+4. An issue labeled **`needs-input`** is never reclaimed — it is legitimately paused on a human,
+   and re-feeding it would just hit the same gate. It is reported separately.
+5. A claim whose label event can't be resolved is reported as `unknown` rather than silently
+   ignored or wrongly reclaimed — it needs a human look.
 
 Idempotent and safe to re-run: a fresh claim is left alone; a reclaimed issue simply won't match
 "In progress" on the next pass. Wired into `board-sync`'s three triggers (push/hourly/dispatch)
-right after `promote --fix`, so a dead claim recovers within the hour, not just at the next merge.
+right after `promote --fix`, so a dead claim recovers within ~2 hours end to end.
 
 ```bash
 gh-project stale-claims               # dry-run: which claims would be reclaimed
-gh-project stale-claims --hours 12    # tighter window for fast-turnaround work
+gh-project stale-claims --hours 12    # looser window if long human claims are expected
 gh-project stale-claims --fix         # reset stale claims to Ready + comment
 ```
+
+### Issues waiting on a human (`needs-input`)
+
+An automatic session cannot ask a question. When it hits a **human gate** — a decision to make, a
+missing secret, an ambiguity it must not guess at — the protocol is: **comment the specific
+question, add `needs-input`, remove `status: in progress`, stop.** From there:
+
+- topup and the consumable-Ready count **exclude** it (a gated issue must not clog the queue), and
+  `stale-claims` never touches it;
+- the **morning progress-review routine lists all `needs-input` issues first** — that report is
+  the daily "waiting on you" list;
+- on the **project board**, filter any view with `label:needs-input` (or save a dedicated view
+  with that filter — views are UI-only, the API can't create them);
+- a human **answers in the comments and removes the label** — that alone puts the issue back in
+  the feed on the next hourly run.
 
 ```bash
 gh-project promote            # dry-run: what the intents would do
