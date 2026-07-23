@@ -2631,6 +2631,115 @@ Real-client registration (Claude Code `.mcp.json`): `{"mcpServers": {"dogfood": 
 
 ---
 
+## S43 — Render a per-record relation links block in a document view (RFC-027 `relationsPresentation`, #668)
+
+**Intention.** *"My document view shows decisions. I want each record to carry a links section listing what it supersedes and what it depends on — derived from the live relation graph, not a hand-written list."*
+
+**Capabilities exercised.** `DocumentSection.relationsPresentation` (RFC-027); forward / inverse / both edge directions; label ladder (entry `forwardLabel`/`inverseLabel` → RTD label → humanised key); display-label resolution via `titleFieldId`; I-027-2b render-time diagnostics for non-resolving entries; I-027-2a validate-time warnings for duplicate entries; JSON projection `ProjectedRecord.relations`; absence of relation block when `relationsPresentation` is absent (no regression).
+
+**CLI surface.** `field create`, `type create`, `relation-type create`, `record create`, `relation create`, `document-view create`, `render document-view` (markdown + `--view-format json`), `repo validate`.
+
+**Repo setup.**
+
+```bash
+SRS=target/debug/srs   # or: srs
+REPO=/tmp/dogfood-668-relations-presentation
+$SRS repo create --repo $REPO --namespace com.example.dogfood668
+
+TITLE_FIELD_ID=$(echo '{"namespace":"com.example.dogfood668","name":"title","version":1,"valueType":"string"}' | \
+    $SRS field create --repo $REPO | jq -r '.payload.field.id')
+
+DEC_TYPE_ID=$(echo "{\"namespace\":\"com.example.dogfood668\",\"name\":\"decision\",\"version\":1,\"description\":\"A governance decision\",\"fields\":[{\"fieldId\":\"$TITLE_FIELD_ID\",\"order\":1,\"required\":true}]}" | \
+    $SRS type create --repo $REPO | jq -r '.payload.type.id')
+
+NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+echo "{\"key\":\"supersedes\",\"namespace\":\"com.example.dogfood668\",\"version\":1,\"label\":\"Supersedes\",\"inverseType\":\"Superseded by\",\"description\":\"One decision supersedes another\",\"category\":\"governance\",\"createdAt\":\"$NOW\"}" | \
+    $SRS relation-type create --repo $REPO > /dev/null
+echo "{\"key\":\"depends-on\",\"namespace\":\"com.example.dogfood668\",\"version\":1,\"label\":\"Depends on\",\"description\":\"One decision depends on another\",\"category\":\"dependency\",\"createdAt\":\"$NOW\"}" | \
+    $SRS relation-type create --repo $REPO > /dev/null
+
+REC_A=$(echo "{\"typeId\":\"$DEC_TYPE_ID\",\"typeVersion\":1,\"fieldValues\":[{\"fieldId\":\"$TITLE_FIELD_ID\",\"value\":\"Decision Alpha\"}]}" | \
+    $SRS record create --repo $REPO --type "com.example.dogfood668/decision" | jq -r '.payload.record.instanceId')
+REC_B=$(echo "{\"typeId\":\"$DEC_TYPE_ID\",\"typeVersion\":1,\"fieldValues\":[{\"fieldId\":\"$TITLE_FIELD_ID\",\"value\":\"Decision Beta\"}]}" | \
+    $SRS record create --repo $REPO --type "com.example.dogfood668/decision" | jq -r '.payload.record.instanceId')
+REC_C=$(echo "{\"typeId\":\"$DEC_TYPE_ID\",\"typeVersion\":1,\"fieldValues\":[{\"fieldId\":\"$TITLE_FIELD_ID\",\"value\":\"Decision Gamma\"}]}" | \
+    $SRS record create --repo $REPO --type "com.example.dogfood668/decision" | jq -r '.payload.record.instanceId')
+
+# A supersedes B and C; C depends-on B
+echo "{\"relationType\":\"supersedes\",\"sourceInstanceId\":\"$REC_A\",\"targetInstanceId\":\"$REC_B\"}" | $SRS relation create --repo $REPO > /dev/null
+echo "{\"relationType\":\"supersedes\",\"sourceInstanceId\":\"$REC_A\",\"targetInstanceId\":\"$REC_C\"}" | $SRS relation create --repo $REPO > /dev/null
+echo "{\"relationType\":\"depends-on\",\"sourceInstanceId\":\"$REC_C\",\"targetInstanceId\":\"$REC_B\"}" | $SRS relation create --repo $REPO > /dev/null
+```
+
+**Steps.**
+
+1. Create the document view with `relationsPresentation` referencing both relation types (forward only for `supersedes`; both-directions for `depends-on`):
+
+   ```bash
+   DV_ID=$($SRS document-view create --repo $REPO <<'EOF' | jq -r '.payload.documentView.id'
+   {
+     "namespace": "com.example.dogfood668",
+     "name": "decision-log",
+     "version": 1,
+     "description": "Decisions with relation links",
+     "sections": [{
+       "sectionId": "s-decisions",
+       "title": "Decisions",
+       "order": 0,
+       "source": {"type": "type-query", "semanticObjectType": "com.example.dogfood668/decision"},
+       "titleFieldId": "<TITLE_FIELD_ID>",
+       "relationsPresentation": {
+         "include": [
+           {"relationType": "supersedes", "directions": "forward", "forwardLabel": "Supersedes"},
+           {"relationType": "depends-on", "directions": "both", "forwardLabel": "Depends on", "inverseLabel": "Depended on by"}
+         ]
+       }
+     }]
+   }
+   EOF
+   )
+   ```
+
+2. Render as markdown — confirm each record carries a links block:
+
+   ```bash
+   $SRS render document-view --repo $REPO --view "$DV_ID" | jq -r '.payload.rendered'
+   # Expected (order: Alpha, Beta, Gamma per type-query):
+   # ### Decision Alpha
+   # **Supersedes**: Decision Beta, Decision Gamma   (forward only; no depends-on row — Alpha has no edges)
+   # ### Decision Beta
+   # **Depends on**: Decision Gamma                  (both: Gamma depends-on Beta — Beta appears as inverse target)
+   # ### Decision Gamma
+   # **Depends on**: Decision Beta                   (both: forward edge Gamma→Beta)
+   ```
+
+3. Render as JSON and inspect `relations` in the projection:
+
+   ```bash
+   $SRS render document-view --repo $REPO --view "$DV_ID" --view-format json | \
+       jq '.payload.projection.sections[0].records | map({heading: .recordHeading, relations: .relations})'
+   # Each record carries relations: [{label, targets: [{instanceId, displayLabel}]}]
+   # Alpha: 1 row (Supersedes); Beta: 1 row (Depends on); Gamma: 1 row (Depends on)
+   ```
+
+4. Render a view WITHOUT `relationsPresentation` (no relations block, no regression):
+
+   ```bash
+   $SRS render document-view --repo $REPO --view "<plain-dv-id>" | jq -r '.payload.rendered'
+   # No **...**: lines in output; projection .relations is absent/null
+   ```
+
+**Negative case.**
+
+- **Non-resolving entry:** add a view section with `relationsPresentation.include[0].relationType = "unknown-type"`. Render it — confirm no relation row in rendered output, and `payload.diagnostics` contains `"[I-027-2b] ... 'unknown-type' does not resolve to a known RTD; skipping"`. `repo validate` emits an `I-027-2a` Warning for the same entry.
+- **Duplicate relationType:** add a view with two `include` entries with the same `relationType`. `repo validate` emits `I-027-2a: … has duplicate relationType '…'`. At render time the duplicate row is skipped with a diagnostic.
+
+**Done when.** The markdown render contains `**Supersedes**: Decision Beta, Decision Gamma` under Decision Alpha; `**Depends on**: Decision Gamma` under Decision Beta (both-direction, inverse); JSON projection carries `relations` with `label`/`targets[].instanceId`/`targets[].displayLabel`; targets are sorted by display label; a view without `relationsPresentation` produces no links block and no `relations` key in JSON; non-resolving entry produces I-027-2b at render time and I-027-2a at validate time; duplicate entry produces I-027-2a at validate time; `repo validate` stays at 0 errors on a well-formed view.
+
+**Verified 2026-07-23 (#668).** Markdown render: Alpha "**Supersedes**: Decision Beta, Decision Gamma" ✓; Beta "**Depends on**: Decision Gamma" ✓ (both-direction combined row under forward label per RFC-027 §B); Gamma "**Depends on**: Decision Beta" ✓. JSON projection `relations` present with correct `instanceId`/`displayLabel` pairs ✓. View without `relationsPresentation` → no `relations` key, no block ✓. Non-resolving entry → I-027-2b diagnostic (3 instances, one per record) + I-027-2a at validate time ✓. Duplicate entry → I-027-2a Warning at validate time ✓. `repo validate` 0 errors on clean view ✓.
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -2668,7 +2777,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `repo navigation` (RFC-013 root container + identity + sections) | S15, S17; WASM binding (`repository_navigation`) verified via integration tests in `crates/srs-bindings/tests/navigation.rs` (#268); Tier-0 note identity grace (returns Ok + diagnostic instead of erroring) — see S20 (#427); "root is also a member" shape (sub-container root in its own `memberInstanceIds`) — `repository_navigation_root_is_member_of_its_own_sub_container` in both unit and WASM integration tests (#460); **RFC-013 I-80/R2 union fix (#699)**: sections now derived from `memberInstanceIds ∪ rootInstanceIds` (deduped, identity excluded) — members declared via `rootInstanceIds` only now appear as navigation sections; `repository_navigation_root_instance_ids_only_yields_same_sections` and `repository_navigation_union_deduplicates_ids_in_both_arrays` unit tests |
 | `srs-gov` (governance client: `repo-create`, `list` + `--all`/`--search`/`--tag`, `get` + linked-attachments display, `tui --smoke`, `attachment add/list`) | S15, S33, S35; `SrsRepository::load` WASM binding applies RFC-014 migration automatically (#381); `crates/srs-repository/tests/scaffold.rs` covers the migrate→scaffold→validate chain; `migrate_rfc014` now unconditionally strips `contentHash` from already-promoted bundles (regression #428, see `migrate_rfc014_strips_content_hash_from_already_promoted_bundle`) |
 | `document-view` (create/get/list/…) | S4, S5, S11 |
-| `render document-view` | S4, S5, S8, S11; **RFC-020 Rule [N+37]** identity-field fallback heading (no `titleFieldId` → Type's `identityFieldId` → `### <value>` per record; structured mode NOT activated by fallback, #453) — see S5 step 8; **`{{container-title}}` fallback to container file when index entry has no title** (#484): `resolve_container_title` now calls `store.load_container` when the containerIndex entry is absent or has no title — dogfooded on branch: `srs render document-view --view <dv> --repo /tmp/dogfood-resolve-container-title --container <cid>` returns `"Container: Recognising decisions"` when manifest has a pathless-title containerIndex entry (previously returned repo title "DogfoodRepo"); negative case (no `--container`) returns `"Container: DogfoodRepo"` (manifest title fallback correct) |
+| `render document-view` | S4, S5, S8, S11, S43; **RFC-020 Rule [N+37]** identity-field fallback heading (no `titleFieldId` → Type's `identityFieldId` → `### <value>` per record; structured mode NOT activated by fallback, #453) — see S5 step 8; **`{{container-title}}` fallback to container file when index entry has no title** (#484): `resolve_container_title` now calls `store.load_container` when the containerIndex entry is absent or has no title — dogfooded on branch: `srs render document-view --view <dv> --repo /tmp/dogfood-resolve-container-title --container <cid>` returns `"Container: Recognising decisions"` when manifest has a pathless-title containerIndex entry (previously returned repo title "DogfoodRepo"); negative case (no `--container`) returns `"Container: DogfoodRepo"` (manifest title fallback correct); **RFC-027 `relationsPresentation`** per-record links block (#668): `DocumentSection.relationsPresentation.include` selects relation types and directions; label ladder (entry override → RTD label → humanised key); `both` direction produces one row under the forward label (RFC-027 §B); targets sorted by display label; JSON projection `ProjectedRecord.relations` — see S43 |
 | `container-subset` section + `typeFilter` / `typeDispatch` (RFC-008) | S11 |
 | `type-query` lifecycle filter (`lifecycleStates`, `excludeLifecycleStates`, `containerScope`) (RFC-011); **zero-records diagnostic** (`[section:…] type-query '…' matched 0 records` emitted whenever TypeQuery resolves to 0 instances, regardless of `emptyBehavior`, #697) | S12 |
 | `view` (L1 — `view list`, `view get`) | CLI surface: _gap — no CLI scenario yet_; WASM read bindings (`list_views`, `get_view`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330) |
