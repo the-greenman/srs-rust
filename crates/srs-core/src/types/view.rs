@@ -136,6 +136,35 @@ pub enum EmptyBehavior {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PresentationDirection {
+    Forward,
+    Inverse,
+    Both,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelationPresentationEntry {
+    pub relation_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub directions: Option<PresentationDirection>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub forward_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inverse_label: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelationsPresentation {
+    pub include: Vec<RelationPresentationEntry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    // Reserved per RFC-027; ignored at render time.
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentSection {
     pub section_id: String,
@@ -160,6 +189,8 @@ pub struct DocumentSection {
     pub required: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub empty_behavior: Option<EmptyBehavior>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relations_presentation: Option<RelationsPresentation>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -295,6 +326,7 @@ mod tests {
                 }),
                 required: Some(true),
                 empty_behavior: Some(EmptyBehavior::Hide),
+                relations_presentation: None,
             }],
             navigation_links: Some(vec![NavigationLink {
                 from_section_id: "a".to_string(),
@@ -494,6 +526,92 @@ mod tests {
     }
 
     #[test]
+    fn document_section_relations_presentation_round_trips() {
+        let section = DocumentSection {
+            section_id: "s1".to_string(),
+            title: None,
+            description: None,
+            order: 0,
+            source: SectionSource::FixedInstances {
+                instance_ids: vec![],
+            },
+            render_view_id: None,
+            type_dispatch: None,
+            title_field_id: None,
+            ordering: None,
+            required: None,
+            empty_behavior: None,
+            relations_presentation: Some(RelationsPresentation {
+                include: vec![
+                    RelationPresentationEntry {
+                        relation_type: "supersedes".to_string(),
+                        directions: Some(PresentationDirection::Forward),
+                        forward_label: Some("Supersedes".to_string()),
+                        inverse_label: None,
+                    },
+                    RelationPresentationEntry {
+                        relation_type: "com.example/depends-on".to_string(),
+                        directions: Some(PresentationDirection::Both),
+                        forward_label: None,
+                        inverse_label: Some("Required by".to_string()),
+                    },
+                ],
+                label: None,
+            }),
+        };
+        let json = serde_json::to_string(&section).unwrap();
+        assert!(
+            json.contains("\"relationsPresentation\""),
+            "relationsPresentation must serialize as camelCase: {json}"
+        );
+        assert!(
+            json.contains("\"relationType\""),
+            "relationType must serialize as camelCase: {json}"
+        );
+        assert!(
+            json.contains("\"forwardLabel\""),
+            "forwardLabel must serialize as camelCase: {json}"
+        );
+        assert!(
+            json.contains("\"inverseLabel\""),
+            "inverseLabel must serialize as camelCase: {json}"
+        );
+        assert!(
+            json.contains("\"both\""),
+            "PresentationDirection::Both must serialize as \"both\": {json}"
+        );
+        let parsed: DocumentSection = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, section);
+    }
+
+    #[test]
+    fn document_section_relations_presentation_absent_omitted() {
+        let section = DocumentSection {
+            section_id: "s2".to_string(),
+            title: None,
+            description: None,
+            order: 0,
+            source: SectionSource::FixedInstances {
+                instance_ids: vec![],
+            },
+            render_view_id: None,
+            type_dispatch: None,
+            title_field_id: None,
+            ordering: None,
+            required: None,
+            empty_behavior: None,
+            relations_presentation: None,
+        };
+        let json = serde_json::to_string(&section).unwrap();
+        assert!(
+            !json.contains("relationsPresentation"),
+            "absent relationsPresentation must not appear in JSON: {json}"
+        );
+        let parsed: DocumentSection = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.relations_presentation, None);
+    }
+
+    #[test]
     fn document_section_type_dispatch_round_trips() {
         let mut dispatch = std::collections::HashMap::new();
         dispatch.insert("ns/name".to_string(), "view-uuid-1".to_string());
@@ -512,6 +630,7 @@ mod tests {
             ordering: None,
             required: None,
             empty_behavior: None,
+            relations_presentation: None,
         };
         let json = serde_json::to_string(&section).unwrap();
         assert!(

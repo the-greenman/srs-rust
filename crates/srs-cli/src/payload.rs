@@ -1136,6 +1136,22 @@ pub struct ProjectedFieldGroup {
     pub entries: Vec<ProjectedGroupEntry>,
 }
 
+/// A single target instance in a projected relation row.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectedRelationTarget {
+    pub instance_id: String,
+    pub display_label: String,
+}
+
+/// A single labelled row of relation targets in a projected record's links block.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectedRelationRow {
+    pub label: String,
+    pub targets: Vec<ProjectedRelationTarget>,
+}
+
 /// A single record in a JSON projection section.
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -1152,6 +1168,8 @@ pub struct ProjectedRecord {
     pub ordered_field_keys: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub field_groups: Option<Vec<ProjectedFieldGroup>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relations: Option<Vec<ProjectedRelationRow>>,
 }
 
 /// A single section in a JSON projection document.

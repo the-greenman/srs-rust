@@ -155,6 +155,15 @@
             "null"
           ]
         },
+        "relations": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/definitions/ProjectedRelationRow"
+          }
+        },
         "typeId": {
           "type": "string"
         },
@@ -162,6 +171,41 @@
           "type": "string"
         },
         "typeNamespace": {
+          "type": "string"
+        }
+      }
+    },
+    "ProjectedRelationRow": {
+      "description": "A single labelled row of relation targets in a projected record's links block.",
+      "type": "object",
+      "required": [
+        "label",
+        "targets"
+      ],
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ProjectedRelationTarget"
+          }
+        }
+      }
+    },
+    "ProjectedRelationTarget": {
+      "description": "A single target instance in a projected relation row.",
+      "type": "object",
+      "required": [
+        "displayLabel",
+        "instanceId"
+      ],
+      "properties": {
+        "displayLabel": {
+          "type": "string"
+        },
+        "instanceId": {
           "type": "string"
         }
       }

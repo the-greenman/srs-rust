@@ -2,14 +2,17 @@ use crate::commands::{with_store, CliContext, RenderCommand};
 use crate::output;
 use crate::payload::{
     DocumentViewProjection, ExportBundlePayload, ProjectedFieldGroup, ProjectedGroupEntry,
-    ProjectedRecord, ProjectedSection, RenderDocumentViewPayload,
+    ProjectedRecord, ProjectedRelationRow, ProjectedRelationTarget, ProjectedSection,
+    RenderDocumentViewPayload,
 };
 use anyhow::Result;
 use srs_repository::export_service::{export_record_bundle, ExportBundleInput};
 use srs_repository::render_service::{
     render_document_view, DocumentViewProjection as SvcProjection,
     ProjectedFieldGroup as SvcFieldGroup, ProjectedGroupEntry as SvcGroupEntry,
-    ProjectedRecord as SvcRecord, ProjectedSection as SvcSection, RenderDocumentViewOptions,
+    ProjectedRecord as SvcRecord, ProjectedRelationRow as SvcRelationRow,
+    ProjectedRelationTarget as SvcRelationTarget, ProjectedSection as SvcSection,
+    RenderDocumentViewOptions,
 };
 use std::path::PathBuf;
 
@@ -45,6 +48,20 @@ fn map_field_group(g: SvcFieldGroup) -> ProjectedFieldGroup {
     }
 }
 
+fn map_relation_target(t: SvcRelationTarget) -> ProjectedRelationTarget {
+    ProjectedRelationTarget {
+        instance_id: t.instance_id,
+        display_label: t.display_label,
+    }
+}
+
+fn map_relation_row(row: SvcRelationRow) -> ProjectedRelationRow {
+    ProjectedRelationRow {
+        label: row.label,
+        targets: row.targets.into_iter().map(map_relation_target).collect(),
+    }
+}
+
 fn map_record(r: SvcRecord) -> ProjectedRecord {
     ProjectedRecord {
         instance_id: r.instance_id,
@@ -58,6 +75,9 @@ fn map_record(r: SvcRecord) -> ProjectedRecord {
         field_groups: r
             .field_groups
             .map(|gs| gs.into_iter().map(map_field_group).collect()),
+        relations: r
+            .relations
+            .map(|rows| rows.into_iter().map(map_relation_row).collect()),
     }
 }
 
