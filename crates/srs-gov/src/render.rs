@@ -162,6 +162,86 @@ pub fn linked_attachments(attachments: &[LinkedAttachment]) {
     println!();
 }
 
+pub fn record_created(instance_id: &str, child: &str, container_id: &str) {
+    header(&format!("Created  {}", short_id(instance_id)));
+    println!();
+    println!("  Type:       {child}");
+    println!("  Container:  {container_id}");
+    println!("  ID:         {instance_id}");
+    println!();
+    println!("  Run: srs-gov get {container_id} {instance_id}  to view the record");
+    println!();
+}
+
+pub fn transition_applied(id: &str, state: &str) {
+    header(&format!("Transitioned  {}", short_id(id)));
+    println!();
+    println!("  New state:  {state}");
+    println!();
+    println!("  Run: srs record get {id}  to see the full record");
+    println!();
+}
+
+pub fn relations_list(id: &str, relations: &[serde_json::Value]) {
+    header(&format!("Relations  —  {}", short_id(id)));
+    println!();
+    if relations.is_empty() {
+        println!("  (no relations)");
+        println!();
+        return;
+    }
+    println!(
+        "  {:<10}  {:<20}  {:<16}  {:<16}  ID",
+        "DIRECTION", "TYPE", "SOURCE", "TARGET"
+    );
+    println!("  {}", "─".repeat(80));
+    for r in relations {
+        let source = r["sourceInstanceId"].as_str().unwrap_or("");
+        let target = r["targetInstanceId"].as_str().unwrap_or("");
+        let rtype = r["relationType"].as_str().unwrap_or("");
+        let rid = r["relationId"].as_str().unwrap_or("");
+        let direction = if source == id || source.starts_with(id) {
+            "outgoing"
+        } else {
+            "incoming"
+        };
+        println!(
+            "  {:<10}  {:<20}  {:<16}  {:<16}  {}",
+            direction,
+            rtype,
+            short_id(source),
+            short_id(target),
+            short_id(rid)
+        );
+    }
+    println!();
+    println!("  Run: srs-gov unrelate <ID>  to remove a relation");
+    println!();
+}
+
+pub fn relation_created(
+    relation_id: &str,
+    relation_type: &str,
+    source_id: &str,
+    target_id: &str,
+) {
+    header(&format!("Relation created  {}", short_id(relation_id)));
+    println!();
+    println!("  Type:    {relation_type}");
+    println!("  Source:  {source_id}");
+    println!("  Target:  {target_id}");
+    println!();
+    println!("  Run: srs-gov unrelate {relation_id}  to remove");
+    println!();
+}
+
+pub fn relation_deleted(relation_id: &str) {
+    header(&format!("Relation deleted  {}", short_id(relation_id)));
+    println!();
+    println!("  ID:  {relation_id}");
+    println!();
+}
+
 pub fn export_bundle_created(output_path: &str, rendered_filename: &str, attachment_count: usize) {
     println!();
     println!("  Bundle created: {output_path}");

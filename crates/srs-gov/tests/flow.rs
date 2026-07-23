@@ -152,7 +152,7 @@ fn decision_log_get_shows_field_labels() {
 fn create_decision_dry_run_emits_correct_command() {
     // Use a self-contained governance repo — field IDs are package constants regardless of repo.
     let repo = setup_repo("create-cmd");
-    let out = gov_out(&repo.path, &["create", "decision_log", "decision"]);
+    let out = gov_out(&repo.path, &["create", "decision_log", "decision", "--dry-run"]);
     assert!(
         out.contains("srs record create"),
         "expected srs record create\n{out}"
@@ -175,7 +175,7 @@ fn create_decision_dry_run_does_not_mutate() {
     use std::fs;
     let repo = setup_repo("create-nomutate");
     let before = fs::read(&repo.path).expect("read srsj");
-    gov_out(&repo.path, &["create", "decision_log", "decision"]);
+    gov_out(&repo.path, &["create", "decision_log", "decision", "--dry-run"]);
     let after = fs::read(&repo.path).expect("re-read srsj");
     assert_eq!(before, after, "srsj changed — create is not dry-run!");
 }
@@ -189,6 +189,7 @@ fn create_decision_dry_run_escapes_quoted_values() {
             "create",
             "decision_log",
             "decision",
+            "--dry-run",
             "--title",
             r#"Adopt the "new" policy"#,
             "--statement",
@@ -1040,4 +1041,296 @@ fn srs_gov_attachment_add_duplicate_rejected() {
     assert!(!out.status.success(), "second add of same file must fail");
 
     std::fs::remove_file(&src_path).ok();
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: real create write path
+// ---------------------------------------------------------------------------
+
+#[test]
+fn create_decision_writes_record() {
+    let repo = setup_repo("create-write");
+
+    // Count decisions before
+    let before = srs_json(&repo.path, &["record", "list", "--type", "governance/decision"], None);
+    let before_count = before["payload"]["records"]
+        .as_array()
+        .map(|a| a.len())
+        .unwrap_or(0);
+
+    // Real write (no --dry-run)
+    let out = gov_out(
+        &repo.path,
+        &[
+            "create",
+            "decision_log",
+            "decision",
+            "--title",
+            "Test Write Decision",
+            "--statement",
+            "this proves the write path",
+        ],
+    );
+    assert!(out.contains("Created"), "expected Created header\n{out}");
+    // Output must contain a UUID-shaped string (8 hex chars followed by -)
+    assert!(
+        out.chars().any(|c| c == '-') && out.len() > 20,
+        "expected UUID in output\n{out}"
+    );
+
+    // Count must have increased
+    let after = srs_json(&repo.path, &["record", "list", "--type", "governance/decision"], None);
+    let after_count = after["payload"]["records"]
+        .as_array()
+        .map(|a| a.len())
+        .unwrap_or(0);
+    assert!(
+        after_count > before_count,
+        "expected record count to increase: before={before_count} after={after_count}"
+    );
+
+    // Validate must be clean
+    let v = srs_json(&repo.path, &["repo", "validate"], None);
+    assert_eq!(v["payload"]["summary"]["errors"].as_u64(), Some(0));
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3: transition verb
+// ---------------------------------------------------------------------------
+
+#[test]
+fn transition_decision_succeeds() {
+    let repo = setup_repo("transition-ok");
+
+    // Get a draft decision from setup_repo (first created = "Adopt monthly cadence", still draft)
+    let list = srs_json(&repo.path, &["record", "list", "--type", "governance/decision"], None);
+    let draft_id = list["payload"]["records"]
+        .as_array()
+        .expect("records array")
+        .iter()
+        .find(|r| r["record"]["lifecycleState"].as_str() == Some("draft"))
+        .and_then(|r| r["instanceId"].as_str())
+        .expect("at least one draft decision from setup_repo")
+        .to_string();
+
+    let out = gov_out(&repo.path, &["transition", &draft_id, "--to", "proposed"]);
+    assert!(out.contains("Transitioned"), "expected Transitioned header\n{out}");
+    assert!(out.contains("proposed"), "expected new state in output\n{out}");
+
+    // Verify via srs record get
+    let record = srs_json(&repo.path, &["record", "get", &draft_id], None);
+    assert_eq!(
+        record["payload"]["record"]["lifecycleState"].as_str(),
+        Some("proposed"),
+        "lifecycleState must be proposed after transition"
+    );
+
+    let v = srs_json(&repo.path, &["repo", "validate"], None);
+    assert_eq!(v["payload"]["summary"]["errors"].as_u64(), Some(0));
+}
+
+#[test]
+fn transition_invalid_state_fails() {
+    let repo = setup_repo("transition-bad");
+
+    let list = srs_json(&repo.path, &["record", "list", "--type", "governance/decision"], None);
+    let draft_id = list["payload"]["records"]
+        .as_array()
+        .expect("records array")
+        .iter()
+        .find(|r| r["record"]["lifecycleState"].as_str() == Some("draft"))
+        .and_then(|r| r["instanceId"].as_str())
+        .expect("draft decision")
+        .to_string();
+
+    let gov = srs_gov_bin();
+    let srs = srs_bin();
+    let out = std::process::Command::new(&gov)
+        .env("SRS_BIN", &srs)
+        .arg("--repo")
+        .arg(&repo.path)
+        .args(["transition", &draft_id, "--to", "nonexistent_state"])
+        .output()
+        .expect("run srs-gov");
+    assert!(
+        !out.status.success(),
+        "transition to nonexistent_state must fail"
+    );
+}
+
+#[test]
+fn transition_explain_does_not_write() {
+    let repo = setup_repo("transition-explain");
+
+    let list = srs_json(&repo.path, &["record", "list", "--type", "governance/decision"], None);
+    let draft_id = list["payload"]["records"]
+        .as_array()
+        .expect("records array")
+        .iter()
+        .find(|r| r["record"]["lifecycleState"].as_str() == Some("draft"))
+        .and_then(|r| r["instanceId"].as_str())
+        .expect("draft decision")
+        .to_string();
+
+    let out = gov_out(
+        &repo.path,
+        &["--explain", "transition", &draft_id, "--to", "proposed"],
+    );
+    assert!(
+        out.contains("srs") || out.contains("stdin"),
+        "explain mode must print commands\n{out}"
+    );
+
+    // State must still be draft
+    let record = srs_json(&repo.path, &["record", "get", &draft_id], None);
+    assert_eq!(
+        record["payload"]["record"]["lifecycleState"].as_str(),
+        Some("draft"),
+        "--explain must not mutate lifecycle state"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: relate, unrelate, relations verbs
+// ---------------------------------------------------------------------------
+
+#[test]
+fn relate_and_unrelate() {
+    let repo = setup_repo("relate-test");
+
+    let list = srs_json(&repo.path, &["record", "list", "--type", "governance/decision"], None);
+    let records = list["payload"]["records"].as_array().expect("records");
+    // Use the two draft decisions as source and target (avoids needing to create fresh ones)
+    // setup_repo creates: draft, ratified, superseded, closed — the first is always draft.
+    let a_id = records
+        .iter()
+        .find(|r| r["record"]["lifecycleState"].as_str() == Some("draft"))
+        .and_then(|r| r["instanceId"].as_str())
+        .expect("draft decision A")
+        .to_string();
+    let b_id = records
+        .iter()
+        .find(|r| r["record"]["lifecycleState"].as_str() == Some("ratified"))
+        .and_then(|r| r["instanceId"].as_str())
+        .expect("ratified decision B")
+        .to_string();
+
+    // Create a supersedes relation (A draft supersedes B ratified)
+    let out = gov_out(
+        &repo.path,
+        &["relate", &a_id, "--type", "supersedes", "--target", &b_id],
+    );
+    assert!(
+        out.contains("supersedes") || out.contains("Relation"),
+        "expected relation confirmation\n{out}"
+    );
+
+    // relations list must show it
+    let rel_out = gov_out(&repo.path, &["relations", &a_id]);
+    assert!(
+        rel_out.contains("supersedes"),
+        "relations list must show supersedes\n{rel_out}"
+    );
+
+    // Validate still clean
+    let v = srs_json(&repo.path, &["repo", "validate"], None);
+    assert_eq!(v["payload"]["summary"]["errors"].as_u64(), Some(0));
+
+    // Get relation ID to unrelate
+    let raw_rel = srs_json(
+        &repo.path,
+        &["relation", "list", "--source", &a_id],
+        None,
+    );
+    let relation_id = raw_rel["payload"]["relations"]
+        .as_array()
+        .expect("relations array")
+        .iter()
+        .find(|r| r["relationType"].as_str() == Some("supersedes"))
+        .and_then(|r| r["relationId"].as_str())
+        .expect("supersedes relation ID")
+        .to_string();
+
+    // Unrelate
+    let unrel_out = gov_out(&repo.path, &["unrelate", &relation_id]);
+    assert!(
+        unrel_out.contains("deleted") || unrel_out.contains("Relation"),
+        "expected deletion confirmation\n{unrel_out}"
+    );
+
+    // relations list must no longer show supersedes
+    let rel_out2 = gov_out(&repo.path, &["relations", &a_id]);
+    assert!(
+        !rel_out2.contains("supersedes"),
+        "supersedes must be gone after unrelate\n{rel_out2}"
+    );
+
+    // Validate still clean
+    let v2 = srs_json(&repo.path, &["repo", "validate"], None);
+    assert_eq!(v2["payload"]["summary"]["errors"].as_u64(), Some(0));
+}
+
+#[test]
+fn relate_invalid_type_rejected() {
+    let repo = setup_repo("relate-bad-type");
+
+    let list = srs_json(&repo.path, &["record", "list", "--type", "governance/decision"], None);
+    let id = list["payload"]["records"]
+        .as_array()
+        .expect("records")
+        .first()
+        .and_then(|r| r["instanceId"].as_str())
+        .expect("any decision")
+        .to_string();
+
+    let gov = srs_gov_bin();
+    let srs = srs_bin();
+    let out = std::process::Command::new(&gov)
+        .env("SRS_BIN", &srs)
+        .arg("--repo")
+        .arg(&repo.path)
+        .args(["relate", &id, "--type", "unknown_type", "--target", &id])
+        .output()
+        .expect("run srs-gov");
+    assert!(
+        !out.status.success(),
+        "relate with unknown_type must fail"
+    );
+}
+
+#[test]
+fn relate_explain_does_not_write() {
+    let repo = setup_repo("relate-explain");
+
+    let list = srs_json(&repo.path, &["record", "list", "--type", "governance/decision"], None);
+    let records = list["payload"]["records"].as_array().expect("records");
+    let a_id = records
+        .iter()
+        .find(|r| r["record"]["lifecycleState"].as_str() == Some("draft"))
+        .and_then(|r| r["instanceId"].as_str())
+        .expect("draft decision")
+        .to_string();
+    let b_id = records
+        .iter()
+        .find(|r| r["record"]["lifecycleState"].as_str() == Some("ratified"))
+        .and_then(|r| r["instanceId"].as_str())
+        .expect("ratified decision")
+        .to_string();
+
+    let out = gov_out(
+        &repo.path,
+        &["--explain", "relate", &a_id, "--type", "supersedes", "--target", &b_id],
+    );
+    assert!(
+        out.contains("srs") || out.contains("relation"),
+        "explain mode must print commands\n{out}"
+    );
+
+    // No relation must exist after explain
+    let raw_rel = srs_json(&repo.path, &["relation", "list", "--source", &a_id], None);
+    let count = raw_rel["payload"]["relations"]
+        .as_array()
+        .map(|a| a.len())
+        .unwrap_or(0);
+    assert_eq!(count, 0, "--explain must not create any relation");
 }
