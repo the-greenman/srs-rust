@@ -236,14 +236,19 @@ fn run() -> Result<()> {
         Some(Commands::Transition { id, to }) => {
             cmd_transition(&id, &to, &cli.repo, cli.explain, cli.json)
         }
-        Some(Commands::Relations { id }) => {
-            cmd_relations(&id, &cli.repo, cli.explain, cli.json)
-        }
+        Some(Commands::Relations { id }) => cmd_relations(&id, &cli.repo, cli.explain, cli.json),
         Some(Commands::Relate {
             id,
             relation_type,
             target,
-        }) => cmd_relate(&id, &relation_type, &target, &cli.repo, cli.explain, cli.json),
+        }) => cmd_relate(
+            &id,
+            &relation_type,
+            &target,
+            &cli.repo,
+            cli.explain,
+            cli.json,
+        ),
         Some(Commands::Unrelate { relation_id }) => {
             cmd_unrelate(&relation_id, &cli.repo, cli.explain, cli.json)
         }
@@ -629,10 +634,7 @@ fn cmd_create(
 
     if dry_run || explain {
         println!();
-        println!(
-            "# Command to create a new {child} in {}",
-            def.label
-        );
+        println!("# Command to create a new {child} in {}", def.label);
         println!("# The --container flag creates the record AND adds it to the");
         println!("# container in one step. Lifecycle defaults to 'draft'.");
         println!();
@@ -658,7 +660,14 @@ fn cmd_create(
 
     // Real write path
     let payload = run_srs_with_stdin(
-        &["--container", &container_id, "record", "create", "--type", type_ref],
+        &[
+            "--container",
+            &container_id,
+            "record",
+            "create",
+            "--type",
+            type_ref,
+        ],
         repo,
         &input_json,
         false,
@@ -667,7 +676,9 @@ fn cmd_create(
     if json {
         return Ok(());
     }
-    let instance_id = payload["record"]["instanceId"].as_str().unwrap_or("(unknown)");
+    let instance_id = payload["record"]["instanceId"]
+        .as_str()
+        .unwrap_or("(unknown)");
     render::record_created(instance_id, child, &container_id);
     Ok(())
 }
@@ -681,7 +692,12 @@ fn cmd_transition(id: &str, to: &str, repo: &str, explain: bool, json: bool) -> 
 
     if explain {
         println!("# Underlying srs commands:");
-        run_srs(&["record", "allowed-transitions", "--id", id], repo, true, false)?;
+        run_srs(
+            &["record", "allowed-transitions", "--id", id],
+            repo,
+            true,
+            false,
+        )?;
         run_srs(&["record", "transition", "--id", id], repo, true, false)?;
         println!("  # stdin: {stdin_json}");
         return Ok(());
@@ -797,7 +813,9 @@ fn cmd_relate(
     if json {
         return Ok(());
     }
-    let relation_id = payload["relation"]["relationId"].as_str().unwrap_or("(unknown)");
+    let relation_id = payload["relation"]["relationId"]
+        .as_str()
+        .unwrap_or("(unknown)");
     render::relation_created(relation_id, relation_type, &full_source, &full_target);
     Ok(())
 }

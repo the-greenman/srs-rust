@@ -219,12 +219,7 @@ pub fn relations_list(id: &str, relations: &[serde_json::Value]) {
     println!();
 }
 
-pub fn relation_created(
-    relation_id: &str,
-    relation_type: &str,
-    source_id: &str,
-    target_id: &str,
-) {
+pub fn relation_created(relation_id: &str, relation_type: &str, source_id: &str, target_id: &str) {
     header(&format!("Relation created  {}", short_id(relation_id)));
     println!();
     println!("  Type:    {relation_type}");
