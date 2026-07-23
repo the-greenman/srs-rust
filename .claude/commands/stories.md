@@ -51,9 +51,10 @@ You may propose a MoSCoW (Must/Should/Could/Won't) per story for the human to co
 node /tmp/gh-project.mjs epics
 ```
 
-Lists epics by Priority with their Release identity and coverage flags (`missing-release`,
-`missing-priority`, `no-descendants`). An epic **is** a release: a human sets its Release + Priority
-(`epic set <#> --priority P --release R`); descendants inherit Release via `release-sync`.
+Lists epics in feed order (Priority → started → roadmap `NN` prefix) with coverage flags
+(`missing-priority`, `no-descendants`, `missing-roadmap-number`). An epic **is** a release: its
+`Epic NN:` title is identity + roadmap sequence (retitle the issue to renumber); a human sets its
+Priority (`epic set <#> --priority P`). There is no Release field — membership is the sub-issue graph.
 
 ## Inspect one story's tree
 

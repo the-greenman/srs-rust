@@ -39,8 +39,6 @@ UI before priorities can be derived. (You may propose a MoSCoW per story for the
 ```bash
 node /tmp/gh-project.mjs rollup            # dry-run: review the derivation
 node /tmp/gh-project.mjs rollup --fix      # apply priority labels + board Priority mirror
-node /tmp/gh-project.mjs release-sync --dry-run   # preview each descendant's epic-derived Release
-node /tmp/gh-project.mjs release-sync             # propagate each epic's Release to its descendants
 ```
 
 `coverage` also reports `orphan_stories_no_epic` — stories under no epic, whose Release can't be

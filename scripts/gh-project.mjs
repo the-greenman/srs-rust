@@ -10,7 +10,7 @@
 //
 // Entities — all native GitHub issues, linked by native sub-issues:
 //   epic  (label `epic`, in muDemocracy.org)       an epic IS a release (1:1); hand-set
-//                                                  board Priority (roadmap rank) + Release (identity)
+//                                                  board Priority; "Epic NN:" title = roadmap seq
 //   story (label `user-story`, in muDemocracy.org) the human value layer; hand-set MoSCoW
 //   work item (any other open issue, any repo)     everything derived, nothing hand-set
 //
@@ -30,7 +30,7 @@
 //
 // The continuous feed (what the hourly routines consume): `sync` runs the whole
 // pipeline in ONE process on ONE board fetch:
-//   rollup --fix → release-sync → topup --fix → promote --fix → stale-claims --fix → reconcile --fix
+//   rollup --fix → topup --fix → promote --fix → stale-claims --fix → reconcile --fix
 // topup nominates in IMPLEMENTATION ORDER — epic-major: epic Priority, STARTED epics
 // first within a tier, then the roadmap prefix (the "NN" the owner maintains on
 // Release names / "Epic NN:" titles — #711), then issue priority, then sub-issue
@@ -58,10 +58,13 @@
 //   - Every subprocess call carries a timeout: a hung network call fails loudly and the
 //     next hourly run retries; it never wedges the pipeline.
 //
-// Release model: an epic (label `epic`, in muDemocracy.org) IS a release. The epic
-// declares its release once (its own Release field value) and ranks the roadmap via its
-// Priority; every descendant inherits the epic's Release down the sub-issue graph
-// (`release-sync`). Release lives only as the board field — there is no release label.
+// Release model (#720): an epic (label `epic`, in muDemocracy.org) IS a release — the
+// epic ISSUE is the release's identity, its TITLE's "Epic NN:" prefix is the roadmap
+// sequence, and membership is the native sub-issue graph. There is NO Release board
+// field and NO release label: single-select options are hand-maintained UI state that
+// cannot be safely automated (renaming an option wipes the value off every item), and
+// everything a Release field provided is derivable from the graph. To ask "what's in
+// release NN" use `tree <epic#>` / `summary --epic <epic#>` / `bands`.
 //
 // Usage: node gh-project.mjs <command> [options]   (see `help`)
 
@@ -456,7 +459,6 @@ function board() {
         status:   fieldValueByName(name:"Status")   { ... on ProjectV2ItemFieldSingleSelectValue { name } }
         priority: fieldValueByName(name:"Priority")  { ... on ProjectV2ItemFieldSingleSelectValue { name } }
         moscow:   fieldValueByName(name:"MoSCoW")    { ... on ProjectV2ItemFieldSingleSelectValue { name } }
-        release:  fieldValueByName(name:"Release")   { ... on ProjectV2ItemFieldSingleSelectValue { name } }
         iteration:fieldValueByName(name:"Iteration") { ... on ProjectV2ItemFieldIterationValue { title } }
         content{ ... on Issue {
           number state title repository { name }
@@ -498,7 +500,6 @@ function board() {
         status: n.status?.name ?? null,
         priority: n.priority?.name ?? null,
         moscow: n.moscow?.name ?? null,
-        release: n.release?.name ?? null,
         iteration: n.iteration?.title ?? null,
       });
     }
@@ -515,7 +516,7 @@ function board() {
 // a row not in the cache (an off-board issue) is simply skipped, and the next
 // hourly run reads truth from the API anyway.
 // ---------------------------------------------------------------------------
-const FIELD_TO_ROW_PROP = { Status: "status", Priority: "priority", Release: "release", MoSCoW: "moscow" };
+const FIELD_TO_ROW_PROP = { Status: "status", Priority: "priority", MoSCoW: "moscow" };
 function patchRowByItemId(itemId, fieldName, value) {
   const prop = FIELD_TO_ROW_PROP[fieldName];
   if (!prop || !_board) return; // Iteration/Band/Size fields are never re-read within a run
@@ -1054,7 +1055,9 @@ function computeRollup() {
   const uncovered = [...storiesByNum.values()].filter(
     (s) => ![...descendants.values()].some((set) => set.has(s.num))
   );
-  return { derived, bugs, unlinked, uncovered, storiesByNum };
+  // epicDesc/epicByNum let consumers (summary) group rows by claiming epic without a
+  // second graph walk — the Release field that used to carry this grouping is retired (#720).
+  return { derived, bugs, unlinked, uncovered, storiesByNum, epicDesc, epicByNum };
 }
 
 function applyPriority(entry, dryRun) {
@@ -1072,32 +1075,33 @@ function applyPriority(entry, dryRun) {
 }
 
 // ---------------------------------------------------------------------------
-// Epics as releases — an epic (label `epic`, in muDemocracy.org) IS a release.
-// The epic declares its release once (its own Release field value) and ranks the
-// roadmap via its Priority; every descendant inherits the epic's Release down the
-// native sub-issue graph. There is no separate release entity and no release label —
-// Release lives only as the board field, derived here from the epic hierarchy.
-// (Membership = sub-issue parent; the Release field = the derived, groupable mirror.)
+// Epics as releases (#720) — an epic (label `epic`, in muDemocracy.org) IS a release.
+// The epic ISSUE is the release's identity, its TITLE's "Epic NN:" prefix is the
+// roadmap sequence, its board Priority is the urgency tier, and membership is the
+// native sub-issue graph. There is NO Release board field and NO release label —
+// single-select options are hand-maintained UI state (an option rename wipes the
+// value off every item carrying it) and everything they encoded is derivable here.
 // ---------------------------------------------------------------------------
 const EPIC_LABEL = "epic";
 
 // Rank an epic for DIAMOND-CLAIMING only (a descendant reachable from two epics is
 // claimed by the lower epicRank): Priority first, then issue number. This must stay
 // STABLE — changing it silently re-parents shared descendants and rewrites their
-// derived Release — so it deliberately does NOT use the roadmap prefix or startedness.
-// Every user-visible ordering (feed, `epics`, `tree`) uses epicFeedRank instead.
+// derived priorities — so it deliberately does NOT use the roadmap prefix or
+// startedness. Every user-visible ordering (feed, `epics`, `tree`) uses epicFeedRank.
 function epicRank(epic) {
   return pRank(epic.priority) * 1e6 + epic.num;
 }
 
-// Roadmap sequence (#711): the numeric prefix the owner already hand-maintains on the
-// Release name ("04 Generic Semantic Editor") or the epic title ("Epic 04: …").
-// Returns the number, or null when neither carries one. This IS the intended epic
-// order — issue numbers are filing chronology and get it wrong (real case: Epic 08 is
-// issue #60, Epic 07 is issue #94). Renumbering the roadmap = renaming a Release
-// option / retitling the epic; no new field, no new process.
+// Roadmap sequence (#711, source narrowed by #720): the "Epic NN:" prefix of the epic
+// TITLE — the single authoritative copy. Retitling an issue is one safe, REST-able
+// write (unlike renaming a board option, which wipes values). Returns the number, or
+// null when the title carries none (flagged `missing-roadmap-number` by `epics`;
+// unnumbered epics sort last in their tier). This IS the intended epic order — issue
+// numbers are filing chronology and get it wrong (real case: Epic 08 is issue #60,
+// Epic 07 is issue #94).
 function epicRoadmapSeq(epic) {
-  const m = /^\s*(\d+)\b/.exec(epic.release ?? "") ?? /^epic\s+(\d+)\b/i.exec(epic.title ?? "");
+  const m = /^epic\s+(\d+)\b/i.exec(epic.title ?? "");
   return m ? parseInt(m[1], 10) : null;
 }
 
@@ -1125,7 +1129,8 @@ function startedEpics(desc, b) {
   return started;
 }
 
-// Open epics in the story repo, joined to their board row (Release identity + Priority).
+// Open epics in the story repo, joined to their board row (Priority — the one board
+// input on an epic; identity and roadmap sequence live in the title, #720).
 function openEpics() {
   const rows = (ghJson([
     "issue", "list", "--repo", `${OWNER}/${STORY_REPO}`,
@@ -1137,7 +1142,7 @@ function openEpics() {
     const row = b.get(`${STORY_REPO}#${e.num}`);
     return {
       num: e.num, title: e.title, key: `${STORY_REPO}#${e.num}`,
-      release: row?.release ?? null, priority: row?.priority ?? null, onBoard: !!row,
+      priority: row?.priority ?? null, onBoard: !!row,
     };
   });
 }
@@ -1164,48 +1169,20 @@ function epicDescendants(epics) {
   return map;
 }
 
-// Everything the release model needs: epics, the descendant→epic map, the target
-// Release per descendant, and open stories that sit under no epic.
-function computeReleaseRollup() {
+// The epic graph in one read: open epics, the descendant→claiming-epic map, and open
+// stories that sit under no epic. (Formerly computeReleaseRollup — the Release field
+// and its `release-sync` stamping were retired in #720; membership needs no mirror.)
+function epicGraph() {
   const epics = openEpics();
   const desc = epicDescendants(epics);
-  const relByEpic = new Map(epics.map((e) => [e.num, e.release]));
-  const targets = new Map(); // key -> { release, epic }
-  for (const [key, epicNum] of desc) {
-    const release = relByEpic.get(epicNum);
-    if (release) targets.set(key, { release, epic: epicNum });
-  }
   const orphanStories = openStories().filter((s) => !desc.has(`${STORY_REPO}#${s.num}`));
-  return { epics, desc, targets, orphanStories };
-}
-
-// Propagate each epic's Release down to its descendants (idempotent). Default writes;
-// pass --dry-run to preview. The epic's own Release (its identity) is set by hand via
-// `epic set` and is never overwritten here.
-function cmdReleaseSync(dryRun) {
-  if (!meta().fields["Release"])
-    die("Release field not found on the board — create it in the UI first (its options are the epics).");
-  const b = board();
-  const { epics, targets } = computeReleaseRollup();
-  for (const e of epics)
-    if (!e.release) console.error(`gh-project: warning: epic ${e.key} has no Release set — its descendants can't inherit one`);
-  let set = 0, ok = 0, off = 0;
-  for (const [key, { release }] of targets) {
-    const row = b.get(key);
-    if (!row) { off++; continue; }
-    if (row.release === release) { ok++; continue; }
-    console.log(`${dryRun ? "[dry-run] " : ""}Release ${key} = ${release}`);
-    if (!dryRun) setSingleSelect(row.itemId, "Release", release, false);
-    set++;
-  }
-  console.log(`${targets.size} descendants under ${epics.length} epics · ${set} ${dryRun ? "would be " : ""}set · ${ok} already correct · ${off} not on board`);
-  if (dryRun) console.log("(dry-run; run without --dry-run to write)");
+  return { epics, desc, orphanStories };
 }
 
 // `epics` — roadmap read: epics in FEED order (Priority → started → roadmap prefix →
 // #), i.e. exactly the order topup/bands will consume them, with coverage + hygiene flags.
 function cmdEpics() {
-  const { epics, desc, orphanStories } = computeReleaseRollup();
+  const { epics, desc, orphanStories } = epicGraph();
   const b = board();
   const started = startedEpics(desc, b);
   const kidsByEpic = new Map(epics.map((e) => [e.num, []]));
@@ -1216,11 +1193,10 @@ function cmdEpics() {
     const done = rows.filter((r) => r.state === "CLOSED" || r.status === "Done").length;
     const seq = epicRoadmapSeq(e);
     const flags = [];
-    if (!e.release) flags.push("missing-release");
     if (!e.priority) flags.push("missing-priority");
     if (!kids.length) flags.push("no-descendants");
     if (seq == null) flags.push("missing-roadmap-number");
-    return { epic: e.key, title: e.title, release: e.release, priority: e.priority, seq, started: started.has(e.num), descendants: kids.length, done, flags };
+    return { epic: e.key, title: e.title, priority: e.priority, seq, started: started.has(e.num), descendants: kids.length, done, flags };
   });
   console.log(fmt({
     epics: out,
@@ -1228,20 +1204,22 @@ function cmdEpics() {
   }));
 }
 
-// `epic set <n> --priority P [--release R]` — the two manual inputs on an epic: its
-// roadmap rank (Priority) and its release identity (Release). No priority label written.
+// `epic set <n> --priority P` — the ONE board input on an epic: its urgency tier.
+// Identity and roadmap sequence live in the epic's TITLE ("Epic NN: Name") — renumber
+// by retitling the issue (`gh issue edit <n> --title ...`), not here (#720). No
+// priority label is written; descendants derive theirs on the next rollup.
 function cmdEpicSet(argv, dryRun) {
   const num = argv[0];
-  if (!num) die("usage: epic set <num> --priority <P> [--release <R>]");
-  let priority, release;
+  if (!num) die("usage: epic set <num> --priority <P>   (roadmap order lives in the title: retitle the issue to renumber)");
+  let priority;
   for (let i = 1; i < argv.length; i++) {
     if (argv[i] === "--priority") priority = argv[++i];
-    else if (argv[i] === "--release") release = argv[++i];
+    else if (argv[i] === "--release") die("the Release field was retired (#720) — the epic issue IS the release; renumber by retitling");
   }
-  if (!priority && !release) die("nothing to set — pass --priority and/or --release");
+  if (!priority) die("nothing to set — pass --priority");
   const itemId = ensureOnBoard(STORY_REPO, num, dryRun);
-  if (priority) { console.log(`${dryRun ? "[dry-run] " : ""}Priority ${STORY_REPO}#${num} = ${priority}`); if (!dryRun) setSingleSelect(itemId, "Priority", priority, false); }
-  if (release)  { console.log(`${dryRun ? "[dry-run] " : ""}Release ${STORY_REPO}#${num} = ${release}`);   if (!dryRun) setSingleSelect(itemId, "Release", release, false); }
+  console.log(`${dryRun ? "[dry-run] " : ""}Priority ${STORY_REPO}#${num} = ${priority}`);
+  if (!dryRun) setSingleSelect(itemId, "Priority", priority, false);
 }
 
 // `link <parent-repo>#<num> <child-repo>#<num>` — generic native sub-issue link,
@@ -1308,7 +1286,7 @@ function cmdEpicAddStory(argv, dryRun) {
 // open leaves under no epic (trailing `unlinkedLeaves`, never dropped).
 function computeImplementationOrder() {
   const b = board();
-  const { epics, desc } = computeReleaseRollup(); // desc: key -> claiming epicNum
+  const { epics, desc } = epicGraph(); // desc: key -> claiming epicNum
   const roll = computeRollup();
   const pByKey = new Map();
   for (const e of [...roll.derived, ...roll.bugs, ...roll.unlinked]) pByKey.set(e.row.key, e.p ?? null);
@@ -1416,7 +1394,7 @@ function cmdBands(argv) {
     L.push("");
     L.push(`Band ${i + 1}  (effort ~${band.effort} · ${band.items.length} issues)`);
     for (const it of band.items)
-      L.push(`  ${it.row.key.padEnd(16)} [${(it.p ?? "—").padEnd(2)}][${(sizeOf(it.row) ?? "?").padEnd(6)}] (${it.epic?.release ?? "—"}) ${it.row.title.slice(0, 56)}`);
+      L.push(`  ${it.row.key.padEnd(16)} [${(it.p ?? "—").padEnd(2)}][${(sizeOf(it.row) ?? "?").padEnd(6)}] (${it.epic ? `E${String(epicRoadmapSeq(it.epic) ?? "?").padStart(2, "0")}` : "—"}) ${it.row.title.slice(0, 56)}`);
   });
   if (unlinkedLeaves.length) {
     L.push("");
@@ -1527,7 +1505,7 @@ function cmdBoard(argv) {
   );
   console.log(fmt(rows.map((r) => ({
     key: r.key, status: r.status, priority: r.priority,
-    release: r.release, iteration: r.iteration, moscow: r.moscow, title: r.title,
+    iteration: r.iteration, moscow: r.moscow, title: r.title,
   }))));
 }
 
@@ -1552,10 +1530,10 @@ function cmdTree(storyNum) {
     render(OWNER, STORY_REPO, storyNum, 1);
     return;
   }
-  const { epics, desc } = computeReleaseRollup();
+  const { epics, desc } = epicGraph();
   const started = startedEpics(desc, board());
   for (const e of [...epics].sort((a, c) => epicFeedRank(a, started) - epicFeedRank(c, started))) {
-    console.log(`${e.key} [${e.priority ?? "—"}] ${e.title}${e.release ? ` · ${e.release}` : ""}`);
+    console.log(`${e.key} [${e.priority ?? "—"}] ${e.title}`);
     render(OWNER, STORY_REPO, e.num, 1);
   }
 }
@@ -1618,7 +1596,7 @@ function cmdRollup(argv) {
 
 function cmdCoverage() {
   const r = computeRollup();
-  const { orphanStories } = computeReleaseRollup();
+  const { orphanStories } = epicGraph();
   console.log(fmt({
     bugs_fix_asap: r.bugs.map((e) => ({ key: e.row.key, p: e.p, title: e.row.title })),
     orphaned_could_get_lost: r.unlinked.map((u) => ({ key: u.row.key, title: u.row.title })),
@@ -1654,13 +1632,16 @@ const STAGE_LEGEND = [
 
 function cmdSummary(argv) {
   const brief = argv.includes("--brief");
-  let fRepo, fRelease;
+  let fRepo, fEpic;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--repo") fRepo = argv[++i];
-    else if (argv[i] === "--release") fRelease = argv[++i];
+    else if (argv[i] === "--epic") fEpic = Number(argv[++i]);
+    else if (argv[i] === "--release") die("--release was retired with the Release field (#720) — use --epic <epic#> instead");
   }
   const r = computeRollup();
-  const keep = (row) => (!fRepo || row.repo === fRepo) && (!fRelease || row.release === fRelease);
+  // Rows group by their CLAIMING EPIC (from the sub-issue graph) — the retired Release
+  // field used to carry this as a stamped board value (#720).
+  const keep = (row) => (!fRepo || row.repo === fRepo) && (!fEpic || r.epicDesc.get(row.key) === fEpic);
   // Orphans carry the default P2 floor, so they are estimates too — never off the books.
   const estimates = [...r.derived, ...r.bugs, ...r.unlinked].filter((e) => keep(e.row)).sort((a, b) => pRank(a.p) - pRank(b.p));
 
@@ -1680,19 +1661,26 @@ function cmdSummary(argv) {
       `uncovered-stories×${r.uncovered.length}`
   );
 
-  // By release
-  if (!fRelease) {
-    const byRel = new Map();
+  // By epic (claiming epic from the graph; sorted by roadmap sequence)
+  if (!fEpic) {
+    const byEpic = new Map();
     for (const e of estimates) {
-      const rel = e.row.release ?? "(no release)";
-      const m = byRel.get(rel) ?? { P0: 0, P1: 0, P2: 0 };
+      const en = r.epicDesc.get(e.row.key) ?? null;
+      const m = byEpic.get(en) ?? { P0: 0, P1: 0, P2: 0 };
       if (e.p) m[e.p]++;
-      byRel.set(rel, m);
+      byEpic.set(en, m);
     }
-    if (byRel.size) {
+    if (byEpic.size) {
       L.push("");
-      L.push("BY RELEASE");
-      for (const [rel, m] of byRel) L.push(`  ${rel.padEnd(22)} P0×${m.P0}  P1×${m.P1}  P2×${m.P2}`);
+      L.push("BY EPIC");
+      const label = (en) => {
+        if (en == null) return "(no epic)";
+        const epic = r.epicByNum.get(en);
+        return `#${en} ${epic ? epic.title.slice(0, 34) : ""}`.trim();
+      };
+      const seqOf = (en) => (en == null ? 9999 : (epicRoadmapSeq(r.epicByNum.get(en) ?? {}) ?? 999));
+      for (const [en, m] of [...byEpic.entries()].sort((a, b) => seqOf(a[0]) - seqOf(b[0])))
+        L.push(`  ${label(en).padEnd(40)} P0×${m.P0}  P1×${m.P1}  P2×${m.P2}`);
     }
   }
 
@@ -1731,7 +1719,7 @@ function cmdExplain(argv) {
 
   const L = [];
   L.push(`${row.key} — ${row.title}`);
-  L.push(`final priority: ${p ?? "(none)"}${row.release ? ` · release: ${row.release}` : ""}`);
+  L.push(`final priority: ${p ?? "(none)"}${s.epicFallback?.epic != null ? ` · epic: ${STORY_REPO}#${s.epicFallback.epic}` : ""}`);
   L.push("");
   L.push("Stage 1 · served stories (sub-issue graph)");
   L.push(s.served.length ? s.served.map((n) => `    ${STORY_REPO}#${n}`).join("\n") : "    (none — this issue serves no user story)");
@@ -2078,8 +2066,8 @@ function cmdReconcile(argv) {
   }
   // Unlinked non-bug
   for (const u of r.unlinked) issues.push(`orphaned-could-get-lost: ${u.row.key}`);
-  // Stories under no epic — release can't be derived until they are linked
-  for (const s of computeReleaseRollup().orphanStories)
+  // Stories under no epic — they belong to no release until linked
+  for (const s of epicGraph().orphanStories)
     issues.push(`orphan-story-no-epic: ${STORY_REPO}#${s.num}`);
   // Leaf work items with no size — bands weight on this; assign one at triage (report-only)
   for (const row of unsizedLeaves()) issues.push(`unsized: ${row.key}`);
@@ -2088,7 +2076,7 @@ function cmdReconcile(argv) {
 }
 
 // sync [--dry-run] — the whole board-sync pipeline in ONE process, on ONE board fetch:
-//   stories-sync → rollup --fix → release-sync → topup --fix → promote --fix
+//   stories-sync → rollup --fix → topup --fix → promote --fix
 //   → stale-claims --fix → reconcile --fix
 // This is what the hourly board-sync GitHub Action runs (#664). One process means the
 // board and the sub-issue graph are fetched once (a handful of API calls) instead of
@@ -2096,7 +2084,7 @@ function cmdReconcile(argv) {
 // thousands of requests a day. Each step's writes patch the in-memory cache (see
 // patchRow*) so later steps see them — e.g. reconcile must not un-mirror the `ready`
 // label promote just set. Order matters: stories onto the board first, then priorities
-// (they drive topup's feed order), release inheritance, queue topup + promotion,
+// (they drive topup's feed order), queue topup + promotion,
 // claim recovery, and reconcile mopping up last.
 function cmdSync(argv) {
   const dryRun = argv.includes("--dry-run");
@@ -2104,7 +2092,6 @@ function cmdSync(argv) {
   const step = (name, fn) => { console.log(`\n── ${name} ${"─".repeat(Math.max(3, 60 - name.length))}`); fn(); };
   step("stories-sync", () => cmdStoriesSync(dryRun));
   step("rollup", () => cmdRollup(flags));
-  step("release-sync", () => cmdReleaseSync(dryRun));
   step("topup", () => cmdTopup(flags));
   step("promote", () => cmdPromote(flags));
   step("stale-claims", () => cmdStaleClaims(flags));
@@ -2125,18 +2112,18 @@ function help() {
   story set <num> --moscow <M> [--release <ms>]
   tree [<story#>]                 sub-issue tree — one story, or (no arg) the whole board by epic
   rollup [--fix]                  derive impl priority from stories (dry-run by default)
-  summary [--repo R --release X --brief]   priority estimates with the calculation stages
+  summary [--repo R --epic N --brief]      priority estimates with the calculation stages
   explain <repo> <issue#>         stage-by-stage derivation for one issue
   coverage                        bugs-ASAP + unlinked + uncovered + orphan-stories audit (JSON)
-  epics                           roadmap: epics (= releases) by Priority, with coverage
-  epic set <num> --priority P [--release R]   an epic's roadmap rank + release identity
+  epics                           roadmap: epics (= releases) in feed order, with coverage
+                                  ("Epic NN:" title prefix = roadmap sequence — retitle to renumber)
+  epic set <num> --priority P     an epic's urgency tier (its ONE board input)
   epic add-story <epic#> <story#>            link a story under an epic (sub-issue)
   link <parent-repo>#<n> <child-repo>#<n>    generic sub-issue link (cross-repo, REST) — parent a
                                              filed issue under the story/epic it serves
   dep add|rm <blocked>#<n> <blocker>#<n>     native blocked-by dependency (cross-repo, REST) —
                                              reconcile derives the \`blocked\` label from edges and
                                              auto-clears it when the last blocker closes
-  release-sync [--dry-run]        derive each descendant's Release from its epic (writes; --dry-run previews)
   set <repo> <issue#> [--status --priority --iteration] [--dry-run]
   promote [--fix]                 promote every \`promote:ready\`-labelled issue to board Status=Ready
                                   (the privileged half of promotion; a REST-only judge adds the
@@ -2149,7 +2136,7 @@ function help() {
                                   bugs ride the dedicated bug track (label:bug is their queue);
                                   \`promote\` converts intents
   sync [--dry-run]                the whole hourly pipeline in one process, one board fetch:
-                                  stories-sync → rollup → release-sync → topup → promote →
+                                  stories-sync → rollup → topup → promote →
                                   stale-claims → reconcile (what the board-sync Action runs)
   size <repo> <issue#> <small|medium|large|xl> [--dry-run]   effort estimate (label + board Size field)
   bands [--count N] [--tree] [--assign] [--dry-run]
@@ -2192,12 +2179,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       case "coverage": cmdCoverage(); break;
       case "summary": cmdSummary(rest); break;
       case "explain": cmdExplain(rest); break;
-      case "release-sync": cmdReleaseSync(dry); break;
+      case "release-sync": die("release-sync was retired (#720) — the epic issue IS the release; membership is the sub-issue graph, nothing to stamp"); break;
       case "epics": cmdEpics(); break;
       case "epic":
         if (rest[0] === "set") cmdEpicSet(rest.slice(1), dry);
         else if (rest[0] === "add-story") cmdEpicAddStory(rest.slice(1), dry);
-        else die("usage: epic set <num> --priority P [--release R] | epic add-story <epic#> <story#>");
+        else die("usage: epic set <num> --priority P | epic add-story <epic#> <story#>");
         break;
       case "link": cmdLink(rest, dry); break;
       case "dep": cmdDep(rest, dry); break;
