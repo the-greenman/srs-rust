@@ -75,11 +75,20 @@ pub fn record_detail(record_id: &str, schema_props: &Value, field_values: &[Valu
     println!();
 }
 
-pub fn repo_created(output: &str, title: &str, repository_id: &str, has_purpose: bool) {
+pub fn repo_created(
+    output: &str,
+    title: &str,
+    namespace: Option<&str>,
+    repository_id: &str,
+    has_purpose: bool,
+) {
     header(&format!("Created  {title}"));
     println!();
     println!("  File:          {output}");
     println!("  Repository ID: {repository_id}");
+    if let Some(ns) = namespace {
+        println!("  Namespace:     {ns}");
+    }
     println!("  Package:       com.mudemocracy.governance @1.0.0");
     println!();
     println!(

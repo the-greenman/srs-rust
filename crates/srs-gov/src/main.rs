@@ -98,7 +98,8 @@ enum Commands {
         /// Organisation name (becomes the repository title and charter article title)
         #[arg(long, default_value = "Governance Document")]
         title: String,
-        /// Namespace prefix for the repository (defaults to com.example.<slug> derived from title)
+        /// Namespace prefix for the repository (defaults to com.example.<slug> derived from title).
+        /// Any non-empty string is accepted; reverse-DNS form (e.g. com.acme.myorg) is conventional.
         #[arg(long)]
         namespace: Option<String>,
         /// Purpose statement written into the charter article
@@ -794,7 +795,7 @@ fn cmd_repo_create(
         .context("failed to serialise store")?;
     std::fs::File::create(out_path)?.write_all(final_srsj.as_bytes())?;
 
-    render::repo_created(output, title, &result.repository_id, purpose.is_some());
+    render::repo_created(output, title, namespace, &result.repository_id, purpose.is_some());
     Ok(())
 }
 

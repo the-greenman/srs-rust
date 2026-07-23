@@ -447,6 +447,35 @@ fn repo_create_explicit_namespace_applied() {
 }
 
 #[test]
+fn repo_create_empty_namespace_is_rejected() {
+    let tmp = std::env::temp_dir().join(format!(
+        "srs-gov-empty-ns-{}.srsj",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .subsec_nanos()
+    ));
+    let path = tmp.to_string_lossy().into_owned();
+    let gov = srs_gov_bin();
+    let srs = srs_bin();
+    let out = std::process::Command::new(&gov)
+        .env("SRS_BIN", &srs)
+        .args(["repo-create", "--output", &path, "--title", "Test", "--namespace", ""])
+        .output()
+        .expect("run srs-gov repo-create --namespace empty");
+    assert!(
+        !out.status.success(),
+        "empty --namespace should be rejected, but exited 0"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("namespace") || stderr.contains("empty"),
+        "error message should mention namespace or empty: {stderr}"
+    );
+    std::fs::remove_file(&tmp).ok();
+}
+
+#[test]
 fn repo_create_navigation_works() {
     let path = std::env::temp_dir()
         .join(format!(
