@@ -121,22 +121,26 @@ id; only the FileStore/JsonStore adapters and the explicitly-deferred readers (f
 below. Enumerated exhaustively so the claim is verifiable:
 - `record_store.rs` readers: `list_all_records`, `list_records_by_type`, `get_record_by_id`,
   `get_instance_by_id`, `list_records_filtered`, `list_record_summaries`, `list_record_tags`.
-- `record_store.rs` writers: `create_record_at_dir`/`write_record`, `update_record`,
-  `delete_record`, `add_record_tag`, `remove_record_tag`, `append_source_ref`,
-  `create_record_successor`, `write_new_record`.
+- `record_store.rs` writers: `create_record_at_dir`/`write_record` (Tier-2 path), `update_record`,
+  `add_record_tag`, `remove_record_tag`, `append_source_ref`, `create_record_successor`,
+  `write_new_record`. (`delete_record` is in the revision-coupled carve-out below.)
 - `services.rs` note funnel: `list_notes`, `get_note_by_id`, note create, `update_note`,
   `delete_note`, `add_note_tag`, `remove_note_tag` (and `writer.rs::write_note` → `save_note`).
 
-**Revision-coupled carve-out (deferred, allow-listed):** `transition_record_lifecycle`,
-`list_record_revisions`, `get_record_revision` retain a raw `manifest.instance_index` → `path`
-lookup **solely** because they pass the instance's relative path to the path-keyed
-`revision_service` (revision storage is a separate, out-of-scope concern). Where they also write
-the record, that write routes through `save_record`; the residual path lookup is deferred with the
-revision-storage migration and named in the allow-list.
+**Revision-coupled carve-out (deferred, allow-listed):** `delete_record`,
+`transition_record_lifecycle`, `list_record_revisions`, `get_record_revision` retain a raw
+`manifest.instance_index` → `path` lookup **solely** because they pass the instance's relative path
+to the path-keyed `revision_service` (`append`/`list`/`get`/`delete_sidecar` all take a
+`record_path`; revision storage is a separate, out-of-scope concern). These do **not** load an
+instance body by path — `delete_record` already does an ADR-007 index-first delete; the residual
+path lookup is deferred with the revision-storage migration and named in the allow-list.
 
-**The `dir_override` escape hatch is retired.** Every live caller of `create_record_in_context`
-passes `dir_override: None`; records always land in `records/tier-2`. `save_record` owns that
-directory, so the parameter is removed rather than preserved as path-thinking.
+**`create_record_in_context`'s `dir_override` is retained** (it backs the user-facing
+`srs record create --dir` CLI flag and the MCP `record_create` tool — it is *not* dead). Instead,
+`create_record_at_dir` branches on the target directory: the default `records/tier-2` routes
+through `save_record` (the typed surface), and any other directory (the `--dir` override, Extension
+records) keeps the legacy path-based write. Only the default tier is migrated this increment; the
+override path is deferred with the generic-seam / extension-record follow-ups.
 
 **Explicitly deferred** (each filed as a child issue under #704 by this plan):
 - The generic definition/blob JSON seam that replaces the ~140 `load/save_instance_json` shim
@@ -184,7 +188,7 @@ directory, so the parameter is removed rather than preserved as path-thinking.
 
 **Neutral:**
 - No on-disk format change: `instance_index`/`InstanceIndexEntry` serialization is unchanged;
-  existing repositories load unmodified. Retiring `dir_override` changes only *where new* records
-  are written (always `records/tier-2`), which every live caller already did.
+  existing repositories load unmodified. `dir_override` (the `--dir` flag) is preserved, so record
+  placement is unchanged for both default and custom-dir writes.
 - Tier derivation (`Note`→0, `Record`→2) is a code convention, not a spec change; it matches the
   existing hardcoded tiers in `write_record`/`write_note`.

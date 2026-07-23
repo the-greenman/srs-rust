@@ -3043,12 +3043,16 @@ pub mod memory {
 
         fn delete_instance(&self, instance_id: &str) -> Result<(), RepositoryError> {
             let path = self.mem_instance_path(instance_id)?;
-            // ADR-007: remove the index entry before the data.
-            self.manifest
-                .borrow_mut()
+            // ADR-007: remove the index entry before the data. Routed through
+            // `save_manifest`/`delete_instance_file` (rather than mutating `manifest`/
+            // `data` directly) so this honours `FailPoint::SaveManifest` and
+            // `FailPoint::DeleteInstanceFile` the same way the legacy write path did.
+            let mut manifest = self.manifest.borrow().clone();
+            manifest
                 .instance_index
                 .retain(|e| e.instance_id != instance_id);
-            self.data.borrow_mut().remove(&path);
+            self.save_manifest(&manifest)?;
+            let _ = self.delete_instance_file(&path);
             Ok(())
         }
 

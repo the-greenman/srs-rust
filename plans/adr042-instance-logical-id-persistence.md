@@ -13,8 +13,9 @@ ADR-041 G3–G5 require the container-shaped alternative: typed entities keyed b
 store-answerable enumeration/query so a future SQL backend is *table rows*, not a path-keyed blob
 store. This plan adds `save_record`/`save_note`/`load_record_by_id`/`load_note_by_id`/`delete_instance`
 plus `find_instance`/`list_instances(InstanceQuery)` to the trait (implemented on FileStore,
-JsonStore, MemoryStore), routes the instance CRUD funnel and enumerators through them, retires the
-dead `dir_override` escape hatch, and makes `InstanceIndexEntry.path` contract-opaque for the
+JsonStore, MemoryStore), routes the instance CRUD funnel and enumerators through them (records to the default
+`records/tier-2` tier; the `--dir` override and Extension records keep the legacy write), and
+makes `InstanceIndexEntry.path` contract-opaque for the
 migrated paths — all behind a store-matrix parity suite including an ADR-007 fault-injection test.
 It is the highest-value slice (the only family with the index-walk problem G5 names) and sets the
 template for the other five entity families.
@@ -84,13 +85,16 @@ In scope (all in `crates/srs-repository/`):
   return the **typed** `InstanceIndexEntry`/`InstanceRef`, not `(String,String,String)` tuples).
 - **ADR-007 fault injection**: add `FailPoint::SaveInstanceIndex` and a test mirroring
   `save_container_file_first_failed_index_leaves_orphaned_data_safe`.
-- **CRUD funnel migration**: `create_record_at_dir`/`write_record`, `delete_record`
-  (`record_store.rs`); `write_note` (`writer.rs`); `note_service::{delete_note, update_note}`
-  (`services.rs`).
+- **CRUD funnel migration**: `create_record_at_dir` (Tier-2 branch → `save_record`; custom/Extension
+  dir keeps legacy write), `update_record`, `add_record_tag`, `remove_record_tag`,
+  `append_source_ref`, `create_record_successor` (`record_store.rs`); `write_note` (`writer.rs`);
+  `note_service::{create, update_note, delete_note, add_note_tag, remove_note_tag}` (`services.rs`).
 - **Enumerator migration** (stop touching `entry.path()`): `list_all_records`,
   `list_records_by_type`, `get_record_by_id`, `get_instance_by_id`, `list_records_filtered`,
-  `list_record_summaries`, `list_record_tags`; note counterparts `list_notes`, `get_note_by_id`.
-- **Retire `dir_override`**: remove the always-`None` parameter from `create_record_in_context`.
+  `list_record_summaries` (via `list_records_filtered`), `list_record_tags`; note counterparts
+  `list_notes`, `get_note_by_id`.
+- **`dir_override` retained**: it backs the `srs record create --dir` CLI flag + MCP tool — NOT
+  dead. `create_record_at_dir` branches (Tier-2 → typed `save_record`; other dirs → legacy write).
 - **Store-matrix parity tests** for the new methods (memory → file, plus JsonStore leg).
 - ADR-042 and doc updates (Stage 7.5).
 
@@ -105,10 +109,10 @@ In scope (all in `crates/srs-repository/`):
 
 - **All path-based instance readers/callers outside the migrated `record_store.rs` + `note_service`
   funnel** (#725, expanded), namely:
-  - the **revision-coupled trio** in `record_store.rs` — `transition_record_lifecycle`,
-    `list_record_revisions`, `get_record_revision` — which retain a raw `instance_index` → `path`
-    lookup solely to feed the path-keyed `revision_service` (their record *write*, where present,
-    still routes through `save_record`);
+  - the **revision-coupled functions** in `record_store.rs` — `delete_record`,
+    `transition_record_lifecycle`, `list_record_revisions`, `get_record_revision` — which retain a
+    raw `instance_index` → `path` lookup solely to feed the path-keyed `revision_service` (their
+    record *write*, where present, still routes through `save_record`);
   - every other file that loads an instance by `entry.path()`: `validation.rs`,
     `migrate_identity_service.rs`, `analysis.rs`, `attachment_policy_service.rs`,
     `attachment_service.rs`, `vocabulary_service.rs`, `container_view_service.rs`,
@@ -218,7 +222,7 @@ Then mark checkboxes and commit: `feat(store): typed logical-id instance persist
 
 ---
 
-### Phase 2: Migrate the full `record_store.rs` + `note_service` instance funnel; retire `dir_override`
+### Phase 2: Migrate the full `record_store.rs` + `note_service` instance funnel
 
 **Goal:** Every instance-loading function in `record_store.rs` and the `services.rs` `note_service`
 — readers, enumerators, and writers — reads/writes/deletes/enumerates instances through the Phase 1
@@ -233,29 +237,32 @@ suite green.
       `list_all_records`, `list_records_by_type`, `get_record_by_id`, `get_instance_by_id`
       (uses `find_instance` for the tier then the typed loader; `LoadedInstance` dispatch unchanged),
       `list_records_filtered`, `list_record_summaries`, `list_record_tags`.
-- [ ] `record_store.rs` writers → `save_record`/`delete_instance`: `create_record_at_dir`/
-      `write_record` (new-id branch), `update_record` (existing-id branch — path preserved, index
-      tags refreshed), `delete_record`, `add_record_tag`, `remove_record_tag`, `append_source_ref`,
-      `create_record_successor`, `write_new_record` (the second Tier-2 write path used by
-      `repository_lifecycle.rs:120`). These lose their manual `write_record`+`upsert_record_index_entry`
-      pairs (subsumed by `save_record`) — they get **shorter**.
+- [ ] `record_store.rs` writers → `save_record`: `create_record_at_dir`/`write_record` (Tier-2
+      new-id branch), `update_record` (existing-id branch — path preserved, index tags refreshed),
+      `add_record_tag`, `remove_record_tag`, `append_source_ref`, `create_record_successor`,
+      `write_new_record` (the second Tier-2 write path used by `repository_lifecycle.rs:120`).
+      These lose their manual `write_record`+`upsert_record_index_entry` pairs (subsumed by
+      `save_record`) — they get **shorter**. (`delete_record` is carved out — see below.)
 - [ ] `writer.rs::write_note` → `save_note`; `services.rs` `note_service`: `list_notes`,
       `get_note_by_id`, note create, `update_note`, `delete_note`, `add_note_tag`, `remove_note_tag`
       → typed methods.
 - [ ] Keep `record_store::load_record(store, path)` and `loader::load_note(store, path)` as
       transitional path helpers (**signatures unchanged**) — after this phase their only callers are
       the deferred readers + revision-coupled trio.
-- [ ] Remove `dir_override` from `create_record_in_context` (verified: all three live callers —
-      `governance_scaffold_service.rs` ×2, `services.rs` — pass `None`); update those callers.
+- [ ] **Keep `dir_override`** on `create_record_in_context` — it backs the `srs record create --dir`
+      CLI flag (`srs-cli/.../record.rs`) and the MCP `record_create` tool; it is not dead. The
+      routing lives in `create_record_at_dir` instead (next task).
 - [ ] `create_record_at_dir` is still used by `extension_service.rs` (Extension dir), so **keep it**;
       its Tier-2 internal path delegates to `save_record`, the Extension-dir path stays transitional.
 
 #### Tasks (carve out — do NOT migrate; allow-list in Phase 3)
 
-- [ ] `transition_record_lifecycle`, `list_record_revisions`, `get_record_revision`: retain their
-      `instance_index` → `path` lookup **only** to pass the path to `revision_service`. Where they
-      write the record (`transition_record_lifecycle`), route that write through `save_record`; the
-      residual path lookup is deferred with the revision-storage migration (#725).
+- [ ] `delete_record`, `transition_record_lifecycle`, `list_record_revisions`, `get_record_revision`:
+      retain their `instance_index` → `path` lookup **only** to pass the path to `revision_service`
+      (`delete_sidecar`/`append`/`list`/`get`). `delete_record` already does an ADR-007 index-first
+      delete and does not load by path; where a function writes the record
+      (`transition_record_lifecycle`), route that write through `save_record`. The residual path
+      lookups are deferred with the revision-storage migration (#725).
 
 #### Acceptance Criteria
 
@@ -318,8 +325,8 @@ proven id-based by a **crate-wide** gate with an explicit allow-list of the defe
       function walks the index by path. Allow-list (checked in as a shell gate in the plan/PR):
       - Adapters: `store.rs`, `json_store.rs`
       - Transitional helper definitions: `record_store.rs` (`load_record`), `loader.rs` (`load_note`)
-      - Revision-coupled trio (in `record_store.rs`): `transition_record_lifecycle`,
-        `list_record_revisions`, `get_record_revision`
+      - Revision-coupled functions (in `record_store.rs`): `delete_record`,
+        `transition_record_lifecycle`, `list_record_revisions`, `get_record_revision`
       - Deferred other-file readers: `validation.rs`, `migrate_identity_service.rs`, `analysis.rs`,
         `attachment_policy_service.rs`, `attachment_service.rs`, `vocabulary_service.rs`,
         `container_view_service.rs`, `view_service.rs` (`document_views_for_container`),
@@ -356,7 +363,8 @@ Commit: `docs: InstanceIndexEntry.path opaque (scoped) + ADR-042 pointers (#724)
       writer, minus the revision-coupled trio) no longer walks `manifest.instance_index` by
       `entry.path()`; every remaining path-based instance load is named in the exhaustive Phase-3
       allow-list (crate-wide gate)
-- [ ] `dir_override` removed; all record writes land in `records/tier-2`
+- [ ] `dir_override` retained (`--dir` CLI flag preserved); default Tier-2 writes route through
+      `save_record`, custom/Extension dirs through the legacy write in `create_record_at_dir`
 - [ ] Child stories filed and linked under #704 for the deferred readers, the generic seam, and the
       remaining entity families
 
@@ -373,9 +381,10 @@ Commit: `docs: InstanceIndexEntry.path opaque (scoped) + ADR-042 pointers (#724)
 
 ## Assumptions
 
-- Every live caller of `create_record_in_context` passes `dir_override: None` (verified:
-  `governance_scaffold_service.rs` ×2, `services.rs`), so retiring it is behaviour-preserving for
-  all Tier-2 writes.
+- `create_record_in_context`'s `dir_override` is a live feature (the `srs record create --dir` CLI
+  flag + MCP tool), so it is **retained**. `create_record_at_dir` branches on the target directory:
+  the default `records/tier-2` uses `save_record`; any override (including Extension records) keeps
+  the legacy path-based write. Only the default tier is migrated this increment.
 - `Note` → Tier 0 and `Record` → Tier 2 fully covers live write paths; Tier-1 records are read-only
   legacy (loaded/filtered, never written) and extension records are out of scope. The existing-path
   save branch means a stray Tier-1 update overwrites in place without relocation.

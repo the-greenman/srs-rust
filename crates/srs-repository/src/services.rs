@@ -21,12 +21,10 @@
 
 use crate::container_service;
 use crate::error::RepositoryError;
-use crate::loader::load_note;
+use crate::index::InstanceQuery;
 use crate::record_store::{create_record_in_context, CreateRecordInput};
 use crate::store::{RecordTier, RepositoryStore};
-use crate::writer::{
-    new_instance_id, slugify_instance_name, upsert_index_entry, write_manifest, write_note,
-};
+use crate::writer::new_instance_id;
 use serde::{Deserialize, Serialize};
 use srs_core::types::note::Note;
 use srs_core::types::record::Record;
@@ -145,23 +143,22 @@ pub fn list_notes(
             None
         };
 
-    let manifest = store.load_manifest()?;
+    let refs = store.list_instances(&InstanceQuery {
+        tier: Some(0),
+        tag: None,
+    })?;
     let mut notes = Vec::new();
 
-    for entry in &manifest.instance_index {
-        if !entry.is_note() {
-            continue;
-        }
-
+    for r in refs {
         // Container membership filter
         if let Some(ref member_set) = member_ids {
-            if !member_set.contains(entry.instance_id()) {
+            if !member_set.contains(&r.instance_id) {
                 continue;
             }
         }
 
         if let Some(ref filter_tag) = filter.tag {
-            match load_note(store, entry.path()) {
+            match store.load_note_by_id(&r.instance_id) {
                 Ok(note) => {
                     let has_tag = note
                         .tags
@@ -171,8 +168,8 @@ pub fn list_notes(
                         continue;
                     }
                     notes.push(NoteSummary {
-                        instance_id: entry.instance_id().to_string(),
-                        title: entry.title(),
+                        instance_id: r.instance_id.clone(),
+                        title: r.title.clone(),
                         tags: note.tags.unwrap_or_default(),
                     });
                 }
@@ -180,8 +177,8 @@ pub fn list_notes(
             }
         } else {
             notes.push(NoteSummary {
-                instance_id: entry.instance_id().to_string(),
-                title: entry.title(),
+                instance_id: r.instance_id.clone(),
+                title: r.title.clone(),
                 tags: Vec::new(),
             });
         }
@@ -390,21 +387,9 @@ pub fn get_note_by_id(
     store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<GetNoteResult, RepositoryError> {
-    let manifest = store.load_manifest()?;
-
-    let entry = manifest
-        .instance_index
-        .iter()
-        .find(|e| e.instance_id() == id);
-
-    match entry {
-        Some(e) => {
-            if !e.is_note() {
-                return Ok(GetNoteResult::NotANote { tier: e.tier() });
-            }
-            let note = load_note(store, e.path())?;
-            Ok(GetNoteResult::Found(Box::new(note)))
-        }
+    match store.find_instance(id)? {
+        Some(r) if r.tier == 0 => Ok(GetNoteResult::Found(Box::new(store.load_note_by_id(id)?))),
+        Some(r) => Ok(GetNoteResult::NotANote { tier: r.tier }),
         None => Ok(GetNoteResult::NotFound),
     }
 }
@@ -435,25 +420,7 @@ pub fn create_note(
         source: e,
     })?;
 
-    let slug = note
-        .title
-        .as_ref()
-        .map(|t| slugify_instance_name(t))
-        .unwrap_or_default();
-    let id8 = &note.instance_id[..8];
-    let notes_dir = store.record_tier_dir(RecordTier::Note);
-    let relative_path = if slug.is_empty() {
-        format!("{notes_dir}/{id8}.json")
-    } else {
-        format!("{notes_dir}/{slug}-{id8}.json")
-    };
-
-    store.ensure_instance_dir(notes_dir)?;
-    write_note(store, &note, &relative_path)?;
-
-    let mut manifest = store.load_manifest()?;
-    upsert_index_entry(&mut manifest, &note, &relative_path);
-    write_manifest(store, &manifest)?;
+    store.save_note(&note)?;
 
     Ok(CreateNoteResult { note })
 }
@@ -464,38 +431,27 @@ pub fn add_note_tag(
     id: &str,
     tag: &str,
 ) -> Result<AddTagResult, RepositoryError> {
-    let mut manifest = store.load_manifest()?;
-
-    let entry = manifest
-        .instance_index
-        .iter()
-        .find(|e| e.instance_id() == id)
-        .cloned();
-
-    match entry {
-        Some(e) => {
-            let mut note = load_note(store, e.path())?;
-
-            let tags = note.tags.get_or_insert_with(Vec::new);
-            if tags.contains(&tag.to_string()) {
-                return Ok(AddTagResult::AlreadyPresent {
-                    note,
-                    tag: tag.to_string(),
-                });
-            }
-            tags.push(tag.to_string());
-
-            write_note(store, &note, e.path())?;
-            upsert_index_entry(&mut manifest, &note, e.path());
-            write_manifest(store, &manifest)?;
-
-            Ok(AddTagResult::Added {
-                note,
-                tag: tag.to_string(),
-            })
-        }
-        None => Ok(AddTagResult::NotFound),
+    if store.find_instance(id)?.is_none() {
+        return Ok(AddTagResult::NotFound);
     }
+
+    let mut note = store.load_note_by_id(id)?;
+
+    let tags = note.tags.get_or_insert_with(Vec::new);
+    if tags.contains(&tag.to_string()) {
+        return Ok(AddTagResult::AlreadyPresent {
+            note,
+            tag: tag.to_string(),
+        });
+    }
+    tags.push(tag.to_string());
+
+    store.save_note(&note)?;
+
+    Ok(AddTagResult::Added {
+        note,
+        tag: tag.to_string(),
+    })
 }
 
 /// Service: Remove a tag from a note
@@ -504,41 +460,30 @@ pub fn remove_note_tag(
     id: &str,
     tag: &str,
 ) -> Result<RemoveTagResult, RepositoryError> {
-    let mut manifest = store.load_manifest()?;
-
-    let entry = manifest
-        .instance_index
-        .iter()
-        .find(|e| e.instance_id() == id)
-        .cloned();
-
-    match entry {
-        Some(e) => {
-            let mut note = load_note(store, e.path())?;
-
-            let tags = note.tags.get_or_insert_with(Vec::new);
-            if !tags.contains(&tag.to_string()) {
-                return Ok(RemoveTagResult::NotPresent {
-                    note,
-                    tag: tag.to_string(),
-                });
-            }
-            tags.retain(|t| t != tag);
-            if tags.is_empty() {
-                note.tags = None;
-            }
-
-            write_note(store, &note, e.path())?;
-            upsert_index_entry(&mut manifest, &note, e.path());
-            write_manifest(store, &manifest)?;
-
-            Ok(RemoveTagResult::Removed {
-                note,
-                tag: tag.to_string(),
-            })
-        }
-        None => Ok(RemoveTagResult::NotFound),
+    if store.find_instance(id)?.is_none() {
+        return Ok(RemoveTagResult::NotFound);
     }
+
+    let mut note = store.load_note_by_id(id)?;
+
+    let tags = note.tags.get_or_insert_with(Vec::new);
+    if !tags.contains(&tag.to_string()) {
+        return Ok(RemoveTagResult::NotPresent {
+            note,
+            tag: tag.to_string(),
+        });
+    }
+    tags.retain(|t| t != tag);
+    if tags.is_empty() {
+        note.tags = None;
+    }
+
+    store.save_note(&note)?;
+
+    Ok(RemoveTagResult::Removed {
+        note,
+        tag: tag.to_string(),
+    })
 }
 
 /// Service: Update an existing note
@@ -546,38 +491,31 @@ pub fn update_note(
     store: &dyn RepositoryStore,
     note: Note,
 ) -> Result<UpdateNoteResult, RepositoryError> {
-    let mut manifest = store.load_manifest()?;
-
-    let entry = manifest
-        .instance_index
-        .iter()
-        .find(|e| e.instance_id() == note.instance_id)
-        .cloned()
-        .ok_or_else(|| RepositoryError::NoteNotFound {
+    if store.find_instance(&note.instance_id)?.is_none() {
+        return Err(RepositoryError::NoteNotFound {
             path: std::path::PathBuf::from(store.record_tier_dir(RecordTier::Note)),
             id: note.instance_id.clone(),
-        })?;
+        });
+    }
 
     // Schema validation before core validation
     let raw = serde_json::to_value(&note).map_err(|e| RepositoryError::Serialize {
-        path: std::path::PathBuf::from(entry.path()),
+        path: std::path::PathBuf::from(store.record_tier_dir(RecordTier::Note)),
         source: e,
     })?;
     SchemaRegistry::global()
         .validate_by_id(NOTE_SCHEMA_ID, &raw)
         .map_err(|e| RepositoryError::SchemaValidation {
-            path: std::path::PathBuf::from(entry.path()),
+            path: std::path::PathBuf::from(store.record_tier_dir(RecordTier::Note)),
             message: e.to_string(),
         })?;
 
     validate_note(&note).map_err(|e| RepositoryError::NoteValidation {
-        path: std::path::PathBuf::from(entry.path()),
+        path: std::path::PathBuf::from(store.record_tier_dir(RecordTier::Note)),
         source: e,
     })?;
 
-    write_note(store, &note, entry.path())?;
-    upsert_index_entry(&mut manifest, &note, entry.path());
-    write_manifest(store, &manifest)?;
+    store.save_note(&note)?;
 
     Ok(UpdateNoteResult { note })
 }
@@ -592,28 +530,18 @@ pub fn delete_note(
     store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<DeleteNoteResult, RepositoryError> {
-    let mut manifest = store.load_manifest()?;
-
-    let entry_index = manifest
-        .instance_index
-        .iter()
-        .position(|e| e.instance_id() == id && e.is_note())
-        .ok_or_else(|| RepositoryError::NoteNotFound {
+    match store.find_instance(id)? {
+        Some(r) if r.tier == 0 => {
+            store.delete_instance(id)?;
+            Ok(DeleteNoteResult {
+                instance_id: id.to_string(),
+            })
+        }
+        _ => Err(RepositoryError::NoteNotFound {
             path: std::path::PathBuf::from(store.record_tier_dir(RecordTier::Note)),
             id: id.to_string(),
-        })?;
-
-    let path = manifest.instance_index[entry_index].path().to_string();
-
-    // ADR-007: index-first for deletes — commit the manifest before touching the file.
-    manifest.instance_index.remove(entry_index);
-    write_manifest(store, &manifest)?;
-    // Best-effort file cleanup after the index is committed.
-    let _ = store.delete_instance_file(&path);
-
-    Ok(DeleteNoteResult {
-        instance_id: id.to_string(),
-    })
+        }),
+    }
 }
 
 #[cfg(test)]
