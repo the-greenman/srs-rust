@@ -118,6 +118,7 @@ mod tests {
                 ordering: None,
                 required: None,
                 empty_behavior: None,
+                relations_presentation: None,
             }],
             navigation_links: None,
             preamble: None,
@@ -158,6 +159,7 @@ mod tests {
             ordering: None,
             required: None,
             empty_behavior: None,
+            relations_presentation: None,
         });
 
         assert_eq!(
