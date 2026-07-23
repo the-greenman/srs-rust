@@ -40,6 +40,11 @@
 // edges never enters the feed. With edges the `blocked` label is DERIVED (reconcile
 // auto-clears it when the last blocker closes); with no edges it is human-owned
 // (external blocks). Judges write edges over REST (`dep add`), like sub-issue links.
+// THE BUG TRACK (#717): `bug`-labeled issues never enter the Ready queue — "fixed
+// ASAP" and the epic-major feed contradict each other. `label:bug` IS the bug queue
+// (derived priority label first, oldest first), consumed by the dedicated Bug Fixer
+// routine every 2h. Bug-floor derivation, blocked/needs-input, claims, and stale-claim
+// recovery all still apply to bugs; they just ride their own track, un-mixed.
 //
 // API strategy (board-sync runs hourly; quota matters):
 //   - ONE paginated GraphQL query reads the whole board (board(), cached per process).
@@ -895,6 +900,8 @@ function isConsumableReady(row) {
     && !row.labels.includes(STATUS_LABEL_MAP["In progress"])
     // A gated issue is not pickable — counting it would let it clog the queue (#715).
     && !row.labels.includes(NEEDS_INPUT_LABEL)
+    // Bugs ride the DEDICATED BUG TRACK (#717), not the Ready queue — see cmdTopup.
+    && !row.labels.includes("bug")
     && (row.status === "Ready" || row.labels.includes(PROMOTE_INTENT_LABEL));
 }
 function countConsumableReady(rows) {
@@ -1925,7 +1932,8 @@ function cmdStaleClaims(argv) {
 
 // topup [--fix] [--target N] — keep the Ready queue at target depth by writing `promote:ready`
 // intents to the next unblocked Backlog leaves in IMPLEMENTATION ORDER (epic-major, started
-// epics first — see computeImplementationOrder; #664). Runs before `promote --fix` in
+// epics first — see computeImplementationOrder; #664). Bugs are NEVER nominated — they ride
+// the dedicated bug track (#717; see the candidates filter below). Runs before `promote --fix` in
 // board-sync so the intents are converted to board Status=Ready on the same run. Idempotent:
 // if the queue is already at or above target, nothing is written. Issues with the `blocked` label
 // are skipped. readyCount counts only *consumable* Ready leaves (countConsumableReady): OPEN
@@ -1966,6 +1974,13 @@ function cmdTopup(argv) {
     // issue is feedable this run even before reconcile updates the label mirror.
     !isBlocked(row) &&
     !row.labels.includes(NEEDS_INPUT_LABEL) &&   // paused on a human — re-feeding hits the same gate (#715)
+    // THE BUG TRACK (#717): bugs never enter the Ready queue. "Fixed ASAP" and the
+    // epic-major feed contradict each other — the feed would bury a P1 bug in a later
+    // epic behind every earlier epic's tail, and Ready bugs crowded out feature slots.
+    // Instead `label:bug` IS the bug queue (ordered by derived priority label, then
+    // age), consumed directly by the dedicated Bug Fixer routine. Blocked/needs-input/
+    // claim semantics and the bug-floor priority derivation all still apply to bugs.
+    !row.labels.includes("bug") &&
     !row.labels.includes(PROMOTE_INTENT_LABEL) &&
     !wontExcluded.has(row.key)
   );
@@ -2126,11 +2141,13 @@ function help() {
   promote [--fix]                 promote every \`promote:ready\`-labelled issue to board Status=Ready
                                   (the privileged half of promotion; a REST-only judge adds the
                                   intent label, this converts it — run in CI/local, not the routines)
-  topup [--fix] [--target N]      keep Ready queue at target depth (default 3, GHP_TOPUP_TARGET)
+  topup [--fix] [--target N]      keep Ready queue at target depth (default 6, GHP_TOPUP_TARGET)
                                   by writing \`promote:ready\` to the next unblocked Backlog leaves
                                   in implementation order (epic-major: Priority → started
                                   first → roadmap prefix "NN" → sub-issue position);
-                                  skips \`blocked\` issues; \`promote\` converts intents
+                                  skips \`blocked\`/\`needs-input\`; NEVER nominates \`bug\` issues —
+                                  bugs ride the dedicated bug track (label:bug is their queue);
+                                  \`promote\` converts intents
   sync [--dry-run]                the whole hourly pipeline in one process, one board fetch:
                                   stories-sync → rollup → release-sync → topup → promote →
                                   stale-claims → reconcile (what the board-sync Action runs)

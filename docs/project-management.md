@@ -47,7 +47,8 @@ The tool rolls that down to implementation issues:
   its release's rank but sits below the release's story work by default. A bump label raises a
   specific issue back up.
 - A **`bug`** with no story → **P1 floor** (bugs are fixed ASAP and are *never* lost). A
-  release-blocking bug bumps to P0.
+  release-blocking bug bumps to P0. Bugs are consumed on the **dedicated bug track**
+  (§ "The bug track"), not the feature feed.
 - An **orphaned non-bug** issue (under **no story and no epic**) gets the **default P2 floor** —
   it enters the feed at the bottom instead of vanishing — and is *still* **flagged** in the
   orphan report: the floor removes the loss, not the linking-hygiene signal. Link it to the
@@ -377,6 +378,24 @@ question, add `needs-input`, remove `status: in progress`, stop.** From there:
   with that filter — views are UI-only, the API can't create them);
 - a human **answers in the comments and removes the label** — that alone puts the issue back in
   the feed on the next hourly run.
+
+## The bug track
+
+**Bugs do not ride the feature feed.** "Fixed ASAP" (the P1 floor) and the epic-major feed
+contradict each other — the feed would bury a P1 bug in a later epic behind every earlier epic's
+open tail, and Ready bugs crowded feature slots. So the tracks are un-mixed (#717):
+
+- `topup` **never nominates** a `bug`-labeled issue, and the consumable-Ready count ignores them —
+  bugs don't occupy queue slots. **`label:bug` IS the bug queue**, ordered by derived priority
+  label (P0 regressions first, then P1; a bug with no priority label yet counts as P1 — the
+  floor), oldest first within a tier. No new state, no second board.
+- The **SRS Bug Fixer** cloud routine consumes it every 2 hours: one bug per run, same claim
+  (`status: in progress`), pipeline, activity-discipline, and `needs-input` protocols as the
+  feature consumer. The feature consumer's searches exclude `label:bug`.
+- Everything else about bugs is unchanged: the bug-floor priority derivation, `coverage`'s
+  bugs-fix-ASAP report, `blocked`/dependency semantics, and stale-claim recovery all apply.
+- Worst-case pickup latency for a fresh bug is ~2 h — the same order as the stale-claim window,
+  and far better than waiting behind an epic tail.
 
 ```bash
 gh-project promote            # dry-run: what the intents would do
