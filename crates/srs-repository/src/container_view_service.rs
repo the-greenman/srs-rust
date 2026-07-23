@@ -556,6 +556,7 @@ mod tests {
             ordering: None,
             required: None,
             empty_behavior: None,
+            relations_presentation: None,
         }
     }
 

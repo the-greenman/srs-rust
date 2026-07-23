@@ -126,6 +126,7 @@ fn make_document_view(name: &str) -> DocumentView {
             ordering: None,
             required: None,
             empty_behavior: None,
+            relations_presentation: None,
         }],
         navigation_links: None,
         preamble: None,

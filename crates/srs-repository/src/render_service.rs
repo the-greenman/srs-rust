@@ -10,9 +10,10 @@ use srs_core::types::field::ValueType;
 use srs_core::types::record::Record;
 use srs_core::types::relation::Relation;
 use srs_core::types::theme::{AssetMode, Theme};
+use srs_core::types::relation::RelationStatus;
 use srs_core::types::view::{
-    ContainerScope, DocumentSection, DocumentView, RelationDirection, SectionSource, SortDirection,
-    ThemeMode,
+    ContainerScope, DocumentSection, DocumentView, PresentationDirection, RelationDirection,
+    SectionSource, SortDirection, ThemeMode,
 };
 use std::collections::HashSet;
 
@@ -72,6 +73,20 @@ pub struct ProjectedFieldGroup {
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ProjectedRelationTarget {
+    pub instance_id: String,
+    pub display_label: String,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectedRelationRow {
+    pub label: String,
+    pub targets: Vec<ProjectedRelationTarget>,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProjectedRecord {
     pub instance_id: String,
     pub type_id: String,
@@ -85,6 +100,8 @@ pub struct ProjectedRecord {
     pub ordered_field_keys: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub field_groups: Option<Vec<ProjectedFieldGroup>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relations: Option<Vec<ProjectedRelationRow>>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -411,7 +428,7 @@ fn project_section_json(
     for instance in &records {
         match instance {
             LoadedInstance::Record(record) => {
-                projected_records.push(project_record_json(package, section, record, diagnostics)?);
+                projected_records.push(project_record_json(store, package, section, record, relations, diagnostics)?);
             }
             LoadedInstance::Note(note) => {
                 // The document-view JSON output schema models typed records only;
@@ -433,9 +450,11 @@ fn project_section_json(
 }
 
 fn project_record_json(
+    store: &dyn RepositoryStore,
     package: &Package,
     section: &DocumentSection,
     record: &Record,
+    relations: &[Relation],
     diagnostics: &mut Vec<String>,
 ) -> Result<ProjectedRecord, RepositoryError> {
     let rt = package
@@ -562,6 +581,7 @@ fn project_record_json(
     }
 
     let field_groups = project_field_groups_json(package, record, &rt);
+    let projected_relations = project_relations_json(store, section, record, relations, package, diagnostics)?;
 
     Ok(ProjectedRecord {
         instance_id: record.instance_id.clone(),
@@ -573,6 +593,7 @@ fn project_record_json(
         fields: serde_json::Value::Object(fields_map),
         ordered_field_keys,
         field_groups,
+        relations: projected_relations,
     })
 }
 
@@ -1707,6 +1728,16 @@ fn render_record_at_level(
         }
     }
 
+    out.push_str(&render_relations_block(
+        store,
+        section,
+        record,
+        relations,
+        ctx.package,
+        ctx.format,
+        diagnostics,
+    )?);
+
     // In structured mode, render subsections nested one heading level deeper.
     if structured {
         let subsections = relation_graph::children_by_relation_type(
@@ -1750,6 +1781,303 @@ fn render_record_at_level(
     }
 
     out.push('\n');
+    Ok(out)
+}
+
+pub fn humanize_relation_key(key: &str) -> String {
+    let segment = key.rsplit('/').next().unwrap_or(key);
+    let spaced: String = segment
+        .chars()
+        .map(|c| if c == '-' || c == '_' { ' ' } else { c })
+        .collect();
+    let mut chars = spaced.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+    }
+}
+
+fn is_active_relation(rel: &Relation) -> bool {
+    matches!(rel.status, None | Some(RelationStatus::Active))
+}
+
+fn resolve_display_label_for_relation_target(
+    store: &dyn RepositoryStore,
+    instance_id: &str,
+    section: &DocumentSection,
+    package: &Package,
+    diagnostics: &mut Vec<String>,
+) -> Result<String, RepositoryError> {
+    match crate::record_store::get_instance_by_id(store, instance_id)? {
+        Some(crate::record_store::LoadedInstance::Record(target_record)) => {
+            if let Some(rt) = package.resolve_type(&target_record.type_id, target_record.type_version) {
+                match package.effective_identity_field_id(rt) {
+                    Ok(Some(fid)) => {
+                        if let Some(val) = target_record.get_field_value_str(&fid) {
+                            if !val.is_empty() {
+                                return Ok(val.to_string());
+                            }
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        diagnostics.push(format!(
+                            "[relations] error resolving identityFieldId for {instance_id}: {e}"
+                        ));
+                    }
+                }
+            }
+            if let Some(title_fid) = &section.title_field_id {
+                if let Some(val) = target_record.get_field_value_str(title_fid) {
+                    if !val.is_empty() {
+                        return Ok(val.to_string());
+                    }
+                }
+            }
+            Ok(instance_id.to_string())
+        }
+        _ => Ok(instance_id.to_string()),
+    }
+}
+
+fn project_relations_json(
+    store: &dyn RepositoryStore,
+    section: &DocumentSection,
+    record: &Record,
+    relations: &[Relation],
+    package: &Package,
+    diagnostics: &mut Vec<String>,
+) -> Result<Option<Vec<ProjectedRelationRow>>, RepositoryError> {
+    let rp = match &section.relations_presentation {
+        Some(rp) => rp,
+        None => return Ok(None),
+    };
+
+    let mut rows: Vec<ProjectedRelationRow> = Vec::new();
+
+    for entry in &rp.include {
+        let matching_rtds: Vec<_> = package
+            .relation_types()
+            .iter()
+            .filter(|rt| rt.key == entry.relation_type)
+            .collect();
+
+        let rtd = match matching_rtds.len() {
+            0 => {
+                diagnostics.push(format!(
+                    "[I-027-2b] relationsPresentation entry '{}' does not resolve to a known RTD; skipping",
+                    entry.relation_type
+                ));
+                continue;
+            }
+            1 => matching_rtds[0],
+            _ => {
+                diagnostics.push(format!(
+                    "[I-027-2b] relationsPresentation entry '{}' is conflict-ambiguous (multiple RTDs); skipping",
+                    entry.relation_type
+                ));
+                continue;
+            }
+        };
+
+        if !rtd.resolves_for_reads() {
+            diagnostics.push(format!(
+                "[I-027-2b] relationsPresentation entry '{}' resolves to a retired/tombstone RTD; skipping",
+                entry.relation_type
+            ));
+            continue;
+        }
+
+        let direction = entry.directions.as_ref().unwrap_or(&PresentationDirection::Forward);
+        let mut seen = std::collections::HashSet::new();
+        let mut target_ids: Vec<String> = Vec::new();
+
+        if matches!(direction, PresentationDirection::Forward | PresentationDirection::Both) {
+            for rel in relations {
+                if rel.relation_type == entry.relation_type
+                    && rel.source_instance_id == record.instance_id
+                    && is_active_relation(rel)
+                    && seen.insert(rel.target_instance_id.clone())
+                {
+                    target_ids.push(rel.target_instance_id.clone());
+                }
+            }
+        }
+        if matches!(direction, PresentationDirection::Inverse | PresentationDirection::Both) {
+            for rel in relations {
+                if rel.relation_type == entry.relation_type
+                    && rel.target_instance_id == record.instance_id
+                    && is_active_relation(rel)
+                    && seen.insert(rel.source_instance_id.clone())
+                {
+                    target_ids.push(rel.source_instance_id.clone());
+                }
+            }
+        }
+
+        if target_ids.is_empty() {
+            continue;
+        }
+
+        let row_label = compute_relation_row_label(entry, rtd, direction);
+
+        let mut targets: Vec<ProjectedRelationTarget> = Vec::new();
+        for id in &target_ids {
+            let display_label = resolve_display_label_for_relation_target(store, id, section, package, diagnostics)?;
+            targets.push(ProjectedRelationTarget {
+                instance_id: id.clone(),
+                display_label,
+            });
+        }
+        targets.sort_by(|a, b| a.display_label.cmp(&b.display_label));
+
+        rows.push(ProjectedRelationRow { label: row_label, targets });
+    }
+
+    if rows.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(rows))
+    }
+}
+
+fn compute_relation_row_label(
+    entry: &srs_core::types::view::RelationPresentationEntry,
+    rtd: &srs_core::types::relation_type_definition::RelationTypeDefinition,
+    direction: &PresentationDirection,
+) -> String {
+    match direction {
+        PresentationDirection::Inverse => entry
+            .inverse_label
+            .clone()
+            .or_else(|| rtd.inverse_type.as_ref().map(|it| humanize_relation_key(it)))
+            .unwrap_or_else(|| {
+                entry
+                    .forward_label
+                    .clone()
+                    .map(|fl| format!("{fl} (incoming)"))
+                    .unwrap_or_else(|| format!("{} (incoming)", humanize_relation_key(&entry.relation_type)))
+            }),
+        _ => entry
+            .forward_label
+            .clone()
+            .or_else(|| {
+                if !rtd.label.is_empty() {
+                    Some(rtd.label.clone())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| humanize_relation_key(&entry.relation_type)),
+    }
+}
+
+fn render_relations_block(
+    store: &dyn RepositoryStore,
+    section: &DocumentSection,
+    record: &Record,
+    relations: &[Relation],
+    package: &Package,
+    format: &str,
+    diagnostics: &mut Vec<String>,
+) -> Result<String, RepositoryError> {
+    let rp = match &section.relations_presentation {
+        Some(rp) => rp,
+        None => return Ok(String::new()),
+    };
+
+    let mut out = String::new();
+
+    for entry in &rp.include {
+        let matching_rtds: Vec<_> = package
+            .relation_types()
+            .iter()
+            .filter(|rt| rt.key == entry.relation_type)
+            .collect();
+
+        let rtd = match matching_rtds.len() {
+            0 => {
+                diagnostics.push(format!(
+                    "[I-027-2b] relationsPresentation entry '{}' does not resolve to a known RTD; skipping",
+                    entry.relation_type
+                ));
+                continue;
+            }
+            1 => matching_rtds[0],
+            _ => {
+                diagnostics.push(format!(
+                    "[I-027-2b] relationsPresentation entry '{}' is conflict-ambiguous (multiple RTDs); skipping",
+                    entry.relation_type
+                ));
+                continue;
+            }
+        };
+
+        if !rtd.resolves_for_reads() {
+            diagnostics.push(format!(
+                "[I-027-2b] relationsPresentation entry '{}' resolves to a retired/tombstone RTD; skipping",
+                entry.relation_type
+            ));
+            continue;
+        }
+
+        let direction = entry.directions.as_ref().unwrap_or(&PresentationDirection::Forward);
+        let mut seen = std::collections::HashSet::new();
+        let mut target_ids: Vec<String> = Vec::new();
+
+        if matches!(direction, PresentationDirection::Forward | PresentationDirection::Both) {
+            for rel in relations {
+                if rel.relation_type == entry.relation_type
+                    && rel.source_instance_id == record.instance_id
+                    && is_active_relation(rel)
+                    && seen.insert(rel.target_instance_id.clone())
+                {
+                    target_ids.push(rel.target_instance_id.clone());
+                }
+            }
+        }
+        if matches!(direction, PresentationDirection::Inverse | PresentationDirection::Both) {
+            for rel in relations {
+                if rel.relation_type == entry.relation_type
+                    && rel.target_instance_id == record.instance_id
+                    && is_active_relation(rel)
+                    && seen.insert(rel.source_instance_id.clone())
+                {
+                    target_ids.push(rel.source_instance_id.clone());
+                }
+            }
+        }
+
+        if target_ids.is_empty() {
+            continue;
+        }
+
+        let row_label = compute_relation_row_label(entry, rtd, direction);
+
+        let mut targets: Vec<String> = Vec::new();
+        for id in &target_ids {
+            let label = resolve_display_label_for_relation_target(store, id, section, package, diagnostics)?;
+            targets.push(label);
+        }
+        targets.sort();
+
+        let targets_str = targets.join(", ");
+
+        match format {
+            "html" => {
+                out.push_str(&format!(
+                    "<div class=\"srs-relations-row\"><span class=\"relations-label\">{row_label}</span>: {targets_str}</div>\n"
+                ));
+            }
+            "markdown" => {
+                out.push_str(&format!("**{row_label}**: {targets_str}\n"));
+            }
+            _ => {
+                out.push_str(&format!("{row_label}: {targets_str}\n"));
+            }
+        }
+    }
+
     Ok(out)
 }
 
@@ -3294,6 +3622,7 @@ mod tests {
                 ordering: None,
                 required: None,
                 empty_behavior: Some(EmptyBehavior::Hide),
+                relations_presentation: None,
             }],
             navigation_links: None,
             preamble: None,
@@ -3937,6 +4266,7 @@ mod tests {
                 ordering: None,
                 required: None,
                 empty_behavior: Some(EmptyBehavior::Hide),
+                relations_presentation: None,
             }],
             navigation_links: None,
             preamble: None,
@@ -4262,6 +4592,7 @@ mod tests {
                 ordering: None,
                 required: None,
                 empty_behavior: Some(EmptyBehavior::Hide),
+                relations_presentation: None,
             }],
             navigation_links: None,
             preamble: None,
@@ -4488,6 +4819,7 @@ mod tests {
                 }),
                 required: None,
                 empty_behavior: None,
+                relations_presentation: None,
             }],
             navigation_links: None,
             preamble: None,
@@ -4855,6 +5187,7 @@ mod tests {
                 ordering: None,
                 required: None,
                 empty_behavior: Some(EmptyBehavior::Hide),
+                relations_presentation: None,
             }],
             navigation_links: None,
             theme_ref: Some(ThemeReference {
@@ -5479,6 +5812,7 @@ mod tests {
                 ordering: None,
                 required: None,
                 empty_behavior: Some(EmptyBehavior::Hide),
+                relations_presentation: None,
             }],
             navigation_links: None,
             preamble: None,
@@ -5926,6 +6260,7 @@ mod tests {
                 ordering: None,
                 required: None,
                 empty_behavior: None,
+                relations_presentation: None,
             }],
             navigation_links: None,
             preamble: Some("Test".to_string()),
@@ -6613,6 +6948,7 @@ mod tests {
                 ordering: None,
                 required: None,
                 empty_behavior: Some(EmptyBehavior::Hide),
+                relations_presentation: None,
             }],
             navigation_links: None,
             preamble: None,
@@ -6811,6 +7147,7 @@ mod tests {
             ordering: None,
             required: None,
             empty_behavior: Some(EmptyBehavior::Hide),
+            relations_presentation: None,
         };
 
         let make_dv = |id: &str, name: &str, section: DocumentSection, format: &str| DocumentView {
@@ -7368,6 +7705,7 @@ mod tests {
             ordering: None,
             required,
             empty_behavior: Some(EmptyBehavior::Hide),
+            relations_presentation: None,
         }
     }
 
@@ -7796,6 +8134,7 @@ mod tests {
                     ordering: None,
                     required: None,
                     empty_behavior: Some(EmptyBehavior::Hide),
+                    relations_presentation: None,
                 },
                 // TypeQuery section: proves typed records still render (no regression)
                 DocumentSection {
@@ -7817,6 +8156,7 @@ mod tests {
                     ordering: None,
                     required: None,
                     empty_behavior: Some(EmptyBehavior::Hide),
+                    relations_presentation: None,
                 },
             ],
             navigation_links: None,
@@ -7961,6 +8301,7 @@ mod tests {
                 ordering: None,
                 required: None,
                 empty_behavior: Some(EmptyBehavior::Hide),
+                relations_presentation: None,
             }],
             navigation_links: None,
             preamble: None,
@@ -8086,6 +8427,1090 @@ mod tests {
                     && d.contains("notes are not rendered in document-view sections")),
             "expected RelationQuery note-skip diagnostic; got: {:?}",
             result.diagnostics
+        );
+    }
+
+    // ── relationsPresentation helpers (RFC-027, #668) ────────────────────────────
+
+    use srs_core::types::relation::Relation;
+    use srs_core::types::relation_type_definition::{
+        RelationTypeCategory, RelationTypeDefinition, RelationTypeStatus,
+    };
+    use srs_core::types::view::{
+        RelationPresentationEntry, RelationsPresentation,
+    };
+
+    fn test_rtd(
+        key: &str,
+        label: &str,
+        inverse_type: Option<&str>,
+        retired: bool,
+    ) -> RelationTypeDefinition {
+        RelationTypeDefinition {
+            schema: None,
+            id: format!("rtd-{}", key.replace('/', "-")),
+            version: 1,
+            key: key.to_string(),
+            namespace: "com.test".to_string(),
+            label: label.to_string(),
+            description: "Test RTD".to_string(),
+            category: RelationTypeCategory::Association,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            canonical_direction: None,
+            inverse_type: inverse_type.map(|s| s.to_string()),
+            irreflexive: None,
+            allowed_source_types: None,
+            allowed_target_types: None,
+            require_same_semantic_object_type: None,
+            status: if retired {
+                Some(RelationTypeStatus::Retired)
+            } else {
+                None
+            },
+            updated_at: None,
+            properties: None,
+        }
+    }
+
+    fn test_rel(id: &str, rtype: &str, src: &str, tgt: &str) -> Relation {
+        Relation {
+            relation_id: id.to_string(),
+            relation_type: rtype.to_string(),
+            source_instance_id: src.to_string(),
+            target_instance_id: tgt.to_string(),
+            asserted_by: None,
+            confidence: None,
+            created_at: None,
+            created_by: None,
+            status: None,
+            valid_from: None,
+            valid_until: None,
+            notes: None,
+            source_refs: None,
+            meta: None,
+            source_repository_id: None,
+            target_repository_id: None,
+        }
+    }
+
+    fn make_rp_store(
+        rtds: Vec<RelationTypeDefinition>,
+        relations: &[Relation],
+    ) -> crate::store::memory::MemoryStore {
+        let manifest = crate::manifest::Manifest {
+            instance_index: vec![],
+            container: None,
+            container_index: None,
+            federation_path: None,
+            upstream_package: None,
+            federation_events_path: None,
+            extra: HashMap::new(),
+            source_documents_path: None,
+            source_document_index: None,
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = crate::package::Package {
+            id: "test-rp-pkg".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![],
+            record_types: vec![],
+            relation_type_definitions: rtds,
+            views: vec![],
+            document_views: vec![],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = crate::store::memory::MemoryStore::new(manifest, package);
+        if !relations.is_empty() {
+            let coll = serde_json::json!({
+                "relations": relations.iter().map(|r| serde_json::to_value(r).unwrap()).collect::<Vec<_>>()
+            });
+            store
+                .save_relations_json("relations/relations-collection.json", &coll)
+                .unwrap();
+        }
+        store
+    }
+
+    fn add_rp_record(
+        store: &crate::store::memory::MemoryStore,
+        id: &str,
+        label_field: Option<(&str, &str)>,
+    ) {
+        use crate::index::InstanceIndexEntry;
+        use srs_core::types::record::{FieldValue, Record};
+        let field_values = label_field
+            .map(|(fid, val)| {
+                vec![FieldValue {
+                    field_id: fid.to_string(),
+                    value: serde_json::json!(val),
+                    entries: None,
+                    source: None,
+                    edited_at: None,
+                }]
+            })
+            .unwrap_or_default();
+
+        let record = Record {
+            instance_id: id.to_string(),
+            type_id: "t-test".to_string(),
+            type_version: 1,
+            type_namespace: "com.test".to_string(),
+            type_name: "item".to_string(),
+            field_values,
+            group_values: None,
+            lifecycle_state: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            extra: HashMap::new(),
+        };
+
+        let path = format!("records/{}.json", id);
+        store
+            .save_instance_json(&path, &serde_json::to_value(&record).unwrap())
+            .unwrap();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.instance_index.push(InstanceIndexEntry {
+            instance_id: id.to_string(),
+            tier: 2,
+            path,
+            title: None,
+            tags: None,
+        });
+        store.save_manifest(&manifest).unwrap();
+    }
+
+    fn rp_section_for(entries: Vec<RelationPresentationEntry>) -> srs_core::types::view::DocumentSection {
+        srs_core::types::view::DocumentSection {
+            section_id: "s-rp".to_string(),
+            title: None,
+            description: None,
+            order: 0,
+            source: srs_core::types::view::SectionSource::FixedInstances {
+                instance_ids: vec!["rec-src".to_string()],
+            },
+            render_view_id: None,
+            type_dispatch: None,
+            title_field_id: None,
+            ordering: None,
+            required: None,
+            empty_behavior: None,
+            relations_presentation: Some(RelationsPresentation {
+                include: entries,
+                label: None,
+            }),
+        }
+    }
+
+    fn src_rec(id: &str) -> srs_core::types::record::Record {
+        srs_core::types::record::Record {
+            instance_id: id.to_string(),
+            type_id: "t-test".to_string(),
+            type_version: 1,
+            type_namespace: "com.test".to_string(),
+            type_name: "item".to_string(),
+            field_values: vec![],
+            group_values: None,
+            lifecycle_state: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            extra: HashMap::new(),
+        }
+    }
+
+    // ── humanize_relation_key ─────────────────────────────────────────────────
+
+    #[test]
+    fn humanize_relation_key_bare_name() {
+        assert_eq!(humanize_relation_key("supersedes"), "Supersedes");
+    }
+
+    #[test]
+    fn humanize_relation_key_namespaced() {
+        assert_eq!(humanize_relation_key("com.example/depends-on"), "Depends on");
+    }
+
+    // ── render_relations_block unit tests ─────────────────────────────────────
+
+    #[test]
+    fn relations_block_forward_edges_rendered() {
+        let store = make_rp_store(
+            vec![test_rtd("links-to", "Links To", None, false)],
+            &[
+                test_rel("r1", "links-to", "rec-src", "rec-a"),
+                test_rel("r2", "links-to", "rec-src", "rec-b"),
+            ],
+        );
+        add_rp_record(&store, "rec-a", None);
+        add_rp_record(&store, "rec-b", None);
+
+        let section = rp_section_for(vec![RelationPresentationEntry {
+            relation_type: "links-to".to_string(),
+            directions: None,
+            forward_label: None,
+            inverse_label: None,
+        }]);
+        let record = src_rec("rec-src");
+        let package = store.load_package().unwrap();
+        let relations = vec![
+            test_rel("r1", "links-to", "rec-src", "rec-a"),
+            test_rel("r2", "links-to", "rec-src", "rec-b"),
+        ];
+        let mut diag = Vec::new();
+        let out =
+            render_relations_block(&store, &section, &record, &relations, &package, "markdown", &mut diag)
+                .unwrap();
+        assert!(out.contains("rec-a"), "forward target rec-a not in: {out}");
+        assert!(out.contains("rec-b"), "forward target rec-b not in: {out}");
+        assert!(diag.is_empty(), "unexpected diagnostics: {diag:?}");
+    }
+
+    #[test]
+    fn relations_block_inverse_edges_rendered() {
+        let store = make_rp_store(
+            vec![test_rtd("links-to", "Links To", None, false)],
+            &[test_rel("r1", "links-to", "rec-other", "rec-src")],
+        );
+        add_rp_record(&store, "rec-other", None);
+
+        let section = rp_section_for(vec![RelationPresentationEntry {
+            relation_type: "links-to".to_string(),
+            directions: Some(PresentationDirection::Inverse),
+            forward_label: None,
+            inverse_label: None,
+        }]);
+        let record = src_rec("rec-src");
+        let package = store.load_package().unwrap();
+        let relations = vec![test_rel("r1", "links-to", "rec-other", "rec-src")];
+        let mut diag = Vec::new();
+        let out =
+            render_relations_block(&store, &section, &record, &relations, &package, "markdown", &mut diag)
+                .unwrap();
+        assert!(
+            out.contains("rec-other"),
+            "inverse source rec-other not in: {out}"
+        );
+        assert!(diag.is_empty(), "unexpected diagnostics: {diag:?}");
+    }
+
+    #[test]
+    fn relations_block_both_directions() {
+        let store = make_rp_store(
+            vec![test_rtd("links-to", "Links To", None, false)],
+            &[
+                test_rel("r1", "links-to", "rec-src", "rec-fwd"),
+                test_rel("r2", "links-to", "rec-inv", "rec-src"),
+            ],
+        );
+        add_rp_record(&store, "rec-fwd", None);
+        add_rp_record(&store, "rec-inv", None);
+
+        let section = rp_section_for(vec![RelationPresentationEntry {
+            relation_type: "links-to".to_string(),
+            directions: Some(PresentationDirection::Both),
+            forward_label: None,
+            inverse_label: None,
+        }]);
+        let record = src_rec("rec-src");
+        let package = store.load_package().unwrap();
+        let relations = vec![
+            test_rel("r1", "links-to", "rec-src", "rec-fwd"),
+            test_rel("r2", "links-to", "rec-inv", "rec-src"),
+        ];
+        let mut diag = Vec::new();
+        let out =
+            render_relations_block(&store, &section, &record, &relations, &package, "markdown", &mut diag)
+                .unwrap();
+        assert!(out.contains("rec-fwd"), "forward target not in: {out}");
+        assert!(out.contains("rec-inv"), "inverse source not in: {out}");
+        assert!(diag.is_empty(), "unexpected diagnostics: {diag:?}");
+    }
+
+    #[test]
+    fn relations_block_label_ladder_entry_override_wins() {
+        let store = make_rp_store(
+            vec![test_rtd("links-to", "RTD Label", None, false)],
+            &[test_rel("r1", "links-to", "rec-src", "rec-a")],
+        );
+        add_rp_record(&store, "rec-a", None);
+
+        let section = rp_section_for(vec![RelationPresentationEntry {
+            relation_type: "links-to".to_string(),
+            directions: None,
+            forward_label: Some("Custom Forward Label".to_string()),
+            inverse_label: None,
+        }]);
+        let record = src_rec("rec-src");
+        let package = store.load_package().unwrap();
+        let relations = vec![test_rel("r1", "links-to", "rec-src", "rec-a")];
+        let mut diag = Vec::new();
+        let out =
+            render_relations_block(&store, &section, &record, &relations, &package, "markdown", &mut diag)
+                .unwrap();
+        assert!(
+            out.contains("Custom Forward Label"),
+            "entry forwardLabel must win; got: {out}"
+        );
+        assert!(!out.contains("RTD Label"), "RTD label must be overridden; got: {out}");
+    }
+
+    #[test]
+    fn relations_block_label_ladder_rtd_label_fallback() {
+        let store = make_rp_store(
+            vec![test_rtd("links-to", "RTD Label", None, false)],
+            &[test_rel("r1", "links-to", "rec-src", "rec-a")],
+        );
+        add_rp_record(&store, "rec-a", None);
+
+        let section = rp_section_for(vec![RelationPresentationEntry {
+            relation_type: "links-to".to_string(),
+            directions: None,
+            forward_label: None,
+            inverse_label: None,
+        }]);
+        let record = src_rec("rec-src");
+        let package = store.load_package().unwrap();
+        let relations = vec![test_rel("r1", "links-to", "rec-src", "rec-a")];
+        let mut diag = Vec::new();
+        let out =
+            render_relations_block(&store, &section, &record, &relations, &package, "markdown", &mut diag)
+                .unwrap();
+        assert!(
+            out.contains("RTD Label"),
+            "RTD label must be used when no entry override; got: {out}"
+        );
+    }
+
+    #[test]
+    fn relations_block_label_ladder_humanized_fallback() {
+        let store = make_rp_store(
+            vec![test_rtd("depends-on", "", None, false)],
+            &[test_rel("r1", "depends-on", "rec-src", "rec-a")],
+        );
+        add_rp_record(&store, "rec-a", None);
+
+        let section = rp_section_for(vec![RelationPresentationEntry {
+            relation_type: "depends-on".to_string(),
+            directions: None,
+            forward_label: None,
+            inverse_label: None,
+        }]);
+        let record = src_rec("rec-src");
+        let package = store.load_package().unwrap();
+        let relations = vec![test_rel("r1", "depends-on", "rec-src", "rec-a")];
+        let mut diag = Vec::new();
+        let out =
+            render_relations_block(&store, &section, &record, &relations, &package, "markdown", &mut diag)
+                .unwrap();
+        assert!(
+            out.contains("Depends on"),
+            "humanized key must be used when RTD label is empty; got: {out}"
+        );
+    }
+
+    #[test]
+    fn relations_block_no_output_when_zero_edges() {
+        let store =
+            make_rp_store(vec![test_rtd("links-to", "Links To", None, false)], &[]);
+
+        let section = rp_section_for(vec![RelationPresentationEntry {
+            relation_type: "links-to".to_string(),
+            directions: None,
+            forward_label: None,
+            inverse_label: None,
+        }]);
+        let record = src_rec("rec-src");
+        let package = store.load_package().unwrap();
+        let mut diag = Vec::new();
+        let out =
+            render_relations_block(&store, &section, &record, &[], &package, "markdown", &mut diag)
+                .unwrap();
+        assert!(out.is_empty(), "no edges → empty output; got: {out:?}");
+        assert!(diag.is_empty(), "no diagnostics expected; got: {diag:?}");
+    }
+
+    #[test]
+    fn relations_block_dedupes_repeated_instance() {
+        let store = make_rp_store(
+            vec![test_rtd("links-to", "Links To", None, false)],
+            &[
+                test_rel("r1", "links-to", "rec-src", "rec-a"),
+                test_rel("r2", "links-to", "rec-src", "rec-a"),
+            ],
+        );
+        add_rp_record(&store, "rec-a", None);
+
+        let section = rp_section_for(vec![RelationPresentationEntry {
+            relation_type: "links-to".to_string(),
+            directions: None,
+            forward_label: None,
+            inverse_label: None,
+        }]);
+        let record = src_rec("rec-src");
+        let package = store.load_package().unwrap();
+        let relations = vec![
+            test_rel("r1", "links-to", "rec-src", "rec-a"),
+            test_rel("r2", "links-to", "rec-src", "rec-a"),
+        ];
+        let mut diag = Vec::new();
+        let out =
+            render_relations_block(&store, &section, &record, &relations, &package, "markdown", &mut diag)
+                .unwrap();
+        let count = out.matches("rec-a").count();
+        assert_eq!(count, 1, "rec-a should appear exactly once (deduped); got: {out}");
+    }
+
+    #[test]
+    fn relations_block_display_label_identity_field() {
+        use crate::index::InstanceIndexEntry;
+        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::record::{FieldValue, Record};
+        use srs_core::types::record_type::{FieldAssignment, RecordType};
+
+        let field = Field {
+            id: "f-name".to_string(),
+            namespace: "com.test".to_string(),
+            name: "name".to_string(),
+            version: 1,
+            value_type: ValueType::String,
+            description: "Name".to_string(),
+            instructions: None,
+            ai_guidance: serde_json::json!(null),
+            allowed_values: None,
+            vocabulary_ref: None,
+            default_value: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let rt = RecordType {
+            id: "t-named".to_string(),
+            namespace: "com.test".to_string(),
+            name: "named".to_string(),
+            version: 1,
+            description: "Named".to_string(),
+            fields: vec![FieldAssignment {
+                field_id: "f-name".to_string(),
+                order: 0,
+                required: true,
+                display_label: None,
+                repeatable: false,
+                min_items: None,
+                max_items: None,
+            }],
+            field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            identity_field_id: Some("f-name".to_string()),
+            lifecycle: None,
+            lifecycle_ref: None,
+            validation_rules: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let manifest = crate::manifest::Manifest {
+            instance_index: vec![],
+            container: None,
+            container_index: None,
+            federation_path: None,
+            upstream_package: None,
+            federation_events_path: None,
+            extra: HashMap::new(),
+            source_documents_path: None,
+            source_document_index: None,
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = crate::package::Package {
+            id: "test-rp-pkg".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![field],
+            record_types: vec![rt],
+            relation_type_definitions: vec![test_rtd("links-to", "Links To", None, false)],
+            views: vec![],
+            document_views: vec![],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = crate::store::memory::MemoryStore::new(manifest, package);
+        let relations_coll = serde_json::json!({
+            "relations": [serde_json::to_value(test_rel("r1", "links-to", "rec-src", "rec-named")).unwrap()]
+        });
+        store
+            .save_relations_json("relations/relations-collection.json", &relations_coll)
+            .unwrap();
+
+        let target = Record {
+            instance_id: "rec-named".to_string(),
+            type_id: "t-named".to_string(),
+            type_version: 1,
+            type_namespace: "com.test".to_string(),
+            type_name: "named".to_string(),
+            field_values: vec![FieldValue {
+                field_id: "f-name".to_string(),
+                value: serde_json::json!("My Identity Label"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            }],
+            group_values: None,
+            lifecycle_state: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            extra: HashMap::new(),
+        };
+        let path = "records/rec-named.json".to_string();
+        store
+            .save_instance_json(&path, &serde_json::to_value(&target).unwrap())
+            .unwrap();
+        let mut manifest2 = store.load_manifest().unwrap();
+        manifest2.instance_index.push(InstanceIndexEntry {
+            instance_id: "rec-named".to_string(),
+            tier: 2,
+            path,
+            title: None,
+            tags: None,
+        });
+        store.save_manifest(&manifest2).unwrap();
+
+        let section = rp_section_for(vec![RelationPresentationEntry {
+            relation_type: "links-to".to_string(),
+            directions: None,
+            forward_label: None,
+            inverse_label: None,
+        }]);
+        let record = src_rec("rec-src");
+        let package2 = store.load_package().unwrap();
+        let relations = vec![test_rel("r1", "links-to", "rec-src", "rec-named")];
+        let mut diag = Vec::new();
+        let out =
+            render_relations_block(&store, &section, &record, &relations, &package2, "markdown", &mut diag)
+                .unwrap();
+        assert!(
+            out.contains("My Identity Label"),
+            "identityFieldId value must be used as display label; got: {out}"
+        );
+        assert!(
+            !out.contains("rec-named"),
+            "instanceId fallback must not appear when identity field is set; got: {out}"
+        );
+    }
+
+    #[test]
+    fn relations_block_display_label_title_field_fallback() {
+        use crate::index::InstanceIndexEntry;
+        use srs_core::types::record::{FieldValue, Record};
+
+        let store = make_rp_store(
+            vec![test_rtd("links-to", "Links To", None, false)],
+            &[test_rel("r1", "links-to", "rec-src", "rec-titled")],
+        );
+
+        let target = Record {
+            instance_id: "rec-titled".to_string(),
+            type_id: "t-test".to_string(),
+            type_version: 1,
+            type_namespace: "com.test".to_string(),
+            type_name: "item".to_string(),
+            field_values: vec![FieldValue {
+                field_id: "f-title".to_string(),
+                value: serde_json::json!("Title Field Value"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            }],
+            group_values: None,
+            lifecycle_state: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            extra: HashMap::new(),
+        };
+        let path = "records/rec-titled.json".to_string();
+        store
+            .save_instance_json(&path, &serde_json::to_value(&target).unwrap())
+            .unwrap();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.instance_index.push(InstanceIndexEntry {
+            instance_id: "rec-titled".to_string(),
+            tier: 2,
+            path,
+            title: None,
+            tags: None,
+        });
+        store.save_manifest(&manifest).unwrap();
+
+        let mut section = rp_section_for(vec![RelationPresentationEntry {
+            relation_type: "links-to".to_string(),
+            directions: None,
+            forward_label: None,
+            inverse_label: None,
+        }]);
+        section.title_field_id = Some("f-title".to_string());
+
+        let record = src_rec("rec-src");
+        let package = store.load_package().unwrap();
+        let relations = vec![test_rel("r1", "links-to", "rec-src", "rec-titled")];
+        let mut diag = Vec::new();
+        let out =
+            render_relations_block(&store, &section, &record, &relations, &package, "markdown", &mut diag)
+                .unwrap();
+        assert!(
+            out.contains("Title Field Value"),
+            "section titleFieldId must be used as fallback display label; got: {out}"
+        );
+    }
+
+    #[test]
+    fn relations_block_display_label_instance_id_fallback() {
+        let store = make_rp_store(
+            vec![test_rtd("links-to", "Links To", None, false)],
+            &[test_rel("r1", "links-to", "rec-src", "rec-no-label")],
+        );
+        add_rp_record(&store, "rec-no-label", None);
+
+        let section = rp_section_for(vec![RelationPresentationEntry {
+            relation_type: "links-to".to_string(),
+            directions: None,
+            forward_label: None,
+            inverse_label: None,
+        }]);
+        let record = src_rec("rec-src");
+        let package = store.load_package().unwrap();
+        let relations = vec![test_rel("r1", "links-to", "rec-src", "rec-no-label")];
+        let mut diag = Vec::new();
+        let out =
+            render_relations_block(&store, &section, &record, &relations, &package, "markdown", &mut diag)
+                .unwrap();
+        assert!(
+            out.contains("rec-no-label"),
+            "instanceId must be the last-resort display label; got: {out}"
+        );
+    }
+
+    #[test]
+    fn relations_block_retired_entry_skipped_with_diagnostic() {
+        let store = make_rp_store(
+            vec![test_rtd("old-type", "Old Type", None, true)],
+            &[test_rel("r1", "old-type", "rec-src", "rec-a")],
+        );
+        add_rp_record(&store, "rec-a", None);
+
+        let section = rp_section_for(vec![RelationPresentationEntry {
+            relation_type: "old-type".to_string(),
+            directions: None,
+            forward_label: None,
+            inverse_label: None,
+        }]);
+        let record = src_rec("rec-src");
+        let package = store.load_package().unwrap();
+        let relations = vec![test_rel("r1", "old-type", "rec-src", "rec-a")];
+        let mut diag = Vec::new();
+        let out =
+            render_relations_block(&store, &section, &record, &relations, &package, "markdown", &mut diag)
+                .unwrap();
+        assert!(out.is_empty(), "retired RTD entry must emit no output; got: {out:?}");
+        assert!(
+            diag.iter().any(|d| d.contains("[I-027-2b]") && d.contains("old-type")),
+            "expected I-027-2b diagnostic for retired RTD; got: {diag:?}"
+        );
+    }
+
+    // ── project_record_json (relations field) ─────────────────────────────────
+
+    fn make_rp_doc_store(
+        rtds: Vec<RelationTypeDefinition>,
+        source_id: &str,
+        rp_entries: Vec<RelationPresentationEntry>,
+        relations: &[Relation],
+    ) -> crate::store::memory::MemoryStore {
+        use srs_core::types::view::{DocumentSection, DocumentView, SectionSource};
+
+        let dv = DocumentView {
+            id: "dv-rp-test".to_string(),
+            namespace: "com.test".to_string(),
+            name: "rp-test".to_string(),
+            version: 1,
+            description: "RP test view".to_string(),
+            container_type: None,
+            root_type_refs: None,
+            sections: vec![DocumentSection {
+                section_id: "s-rp".to_string(),
+                title: None,
+                description: None,
+                order: 0,
+                source: SectionSource::FixedInstances {
+                    instance_ids: vec![source_id.to_string()],
+                },
+                render_view_id: None,
+                type_dispatch: None,
+                title_field_id: None,
+                ordering: None,
+                required: None,
+                empty_behavior: None,
+                relations_presentation: if rp_entries.is_empty() {
+                    None
+                } else {
+                    Some(RelationsPresentation {
+                        include: rp_entries,
+                        label: None,
+                    })
+                },
+            }],
+            navigation_links: None,
+            preamble: None,
+            format: Some("json".to_string()),
+            depth_offset: None,
+            theme_ref: None,
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let manifest = crate::manifest::Manifest {
+            instance_index: vec![],
+            container: None,
+            container_index: None,
+            federation_path: None,
+            upstream_package: None,
+            federation_events_path: None,
+            extra: HashMap::new(),
+            source_documents_path: None,
+            source_document_index: None,
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = crate::package::Package {
+            id: "test-rp-pkg".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![],
+            record_types: vec![],
+            relation_type_definitions: rtds,
+            views: vec![],
+            document_views: vec![dv],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = crate::store::memory::MemoryStore::new(manifest, package);
+        add_rp_record(&store, source_id, None);
+        if !relations.is_empty() {
+            let coll = serde_json::json!({
+                "relations": relations.iter().map(|r| serde_json::to_value(r).unwrap()).collect::<Vec<_>>()
+            });
+            store
+                .save_relations_json("relations/relations-collection.json", &coll)
+                .unwrap();
+        }
+        store
+    }
+
+    #[test]
+    fn project_record_json_relations_populated() {
+        let store = make_rp_doc_store(
+            vec![test_rtd("links-to", "Links To", None, false)],
+            "rec-src",
+            vec![RelationPresentationEntry {
+                relation_type: "links-to".to_string(),
+                directions: None,
+                forward_label: None,
+                inverse_label: None,
+            }],
+            &[test_rel("r1", "links-to", "rec-src", "rec-tgt")],
+        );
+        add_rp_record(&store, "rec-tgt", None);
+
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-rp-test",
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .unwrap();
+        let proj = result.projection.unwrap();
+        let rec = &proj.sections[0].records[0];
+        let relations = rec.relations.as_ref().expect("relations must be populated when relationsPresentation set");
+        assert_eq!(relations.len(), 1, "expected 1 relation row");
+        assert_eq!(relations[0].label, "Links To");
+        assert_eq!(relations[0].targets.len(), 1);
+        assert_eq!(relations[0].targets[0].instance_id, "rec-tgt");
+    }
+
+    #[test]
+    fn project_record_json_no_relations_when_absent() {
+        let store = make_rp_doc_store(
+            vec![test_rtd("links-to", "Links To", None, false)],
+            "rec-src",
+            vec![],
+            &[test_rel("r1", "links-to", "rec-src", "rec-tgt")],
+        );
+        add_rp_record(&store, "rec-tgt", None);
+
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-rp-test",
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .unwrap();
+        let proj = result.projection.unwrap();
+        let rec = &proj.sections[0].records[0];
+        assert!(
+            rec.relations.is_none(),
+            "relations must be None when relationsPresentation is absent"
+        );
+    }
+
+    // ── cross-store roundtrip ────────────────────────────────────────────────
+
+    #[test]
+    fn relations_block_cross_store_roundtrip() {
+        use srs_core::types::view::{DocumentSection, DocumentView, SectionSource};
+
+        let dv_id = "dv-rp-roundtrip";
+        let rtype = "links-to";
+        let src_id = "rec-rr-src";
+        let tgt_id = "rec-rr-tgt";
+
+        let rp_entry = RelationPresentationEntry {
+            relation_type: rtype.to_string(),
+            directions: None,
+            forward_label: Some("Links To".to_string()),
+            inverse_label: None,
+        };
+        let dv = DocumentView {
+            id: dv_id.to_string(),
+            namespace: "com.test".to_string(),
+            name: dv_id.to_string(),
+            version: 1,
+            description: "Roundtrip test".to_string(),
+            container_type: None,
+            root_type_refs: None,
+            sections: vec![DocumentSection {
+                section_id: "s-rr".to_string(),
+                title: None,
+                description: None,
+                order: 0,
+                source: SectionSource::FixedInstances {
+                    instance_ids: vec![src_id.to_string()],
+                },
+                render_view_id: None,
+                type_dispatch: None,
+                title_field_id: None,
+                ordering: None,
+                required: None,
+                empty_behavior: None,
+                relations_presentation: Some(RelationsPresentation {
+                    include: vec![rp_entry],
+                    label: None,
+                }),
+            }],
+            navigation_links: None,
+            preamble: None,
+            format: Some("json".to_string()),
+            depth_offset: None,
+            theme_ref: None,
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let the_rtd = test_rtd(rtype, "Links To", None, false);
+        let the_rel = test_rel("rr1", rtype, src_id, tgt_id);
+
+        // ── MemoryStore path ───────────────────────────────────────────────
+        let manifest = crate::manifest::Manifest {
+            instance_index: vec![],
+            container: None,
+            container_index: None,
+            federation_path: None,
+            upstream_package: None,
+            federation_events_path: None,
+            extra: HashMap::new(),
+            source_documents_path: None,
+            source_document_index: None,
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = crate::package::Package {
+            id: "test-rp-pkg".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![],
+            record_types: vec![],
+            relation_type_definitions: vec![the_rtd.clone()],
+            views: vec![],
+            document_views: vec![dv.clone()],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let mem_store = crate::store::memory::MemoryStore::new(manifest, package);
+        add_rp_record(&mem_store, src_id, None);
+        add_rp_record(&mem_store, tgt_id, None);
+        let coll = serde_json::json!({
+            "relations": [serde_json::to_value(&the_rel).unwrap()]
+        });
+        mem_store
+            .save_relations_json("relations/relations-collection.json", &coll)
+            .unwrap();
+
+        let mem_result = render_document_view(RenderDocumentViewOptions {
+            store: &mem_store,
+            view_id: dv_id,
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .unwrap();
+        let mem_proj = mem_result.projection.unwrap();
+        let mem_rel = mem_proj.sections[0].records[0]
+            .relations
+            .as_ref()
+            .expect("MemoryStore: relations must be populated");
+        assert_eq!(mem_rel.len(), 1, "MemoryStore: expected 1 row");
+
+        // ── FileStore path ─────────────────────────────────────────────────
+        let tmp = tempfile::TempDir::new().unwrap();
+        let repo_root = tmp.path();
+
+        std::fs::create_dir_all(repo_root.join("records")).unwrap();
+        for id in &[src_id, tgt_id] {
+            let record = srs_core::types::record::Record {
+                instance_id: id.to_string(),
+                type_id: "t-test".to_string(),
+                type_version: 1,
+                type_namespace: "com.test".to_string(),
+                type_name: "item".to_string(),
+                field_values: vec![],
+                group_values: None,
+                lifecycle_state: None,
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                extra: std::collections::HashMap::new(),
+            };
+            std::fs::write(
+                repo_root.join(format!("records/{id}.json")),
+                serde_json::to_string_pretty(&record).unwrap(),
+            )
+            .unwrap();
+        }
+
+        std::fs::write(
+            repo_root.join("manifest.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "instanceIndex": [
+                    {"instanceId": src_id, "tier": 2, "path": format!("records/{src_id}.json")},
+                    {"instanceId": tgt_id, "tier": 2, "path": format!("records/{tgt_id}.json")}
+                ]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        std::fs::create_dir_all(repo_root.join("relations")).unwrap();
+        std::fs::write(
+            repo_root.join("relations/relations-collection.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "relations": [serde_json::to_value(&the_rel).unwrap()]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        std::fs::create_dir_all(repo_root.join("package/document-views")).unwrap();
+        std::fs::write(
+            repo_root.join(format!("package/document-views/{dv_id}.json")),
+            serde_json::to_string_pretty(&serde_json::to_value(&dv).unwrap()).unwrap(),
+        )
+        .unwrap();
+
+        std::fs::create_dir_all(repo_root.join("package/relation-types")).unwrap();
+        std::fs::write(
+            repo_root.join(format!("package/relation-types/{rtype}.json")),
+            serde_json::to_string_pretty(&serde_json::to_value(&the_rtd).unwrap()).unwrap(),
+        )
+        .unwrap();
+
+        std::fs::write(
+            repo_root.join("package/package.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "id": "rp-file-pkg",
+                "namespace": "com.test",
+                "name": "rp-file",
+                "version": "1.0.0",
+                "documentViews": [format!("document-views/{dv_id}.json")],
+                "relationTypes": [format!("relation-types/{rtype}.json")],
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let file_store = FileStore::new(repo_root);
+        let file_result = render_document_view(RenderDocumentViewOptions {
+            store: &file_store,
+            view_id: dv_id,
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .unwrap();
+        let file_proj = file_result.projection.unwrap();
+        let file_rel = file_proj.sections[0].records[0]
+            .relations
+            .as_ref()
+            .expect("FileStore: relations must be populated");
+        assert_eq!(file_rel.len(), 1, "FileStore: expected 1 row");
+
+        assert_eq!(
+            mem_rel[0].label, file_rel[0].label,
+            "MemoryStore and FileStore must produce the same relation row label"
+        );
+        assert_eq!(
+            mem_rel[0].targets.len(),
+            file_rel[0].targets.len(),
+            "MemoryStore and FileStore must have the same number of targets"
+        );
+        assert_eq!(
+            mem_rel[0].targets[0].instance_id,
+            file_rel[0].targets[0].instance_id,
+            "MemoryStore and FileStore must agree on target instanceId"
         );
     }
 }
