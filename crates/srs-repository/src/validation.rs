@@ -1167,6 +1167,59 @@ pub fn validate_repository(
             }
         }
 
+        // I-027-2a: relationsPresentation.include entries must not duplicate relationType values
+        // and must each resolve to a non-retired RTD. Both conditions are advisory (Warning).
+        {
+            use srs_core::types::relation_type_definition::RelationTypeStatus;
+            for dv in &pkg.document_views {
+                for section in &dv.sections {
+                    if let Some(rp) = &section.relations_presentation {
+                        let mut seen_types: HashSet<&str> = HashSet::new();
+                        for entry in &rp.include {
+                            if !seen_types.insert(entry.relation_type.as_str()) {
+                                diagnostics.push(ValidationDiagnostic {
+                                    severity: DiagnosticSeverity::Warning,
+                                    relative_path: "package/package.json".to_string(),
+                                    schema_id: None,
+                                    message: format!(
+                                        "I-027-2a: documentView '{}' section '{}' relationsPresentation.include has duplicate relationType '{}'; the duplicate entry will be skipped at render time",
+                                        dv.id, section.section_id, entry.relation_type
+                                    ),
+                                });
+                            }
+                            match pkg.resolve_relation_type(&entry.relation_type) {
+                                None => {
+                                    diagnostics.push(ValidationDiagnostic {
+                                        severity: DiagnosticSeverity::Warning,
+                                        relative_path: "package/package.json".to_string(),
+                                        schema_id: None,
+                                        message: format!(
+                                            "I-027-2a: documentView '{}' section '{}' relationsPresentation.include entry '{}' does not resolve to a relation type in the package; the entry will be skipped at render time",
+                                            dv.id, section.section_id, entry.relation_type
+                                        ),
+                                    });
+                                }
+                                Some(rtd)
+                                    if rtd.status == Some(RelationTypeStatus::Retired) =>
+                                {
+                                    diagnostics.push(ValidationDiagnostic {
+                                        severity: DiagnosticSeverity::Warning,
+                                        relative_path: "package/package.json".to_string(),
+                                        schema_id: None,
+                                        message: format!(
+                                            "I-027-2a: documentView '{}' section '{}' relationsPresentation.include entry '{}' resolves to a retired relation type; the entry will be skipped at render time",
+                                            dv.id, section.section_id, entry.relation_type
+                                        ),
+                                    });
+                                }
+                                Some(_) => {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // I-64: when a Container has rootInstanceIds and a containerType, containerType SHOULD
         // equal the resolved root Type's bare `name`. A mismatch is a stale hint, not an error.
         // Edge cases (unloadable root Record, unresolved Type) skip the check — never error here.
@@ -7368,6 +7421,192 @@ mod tests {
             1,
             "expected I-107 (maxDocBytes) warning; got: {:?}",
             doc_warns
+        );
+    }
+
+    // I-027-2a helpers
+    fn rtd_json(key: &str, retired: bool) -> Value {
+        let mut v = json!({
+            "id": "00000000-0000-4000-8000-0000000000a0",
+            "version": 1,
+            "key": key,
+            "namespace": "com.test",
+            "label": "Test Relation",
+            "description": "A test relation type",
+            "category": "lifecycle",
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        if retired {
+            v["status"] = json!("retired");
+        }
+        v
+    }
+
+    fn rp_dv_json(include_entries: serde_json::Value) -> Value {
+        json!({
+            "id": "00000000-0000-4000-8000-0000000000d1",
+            "namespace": "com.test",
+            "name": "dv",
+            "version": 1,
+            "description": "test doc view",
+            "sections": [{
+                "sectionId": "s1",
+                "order": 0,
+                "source": {"type": "fixed-instances", "instanceIds": []},
+                "relationsPresentation": { "include": include_entries }
+            }],
+            "createdAt": "2026-01-01T00:00:00Z"
+        })
+    }
+
+    fn rp_package_json(with_rtd: bool) -> Value {
+        let relation_types: Value = if with_rtd {
+            json!(["relation-types/rtd.json"])
+        } else {
+            json!([])
+        };
+        json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+            "id": "00000000-0000-4000-8000-000000000010",
+            "namespace": "com.test",
+            "name": "test-package",
+            "title": "Test Package",
+            "description": "test",
+            "status": "active",
+            "version": "1.0.0",
+            "createdAt": "2026-01-01T00:00:00Z",
+            "fields": [],
+            "types": [],
+            "views": [],
+            "relationTypes": relation_types,
+            "documentViews": ["document-views/dv.json"]
+        })
+    }
+
+    #[test]
+    fn validation_relations_presentation_duplicate_entry_warns() {
+        let temp = TempDir::new().unwrap();
+        write_json(temp.path(), "manifest.json", &minimal_manifest(json!([])));
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &rp_package_json(true),
+        );
+        write_json(
+            temp.path(),
+            "package/relation-types/rtd.json",
+            &rtd_json("precedes", false),
+        );
+        write_json(
+            temp.path(),
+            "package/document-views/dv.json",
+            &rp_dv_json(json!([
+                {"relationType": "precedes"},
+                {"relationType": "precedes"}
+            ])),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        assert!(
+            report.is_ok(),
+            "I-027-2a duplicate is advisory; repo must stay ok: {:?}",
+            report.diagnostics
+        );
+        let warns: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Warning
+                    && d.message.contains("I-027-2a")
+                    && d.message.contains("duplicate")
+            })
+            .collect();
+        assert_eq!(
+            warns.len(),
+            1,
+            "expected exactly 1 I-027-2a duplicate warning; got: {:?}",
+            warns
+        );
+    }
+
+    #[test]
+    fn validation_relations_presentation_nonresolving_entry_warns() {
+        let temp = TempDir::new().unwrap();
+        write_json(temp.path(), "manifest.json", &minimal_manifest(json!([])));
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &rp_package_json(false),
+        );
+        write_json(
+            temp.path(),
+            "package/document-views/dv.json",
+            &rp_dv_json(json!([
+                {"relationType": "nonexistent-type"}
+            ])),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        assert!(
+            report.is_ok(),
+            "I-027-2a non-resolving is advisory; repo must stay ok: {:?}",
+            report.diagnostics
+        );
+        let warns: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Warning
+                    && d.message.contains("I-027-2a")
+                    && d.message.contains("does not resolve")
+            })
+            .collect();
+        assert_eq!(
+            warns.len(),
+            1,
+            "expected exactly 1 I-027-2a non-resolving warning; got: {:?}",
+            warns
+        );
+    }
+
+    #[test]
+    fn validation_relations_presentation_valid_no_extra_warnings() {
+        let temp = TempDir::new().unwrap();
+        write_json(temp.path(), "manifest.json", &minimal_manifest(json!([])));
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &rp_package_json(true),
+        );
+        write_json(
+            temp.path(),
+            "package/relation-types/rtd.json",
+            &rtd_json("precedes", false),
+        );
+        write_json(
+            temp.path(),
+            "package/document-views/dv.json",
+            &rp_dv_json(json!([
+                {"relationType": "precedes"}
+            ])),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let warns_027: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("I-027-2a"))
+            .collect();
+        assert!(
+            warns_027.is_empty(),
+            "valid relationsPresentation should produce no I-027-2a warnings; got: {:?}",
+            warns_027
         );
     }
 }
