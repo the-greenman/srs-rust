@@ -562,6 +562,14 @@ test("isConsumableReady: a needs-input Ready item is not consumable — it must 
   assert.equal(isConsumableReady(r), false);
 });
 
+// The bug track (#717): bugs never occupy Ready-queue slots — label:bug IS their queue,
+// consumed by the dedicated Bug Fixer routine. A Ready bug must not count as consumable
+// or it would crowd out feature slots while the feature consumer skips it.
+test("isConsumableReady: a bug is not consumable — bugs ride the dedicated bug track", () => {
+  const r = { repo: "srs-rust", num: 71, key: "srs-rust#71", state: "OPEN", status: "Ready", labels: ["bug", "priority: P1"] };
+  assert.equal(isConsumableReady(r), false);
+});
+
 test("needs-input is in the mirror set so ensureLabels creates it everywhere", () => {
   assert.equal(NEEDS_INPUT_LABEL, "needs-input");
   assert.ok(MIRROR_LABELS.map((l) => l.name).includes(NEEDS_INPUT_LABEL));
