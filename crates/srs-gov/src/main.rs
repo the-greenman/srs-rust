@@ -714,31 +714,39 @@ fn cmd_relations(id: &str, repo: &str, explain: bool, json: bool) -> Result<()> 
         return Ok(());
     }
 
-    let out_payload = run_srs(&["relation", "list", "--source", id], repo, false, json)?;
-    if json {
-        return Ok(());
-    }
+    // Collect both directions before branching so --json always returns the full picture.
+    let out_payload = run_srs(&["relation", "list", "--source", id], repo, false, false)?;
     let in_payload = run_srs(&["relation", "list", "--target", id], repo, false, false)?;
 
     let empty = vec![];
-    let mut outgoing: Vec<serde_json::Value> = out_payload["relations"]
+    let mut combined: Vec<serde_json::Value> = out_payload["relations"]
         .as_array()
         .unwrap_or(&empty)
         .to_vec();
+    // Dedup: --source already returns outgoing; only add incoming relations not in that set.
+    // `starts_with` handles the case where the caller passed a prefix ID (e.g. "abc1234") — the
+    // returned sourceId is always the full UUID, so a UUID never spuriously matches another.
     let incoming: Vec<serde_json::Value> = in_payload["relations"]
         .as_array()
         .unwrap_or(&empty)
         .iter()
         .filter(|r| {
-            // dedup: skip any relation already in outgoing (source == id means it's also in outgoing)
             let source = r["sourceId"].as_str().unwrap_or("");
             source != id && !source.starts_with(id)
         })
         .cloned()
         .collect();
-    outgoing.extend(incoming);
+    combined.extend(incoming);
 
-    render::relations_list(id, &outgoing);
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({"relations": combined}))?
+        );
+        return Ok(());
+    }
+
+    render::relations_list(id, &combined);
     Ok(())
 }
 
@@ -799,12 +807,16 @@ fn cmd_relate(
 // ---------------------------------------------------------------------------
 
 fn cmd_unrelate(relation_id: &str, repo: &str, explain: bool, json: bool) -> Result<()> {
-    let payload = run_srs(&["relation", "delete", relation_id], repo, explain, json)?;
-    if json || explain {
+    if explain {
+        println!("# Underlying srs commands:");
+        run_srs(&["relation", "delete", relation_id], repo, true, false)?;
+        return Ok(());
+    }
+    run_srs(&["relation", "delete", relation_id], repo, false, json)?;
+    if json {
         return Ok(());
     }
     render::relation_deleted(relation_id);
-    let _ = payload; // deletion confirmed; relation_id is the authoritative ID
     Ok(())
 }
 
