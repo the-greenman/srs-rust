@@ -50,7 +50,7 @@ jobs:
       - uses: actions/checkout@v4
 
       # ONE invocation, ONE process (#664): `sync` runs the whole pipeline
-      # (stories-sync → rollup → release-sync → topup → promote → stale-claims →
+      # (stories-sync → rollup → topup → promote → stale-claims →
       # reconcile) on a single board fetch and a batched sub-issue prefetch. The
       # previous six separate invocations each re-fetched the board and re-walked
       # the sub-issue graph one REST call per issue — thousands of API requests per

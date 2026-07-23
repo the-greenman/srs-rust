@@ -147,9 +147,10 @@ Quick rules:
   gets no priority.
 - **Bugs** are fixed ASAP — they floor at `priority: P1` even without a story.
 - **Unlinked non-bug** work is flagged ("could get lost"), never dropped — link it to a story.
-- **Epics are releases.** An `epic` (in muDemocracy.org) *is* a release: a human sets its **Release
-  identity + Priority**; every descendant **inherits Release** via `gh-project release-sync` (never
-  hand-set on a child). Every story should sit under an epic — `coverage` flags `orphan_stories_no_epic`.
+- **Epics are releases.** An `epic` (in muDemocracy.org) *is* a release: its **`Epic NN:` title**
+  is identity + roadmap sequence (retitle to renumber), its board **Priority** is the urgency tier.
+  There is no Release field — membership is the sub-issue graph (`tree <epic#>`, `summary --epic N`).
+  Every story should sit under an epic — `coverage` flags `orphan_stories_no_epic`.
 - The tool **self-discovers** the board IDs — never hardcode project/field IDs in a prompt.
 - **Explainable estimates:** `gh-project summary` shows all priority estimates with the six
   calculation stages; `gh-project explain <repo> <#>` walks one issue through them.

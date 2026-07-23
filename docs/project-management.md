@@ -14,20 +14,19 @@ User stories and implementation issues coexist on it.
 
 ```
 EPIC  (muDemocracy.org, label `epic`)                    ← an epic IS a release (1:1)
-   Release field: its own identity (Decision Logger v1 | …)   set once by a human in the UI
-   Priority:      P0 / P1 / P2                            ← the epic's roadmap rank (hand-set)
+   Title: "Epic NN: Name"                                ← identity + roadmap sequence (retitle to renumber)
+   Priority:      P0 / P1 / P2                            ← the epic's urgency tier (hand-set, its ONE board input)
         │  native GitHub sub-issues
         ▼
 USER STORY  (muDemocracy.org, label `user-story`)        ← the human value layer, on board #5
    MoSCoW field:  Must / Should / Could / Won't           ← value input, set by a human in the UI
-   Release        ← DERIVED: inherited from the parent epic (never hand-set)
         │  native GitHub sub-issues (cross-repo)
         ▼
-IMPLEMENTATION ISSUE  (srs / srs-rust / srs-vscode / srs-web)
+IMPLEMENTATION ISSUE  (any ecosystem repo)
    priority: Pn   ← DERIVED label (computed, never hand-set) + board Priority mirror
-   Release        ← DERIVED: inherited from the ancestor epic
    Status         ← Ready iff unblocked; else Backlog
    Iteration      ← gate/phase, bounded by the release
+   (release membership = reachable from the epic in the sub-issue graph — no field, no stamp)
 ```
 
 **Priority is derived, not hand-set.** A human expresses value once, as **MoSCoW on the story**.
@@ -82,33 +81,35 @@ audit — do not guess a parent.
 ## Epics are releases
 
 An **epic** (label `epic`, in muDemocracy.org) **is a release** — there is no separate release
-entity. Each epic carries two hand-set inputs and nothing else:
+entity, **no Release board field, and no release label** (#720). An epic carries exactly two
+hand-maintained inputs:
 
-- its **Release** field value — the epic's identity (`02 Governance app`, `04 Generic Semantic
-  Editor`, …). The **leading `NN` prefix is load-bearing**: it is the epic's **roadmap sequence**,
-  read by the feed and every epic listing (falls back to an `Epic NN:` title prefix; an epic with
-  neither is flagged `missing-roadmap-number` and sorts after numbered epics in its tier).
-  Renumbering the roadmap = renaming the Release option / retitling the epic.
-- its **Priority** (P0/P1/P2) — the epic's urgency tier, which overrides roadmap sequence.
+- its **title, `Epic NN: Name`** — identity *and* roadmap sequence in one string. The `NN` prefix
+  is load-bearing: it is the order in which epics open in the feed. **Renumbering the roadmap =
+  retitling the issue** — one safe, REST-able write that agents and routines can perform. An epic
+  whose title has no prefix is flagged `missing-roadmap-number` and sorts after numbered epics in
+  its tier.
+- its board **Priority** (P0/P1/P2) — the urgency tier, which overrides roadmap sequence
+  (`gh-project epic set <n> --priority P`).
 
 Epic ordering everywhere (the feed, `epics`, `tree`) is: **Priority tier → started epics first
 (continuity) → roadmap `NN` prefix → issue number**. Issue numbers are filing chronology and only
 break final ties.
 
-Everything below the epic **inherits its Release**: `release-sync` walks each epic's sub-issue graph
-and stamps the epic's Release onto every descendant story and implementation issue. So **Release is
-derived, never hand-set on a child** — the only manual release input is on the epic. A node reachable
-from two epics is claimed by the **higher-Priority** epic (ties: lower issue number). There is **no
-release label** — Release lives only as the board field (add a `release:<slug>` mirror later only if
-some REST-only consumer ever needs it).
+**Release membership is the sub-issue graph itself** — an item belongs to the release whose epic
+can reach it. Nothing is stamped and nothing can drift. A node reachable from two epics is claimed
+by the **higher-Priority** epic (ties: lower issue number). To see a release's contents: `tree
+<epic#>` (full subtree), `summary --epic <epic#>` (priority estimates), `epics` (coverage/done
+counts), `bands` (each item shows its epic as `E04`-style seq).
 
-This makes the board's release views fall out of one groupable field:
-
-- **Roadmap** — filter `label:epic`, sort by Priority: epics as prioritised releases.
-- **Swimlanes / drill-down** — group any items by **Release** to see stories/issues per epic.
+> The Release single-select field was retired because Projects v2 options are hand-maintained UI
+> state that cannot be safely automated — renaming an option **wipes the value off every item
+> carrying it** (observed July 2026). The board field, if still present, is inert and safe to
+> delete. The same reasoning is why Priority/MoSCoW survive: their option sets are *fixed*
+> vocabularies that never need renaming.
 
 Every **user-story should sit under an epic**. `coverage` reports `orphan_stories_no_epic` (a story
-with no epic ancestor — its release can't be derived); link it with `epic add-story <epic#> <story#>`.
+with no epic ancestor — it belongs to no release); link it with `epic add-story <epic#> <story#>`.
 
 ## Status lifecycle
 
@@ -142,10 +143,10 @@ node /tmp/gh-project.mjs summary                                       # priorit
 node /tmp/gh-project.mjs explain srs-rust 263                          # stage-by-stage for one issue
 node /tmp/gh-project.mjs coverage                                      # bugs / unlinked / uncovered / orphan-stories
 node /tmp/gh-project.mjs epics                                         # roadmap: epics (=releases) by Priority + coverage
-node /tmp/gh-project.mjs epic set 30 --priority P0 --release "Decision Logger v1"  # an epic's rank + identity
+node /tmp/gh-project.mjs epic set 30 --priority P0                     # an epic's urgency tier (its one board input)
+gh issue edit 83 --repo the-greenman/muDemocracy.org --title "Epic 03: New name"  # renumber the roadmap (title = sequence)
 node /tmp/gh-project.mjs epic add-story 30 21                          # link a story under an epic (sub-issue)
-node /tmp/gh-project.mjs release-sync --dry-run                        # preview each descendant's derived Release
-node /tmp/gh-project.mjs release-sync                                  # propagate epic Release to descendants
+node /tmp/gh-project.mjs summary --epic 83                             # a release's priority estimates (graph, no field)
 node /tmp/gh-project.mjs tree                                          # whole-board tree (epics → stories → issues)
 node /tmp/gh-project.mjs tree 30                                       # one story/epic's sub-issue tree
 node /tmp/gh-project.mjs size srs-rust 263 medium                      # effort estimate (label + board Size field)
@@ -313,7 +314,7 @@ node /tmp/gh-project.mjs topup --fix --target 0 # fill to 0 (no-op, safe check)
 ```
 
 The `board-sync` Action runs `gh-project sync` — the whole pipeline (stories-sync → rollup →
-release-sync → topup → promote → stale-claims → reconcile) in **one process on one board fetch**
+topup → promote → stale-claims → reconcile) in **one process on one board fetch**
 (see "API budget") — on three triggers: **push** to master (post-merge), an **hourly schedule**
 (so the queue refills even during quiet periods, matching the hourly consumer), and
 **workflow_dispatch** — a cloud session can label issues then kick promotion immediately with
@@ -422,17 +423,18 @@ Every implementation issue's `priority: Pn` is *derived*, and the derivation is 
 8. **final** — the derived priority, written as the `priority: Pn` label + the board Priority
    mirror. An explicit **Won't** on every served story ⇒ excluded (no priority, out of the feed).
 
-`summary [--repo R] [--release X] [--brief]` prints the stage legend, TOTALS (P0/P1/P2 + bugs /
-unlinked / uncovered counts), a BY RELEASE breakdown, and a per-issue stage table. Use it to sense-
+`summary [--repo R] [--epic N] [--brief]` prints the stage legend, TOTALS (P0/P1/P2 + bugs /
+unlinked / uncovered counts), a BY EPIC breakdown (claiming epic from the sub-issue graph, in
+roadmap order), and a per-issue stage table. Use it to sense-
 check the model — e.g. "everything is P0" usually means every story is set **Must**.
 
 ## Agents vs humans
 
 - **Sizing:** a human/agent sets each leaf issue's **size** (`gh-project size`) at triage — an effort
   estimate, not derivable; the assessment routine keeps it fresh. Bands weight on it.
-- **Human (board UI):** sets each **epic's Release identity + Priority** and story **MoSCoW**; links
-  stories under epics and impl issues under stories (sub-issues); adds iterations. Child **Release is
-  derived** (`release-sync`), never hand-set.
+- **Human (board UI + issue titles):** sets each **epic's Priority** and story **MoSCoW**; names
+  and numbers epics via their **`Epic NN:` titles**; links stories under epics and impl issues
+  under stories (sub-issues); adds iterations. Release membership is the graph — nothing to set.
 - **Interactive/local agents:** use the **GitHub MCP** for issues/labels/comments/sub-issues/search,
   and `gh-project` for board fields.
 - **Cloud routines:** use `gh` + `gh-project` only (no interactively-authenticated MCP — it may be
