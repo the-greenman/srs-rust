@@ -323,11 +323,33 @@ cargo clippy -p srs-gov -- -D warnings
   - `json` mode: pipe the raw envelope from the `srs relation list --source <id>` call only (outgoing relations). The `--json` flag help text must document this limitation: `"Output raw JSON (outgoing relations only; for full graph use srs relation list --source/--target directly)"`.
 
 - [ ] Add `render::relations_list(id: &str, relations: &[serde_json::Value])` in `crates/srs-gov/src/render.rs`:
-  - Print a header `Relations  —  <short_id>`.
-  - Print a table: `  DIRECTION  TYPE                 SOURCE           TARGET           ID`.
-  - For each relation, show `outgoing` or `incoming` based on whether `sourceInstanceId == id` (prefix match).
-  - If empty: print `  (no relations)`.
-  - Print a footer: `  Run: srs-gov unrelate <ID>  to remove a relation`.
+  ```rust
+  pub fn relations_list(id: &str, relations: &[serde_json::Value]) {
+      header(&format!("Relations  —  {}", short_id(id)));
+      println!();
+      if relations.is_empty() {
+          println!("  (no relations)");
+          println!();
+          return;
+      }
+      println!("  {:<10}  {:<20}  {:<16}  {:<16}  ID", "DIRECTION", "TYPE", "SOURCE", "TARGET");
+      println!("  {}", "─".repeat(80));
+      for r in relations {
+          let source = r["sourceInstanceId"].as_str().unwrap_or("");
+          let target = r["targetInstanceId"].as_str().unwrap_or("");
+          let rtype = r["relationType"].as_str().unwrap_or("");
+          let rid = r["relationId"].as_str().unwrap_or("");
+          let direction = if source.starts_with(id) || source == id { "outgoing" } else { "incoming" };
+          println!(
+              "  {:<10}  {:<20}  {:<16}  {:<16}  {}",
+              direction, rtype, short_id(source), short_id(target), short_id(rid)
+          );
+      }
+      println!();
+      println!("  Run: srs-gov unrelate <ID>  to remove a relation");
+      println!();
+  }
+  ```
 - [ ] In `crates/srs-gov/src/main.rs`, implement `cmd_relate(id, relation_type, target, repo, explain, json)`:
   - Validate `relation_type` is `supersedes` or `depends-on`; error otherwise with `anyhow::bail!`.
   - **If `explain = true`**: early-return IMMEDIATELY before any `run_srs` calls, printing placeholder-based command previews:
@@ -388,7 +410,8 @@ cargo clippy -p srs-gov -- -D warnings
 - [ ] `srs-gov relate <A> --type depends-on --target <B>` creates a `depends-on` relation from A to B.
 - [ ] `srs-gov relate <A> --type supersedes --target <B>` creates a `supersedes` relation.
 - [ ] `srs-gov relate <A> --type unknown_type --target <B>` exits non-zero.
-- [ ] `srs-gov relations <id>` shows both outgoing and incoming relations for a record.
+- [ ] `srs-gov relations <id>` shows both outgoing and incoming relations in normal mode.
+- [ ] `srs-gov relations <id> --json` outputs the raw `srs relation list --source <id>` envelope (outgoing only; documented limitation in flag help text).
 - [ ] `srs-gov unrelate <relation_id>` deletes the relation.
 - [ ] `srs repo validate` returns 0 errors after relate/unrelate.
 - [ ] `--json` and `--explain` flags work on all three verbs.
