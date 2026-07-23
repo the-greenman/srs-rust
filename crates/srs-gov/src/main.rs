@@ -98,6 +98,9 @@ enum Commands {
         /// Organisation name (becomes the repository title and charter article title)
         #[arg(long, default_value = "Governance Document")]
         title: String,
+        /// Namespace prefix for the repository (defaults to com.example.<slug> derived from title)
+        #[arg(long)]
+        namespace: Option<String>,
         /// Purpose statement written into the charter article
         #[arg(long)]
         purpose: Option<String>,
@@ -193,8 +196,9 @@ fn run() -> Result<()> {
         Some(Commands::RepoCreate {
             output,
             title,
+            namespace,
             purpose,
-        }) => cmd_repo_create(&output, &title, purpose.as_deref()),
+        }) => cmd_repo_create(&output, &title, namespace.as_deref(), purpose.as_deref()),
         Some(Commands::Tui { smoke }) => tui_app::run_tui(&cli.repo, smoke),
         Some(Commands::Attachment { command }) => {
             cmd_attachment(&cli.repo, cli.explain, cli.json, command)
@@ -757,7 +761,12 @@ fn cmd_attachment_list(repo: &str, explain: bool, json: bool) -> Result<()> {
 /// `build-governance-seed.mjs --check` proves the seed rebuilds byte-for-byte (srs#38).
 const GOVERNANCE_SEED: &str = include_str!("../assets/governance-seed.srsj");
 
-fn cmd_repo_create(output: &str, title: &str, purpose: Option<&str>) -> Result<()> {
+fn cmd_repo_create(
+    output: &str,
+    title: &str,
+    namespace: Option<&str>,
+    purpose: Option<&str>,
+) -> Result<()> {
     use std::io::Write;
 
     let out_path = std::path::Path::new(output);
@@ -772,7 +781,7 @@ fn cmd_repo_create(output: &str, title: &str, purpose: Option<&str>) -> Result<(
     let result = create_governance_repository(
         &store,
         CreateGovernanceRepositoryInput {
-            namespace: None,
+            namespace: namespace.map(str::to_string),
             title: title.to_string(),
             purpose: purpose.map(str::to_string),
             repository_id: None,

@@ -389,6 +389,64 @@ fn repo_create_produces_valid_srsj() {
 }
 
 #[test]
+fn repo_create_explicit_namespace_applied() {
+    use std::fs;
+
+    let tmp = std::env::temp_dir().join(format!(
+        "srs-gov-ns-{}.srsj",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .subsec_nanos()
+    ));
+    let path = tmp.to_string_lossy().into_owned();
+
+    let gov = srs_gov_bin();
+    let srs = srs_bin();
+    let out = std::process::Command::new(&gov)
+        .env("SRS_BIN", &srs)
+        .args([
+            "repo-create",
+            "--output",
+            &path,
+            "--title",
+            "Acme Governance",
+            "--namespace",
+            "com.acme.myorg",
+        ])
+        .output()
+        .expect("run srs-gov repo-create --namespace");
+    assert!(
+        out.status.success(),
+        "repo-create --namespace failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let content: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&tmp).unwrap()).unwrap();
+
+    assert_eq!(
+        content["manifest"]["namespace"].as_str(),
+        Some("com.acme.myorg"),
+        "explicit --namespace must appear in manifest"
+    );
+
+    // srs validate must still pass with the explicit namespace
+    let validate = std::process::Command::new(&srs)
+        .args(["repo", "validate", "--repo", &path])
+        .output()
+        .expect("run srs repo validate");
+    let vout: serde_json::Value = serde_json::from_slice(&validate.stdout).unwrap();
+    assert_eq!(
+        vout["payload"]["summary"]["errors"].as_u64(),
+        Some(0),
+        "validate errors after --namespace"
+    );
+
+    fs::remove_file(&tmp).ok();
+}
+
+#[test]
 fn repo_create_navigation_works() {
     let path = std::env::temp_dir()
         .join(format!(
