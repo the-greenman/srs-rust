@@ -152,7 +152,10 @@ fn decision_log_get_shows_field_labels() {
 fn create_decision_dry_run_emits_correct_command() {
     // Use a self-contained governance repo — field IDs are package constants regardless of repo.
     let repo = setup_repo("create-cmd");
-    let out = gov_out(&repo.path, &["create", "decision_log", "decision", "--dry-run"]);
+    let out = gov_out(
+        &repo.path,
+        &["create", "decision_log", "decision", "--dry-run"],
+    );
     assert!(
         out.contains("srs record create"),
         "expected srs record create\n{out}"
@@ -175,7 +178,10 @@ fn create_decision_dry_run_does_not_mutate() {
     use std::fs;
     let repo = setup_repo("create-nomutate");
     let before = fs::read(&repo.path).expect("read srsj");
-    gov_out(&repo.path, &["create", "decision_log", "decision", "--dry-run"]);
+    gov_out(
+        &repo.path,
+        &["create", "decision_log", "decision", "--dry-run"],
+    );
     let after = fs::read(&repo.path).expect("re-read srsj");
     assert_eq!(before, after, "srsj changed — create is not dry-run!");
 }
@@ -1063,7 +1069,11 @@ fn create_decision_writes_record() {
         .to_string();
 
     // Count decisions before
-    let before = srs_json(&repo.path, &["record", "list", "--type", "governance/decision"], None);
+    let before = srs_json(
+        &repo.path,
+        &["record", "list", "--type", "governance/decision"],
+        None,
+    );
     let before_count = before["payload"]["records"]
         .as_array()
         .map(|a| a.len())
@@ -1096,7 +1106,11 @@ fn create_decision_writes_record() {
     );
 
     // Count must have increased
-    let after = srs_json(&repo.path, &["record", "list", "--type", "governance/decision"], None);
+    let after = srs_json(
+        &repo.path,
+        &["record", "list", "--type", "governance/decision"],
+        None,
+    );
     let after_count = after["payload"]["records"]
         .as_array()
         .map(|a| a.len())
@@ -1130,7 +1144,11 @@ fn transition_decision_succeeds() {
     let repo = setup_repo("transition-ok");
 
     // Get a draft decision from setup_repo (first created = "Adopt monthly cadence", still draft)
-    let list = srs_json(&repo.path, &["record", "list", "--type", "governance/decision"], None);
+    let list = srs_json(
+        &repo.path,
+        &["record", "list", "--type", "governance/decision"],
+        None,
+    );
     let draft_id = list["payload"]["records"]
         .as_array()
         .expect("records array")
@@ -1141,8 +1159,14 @@ fn transition_decision_succeeds() {
         .to_string();
 
     let out = gov_out(&repo.path, &["transition", &draft_id, "--to", "proposed"]);
-    assert!(out.contains("Transitioned"), "expected Transitioned header\n{out}");
-    assert!(out.contains("proposed"), "expected new state in output\n{out}");
+    assert!(
+        out.contains("Transitioned"),
+        "expected Transitioned header\n{out}"
+    );
+    assert!(
+        out.contains("proposed"),
+        "expected new state in output\n{out}"
+    );
 
     // Verify via srs record get
     let record = srs_json(&repo.path, &["record", "get", &draft_id], None);
@@ -1160,7 +1184,11 @@ fn transition_decision_succeeds() {
 fn transition_invalid_state_fails() {
     let repo = setup_repo("transition-bad");
 
-    let list = srs_json(&repo.path, &["record", "list", "--type", "governance/decision"], None);
+    let list = srs_json(
+        &repo.path,
+        &["record", "list", "--type", "governance/decision"],
+        None,
+    );
     let draft_id = list["payload"]["records"]
         .as_array()
         .expect("records array")
@@ -1189,7 +1217,11 @@ fn transition_invalid_state_fails() {
 fn transition_explain_does_not_write() {
     let repo = setup_repo("transition-explain");
 
-    let list = srs_json(&repo.path, &["record", "list", "--type", "governance/decision"], None);
+    let list = srs_json(
+        &repo.path,
+        &["record", "list", "--type", "governance/decision"],
+        None,
+    );
     let draft_id = list["payload"]["records"]
         .as_array()
         .expect("records array")
@@ -1225,7 +1257,11 @@ fn transition_explain_does_not_write() {
 fn relate_and_unrelate() {
     let repo = setup_repo("relate-test");
 
-    let list = srs_json(&repo.path, &["record", "list", "--type", "governance/decision"], None);
+    let list = srs_json(
+        &repo.path,
+        &["record", "list", "--type", "governance/decision"],
+        None,
+    );
     let records = list["payload"]["records"].as_array().expect("records");
     // Use the two draft decisions as source and target (avoids needing to create fresh ones)
     // setup_repo creates: draft, ratified, superseded, closed — the first is always draft.
@@ -1279,11 +1315,7 @@ fn relate_and_unrelate() {
     assert_eq!(v["payload"]["summary"]["errors"].as_u64(), Some(0));
 
     // Get relation ID to unrelate
-    let raw_rel = srs_json(
-        &repo.path,
-        &["relation", "list", "--source", &a_id],
-        None,
-    );
+    let raw_rel = srs_json(&repo.path, &["relation", "list", "--source", &a_id], None);
     let relation_id = raw_rel["payload"]["relations"]
         .as_array()
         .expect("relations array")
@@ -1316,7 +1348,11 @@ fn relate_and_unrelate() {
 fn relate_invalid_type_rejected() {
     let repo = setup_repo("relate-bad-type");
 
-    let list = srs_json(&repo.path, &["record", "list", "--type", "governance/decision"], None);
+    let list = srs_json(
+        &repo.path,
+        &["record", "list", "--type", "governance/decision"],
+        None,
+    );
     let id = list["payload"]["records"]
         .as_array()
         .expect("records")
@@ -1334,17 +1370,18 @@ fn relate_invalid_type_rejected() {
         .args(["relate", &id, "--type", "unknown_type", "--target", &id])
         .output()
         .expect("run srs-gov");
-    assert!(
-        !out.status.success(),
-        "relate with unknown_type must fail"
-    );
+    assert!(!out.status.success(), "relate with unknown_type must fail");
 }
 
 #[test]
 fn relate_explain_does_not_write() {
     let repo = setup_repo("relate-explain");
 
-    let list = srs_json(&repo.path, &["record", "list", "--type", "governance/decision"], None);
+    let list = srs_json(
+        &repo.path,
+        &["record", "list", "--type", "governance/decision"],
+        None,
+    );
     let records = list["payload"]["records"].as_array().expect("records");
     let a_id = records
         .iter()
@@ -1361,7 +1398,15 @@ fn relate_explain_does_not_write() {
 
     let out = gov_out(
         &repo.path,
-        &["--explain", "relate", &a_id, "--type", "supersedes", "--target", &b_id],
+        &[
+            "--explain",
+            "relate",
+            &a_id,
+            "--type",
+            "supersedes",
+            "--target",
+            &b_id,
+        ],
     );
     assert!(
         out.contains("srs") || out.contains("relation"),
