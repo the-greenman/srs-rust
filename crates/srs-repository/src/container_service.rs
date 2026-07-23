@@ -230,7 +230,15 @@ fn save_container_syncing_embed(
     sync_file_backed_root: bool,
 ) -> Result<(), RepositoryError> {
     if is_embed_only {
+        // Caller guarantees is_embed_only=true only when container_id matches manifest.container
+        // (load_container_with_embed_fallback enforces this). If the ID somehow doesn't match,
+        // assert loudly rather than silently returning Ok without writing.
         let mut manifest = store.load_manifest()?;
+        debug_assert_eq!(
+            manifest.container.as_ref().map(|mc| mc.container_id.as_str()),
+            Some(container.container_id.as_str()),
+            "save_container_syncing_embed: is_embed_only=true but container_id does not match manifest.container"
+        );
         if manifest
             .container
             .as_ref()
@@ -1386,6 +1394,12 @@ mod tests {
         add_member(&store, embed_id, member).unwrap();
         let from_store = store.load_container(embed_id).unwrap();
         assert!(from_store.member_instance_ids.as_ref().is_some_and(|ids| ids.contains(&member.to_string())));
+        // manifest.container must NOT be synced by membership writes on a file-backed root.
+        let post_manifest = store.load_manifest().unwrap();
+        assert!(
+            post_manifest.container.unwrap().member_instance_ids.is_none(),
+            "add_member on file-backed root must not update manifest.container"
+        );
     }
 
     #[test]
