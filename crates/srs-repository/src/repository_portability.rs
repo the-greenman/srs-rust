@@ -214,10 +214,15 @@ pub fn export_repository_snapshot_with_options(
     // double-capture it and cause `create_container` UUID-validation failures on import
     // for repositories whose id pre-dates the UUID requirement (e.g. legacy test repos).
     let embed_only_root_id: Option<String> = manifest.container.as_ref().and_then(|mc| {
-        let in_index = manifest.container_index.as_ref().is_some_and(|idx| {
-            idx.iter().any(|e| e.container_id == mc.container_id)
-        });
-        if in_index { None } else { Some(mc.container_id.clone()) }
+        let in_index = manifest
+            .container_index
+            .as_ref()
+            .is_some_and(|idx| idx.iter().any(|e| e.container_id == mc.container_id));
+        if in_index {
+            None
+        } else {
+            Some(mc.container_id.clone())
+        }
     });
 
     let mut containers = Vec::new();

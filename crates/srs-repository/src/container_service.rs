@@ -79,7 +79,10 @@ pub fn list_containers(
     // Include manifest.container embed root if not already in containerIndex (RFC-013).
     let manifest = store.load_manifest()?;
     if let Some(ref embed) = manifest.container {
-        if !summaries_raw.iter().any(|(id, _)| id == &embed.container_id) {
+        if !summaries_raw
+            .iter()
+            .any(|(id, _)| id == &embed.container_id)
+        {
             summaries_raw.insert(0, (embed.container_id.clone(), embed.title.clone()));
         }
     }
@@ -1300,7 +1303,11 @@ mod tests {
         manifest.container = Some(minimal_container(embed_id, "Root"));
         store.save_manifest(&manifest).unwrap();
         let listed = list_containers(&store, &ContainerListFilter::default()).unwrap();
-        assert_eq!(listed.len(), 1, "embed root must not appear twice when already in containerIndex");
+        assert_eq!(
+            listed.len(),
+            1,
+            "embed root must not appear twice when already in containerIndex"
+        );
     }
 
     #[test]
@@ -1328,7 +1335,10 @@ mod tests {
         add_member(&store, embed_id, member).unwrap();
         let manifest = store.load_manifest().unwrap();
         let embed = manifest.container.unwrap();
-        assert!(embed.member_instance_ids.as_ref().is_some_and(|ids| ids.contains(&member.to_string())));
+        assert!(embed
+            .member_instance_ids
+            .as_ref()
+            .is_some_and(|ids| ids.contains(&member.to_string())));
     }
 
     #[test]
@@ -1340,7 +1350,10 @@ mod tests {
         remove_member(&store, embed_id, member).unwrap();
         let manifest = store.load_manifest().unwrap();
         let embed = manifest.container.unwrap();
-        assert!(embed.member_instance_ids.as_ref().map_or(true, |ids| !ids.contains(&member.to_string())));
+        assert!(embed
+            .member_instance_ids
+            .as_ref()
+            .map_or(true, |ids| !ids.contains(&member.to_string())));
     }
 
     #[test]
@@ -1351,7 +1364,10 @@ mod tests {
         add_root(&store, embed_id, root).unwrap();
         let manifest = store.load_manifest().unwrap();
         let embed = manifest.container.unwrap();
-        assert!(embed.root_instance_ids.as_ref().is_some_and(|ids| ids.contains(&root.to_string())));
+        assert!(embed
+            .root_instance_ids
+            .as_ref()
+            .is_some_and(|ids| ids.contains(&root.to_string())));
     }
 
     #[test]
@@ -1363,7 +1379,10 @@ mod tests {
         remove_root(&store, embed_id, root).unwrap();
         let manifest = store.load_manifest().unwrap();
         let embed = manifest.container.unwrap();
-        assert!(embed.root_instance_ids.as_ref().map_or(true, |ids| !ids.contains(&root.to_string())));
+        assert!(embed
+            .root_instance_ids
+            .as_ref()
+            .map_or(true, |ids| !ids.contains(&root.to_string())));
     }
 
     #[test]
@@ -1393,11 +1412,18 @@ mod tests {
         let member = "11111111-1111-4111-8111-111111111111";
         add_member(&store, embed_id, member).unwrap();
         let from_store = store.load_container(embed_id).unwrap();
-        assert!(from_store.member_instance_ids.as_ref().is_some_and(|ids| ids.contains(&member.to_string())));
+        assert!(from_store
+            .member_instance_ids
+            .as_ref()
+            .is_some_and(|ids| ids.contains(&member.to_string())));
         // manifest.container must NOT be synced by membership writes on a file-backed root.
         let post_manifest = store.load_manifest().unwrap();
         assert!(
-            post_manifest.container.unwrap().member_instance_ids.is_none(),
+            post_manifest
+                .container
+                .unwrap()
+                .member_instance_ids
+                .is_none(),
             "add_member on file-backed root must not update manifest.container"
         );
     }
