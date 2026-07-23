@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import {
   MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs,
   STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant,
-  planPromotions, PROMOTE_INTENT_LABEL, epicRank, epicFeedRank, epicRoadmapSeq, startedEpics,
+  planPromotions, PROMOTE_INTENT_LABEL, NEEDS_INPUT_LABEL, epicRank, epicFeedRank, epicRoadmapSeq, startedEpics,
   bandTargets, SIZE_WEIGHT, derivePriority, parseIssueRef, MOSCOW_DEFAULT, EPIC_PRIORITY_DEFAULT,
   planStaleClaims, STALE_CLAIM_HOURS_DEFAULT,
   planTopup, TOPUP_TARGET_DEFAULT,
@@ -525,4 +525,48 @@ test("planStaleClaims recovers a label-only claim (board still Ready) that is st
 test("planStaleClaims ignores a Ready item that is NOT claimed (no in-progress label)", () => {
   const rows = [srow({ num: 51, status: "Ready", labels: ["ready"], claimedAtMs: 0 })];
   assert.deepEqual(planStaleClaims(rows, 100 * HOUR, 24 * HOUR), []);
+});
+
+// Activity-aware staleness (#715): age runs from the LATEST of claim time and last real
+// activity (comments / commit & PR mentions). A working long task refreshes itself; a
+// silent claim fells within the short window.
+test("planStaleClaims: recent activity keeps an old claim fresh", () => {
+  const now = 100 * HOUR;
+  const rows = [srow({ num: 60, claimedAtMs: now - 5 * HOUR, lastActivityMs: now - 1 * HOUR })];
+  const plan = planStaleClaims(rows, now, 3 * HOUR);
+  assert.deepEqual(plan.map((p) => [p.num, p.action]), [[60, "fresh"]]);
+});
+
+test("planStaleClaims: a silent claim reclaims — last activity is also past the threshold", () => {
+  const now = 100 * HOUR;
+  const rows = [srow({ num: 61, claimedAtMs: now - 5 * HOUR, lastActivityMs: now - 4 * HOUR })];
+  const plan = planStaleClaims(rows, now, 3 * HOUR);
+  assert.deepEqual(plan.map((p) => [p.num, p.action]), [[61, "reclaim"]]);
+});
+
+test("planStaleClaims: no activity data at all falls back to claim age (compatible with old callers)", () => {
+  const now = 100 * HOUR;
+  const plan = planStaleClaims([srow({ num: 62, claimedAtMs: now - 4 * HOUR })], now, 3 * HOUR);
+  assert.deepEqual(plan.map((p) => [p.num, p.action]), [[62, "reclaim"]]);
+});
+
+test("planStaleClaims: needs-input is never reclaimed, however ancient — it is paused on a human", () => {
+  const now = 100 * HOUR;
+  const rows = [srow({ num: 63, labels: ["status: in progress", NEEDS_INPUT_LABEL], claimedAtMs: now - 90 * HOUR })];
+  const plan = planStaleClaims(rows, now, 3 * HOUR);
+  assert.deepEqual(plan.map((p) => [p.num, p.action]), [[63, "needs-input"]]);
+});
+
+test("isConsumableReady: a needs-input Ready item is not consumable — it must not clog the queue", () => {
+  const r = { repo: "srs-rust", num: 70, key: "srs-rust#70", state: "OPEN", status: "Ready", labels: [NEEDS_INPUT_LABEL] };
+  assert.equal(isConsumableReady(r), false);
+});
+
+test("needs-input is in the mirror set so ensureLabels creates it everywhere", () => {
+  assert.equal(NEEDS_INPUT_LABEL, "needs-input");
+  assert.ok(MIRROR_LABELS.map((l) => l.name).includes(NEEDS_INPUT_LABEL));
+});
+
+test("stale default is aggressive (hours, not a day) — consumers are single-session", () => {
+  assert.ok(STALE_CLAIM_HOURS_DEFAULT <= 4, "dead claims must recover same-afternoon");
 });

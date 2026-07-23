@@ -98,6 +98,15 @@ const BUMP_LABELS = new Set(["critical-path", "blocks-gate", "regression"]);
 // Status=Ready) and clears it. Kept distinct from `ready` so `reconcile`'s Status→label mirror
 // never fights the judge: the judge writes `promote:ready`, the mirror owns `ready`.
 const PROMOTE_INTENT_LABEL = "promote:ready";
+// `needs-input` (#715) — an automatic session that hits a HUMAN GATE (a decision, a missing
+// secret, an ambiguity it must not guess at) cannot ask a question; this label is where that
+// state lives. The stopping agent writes the question as an issue comment, adds `needs-input`,
+// and removes its `status: in progress` claim. Semantics everywhere: excluded from topup and
+// from the consumable-Ready count (a gated issue must not clog the queue), never auto-reclaimed
+// by stale-claims (re-feeding it just hits the same gate), listed FIRST by the morning
+// progress-review routine, and filterable on the board (`label:needs-input`). The HUMAN removes
+// the label after answering — that alone puts the issue back in the feed.
+const NEEDS_INPUT_LABEL = "needs-input";
 const MIRROR_LABELS = [
   { name: "ready", color: "0E8A16", description: "Board Status=Ready mirror — the routines' work queue (set by `promote`/`reconcile`, not by hand)" },
   { name: "priority: P0", color: "B60205", description: "Derived priority (highest served story) — top" },
@@ -106,6 +115,7 @@ const MIRROR_LABELS = [
   { name: "status: in progress", color: "1D76DB", description: "Claimed in progress by the SRS jobs routine" },
   { name: PROMOTE_INTENT_LABEL, color: "5319E7", description: "Judged unblocked; awaiting CI promotion to board Status=Ready (write this, not `ready`)" },
   { name: "blocked", color: "E4E669", description: "Derived from blocked-by edges when present (auto-clears); hand-set only for non-issue blocks" },
+  { name: NEEDS_INPUT_LABEL, color: "D876E3", description: "Stopped at a human gate — question is in the comments; answer and REMOVE this label to re-feed" },
 ];
 // Repos whose merges/routines depend on the mirror set existing. Overridable for tests/forks.
 const MIRROR_REPOS = (process.env.GHP_MIRROR_REPOS || `srs,srs-rust,srs-web,srs-vscode,${STORY_REPO}`)
@@ -750,13 +760,20 @@ function planPromotions(rows) {
 }
 
 // Pure staleness planner (unit-tested). `status: in progress` has no board-native timestamp, so
-// callers annotate each row with `claimedAtMs` (epoch ms the label was last applied, from the
-// issue's REST event timeline — see `claimedAt()`) before calling this. Candidates are OPEN issues
-// carrying the `status: in progress` claim label (or board Status "In progress"); nothing else in
-// the pipeline ever revisits a claim (`promote` explicitly skips advanced statuses, `reconcile` only
-// mirrors the label) so a dead claim would otherwise sit invisible forever. A row with no resolvable claimedAtMs is reported as
-// `unknown` rather than silently left alone or wrongly reclaimed.
-// Returns [{ repo, num, key, itemId, claimedAtMs, action, ageMs }] — action: reclaim|fresh|unknown.
+// callers annotate each row with `claimedAtMs` (epoch ms the claim label was last applied) and
+// `lastActivityMs` (epoch ms of the last REAL activity event — commented / cross-referenced /
+// referenced, i.e. humans talking or commits/PRs mentioning the issue; label churn from the
+// hourly sync deliberately does not count) — both from the issue's REST timeline, see
+// `claimTimes()`. Candidates are OPEN issues carrying the `status: in progress` claim label (or
+// board Status "In progress"); nothing else in the pipeline ever revisits a claim (`promote`
+// skips advanced statuses, `reconcile` only mirrors the label), so a dead claim would otherwise
+// sit invisible forever. Staleness is ACTIVITY-AWARE (#715): age runs from the LATEST of claim
+// time and last activity, so a long task that keeps committing/commenting stays claimed while a
+// silent one reclaims within the (short) threshold. A row labeled `needs-input` is legitimately
+// paused on a human and is never reclaimed — re-feeding it would just hit the same gate. A row
+// with no resolvable claimedAtMs is reported as `unknown`, never silently skipped or reclaimed.
+// Returns [{ repo, num, key, itemId, claimedAtMs, action, ageMs }] —
+// action: reclaim|fresh|needs-input|unknown.
 function planStaleClaims(rows, nowMs, thresholdMs) {
   const out = [];
   const inProgLabel = STATUS_LABEL_MAP["In progress"];
@@ -768,8 +785,10 @@ function planStaleClaims(rows, nowMs, thresholdMs) {
     if (row.state !== "OPEN") continue;
     if (row.status !== "In progress" && !row.labels?.includes(inProgLabel)) continue;
     const base = { repo: row.repo, num: row.num, key: row.key, itemId: row.itemId, claimedAtMs: row.claimedAtMs ?? null };
+    if (row.labels?.includes(NEEDS_INPUT_LABEL)) { out.push({ ...base, action: "needs-input" }); continue; }
     if (row.claimedAtMs == null) { out.push({ ...base, action: "unknown" }); continue; }
-    const ageMs = nowMs - row.claimedAtMs;
+    const freshAsOf = Math.max(row.claimedAtMs, row.lastActivityMs ?? 0);
+    const ageMs = nowMs - freshAsOf;
     out.push({ ...base, action: ageMs >= thresholdMs ? "reclaim" : "fresh", ageMs });
   }
   return out;
@@ -874,6 +893,8 @@ function isConsumableReady(row) {
   return row.state === "OPEN"
     && isWorkItem(row)
     && !row.labels.includes(STATUS_LABEL_MAP["In progress"])
+    // A gated issue is not pickable — counting it would let it clog the queue (#715).
+    && !row.labels.includes(NEEDS_INPUT_LABEL)
     && (row.status === "Ready" || row.labels.includes(PROMOTE_INTENT_LABEL));
 }
 function countConsumableReady(rows) {
@@ -1816,33 +1837,48 @@ function intentRows() {
   return rows;
 }
 
-// Default staleness window for `stale-claims`: long enough that a genuinely long-running
-// implementation task isn't falsely reclaimed, short enough that a dead claim recovers same-day
-// given the hourly board-sync schedule.
-const STALE_CLAIM_HOURS_DEFAULT = 24;
+// Default staleness window for `stale-claims`. Consumers are single-session and terminal-at-PR
+// — a claim showing no activity for a few hours is dead, not slow (observed: dead claims sat
+// "fresh" all evening under the old 24h window while the queue starved, #715). Staleness is
+// activity-aware (see claimTimes/planStaleClaims): a long task that keeps committing or
+// commenting refreshes itself, so the short window only fells silent claims.
+const STALE_CLAIM_HOURS_DEFAULT = 3;
 
-// Target depth for the Ready queue. `topup` writes `promote:ready` intents to fill the queue
-// to this depth on every board-sync run. Overridable via GHP_TOPUP_TARGET env or --target flag.
-const TOPUP_TARGET_DEFAULT = 3;
+// Target depth for the Ready queue. `topup` writes `promote:ready` intents to fill the queue to
+// this depth on every board-sync run. 6, not 3 (#715): the queue head can contain items some
+// consumers can't take (repo mix), GitHub's cron regularly lands 25–40 min late, and a burst of
+// finished work can drain several slots between refills — 3 starved by evening in practice.
+// Overridable via GHP_TOPUP_TARGET env or --target flag.
+const TOPUP_TARGET_DEFAULT = 6;
 
-// When the `status: in progress` label was most recently applied — the claim's start time.
-// Projects v2 has no per-field-value timestamp reachable here, so this reads the issue's REST
-// event timeline (ascending order) and takes the last matching "labeled" event; a prior
-// label/unlabel/re-label cycle is superseded by that most recent application. Returns epoch ms,
-// or null if no such event is found (label present but timeline unreadable/incomplete).
-function claimedAt(repo, num) {
+// Claim + activity timestamps for one issue, from its REST timeline (one paginated call).
+//   claimedAtMs    — when `status: in progress` was most recently applied (the claim's start;
+//                    a prior label/unlabel cycle is superseded by the latest application).
+//   lastActivityMs — the latest REAL activity: commented / cross-referenced / referenced
+//                    (humans talking, or commits & PRs mentioning the issue). Label events are
+//                    deliberately EXCLUDED — the hourly sync's label churn would otherwise
+//                    refresh every claim forever and nothing would ever look stale.
+// Returns { claimedAtMs: ms|null, lastActivityMs: ms|null }; claimedAtMs null means the
+// timeline was unreadable or carried no claim event (caller reports it as `unknown`).
+// (Uses /timeline, not /issues/{n}/events: the events endpoint 404s for some issues.)
+const ACTIVITY_EVENTS = new Set(["commented", "cross-referenced", "referenced"]);
+function claimTimes(repo, num) {
   let events;
   try {
-    // Use /timeline, not /issues/{n}/events: the events endpoint 404s for some issues (observed on
-    // srs-rust#367) while /timeline reliably carries `labeled` events with `.label.name`+`.created_at`.
     events = ghJson(["api", "--paginate", `repos/${OWNER}/${repo}/issues/${num}/timeline`]) || [];
   } catch (e) {
     console.error(`gh-project: warning: could not read events for ${repo}#${num}: ${(e.stderr ? String(e.stderr) : e.message).trim()}`);
-    return null;
+    return { claimedAtMs: null, lastActivityMs: null };
   }
-  const labelEvents = events.filter((e) => e.event === "labeled" && e.label?.name === "status: in progress");
-  if (!labelEvents.length) return null;
-  return Date.parse(labelEvents[labelEvents.length - 1].created_at);
+  let claimedAtMs = null;
+  let lastActivityMs = null;
+  for (const e of events) {
+    const ts = Date.parse(e.created_at ?? e.updated_at ?? "");
+    if (isNaN(ts)) continue;
+    if (e.event === "labeled" && e.label?.name === "status: in progress") claimedAtMs = Math.max(claimedAtMs ?? 0, ts);
+    else if (ACTIVITY_EVENTS.has(e.event)) lastActivityMs = Math.max(lastActivityMs ?? 0, ts);
+  }
+  return { claimedAtMs, lastActivityMs };
 }
 
 // stale-claims [--hours N] [--fix] — detect (and with --fix, recover) `In progress` issues whose
@@ -1863,7 +1899,9 @@ function cmdStaleClaims(argv) {
   const candidates = [...board().values()].filter(
     (r) => r.state === "OPEN" && (r.status === "In progress" || r.labels.includes(inProgLabel))
   );
-  const annotated = candidates.map((r) => ({ ...r, claimedAtMs: claimedAt(r.repo, r.num) }));
+  // needs-input rows never reclaim, so skip their timeline read (one API call each).
+  const annotated = candidates.map((r) =>
+    r.labels.includes(NEEDS_INPUT_LABEL) ? r : { ...r, ...claimTimes(r.repo, r.num) });
   const plan = planStaleClaims(annotated, Date.now(), thresholdMs);
   for (const p of plan) {
     const ageStr = p.ageMs != null ? `${(p.ageMs / 3600000).toFixed(1)}h` : "—";
@@ -1873,14 +1911,15 @@ function cmdStaleClaims(argv) {
     setStatusLabel(p.repo, p.num, "ready", false); // mirror immediately; reconcile also keeps it in sync
     try {
       gh(["issue", "comment", String(p.num), "--repo", `${OWNER}/${p.repo}`,
-        "--body", `Auto-reclaimed: this issue's \`status: in progress\` claim was stale (>${hours}h since claimed) and has been reset to **Ready** for re-pickup. If work is still genuinely in flight, re-claim it.`]);
+        "--body", `Auto-reclaimed: this issue's \`status: in progress\` claim showed no activity for >${hours}h (no comments, commits, or PR references) and has been reset to **Ready** for re-pickup. If work is still genuinely in flight, re-claim it — activity on the issue refreshes the claim. If it stopped because a human decision is needed, add \`needs-input\` with the question instead.`]);
     } catch (e) {
       console.error(`gh-project: warning: could not comment on ${p.key}: ${(e.stderr ? String(e.stderr) : e.message).trim()}`);
     }
   }
   const reclaimed = plan.filter((p) => p.action === "reclaim").length;
   const unknown = plan.filter((p) => p.action === "unknown").length;
-  console.log(`${plan.length} in-progress · ${reclaimed} ${dryRun ? "would be " : ""}reclaimed · ${plan.length - reclaimed - unknown} fresh${unknown ? ` · ${unknown} unknown (no labeled event found)` : ""}`);
+  const gated = plan.filter((p) => p.action === "needs-input").length;
+  console.log(`${plan.length} in-progress · ${reclaimed} ${dryRun ? "would be " : ""}reclaimed · ${plan.length - reclaimed - unknown - gated} fresh${gated ? ` · ${gated} needs-input (paused on a human)` : ""}${unknown ? ` · ${unknown} unknown (no labeled event found)` : ""}`);
   if (dryRun && reclaimed) console.log("(dry-run; pass --fix to reclaim)");
 }
 
@@ -1926,6 +1965,7 @@ function cmdTopup(argv) {
     // isBlocked consults blocked-by edges directly (#671), so a freshly-unblocked
     // issue is feedable this run even before reconcile updates the label mirror.
     !isBlocked(row) &&
+    !row.labels.includes(NEEDS_INPUT_LABEL) &&   // paused on a human — re-feeding hits the same gate (#715)
     !row.labels.includes(PROMOTE_INTENT_LABEL) &&
     !wontExcluded.has(row.key)
   );
@@ -2100,8 +2140,10 @@ function help() {
                                   --assign writes band k → the "Band" number field (k = 1..N)
   reconcile [--fix]               report/repair board drift (priority + Status→label mirror)
   stale-claims [--hours N] [--fix]
-                                  recover dead \`In progress\` claims (default 24h) — resets Status
-                                  to Ready + comments; nothing else in the pipeline revisits a claim
+                                  recover dead \`In progress\` claims (default 3h of NO activity —
+                                  comments/commits/PR mentions refresh a claim) — resets Status to
+                                  Ready + comments; \`needs-input\` issues are never reclaimed
+                                  (paused on a human; answer + remove the label to re-feed)
 
 Priority stages: served stories → MoSCoW→P (blank⇒Could) → base(max) → epic fallback(−1 tier, blank⇒P2)
 → bug floor(P1) → default floor(P2, orphans) → bump(+1) → final. Explicit Won't on every served story ⇒ excluded.
@@ -2113,7 +2155,7 @@ Auth: requires an authenticated \`gh\` CLI, or GITHUB_TOKEN/GH_TOKEN env var (cu
 // Dispatch
 // ---------------------------------------------------------------------------
 // Pure helpers exported for unit tests. Importing the module must NOT run the CLI.
-export { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs, STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant, planPromotions, PROMOTE_INTENT_LABEL, epicRank, epicFeedRank, epicRoadmapSeq, startedEpics, bandTargets, SIZE_WEIGHT, derivePriority, parseIssueRef, planStaleClaims, STALE_CLAIM_HOURS_DEFAULT, planTopup, TOPUP_TARGET_DEFAULT, isWorkItem, isConsumableReady, countConsumableReady, MOSCOW_DEFAULT, EPIC_PRIORITY_DEFAULT, hasOpenBlockers, isBlocked, blockedLabelWant };
+export { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs, STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant, planPromotions, PROMOTE_INTENT_LABEL, NEEDS_INPUT_LABEL, epicRank, epicFeedRank, epicRoadmapSeq, startedEpics, bandTargets, SIZE_WEIGHT, derivePriority, parseIssueRef, planStaleClaims, STALE_CLAIM_HOURS_DEFAULT, planTopup, TOPUP_TARGET_DEFAULT, isWorkItem, isConsumableReady, countConsumableReady, MOSCOW_DEFAULT, EPIC_PRIORITY_DEFAULT, hasOpenBlockers, isBlocked, blockedLabelWant };
 
 // Only dispatch when run directly (`node gh-project.mjs ...`), not when imported.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
