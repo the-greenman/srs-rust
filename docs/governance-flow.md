@@ -57,10 +57,19 @@ srs-gov list decision_log --tag "ratified" --repo governance.srsj
 #    each attachment's relative path, title, document ID, and on-disk size.
 srs-gov get decision_log <instance-id> --repo governance.srsj
 
-# 6. Dry-run: see the command to create a new decision
-srs-gov create decision_log decision --repo governance.srsj
+# 6. Create a new decision (writes immediately)
+srs-gov create decision_log decision --title "My Decision" --repo governance.srsj
+#    Add --dry-run to preview the underlying srs command without writing
 
-# 7. Inspect the underlying srs calls
+# 7. Advance lifecycle state
+srs-gov transition <instance-id> --to proposed --repo governance.srsj
+
+# 8. List, create, and remove relations between records
+srs-gov relations <instance-id> --repo governance.srsj
+srs-gov relate <source-id> --type supersedes --target <target-id> --repo governance.srsj
+srs-gov unrelate <relation-id> --repo governance.srsj
+
+# 9. Inspect the underlying srs calls
 srs-gov --explain list decision_log --repo governance.srsj
 ```
 
