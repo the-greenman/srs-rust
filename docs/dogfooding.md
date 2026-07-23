@@ -2740,6 +2740,103 @@ echo "{\"relationType\":\"depends-on\",\"sourceInstanceId\":\"$REC_C\",\"targetI
 
 ---
 
+## S44 — Governance operator creates decisions, advances lifecycle, and relates records (`srs-gov` editing verbs, #378)
+
+**Intention.** A governance operator opens a fresh governance repository, adds two decisions, advances the first through the lifecycle, links them with a `supersedes` relation, then removes the relation — exercising the full editing surface of `srs-gov` create/transition/relate/unrelate/relations.
+
+**Capabilities exercised.** `srs-gov create` (real write path; `--dry-run` preview; `--explain` print); `srs-gov transition` (`srs record transition` via stdin); `srs-gov relate` (type delegated to srs; `--explain` early-return before ID resolution); `srs-gov unrelate`; `srs-gov relations` (outgoing + incoming combined, deduped); `run_srs_with_stdin` subprocess path; `--json` passthrough; container membership verification via `srs container get memberInstanceIds`.
+
+**CLI surface.** `srs-gov create`, `srs-gov transition`, `srs-gov relate`, `srs-gov unrelate`, `srs-gov relations`, `srs-gov get`, `srs-gov list`, `srs repo navigation`, `srs container get`.
+
+```bash
+SRS_GOV=./target/debug/srs-gov
+REPO=/tmp/dogfood-s44
+
+# Step 1 — create a fresh governance repository
+$SRS_GOV repo-create --title "S44 Dogfood" --output $REPO.srsj
+srs --repo $REPO.srsj repo validate   # must be 0 errors
+
+# Step 2 — list the decision_log (empty)
+$SRS_GOV list decision_log --repo $REPO.srsj
+# → "(no records)" or similar empty output; exit 0
+
+# Step 3 — dry-run to preview the create command
+$SRS_GOV create decision_log decision --title "Decision Alpha" --repo $REPO.srsj --dry-run
+# → prints heredoc with srs --container <id> record create ... ; does NOT write
+
+# Step 4 — --explain shows the underlying srs command
+$SRS_GOV --explain create decision_log decision --title "Decision Alpha" --repo $REPO.srsj
+# → prints: srs --repo ... --format json --container <id> record create --type ...
+
+# Step 5 — real write: create Decision Alpha
+A_ID=$($SRS_GOV create decision_log decision --title "Decision Alpha" --repo $REPO.srsj --json \
+  | jq -r '.payload.record.instanceId')
+echo "A: $A_ID"
+
+# Step 6 — verify Alpha appears in the container
+srs --repo $REPO.srsj --format json container get "$DL_ID" \
+  | jq -e --arg id "$A_ID" '.payload.container.memberInstanceIds | index($id) != null'
+# → true
+
+# Step 7 — create Decision Beta
+B_ID=$($SRS_GOV create decision_log decision --title "Decision Beta" --repo $REPO.srsj --json \
+  | jq -r '.payload.record.instanceId')
+echo "B: $B_ID"
+
+# Step 8 — advance Alpha's lifecycle state to "proposed"
+$SRS_GOV transition "$A_ID" --to proposed --repo $REPO.srsj
+# → renders "Transitioned <short-id>" + "New state: proposed"
+
+# Step 9 — verify state in srs-gov get output
+$SRS_GOV get decision_log "$A_ID" --repo $REPO.srsj
+# → field detail shows lifecycle state "proposed"
+
+# Step 10 — --explain for transition shows allowed-transitions + transition commands
+$SRS_GOV --explain transition "$A_ID" --to proposed --repo $REPO.srsj
+# → prints two srs commands without executing them
+
+# Step 11 — relate Alpha supersedes Beta
+REL_ID=$($SRS_GOV relate "$A_ID" --type supersedes --target "$B_ID" --repo $REPO.srsj --json \
+  | jq -r '.payload.relation.relationId')
+echo "REL: $REL_ID"
+
+# Step 12 — outgoing from Alpha
+$SRS_GOV relations "$A_ID" --repo $REPO.srsj
+# → table shows "supersedes" with direction "outgoing"
+
+# Step 13 — incoming from Beta's perspective
+$SRS_GOV relations "$B_ID" --repo $REPO.srsj
+# → table shows "supersedes" with direction "incoming"
+
+# Step 14 — --explain relate early-returns BEFORE ID resolution
+$SRS_GOV --explain relate "$A_ID" --type supersedes --target "$B_ID" --repo $REPO.srsj
+# → prints placeholder srs commands; no subprocess side effects
+
+# Step 15 — unrelate
+$SRS_GOV unrelate "$REL_ID" --repo $REPO.srsj
+# → renders "Relation deleted <short-id>"
+
+# Step 16 — confirm relation gone
+$SRS_GOV relations "$A_ID" --repo $REPO.srsj
+# → "(no relations)"
+
+# Negative case — invalid lifecycle state
+$SRS_GOV transition "$A_ID" --to not-a-state --repo $REPO.srsj
+# → srs error propagated; exit non-zero
+
+# Negative case — invalid relation type (not in governance package)
+$SRS_GOV relate "$A_ID" --type not-a-type --target "$B_ID" --repo $REPO.srsj
+# → srs error propagated; exit non-zero
+
+srs --repo $REPO.srsj repo validate  # must be 0 errors after all operations
+```
+
+**Done when.** `srs-gov create` writes a record that appears in the container's `memberInstanceIds`; `srs-gov transition` advances the lifecycle state visible in `srs-gov get`; `srs-gov relate` creates a relation that appears as outgoing from the source and incoming from the target; `srs-gov unrelate` removes it; `--explain` for `relate` early-returns before any subprocess ID-resolution calls; `--dry-run` for `create` prints the command without writing; `repo validate` is 0 errors throughout.
+
+**Verified 2026-07-23 (#378).** All 16 steps pass. `srs-gov create` writes Alpha and Beta to the Decision Log container ✓ (verified via `container get memberInstanceIds`). `srs-gov transition` advances Alpha to `proposed` ✓. `srs-gov relate` (supersedes) creates a relation visible as outgoing/incoming ✓. `srs-gov unrelate` removes it ✓. `--explain relate` returns without executing any subprocess ✓. Invalid state and invalid type produce srs errors (non-zero exit) ✓. `repo validate` 0 errors throughout ✓.
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -2775,7 +2872,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `container resolve-view` authored `excludeLifecycleStates` (ADR-020) | S15 |
 | `find` (ext:discovery query — type/tag/lifecycle/exclude/text) | S15 |
 | `repo navigation` (RFC-013 root container + identity + sections) | S15, S17; WASM binding (`repository_navigation`) verified via integration tests in `crates/srs-bindings/tests/navigation.rs` (#268); Tier-0 note identity grace (returns Ok + diagnostic instead of erroring) — see S20 (#427); "root is also a member" shape (sub-container root in its own `memberInstanceIds`) — `repository_navigation_root_is_member_of_its_own_sub_container` in both unit and WASM integration tests (#460); **RFC-013 I-80/R2 union fix (#699)**: sections now derived from `memberInstanceIds ∪ rootInstanceIds` (deduped, identity excluded) — members declared via `rootInstanceIds` only now appear as navigation sections; `repository_navigation_root_instance_ids_only_yields_same_sections` and `repository_navigation_union_deduplicates_ids_in_both_arrays` unit tests |
-| `srs-gov` (governance client: `repo-create` (`--namespace` override, #362), `list` + `--all`/`--search`/`--tag`, `get` + linked-attachments display, `tui --smoke`, `attachment add/list`) | S15, S33, S35; `SrsRepository::load` WASM binding applies RFC-014 migration automatically (#381); `crates/srs-repository/tests/scaffold.rs` covers the migrate→scaffold→validate chain; `migrate_rfc014` now unconditionally strips `contentHash` from already-promoted bundles (regression #428, see `migrate_rfc014_strips_content_hash_from_already_promoted_bundle`); **`repo-create --namespace` (#362)**: explicit namespace appears in `Namespace:` line of success output and in `manifest.namespace`; empty-string `--namespace` is rejected with `"namespace must not be empty"`; without `--namespace` the namespace is derived as `com.example.<slug>` from the title (no change to existing derivation) |
+| `srs-gov` (governance client: `repo-create` (`--namespace` override, #362), `list` + `--all`/`--search`/`--tag`, `get` + linked-attachments display, `tui --smoke`, `attachment add/list`; **editing verbs** `create` real write + `--dry-run`, `transition`, `relate`/`unrelate`/`relations` (#378)) | S15, S33, S35, S44; `SrsRepository::load` WASM binding applies RFC-014 migration automatically (#381); `crates/srs-repository/tests/scaffold.rs` covers the migrate→scaffold→validate chain; `migrate_rfc014` now unconditionally strips `contentHash` from already-promoted bundles (regression #428, see `migrate_rfc014_strips_content_hash_from_already_promoted_bundle`); **`repo-create --namespace` (#362)**: explicit namespace appears in `Namespace:` line of success output and in `manifest.namespace`; empty-string `--namespace` is rejected with `"namespace must not be empty"`; without `--namespace` the namespace is derived as `com.example.<slug>` from the title (no change to existing derivation); **editing verbs (#378)**: `srs-gov create` writes via `srs --container <id> record create --type <ns/name>` (stdin field values); `srs-gov transition` calls `srs record transition --id <id>` with `{"to": "<state>"}` stdin; `srs-gov relate` resolves prefix IDs via `srs record get`, then calls `srs relation create`; `srs-gov unrelate` calls `srs relation delete`; `srs-gov relations` merges outgoing + incoming (deduped), using `sourceId`/`targetId` from `RelationSummary` |
 | `document-view` (create/get/list/…) | S4, S5, S11 |
 | `render document-view` | S4, S5, S8, S11, S43; **RFC-020 Rule [N+37]** identity-field fallback heading (no `titleFieldId` → Type's `identityFieldId` → `### <value>` per record; structured mode NOT activated by fallback, #453) — see S5 step 8; **`{{container-title}}` fallback to container file when index entry has no title** (#484): `resolve_container_title` now calls `store.load_container` when the containerIndex entry is absent or has no title — dogfooded on branch: `srs render document-view --view <dv> --repo /tmp/dogfood-resolve-container-title --container <cid>` returns `"Container: Recognising decisions"` when manifest has a pathless-title containerIndex entry (previously returned repo title "DogfoodRepo"); negative case (no `--container`) returns `"Container: DogfoodRepo"` (manifest title fallback correct); **RFC-027 `relationsPresentation`** per-record links block (#668): `DocumentSection.relationsPresentation.include` selects relation types and directions; label ladder (entry override → RTD label → humanised key); `both` direction produces one row under the forward label (RFC-027 §B); targets sorted by display label; JSON projection `ProjectedRecord.relations` — see S43 |
 | `container-subset` section + `typeFilter` / `typeDispatch` (RFC-008) | S11 |
