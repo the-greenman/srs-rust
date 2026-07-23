@@ -1199,9 +1199,7 @@ pub fn validate_repository(
                                         ),
                                     });
                                 }
-                                Some(rtd)
-                                    if rtd.status == Some(RelationTypeStatus::Retired) =>
-                                {
+                                Some(rtd) if rtd.status == Some(RelationTypeStatus::Retired) => {
                                     diagnostics.push(ValidationDiagnostic {
                                         severity: DiagnosticSeverity::Warning,
                                         relative_path: "package/package.json".to_string(),
@@ -7488,11 +7486,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         write_json(temp.path(), "manifest.json", &minimal_manifest(json!([])));
         write_json(temp.path(), "package/.srs", &json!({}));
-        write_json(
-            temp.path(),
-            "package/package.json",
-            &rp_package_json(true),
-        );
+        write_json(temp.path(), "package/package.json", &rp_package_json(true));
         write_json(
             temp.path(),
             "package/relation-types/rtd.json",
@@ -7536,11 +7530,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         write_json(temp.path(), "manifest.json", &minimal_manifest(json!([])));
         write_json(temp.path(), "package/.srs", &json!({}));
-        write_json(
-            temp.path(),
-            "package/package.json",
-            &rp_package_json(false),
-        );
+        write_json(temp.path(), "package/package.json", &rp_package_json(false));
         write_json(
             temp.path(),
             "package/document-views/dv.json",
@@ -7578,11 +7568,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         write_json(temp.path(), "manifest.json", &minimal_manifest(json!([])));
         write_json(temp.path(), "package/.srs", &json!({}));
-        write_json(
-            temp.path(),
-            "package/package.json",
-            &rp_package_json(true),
-        );
+        write_json(temp.path(), "package/package.json", &rp_package_json(true));
         write_json(
             temp.path(),
             "package/relation-types/rtd.json",

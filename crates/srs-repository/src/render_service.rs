@@ -9,8 +9,8 @@ use serde_json::json;
 use srs_core::types::field::ValueType;
 use srs_core::types::record::Record;
 use srs_core::types::relation::Relation;
-use srs_core::types::theme::{AssetMode, Theme};
 use srs_core::types::relation::RelationStatus;
+use srs_core::types::theme::{AssetMode, Theme};
 use srs_core::types::view::{
     ContainerScope, DocumentSection, DocumentView, PresentationDirection, RelationDirection,
     SectionSource, SortDirection, ThemeMode,
@@ -428,7 +428,14 @@ fn project_section_json(
     for instance in &records {
         match instance {
             LoadedInstance::Record(record) => {
-                projected_records.push(project_record_json(store, package, section, record, relations, diagnostics)?);
+                projected_records.push(project_record_json(
+                    store,
+                    package,
+                    section,
+                    record,
+                    relations,
+                    diagnostics,
+                )?);
             }
             LoadedInstance::Note(note) => {
                 // The document-view JSON output schema models typed records only;
@@ -581,7 +588,8 @@ fn project_record_json(
     }
 
     let field_groups = project_field_groups_json(package, record, &rt);
-    let projected_relations = project_relations_json(store, section, record, relations, package, diagnostics)?;
+    let projected_relations =
+        project_relations_json(store, section, record, relations, package, diagnostics)?;
 
     Ok(ProjectedRecord {
         instance_id: record.instance_id.clone(),
@@ -1810,7 +1818,9 @@ fn resolve_display_label_for_relation_target(
 ) -> Result<String, RepositoryError> {
     match crate::record_store::get_instance_by_id(store, instance_id)? {
         Some(crate::record_store::LoadedInstance::Record(target_record)) => {
-            if let Some(rt) = package.resolve_type(&target_record.type_id, target_record.type_version) {
+            if let Some(rt) =
+                package.resolve_type(&target_record.type_id, target_record.type_version)
+            {
                 match package.effective_identity_field_id(rt) {
                     Ok(Some(fid)) => {
                         if let Some(val) = target_record.get_field_value_str(&fid) {
@@ -1888,11 +1898,17 @@ fn collect_relation_rows(
             continue;
         }
 
-        let direction = entry.directions.as_ref().unwrap_or(&PresentationDirection::Forward);
+        let direction = entry
+            .directions
+            .as_ref()
+            .unwrap_or(&PresentationDirection::Forward);
         let mut seen = std::collections::HashSet::new();
         let mut target_ids: Vec<String> = Vec::new();
 
-        if matches!(direction, PresentationDirection::Forward | PresentationDirection::Both) {
+        if matches!(
+            direction,
+            PresentationDirection::Forward | PresentationDirection::Both
+        ) {
             for rel in relations {
                 if rel.relation_type == entry.relation_type
                     && rel.source_instance_id == record.instance_id
@@ -1903,7 +1919,10 @@ fn collect_relation_rows(
                 }
             }
         }
-        if matches!(direction, PresentationDirection::Inverse | PresentationDirection::Both) {
+        if matches!(
+            direction,
+            PresentationDirection::Inverse | PresentationDirection::Both
+        ) {
             for rel in relations {
                 if rel.relation_type == entry.relation_type
                     && rel.target_instance_id == record.instance_id
@@ -1923,7 +1942,13 @@ fn collect_relation_rows(
 
         let mut targets: Vec<ProjectedRelationTarget> = Vec::new();
         for id in &target_ids {
-            let display_label = resolve_display_label_for_relation_target(store, id, section, package, diagnostics)?;
+            let display_label = resolve_display_label_for_relation_target(
+                store,
+                id,
+                section,
+                package,
+                diagnostics,
+            )?;
             targets.push(ProjectedRelationTarget {
                 instance_id: id.clone(),
                 display_label,
@@ -1931,7 +1956,10 @@ fn collect_relation_rows(
         }
         targets.sort_by(|a, b| a.display_label.cmp(&b.display_label));
 
-        rows.push(ProjectedRelationRow { label: row_label, targets });
+        rows.push(ProjectedRelationRow {
+            label: row_label,
+            targets,
+        });
     }
 
     Ok(rows)
@@ -1962,13 +1990,19 @@ fn compute_relation_row_label(
         PresentationDirection::Inverse => entry
             .inverse_label
             .clone()
-            .or_else(|| rtd.inverse_type.as_ref().map(|it| humanize_relation_key(it)))
+            .or_else(|| {
+                rtd.inverse_type
+                    .as_ref()
+                    .map(|it| humanize_relation_key(it))
+            })
             .unwrap_or_else(|| {
                 entry
                     .forward_label
                     .clone()
                     .map(|fl| format!("{fl} (incoming)"))
-                    .unwrap_or_else(|| format!("{} (incoming)", humanize_relation_key(&entry.relation_type)))
+                    .unwrap_or_else(|| {
+                        format!("{} (incoming)", humanize_relation_key(&entry.relation_type))
+                    })
             }),
         // RFC-027 §B: Both direction produces one combined row under the forward label.
         // inverseLabel is used only for Inverse-direction rows.
@@ -8384,9 +8418,7 @@ mod tests {
     use srs_core::types::relation_type_definition::{
         RelationTypeCategory, RelationTypeDefinition, RelationTypeStatus,
     };
-    use srs_core::types::view::{
-        RelationPresentationEntry, RelationsPresentation,
-    };
+    use srs_core::types::view::{RelationPresentationEntry, RelationsPresentation};
 
     fn test_rtd(
         key: &str,
@@ -8536,7 +8568,9 @@ mod tests {
         store.save_manifest(&manifest).unwrap();
     }
 
-    fn rp_section_for(entries: Vec<RelationPresentationEntry>) -> srs_core::types::view::DocumentSection {
+    fn rp_section_for(
+        entries: Vec<RelationPresentationEntry>,
+    ) -> srs_core::types::view::DocumentSection {
         srs_core::types::view::DocumentSection {
             section_id: "s-rp".to_string(),
             title: None,
@@ -8584,7 +8618,10 @@ mod tests {
 
     #[test]
     fn humanize_relation_key_namespaced() {
-        assert_eq!(humanize_relation_key("com.example/depends-on"), "Depends on");
+        assert_eq!(
+            humanize_relation_key("com.example/depends-on"),
+            "Depends on"
+        );
     }
 
     // ── render_relations_block unit tests ─────────────────────────────────────
@@ -8614,9 +8651,10 @@ mod tests {
             test_rel("r2", "links-to", "rec-src", "rec-b"),
         ];
         let mut diag = Vec::new();
-        let out =
-            render_relations_block(&store, &section, &record, &relations, &package, "markdown", &mut diag)
-                .unwrap();
+        let out = render_relations_block(
+            &store, &section, &record, &relations, &package, "markdown", &mut diag,
+        )
+        .unwrap();
         assert!(out.contains("rec-a"), "forward target rec-a not in: {out}");
         assert!(out.contains("rec-b"), "forward target rec-b not in: {out}");
         assert!(diag.is_empty(), "unexpected diagnostics: {diag:?}");
@@ -8640,9 +8678,10 @@ mod tests {
         let package = store.load_package().unwrap();
         let relations = vec![test_rel("r1", "links-to", "rec-other", "rec-src")];
         let mut diag = Vec::new();
-        let out =
-            render_relations_block(&store, &section, &record, &relations, &package, "markdown", &mut diag)
-                .unwrap();
+        let out = render_relations_block(
+            &store, &section, &record, &relations, &package, "markdown", &mut diag,
+        )
+        .unwrap();
         assert!(
             out.contains("rec-other"),
             "inverse source rec-other not in: {out}"
@@ -8675,9 +8714,10 @@ mod tests {
             test_rel("r2", "links-to", "rec-inv", "rec-src"),
         ];
         let mut diag = Vec::new();
-        let out =
-            render_relations_block(&store, &section, &record, &relations, &package, "markdown", &mut diag)
-                .unwrap();
+        let out = render_relations_block(
+            &store, &section, &record, &relations, &package, "markdown", &mut diag,
+        )
+        .unwrap();
         assert!(out.contains("rec-fwd"), "forward target not in: {out}");
         assert!(out.contains("rec-inv"), "inverse source not in: {out}");
         assert!(diag.is_empty(), "unexpected diagnostics: {diag:?}");
@@ -8701,14 +8741,18 @@ mod tests {
         let package = store.load_package().unwrap();
         let relations = vec![test_rel("r1", "links-to", "rec-src", "rec-a")];
         let mut diag = Vec::new();
-        let out =
-            render_relations_block(&store, &section, &record, &relations, &package, "markdown", &mut diag)
-                .unwrap();
+        let out = render_relations_block(
+            &store, &section, &record, &relations, &package, "markdown", &mut diag,
+        )
+        .unwrap();
         assert!(
             out.contains("Custom Forward Label"),
             "entry forwardLabel must win; got: {out}"
         );
-        assert!(!out.contains("RTD Label"), "RTD label must be overridden; got: {out}");
+        assert!(
+            !out.contains("RTD Label"),
+            "RTD label must be overridden; got: {out}"
+        );
     }
 
     #[test]
@@ -8729,9 +8773,10 @@ mod tests {
         let package = store.load_package().unwrap();
         let relations = vec![test_rel("r1", "links-to", "rec-src", "rec-a")];
         let mut diag = Vec::new();
-        let out =
-            render_relations_block(&store, &section, &record, &relations, &package, "markdown", &mut diag)
-                .unwrap();
+        let out = render_relations_block(
+            &store, &section, &record, &relations, &package, "markdown", &mut diag,
+        )
+        .unwrap();
         assert!(
             out.contains("RTD Label"),
             "RTD label must be used when no entry override; got: {out}"
@@ -8756,9 +8801,10 @@ mod tests {
         let package = store.load_package().unwrap();
         let relations = vec![test_rel("r1", "depends-on", "rec-src", "rec-a")];
         let mut diag = Vec::new();
-        let out =
-            render_relations_block(&store, &section, &record, &relations, &package, "markdown", &mut diag)
-                .unwrap();
+        let out = render_relations_block(
+            &store, &section, &record, &relations, &package, "markdown", &mut diag,
+        )
+        .unwrap();
         assert!(
             out.contains("Depends on"),
             "humanized key must be used when RTD label is empty; got: {out}"
@@ -8767,8 +8813,7 @@ mod tests {
 
     #[test]
     fn relations_block_no_output_when_zero_edges() {
-        let store =
-            make_rp_store(vec![test_rtd("links-to", "Links To", None, false)], &[]);
+        let store = make_rp_store(vec![test_rtd("links-to", "Links To", None, false)], &[]);
 
         let section = rp_section_for(vec![RelationPresentationEntry {
             relation_type: "links-to".to_string(),
@@ -8779,9 +8824,16 @@ mod tests {
         let record = src_rec("rec-src");
         let package = store.load_package().unwrap();
         let mut diag = Vec::new();
-        let out =
-            render_relations_block(&store, &section, &record, &[], &package, "markdown", &mut diag)
-                .unwrap();
+        let out = render_relations_block(
+            &store,
+            &section,
+            &record,
+            &[],
+            &package,
+            "markdown",
+            &mut diag,
+        )
+        .unwrap();
         assert!(out.is_empty(), "no edges → empty output; got: {out:?}");
         assert!(diag.is_empty(), "no diagnostics expected; got: {diag:?}");
     }
@@ -8810,11 +8862,15 @@ mod tests {
             test_rel("r2", "links-to", "rec-src", "rec-a"),
         ];
         let mut diag = Vec::new();
-        let out =
-            render_relations_block(&store, &section, &record, &relations, &package, "markdown", &mut diag)
-                .unwrap();
+        let out = render_relations_block(
+            &store, &section, &record, &relations, &package, "markdown", &mut diag,
+        )
+        .unwrap();
         let count = out.matches("rec-a").count();
-        assert_eq!(count, 1, "rec-a should appear exactly once (deduped); got: {out}");
+        assert_eq!(
+            count, 1,
+            "rec-a should appear exactly once (deduped); got: {out}"
+        );
     }
 
     #[test]
@@ -8949,9 +9005,10 @@ mod tests {
         let package2 = store.load_package().unwrap();
         let relations = vec![test_rel("r1", "links-to", "rec-src", "rec-named")];
         let mut diag = Vec::new();
-        let out =
-            render_relations_block(&store, &section, &record, &relations, &package2, "markdown", &mut diag)
-                .unwrap();
+        let out = render_relations_block(
+            &store, &section, &record, &relations, &package2, "markdown", &mut diag,
+        )
+        .unwrap();
         assert!(
             out.contains("My Identity Label"),
             "identityFieldId value must be used as display label; got: {out}"
@@ -9018,9 +9075,10 @@ mod tests {
         let package = store.load_package().unwrap();
         let relations = vec![test_rel("r1", "links-to", "rec-src", "rec-titled")];
         let mut diag = Vec::new();
-        let out =
-            render_relations_block(&store, &section, &record, &relations, &package, "markdown", &mut diag)
-                .unwrap();
+        let out = render_relations_block(
+            &store, &section, &record, &relations, &package, "markdown", &mut diag,
+        )
+        .unwrap();
         assert!(
             out.contains("Title Field Value"),
             "section titleFieldId must be used as fallback display label; got: {out}"
@@ -9045,9 +9103,10 @@ mod tests {
         let package = store.load_package().unwrap();
         let relations = vec![test_rel("r1", "links-to", "rec-src", "rec-no-label")];
         let mut diag = Vec::new();
-        let out =
-            render_relations_block(&store, &section, &record, &relations, &package, "markdown", &mut diag)
-                .unwrap();
+        let out = render_relations_block(
+            &store, &section, &record, &relations, &package, "markdown", &mut diag,
+        )
+        .unwrap();
         assert!(
             out.contains("rec-no-label"),
             "instanceId must be the last-resort display label; got: {out}"
@@ -9072,12 +9131,17 @@ mod tests {
         let package = store.load_package().unwrap();
         let relations = vec![test_rel("r1", "old-type", "rec-src", "rec-a")];
         let mut diag = Vec::new();
-        let out =
-            render_relations_block(&store, &section, &record, &relations, &package, "markdown", &mut diag)
-                .unwrap();
-        assert!(out.is_empty(), "retired RTD entry must emit no output; got: {out:?}");
+        let out = render_relations_block(
+            &store, &section, &record, &relations, &package, "markdown", &mut diag,
+        )
+        .unwrap();
         assert!(
-            diag.iter().any(|d| d.contains("[I-027-2b]") && d.contains("old-type")),
+            out.is_empty(),
+            "retired RTD entry must emit no output; got: {out:?}"
+        );
+        assert!(
+            diag.iter()
+                .any(|d| d.contains("[I-027-2b]") && d.contains("old-type")),
             "expected I-027-2b diagnostic for retired RTD; got: {diag:?}"
         );
     }
@@ -9203,7 +9267,10 @@ mod tests {
         .unwrap();
         let proj = result.projection.unwrap();
         let rec = &proj.sections[0].records[0];
-        let relations = rec.relations.as_ref().expect("relations must be populated when relationsPresentation set");
+        let relations = rec
+            .relations
+            .as_ref()
+            .expect("relations must be populated when relationsPresentation set");
         assert_eq!(relations.len(), 1, "expected 1 relation row");
         assert_eq!(relations[0].label, "Links To");
         assert_eq!(relations[0].targets.len(), 1);
@@ -9456,8 +9523,7 @@ mod tests {
             "MemoryStore and FileStore must have the same number of targets"
         );
         assert_eq!(
-            mem_rel[0].targets[0].instance_id,
-            file_rel[0].targets[0].instance_id,
+            mem_rel[0].targets[0].instance_id, file_rel[0].targets[0].instance_id,
             "MemoryStore and FileStore must agree on target instanceId"
         );
     }
@@ -9477,16 +9543,13 @@ mod tests {
         let relations = vec![];
         let mut diag = Vec::new();
         let out = render_relations_block(
-            &store,
-            &section,
-            &record,
-            &relations,
-            &package,
-            "markdown",
-            &mut diag,
+            &store, &section, &record, &relations, &package, "markdown", &mut diag,
         )
         .unwrap();
-        assert!(out.is_empty(), "non-resolving RTD must emit no output; got: {out:?}");
+        assert!(
+            out.is_empty(),
+            "non-resolving RTD must emit no output; got: {out:?}"
+        );
         assert!(
             diag.iter().any(|d| d.contains("[I-027-2b]")
                 && d.contains("unknown-type")
