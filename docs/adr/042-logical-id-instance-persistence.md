@@ -1,6 +1,6 @@
 # ADR-042: Logical-id + typed-entity instance persistence (ADR-041 G3–G5, records + notes)
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-07-23
 - **Supersedes:** —
 - **Superseded by:** —

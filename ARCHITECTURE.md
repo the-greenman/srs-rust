@@ -49,6 +49,12 @@ This file is written for humans and AI agents that need to understand the repo q
   seam, the logical-id trait shape, the synchronous-and-embedded boundary (networked/multi-user
   integrates via export/import, not a native async store), and the conformance-harness admission
   gate — are recorded in [ADR-041](docs/adr/041-storage-backend-guardrails.md).
+- The first entity family migrated to the logical-id trait shape is **instances (records + notes)**:
+  typed `save_record`/`save_note`/`load_*_by_id`/`delete_instance` plus the index-answerable
+  `find_instance`/`list_instances` query seam, recorded in
+  [ADR-042](docs/adr/042-logical-id-instance-persistence.md). ADR-042 is the template the
+  remaining entity families (relations, fields, types, views) follow; the per-entity stories are
+  tracked under srs-rust#704.
 
 ## Repository Lifecycle And Portability
 

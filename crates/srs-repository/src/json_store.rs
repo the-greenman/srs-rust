@@ -8,7 +8,7 @@ use crate::repository_lifecycle::{
     default_repository_container, CreateRepositoryResult, InitializeRepositoryInput,
 };
 use crate::store::{
-    instance_filename, note_to_value, record_to_value, RecordTier, RepositoryStore,
+    instance_filename, note_from_value, note_to_value, record_to_value, RecordTier, RepositoryStore,
 };
 use chrono::Utc;
 use serde::de::Error as SerdeDeError;
@@ -1329,10 +1329,8 @@ impl RepositoryStore for JsonStore {
     fn load_note_by_id(&self, instance_id: &str) -> Result<Note, RepositoryError> {
         let path = self.json_instance_path(instance_id)?;
         let val = self.data_get(&path)?;
-        serde_json::from_value(val).map_err(|source| RepositoryError::RecordLoad {
-            path: std::path::PathBuf::from(&path),
-            source,
-        })
+        // Parity with loader::load_note: parse (NoteLoad) + validate_note (NoteValidation).
+        note_from_value(val, &path)
     }
 
     fn delete_instance(&self, instance_id: &str) -> Result<(), RepositoryError> {

@@ -1474,10 +1474,8 @@ impl RepositoryStore for FileStore {
             }
         })?;
         let val = self.read_json(&entry.path)?;
-        serde_json::from_value(val).map_err(|source| RepositoryError::RecordLoad {
-            path: self.abs(&entry.path),
-            source,
-        })
+        // Parity with loader::load_note: parse (NoteLoad) + validate_note (NoteValidation).
+        note_from_value(val, &entry.path)
     }
 
     fn delete_instance(&self, instance_id: &str) -> Result<(), RepositoryError> {
@@ -1987,6 +1985,27 @@ pub(crate) fn note_to_value(note: &Note) -> Result<serde_json::Value, Repository
         );
     }
     Ok(value)
+}
+
+/// Deserialize + validate a `Note` from its on-disk JSON value — the exact parity
+/// counterpart of `loader::load_note` (parse errors → `NoteLoad`, `validate_note`
+/// failures → `NoteValidation`), so `load_note_by_id` preserves the read-side
+/// validation the path-based loader performed.
+pub(crate) fn note_from_value(
+    value: serde_json::Value,
+    relative_path: &str,
+) -> Result<Note, RepositoryError> {
+    let note: Note = serde_json::from_value(value).map_err(|source| RepositoryError::NoteLoad {
+        path: PathBuf::from(relative_path),
+        source,
+    })?;
+    srs_core::validation::note::validate_note(&note).map_err(|source| {
+        RepositoryError::NoteValidation {
+            path: PathBuf::from(relative_path),
+            source,
+        }
+    })?;
+    Ok(note)
 }
 
 /// Collision-safe canonical filename for a new instance: `{tier_dir}/{slug}-{id8}.json`
@@ -3035,10 +3054,8 @@ pub mod memory {
         fn load_note_by_id(&self, instance_id: &str) -> Result<Note, RepositoryError> {
             let path = self.mem_instance_path(instance_id)?;
             let val = self.load_instance_json(&path)?;
-            serde_json::from_value(val).map_err(|source| RepositoryError::RecordLoad {
-                path: std::path::PathBuf::from(&path),
-                source,
-            })
+            // Parity with loader::load_note: parse (NoteLoad) + validate_note (NoteValidation).
+            note_from_value(val, &path)
         }
 
         fn delete_instance(&self, instance_id: &str) -> Result<(), RepositoryError> {
@@ -4212,6 +4229,33 @@ mod tests {
         assert_eq!(tagged.len(), 1);
         assert_eq!(tagged[0].instance_id, "note-00000007-0000");
         assert_eq!(tagged[0].tier, 0);
+    }
+
+    #[test]
+    fn load_note_by_id_validates_note_body() {
+        // Read-side parity with loader::load_note (arch-review finding): an invalid
+        // note body (duplicate section names) must surface NoteValidation on load,
+        // not be silently accepted.
+        let store = MemoryStore::empty();
+        let mut note = minimal_note_for_store("note-00000009-2222", "Dup Sections", None);
+        let section = srs_core::types::note::NoteSection {
+            name: "s1".to_string(),
+            label: None,
+            content: "a".to_string(),
+            content_hint: None,
+            tags: None,
+        };
+        note.sections = vec![section.clone(), section];
+        // Bypass write-side validation deliberately: write the invalid body via the
+        // typed save (save_note does not validate; creation-time validation lives in
+        // note_service::create).
+        store.save_note(&note).unwrap();
+
+        let err = store.load_note_by_id("note-00000009-2222").unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::NoteValidation { .. }),
+            "invalid note body must fail load with NoteValidation, got: {err:?}"
+        );
     }
 
     #[test]

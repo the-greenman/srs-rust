@@ -1353,7 +1353,7 @@ mod tests {
         assert!(embed
             .member_instance_ids
             .as_ref()
-            .map_or(true, |ids| !ids.contains(&member.to_string())));
+            .is_none_or(|ids| !ids.contains(&member.to_string())));
     }
 
     #[test]
@@ -1382,7 +1382,7 @@ mod tests {
         assert!(embed
             .root_instance_ids
             .as_ref()
-            .map_or(true, |ids| !ids.contains(&root.to_string())));
+            .is_none_or(|ids| !ids.contains(&root.to_string())));
     }
 
     #[test]
