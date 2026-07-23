@@ -1,17 +1,22 @@
 use crate::error::RepositoryError;
 use crate::field_json::FieldJson;
+use crate::index::{InstanceIndexEntry, InstanceQuery, InstanceRef};
 use crate::manifest::Manifest;
 use crate::package::Package;
 use crate::package_types::PackageBoundary;
 use crate::repository_lifecycle::{
     default_repository_container, CreateRepositoryResult, InitializeRepositoryInput,
 };
-use crate::store::{RecordTier, RepositoryStore};
+use crate::store::{
+    instance_filename, note_to_value, record_to_value, RecordTier, RepositoryStore,
+};
 use chrono::Utc;
 use serde::de::Error as SerdeDeError;
 use srs_core::types::container::ContainerIndexEntry;
 use srs_core::types::field::Field;
 use srs_core::types::lifecycle::Lifecycle;
+use srs_core::types::note::Note;
+use srs_core::types::record::Record;
 use srs_core::types::record_type::RecordType;
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::types::theme::Theme;
@@ -249,6 +254,73 @@ impl JsonStore {
     /// migration that derives paths for pre-#466 shadow containerIndex entries (#490).
     fn container_data_key(container_id: &str) -> String {
         format!("containers/{container_id}.json")
+    }
+
+    /// Resolve an instance's data-map key (path) from the manifest index (ADR-042).
+    fn json_instance_path(&self, instance_id: &str) -> Result<String, RepositoryError> {
+        self.state
+            .borrow()
+            .manifest
+            .instance_index
+            .iter()
+            .find(|e| e.instance_id == instance_id)
+            .map(|e| e.path.clone())
+            .ok_or_else(|| RepositoryError::InstanceNotFound {
+                id: instance_id.to_string(),
+            })
+    }
+
+    /// The two-branch instance save shared by `save_record`/`save_note` (mirrors
+    /// `save_container`): existing id ⇒ overwrite at the existing path (path + tier
+    /// preserved, denormalized `title`/`tags` refreshed); new id ⇒ derive a filename
+    /// and write data before index (ADR-007). `flush()` honours the batch seam (ADR-021).
+    #[allow(clippy::too_many_arguments)]
+    fn json_save_instance(
+        &self,
+        instance_id: &str,
+        value: serde_json::Value,
+        tier_dir: &str,
+        slug_source: &str,
+        new_tier: u8,
+        title: Option<String>,
+        tags: Option<Vec<String>>,
+    ) -> Result<(), RepositoryError> {
+        {
+            let mut state = self.state.borrow_mut();
+            let existing = state
+                .manifest
+                .instance_index
+                .iter()
+                .find(|e| e.instance_id == instance_id)
+                .map(|e| (e.path.clone(), e.tier));
+            let (path, tier) = match existing {
+                Some((p, t)) => (p, t),
+                None => (
+                    instance_filename(tier_dir, slug_source, instance_id),
+                    new_tier,
+                ),
+            };
+            // Data before index (ADR-007).
+            state.data.insert(path.clone(), value);
+            let entry = InstanceIndexEntry {
+                instance_id: instance_id.to_string(),
+                tier,
+                path,
+                title: title.map(serde_json::Value::String),
+                tags,
+            };
+            if let Some(pos) = state
+                .manifest
+                .instance_index
+                .iter()
+                .position(|e| e.instance_id == instance_id)
+            {
+                state.manifest.instance_index[pos] = entry;
+            } else {
+                state.manifest.instance_index.push(entry);
+            }
+        }
+        self.flush()
     }
 
     /// Extract the `tags` array from a record JSON value.
@@ -1217,6 +1289,89 @@ impl RepositoryStore for JsonStore {
         }
     }
 
+    // --- Instances (logical-id + typed; ADR-042) ---
+
+    fn save_record(&self, record: &Record) -> Result<(), RepositoryError> {
+        let val = record_to_value(record)?;
+        self.json_save_instance(
+            &record.instance_id,
+            val,
+            self.record_tier_dir(RecordTier::Tier2),
+            &record.type_name,
+            2,
+            None,
+            record.tags.clone(),
+        )
+    }
+
+    fn save_note(&self, note: &Note) -> Result<(), RepositoryError> {
+        let val = note_to_value(note)?;
+        self.json_save_instance(
+            &note.instance_id,
+            val,
+            self.record_tier_dir(RecordTier::Note),
+            note.title.as_deref().unwrap_or(""),
+            0,
+            note.title.clone(),
+            note.tags.clone(),
+        )
+    }
+
+    fn load_record_by_id(&self, instance_id: &str) -> Result<Record, RepositoryError> {
+        let path = self.json_instance_path(instance_id)?;
+        let val = self.data_get(&path)?;
+        serde_json::from_value(val).map_err(|source| RepositoryError::RecordLoad {
+            path: std::path::PathBuf::from(&path),
+            source,
+        })
+    }
+
+    fn load_note_by_id(&self, instance_id: &str) -> Result<Note, RepositoryError> {
+        let path = self.json_instance_path(instance_id)?;
+        let val = self.data_get(&path)?;
+        serde_json::from_value(val).map_err(|source| RepositoryError::RecordLoad {
+            path: std::path::PathBuf::from(&path),
+            source,
+        })
+    }
+
+    fn delete_instance(&self, instance_id: &str) -> Result<(), RepositoryError> {
+        let path = self.json_instance_path(instance_id)?;
+        {
+            let mut state = self.state.borrow_mut();
+            // ADR-007: remove the index entry before the data.
+            state
+                .manifest
+                .instance_index
+                .retain(|e| e.instance_id != instance_id);
+            state.data.remove(&path);
+        }
+        self.flush()
+    }
+
+    fn find_instance(&self, instance_id: &str) -> Result<Option<InstanceRef>, RepositoryError> {
+        Ok(self
+            .state
+            .borrow()
+            .manifest
+            .instance_index
+            .iter()
+            .find(|e| e.instance_id == instance_id)
+            .map(InstanceRef::from_index_entry))
+    }
+
+    fn list_instances(&self, query: &InstanceQuery) -> Result<Vec<InstanceRef>, RepositoryError> {
+        Ok(self
+            .state
+            .borrow()
+            .manifest
+            .instance_index
+            .iter()
+            .filter(|e| query.matches(e))
+            .map(InstanceRef::from_index_entry)
+            .collect())
+    }
+
     fn load_relations_json(
         &self,
         relative_path: &str,
@@ -2141,6 +2296,78 @@ mod tests {
             matches!(err, RepositoryError::DefinitionNotFound { .. }),
             "should return DefinitionNotFound, got: {err:?}"
         );
+    }
+
+    // --- Instance store tests for JsonStore (ADR-042) ---
+
+    fn json_min_record(id: &str, type_name: &str, tags: Option<Vec<String>>) -> Record {
+        Record {
+            instance_id: id.to_string(),
+            type_id: "type-j-0001".to_string(),
+            type_version: 1,
+            type_namespace: "com.example".to_string(),
+            type_name: type_name.to_string(),
+            field_values: vec![],
+            group_values: None,
+            lifecycle_state: None,
+            tags,
+            created_at: None,
+            updated_at: None,
+            extra: std::collections::HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn json_store_instance_operations_are_keyed_by_id() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("repo.srsj");
+        let store = JsonStore::create(&path).unwrap();
+        create_repository(&store, &init_input()).unwrap();
+
+        store
+            .save_record(&json_min_record(
+                "j-rec-0001",
+                "Decision",
+                Some(vec!["k".to_string()]),
+            ))
+            .unwrap();
+
+        let loaded = store.load_record_by_id("j-rec-0001").unwrap();
+        assert_eq!(loaded.instance_id, "j-rec-0001");
+        assert_eq!(loaded.type_name, "Decision");
+
+        let found = store.find_instance("j-rec-0001").unwrap().unwrap();
+        assert_eq!(found.tier, 2);
+        assert_eq!(
+            store
+                .list_instances(&InstanceQuery::default())
+                .unwrap()
+                .len(),
+            1
+        );
+
+        store.delete_instance("j-rec-0001").unwrap();
+        assert!(store.find_instance("j-rec-0001").unwrap().is_none());
+        assert!(matches!(
+            store.delete_instance("j-rec-0001"),
+            Err(RepositoryError::InstanceNotFound { .. })
+        ));
+    }
+
+    #[test]
+    fn json_store_instance_persists_across_reopen() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("repo.srsj");
+        {
+            let store = JsonStore::create(&path).unwrap();
+            create_repository(&store, &init_input()).unwrap();
+            store
+                .save_record(&json_min_record("j-rec-0002", "Persisted", None))
+                .unwrap();
+        }
+        let reopened = JsonStore::open(&path).unwrap();
+        let loaded = reopened.load_record_by_id("j-rec-0002").unwrap();
+        assert_eq!(loaded.type_name, "Persisted");
     }
 
     // --- Container store tests for JsonStore ---

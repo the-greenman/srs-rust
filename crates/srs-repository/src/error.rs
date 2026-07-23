@@ -6,6 +6,9 @@ pub enum RepositoryError {
     #[error("not found: {path:?}")]
     NotFound { path: PathBuf },
 
+    #[error("instance not found: {id}")]
+    InstanceNotFound { id: String },
+
     #[error("manifest missing: {path:?}")]
     ManifestMissing { path: PathBuf },
 
