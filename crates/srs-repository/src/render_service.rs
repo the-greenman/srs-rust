@@ -1784,7 +1784,7 @@ fn render_record_at_level(
     Ok(out)
 }
 
-pub fn humanize_relation_key(key: &str) -> String {
+pub(crate) fn humanize_relation_key(key: &str) -> String {
     let segment = key.rsplit('/').next().unwrap_or(key);
     let spaced: String = segment
         .chars()
@@ -1840,17 +1840,17 @@ fn resolve_display_label_for_relation_target(
     }
 }
 
-fn project_relations_json(
+fn collect_relation_rows(
     store: &dyn RepositoryStore,
     section: &DocumentSection,
     record: &Record,
     relations: &[Relation],
     package: &Package,
     diagnostics: &mut Vec<String>,
-) -> Result<Option<Vec<ProjectedRelationRow>>, RepositoryError> {
+) -> Result<Vec<ProjectedRelationRow>, RepositoryError> {
     let rp = match &section.relations_presentation {
         Some(rp) => rp,
-        None => return Ok(None),
+        None => return Ok(Vec::new()),
     };
 
     let mut rows: Vec<ProjectedRelationRow> = Vec::new();
@@ -1934,6 +1934,18 @@ fn project_relations_json(
         rows.push(ProjectedRelationRow { label: row_label, targets });
     }
 
+    Ok(rows)
+}
+
+fn project_relations_json(
+    store: &dyn RepositoryStore,
+    section: &DocumentSection,
+    record: &Record,
+    relations: &[Relation],
+    package: &Package,
+    diagnostics: &mut Vec<String>,
+) -> Result<Option<Vec<ProjectedRelationRow>>, RepositoryError> {
+    let rows = collect_relation_rows(store, section, record, relations, package, diagnostics)?;
     if rows.is_empty() {
         Ok(None)
     } else {
@@ -1958,6 +1970,8 @@ fn compute_relation_row_label(
                     .map(|fl| format!("{fl} (incoming)"))
                     .unwrap_or_else(|| format!("{} (incoming)", humanize_relation_key(&entry.relation_type)))
             }),
+        // RFC-027 §B: Both direction produces one combined row under the forward label.
+        // inverseLabel is used only for Inverse-direction rows.
         _ => entry
             .forward_label
             .clone()
@@ -1981,99 +1995,33 @@ fn render_relations_block(
     format: &str,
     diagnostics: &mut Vec<String>,
 ) -> Result<String, RepositoryError> {
-    let rp = match &section.relations_presentation {
-        Some(rp) => rp,
-        None => return Ok(String::new()),
-    };
+    if section.relations_presentation.is_none() {
+        return Ok(String::new());
+    }
 
+    let rows = collect_relation_rows(store, section, record, relations, package, diagnostics)?;
     let mut out = String::new();
 
-    for entry in &rp.include {
-        let matching_rtds: Vec<_> = package
-            .relation_types()
+    for row in &rows {
+        let targets_str = row
+            .targets
             .iter()
-            .filter(|rt| rt.key == entry.relation_type)
-            .collect();
-
-        let rtd = match matching_rtds.len() {
-            0 => {
-                diagnostics.push(format!(
-                    "[I-027-2b] relationsPresentation entry '{}' does not resolve to a known RTD; skipping",
-                    entry.relation_type
-                ));
-                continue;
-            }
-            1 => matching_rtds[0],
-            _ => {
-                diagnostics.push(format!(
-                    "[I-027-2b] relationsPresentation entry '{}' is conflict-ambiguous (multiple RTDs); skipping",
-                    entry.relation_type
-                ));
-                continue;
-            }
-        };
-
-        if !rtd.resolves_for_reads() {
-            diagnostics.push(format!(
-                "[I-027-2b] relationsPresentation entry '{}' resolves to a retired/tombstone RTD; skipping",
-                entry.relation_type
-            ));
-            continue;
-        }
-
-        let direction = entry.directions.as_ref().unwrap_or(&PresentationDirection::Forward);
-        let mut seen = std::collections::HashSet::new();
-        let mut target_ids: Vec<String> = Vec::new();
-
-        if matches!(direction, PresentationDirection::Forward | PresentationDirection::Both) {
-            for rel in relations {
-                if rel.relation_type == entry.relation_type
-                    && rel.source_instance_id == record.instance_id
-                    && is_active_relation(rel)
-                    && seen.insert(rel.target_instance_id.clone())
-                {
-                    target_ids.push(rel.target_instance_id.clone());
-                }
-            }
-        }
-        if matches!(direction, PresentationDirection::Inverse | PresentationDirection::Both) {
-            for rel in relations {
-                if rel.relation_type == entry.relation_type
-                    && rel.target_instance_id == record.instance_id
-                    && is_active_relation(rel)
-                    && seen.insert(rel.source_instance_id.clone())
-                {
-                    target_ids.push(rel.source_instance_id.clone());
-                }
-            }
-        }
-
-        if target_ids.is_empty() {
-            continue;
-        }
-
-        let row_label = compute_relation_row_label(entry, rtd, direction);
-
-        let mut targets: Vec<String> = Vec::new();
-        for id in &target_ids {
-            let label = resolve_display_label_for_relation_target(store, id, section, package, diagnostics)?;
-            targets.push(label);
-        }
-        targets.sort();
-
-        let targets_str = targets.join(", ");
+            .map(|t| t.display_label.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
 
         match format {
             "html" => {
                 out.push_str(&format!(
-                    "<div class=\"srs-relations-row\"><span class=\"relations-label\">{row_label}</span>: {targets_str}</div>\n"
+                    "<div class=\"srs-relations-row\"><span class=\"relations-label\">{}</span>: {targets_str}</div>\n",
+                    row.label
                 ));
             }
             "markdown" => {
-                out.push_str(&format!("**{row_label}**: {targets_str}\n"));
+                out.push_str(&format!("**{}**: {targets_str}\n", row.label));
             }
             _ => {
-                out.push_str(&format!("{row_label}: {targets_str}\n"));
+                out.push_str(&format!("{}: {targets_str}\n", row.label));
             }
         }
     }
@@ -9511,6 +9459,39 @@ mod tests {
             mem_rel[0].targets[0].instance_id,
             file_rel[0].targets[0].instance_id,
             "MemoryStore and FileStore must agree on target instanceId"
+        );
+    }
+
+    #[test]
+    fn relations_block_nonresolving_entry_skipped_with_diagnostic() {
+        let store = make_rp_store(vec![], &[]);
+
+        let section = rp_section_for(vec![RelationPresentationEntry {
+            relation_type: "unknown-type".to_string(),
+            directions: None,
+            forward_label: None,
+            inverse_label: None,
+        }]);
+        let record = src_rec("rec-src");
+        let package = store.load_package().unwrap();
+        let relations = vec![];
+        let mut diag = Vec::new();
+        let out = render_relations_block(
+            &store,
+            &section,
+            &record,
+            &relations,
+            &package,
+            "markdown",
+            &mut diag,
+        )
+        .unwrap();
+        assert!(out.is_empty(), "non-resolving RTD must emit no output; got: {out:?}");
+        assert!(
+            diag.iter().any(|d| d.contains("[I-027-2b]")
+                && d.contains("unknown-type")
+                && d.contains("does not resolve")),
+            "expected I-027-2b diagnostic for non-resolving entry; got: {diag:?}"
         );
     }
 }

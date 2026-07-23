@@ -160,6 +160,7 @@ pub struct RelationPresentationEntry {
 pub struct RelationsPresentation {
     pub include: Vec<RelationPresentationEntry>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    // Reserved per RFC-027; ignored at render time.
     pub label: Option<String>,
 }
 
