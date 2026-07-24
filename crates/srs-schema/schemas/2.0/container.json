@@ -48,7 +48,7 @@
     "identityInstanceId": {
       "type": "string",
       "format": "uuid",
-      "description": "RFC-013 / RFC-018. The instance id of the record that is this Container's identity / purpose statement. On the root container (manifest.container), names the repository's identity record. Reassignable; when present MUST equal a member id in rootInstanceIds or memberInstanceIds (RFC-013 I-81). RFC-018 additionally requires that on the root container (manifest.container), this MUST reference a Tier-2 Record of type com.semanticops.core/purpose (RFC-018 I-87); for non-root containers this type constraint does not apply. See RFC-013 I-81, RFC-018 R5."
+      "description": "RFC-013 / RFC-029. The instance id of the record that is this Container's identity / purpose statement. On the root container (manifest.container), names the repository's identity record. Reassignable; when present MUST equal a member id in rootInstanceIds or memberInstanceIds (RFC-013 I-81). RFC-029 additionally requires that on the root container (manifest.container), this MUST reference a Tier-2 Record of type com.semanticops.core/purpose (RFC-029 I-87); for non-root containers this type constraint does not apply. See RFC-013 I-81, RFC-029 R5."
     },
     "tags": {
       "type": "array",

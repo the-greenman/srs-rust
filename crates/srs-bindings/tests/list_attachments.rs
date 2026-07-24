@@ -65,7 +65,10 @@ fn binding_list_attachments_empty_repo() {
     let store = JsonStore::from_srsj(&srsj_empty()).expect("load store");
     let result =
         list_attachments(&store, ListAttachmentsFilter::default()).expect("list_attachments ok");
-    assert!(result.entries.is_empty(), "empty repo must yield no entries");
+    assert!(
+        result.entries.is_empty(),
+        "empty repo must yield no entries"
+    );
     assert_eq!(
         result.source_documents_path, "source-documents",
         "default source_documents_path must be 'source-documents'"

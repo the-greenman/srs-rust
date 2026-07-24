@@ -150,7 +150,7 @@
         "version": { "type": "integer", "minimum": 1 },
         "definitionType": {
           "type": "string",
-          "enum": ["field", "type", "view", "schema", "protocol", "relation-type"]
+          "enum": ["field", "type", "view", "schema", "protocol", "relation-type", "theme", "vocabulary", "lifecycle"]
         }
       }
     }
