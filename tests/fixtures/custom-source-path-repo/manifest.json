@@ -1,0 +1,7 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+  "namespace": "com.example.test",
+  "sourceDocumentsPath": "attachments",
+  "instanceIndex": [],
+  "containerIndex": []
+}
