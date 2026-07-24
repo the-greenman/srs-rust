@@ -648,6 +648,9 @@ pub enum RepoCommand {
     },
     /// Resolve structural repository navigation from the root container
     Navigation,
+    /// Render an llms.txt-style agent-readable index of the repository
+    #[command(name = "agent-index")]
+    AgentIndex,
     /// Set the manifest root container embed (containerId + identityInstanceId).
     /// Writes manifest.container so the navigation service can find the repository's structural root.
     #[command(name = "set-root-container")]
