@@ -2306,7 +2306,9 @@ mod tests {
             relations: Some(vec![row]),
         };
         let json = serde_json::to_value(&record).expect("ProjectedRecord must serialize");
-        let relations = json["relations"].as_array().expect("relations must be array");
+        let relations = json["relations"]
+            .as_array()
+            .expect("relations must be array");
         assert_eq!(relations.len(), 1, "one relation row");
         assert_eq!(
             json["relations"][0]["label"].as_str(),
@@ -2366,7 +2368,9 @@ mod tests {
             relations: None,
         };
         let json = serde_json::to_value(&record).expect("ProjectedRecord must serialize");
-        let groups = json["fieldGroups"].as_array().expect("fieldGroups must be array");
+        let groups = json["fieldGroups"]
+            .as_array()
+            .expect("fieldGroups must be array");
         assert_eq!(groups.len(), 1, "one field group");
         assert_eq!(json["fieldGroups"][0]["groupId"].as_str(), Some("grp-001"));
         assert_eq!(json["fieldGroups"][0]["label"].as_str(), Some("Group A"));
