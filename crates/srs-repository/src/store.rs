@@ -1131,7 +1131,11 @@ impl RepositoryStore for FileStore {
             vocabularies.push(vocab);
         }
 
-        crate::core_package::merge_core_into_package(&mut fields, &mut record_types)?;
+        crate::core_package::merge_core_into_package(
+            &mut fields,
+            &mut record_types,
+            &mut relation_type_definitions,
+        )?;
 
         Ok(Package {
             id: metadata.id,
@@ -2682,7 +2686,11 @@ pub mod memory {
                 }
             }
             drop(data);
-            crate::core_package::merge_core_into_package(&mut pkg.fields, &mut pkg.record_types)?;
+            crate::core_package::merge_core_into_package(
+                &mut pkg.fields,
+                &mut pkg.record_types,
+                &mut pkg.relation_type_definitions,
+            )?;
             Ok(pkg)
         }
 
