@@ -1,12 +1,13 @@
 use crate::commands::{with_store, CliContext, RenderCommand};
 use crate::output;
 use crate::payload::{
-    DocumentViewProjection, ExportBundlePayload, ProjectedFieldGroup, ProjectedGroupEntry,
-    ProjectedRecord, ProjectedRelationRow, ProjectedRelationTarget, ProjectedSection,
-    RenderDocumentViewPayload,
+    DocumentViewProjection, ExportBundlePayload, OkfBundlePayload, ProjectedFieldGroup,
+    ProjectedGroupEntry, ProjectedRecord, ProjectedRelationRow, ProjectedRelationTarget,
+    ProjectedSection, RenderDocumentViewPayload,
 };
 use anyhow::Result;
 use srs_repository::export_service::{export_record_bundle, ExportBundleInput};
+use srs_repository::okf_export_service::{OkfBundle, OkfExportInput};
 use srs_repository::render_service::{
     render_document_view, DocumentViewProjection as SvcProjection,
     ProjectedFieldGroup as SvcFieldGroup, ProjectedGroupEntry as SvcGroupEntry,
@@ -14,7 +15,7 @@ use srs_repository::render_service::{
     ProjectedRelationTarget as SvcRelationTarget, ProjectedSection as SvcSection,
     RenderDocumentViewOptions,
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub fn dispatch(ctx: CliContext, cmd: RenderCommand) -> Result<String> {
     match cmd {
@@ -30,6 +31,10 @@ pub fn dispatch(ctx: CliContext, cmd: RenderCommand) -> Result<String> {
             instance,
             output,
         } => cmd_render_export_bundle(ctx, view, instance, output),
+        RenderCommand::OkfBundle {
+            container_id,
+            output,
+        } => cmd_render_okf_bundle(ctx, container_id, output),
     }
 }
 
@@ -178,4 +183,74 @@ fn cmd_render_export_bundle(
         ),
         Err(e) => Ok(output::err("render export-bundle", vec![e.to_string()])),
     }
+}
+
+fn cmd_render_okf_bundle(
+    ctx: CliContext,
+    container_id: String,
+    output_path: PathBuf,
+) -> Result<String> {
+    match with_store(&ctx, |store| {
+        Ok(srs_repository::export_okf_bundle(
+            store,
+            OkfExportInput {
+                container_id: container_id.clone(),
+            },
+        )?)
+    }) {
+        Ok(bundle) => {
+            std::fs::create_dir_all(&output_path).map_err(|e| {
+                anyhow::anyhow!("cannot create output directory {:?}: {}", output_path, e)
+            })?;
+            let file_count = write_okf_bundle_to_dir(&bundle, &output_path)?;
+            output::serialize(
+                "render okf-bundle",
+                OkfBundlePayload {
+                    file_count,
+                    output_dir: output_path.to_string_lossy().into_owned(),
+                    diagnostics: bundle.diagnostics,
+                },
+            )
+        }
+        Err(e) => Ok(output::err("render okf-bundle", vec![e.to_string()])),
+    }
+}
+
+fn write_okf_bundle_to_dir(bundle: &OkfBundle, dir: &Path) -> Result<usize> {
+    let index_path = dir.join("index.md");
+    let mut index_lines: Vec<String> = Vec::new();
+    index_lines.push(format!("# {}", bundle.container_title));
+    index_lines.push(String::new());
+
+    for entry in &bundle.entries {
+        let frontmatter = build_frontmatter(entry);
+        let body = entry.note_text.as_deref().unwrap_or("").to_string();
+        let content = format!("{frontmatter}\n# {}\n\n{body}", entry.display_label);
+        std::fs::write(dir.join(&entry.path), content.as_bytes())
+            .map_err(|e| anyhow::anyhow!("failed to write {:?}: {}", entry.path, e))?;
+        index_lines.push(format!("- [{}]({})", entry.display_label, entry.path));
+    }
+
+    std::fs::write(&index_path, index_lines.join("\n").as_bytes())
+        .map_err(|e| anyhow::anyhow!("failed to write index.md: {}", e))?;
+
+    // entry files + index.md
+    Ok(bundle.entries.len() + 1)
+}
+
+fn build_frontmatter(entry: &srs_repository::OkfEntry) -> String {
+    let mut lines = vec![
+        "---".to_string(),
+        format!("srs_id: {}", entry.instance_id),
+        format!("type: {}", entry.type_label),
+    ];
+    for (name, value) in &entry.field_pairs {
+        let v = match value {
+            serde_json::Value::String(s) => s.clone(),
+            other => other.to_string(),
+        };
+        lines.push(format!("{name}: {v}"));
+    }
+    lines.push("---".to_string());
+    lines.join("\n")
 }

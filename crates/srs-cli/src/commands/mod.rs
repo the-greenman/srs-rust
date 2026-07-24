@@ -1482,6 +1482,15 @@ pub enum RenderCommand {
         #[arg(long)]
         output: PathBuf,
     },
+    /// Export a container as a Google Open Knowledge Format folder bundle
+    OkfBundle {
+        /// Container ID to export
+        #[arg(long = "container")]
+        container_id: String,
+        /// Output directory path for the OKF bundle
+        #[arg(long)]
+        output: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
