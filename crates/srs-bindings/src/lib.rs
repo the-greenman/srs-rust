@@ -533,7 +533,17 @@ impl SrsRepository {
     /// `instance_id_filter` optionally scopes ContainerSubset sections to a single record,
     /// producing a per-record export document.
     /// Returns `{ "rendered": <string>, "diagnostics": [...], "projection": <json|null> }`.
-    /// When `format == "json"`, `projection` is a `DocumentViewProjection` object; otherwise `null`.
+    /// When `format == "json"`, `projection` is a `DocumentViewProjection` object with shape:
+    /// `{ $schema, documentViewId, containerId: string|null, generatedAt, containerTitle,
+    ///   preamble?, sections: [{ sectionId, title?, order, records: [{ instanceId, typeId,
+    ///   typeNamespace, typeName, recordHeading?, preamble?, fields, orderedFieldKeys,
+    ///   fieldGroups?, relations? }] }] }`.
+    /// `containerId` is always present in the JSON but may be `null` when the view is
+    /// not scoped to a container.
+    /// `records[*].relations` is present when the document view defines a `relationsPresentation`;
+    /// each entry is `{ label: string, targets: [{ instanceId, displayLabel }] }`.
+    /// `records[*].fieldGroups` is present when the record type defines field groups;
+    /// each entry is `{ groupId: string, label?, entries: [{ entryId?, fields }] }`.
     pub fn render_document_view(
         &self,
         view_id: &str,
@@ -2266,5 +2276,122 @@ mod tests {
         assert_eq!(json["instanceId"].as_str(), Some("inst-001"));
         assert_eq!(json["documentId"].as_str(), Some("doc-001"));
         assert_eq!(json["sourceRefsCount"].as_u64(), Some(3));
+    }
+
+    /// Verify that `ProjectedRecord.relations` serialises with camelCase keys matching the
+    /// TypeScript interface declared in `srs-web/src/lib/srs-client.ts` (#713).
+    #[test]
+    fn projected_record_with_relations_serialises() {
+        use srs_repository::render_service::{
+            ProjectedRecord, ProjectedRelationRow, ProjectedRelationTarget,
+        };
+        let target = ProjectedRelationTarget {
+            instance_id: "target-001".to_string(),
+            display_label: "Target Label".to_string(),
+        };
+        let row = ProjectedRelationRow {
+            label: "Related decisions".to_string(),
+            targets: vec![target],
+        };
+        let record = ProjectedRecord {
+            instance_id: "rec-001".to_string(),
+            type_id: "type-001".to_string(),
+            type_namespace: "com.test".to_string(),
+            type_name: "decision".to_string(),
+            record_heading: None,
+            preamble: None,
+            fields: serde_json::json!({}),
+            ordered_field_keys: vec![],
+            field_groups: None,
+            relations: Some(vec![row]),
+        };
+        let json = serde_json::to_value(&record).expect("ProjectedRecord must serialize");
+        let relations = json["relations"]
+            .as_array()
+            .expect("relations must be array");
+        assert_eq!(relations.len(), 1, "one relation row");
+        assert_eq!(
+            json["relations"][0]["label"].as_str(),
+            Some("Related decisions")
+        );
+        let targets = json["relations"][0]["targets"]
+            .as_array()
+            .expect("targets must be array");
+        assert_eq!(targets.len(), 1, "one target");
+        assert_eq!(
+            json["relations"][0]["targets"][0]["instanceId"].as_str(),
+            Some("target-001")
+        );
+        assert_eq!(
+            json["relations"][0]["targets"][0]["displayLabel"].as_str(),
+            Some("Target Label")
+        );
+        // Absence: when relations is None the key must be absent (skip_serializing_if)
+        let record_no_relations = ProjectedRecord {
+            relations: None,
+            ..record
+        };
+        let json2 =
+            serde_json::to_value(&record_no_relations).expect("ProjectedRecord must serialize");
+        assert!(
+            json2.get("relations").is_none(),
+            "relations key must be absent when None"
+        );
+    }
+
+    /// Verify that `ProjectedRecord.fieldGroups` serialises with the `groupId` key matching
+    /// the TypeScript interface declared in `srs-web/src/lib/srs-client.ts` (#713).
+    #[test]
+    fn projected_record_with_field_groups_serialises() {
+        use srs_repository::render_service::{
+            ProjectedFieldGroup, ProjectedGroupEntry, ProjectedRecord,
+        };
+        let entry = ProjectedGroupEntry {
+            entry_id: Some("entry-001".to_string()),
+            fields: serde_json::json!({"title": "Test"}),
+        };
+        let group = ProjectedFieldGroup {
+            group_id: "grp-001".to_string(),
+            label: Some("Group A".to_string()),
+            entries: vec![entry],
+        };
+        let record = ProjectedRecord {
+            instance_id: "rec-002".to_string(),
+            type_id: "type-001".to_string(),
+            type_namespace: "com.test".to_string(),
+            type_name: "decision".to_string(),
+            record_heading: None,
+            preamble: None,
+            fields: serde_json::json!({}),
+            ordered_field_keys: vec![],
+            field_groups: Some(vec![group]),
+            relations: None,
+        };
+        let json = serde_json::to_value(&record).expect("ProjectedRecord must serialize");
+        let groups = json["fieldGroups"]
+            .as_array()
+            .expect("fieldGroups must be array");
+        assert_eq!(groups.len(), 1, "one field group");
+        assert_eq!(json["fieldGroups"][0]["groupId"].as_str(), Some("grp-001"));
+        assert_eq!(json["fieldGroups"][0]["label"].as_str(), Some("Group A"));
+        let entries = json["fieldGroups"][0]["entries"]
+            .as_array()
+            .expect("entries must be array");
+        assert_eq!(entries.len(), 1, "one entry");
+        assert_eq!(
+            json["fieldGroups"][0]["entries"][0]["entryId"].as_str(),
+            Some("entry-001")
+        );
+        // Absence: when fieldGroups is None the key must be absent
+        let record_no_groups = ProjectedRecord {
+            field_groups: None,
+            ..record
+        };
+        let json2 =
+            serde_json::to_value(&record_no_groups).expect("ProjectedRecord must serialize");
+        assert!(
+            json2.get("fieldGroups").is_none(),
+            "fieldGroups key must be absent when None"
+        );
     }
 }
