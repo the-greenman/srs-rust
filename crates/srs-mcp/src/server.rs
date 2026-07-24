@@ -140,7 +140,7 @@ impl ServerHandler for SrsMcpServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListPromptsResult, McpError>> + Send + '_ {
-        ready(prompts::list_prompts(&self.open_store()))
+        ready(prompts::list_prompts(self))
     }
 
     fn get_prompt(
@@ -148,11 +148,7 @@ impl ServerHandler for SrsMcpServer {
         request: GetPromptRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<GetPromptResult, McpError>> + Send + '_ {
-        ready(prompts::get_prompt(
-            &self.open_store(),
-            &request.name,
-            request.arguments.as_ref(),
-        ))
+        ready(prompts::get_prompt(self, &request.name, request.arguments.as_ref()))
     }
 }
 

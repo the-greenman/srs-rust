@@ -1,7 +1,8 @@
 //! MCP prompts surface — one prompt per package blueprint (ADR-037 follow-up).
 //!
-//! Each handler is a thin wrapper: typed input → exactly one `srs-repository`
-//! service call → the service's typed result serialized (ADR-010, ADR-037).
+//! Each handler is a thin wrapper: typed input → one `srs-repository` service
+//! call + pure formatting → MCP result type (ADR-010, ADR-037). `render_brief_markdown`
+//! is a pure formatting function (no I/O, no store access), not a service call.
 //!
 //! Prompt `name` = blueprint UUID so that `get_prompt` can pass it directly to
 //! `blueprint_brief` as the `blueprint_id`, maintaining one service call per
@@ -15,7 +16,8 @@ use srs_repository::blueprint_brief_service::{
 };
 use srs_repository::blueprint_service::list_blueprints_summary;
 use srs_repository::error::RepositoryError;
-use srs_repository::RepositoryStore;
+
+use crate::server::SrsMcpServer;
 
 fn service_err(e: RepositoryError) -> McpError {
     McpError::internal_error(e.to_string(), None)
@@ -25,8 +27,9 @@ fn prompt_description(namespace: &str, name: &str, version: u32, description: &s
     format!("{namespace}/{name} v{version}: {description}")
 }
 
-pub(crate) fn list_prompts(store: &dyn RepositoryStore) -> Result<ListPromptsResult, McpError> {
-    let result = list_blueprints_summary(store).map_err(service_err)?;
+pub(crate) fn list_prompts(server: &SrsMcpServer) -> Result<ListPromptsResult, McpError> {
+    let store = server.open_store();
+    let result = list_blueprints_summary(&store).map_err(service_err)?;
     // Non-fatal diagnostics (missing blueprint files, duplicate IDs) are
     // intentionally not surfaced here — list_prompts has no warnings channel.
     let prompts = result
@@ -44,7 +47,7 @@ pub(crate) fn list_prompts(store: &dyn RepositoryStore) -> Result<ListPromptsRes
 }
 
 pub(crate) fn get_prompt(
-    store: &dyn RepositoryStore,
+    server: &SrsMcpServer,
     name: &str,
     arguments: Option<&JsonObject>,
 ) -> Result<GetPromptResult, McpError> {
@@ -54,8 +57,9 @@ pub(crate) fn get_prompt(
             None,
         ));
     }
+    let store = server.open_store();
     let result =
-        blueprint_brief(store, BlueprintBriefInput { blueprint_id: name.to_string() }).map_err(
+        blueprint_brief(&store, BlueprintBriefInput { blueprint_id: name.to_string() }).map_err(
             |e| match e {
                 RepositoryError::BlueprintNotFound { .. } => {
                     McpError::invalid_params(format!("prompt not found: {name}"), None)
@@ -85,7 +89,7 @@ mod tests {
     use srs_repository::store::FileStore;
     use tempfile::TempDir;
 
-    fn make_test_repo() -> (TempDir, FileStore) {
+    fn make_test_server() -> (TempDir, SrsMcpServer) {
         let dir = tempfile::tempdir().unwrap();
         let store = FileStore::new(dir.path());
         let input = InitializeRepositoryInput {
@@ -104,7 +108,8 @@ mod tests {
             },
         };
         create_repository(&store, &input).unwrap();
-        (dir, store)
+        let server = SrsMcpServer::new(dir.path().to_path_buf()).unwrap();
+        (dir, server)
     }
 
     fn make_blueprint(name: &str, namespace: &str) -> Blueprint {
@@ -130,11 +135,15 @@ mod tests {
 
     #[test]
     fn list_prompts_returns_one_per_blueprint() {
-        let (_dir, store) = make_test_repo();
-        let r1 = create_blueprint(&store, make_blueprint("alpha", "test.ns"), None).unwrap();
-        let r2 = create_blueprint(&store, make_blueprint("beta", "test.ns"), None).unwrap();
+        let (_dir, server) = make_test_server();
+        let r1 =
+            create_blueprint(&server.open_store(), make_blueprint("alpha", "test.ns"), None)
+                .unwrap();
+        let r2 =
+            create_blueprint(&server.open_store(), make_blueprint("beta", "test.ns"), None)
+                .unwrap();
 
-        let result = list_prompts(&store).unwrap();
+        let result = list_prompts(&server).unwrap();
         assert_eq!(result.prompts.len(), 2);
 
         let names: Vec<&str> = result.prompts.iter().map(|p| p.name.as_str()).collect();
@@ -161,12 +170,13 @@ mod tests {
 
     #[test]
     fn get_prompt_returns_rendered_markdown() {
-        let (_dir, store) = make_test_repo();
+        let (_dir, server) = make_test_server();
         let created =
-            create_blueprint(&store, make_blueprint("my-bp", "test.ns"), None).unwrap();
+            create_blueprint(&server.open_store(), make_blueprint("my-bp", "test.ns"), None)
+                .unwrap();
         let bp_id = created.blueprint.id.clone();
 
-        let result = get_prompt(&store, &bp_id, None).unwrap();
+        let result = get_prompt(&server, &bp_id, None).unwrap();
         assert_eq!(result.messages.len(), 1);
 
         let text = match &result.messages[0].content {
@@ -181,8 +191,8 @@ mod tests {
 
     #[test]
     fn get_prompt_unknown_name_returns_invalid_params() {
-        let (_dir, store) = make_test_repo();
-        let err = get_prompt(&store, "no-such-id", None).unwrap_err();
+        let (_dir, server) = make_test_server();
+        let err = get_prompt(&server, "no-such-id", None).unwrap_err();
         assert_eq!(
             err.code,
             ErrorCode::INVALID_PARAMS,
@@ -197,13 +207,13 @@ mod tests {
 
     #[test]
     fn get_prompt_rejects_unexpected_arguments() {
-        let (_dir, store) = make_test_repo();
+        let (_dir, server) = make_test_server();
         let mut args = serde_json::Map::new();
         args.insert(
             "foo".to_string(),
             serde_json::Value::String("bar".to_string()),
         );
-        let err = get_prompt(&store, "any-id", Some(&args)).unwrap_err();
+        let err = get_prompt(&server, "any-id", Some(&args)).unwrap_err();
         assert_eq!(
             err.code,
             ErrorCode::INVALID_PARAMS,
