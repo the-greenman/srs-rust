@@ -1,4 +1,6 @@
-use srs_repository::attachment_service::{add_attachment, AddAttachmentInput, list_attachments, ListAttachmentsFilter};
+use srs_repository::attachment_service::{
+    add_attachment, list_attachments, AddAttachmentInput, ListAttachmentsFilter,
+};
 use srs_repository::JsonStore;
 
 fn srsj_empty() -> String {
