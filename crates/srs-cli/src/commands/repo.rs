@@ -1,17 +1,18 @@
 use crate::commands::{with_store, CliContext, RepoCommand, RepoExtensionsCommand, StoreBackend};
 use crate::output;
 use crate::payload::{
-    InstancePathRename, MigrationSummaryPayload, RepoApplyMigrationPayload, RepoCopyPayload,
-    RepoCreatePayload, RepoDiffInstanceAdded, RepoDiffInstanceModified, RepoDiffInstanceRemoved,
-    RepoDiffInstances, RepoDiffManifest, RepoDiffPackage, RepoDiffPackageCategory,
-    RepoDiffPackageItemAdded, RepoDiffPackageItemModified, RepoDiffPackageItemRemoved,
-    RepoDiffPayload, RepoDiffRelationAdded, RepoDiffRelationModified, RepoDiffRelationRemoved,
-    RepoDiffRelations, RepoDiffSummary, RepoExtensionsConformancePayload,
+    InstancePathRename, MigrationSummaryPayload, RepoAgentIndexPayload, RepoApplyMigrationPayload,
+    RepoCopyPayload, RepoCreatePayload, RepoDiffInstanceAdded, RepoDiffInstanceModified,
+    RepoDiffInstanceRemoved, RepoDiffInstances, RepoDiffManifest, RepoDiffPackage,
+    RepoDiffPackageCategory, RepoDiffPackageItemAdded, RepoDiffPackageItemModified,
+    RepoDiffPackageItemRemoved, RepoDiffPayload, RepoDiffRelationAdded, RepoDiffRelationModified,
+    RepoDiffRelationRemoved, RepoDiffRelations, RepoDiffSummary, RepoExtensionsConformancePayload,
     RepoExtensionsMutatePayload, RepoExtensionsPayload, RepoInitNewPayload, RepoMapPayload,
-    RepoAgentIndexPayload, RepoMigrateIdentityPayload, RepoMigrationsPayload,
-    RepoNavigationPayload, RepoSetRootContainerPayload, RepoUpgradePayload, RepoValidatePayload,
+    RepoMigrateIdentityPayload, RepoMigrationsPayload, RepoNavigationPayload,
+    RepoSetRootContainerPayload, RepoUpgradePayload, RepoValidatePayload,
 };
 use anyhow::{Context, Result};
+use srs_repository::agent_index_service::build_agent_index;
 use srs_repository::analysis::build_repo_map;
 use srs_repository::diff::diff_repositories;
 use srs_repository::manifest_service::{
@@ -24,7 +25,6 @@ use srs_repository::repository_lifecycle::{
     create_repository_with_intent, init_new_repository, InitNewRepositoryInput,
     InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
 };
-use srs_repository::agent_index_service::build_agent_index;
 use srs_repository::repository_navigation_service::repository_navigation;
 use srs_repository::repository_portability::copy_repository;
 use srs_repository::upgrade_repository_paths;
@@ -278,7 +278,13 @@ fn cmd_repo_navigation(ctx: CliContext) -> Result<String> {
 fn cmd_repo_agent_index(ctx: CliContext) -> Result<String> {
     let agent_index = with_store(&ctx, |store| Ok(build_agent_index(store)?))?;
     let rendered = render_agent_index(&agent_index);
-    output::serialize("repo agent-index", RepoAgentIndexPayload { agent_index, rendered })
+    output::serialize(
+        "repo agent-index",
+        RepoAgentIndexPayload {
+            agent_index,
+            rendered,
+        },
+    )
 }
 
 fn render_agent_index(idx: &srs_repository::agent_index_service::AgentIndex) -> String {

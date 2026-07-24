@@ -92,7 +92,10 @@ mod tests {
         // embedded, so types will be non-empty; instance counts will be zero.
         let store = MemoryStore::default();
         let result = build_agent_index(&store);
-        assert!(result.is_ok(), "build_agent_index on empty repo should not error");
+        assert!(
+            result.is_ok(),
+            "build_agent_index on empty repo should not error"
+        );
         let idx = result.unwrap();
         assert_eq!(idx.total_instances, 0);
         assert_eq!(idx.records, 0);
@@ -110,7 +113,10 @@ mod tests {
 
         let store = JsonStore::from_srsj(srsj).unwrap();
         let result = build_agent_index(&store);
-        assert!(result.is_ok(), "build_agent_index on JsonStore-backed repo should not error");
+        assert!(
+            result.is_ok(),
+            "build_agent_index on JsonStore-backed repo should not error"
+        );
         let idx = result.unwrap();
         assert_eq!(idx.repository_id.as_deref(), Some("agent-index-test"));
         assert_eq!(idx.title.as_deref(), Some("Agent Index Test"));
