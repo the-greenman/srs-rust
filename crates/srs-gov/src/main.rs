@@ -615,20 +615,47 @@ fn cmd_create(
         fields.sort_by_key(|f| f.0);
     }
 
-    // Build field values JSON
+    // Build field values JSON. A required field with no real value (title/statement
+    // flag omitted, or a required field this command has no flag for at all) is only
+    // ever acceptable in the dry-run/explain preview — the real write path bails
+    // instead of persisting the placeholder text into the record.
     let mut fv_entries: Vec<serde_json::Value> = Vec::new();
+    let mut missing_required: Vec<&str> = Vec::new();
     for (_, name, fid, req) in &fields {
-        let placeholder = match name.as_str() {
-            "title" => title.unwrap_or("<TITLE>"),
-            "decision_statement" => statement.unwrap_or("<DECISION STATEMENT>"),
-            _ if *req => "<REQUIRED>",
-            _ => continue,
+        let real_value = match name.as_str() {
+            "title" => title,
+            "decision_statement" => statement,
+            _ => None,
         };
-        fv_entries.push(serde_json::json!({
-            "fieldId": fid,
-            "value": placeholder,
-        }));
+        if let Some(v) = real_value {
+            fv_entries.push(serde_json::json!({ "fieldId": fid, "value": v }));
+            continue;
+        }
+        if !*req {
+            continue;
+        }
+        missing_required.push(name.as_str());
+        if dry_run || explain {
+            let placeholder = match name.as_str() {
+                "title" => "<TITLE>",
+                "decision_statement" => "<DECISION STATEMENT>",
+                _ => "<REQUIRED>",
+            };
+            fv_entries.push(serde_json::json!({
+                "fieldId": fid,
+                "value": placeholder,
+            }));
+        }
     }
+
+    if !(dry_run || explain) && !missing_required.is_empty() {
+        bail!(
+            "missing required field(s) for '{child}': {}. Pass the corresponding flag \
+             (e.g. --title/--statement) or use --dry-run to preview the command.",
+            missing_required.join(", ")
+        );
+    }
+
     let input = serde_json::json!({ "fieldValues": fv_entries });
     let input_json = serde_json::to_string_pretty(&input)?;
 

@@ -221,6 +221,40 @@ fn create_decision_dry_run_escapes_quoted_values() {
 }
 
 #[test]
+fn create_decision_without_required_values_is_rejected_not_written() {
+    // Regression test for the-greenman/srs-rust#740: a real (non-dry-run) `create`
+    // with no --title/--statement must bail instead of writing the literal
+    // "<TITLE>"/"<DECISION STATEMENT>" placeholder strings into the record.
+    use std::fs;
+    let repo = setup_repo("create-missing-required");
+    let before = fs::read(&repo.path).expect("read srsj");
+
+    let gov = srs_gov_bin();
+    let srs = srs_bin();
+    let out = std::process::Command::new(&gov)
+        .env("SRS_BIN", &srs)
+        .args(["--repo", &repo.path, "create", "decision_log", "decision"])
+        .output()
+        .expect("run srs-gov create");
+
+    assert!(
+        !out.status.success(),
+        "create with no --title/--statement should be rejected, but exited 0"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("title") && stderr.contains("decision_statement"),
+        "error should name the missing required fields: {stderr}"
+    );
+
+    let after = fs::read(&repo.path).expect("re-read srsj");
+    assert_eq!(
+        before, after,
+        "srsj changed — placeholder text was written into a real record!"
+    );
+}
+
+#[test]
 fn explain_flag_prints_commands_without_running() {
     let repo = setup_repo("explain");
     let out = gov_out(&repo.path, &["--explain", "list", "decision_log"]);
