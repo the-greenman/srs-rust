@@ -83,6 +83,7 @@ jobs:
             "${{ steps.package_wasm.outputs.archive }}" \
             "${{ steps.package_wasm.outputs.archive }}.sha256" \
             scripts/gh-project.mjs \
+            skills/SKILL.md \
             --target "${{ github.sha }}" \
             --title "srs v${{ steps.package.outputs.version }} (build ${{ github.run_number }}, ${{ steps.package.outputs.sha_short }})" \
             --notes "Automated release of the \`srs\` CLI built from \`${{ github.sha }}\`.
@@ -104,5 +105,10 @@ jobs:
           output: \`.wasm\` + \`.js\` + \`.d.ts\`) is attached as \`${{ steps.package_wasm.outputs.archive }}\`
           (stable URL \`/releases/latest/download/${{ steps.package_wasm.outputs.archive }}\`), with a
           matching \`.sha256\` — consumers (e.g. srs-web) should fetch and extract this instead of
-          running \`wasm-pack\` locally." \
+          running \`wasm-pack\` locally.
+
+          The agent skill file \`SKILL.md\` is attached (stable URL
+          \`/releases/latest/download/SKILL.md\`) — install it in any skills-capable agent
+          (Claude Code, Codex, Cursor, Copilot, Goose) to add \"work with SRS repositories\"
+          as a capability." \
             --latest
