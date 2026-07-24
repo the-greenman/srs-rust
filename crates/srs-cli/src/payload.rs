@@ -34,6 +34,7 @@ use srs_core::types::{
     vocabulary::Vocabulary,
 };
 use srs_repository::{
+    agent_index_service::AgentIndex,
     analysis::{FoundationNoteSet, RepoMap, TagAudit},
     container_service::ContainerSummary,
     container_view_service::ContainerView,
@@ -1232,6 +1233,14 @@ pub struct RepoMapPayload {
 pub struct RepoNavigationPayload {
     #[schemars(with = "serde_json::Value")]
     pub navigation: RepositoryNavigation,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoAgentIndexPayload {
+    #[schemars(with = "serde_json::Value")]
+    pub agent_index: AgentIndex,
+    pub rendered: String,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]

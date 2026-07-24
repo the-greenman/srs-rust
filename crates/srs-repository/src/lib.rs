@@ -1,3 +1,4 @@
+pub mod agent_index_service;
 pub mod analysis;
 pub mod archive;
 pub mod attachment_policy_service;

@@ -1,17 +1,18 @@
 use crate::commands::{with_store, CliContext, RepoCommand, RepoExtensionsCommand, StoreBackend};
 use crate::output;
 use crate::payload::{
-    InstancePathRename, MigrationSummaryPayload, RepoApplyMigrationPayload, RepoCopyPayload,
-    RepoCreatePayload, RepoDiffInstanceAdded, RepoDiffInstanceModified, RepoDiffInstanceRemoved,
-    RepoDiffInstances, RepoDiffManifest, RepoDiffPackage, RepoDiffPackageCategory,
-    RepoDiffPackageItemAdded, RepoDiffPackageItemModified, RepoDiffPackageItemRemoved,
-    RepoDiffPayload, RepoDiffRelationAdded, RepoDiffRelationModified, RepoDiffRelationRemoved,
-    RepoDiffRelations, RepoDiffSummary, RepoExtensionsConformancePayload,
+    InstancePathRename, MigrationSummaryPayload, RepoAgentIndexPayload, RepoApplyMigrationPayload,
+    RepoCopyPayload, RepoCreatePayload, RepoDiffInstanceAdded, RepoDiffInstanceModified,
+    RepoDiffInstanceRemoved, RepoDiffInstances, RepoDiffManifest, RepoDiffPackage,
+    RepoDiffPackageCategory, RepoDiffPackageItemAdded, RepoDiffPackageItemModified,
+    RepoDiffPackageItemRemoved, RepoDiffPayload, RepoDiffRelationAdded, RepoDiffRelationModified,
+    RepoDiffRelationRemoved, RepoDiffRelations, RepoDiffSummary, RepoExtensionsConformancePayload,
     RepoExtensionsMutatePayload, RepoExtensionsPayload, RepoInitNewPayload, RepoMapPayload,
     RepoMigrateIdentityPayload, RepoMigrationsPayload, RepoNavigationPayload,
     RepoSetRootContainerPayload, RepoUpgradePayload, RepoValidatePayload,
 };
 use anyhow::{Context, Result};
+use srs_repository::agent_index_service::build_agent_index;
 use srs_repository::analysis::build_repo_map;
 use srs_repository::diff::diff_repositories;
 use srs_repository::manifest_service::{
@@ -56,6 +57,7 @@ pub fn dispatch(ctx: CliContext, cmd: RepoCommand) -> Result<String> {
         ),
         RepoCommand::Map { json: _ } => cmd_repo_map(ctx),
         RepoCommand::Navigation => cmd_repo_navigation(ctx),
+        RepoCommand::AgentIndex => cmd_repo_agent_index(ctx),
         RepoCommand::SetRootContainer {
             container_id,
             identity_instance_id,
@@ -271,6 +273,69 @@ fn cmd_repo_map(ctx: CliContext) -> Result<String> {
 fn cmd_repo_navigation(ctx: CliContext) -> Result<String> {
     let navigation = with_store(&ctx, |store| Ok(repository_navigation(store)?))?;
     output::serialize("repo navigation", RepoNavigationPayload { navigation })
+}
+
+fn cmd_repo_agent_index(ctx: CliContext) -> Result<String> {
+    let agent_index = with_store(&ctx, |store| Ok(build_agent_index(store)?))?;
+    let rendered = render_agent_index(&agent_index);
+    output::serialize(
+        "repo agent-index",
+        RepoAgentIndexPayload {
+            agent_index,
+            rendered,
+        },
+    )
+}
+
+fn render_agent_index(idx: &srs_repository::agent_index_service::AgentIndex) -> String {
+    let mut out = String::new();
+    out.push_str("# Agent Index\n\n");
+    if let Some(title) = &idx.title {
+        out.push_str(&format!("**{}**", title));
+        if let Some(desc) = &idx.description {
+            out.push_str(&format!(" — {}", desc));
+        }
+        out.push('\n');
+    } else if let Some(desc) = &idx.description {
+        out.push_str(desc);
+        out.push('\n');
+    }
+    if let Some(id) = &idx.repository_id {
+        out.push_str(&format!("\nRepository ID: `{}`\n", id));
+    }
+    out.push_str(&format!(
+        "\nContents: {} instances ({} records, {} notes)\n",
+        idx.total_instances, idx.records, idx.notes
+    ));
+    if !idx.types.is_empty() {
+        out.push_str("\n## Types\n\n");
+        for t in &idx.types {
+            out.push_str(&format!(
+                "- `{}/{}` v{} ({} fields)",
+                t.namespace, t.name, t.version, t.field_count
+            ));
+            if let Some(desc) = &t.description {
+                out.push_str(&format!(" — {}", desc));
+            }
+            out.push('\n');
+        }
+    }
+    if !idx.sections.is_empty() {
+        out.push_str("\n## Sections\n\n");
+        for s in &idx.sections {
+            out.push_str(&format!(
+                "- **{}** (`{}`, type `{}`)\n",
+                s.label, s.instance_id, s.type_name
+            ));
+        }
+    }
+    if !idx.entry_points.is_empty() {
+        out.push_str("\n## Suggested Entry Points\n\n");
+        for ep in &idx.entry_points {
+            out.push_str(&format!("- `{}`\n", ep));
+        }
+    }
+    out
 }
 
 fn cmd_repo_set_root_container(
