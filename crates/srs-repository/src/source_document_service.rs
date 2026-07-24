@@ -283,7 +283,11 @@ mod tests {
             result.entries[0].document_id,
             "eeeeeeee-0000-4000-8000-000000000001"
         );
-        assert!(!result.errors[0].path.as_os_str().is_empty());
+        assert!(result.errors[0]
+            .path
+            .to_str()
+            .unwrap_or("")
+            .ends_with("corrupt.md.meta.json"));
         assert!(!result.errors[0].message.is_empty());
     }
 
