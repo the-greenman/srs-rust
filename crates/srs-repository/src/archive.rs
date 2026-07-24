@@ -1170,8 +1170,7 @@ mod tests {
         let sidecar = target
             .load_text_file("source-documents/gone.meta.json")
             .expect("tombstone sidecar must survive roundtrip");
-        let sidecar_val: serde_json::Value =
-            serde_json::from_str(&sidecar).expect("parse sidecar");
+        let sidecar_val: serde_json::Value = serde_json::from_str(&sidecar).expect("parse sidecar");
         assert_eq!(sidecar_val["documentId"], "tombstone-doc-dddd");
 
         // Content file must remain absent — tombstone state preserved.

@@ -404,8 +404,7 @@ pub fn validate_repository(
         .unwrap_or(&[])
         .iter()
         .map(|entry| {
-            let content_repo_rel =
-                format!("{}/{}", src_docs_base_for_attaches, entry.content_path);
+            let content_repo_rel = format!("{}/{}", src_docs_base_for_attaches, entry.content_path);
             let content_present = !matches!(
                 store.file_byte_len(&content_repo_rel),
                 Err(ref e) if e.is_not_found()
@@ -717,9 +716,7 @@ pub fn validate_repository(
             for ref_val in refs_array {
                 let source_type = ref_val.get("sourceType").and_then(|v| v.as_str());
                 let source_role = ref_val.get("sourceRole").and_then(|v| v.as_str());
-                if source_type != Some("repository-document")
-                    || source_role != Some("attaches")
-                {
+                if source_type != Some("repository-document") || source_role != Some("attaches") {
                     continue;
                 }
                 let source_id = match ref_val.get("sourceId").and_then(|v| v.as_str()) {
@@ -7735,10 +7732,7 @@ mod tests {
             lifecycles: vec![],
         };
         let store = MemoryStore::new(manifest, package)
-            .with_data(
-                "manifest.json",
-                serde_json::Value::String(manifest_str),
-            )
+            .with_data("manifest.json", serde_json::Value::String(manifest_str))
             .with_data("records/note.json", note_json);
         if content_present {
             store
@@ -7753,30 +7747,29 @@ mod tests {
 
     #[test]
     fn test_attaches_r2_unresolved_source_id() {
-        // sourceRefs points to an unknown documentId → R2 Error
-        let manifest = attaches_manifest_json(false); // no sourceDocumentIndex
+        // Index present with one known entry, but sourceRef points to a DIFFERENT id → R2 Error.
+        // This tests the "index populated but missing this particular sourceId" branch.
+        let manifest = attaches_manifest_json(true); // index contains ATTACHES_DOC_ID
         let note = note_with_source_refs(json!([{
             "sourceType": "repository-document",
             "sourceRole": "attaches",
-            "sourceId": "unknown-doc-id"
+            "sourceId": "other-doc-id"  // not in the index
         }]));
         let store = attaches_memory_store(manifest, note, false);
         let report = validate_repository(&store).unwrap();
         let r2_errs: Vec<_> = report
             .diagnostics
             .iter()
-            .filter(|d| {
-                d.severity == DiagnosticSeverity::Error && d.message.contains("RFC-017 R2")
-            })
+            .filter(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("RFC-017 R2"))
             .collect();
         assert_eq!(
             r2_errs.len(),
             1,
-            "expected 1 R2 Error for unresolved sourceId, got: {:?}",
+            "expected 1 R2 Error for sourceId not in populated index, got: {:?}",
             r2_errs
         );
         assert!(
-            r2_errs[0].message.contains("unknown-doc-id"),
+            r2_errs[0].message.contains("other-doc-id"),
             "message should name the unresolved id, got: {}",
             r2_errs[0].message
         );
@@ -7798,9 +7791,7 @@ mod tests {
         let r2_errs: Vec<_> = report
             .diagnostics
             .iter()
-            .filter(|d| {
-                d.severity == DiagnosticSeverity::Error && d.message.contains("RFC-017 R2")
-            })
+            .filter(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("RFC-017 R2"))
             .collect();
         assert_eq!(
             r2_errs.len(),
@@ -7844,9 +7835,7 @@ mod tests {
         let r2_errs: Vec<_> = report
             .diagnostics
             .iter()
-            .filter(|d| {
-                d.severity == DiagnosticSeverity::Error && d.message.contains("RFC-017 R2")
-            })
+            .filter(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("RFC-017 R2"))
             .collect();
         assert!(
             r2_errs.is_empty(),
@@ -7916,9 +7905,7 @@ mod tests {
         let r2_errs: Vec<_> = report
             .diagnostics
             .iter()
-            .filter(|d| {
-                d.severity == DiagnosticSeverity::Error && d.message.contains("RFC-017 R2")
-            })
+            .filter(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("RFC-017 R2"))
             .collect();
         assert_eq!(
             r2_errs.len(),
@@ -7983,18 +7970,13 @@ mod tests {
             lifecycles: vec![],
         };
         let store = MemoryStore::new(manifest, package)
-            .with_data(
-                "manifest.json",
-                serde_json::Value::String(manifest_str),
-            )
+            .with_data("manifest.json", serde_json::Value::String(manifest_str))
             .with_data("records/rec.json", record_json);
         let report = validate_repository(&store).unwrap();
         let r2_errs: Vec<_> = report
             .diagnostics
             .iter()
-            .filter(|d| {
-                d.severity == DiagnosticSeverity::Error && d.message.contains("RFC-017 R2")
-            })
+            .filter(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("RFC-017 R2"))
             .collect();
         assert_eq!(
             r2_errs.len(),
