@@ -9,16 +9,17 @@ use std::future::{ready, Future};
 use std::path::PathBuf;
 
 use rmcp::model::{
-    CallToolRequestParams, CallToolResult, Implementation, InitializeResult,
-    ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, PaginatedRequestParams,
-    ReadResourceRequestParams, ReadResourceResult, ServerCapabilities, ServerInfo,
+    CallToolRequestParams, CallToolResult, GetPromptRequestParams, GetPromptResult, Implementation,
+    InitializeResult, ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult,
+    ListToolsResult, PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResult,
+    ServerCapabilities, ServerInfo,
 };
 use rmcp::service::RequestContext;
 use rmcp::ErrorData as McpError;
 use rmcp::{RoleServer, ServerHandler};
 use srs_repository::store::{FileStore, RepositoryStore};
 
-use crate::{resources, tools};
+use crate::{prompts, resources, tools};
 
 /// Guidance shown to MCP clients at initialize time. Mirrors the discovery
 /// ladder in `srs-usage.md`: orient first, then read, then write, then validate.
@@ -34,7 +35,10 @@ and aiGuidance. Use the find tool for structured discovery \
 (type, tag, lifecycle, tier, container, content match). Writes are validated: record_create, \
 relation_create, and note_create enforce the repository's type and relation contracts and \
 return diagnostics on rejection. Run repo_validate after a write batch and check its \
-diagnostics array — an empty array means the repository is consistent.";
+diagnostics array — an empty array means the repository is consistent. \
+Prompts: this server exposes one MCP prompt per installed blueprint. Call prompts/list \
+to discover available blueprints; call prompts/get with a blueprint UUID to retrieve its \
+full brief as rendered markdown — AI guidance, required types, structure, and protocol.";
 
 /// MCP server over a single SRS repository.
 #[derive(Debug)]
@@ -78,6 +82,7 @@ impl ServerHandler for SrsMcpServer {
     fn get_info(&self) -> ServerInfo {
         InitializeResult::new(
             ServerCapabilities::builder()
+                .enable_prompts()
                 .enable_resources()
                 .enable_tools()
                 .build(),
@@ -129,6 +134,26 @@ impl ServerHandler for SrsMcpServer {
     ) -> impl Future<Output = Result<CallToolResult, McpError>> + Send + '_ {
         ready(tools::call_tool(self, &request.name, request.arguments))
     }
+
+    fn list_prompts(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> impl Future<Output = Result<ListPromptsResult, McpError>> + Send + '_ {
+        ready(prompts::list_prompts(self))
+    }
+
+    fn get_prompt(
+        &self,
+        request: GetPromptRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> impl Future<Output = Result<GetPromptResult, McpError>> + Send + '_ {
+        ready(prompts::get_prompt(
+            self,
+            &request.name,
+            request.arguments.as_ref(),
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -144,6 +169,7 @@ mod tests {
         .get_info();
         assert_eq!(info.server_info.name, "srs-mcp");
         assert_eq!(info.server_info.version, env!("CARGO_PKG_VERSION"));
+        assert!(info.capabilities.prompts.is_some());
         assert!(info.capabilities.resources.is_some());
         assert!(info.capabilities.tools.is_some());
         assert!(info.instructions.is_some());

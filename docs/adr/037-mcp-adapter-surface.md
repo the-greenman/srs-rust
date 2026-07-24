@@ -33,7 +33,7 @@ Owner decisions (2026-07-22, issue #676): prefer a single binary if the size cos
 
 **Negative / trade-offs:** ~75 new locked packages and an async runtime enter the workspace (confined to one adapter crate); binary grows ~21%; a second schemars major (1.x) rides along; the envelope carve-out means one CLI command is intentionally outside the payload-contract test net — its behaviour is covered by MCP integration tests instead. The ADR-011 "no schemars in library crates" rule forces `srs-mcp`'s tool-input structs to be *shadow copies* of the canonical service inputs — a drift risk of the same class ADR-011 closed for outputs; mitigated by mandatory `From<ToolInput>` conversions (handlers may only reach services through them) plus a unit test exercising every field. Tool description text is likewise single-sourced as constants in `srs-mcp`, with the `srs-usage.md` MCP section written from them; cross-repo CI drift enforcement is deliberately not added (srs-rust CI does not check out the sibling `srs` repo — spec independence).
 
-**Neutral:** The server is single-repo per process (`--repo` at startup), matching the CLI's invocation model. Multi-repo serving, subscriptions/notifications, prompts, and HTTP transport are follow-up issues, not part of this decision.
+**Neutral:** The server is single-repo per process (`--repo` at startup), matching the CLI's invocation model. Multi-repo serving, subscriptions/notifications, and HTTP transport are follow-up issues, not part of this decision. **Prompts are now implemented** (srs-rust#682, Amendment 2026-07-24 below).
 
 ## Amendment (2026-07-22, #692) — type discovery
 
@@ -48,3 +48,7 @@ agent must read before `record_create`. Both forms serve the existing
 `x-srs-widget`, and ADR-026's `x-srs-description`/`x-srs-instructions`). No new
 dependency, no new semantics; the shadow-input/`From`-conversion drift guard extends to
 `TypeSchemaToolInput`.
+
+## Amendment (2026-07-24, #682) — prompts surface
+
+`srs-mcp` now implements the MCP `prompts` capability: `prompts/list` returns one `Prompt` per installed blueprint (name = blueprint UUID; description = `{namespace}/{name} v{version}: {desc}`); `prompts/get` with a blueprint UUID calls `blueprint_brief_service::blueprint_brief` and returns the rendered markdown as a `Role::User` `PromptMessage`. Both handlers follow the thin-wrapper pattern (one service call each). The `prompts` capability is advertised via `ServerCapabilities::builder().enable_prompts()`. `list_changed` notifications and cursor-based pagination remain follow-up items (srs-rust#749, srs-rust#752).

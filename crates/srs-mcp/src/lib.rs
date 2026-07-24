@@ -5,6 +5,7 @@
 //! input → exactly one `srs-repository` service call → the service's typed
 //! result serialized. No business logic lives here.
 
+mod prompts;
 mod resources;
 pub mod server;
 pub mod tools;
