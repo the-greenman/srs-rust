@@ -1668,9 +1668,9 @@ fn relations_json_includes_both_directions() {
     // cmd_relations --json must return the combined list including the incoming entry.
     let result = gov_json(&repo.path, &["relations", &b_id]);
 
-    let relations = result["relations"]
-        .as_array()
-        .unwrap_or_else(|| panic!("relations --json must return {{\"relations\": [...]}}\n{result}"));
+    let relations = result["relations"].as_array().unwrap_or_else(|| {
+        panic!("relations --json must return {{\"relations\": [...]}}\n{result}")
+    });
 
     let has_supersedes = relations
         .iter()
