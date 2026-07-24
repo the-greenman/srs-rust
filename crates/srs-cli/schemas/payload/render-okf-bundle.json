@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "OkfBundlePayload",
+  "type": "object",
+  "required": [
+    "diagnostics",
+    "fileCount",
+    "outputDir"
+  ],
+  "properties": {
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "fileCount": {
+      "type": "integer",
+      "format": "uint",
+      "minimum": 0.0
+    },
+    "outputDir": {
+      "type": "string"
+    }
+  }
+}

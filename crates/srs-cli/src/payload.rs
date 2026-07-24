@@ -2295,6 +2295,15 @@ pub struct ExportBundlePayload {
     pub diagnostics: Vec<String>,
 }
 
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct OkfBundlePayload {
+    pub file_count: usize,
+    pub output_dir: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<String>,
+}
+
 // ── Archive payloads ──────────────────────────────────────────────────────────
 
 /// Payload for `srs archive pack`.
