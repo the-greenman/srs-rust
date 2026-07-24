@@ -3619,6 +3619,75 @@ mod tests {
     }
 
     #[test]
+    fn validate_document_view_embed_only_root_container_ref_is_not_dangling() {
+        // #744: a document-view section referencing the RFC-013 embed-only root
+        // container (present only in manifest.container, no containerIndex entry)
+        // must resolve via the same embed-fallback every other container operation
+        // uses — it must NOT be reported as a dangling container reference.
+        let temp = TempDir::new().unwrap();
+        // minimal_manifest() embeds root container "...099" with no containerIndex
+        // entry and no container file — this IS the embed-only case.
+        write_json(temp.path(), "manifest.json", &minimal_manifest(json!([])));
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                "id": "00000000-0000-4000-8000-000000000011",
+                "namespace": "com.test",
+                "name": "test-package",
+                "title": "Test Package",
+                "description": "test package",
+                "status": "active",
+                "version": "1.0.0",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "fields": [],
+                "types": [],
+                "views": [],
+                "documentViews": ["document-views/dv.json"]
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/document-views/dv.json",
+            &json!({
+                "id": "00000000-0000-4000-8000-0000000000d3",
+                "namespace": "com.test",
+                "name": "dv-embed-root",
+                "version": 1,
+                "description": "doc view referencing the embed-only root container",
+                "sections": [{
+                    "sectionId": "root-section",
+                    "order": 0,
+                    "source": {
+                        "type": "container-subset",
+                        "containerId": "00000000-0000-4000-8000-000000000099"
+                    },
+                    "emptyBehavior": "hide"
+                }],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        assert!(
+            report.is_ok(),
+            "embed-only root container ref must validate clean: {:?}",
+            report.diagnostics
+        );
+        assert!(
+            !report.diagnostics.iter().any(|d| {
+                d.message.contains("00000000-0000-4000-8000-000000000099")
+                    && d.message.contains("does not resolve to a Container")
+            }),
+            "embed-only root container must not be reported as dangling: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
     fn validate_flags_stale_container_type_hint() {
         // I-64: containerType that does not equal the resolved root Type's bare name
         // produces a Warning; the container (and repo) remain valid.

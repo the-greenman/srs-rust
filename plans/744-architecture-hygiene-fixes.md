@@ -84,6 +84,10 @@ embed-aware via the single `container_service::get_container` helper — no ad h
 - [x] A document view referencing an embed-only RFC-013 root no longer produces a false-positive
   "dangling reference" diagnostic.
 - [x] `resolve_container_title` has no inline reimplementation of embed-fallback logic.
+- [x] A regression test exercises the actual bug scenario (added per Stage-3 architecture review
+  finding): `validate_document_view_embed_only_root_container_ref_is_not_dangling` in
+  `validation.rs`. Verified to fail against the pre-fix code (reproduces the exact false-positive
+  diagnostic) and pass against the fix.
 
 #### Testing
 
@@ -93,7 +97,7 @@ cargo test -p srs-repository --lib
 
 #### Milestone gate
 
-`cargo test -p srs-repository --lib` — 1245 passed, 0 failed. `cargo clippy --workspace -- -D
+`cargo test -p srs-repository --lib` — 1246 passed, 0 failed. `cargo clippy --workspace -- -D
 warnings` clean.
 
 ---
