@@ -9,10 +9,10 @@ use std::future::{ready, Future};
 use std::path::PathBuf;
 
 use rmcp::model::{
-    CallToolRequestParams, CallToolResult, GetPromptRequestParams, GetPromptResult,
-    Implementation, InitializeResult, ListPromptsResult, ListResourceTemplatesResult,
-    ListResourcesResult, ListToolsResult, PaginatedRequestParams, ReadResourceRequestParams,
-    ReadResourceResult, ServerCapabilities, ServerInfo,
+    CallToolRequestParams, CallToolResult, GetPromptRequestParams, GetPromptResult, Implementation,
+    InitializeResult, ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult,
+    ListToolsResult, PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResult,
+    ServerCapabilities, ServerInfo,
 };
 use rmcp::service::RequestContext;
 use rmcp::ErrorData as McpError;
@@ -148,7 +148,11 @@ impl ServerHandler for SrsMcpServer {
         request: GetPromptRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<GetPromptResult, McpError>> + Send + '_ {
-        ready(prompts::get_prompt(self, &request.name, request.arguments.as_ref()))
+        ready(prompts::get_prompt(
+            self,
+            &request.name,
+            request.arguments.as_ref(),
+        ))
     }
 }
 

@@ -38,7 +38,12 @@ pub(crate) fn list_prompts(server: &SrsMcpServer) -> Result<ListPromptsResult, M
         .map(|s| {
             Prompt::new(
                 s.id,
-                Some(prompt_description(&s.namespace, &s.name, s.version, &s.description)),
+                Some(prompt_description(
+                    &s.namespace,
+                    &s.name,
+                    s.version,
+                    &s.description,
+                )),
                 None,
             )
         })
@@ -58,15 +63,18 @@ pub(crate) fn get_prompt(
         ));
     }
     let store = server.open_store();
-    let result =
-        blueprint_brief(&store, BlueprintBriefInput { blueprint_id: name.to_string() }).map_err(
-            |e| match e {
-                RepositoryError::BlueprintNotFound { .. } => {
-                    McpError::invalid_params(format!("prompt not found: {name}"), None)
-                }
-                other => service_err(other),
-            },
-        )?;
+    let result = blueprint_brief(
+        &store,
+        BlueprintBriefInput {
+            blueprint_id: name.to_string(),
+        },
+    )
+    .map_err(|e| match e {
+        RepositoryError::BlueprintNotFound { .. } => {
+            McpError::invalid_params(format!("prompt not found: {name}"), None)
+        }
+        other => service_err(other),
+    })?;
     let rendered = render_brief_markdown(&result);
     // Role::User: blueprint briefs are guidance the agent consumes as
     // user-context — the briefing comes from the requester's side, not as
@@ -84,7 +92,7 @@ mod tests {
     use srs_core::types::blueprint::{Blueprint, TypeRef};
     use srs_repository::blueprint_service::create_blueprint;
     use srs_repository::repository_lifecycle::{
-        InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata, create_repository,
+        create_repository, InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
     };
     use srs_repository::store::FileStore;
     use tempfile::TempDir;
@@ -136,12 +144,18 @@ mod tests {
     #[test]
     fn list_prompts_returns_one_per_blueprint() {
         let (_dir, server) = make_test_server();
-        let r1 =
-            create_blueprint(&server.open_store(), make_blueprint("alpha", "test.ns"), None)
-                .unwrap();
-        let r2 =
-            create_blueprint(&server.open_store(), make_blueprint("beta", "test.ns"), None)
-                .unwrap();
+        let r1 = create_blueprint(
+            &server.open_store(),
+            make_blueprint("alpha", "test.ns"),
+            None,
+        )
+        .unwrap();
+        let r2 = create_blueprint(
+            &server.open_store(),
+            make_blueprint("beta", "test.ns"),
+            None,
+        )
+        .unwrap();
 
         let result = list_prompts(&server).unwrap();
         assert_eq!(result.prompts.len(), 2);
@@ -171,9 +185,12 @@ mod tests {
     #[test]
     fn get_prompt_returns_rendered_markdown() {
         let (_dir, server) = make_test_server();
-        let created =
-            create_blueprint(&server.open_store(), make_blueprint("my-bp", "test.ns"), None)
-                .unwrap();
+        let created = create_blueprint(
+            &server.open_store(),
+            make_blueprint("my-bp", "test.ns"),
+            None,
+        )
+        .unwrap();
         let bp_id = created.blueprint.id.clone();
 
         let result = get_prompt(&server, &bp_id, None).unwrap();
