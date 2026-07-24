@@ -1455,3 +1455,229 @@ fn relate_explain_does_not_write() {
         .unwrap_or(0);
     assert_eq!(count, 0, "--explain must not create any relation");
 }
+
+// ---------------------------------------------------------------------------
+// Phase 5: --json mode assertions for the 5 editing verbs (#741)
+//
+// Guards the regression fixed in 9658dd4: cmd_relations --json was dropping
+// incoming relations. Each test verifies the --json output shape rather than
+// friendly-rendered text, so a JSON shape change is caught immediately.
+// ---------------------------------------------------------------------------
+
+/// Run srs-gov with `--json` prepended to `args` and parse the stdout as JSON.
+fn gov_json(repo: &str, args: &[&str]) -> serde_json::Value {
+    let mut all_args = vec!["--json"];
+    all_args.extend_from_slice(args);
+    let out = gov_out(repo, &all_args);
+    serde_json::from_str(&out)
+        .unwrap_or_else(|e| panic!("srs-gov --json {args:?} produced non-JSON: {e}\n{out}"))
+}
+
+#[test]
+fn create_json_returns_record_instanceid() {
+    let repo = setup_repo("create-json");
+
+    let envelope = gov_json(
+        &repo.path,
+        &[
+            "create",
+            "decision_log",
+            "decision",
+            "--title",
+            "JSON Create Test",
+            "--statement",
+            "verifies --json envelope shape",
+        ],
+    );
+
+    assert_eq!(
+        envelope["ok"].as_bool(),
+        Some(true),
+        "create --json must return ok:true\n{envelope}"
+    );
+    let instance_id = envelope["payload"]["record"]["instanceId"]
+        .as_str()
+        .unwrap_or("");
+    assert!(
+        instance_id.contains('-'),
+        "create --json payload must include a UUID instanceId, got: {instance_id:?}\n{envelope}"
+    );
+}
+
+#[test]
+fn transition_json_returns_updated_lifecycle_state() {
+    let repo = setup_repo("transition-json");
+
+    let list = srs_json(
+        &repo.path,
+        &["record", "list", "--type", "governance/decision"],
+        None,
+    );
+    let draft_id = list["payload"]["records"]
+        .as_array()
+        .expect("records array")
+        .iter()
+        .find(|r| r["record"]["lifecycleState"].as_str() == Some("draft"))
+        .and_then(|r| r["instanceId"].as_str())
+        .expect("draft decision from setup_repo")
+        .to_string();
+
+    let envelope = gov_json(&repo.path, &["transition", &draft_id, "--to", "proposed"]);
+
+    assert_eq!(
+        envelope["ok"].as_bool(),
+        Some(true),
+        "transition --json must return ok:true\n{envelope}"
+    );
+    assert_eq!(
+        envelope["payload"]["record"]["lifecycleState"].as_str(),
+        Some("proposed"),
+        "transition --json payload must include updated lifecycleState\n{envelope}"
+    );
+}
+
+#[test]
+fn relate_json_returns_relation_id() {
+    let repo = setup_repo("relate-json");
+
+    let list = srs_json(
+        &repo.path,
+        &["record", "list", "--type", "governance/decision"],
+        None,
+    );
+    let records = list["payload"]["records"].as_array().expect("records");
+    let a_id = records
+        .iter()
+        .find(|r| r["record"]["lifecycleState"].as_str() == Some("draft"))
+        .and_then(|r| r["instanceId"].as_str())
+        .expect("draft decision A")
+        .to_string();
+    let b_id = records
+        .iter()
+        .find(|r| r["record"]["lifecycleState"].as_str() == Some("ratified"))
+        .and_then(|r| r["instanceId"].as_str())
+        .expect("ratified decision B")
+        .to_string();
+
+    let envelope = gov_json(
+        &repo.path,
+        &["relate", &a_id, "--type", "supersedes", "--target", &b_id],
+    );
+
+    assert_eq!(
+        envelope["ok"].as_bool(),
+        Some(true),
+        "relate --json must return ok:true\n{envelope}"
+    );
+    let relation_id = envelope["payload"]["relation"]["relationId"]
+        .as_str()
+        .unwrap_or("");
+    assert!(
+        relation_id.contains('-'),
+        "relate --json payload must include a UUID relationId, got: {relation_id:?}\n{envelope}"
+    );
+}
+
+#[test]
+fn unrelate_json_returns_ok() {
+    let repo = setup_repo("unrelate-json");
+
+    // Set up: create a relation via srs-gov relate (non-JSON), then get its ID.
+    let list = srs_json(
+        &repo.path,
+        &["record", "list", "--type", "governance/decision"],
+        None,
+    );
+    let records = list["payload"]["records"].as_array().expect("records");
+    let a_id = records
+        .iter()
+        .find(|r| r["record"]["lifecycleState"].as_str() == Some("draft"))
+        .and_then(|r| r["instanceId"].as_str())
+        .expect("draft decision A")
+        .to_string();
+    let b_id = records
+        .iter()
+        .find(|r| r["record"]["lifecycleState"].as_str() == Some("ratified"))
+        .and_then(|r| r["instanceId"].as_str())
+        .expect("ratified decision B")
+        .to_string();
+
+    gov_out(
+        &repo.path,
+        &["relate", &a_id, "--type", "supersedes", "--target", &b_id],
+    );
+
+    let raw_rel = srs_json(&repo.path, &["relation", "list", "--source", &a_id], None);
+    let relation_id = raw_rel["payload"]["relations"]
+        .as_array()
+        .expect("relations array")
+        .iter()
+        .find(|r| r["relationType"].as_str() == Some("supersedes"))
+        .and_then(|r| r["relationId"].as_str())
+        .expect("supersedes relation ID")
+        .to_string();
+
+    let envelope = gov_json(&repo.path, &["unrelate", &relation_id]);
+
+    assert_eq!(
+        envelope["ok"].as_bool(),
+        Some(true),
+        "unrelate --json must return ok:true\n{envelope}"
+    );
+    // The delete payload carries back the deleted relationId.
+    let deleted_id = envelope["payload"]["relationId"].as_str().unwrap_or("");
+    assert_eq!(
+        deleted_id, relation_id,
+        "unrelate --json payload.relationId must match the deleted relation\n{envelope}"
+    );
+}
+
+#[test]
+fn relations_json_includes_both_directions() {
+    // Regression guard for 9658dd4: cmd_relations --json was dropping incoming relations.
+    // Setup: create A→B supersedes. Query from B's perspective (B has an incoming relation).
+    // The --json output must contain the incoming relation even though B has no outgoing ones.
+    let repo = setup_repo("relations-json");
+
+    let list = srs_json(
+        &repo.path,
+        &["record", "list", "--type", "governance/decision"],
+        None,
+    );
+    let records = list["payload"]["records"].as_array().expect("records");
+    let a_id = records
+        .iter()
+        .find(|r| r["record"]["lifecycleState"].as_str() == Some("draft"))
+        .and_then(|r| r["instanceId"].as_str())
+        .expect("draft decision A")
+        .to_string();
+    let b_id = records
+        .iter()
+        .find(|r| r["record"]["lifecycleState"].as_str() == Some("ratified"))
+        .and_then(|r| r["instanceId"].as_str())
+        .expect("ratified decision B")
+        .to_string();
+
+    // Create A → B supersedes relation.
+    gov_out(
+        &repo.path,
+        &["relate", &a_id, "--type", "supersedes", "--target", &b_id],
+    );
+
+    // Query from B: B has no outgoing relations, but has one incoming (from A).
+    // cmd_relations --json must return the combined list including the incoming entry.
+    let result = gov_json(&repo.path, &["relations", &b_id]);
+
+    let relations = result["relations"]
+        .as_array()
+        .unwrap_or_else(|| panic!("relations --json must return {{\"relations\": [...]}}\n{result}"));
+
+    let has_supersedes = relations
+        .iter()
+        .any(|r| r["relationType"].as_str() == Some("supersedes"));
+    assert!(
+        has_supersedes,
+        "relations --json from target B must include the incoming 'supersedes' relation from A — \
+         regression: 9658dd4 fixed cmd_relations --json dropping incoming relations\n{result}"
+    );
+}
