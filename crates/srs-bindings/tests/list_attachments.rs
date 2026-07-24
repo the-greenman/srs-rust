@@ -1,4 +1,4 @@
-use srs_repository::attachment_service::{list_attachments, ListAttachmentsFilter};
+use srs_repository::attachment_service::{add_attachment, AddAttachmentInput, list_attachments, ListAttachmentsFilter};
 use srs_repository::JsonStore;
 
 fn srsj_empty() -> String {
@@ -111,8 +111,6 @@ fn binding_list_attachments_unindexed_file_appears_path_only() {
 
 #[test]
 fn binding_list_attachments_size_bytes_from_binary_content() {
-    use srs_repository::attachment_service::{add_attachment, AddAttachmentInput};
-
     // Start from an empty store so data and binary_files maps stay disjoint (ADR-031).
     // Calling save_binary_file on a path already in data would violate the disjointness
     // invariant and cause list_files_recursive to return the path twice. Note: add_attachment
@@ -140,7 +138,7 @@ fn binding_list_attachments_size_bytes_from_binary_content() {
         Some(9),
         "size_bytes must reflect binary content length (b\"PDF bytes\" = 9)"
     );
-    // Verify camelCase JSON key — this is what WASM consumers receive via to_js
+    // Verify serde rename: the field appears as sizeBytes in JSON output
     let json = serde_json::to_value(&result).expect("ListAttachmentsResult must serialise");
     assert_eq!(
         json["entries"][0]["sizeBytes"].as_u64(),
