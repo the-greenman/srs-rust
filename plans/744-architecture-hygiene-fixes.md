@@ -144,7 +144,10 @@ stderr on invalid-JSON-after-nonzero-exit.
 - [x] `crates/srs-gov/src/main.rs`: extract `resolve_full_instance_id(id, repo)`, use it for both
   source and target in `cmd_relate`.
 - [x] `crates/srs-gov/src/srs.rs`: `run_srs_impl` includes stderr + exit code in the error when
-  JSON parsing fails after a non-zero exit; successful-exit parse-failure message unchanged.
+  JSON parsing fails after a non-zero exit; the successful-exit parse-failure path keeps the same
+  underlying message, with only the raw serde error now appended (`"...not valid JSON: {e}"` vs.
+  the prior context-only string) — corrected per Stage-3 review finding 5, which flagged the
+  original "unchanged" wording as slightly overstated.
 
 #### Acceptance Criteria
 
