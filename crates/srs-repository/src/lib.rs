@@ -29,9 +29,9 @@ pub mod lifecycle_service;
 pub mod loader;
 pub mod manifest;
 pub mod manifest_service;
-pub mod okf_export_service;
 pub mod migrate_identity_service;
 pub mod migration_registry_service;
+pub mod okf_export_service;
 pub mod package;
 pub mod package_install_service;
 pub mod package_service;
@@ -70,8 +70,8 @@ pub mod writer;
 
 pub use archive::{archive_pack, archive_to_tree, archive_to_vec, archive_unpack};
 pub use export_service::{export_record_bundle, ExportBundleInput, ExportBundleMetadata};
-pub use okf_export_service::{export_okf_bundle, OkfBundle, OkfEntry, OkfExportInput};
 pub use json_store::JsonStore;
+pub use okf_export_service::{export_okf_bundle, OkfBundle, OkfEntry, OkfExportInput};
 pub use package::EffectiveLifecycle;
 pub use package_types::{
     validate_package_selector, DefinitionKind, OwnedField, OwnedType, PackageBoundary,
