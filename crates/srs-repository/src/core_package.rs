@@ -290,7 +290,10 @@ mod tests {
             1,
             "must not introduce a second definition under an already-declared key"
         );
-        assert_eq!(matching[0].id, own_contains.id, "repo's own definition wins");
+        assert_eq!(
+            matching[0].id, own_contains.id,
+            "repo's own definition wins"
+        );
     }
 
     #[test]
@@ -329,7 +332,10 @@ mod tests {
             "evidences",
             "precedes",
         ] {
-            assert!(keys.contains(&expected), "must have '{expected}' relation type");
+            assert!(
+                keys.contains(&expected),
+                "must have '{expected}' relation type"
+            );
         }
         for rt in &cp.relation_types {
             assert_eq!(rt.namespace, "com.semanticops.srs");
