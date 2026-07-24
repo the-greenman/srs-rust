@@ -534,10 +534,12 @@ impl SrsRepository {
     /// producing a per-record export document.
     /// Returns `{ "rendered": <string>, "diagnostics": [...], "projection": <json|null> }`.
     /// When `format == "json"`, `projection` is a `DocumentViewProjection` object with shape:
-    /// `{ documentViewId, containerId, generatedAt, containerTitle, preamble?, sections: [{
-    ///   sectionId, title?, order, records: [{ instanceId, typeId, typeNamespace, typeName,
-    ///   recordHeading?, preamble?, fields, orderedFieldKeys, fieldGroups?, relations? }]
-    /// }] }`.
+    /// `{ $schema, documentViewId, containerId: string|null, generatedAt, containerTitle,
+    ///   preamble?, sections: [{ sectionId, title?, order, records: [{ instanceId, typeId,
+    ///   typeNamespace, typeName, recordHeading?, preamble?, fields, orderedFieldKeys,
+    ///   fieldGroups?, relations? }] }] }`.
+    /// `containerId` is always present in the JSON but may be `null` when the view is
+    /// not scoped to a container.
     /// `records[*].relations` is present when the document view defines a `relationsPresentation`;
     /// each entry is `{ label: string, targets: [{ instanceId, displayLabel }] }`.
     /// `records[*].fieldGroups` is present when the record type defines field groups;
