@@ -1060,7 +1060,9 @@ mod tests {
         assert_eq!(ui.field_values[0].source.as_deref(), Some("src"));
         assert_eq!(ui.field_values[0].edited_at.as_deref(), Some("t"));
         assert_eq!(
-            ui.group_values.as_ref().unwrap()[0].entries[0].entry_id.as_deref(),
+            ui.group_values.as_ref().unwrap()[0].entries[0]
+                .entry_id
+                .as_deref(),
             Some("e1")
         );
         assert_eq!(ui.tags, Some(vec!["tag1".to_string()]));

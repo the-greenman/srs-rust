@@ -814,7 +814,10 @@ async fn tool_record_successor_creates_linked_pair() {
     );
     let result = successor.structured_content.as_ref().unwrap();
     let successor_id = result["record"]["instanceId"].as_str().unwrap();
-    assert!(!successor_id.is_empty(), "successor instanceId must be non-empty");
+    assert!(
+        !successor_id.is_empty(),
+        "successor instanceId must be non-empty"
+    );
     assert_eq!(
         result["relation"]["relationType"].as_str(),
         Some("supersedes"),
