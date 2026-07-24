@@ -121,7 +121,7 @@ No entity schemas modified. No action required.
 
 - [ ] Implement `pub fn export_okf_bundle(store: &dyn RepositoryStore, input: OkfExportInput) -> Result<OkfBundle, RepositoryError>`:
 
-  1. Load container: `container_service::get_container(store, &input.container_id)?`. If the container is missing, return `Err(RepositoryError::ContainerNotFound { container_id: input.container_id.clone() })`.
+  1. Load container: `container_service::get_container(store, &input.container_id)?` — `get_container` propagates `RepositoryError::ContainerNotFound { container_id }` via `?` when missing; no explicit error construction needed.
   2. Compute container title: `if !container.title.is_empty() { container.title.clone() } else if let Some(n) = &container.name { n.clone() } else { "index".to_string() }`.
   3. Get member IDs: `container_service::list_container_members(store, &input.container_id)?`.
   4. Load instances: for each `member_id` in member_ids, call `record_store::get_instance_by_id(store, &member_id)` and match:
@@ -234,7 +234,7 @@ Tests to write in `crates/srs-repository/src/okf_export_service.rs` `#[cfg(test)
 
   - `std::fs::create_dir_all(dir)?`
   - For each `entry` in `bundle.entries`:
-    - Render markdown: `format!("---\ntype: {}\nsrs_id: {}\n---\n\n# {}\n\n{}", entry.type_label, entry.instance_id, entry.display_label, body)` where:
+    - Render markdown: `format!("---\ntype: {}\nsrs_id: {}\n---\n\n# {}\n\n{}", entry.type_label, entry.instance_id, entry.display_label, body)` where (note: `type_name` values are snake_case identifiers and `srs_id` values are UUIDs; neither contains YAML-special characters, so unquoted interpolation is safe for OKF v0.1; if special characters are ever needed, switch to `serde_yaml` serialization for the frontmatter block):
       - `body` = if `entry.note_text.is_some()`: `entry.note_text.as_deref().unwrap_or("")` else: `entry.field_pairs.iter().map(|(k, v)| format!("**{}**: {}\n\n", k, v)).collect::<String>()`
     - `std::fs::write(dir.join(&entry.path), rendered.as_bytes())?`
   - Render `index.md`:
@@ -242,26 +242,27 @@ Tests to write in `crates/srs-repository/src/okf_export_service.rs` `#[cfg(test)
     - `std::fs::write(dir.join("index.md"), index_content.as_bytes())?`
   - Return `Ok(bundle.entries.len() + 1)` (entries + index.md)
 
-- [ ] Add handler `fn cmd_render_okf_bundle(ctx: CliContext, container_id: String, output_dir: PathBuf) -> Result<String>` in `commands/render.rs`:
+- [ ] Add handler `fn cmd_render_okf_bundle(ctx: CliContext, container_id: String, output_dir: PathBuf) -> Result<String>` in `commands/render.rs`, following the same `match` pattern as `cmd_render_export_bundle`:
 
   ```rust
   fn cmd_render_okf_bundle(ctx: CliContext, container_id: String, output_dir: PathBuf) -> Result<String> {
-      let bundle = with_store(&ctx, |store| {
-          Ok(srs_repository::export_okf_bundle(
-              store,
-              srs_repository::OkfExportInput { container_id },
-          )?)
-      })?;
-      let file_count = write_okf_bundle_to_dir(&bundle, &output_dir)?;
-      Ok(output::serialize("render okf-bundle", OkfBundlePayload {
-          file_count,
-          output_dir: output_dir.to_string_lossy().into_owned(),
-          diagnostics: bundle.diagnostics,
-      })?)
+      match with_store(&ctx, |store| {
+          Ok(srs_repository::export_okf_bundle(store, srs_repository::OkfExportInput { container_id })?)
+      }) {
+          Ok(bundle) => {
+              let file_count = write_okf_bundle_to_dir(&bundle, &output_dir)?;
+              output::serialize("render okf-bundle", OkfBundlePayload {
+                  file_count,
+                  output_dir: output_dir.to_string_lossy().into_owned(),
+                  diagnostics: bundle.diagnostics,
+              })
+          }
+          Err(e) => Ok(output::err("render okf-bundle", vec![e.to_string()])),
+      }
   }
   ```
 
-  The handler is ≤ 10 lines with no business logic — arg mapping + one service call + one write helper + output::serialize.
+  Service errors become error envelopes (matching the `cmd_render_export_bundle` pattern); file-write errors in the `Ok` arm propagate via `?`.
 
 - [ ] Wire `RenderCommand::OkfBundle { container, output }` in the `dispatch` function in `render.rs`.
 - [ ] Run `cargo run --bin generate-schemas` and commit the new `crates/srs-cli/schemas/payload/okf-bundle.json`.
