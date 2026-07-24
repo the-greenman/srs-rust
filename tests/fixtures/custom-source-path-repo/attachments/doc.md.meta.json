@@ -1,0 +1,7 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/source-document.json",
+  "documentId": "cccccccc-0000-4000-8000-000000000001",
+  "contentPath": "doc.md",
+  "contentType": "text/markdown",
+  "createdAt": "2026-01-01T00:00:00Z"
+}

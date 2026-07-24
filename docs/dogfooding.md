@@ -1879,6 +1879,8 @@ srs repo validate --repo /tmp/dogfood-s31 --pretty
 
 **Verified 2026-07-19 (#619).** `sizeBytes` confirmed populated for both indexed and unindexed files (correct byte counts: 11 for "hello world", 7 for "goodbye", 22 for unindexed manual.pdf). `repo validate`: 0 errors.
 
+**Verified 2026-07-24 (#591) — `sourceDocumentsPath` override.** With `"sourceDocumentsPath": "attachments"` injected into `manifest.json` and a content file placed at `attachments/report.pdf`: `attachment list` returned `entries: [{"path": "report.pdf", "sizeBytes": 12}]` and `sourceDocumentsPath: "attachments"` — store reads the manifest field and scans the custom directory. `repo validate`: 0 errors.
+
 ---
 
 ## S32 — Store a source-document attachment (`srs attachment add`, #280)
