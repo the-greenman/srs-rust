@@ -53,6 +53,30 @@ A drift-check integration test (`tests/core_bundle_drift.rs`) compares the
 embedded artifact against the canonical copy in `srs/packages/com.semanticops.core/`
 when that repo is present, so CI catches staleness.
 
+### Amendment (srs-rust#685): the seven canonical relation types
+
+The bundle also carries `relationTypes[]` — the seven canonical relation types
+(`contains`, `depends-on`, `supersedes`, `refines`, `derived-from`, `evidences`,
+`precedes`) documented in `srs-usage.md` as shipping "in the core package"
+(RFC-005 / relation principle R3). Until #685, `EmbeddedCorePackage` didn't
+deserialize `relationTypes` at all, so every freshly created repo rejected all
+seven with `E1UnknownRelationType`.
+
+Relation types merge with **different conflict semantics than fields/types**,
+because `srs-core`'s `resolve_definition` resolves a relation by bare `key`,
+not by id: two definitions sharing a key with different id/content is an
+`E1Conflict` at relation-validation time, regardless of which package
+contributed which. So the merge skips a canonical relation type whenever the
+repo already has *any* definition — its own, or the same canonical one
+carried over by a prior merge — using that key, rather than matching by id
+the way fields/types do. This is deliberately permissive: a repo's own
+definition always wins, which also covers repos that pre-date #685 and
+worked around the missing canonical types by declaring their own namespaced
+definitions (the documented `srs relation-type create` workaround the issue
+itself calls "a trap for agents"). There is no `CorePackageConflict` error
+path for relation types — key collision is always a silent skip, never a
+hard error.
+
 ## Consequences
 
 **Positive:**
@@ -65,9 +89,10 @@ when that repo is present, so CI catches staleness.
   are updated (#434).
 
 **Negative / trade-offs:**
-- `load_package()` result always contains the core fields and types even if the
-  caller only cares about the repo's own package. This is a minor overhead
-  (2 fields, 1 type) and is unlikely to cause issues.
+- `load_package()` result always contains the core fields, types, and relation
+  types even if the caller only cares about the repo's own package. This is a
+  minor overhead (2 fields, 1 type, 7 relation types) and is unlikely to cause
+  issues.
 - A repo cannot define a `com.semanticops.core/*` type even if it wants to
   experiment; it will get a loud error. This is intentional — the core
   namespace is reserved.

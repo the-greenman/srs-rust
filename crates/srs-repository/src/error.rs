@@ -325,7 +325,7 @@ pub enum RepositoryError {
 
     #[error(
         "repository defines its own {kind} '{qualified_name}' (id: {id}) which conflicts with \
-         the reserved com.semanticops.core namespace"
+         a definition already reserved by the embedded core package"
     )]
     CorePackageConflict {
         kind: String,

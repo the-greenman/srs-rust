@@ -8,6 +8,7 @@
 use serde::Deserialize;
 use srs_core::types::field::Field;
 use srs_core::types::record_type::RecordType;
+use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use std::sync::OnceLock;
 
 use crate::error::RepositoryError;
@@ -28,6 +29,8 @@ pub struct EmbeddedCorePackage {
     pub fields: Vec<Field>,
     #[serde(rename = "types")]
     pub record_types: Vec<RecordType>,
+    #[serde(default)]
+    pub relation_types: Vec<RelationTypeDefinition>,
 }
 
 static CORE_PACKAGE: OnceLock<EmbeddedCorePackage> = OnceLock::new();
@@ -43,20 +46,22 @@ pub fn core_package() -> &'static EmbeddedCorePackage {
     })
 }
 
-/// Merges core fields and types from the embedded `com.semanticops.core` package
-/// into the provided mutable vecs (ADR-025).
+/// Merges core fields, types, and relation types from the embedded `com.semanticops.core`
+/// package into the provided mutable vecs (ADR-025).
 ///
-/// Idempotent: if a field or type is already present with the same id AND the same
-/// `com.semanticops.core` namespace/name (i.e. it came from a prior merge — e.g. via a
-/// repo-copy that serialised the merged package), it is silently skipped.
+/// Idempotent: if a field, type, or relation type is already present with the same id AND the
+/// same namespace/name (or namespace/key for relation types) — i.e. it came from a prior merge,
+/// or (for the seven canonical relation types) from a repo's own package explicitly declaring
+/// them with the same canonical identity — it is silently skipped.
 ///
 /// Unlike the sub-package coalescing path (which silently skips identical duplicates across
-/// all namespaces), this function errors when a repo-defined field/type has the same id as
-/// a core definition but a *different* namespace or name: the `com.semanticops.core`
-/// namespace is reserved and repos must not shadow it.
+/// all namespaces), this function errors when a repo-defined field/type/relation type has the
+/// same id as a core definition but *different* namespace/name/key content: that id is reserved
+/// by the embedded core package and repos must not shadow it with different content.
 pub(crate) fn merge_core_into_package(
     fields: &mut Vec<Field>,
     record_types: &mut Vec<RecordType>,
+    relation_types: &mut Vec<RelationTypeDefinition>,
 ) -> Result<(), RepositoryError> {
     let cp = core_package();
 
@@ -97,6 +102,21 @@ pub(crate) fn merge_core_into_package(
         record_types.push(core_type.clone());
     }
 
+    // Relation types resolve by bare `key` (`resolve_definition` in srs-core), not by id —
+    // two definitions sharing a key but differing in id/namespace/content produce an E1Conflict
+    // at relation-validation time, regardless of which package they came from. So unlike fields
+    // and types (whose reserved-namespace conflict is an id collision), the safe merge rule here
+    // is: skip a canonical relation type whenever the repo already has *any* definition — its
+    // own, or the same canonical one carried over by a prior merge — using that key. A repo's
+    // own definition always wins; this also covers repos that pre-date this fix and worked
+    // around the missing canonical types by declaring their own (srs-rust#685).
+    for core_rt in &cp.relation_types {
+        if relation_types.iter().any(|rt| rt.key == core_rt.key) {
+            continue;
+        }
+        relation_types.push(core_rt.clone());
+    }
+
     Ok(())
 }
 
@@ -132,20 +152,42 @@ mod tests {
         .unwrap()
     }
 
+    fn make_relation_type(
+        id: &str,
+        namespace: &str,
+        key: &str,
+        version: u32,
+    ) -> RelationTypeDefinition {
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "namespace": namespace,
+            "key": key,
+            "version": version,
+            "label": key,
+            "description": "",
+            "category": "other",
+            "createdAt": "2026-01-01T00:00:00Z"
+        }))
+        .unwrap()
+    }
+
     #[test]
     fn merge_core_into_empty_vecs_appends_core_definitions() {
         let mut fields = vec![];
         let mut types = vec![];
-        merge_core_into_package(&mut fields, &mut types).unwrap();
+        let mut relation_types = vec![];
+        merge_core_into_package(&mut fields, &mut types, &mut relation_types).unwrap();
         let cp = core_package();
         assert_eq!(fields.len(), cp.fields.len());
         assert_eq!(types.len(), cp.record_types.len());
+        assert_eq!(relation_types.len(), cp.relation_types.len());
         assert!(fields
             .iter()
             .any(|f| f.namespace == "com.semanticops.core" && f.name == "statement"));
         assert!(types
             .iter()
             .any(|t| t.namespace == "com.semanticops.core" && t.name == "purpose"));
+        assert!(relation_types.iter().any(|rt| rt.key == "depends-on"));
     }
 
     #[test]
@@ -154,10 +196,12 @@ mod tests {
         // Pre-populate with the actual core definitions (as a repo-copy would serialise them).
         let mut fields = cp.fields.clone();
         let mut types = cp.record_types.clone();
+        let mut relation_types = cp.relation_types.clone();
         let field_count_before = fields.len();
         let type_count_before = types.len();
+        let relation_type_count_before = relation_types.len();
 
-        merge_core_into_package(&mut fields, &mut types).unwrap();
+        merge_core_into_package(&mut fields, &mut types, &mut relation_types).unwrap();
 
         assert_eq!(
             fields.len(),
@@ -169,6 +213,11 @@ mod tests {
             type_count_before,
             "idempotent: types must not be duplicated"
         );
+        assert_eq!(
+            relation_types.len(),
+            relation_type_count_before,
+            "idempotent: relation types must not be duplicated"
+        );
     }
 
     #[test]
@@ -178,8 +227,10 @@ mod tests {
         let shadow = make_field(&cp.fields[0].id, "com.shadow", "shadow-field", 1);
         let mut fields = vec![shadow];
         let mut types = vec![];
+        let mut relation_types = vec![];
 
-        let err = merge_core_into_package(&mut fields, &mut types).unwrap_err();
+        let err =
+            merge_core_into_package(&mut fields, &mut types, &mut relation_types).unwrap_err();
         assert!(
             matches!(&err, RepositoryError::CorePackageConflict { kind, qualified_name, .. }
                 if kind == "field" && qualified_name.starts_with("com.shadow/")),
@@ -198,8 +249,10 @@ mod tests {
         );
         let mut fields = vec![];
         let mut types = vec![shadow];
+        let mut relation_types = vec![];
 
-        let err = merge_core_into_package(&mut fields, &mut types).unwrap_err();
+        let err =
+            merge_core_into_package(&mut fields, &mut types, &mut relation_types).unwrap_err();
         assert!(
             matches!(&err, RepositoryError::CorePackageConflict { kind, qualified_name, .. }
                 if kind == "type" && qualified_name.starts_with("com.shadow/")),
@@ -208,10 +261,85 @@ mod tests {
     }
 
     #[test]
+    fn merge_core_skips_canonical_key_when_repo_has_its_own_conflicting_definition() {
+        // Relation types resolve by bare `key`, not by id (srs-core's resolve_definition) — two
+        // definitions sharing a key with different id/content is an E1Conflict at relation-
+        // validation time. Repos that pre-date this fix worked around the missing canonical
+        // types (srs-rust#685) by declaring their own "contains"/"depends-on"/etc under a
+        // different id and namespace. The merge must never introduce that conflict: the repo's
+        // own definition wins and the canonical one is skipped, not appended alongside it.
+        let cp = core_package();
+        let own_contains = make_relation_type(
+            "00000000-0000-4000-8000-000000000999",
+            "com.example",
+            &cp.relation_types[0].key,
+            1,
+        );
+        let mut fields = vec![];
+        let mut types = vec![];
+        let mut relation_types = vec![own_contains.clone()];
+
+        merge_core_into_package(&mut fields, &mut types, &mut relation_types).unwrap();
+
+        let matching: Vec<_> = relation_types
+            .iter()
+            .filter(|rt| rt.key == own_contains.key)
+            .collect();
+        assert_eq!(
+            matching.len(),
+            1,
+            "must not introduce a second definition under an already-declared key"
+        );
+        assert_eq!(
+            matching[0].id, own_contains.id,
+            "repo's own definition wins"
+        );
+    }
+
+    #[test]
+    fn merge_core_skips_relation_type_already_declared_with_same_identity() {
+        // The srs/srs spec repo's own package already declares the seven canonical relation
+        // types with the same id/namespace/key the core bundle carries — the merge must treat
+        // that as already-present and skip, not duplicate or conflict.
+        let cp = core_package();
+        let mut fields = vec![];
+        let mut types = vec![];
+        let mut relation_types = cp.relation_types.clone();
+
+        merge_core_into_package(&mut fields, &mut types, &mut relation_types).unwrap();
+
+        assert_eq!(relation_types.len(), cp.relation_types.len());
+    }
+
+    #[test]
     fn core_package_parses_successfully() {
         let cp = core_package();
         assert_eq!(cp.fields.len(), 2);
         assert_eq!(cp.record_types.len(), 1);
+        assert_eq!(cp.relation_types.len(), 7);
+    }
+
+    #[test]
+    fn core_package_has_expected_relation_types() {
+        let cp = core_package();
+        let keys: Vec<&str> = cp.relation_types.iter().map(|rt| rt.key.as_str()).collect();
+        for expected in [
+            "contains",
+            "depends-on",
+            "supersedes",
+            "refines",
+            "derived-from",
+            "evidences",
+            "precedes",
+        ] {
+            assert!(
+                keys.contains(&expected),
+                "must have '{expected}' relation type"
+            );
+        }
+        for rt in &cp.relation_types {
+            assert_eq!(rt.namespace, "com.semanticops.srs");
+        }
     }
 
     #[test]

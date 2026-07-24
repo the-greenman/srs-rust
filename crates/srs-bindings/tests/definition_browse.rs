@@ -12,7 +12,10 @@
 //!   - 5 types (4 namespace "governance" + 1 from implicit com.semanticops.core merge)
 //!   - 1 L1 view (id "faebd240-83c4-4bc8-a383-8335f841a234", namespace "governance", name "decision-log")
 //!   - 1 package (id "90677fae-16a7-49ec-8aee-1872cbf8e381", namespace "com.limoma", name "governance-core")
-//!   - 4 relation types (namespace "governance", no status set)
+//!   - 8 relation types: 4 namespace "governance" ("delegates", "derived-from", "precedes",
+//!     "evidences" — no status set) + 4 from implicit com.semanticops.core merge ("contains",
+//!     "depends-on", "supersedes", "refines" — the canonical keys gallery doesn't already
+//!     declare itself; "derived-from"/"precedes"/"evidences" are skipped as already-present)
 
 use serde::Deserialize;
 use srs_repository::package_service::{
@@ -281,7 +284,13 @@ fn list_relation_types_returns_all_types() {
     let store = gallery_store();
     let relation_types = list_relation_types_filtered(&store, RelationTypeListFilter::default())
         .expect("list_relation_types must succeed");
-    assert_eq!(relation_types.len(), 4, "gallery has 4 relation types");
+    assert_eq!(
+        relation_types.len(),
+        8,
+        "gallery has 4 of its own relation types plus 4 canonical types merged in from the \
+         implicit core package (the other 3 canonical keys are already declared by gallery \
+         itself and skipped)"
+    );
 }
 
 #[test]
