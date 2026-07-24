@@ -392,6 +392,28 @@ pub fn validate_repository(
         }
     }
 
+    // --- RFC-017 R2/R12: pre-compute attaches doc-id → content-present map ---
+    // Built once before the instance loop; used per-instance to check sourceRefs.
+    let src_docs_base_for_attaches = manifest
+        .source_documents_path
+        .as_deref()
+        .unwrap_or("source-documents");
+    let attaches_doc_id_map: HashMap<String, bool> = manifest
+        .source_document_index
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .map(|entry| {
+            let content_repo_rel =
+                format!("{}/{}", src_docs_base_for_attaches, entry.content_path);
+            let content_present = !matches!(
+                store.file_byte_len(&content_repo_rel),
+                Err(ref e) if e.is_not_found()
+            );
+            (entry.document_id.clone(), content_present)
+        })
+        .collect();
+
     // --- Validate each instanceIndex entry ---
     for entry in &manifest.instance_index {
         let rel_path = entry.path().to_string();
@@ -687,6 +709,50 @@ pub fn validate_repository(
                     schema_id: None,
                     message: "failed to load package for tier-2 semantic validation".to_string(),
                 }),
+            }
+        }
+
+        // --- RFC-017 R2/R12: validate 'attaches' sourceRefs against sourceDocumentIndex ---
+        if let Some(refs_array) = value.get("sourceRefs").and_then(|v| v.as_array()) {
+            for ref_val in refs_array {
+                let source_type = ref_val.get("sourceType").and_then(|v| v.as_str());
+                let source_role = ref_val.get("sourceRole").and_then(|v| v.as_str());
+                if source_type != Some("repository-document")
+                    || source_role != Some("attaches")
+                {
+                    continue;
+                }
+                let source_id = match ref_val.get("sourceId").and_then(|v| v.as_str()) {
+                    Some(id) => id,
+                    None => continue,
+                };
+                match attaches_doc_id_map.get(source_id) {
+                    None => {
+                        diagnostics.push(ValidationDiagnostic {
+                            severity: DiagnosticSeverity::Error,
+                            relative_path: rel_path.clone(),
+                            schema_id: None,
+                            message: format!(
+                                "RFC-017 R2: 'attaches' sourceRef sourceId '{}' does not \
+                                 resolve to any documentId in sourceDocumentIndex",
+                                source_id
+                            ),
+                        });
+                    }
+                    Some(false) => {
+                        diagnostics.push(ValidationDiagnostic {
+                            severity: DiagnosticSeverity::Warning,
+                            relative_path: rel_path.clone(),
+                            schema_id: None,
+                            message: format!(
+                                "RFC-017 R12: 'attaches' sourceRef sourceId '{}' content \
+                                 unavailable (tombstone)",
+                                source_id
+                            ),
+                        });
+                    }
+                    Some(true) => {} // resolved and content present — no diagnostic
+                }
             }
         }
     }
@@ -7593,6 +7659,353 @@ mod tests {
             warns_027.is_empty(),
             "valid relationsPresentation should produce no I-027-2a warnings; got: {:?}",
             warns_027
+        );
+    }
+
+    // ── RFC-017 R2/R12 attaches source-ref validation tests ──────────────────
+
+    const ATTACHES_NOTE_ID: &str = "dd000001-0000-4000-d000-000000000001";
+    const ATTACHES_DOC_ID: &str = "ee000001-0000-4000-e000-000000000001";
+    const ATTACHES_CONTENT_PATH: &str = "my-doc.pdf";
+
+    /// Minimal manifest JSON with an optional sourceDocumentIndex entry and one note.
+    fn attaches_manifest_json(with_index_entry: bool) -> serde_json::Value {
+        let mut m = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+            "srsVersion": "2.0",
+            "repositoryId": "00000000-0000-4000-8000-000000000099",
+            "title": "Attaches Test Repo",
+            "container": {
+                "containerId": "00000000-0000-4000-8000-000000000099",
+                "title": "Attaches Test Repo"
+            },
+            "instanceIndex": [
+                {"instanceId": ATTACHES_NOTE_ID, "tier": 0, "path": "records/note.json"}
+            ],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        if with_index_entry {
+            m["sourceDocumentsPath"] = json!("source-documents");
+            m["sourceDocumentIndex"] = json!([{
+                "documentId": ATTACHES_DOC_ID,
+                "sidecarPath": format!("{}.meta.json", ATTACHES_CONTENT_PATH),
+                "contentPath": ATTACHES_CONTENT_PATH
+            }]);
+        }
+        m
+    }
+
+    /// Build a note JSON with the given sourceRefs array.
+    fn note_with_source_refs(refs: serde_json::Value) -> serde_json::Value {
+        json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+            "instanceId": ATTACHES_NOTE_ID,
+            "sections": [{"name": "body", "content": "test"}],
+            "sourceRefs": refs
+        })
+    }
+
+    /// Build a MemoryStore with the given manifest JSON and note JSON, optionally
+    /// saving a binary content file at `source-documents/<ATTACHES_CONTENT_PATH>`.
+    fn attaches_memory_store(
+        manifest_json: serde_json::Value,
+        note_json: serde_json::Value,
+        content_present: bool,
+    ) -> MemoryStore {
+        use crate::manifest::Manifest;
+        use crate::package::Package;
+        let manifest_str = serde_json::to_string(&manifest_json).unwrap();
+        let manifest: Manifest = serde_json::from_value(manifest_json).unwrap();
+        let package = Package {
+            id: "test-pkg".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![],
+            record_types: vec![],
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = MemoryStore::new(manifest, package)
+            .with_data(
+                "manifest.json",
+                serde_json::Value::String(manifest_str),
+            )
+            .with_data("records/note.json", note_json);
+        if content_present {
+            store
+                .save_binary_file(
+                    &format!("source-documents/{}", ATTACHES_CONTENT_PATH),
+                    b"content",
+                )
+                .unwrap();
+        }
+        store
+    }
+
+    #[test]
+    fn test_attaches_r2_unresolved_source_id() {
+        // sourceRefs points to an unknown documentId → R2 Error
+        let manifest = attaches_manifest_json(false); // no sourceDocumentIndex
+        let note = note_with_source_refs(json!([{
+            "sourceType": "repository-document",
+            "sourceRole": "attaches",
+            "sourceId": "unknown-doc-id"
+        }]));
+        let store = attaches_memory_store(manifest, note, false);
+        let report = validate_repository(&store).unwrap();
+        let r2_errs: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Error && d.message.contains("RFC-017 R2")
+            })
+            .collect();
+        assert_eq!(
+            r2_errs.len(),
+            1,
+            "expected 1 R2 Error for unresolved sourceId, got: {:?}",
+            r2_errs
+        );
+        assert!(
+            r2_errs[0].message.contains("unknown-doc-id"),
+            "message should name the unresolved id, got: {}",
+            r2_errs[0].message
+        );
+    }
+
+    #[test]
+    fn test_attaches_r2_empty_index() {
+        // sourceDocumentIndex is present but empty → R2 Error for attaches ref
+        let mut manifest = attaches_manifest_json(false);
+        manifest["sourceDocumentsPath"] = json!("source-documents");
+        manifest["sourceDocumentIndex"] = json!([]);
+        let note = note_with_source_refs(json!([{
+            "sourceType": "repository-document",
+            "sourceRole": "attaches",
+            "sourceId": ATTACHES_DOC_ID
+        }]));
+        let store = attaches_memory_store(manifest, note, false);
+        let report = validate_repository(&store).unwrap();
+        let r2_errs: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Error && d.message.contains("RFC-017 R2")
+            })
+            .collect();
+        assert_eq!(
+            r2_errs.len(),
+            1,
+            "expected 1 R2 Error for empty index, got: {:?}",
+            r2_errs
+        );
+    }
+
+    #[test]
+    fn test_attaches_r12_tombstone_warning() {
+        // documentId is in the index but content file is absent (tombstone) → R12 Warning
+        let manifest = attaches_manifest_json(true);
+        let note = note_with_source_refs(json!([{
+            "sourceType": "repository-document",
+            "sourceRole": "attaches",
+            "sourceId": ATTACHES_DOC_ID
+        }]));
+        // content_present = false → tombstone
+        let store = attaches_memory_store(manifest, note, false);
+        let report = validate_repository(&store).unwrap();
+        let r12_warns: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Warning && d.message.contains("RFC-017 R12")
+            })
+            .collect();
+        assert_eq!(
+            r12_warns.len(),
+            1,
+            "expected 1 R12 tombstone Warning, got: {:?}",
+            r12_warns
+        );
+        assert!(
+            r12_warns[0].message.contains(ATTACHES_DOC_ID),
+            "message should name the tombstone docId, got: {}",
+            r12_warns[0].message
+        );
+        // Must not be an Error
+        let r2_errs: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Error && d.message.contains("RFC-017 R2")
+            })
+            .collect();
+        assert!(
+            r2_errs.is_empty(),
+            "tombstone must not produce R2 Error, got: {:?}",
+            r2_errs
+        );
+    }
+
+    #[test]
+    fn test_attaches_happy_path_no_diagnostic() {
+        // documentId is in the index and content file is present → no R2/R12 diagnostic
+        let manifest = attaches_manifest_json(true);
+        let note = note_with_source_refs(json!([{
+            "sourceType": "repository-document",
+            "sourceRole": "attaches",
+            "sourceId": ATTACHES_DOC_ID
+        }]));
+        // content_present = true
+        let store = attaches_memory_store(manifest, note, true);
+        let report = validate_repository(&store).unwrap();
+        let r2_r12: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("RFC-017 R2") || d.message.contains("RFC-017 R12"))
+            .collect();
+        assert!(
+            r2_r12.is_empty(),
+            "resolved + present doc must not produce R2/R12 diagnostics, got: {:?}",
+            r2_r12
+        );
+    }
+
+    #[test]
+    fn test_attaches_non_attaches_role_skipped() {
+        // sourceRole != "attaches" → no R2/R12 check even if sourceId is unresolved
+        let manifest = attaches_manifest_json(false);
+        let note = note_with_source_refs(json!([{
+            "sourceType": "repository-document",
+            "sourceRole": "cites",
+            "sourceId": "completely-unknown-id"
+        }]));
+        let store = attaches_memory_store(manifest, note, false);
+        let report = validate_repository(&store).unwrap();
+        let r2_r12: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("RFC-017 R2") || d.message.contains("RFC-017 R12"))
+            .collect();
+        assert!(
+            r2_r12.is_empty(),
+            "non-attaches role must not trigger R2/R12, got: {:?}",
+            r2_r12
+        );
+    }
+
+    #[test]
+    fn test_attaches_no_source_document_index() {
+        // Manifest has no sourceDocumentIndex at all → attaches ref is unresolved → R2 Error
+        let manifest = attaches_manifest_json(false); // no sourceDocumentIndex
+        let note = note_with_source_refs(json!([{
+            "sourceType": "repository-document",
+            "sourceRole": "attaches",
+            "sourceId": ATTACHES_DOC_ID
+        }]));
+        let store = attaches_memory_store(manifest, note, false);
+        let report = validate_repository(&store).unwrap();
+        let r2_errs: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Error && d.message.contains("RFC-017 R2")
+            })
+            .collect();
+        assert_eq!(
+            r2_errs.len(),
+            1,
+            "no index → attaches ref unresolved → R2 Error; got: {:?}",
+            r2_errs
+        );
+    }
+
+    #[test]
+    fn test_record_attaches_r2_via_extra() {
+        // Tier-2 Record with sourceRefs in extra["sourceRefs"] → R2 Error via raw JSON path (ADR-034)
+        let manifest_json = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+            "srsVersion": "2.0",
+            "repositoryId": "00000000-0000-4000-8000-000000000099",
+            "title": "Record Attaches Test",
+            "container": {
+                "containerId": "00000000-0000-4000-8000-000000000099",
+                "title": "Record Attaches Test"
+            },
+            "instanceIndex": [
+                {"instanceId": ATTACHES_NOTE_ID, "tier": 2, "path": "records/rec.json"}
+            ],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        let record_json = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+            "instanceId": ATTACHES_NOTE_ID,
+            "typeId": "ff000001-0000-4000-f000-000000000001",
+            "typeVersion": 1,
+            "typeNamespace": "com.test",
+            "typeName": "test_type",
+            "fieldValues": [],
+            "createdAt": "2026-01-01T00:00:00Z",
+            "sourceRefs": [{
+                "sourceType": "repository-document",
+                "sourceRole": "attaches",
+                "sourceId": "unresolved-record-doc-id"
+            }]
+        });
+        use crate::manifest::Manifest;
+        use crate::package::Package;
+        let manifest_str = serde_json::to_string(&manifest_json).unwrap();
+        let manifest: Manifest = serde_json::from_value(manifest_json).unwrap();
+        let package = Package {
+            id: "test-pkg".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![],
+            record_types: vec![],
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = MemoryStore::new(manifest, package)
+            .with_data(
+                "manifest.json",
+                serde_json::Value::String(manifest_str),
+            )
+            .with_data("records/rec.json", record_json);
+        let report = validate_repository(&store).unwrap();
+        let r2_errs: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Error && d.message.contains("RFC-017 R2")
+            })
+            .collect();
+        assert_eq!(
+            r2_errs.len(),
+            1,
+            "Record.extra sourceRefs must produce R2 Error; got: {:?}",
+            r2_errs
+        );
+        assert!(
+            r2_errs[0].message.contains("unresolved-record-doc-id"),
+            "message should name the unresolved id, got: {}",
+            r2_errs[0].message
         );
     }
 }
