@@ -8008,4 +8008,27 @@ mod tests {
             r2_errs[0].message
         );
     }
+
+    #[test]
+    fn test_attaches_non_repository_doc_source_type_skipped() {
+        // sourceType != "repository-document" with sourceRole="attaches" → no R2/R12 check
+        let manifest = attaches_manifest_json(false);
+        let note = note_with_source_refs(json!([{
+            "sourceType": "external-url",
+            "sourceRole": "attaches",
+            "sourceId": "completely-unknown-id"
+        }]));
+        let store = attaches_memory_store(manifest, note, false);
+        let report = validate_repository(&store).unwrap();
+        let r2_r12: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("RFC-017 R2") || d.message.contains("RFC-017 R12"))
+            .collect();
+        assert!(
+            r2_r12.is_empty(),
+            "non-repository-document sourceType must not trigger R2/R12, got: {:?}",
+            r2_r12
+        );
+    }
 }
