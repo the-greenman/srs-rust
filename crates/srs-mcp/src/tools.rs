@@ -19,10 +19,14 @@ use serde_json::Value;
 use srs_core::types::note::{Note, NoteSection};
 use srs_core::types::record::{FieldGroupEntry, FieldGroupValue, FieldValue, FieldValueEntry};
 use srs_core::types::relation::{AssertedBy, Relation, RelationStatus};
+use srs_repository::container_service;
 use srs_repository::discovery_service::{self, DiscoveryQuery};
-use srs_repository::record_store::{self, CreateRecordInput};
+use srs_repository::record_store::{
+    self, CreateRecordInput, CreateRecordSuccessorInput, FulfillmentNewRecord,
+    TransitionFulfillmentInput, TransitionLifecycleInput, UpdateRecordInput,
+};
 use srs_repository::relation_service;
-use srs_repository::services::{self, CreateNoteInput};
+use srs_repository::services::{self, CreateNoteInput, GraduateNoteInput};
 use srs_repository::type_schema_service::{self, TypeSchemaInput};
 use srs_repository::validation::validate_repository;
 
@@ -36,6 +40,14 @@ pub const TOOL_RECORD_CREATE: &str = "record_create";
 pub const TOOL_RELATION_CREATE: &str = "relation_create";
 pub const TOOL_NOTE_CREATE: &str = "note_create";
 pub const TOOL_TYPE_SCHEMA: &str = "type_schema";
+// Second-wave write tools (#680)
+pub const TOOL_RECORD_UPDATE: &str = "record_update";
+pub const TOOL_RECORD_TRANSITION: &str = "record_transition";
+pub const TOOL_RECORD_ALLOWED_TRANSITIONS: &str = "record_allowed_transitions";
+pub const TOOL_RECORD_SUCCESSOR: &str = "record_successor";
+pub const TOOL_NOTE_GRADUATE: &str = "note_graduate";
+pub const TOOL_CONTAINER_MEMBER_ADD: &str = "container_member_add";
+pub const TOOL_CONTAINER_MEMBER_REMOVE: &str = "container_member_remove";
 
 // ── Tool descriptions — single source (srs-usage.md MCP section mirrors these) ─
 
@@ -77,6 +89,45 @@ carry x-srs-field-id (the UUID to use in record_create fieldValues), x-srs-ai-gu
 x-srs-description, and x-srs-instructions; required fields are listed in 'required'. Read \
 this before creating records of an unfamiliar type — discover typeIds from the type \
 resources in resources/list.";
+
+// Second-wave write tool descriptions (#680)
+pub const DESC_RECORD_UPDATE: &str = "Replace the fieldValues of an existing Tier-2 Record \
+(full replace, not a patch). Provide the complete set of field values you want stored. \
+Optional typeVersion migrates the record to a different type version; omit to keep the \
+stored version. Tag semantics: omit=preserve, []=clear, [...]=replace. Returns the updated \
+Record. Run repo_validate after to confirm consistency.";
+
+pub const DESC_RECORD_TRANSITION: &str = "Transition a record's lifecycle state as defined \
+in its Type's lifecycle. Use record_allowed_transitions first to see which transitions are \
+available. Supply either 'to' (target state key) or 'byTransition' (named transition, e.g. \
+'promote'), not both. RFC-022: when the target state has a requiresRelation obligation, \
+supply 'fulfillment.newRecord' (spawn a successor) or 'fulfillment.existingInstanceId' \
+(adopt an existing instance). Returns the updated record, any warnings (e.g. final-state \
+notice), and the fulfillment artifacts if spawned.";
+
+pub const DESC_RECORD_ALLOWED_TRANSITIONS: &str = "Return the allowed next lifecycle \
+transitions from a record's current state. Returns currentState (empty string if never \
+transitioned), a list of transitions each with name/to/toIsFinal/requiresRelation, and \
+isImmutable. Read this before calling record_transition — an unknown transition is rejected.";
+
+pub const DESC_RECORD_SUCCESSOR: &str = "Create a successor Record and the linking relation \
+in one atomic operation. The successor inherits the predecessor's typeId (and optionally a \
+pinned typeVersion). relationType must be 'supersedes' or 'refines'. Validation is enforced \
+before any write. Returns both the new Record and the linking Relation.";
+
+pub const DESC_NOTE_GRADUATE: &str = "Promote a Tier-0 Note to a typed Tier-2 Record in \
+one atomic step. The Note's graduatedAt is stamped; a new Record is created from the \
+supplied type and fieldValues. Optional containerId adds the Record to a container. The Note \
+is preserved with its graduatedAt timestamp — it is not deleted. Returns both the updated \
+Note and the new Record.";
+
+pub const DESC_CONTAINER_MEMBER_ADD: &str = "Add an instance to a container's \
+memberInstanceIds. Idempotent — adding an already-present member is not an error. Returns \
+the updated memberInstanceIds list.";
+
+pub const DESC_CONTAINER_MEMBER_REMOVE: &str = "Remove an instance from a container's \
+memberInstanceIds. Returns the updated memberInstanceIds list. No-op if the instance is not \
+a member.";
 
 // ── Shadow input structs (see module docs) ────────────────────────────────────
 
@@ -392,6 +443,178 @@ impl From<TypeSchemaToolInput> for TypeSchemaInput {
     }
 }
 
+// ── Second-wave shadow input structs (#680) ───────────────────────────────────
+
+/// Mirrors `record_store::UpdateRecordInput` (plus `instanceId` as a separate
+/// param). Tag semantics: omit=preserve, []=clear, [...]=replace.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecordUpdateToolInput {
+    pub instance_id: String,
+    pub field_values: Vec<FieldValueInput>,
+    #[serde(default)]
+    pub group_values: Option<Vec<FieldGroupValueInput>>,
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
+    #[serde(default)]
+    pub type_version: Option<u32>,
+}
+
+impl From<RecordUpdateToolInput> for UpdateRecordInput {
+    fn from(input: RecordUpdateToolInput) -> Self {
+        UpdateRecordInput {
+            field_values: input.field_values.into_iter().map(Into::into).collect(),
+            group_values: input
+                .group_values
+                .map(|gs| gs.into_iter().map(Into::into).collect()),
+            tags: input.tags,
+            type_version: input.type_version,
+        }
+    }
+}
+
+/// Mirrors `record_store::FulfillmentNewRecord`.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FulfillmentNewRecordInput {
+    pub field_values: Vec<FieldValueInput>,
+    pub type_version: Option<u32>,
+}
+
+impl From<FulfillmentNewRecordInput> for FulfillmentNewRecord {
+    fn from(input: FulfillmentNewRecordInput) -> Self {
+        FulfillmentNewRecord {
+            field_values: input.field_values.into_iter().map(Into::into).collect(),
+            type_version: input.type_version,
+        }
+    }
+}
+
+/// Mirrors `record_store::TransitionFulfillmentInput`.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TransitionFulfillmentToolInput {
+    pub new_record: Option<FulfillmentNewRecordInput>,
+    pub existing_instance_id: Option<String>,
+    pub relation_type: Option<String>,
+}
+
+impl From<TransitionFulfillmentToolInput> for TransitionFulfillmentInput {
+    fn from(input: TransitionFulfillmentToolInput) -> Self {
+        TransitionFulfillmentInput {
+            new_record: input.new_record.map(Into::into),
+            existing_instance_id: input.existing_instance_id,
+            relation_type: input.relation_type,
+        }
+    }
+}
+
+/// Mirrors `record_store::TransitionLifecycleInput` (plus `instanceId` as a
+/// separate param). Supply either `to` or `byTransition`, not both.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecordTransitionToolInput {
+    pub instance_id: String,
+    pub to: Option<String>,
+    pub by_transition: Option<String>,
+    pub fulfillment: Option<TransitionFulfillmentToolInput>,
+}
+
+impl From<RecordTransitionToolInput> for TransitionLifecycleInput {
+    fn from(input: RecordTransitionToolInput) -> Self {
+        TransitionLifecycleInput {
+            to: input.to,
+            by_transition: input.by_transition,
+            fulfillment: input.fulfillment.map(Into::into),
+        }
+    }
+}
+
+/// Read-only companion to `record_transition` — no service conversion needed.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecordAllowedTransitionsToolInput {
+    pub instance_id: String,
+}
+
+/// Mirrors `record_store::CreateRecordSuccessorInput` (plus `predecessorId` as
+/// a separate param).
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecordSuccessorToolInput {
+    pub predecessor_id: String,
+    pub relation_type: String,
+    pub field_values: Vec<FieldValueInput>,
+    pub lifecycle_state: Option<String>,
+    pub type_version: Option<u32>,
+}
+
+impl From<RecordSuccessorToolInput> for CreateRecordSuccessorInput {
+    fn from(input: RecordSuccessorToolInput) -> Self {
+        CreateRecordSuccessorInput {
+            relation_type: input.relation_type,
+            field_values: input.field_values.into_iter().map(Into::into).collect(),
+            lifecycle_state: input.lifecycle_state,
+            type_version: input.type_version,
+        }
+    }
+}
+
+/// Mirrors `services::GraduateNoteInput`. `field_values`, `group_values`, and
+/// `tags` are forwarded into `record_input: CreateRecordInput` on conversion.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NoteGraduateToolInput {
+    pub note_id: String,
+    /// Type in "namespace/name" form (same as `record_create`'s `type` field).
+    #[serde(rename = "type")]
+    pub type_ref: String,
+    pub type_version: Option<u32>,
+    pub field_values: Vec<FieldValueInput>,
+    #[serde(default)]
+    pub group_values: Option<Vec<FieldGroupValueInput>>,
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
+    pub container_id: Option<String>,
+}
+
+impl From<NoteGraduateToolInput> for GraduateNoteInput {
+    fn from(input: NoteGraduateToolInput) -> Self {
+        GraduateNoteInput {
+            note_id: input.note_id,
+            type_ref: input.type_ref,
+            type_version: input.type_version,
+            container_id: input.container_id,
+            record_input: CreateRecordInput {
+                field_values: input.field_values.into_iter().map(Into::into).collect(),
+                group_values: input
+                    .group_values
+                    .map(|gs| gs.into_iter().map(Into::into).collect()),
+                tags: input.tags,
+            },
+        }
+    }
+}
+
+/// Shared by `container_member_add` and `container_member_remove` — fields are
+/// passed directly to the service; no service struct conversion needed (follows
+/// the `EmptyToolInput` / `repo_validate` pattern).
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ContainerMemberToolInput {
+    pub container_id: String,
+    pub instance_id: String,
+}
+
+/// Wraps the `Vec<String>` returned by container membership writes so the MCP
+/// response is a named object (`{memberInstanceIds: [...]}`) rather than a bare
+/// JSON array.
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerMembersToolResult {
+    pub member_instance_ids: Vec<String>,
+}
+
 // ── Tool listing ──────────────────────────────────────────────────────────────
 
 fn input_schema<T: JsonSchema>() -> Arc<JsonObject> {
@@ -429,6 +652,42 @@ pub(crate) fn list_tools() -> ListToolsResult {
             TOOL_TYPE_SCHEMA,
             DESC_TYPE_SCHEMA,
             input_schema::<TypeSchemaToolInput>(),
+        ),
+        // Second-wave write tools (#680)
+        Tool::new(
+            TOOL_RECORD_UPDATE,
+            DESC_RECORD_UPDATE,
+            input_schema::<RecordUpdateToolInput>(),
+        ),
+        Tool::new(
+            TOOL_RECORD_TRANSITION,
+            DESC_RECORD_TRANSITION,
+            input_schema::<RecordTransitionToolInput>(),
+        ),
+        Tool::new(
+            TOOL_RECORD_ALLOWED_TRANSITIONS,
+            DESC_RECORD_ALLOWED_TRANSITIONS,
+            input_schema::<RecordAllowedTransitionsToolInput>(),
+        ),
+        Tool::new(
+            TOOL_RECORD_SUCCESSOR,
+            DESC_RECORD_SUCCESSOR,
+            input_schema::<RecordSuccessorToolInput>(),
+        ),
+        Tool::new(
+            TOOL_NOTE_GRADUATE,
+            DESC_NOTE_GRADUATE,
+            input_schema::<NoteGraduateToolInput>(),
+        ),
+        Tool::new(
+            TOOL_CONTAINER_MEMBER_ADD,
+            DESC_CONTAINER_MEMBER_ADD,
+            input_schema::<ContainerMemberToolInput>(),
+        ),
+        Tool::new(
+            TOOL_CONTAINER_MEMBER_REMOVE,
+            DESC_CONTAINER_MEMBER_REMOVE,
+            input_schema::<ContainerMemberToolInput>(),
         ),
     ])
 }
@@ -512,6 +771,71 @@ pub(crate) fn call_tool(
             let input: TypeSchemaToolInput = parse_args(arguments)?;
             match type_schema_service::type_schema(&store, input.into()) {
                 Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.to_string())),
+            }
+        }
+        // Second-wave write tools (#680)
+        TOOL_RECORD_UPDATE => {
+            let input: RecordUpdateToolInput = parse_args(arguments)?;
+            let instance_id = input.instance_id.clone();
+            match record_store::update_record(&store, &instance_id, input.into()) {
+                Ok(record) => tool_ok(&record),
+                Err(e) => Ok(tool_err(e.to_string())),
+            }
+        }
+        TOOL_RECORD_TRANSITION => {
+            let input: RecordTransitionToolInput = parse_args(arguments)?;
+            let instance_id = input.instance_id.clone();
+            match record_store::transition_record_lifecycle(&store, &instance_id, input.into()) {
+                Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.to_string())),
+            }
+        }
+        TOOL_RECORD_ALLOWED_TRANSITIONS => {
+            let input: RecordAllowedTransitionsToolInput = parse_args(arguments)?;
+            match record_store::get_allowed_lifecycle_transitions(&store, &input.instance_id) {
+                Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.to_string())),
+            }
+        }
+        TOOL_RECORD_SUCCESSOR => {
+            let input: RecordSuccessorToolInput = parse_args(arguments)?;
+            let predecessor_id = input.predecessor_id.clone();
+            match record_store::create_record_successor(&store, &predecessor_id, input.into()) {
+                Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.to_string())),
+            }
+        }
+        TOOL_NOTE_GRADUATE => {
+            let input: NoteGraduateToolInput = parse_args(arguments)?;
+            match services::graduate_note(&store, input.into()) {
+                Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.to_string())),
+            }
+        }
+        TOOL_CONTAINER_MEMBER_ADD => {
+            let input: ContainerMemberToolInput = parse_args(arguments)?;
+            match container_service::add_container_member(
+                &store,
+                &input.container_id,
+                &input.instance_id,
+            ) {
+                Ok(members) => tool_ok(&ContainerMembersToolResult {
+                    member_instance_ids: members,
+                }),
+                Err(e) => Ok(tool_err(e.to_string())),
+            }
+        }
+        TOOL_CONTAINER_MEMBER_REMOVE => {
+            let input: ContainerMemberToolInput = parse_args(arguments)?;
+            match container_service::remove_container_member(
+                &store,
+                &input.container_id,
+                &input.instance_id,
+            ) {
+                Ok(members) => tool_ok(&ContainerMembersToolResult {
+                    member_instance_ids: members,
+                }),
                 Err(e) => Ok(tool_err(e.to_string())),
             }
         }
@@ -671,7 +995,7 @@ mod tests {
     }
 
     #[test]
-    fn list_tools_advertises_all_six_with_schemas() {
+    fn list_tools_advertises_all_thirteen_with_schemas() {
         let tools = list_tools().tools;
         let names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
         assert_eq!(
@@ -682,7 +1006,14 @@ mod tests {
                 TOOL_RECORD_CREATE,
                 TOOL_RELATION_CREATE,
                 TOOL_NOTE_CREATE,
-                TOOL_TYPE_SCHEMA
+                TOOL_TYPE_SCHEMA,
+                TOOL_RECORD_UPDATE,
+                TOOL_RECORD_TRANSITION,
+                TOOL_RECORD_ALLOWED_TRANSITIONS,
+                TOOL_RECORD_SUCCESSOR,
+                TOOL_NOTE_GRADUATE,
+                TOOL_CONTAINER_MEMBER_ADD,
+                TOOL_CONTAINER_MEMBER_REMOVE,
             ]
         );
         for tool in &tools {
@@ -693,5 +1024,160 @@ mod tests {
                 tool.name
             );
         }
+    }
+
+    #[test]
+    fn tool_input_conversion_second_wave_exercises_every_field() {
+        // RecordUpdateToolInput → UpdateRecordInput
+        let upd = RecordUpdateToolInput {
+            instance_id: "iid".into(),
+            field_values: vec![FieldValueInput {
+                field_id: "f1".into(),
+                value: serde_json::Value::String("v1".into()),
+                entries: None,
+                source: Some("src".into()),
+                edited_at: Some("t".into()),
+            }],
+            group_values: Some(vec![FieldGroupValueInput {
+                group_id: "g1".into(),
+                entries: vec![FieldGroupEntryInput {
+                    field_values: vec![FieldValueInput {
+                        field_id: "f2".into(),
+                        value: serde_json::Value::Bool(false),
+                        entries: None,
+                        source: None,
+                        edited_at: None,
+                    }],
+                    entry_id: Some("e1".into()),
+                }],
+            }]),
+            tags: Some(vec!["tag1".into()]),
+            type_version: Some(2),
+        };
+        assert_eq!(upd.instance_id, "iid");
+        let ui: UpdateRecordInput = upd.into();
+        assert_eq!(ui.field_values[0].field_id, "f1");
+        assert_eq!(ui.field_values[0].source.as_deref(), Some("src"));
+        assert_eq!(ui.field_values[0].edited_at.as_deref(), Some("t"));
+        assert_eq!(
+            ui.group_values.as_ref().unwrap()[0].entries[0].entry_id.as_deref(),
+            Some("e1")
+        );
+        assert_eq!(ui.tags, Some(vec!["tag1".to_string()]));
+        assert_eq!(ui.type_version, Some(2));
+
+        // FulfillmentNewRecordInput → FulfillmentNewRecord
+        let fnr = FulfillmentNewRecordInput {
+            field_values: vec![FieldValueInput {
+                field_id: "fx".into(),
+                value: serde_json::Value::Null,
+                entries: None,
+                source: None,
+                edited_at: None,
+            }],
+            type_version: Some(1),
+        };
+        let fr: FulfillmentNewRecord = fnr.into();
+        assert_eq!(fr.field_values[0].field_id, "fx");
+        assert_eq!(fr.type_version, Some(1));
+
+        // TransitionFulfillmentToolInput → TransitionFulfillmentInput
+        let tfi = TransitionFulfillmentToolInput {
+            new_record: Some(FulfillmentNewRecordInput {
+                field_values: vec![],
+                type_version: None,
+            }),
+            existing_instance_id: Some("eid".into()),
+            relation_type: Some("supersedes".into()),
+        };
+        let tf: TransitionFulfillmentInput = tfi.into();
+        assert!(tf.new_record.is_some());
+        assert_eq!(tf.existing_instance_id.as_deref(), Some("eid"));
+        assert_eq!(tf.relation_type.as_deref(), Some("supersedes"));
+
+        // RecordTransitionToolInput → TransitionLifecycleInput (instance_id extracted)
+        let trans = RecordTransitionToolInput {
+            instance_id: "rid".into(),
+            to: Some("active".into()),
+            by_transition: None,
+            fulfillment: Some(TransitionFulfillmentToolInput {
+                new_record: None,
+                existing_instance_id: None,
+                relation_type: None,
+            }),
+        };
+        assert_eq!(trans.instance_id, "rid");
+        let ti: TransitionLifecycleInput = trans.into();
+        assert_eq!(ti.to.as_deref(), Some("active"));
+        assert!(ti.by_transition.is_none());
+        assert!(ti.fulfillment.is_some());
+
+        // RecordAllowedTransitionsToolInput (no conversion — field passed directly)
+        let rat = RecordAllowedTransitionsToolInput {
+            instance_id: "x".into(),
+        };
+        assert_eq!(rat.instance_id, "x");
+
+        // RecordSuccessorToolInput → CreateRecordSuccessorInput (predecessor_id extracted)
+        let succ = RecordSuccessorToolInput {
+            predecessor_id: "pid".into(),
+            relation_type: "supersedes".into(),
+            field_values: vec![FieldValueInput {
+                field_id: "f3".into(),
+                value: serde_json::Value::String("v3".into()),
+                entries: None,
+                source: None,
+                edited_at: None,
+            }],
+            lifecycle_state: Some("draft".into()),
+            type_version: Some(5),
+        };
+        assert_eq!(succ.predecessor_id, "pid");
+        let si: CreateRecordSuccessorInput = succ.into();
+        assert_eq!(si.relation_type, "supersedes");
+        assert_eq!(si.field_values[0].field_id, "f3");
+        assert_eq!(si.lifecycle_state.as_deref(), Some("draft"));
+        assert_eq!(si.type_version, Some(5));
+
+        // NoteGraduateToolInput → GraduateNoteInput
+        // Key: field_values/group_values/tags land in result.record_input, not top-level.
+        let grad = NoteGraduateToolInput {
+            note_id: "nid".into(),
+            type_ref: "ns/nm".into(),
+            type_version: Some(3),
+            field_values: vec![FieldValueInput {
+                field_id: "fg1".into(),
+                value: serde_json::Value::String("grad".into()),
+                entries: None,
+                source: None,
+                edited_at: None,
+            }],
+            group_values: Some(vec![FieldGroupValueInput {
+                group_id: "gg1".into(),
+                entries: vec![],
+            }]),
+            tags: Some(vec!["gtag".into()]),
+            container_id: Some("cid".into()),
+        };
+        let gi: GraduateNoteInput = grad.into();
+        assert_eq!(gi.note_id, "nid");
+        assert_eq!(gi.type_ref, "ns/nm");
+        assert_eq!(gi.type_version, Some(3));
+        assert_eq!(gi.container_id.as_deref(), Some("cid"));
+        // The three forwarded fields must be inside record_input, NOT on GraduateNoteInput:
+        assert_eq!(gi.record_input.field_values[0].field_id, "fg1");
+        assert_eq!(
+            gi.record_input.group_values.as_ref().unwrap()[0].group_id,
+            "gg1"
+        );
+        assert_eq!(gi.record_input.tags, Some(vec!["gtag".to_string()]));
+
+        // ContainerMemberToolInput (no conversion — fields passed directly)
+        let cm = ContainerMemberToolInput {
+            container_id: "c1".into(),
+            instance_id: "i1".into(),
+        };
+        assert_eq!(cm.container_id, "c1");
+        assert_eq!(cm.instance_id, "i1");
     }
 }
