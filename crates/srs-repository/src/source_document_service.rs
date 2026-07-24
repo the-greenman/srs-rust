@@ -145,7 +145,11 @@ mod tests {
             .unwrap();
 
         let result = list_source_documents(&store, ListSourceDocumentsFilter::default()).unwrap();
-        assert_eq!(result.len(), 1, "expected sidecar from custom path 'attachments'");
+        assert_eq!(
+            result.len(),
+            1,
+            "expected sidecar from custom path 'attachments'"
+        );
         assert_eq!(
             result[0].document_id,
             "cccccccc-0000-4000-8000-000000000001"
@@ -153,10 +157,7 @@ mod tests {
 
         // Nothing from the default "source-documents/" path when none exist there
         store
-            .save_text_file(
-                "source-documents/should-not-appear.md.meta.json",
-                meta_json,
-            )
+            .save_text_file("source-documents/should-not-appear.md.meta.json", meta_json)
             .unwrap();
         let result2 = list_source_documents(&store, ListSourceDocumentsFilter::default()).unwrap();
         assert_eq!(
