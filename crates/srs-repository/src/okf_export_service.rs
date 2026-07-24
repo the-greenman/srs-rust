@@ -18,7 +18,7 @@ pub struct OkfEntry {
     pub display_label: String,
     pub instance_id: String,
     pub type_label: String,
-    pub field_pairs: Vec<(String, serde_json::Value)>,
+    pub field_pairs: Vec<(String, String)>,
     pub note_text: Option<String>,
 }
 
@@ -84,7 +84,7 @@ fn okf_entry_from_instance(
                 .iter()
                 .filter_map(|fv| {
                     fni.get(&fv.field_id)
-                        .map(|name| (name.clone(), fv.value.clone()))
+                        .map(|name| (name.clone(), fv.value.to_string()))
                 })
                 .collect();
             OkfEntry {
@@ -333,6 +333,30 @@ mod tests {
     }
 
     #[test]
+    fn note_with_no_title_falls_back_to_id_prefix() {
+        let store = make_store();
+        let note_id = "abcdefgh-1111-4111-8111-111111111111";
+        let n = minimal_note(note_id, None, vec![make_section("main", "Some text")]);
+        store.save_note(&n).unwrap();
+        let c = create_container(&store, minimal_container("", "Fallback")).unwrap();
+        add_member(&store, &c.container_id, note_id).unwrap();
+
+        let bundle = export_okf_bundle(
+            &store,
+            OkfExportInput {
+                container_id: c.container_id.clone(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(bundle.entries.len(), 1);
+        let entry = &bundle.entries[0];
+        // display_label falls back to first 8 chars of instance_id
+        assert_eq!(entry.display_label, &note_id[..8]);
+        assert!(entry.path.ends_with(".md"));
+    }
+
+    #[test]
     fn precedes_relation_orders_members() {
         let store = make_store();
         let r1 = minimal_record("r1-aaaa-0001-0000-0000", Some("2026-01-01T00:00:00Z"));
@@ -379,5 +403,157 @@ mod tests {
         assert_eq!(bundle.entries[0].instance_id, r1.instance_id);
         assert_eq!(bundle.entries[1].instance_id, r2.instance_id);
         assert_eq!(bundle.entries[2].instance_id, r3.instance_id);
+    }
+
+    #[test]
+    fn record_with_field_values_produces_field_pairs() {
+        use crate::manifest::Manifest;
+        use crate::package::Package;
+        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::record::FieldValue;
+        use std::path::PathBuf;
+
+        let field_id = "f-title-0001-0000-0000-0000000000001".to_string();
+        let field = Field {
+            id: field_id.clone(),
+            namespace: "com.test".to_string(),
+            name: "title".to_string(),
+            version: 1,
+            description: String::new(),
+            instructions: None,
+            ai_guidance: serde_json::Value::Null,
+            value_type: ValueType::String,
+            allowed_values: None,
+            vocabulary_ref: None,
+            default_value: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+        let manifest = Manifest {
+            instance_index: vec![],
+            container: None,
+            container_index: None,
+            federation_path: None,
+            upstream_package: None,
+            federation_events_path: None,
+            extra: HashMap::new(),
+            source_documents_path: None,
+            source_document_index: None,
+            root: PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "test-pkg".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![field],
+            record_types: vec![],
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = MemoryStore::new(manifest, package);
+
+        let mut r = minimal_record("rec-field-0001-0000-0000", Some("2026-01-01T00:00:00Z"));
+        r.field_values = vec![FieldValue {
+            field_id: field_id.clone(),
+            value: serde_json::json!("My Title"),
+            entries: None,
+            source: None,
+            edited_at: None,
+        }];
+        store.save_record(&r).unwrap();
+        let c = create_container(&store, minimal_container("", "Fields")).unwrap();
+        add_member(&store, &c.container_id, &r.instance_id).unwrap();
+
+        let bundle = export_okf_bundle(
+            &store,
+            OkfExportInput {
+                container_id: c.container_id.clone(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(bundle.entries.len(), 1);
+        let entry = &bundle.entries[0];
+        assert_eq!(entry.field_pairs.len(), 1);
+        assert_eq!(entry.field_pairs[0].0, "title");
+        // serde_json stringifies strings with surrounding quotes (valid JSON/YAML scalar)
+        assert_eq!(entry.field_pairs[0].1, "\"My Title\"");
+    }
+
+    #[test]
+    fn mixed_record_and_note_precedes_ordering_respected() {
+        let store = make_store();
+        let note_id = "note-mix-0001-0000-0000-000000000001";
+        let rec_id = "rec--mix-0002-0000-0000-000000000001";
+        let n = minimal_note(note_id, Some("First"), vec![make_section("s", "text")]);
+        let r = minimal_record(rec_id, Some("2026-01-02T00:00:00Z"));
+        store.save_note(&n).unwrap();
+        store.save_record(&r).unwrap();
+
+        let c = create_container(&store, minimal_container("", "Mixed")).unwrap();
+        // Add record first, note second — precedes should reverse the order
+        add_member(&store, &c.container_id, &r.instance_id).unwrap();
+        add_member(&store, &c.container_id, &n.instance_id).unwrap();
+
+        let rel_json = serde_json::json!({
+            "relations": [{
+                "relationId": "rel-mix-1",
+                "relationType": "precedes",
+                "sourceInstanceId": note_id,
+                "targetInstanceId": rec_id,
+            }]
+        });
+        store
+            .save_relations_json("relations/relations-collection.json", &rel_json)
+            .unwrap();
+
+        let bundle = export_okf_bundle(
+            &store,
+            OkfExportInput {
+                container_id: c.container_id.clone(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(bundle.entries.len(), 2);
+        assert_eq!(bundle.entries[0].instance_id, note_id);
+        assert_eq!(bundle.entries[0].type_label, "note");
+        assert_eq!(bundle.entries[1].instance_id, rec_id);
+        assert_eq!(bundle.entries[1].type_label, "com.test/item");
+    }
+
+    #[test]
+    fn display_label_that_slugifies_to_empty_uses_bare_id_path() {
+        let store = make_store();
+        let note_id = "abcdefgh-2222-4222-8222-222222222222";
+        // Title consisting only of non-alphanumeric chars → slug is empty
+        let n = minimal_note(note_id, Some("!!!"), vec![]);
+        store.save_note(&n).unwrap();
+        let c = create_container(&store, minimal_container("", "Symbols")).unwrap();
+        add_member(&store, &c.container_id, note_id).unwrap();
+
+        let bundle = export_okf_bundle(
+            &store,
+            OkfExportInput {
+                container_id: c.container_id.clone(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(bundle.entries.len(), 1);
+        let entry = &bundle.entries[0];
+        assert_eq!(entry.display_label, "!!!");
+        // path should be just id8.md when slug is empty
+        let id8 = &note_id[..8];
+        assert_eq!(entry.path, format!("{id8}.md"));
     }
 }

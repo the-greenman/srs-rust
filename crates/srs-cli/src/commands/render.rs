@@ -7,7 +7,7 @@ use crate::payload::{
 };
 use anyhow::Result;
 use srs_repository::export_service::{export_record_bundle, ExportBundleInput};
-use srs_repository::okf_export_service::{OkfBundle, OkfExportInput};
+use srs_repository::okf_export_service::{OkfBundle, OkfEntry, OkfExportInput};
 use srs_repository::render_service::{
     render_document_view, DocumentViewProjection as SvcProjection,
     ProjectedFieldGroup as SvcFieldGroup, ProjectedGroupEntry as SvcGroupEntry,
@@ -225,7 +225,8 @@ fn write_okf_bundle_to_dir(bundle: &OkfBundle, dir: &Path) -> Result<usize> {
     for entry in &bundle.entries {
         let frontmatter = build_frontmatter(entry);
         let body = entry.note_text.as_deref().unwrap_or("").to_string();
-        let content = format!("{frontmatter}\n# {}\n\n{body}", entry.display_label);
+        let heading = entry.display_label.replace('\n', " ").replace('\r', "");
+        let content = format!("{frontmatter}\n# {heading}\n\n{body}");
         std::fs::write(dir.join(&entry.path), content.as_bytes())
             .map_err(|e| anyhow::anyhow!("failed to write {:?}: {}", entry.path, e))?;
         index_lines.push(format!("- [{}]({})", entry.display_label, entry.path));
@@ -238,18 +239,14 @@ fn write_okf_bundle_to_dir(bundle: &OkfBundle, dir: &Path) -> Result<usize> {
     Ok(bundle.entries.len() + 1)
 }
 
-fn build_frontmatter(entry: &srs_repository::OkfEntry) -> String {
+fn build_frontmatter(entry: &OkfEntry) -> String {
     let mut lines = vec![
         "---".to_string(),
         format!("srs_id: {}", entry.instance_id),
         format!("type: {}", entry.type_label),
     ];
     for (name, value) in &entry.field_pairs {
-        let v = match value {
-            serde_json::Value::String(s) => s.clone(),
-            other => other.to_string(),
-        };
-        lines.push(format!("{name}: {v}"));
+        lines.push(format!("{name}: {value}"));
     }
     lines.push("---".to_string());
     lines.join("\n")
