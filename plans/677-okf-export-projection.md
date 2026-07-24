@@ -144,11 +144,11 @@ No entity schemas modified. No action required.
       - `field_pairs`: collect `r.field_values.iter().filter_map(|fv| { if fv.value.is_null() { return None; } let name = fni.get(&fv.field_id).cloned().unwrap_or_else(|| fv.field_id.clone()); Some((name, fv.value.clone())) })` → `Vec<(String, serde_json::Value)>`
       - `note_text = None`
     - `LoadedInstance::Note(n)`:
-      - `display_label`: first 40 chars of `n.text.trim()` if non-empty; else `n.instance_id[..8.min(n.instance_id.len())].to_string()`
+      - `display_label`: `n.title.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(|s| s[..40.min(s.len())].to_string()).unwrap_or_else(|| n.instance_id[..8.min(n.instance_id.len())].to_string())`
       - `type_label = "note".to_string()`
       - `instance_id = n.instance_id.clone()`
       - `field_pairs = vec![]`
-      - `note_text = Some(n.text.clone())`
+      - `note_text = Some(n.sections.iter().map(|s| s.content.as_str()).collect::<Vec<_>>().join("\n\n"))` — concatenated section contents
   - Compute `path`:
     - `let slug = writer::slugify_instance_name(&display_label);`
     - `let id_suffix = &instance_id[..8.min(instance_id.len())];`
@@ -282,6 +282,7 @@ cargo clippy -p srs-cli -- -D warnings
 
 Tests to write:
 - `test_render_okf_bundle_payload_schema` — covered by `cargo test --test payload_contracts`.
+- `test_cmd_render_okf_bundle_writes_files` — integration test (in `tests/` or `#[cfg(test)]` in `render.rs`) that calls `cmd_render_okf_bundle` with a temp directory, verifies `index.md` and at least one entry file are written, and asserts each entry file starts with `---\ntype:` and `index.md` starts with `# `.
 
 #### Milestone gate
 
@@ -304,13 +305,25 @@ Tests to write:
 
 #### Tasks
 
-- [ ] File follow-up issue: "OKF import: ingest a knowledge bundle into SRS records" — label `enhancement`, body explains what was deferred and why (no OKF spec stability, no known consumers). Link under the parent story for srs-rust#677.
-- [ ] File follow-up issue: "WASM binding for export_okf_bundle" — label `enhancement`, body explains what was deferred and why (CLI must be proven first). Link under the parent story for srs-rust#677.
+- [ ] File follow-up issue: "OKF import: ingest a knowledge bundle into SRS records" — label `enhancement`, body explains deferred scope and why (no OKF spec stability, no known consumers yet). Then link to parent story:
+  ```bash
+  node /tmp/gh-project.mjs link srs-rust#677 srs-rust#<new-import-issue>
+  ```
+- [ ] File follow-up issue: "WASM binding for export_okf_bundle" — label `enhancement`, body explains CLI-first rationale and what the future plan needs. Then link to parent story:
+  ```bash
+  node /tmp/gh-project.mjs link srs-rust#677 srs-rust#<new-wasm-issue>
+  ```
 - [ ] Record both issue numbers in the Final Acceptance checklist below.
+
+#### Acceptance Criteria
+
+- [ ] OKF import follow-up issue filed with clear explanation of deferred scope and linked under parent story
+- [ ] WASM binding follow-up issue filed with clear explanation of deferred scope and linked under parent story
+- [ ] Both issue numbers recorded in Final Acceptance (replacing `#___` placeholders)
 
 #### Milestone gate
 
-Both issues filed and parented. Add issue numbers to Final Acceptance.
+All three acceptance criteria met. Add issue numbers to Final Acceptance before proceeding.
 
 ---
 
