@@ -8,6 +8,7 @@ use srs_core::types::protocol::{Protocol, ProtocolDiagnosticSeverity};
 use srs_core::types::record::Record;
 use srs_core::types::relation::RelationsCollection;
 use srs_core::types::source_document_meta::SourceDocumentMeta;
+use srs_core::types::source_reference::{SourceRole, SourceType};
 use srs_core::validation::blueprint::validate_blueprint;
 use srs_core::validation::lifecycle::{
     validate_lifecycle, validate_type_lifecycle_v9, LifecycleDiagnosticSeverity,
@@ -714,9 +715,15 @@ pub fn validate_repository(
         // --- RFC-017 R2/R12: validate 'attaches' sourceRefs against sourceDocumentIndex ---
         if let Some(refs_array) = value.get("sourceRefs").and_then(|v| v.as_array()) {
             for ref_val in refs_array {
-                let source_type = ref_val.get("sourceType").and_then(|v| v.as_str());
-                let source_role = ref_val.get("sourceRole").and_then(|v| v.as_str());
-                if source_type != Some("repository-document") || source_role != Some("attaches") {
+                let source_type = ref_val
+                    .get("sourceType")
+                    .and_then(|v| serde_json::from_value::<SourceType>(v.clone()).ok());
+                let source_role = ref_val
+                    .get("sourceRole")
+                    .and_then(|v| serde_json::from_value::<SourceRole>(v.clone()).ok());
+                if source_type != Some(SourceType::RepositoryDocument)
+                    || source_role != Some(SourceRole::Attaches)
+                {
                     continue;
                 }
                 let source_id = match ref_val.get("sourceId").and_then(|v| v.as_str()) {
@@ -1192,7 +1199,7 @@ pub fn validate_repository(
                 if let Some(known) = checked_ids.get(id) {
                     return *known;
                 }
-                let ok = store.load_container(id).is_ok();
+                let ok = crate::container_service::get_container(store, id).is_ok();
                 checked_ids.insert(id.to_string(), ok);
                 ok
             };
