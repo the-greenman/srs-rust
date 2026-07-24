@@ -1127,6 +1127,61 @@ mod tests {
     }
 
     #[test]
+    fn test_archive_tombstone_roundtrip() {
+        // Tombstone: sidecar present, content file absent — index entry survives pack→unpack.
+        // Verifies ADR-031: tombstone state is valid and must not be lost in archive roundtrip.
+        const SIDECAR_JSON: &str = r#"{"documentId":"tombstone-doc-dddd","contentPath":"gone.pdf","contentType":"application/pdf"}"#;
+
+        let source = init_memory_store();
+        source
+            .save_text_file("source-documents/gone.meta.json", SIDECAR_JSON)
+            .expect("save tombstone sidecar");
+        // Intentionally no save_binary_file("source-documents/gone.pdf") — tombstone state.
+
+        let mut manifest = source.load_manifest().expect("load manifest");
+        manifest.source_documents_path = Some("source-documents".to_string());
+        manifest.source_document_index = Some(vec![
+            srs_core::types::source_document::SourceDocumentIndexEntry {
+                document_id: "tombstone-doc-dddd".to_string(),
+                sidecar_path: "gone.meta.json".to_string(),
+                content_path: "gone.pdf".to_string(),
+                title: None,
+                sidecar_checksum: None,
+                content_checksum: None,
+            },
+        ]);
+        source.save_manifest(&manifest).expect("save manifest");
+
+        let zip_bytes = pack_to_bytes(&source);
+
+        let target = MemoryStore::uninitialized();
+        archive_unpack(Cursor::new(&zip_bytes), &target).expect("unpack failed");
+
+        // Index entry must survive in the restored manifest.
+        let restored = target.load_manifest().expect("load manifest");
+        let idx = restored
+            .source_document_index
+            .as_ref()
+            .expect("sourceDocumentIndex must survive tombstone roundtrip");
+        assert_eq!(idx.len(), 1, "tombstone index entry count");
+        assert_eq!(idx[0].document_id, "tombstone-doc-dddd");
+
+        // Sidecar must be present after roundtrip.
+        let sidecar = target
+            .load_text_file("source-documents/gone.meta.json")
+            .expect("tombstone sidecar must survive roundtrip");
+        let sidecar_val: serde_json::Value = serde_json::from_str(&sidecar).expect("parse sidecar");
+        assert_eq!(sidecar_val["documentId"], "tombstone-doc-dddd");
+
+        // Content file must remain absent — tombstone state preserved.
+        let content_result = target.load_binary_file("source-documents/gone.pdf");
+        assert!(
+            content_result.is_err(),
+            "tombstone content file must remain absent after roundtrip"
+        );
+    }
+
+    #[test]
     fn test_archive_roundtrip_preserves_checksum_metadata() {
         use crate::store::FileStore;
         use tempfile::tempdir;
