@@ -92,8 +92,17 @@ fn run_srs_impl(
         );
     }
 
-    let envelope: Value =
-        serde_json::from_slice(&output.stdout).context("srs output was not valid JSON")?;
+    let envelope: Value = serde_json::from_slice(&output.stdout).map_err(|e| {
+        if !output.status.success() {
+            anyhow::anyhow!(
+                "srs exited {:?} and produced invalid JSON: {e}\nstderr: {}",
+                output.status.code(),
+                String::from_utf8_lossy(&output.stderr)
+            )
+        } else {
+            anyhow::anyhow!("srs output was not valid JSON: {e}")
+        }
+    })?;
 
     if print_raw {
         println!("{}", serde_json::to_string_pretty(&envelope)?);

@@ -1005,19 +1005,12 @@ fn resolve_container_title(
     }
 
     // When a specific container_id was requested but not resolved with a non-empty title
-    // from the index (or the index is absent), fall back to reading the container file directly.
+    // from the index (or the index is absent), fall back to loading the container directly
+    // (embed-only RFC-013 roots resolve here too via the shared service helper).
     if let Some(cid) = container_id {
-        if let Ok(container) = store.load_container(cid) {
+        if let Ok(container) = crate::container_service::get_container(store, cid) {
             if !container.title.is_empty() {
                 return container.title;
-            }
-        }
-        // Embed-only root container: the manifest.container embed is the canonical
-        // repository-identity source (RFC-013) and may carry the title when no
-        // container file exists for the root.
-        if let Some(embed) = &manifest.container {
-            if embed.container_id == cid && !embed.title.is_empty() {
-                return embed.title.clone();
             }
         }
     }

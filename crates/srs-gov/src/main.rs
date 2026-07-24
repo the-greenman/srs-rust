@@ -770,6 +770,15 @@ fn cmd_relations(id: &str, repo: &str, explain: bool, json: bool) -> Result<()> 
 // relate — create a governance relation between two records
 // ---------------------------------------------------------------------------
 
+/// Look up a record by (possibly prefix) id and return its full instance UUID.
+fn resolve_full_instance_id(id: &str, repo: &str) -> Result<String> {
+    let payload = run_srs(&["record", "get", id], repo, false, false)?;
+    payload["record"]["instanceId"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| anyhow::anyhow!("could not resolve instance ID for: {id}"))
+}
+
 fn cmd_relate(
     id: &str,
     relation_type: &str,
@@ -790,17 +799,8 @@ fn cmd_relate(
     }
 
     // Resolve full instance IDs (user may pass prefixes; srs relation create requires full UUIDs)
-    let src_payload = run_srs(&["record", "get", id], repo, false, false)?;
-    let full_source = src_payload["record"]["instanceId"]
-        .as_str()
-        .ok_or_else(|| anyhow::anyhow!("could not resolve instance ID for source: {id}"))?
-        .to_string();
-
-    let tgt_payload = run_srs(&["record", "get", target], repo, false, false)?;
-    let full_target = tgt_payload["record"]["instanceId"]
-        .as_str()
-        .ok_or_else(|| anyhow::anyhow!("could not resolve instance ID for target: {target}"))?
-        .to_string();
+    let full_source = resolve_full_instance_id(id, repo)?;
+    let full_target = resolve_full_instance_id(target, repo)?;
 
     let stdin_json = serde_json::json!({
         "relationType": relation_type,
