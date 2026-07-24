@@ -167,7 +167,10 @@ mod tests {
     }
 
     #[test]
-    fn memory_store_missing_manifest_falls_back_to_default() {
+    fn memory_store_no_source_path_in_manifest_falls_back_to_default() {
+        // MemoryStore::empty() creates a manifest where source_documents_path is None.
+        // The default method's .and_then(|m| m.source_documents_path) yields None and the
+        // fallback "source-documents" is used. This does NOT test a missing manifest.json.
         let store = crate::store::memory::MemoryStore::empty();
         let meta_json = r#"{"documentId":"dddddddd-0000-4000-8000-000000000002","contentPath":"fallback.md","contentType":"text/plain","createdAt":"2026-01-01T00:00:00Z"}"#;
         store
