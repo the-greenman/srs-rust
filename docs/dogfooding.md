@@ -2163,9 +2163,11 @@ EMPTY_RECORD_ID=$($SRS record create --repo $REPO --type "com.example.dogfood/de
 $SRS record attachments --id "$EMPTY_RECORD_ID" --repo $REPO --pretty
 ```
 
-**Done when.** Happy path returns `ok: true` with `instanceId`, `sourceDocumentsPath`, and one attachment entry with all indexed fields (`documentId`, `contentPath`, `sidecarPath`, `title`, `contentChecksum`, `sidecarChecksum`). Unknown ID returns `ok: false` with a "Record not found" diagnostic. Record with no attaches-type sourceRefs returns `ok: true`, `attachments: []`. `repo validate` returns 0 errors throughout.
+**Done when.** Happy path returns `ok: true` with `instanceId`, `sourceDocumentsPath`, and one attachment entry with all indexed fields (`documentId`, `contentPath`, `sidecarPath`, `title`, `contentChecksum`, `sidecarChecksum`, `sizeBytes`). Unknown ID returns `ok: false` with a "Record not found" diagnostic. Record with no attaches-type sourceRefs returns `ok: true`, `attachments: []`. `repo validate` returns 0 errors throughout.
 
 **Verified 2026-07-19 (#618).** Live dogfood run against `/tmp/dogfood-s618`: happy path returned `ok: true`, `instanceId: "3b5964c2-…"`, `sourceDocumentsPath: "source-documents"`, one attachment with `documentId: "03474be2-…"`, `contentPath: "s618-brief.txt"`, `title: "Q3 Brief"`, and both checksums. Unknown ID returned `ok: false`, `diagnostics: ["Record '00000000-…' not found"]`. Record with no sourceRefs returned `ok: true`, `attachments: []`. `repo validate` → 0 errors.
+
+**Verified 2026-07-27 (#645).** Live dogfood run against `/tmp/dogfood-645`: happy path returned `ok: true`, `instanceId`, `sourceDocumentsPath: "source-documents"`, one attachment with all indexed fields including `sizeBytes: 34` (text file "Q3 financial summary for dogfood.\n" = 34 bytes). Unknown ID returned `ok: false`, `diagnostics: ["Record '00000000-…' not found"]`. Record with no sourceRefs returned `ok: true`, `attachments: []`. `repo validate` → 0 errors.
 
 ---
 
@@ -3043,7 +3045,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `attachment list` | S31 |
 | `attachment add` | S32 |
 | `attachment link` | S34 (#283); service-layer tests in `attachment_service.rs` (MemoryStore + FileStore). WASM binding is a follow-up. |
-| `record attachments` (typed service layer for single-record attachment lookup, R5 fix, #618) | S40 (#618); service-layer: 5 unit/integration tests in `attachment_service.rs` (MemoryStore × 3 + FileStore roundtrip + attaches-role filter test); WASM binding (`SrsRepository::get_record_attachments`) verified via 2 integration tests in `crates/srs-bindings/tests/get_record_attachments.rs` |
+| `record attachments` (typed service layer for single-record attachment lookup, R5 fix, #618; `sizeBytes` added #645) | S40 (#618, #645); service-layer: 7 unit/integration tests in `attachment_service.rs` (MemoryStore × 3 + FileStore roundtrip + attaches-role filter test + `test_get_record_attachments_size_bytes_roundtrip` + updated FileStore roundtrip assertion); WASM binding (`SrsRepository::get_record_attachments`) verified via 2 integration tests in `crates/srs-bindings/tests/get_record_attachments.rs` |
 | `attachment resolve-view-attachments` (resolve sourceRefs attachments for a set of record IDs, RFC-017 Rev 3 [R1]) | S36 (#286); service-layer tests in `attachment_service.rs` (MemoryStore + FileStore, 7 tests); WASM binding (`SrsRepository::resolve_document_view_attachments`) verified via 2 integration tests in `crates/srs-bindings/tests/resolve_view_attachments.rs` |
 | `attachment policy-get` (read optional `com.semanticops.base/repo_settings` policy; defaults when absent, #281) | S39 (#281); service-layer: 11 unit tests in `attachment_policy_service.rs` (MemoryStore + FileStore roundtrip, all field types, missing package, multiple records, `allowedMimeTypes` as array/JSON-string/plain-string/malformed). WASM binding deferred to #638. |
 | `srs-gov attachment add` / `srs-gov attachment list` | S33 |
