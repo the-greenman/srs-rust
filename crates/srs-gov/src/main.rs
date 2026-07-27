@@ -539,7 +539,7 @@ fn resolve_linked_attachments(instance_id: &str, repo: &str) -> Vec<render::Link
             document_id: e["documentId"].as_str().unwrap_or_default().to_string(),
             title: e["title"].as_str().map(String::from),
             content_path: e["contentPath"].as_str().map(String::from),
-            size_bytes: None,
+            size_bytes: e["sizeBytes"].as_u64(),
         })
         .collect()
 }
