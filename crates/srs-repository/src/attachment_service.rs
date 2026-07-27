@@ -412,6 +412,8 @@ pub struct ResolvedAttachment {
     pub content_checksum: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sidecar_checksum: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -486,6 +488,11 @@ pub fn resolve_document_view_attachments(
             })
             .map(|r| {
                 let idx = index_map.get(r.source_id.as_str());
+                let size_bytes = idx.and_then(|e| {
+                    store
+                        .file_byte_len(&format!("{src_docs_base}/{}", e.content_path))
+                        .ok()
+                });
                 ResolvedAttachment {
                     document_id: r.source_id,
                     content_path: idx.map(|e| e.content_path.clone()),
@@ -493,6 +500,7 @@ pub fn resolve_document_view_attachments(
                     title: idx.and_then(|e| e.title.clone()),
                     content_checksum: idx.and_then(|e| e.content_checksum.clone()),
                     sidecar_checksum: idx.and_then(|e| e.sidecar_checksum.clone()),
+                    size_bytes,
                 }
             })
             .collect();
@@ -577,6 +585,11 @@ pub fn get_record_attachments(
         })
         .map(|r| {
             let idx = index_map.get(r.source_id.as_str());
+            let size_bytes = idx.and_then(|e| {
+                store
+                    .file_byte_len(&format!("{src_docs_base}/{}", e.content_path))
+                    .ok()
+            });
             ResolvedAttachment {
                 document_id: r.source_id,
                 content_path: idx.map(|e| e.content_path.clone()),
@@ -584,6 +597,7 @@ pub fn get_record_attachments(
                 title: idx.and_then(|e| e.title.clone()),
                 content_checksum: idx.and_then(|e| e.content_checksum.clone()),
                 sidecar_checksum: idx.and_then(|e| e.sidecar_checksum.clone()),
+                size_bytes,
             }
         })
         .collect();
@@ -2355,5 +2369,147 @@ mod tests {
         assert_eq!(att.sidecar_path.as_deref(), Some("slides.meta.json"));
         assert_eq!(att.title.as_deref(), Some("Conference Slides"));
         assert_eq!(att.content_checksum.as_deref(), Some("sha256:xyz"));
+        // File was not written to disk in this test — size_bytes is None.
+        assert!(att.size_bytes.is_none(), "size_bytes must be None when file does not exist on disk");
+    }
+
+    /// Cross-store roundtrip for `size_bytes` (ADR-010 cross-store roundtrip requirement):
+    /// MemoryStore with index entry but no binary blob → `size_bytes` is `None`;
+    /// FileStore with the actual file written → `size_bytes` is `Some(n)`.
+    #[test]
+    fn test_get_record_attachments_size_bytes_roundtrip() {
+        // ── MemoryStore half ──────────────────────────────────────────────────
+        // store_with_doc_and_record creates an index entry for "brief.pdf" but
+        // does NOT register any binary data, so file_byte_len returns Err → None.
+        let doc_id = "doc-size-bytes-001";
+        let record_id = "cccc0001-0000-4000-8000-000000000001";
+        let mem_store = {
+            let manifest = Manifest {
+                source_document_index: Some(vec![SourceDocumentIndexEntry {
+                    document_id: doc_id.to_string(),
+                    sidecar_path: "brief.meta.json".to_string(),
+                    content_path: "brief.pdf".to_string(),
+                    title: Some("Brief".to_string()),
+                    sidecar_checksum: None,
+                    content_checksum: None,
+                }]),
+                instance_index: vec![InstanceIndexEntry {
+                    instance_id: record_id.to_string(),
+                    tier: 2,
+                    path: "records/tier-2/test-record-cccc0001.json".to_string(),
+                    title: None,
+                    tags: None,
+                }],
+                ..Manifest::default()
+            };
+            let s = store_with_manifest(manifest);
+            s.save_instance_json(
+                "records/tier-2/test-record-cccc0001.json",
+                &serde_json::json!({
+                    "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                    "instanceId": record_id,
+                    "typeId": "type-test-001",
+                    "typeVersion": 1,
+                    "typeNamespace": "com.test",
+                    "typeName": "test-type",
+                    "fieldValues": [],
+                    "sourceRefs": [{
+                        "sourceType": "repository-document",
+                        "sourceId": doc_id,
+                        "sourceRole": "attaches"
+                    }]
+                }),
+            )
+            .unwrap();
+            s
+        };
+        let mem_result = get_record_attachments(
+            &mem_store,
+            GetRecordAttachmentsInput {
+                instance_id: record_id.to_string(),
+            },
+        )
+        .unwrap()
+        .expect("record exists in MemoryStore");
+        assert_eq!(mem_result.attachments.len(), 1);
+        assert!(
+            mem_result.attachments[0].size_bytes.is_none(),
+            "MemoryStore with no binary blob: size_bytes must be None"
+        );
+
+        // ── FileStore half ────────────────────────────────────────────────────
+        use crate::store::FileStore;
+        use tempfile::TempDir;
+
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        std::fs::create_dir_all(root.join(".srs")).unwrap();
+        let manifest_json = serde_json::json!({
+            "instanceIndex": [{
+                "instanceId": record_id,
+                "tier": 2,
+                "path": "records/tier-2/test-record-cccc0001.json"
+            }],
+            "sourceDocumentIndex": [{
+                "documentId": doc_id,
+                "sidecarPath": "brief.meta.json",
+                "contentPath": "brief.pdf",
+                "title": "Brief"
+            }]
+        });
+        std::fs::write(
+            root.join("manifest.json"),
+            serde_json::to_string(&manifest_json).unwrap(),
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("package")).unwrap();
+        std::fs::write(
+            root.join("package/package.json"),
+            serde_json::json!({
+                "id": "size-bytes-pkg", "namespace": "com.test", "name": "test",
+                "version": "1.0.0", "fields": [], "types": []
+            })
+            .to_string(),
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("records/tier-2")).unwrap();
+        std::fs::write(
+            root.join("records/tier-2/test-record-cccc0001.json"),
+            serde_json::json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                "instanceId": record_id,
+                "typeId": "type-test-001",
+                "typeVersion": 1,
+                "typeNamespace": "com.test",
+                "typeName": "test-type",
+                "fieldValues": [],
+                "sourceRefs": [{
+                    "sourceType": "repository-document",
+                    "sourceId": doc_id,
+                    "sourceRole": "attaches"
+                }]
+            })
+            .to_string(),
+        )
+        .unwrap();
+        // Write the actual source document file (9 bytes of PDF-like content).
+        std::fs::create_dir_all(root.join("source-documents")).unwrap();
+        std::fs::write(root.join("source-documents/brief.pdf"), b"pdf bytes").unwrap();
+
+        let file_store = FileStore::new(root);
+        let file_result = get_record_attachments(
+            &file_store,
+            GetRecordAttachmentsInput {
+                instance_id: record_id.to_string(),
+            },
+        )
+        .unwrap()
+        .expect("record exists on FileStore");
+        assert_eq!(file_result.attachments.len(), 1);
+        assert_eq!(
+            file_result.attachments[0].size_bytes,
+            Some(9),
+            "FileStore: size_bytes must equal file length (b\"pdf bytes\" = 9 bytes)"
+        );
     }
 }
