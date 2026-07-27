@@ -1093,7 +1093,7 @@ impl SrsRepository {
     ///
     /// `input_json` is `{"instanceIds": ["<uuid>", ...]}` (from a rendered document_view).
     /// Returns `{sourceDocumentsPath, records: [{instanceId, attachments: [{documentId,
-    /// contentPath, sidecarPath, title?, contentChecksum?, sidecarChecksum?}]}]}`.
+    /// contentPath, sidecarPath, title?, contentChecksum?, sidecarChecksum?, sizeBytes?}]}]}`.
     pub fn resolve_document_view_attachments(&self, input_json: &str) -> Result<JsValue, JsValue> {
         let input: ResolveDocumentViewAttachmentsInput =
             serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
@@ -1107,7 +1107,7 @@ impl SrsRepository {
     /// `input_json` is `{"instanceId": "<uuid>"}`.
     /// Returns `null` when the record is not found, or
     /// `{instanceId, sourceDocumentsPath, attachments: [{documentId, contentPath?,
-    /// sidecarPath?, title?, contentChecksum?, sidecarChecksum?}]}` as a JS value.
+    /// sidecarPath?, title?, contentChecksum?, sidecarChecksum?, sizeBytes?}]}` as a JS value.
     pub fn get_record_attachments(&self, input_json: &str) -> Result<JsValue, JsValue> {
         let input: GetRecordAttachmentsInput =
             serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;

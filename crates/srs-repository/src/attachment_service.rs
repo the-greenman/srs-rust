@@ -2004,6 +2004,7 @@ mod tests {
         assert_eq!(att.sidecar_path.as_deref(), Some("brief.meta.json"));
         assert_eq!(att.title.as_deref(), Some("Roundtrip Brief"));
         assert_eq!(att.content_checksum.as_deref(), Some("sha256:abc"));
+        assert!(att.size_bytes.is_none(), "size_bytes must be None when source file not written to disk");
     }
 
     // ── get_attachment_bytes tests ────────────────────────────────────────────
