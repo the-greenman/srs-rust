@@ -2004,7 +2004,10 @@ mod tests {
         assert_eq!(att.sidecar_path.as_deref(), Some("brief.meta.json"));
         assert_eq!(att.title.as_deref(), Some("Roundtrip Brief"));
         assert_eq!(att.content_checksum.as_deref(), Some("sha256:abc"));
-        assert!(att.size_bytes.is_none(), "size_bytes must be None when source file not written to disk");
+        assert!(
+            att.size_bytes.is_none(),
+            "size_bytes must be None when source file not written to disk"
+        );
     }
 
     // ── get_attachment_bytes tests ────────────────────────────────────────────
@@ -2371,7 +2374,10 @@ mod tests {
         assert_eq!(att.title.as_deref(), Some("Conference Slides"));
         assert_eq!(att.content_checksum.as_deref(), Some("sha256:xyz"));
         // File was not written to disk in this test — size_bytes is None.
-        assert!(att.size_bytes.is_none(), "size_bytes must be None when file does not exist on disk");
+        assert!(
+            att.size_bytes.is_none(),
+            "size_bytes must be None when file does not exist on disk"
+        );
     }
 
     /// Cross-store roundtrip for `size_bytes` (ADR-010 cross-store roundtrip requirement):
