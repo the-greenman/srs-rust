@@ -55,6 +55,14 @@
             "null"
           ]
         },
+        "sizeBytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
         "title": {
           "type": [
             "string",

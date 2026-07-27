@@ -2172,6 +2172,8 @@ pub struct ResolvedAttachmentPayload {
     pub content_checksum: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sidecar_checksum: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size_bytes: Option<u64>,
 }
 
 impl From<srs_repository::attachment_service::ResolvedAttachment> for ResolvedAttachmentPayload {
@@ -2183,6 +2185,7 @@ impl From<srs_repository::attachment_service::ResolvedAttachment> for ResolvedAt
             title: a.title,
             content_checksum: a.content_checksum,
             sidecar_checksum: a.sidecar_checksum,
+            size_bytes: a.size_bytes,
         }
     }
 }
