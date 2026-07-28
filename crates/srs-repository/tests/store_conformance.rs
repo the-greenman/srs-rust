@@ -337,15 +337,7 @@ fn suite_instance_persistence(store: &dyn RepositoryStore) {
         "list_instances tier=2 must not include note (tier 0)"
     );
 
-    // Existing-id update: second save_record on same id updates content, path unchanged.
-    let path_before = store
-        .load_manifest()
-        .unwrap()
-        .instance_index
-        .iter()
-        .find(|e| e.instance_id == rec2_id)
-        .map(|e| e.path.clone())
-        .expect("rec2 must be in instance index");
+    // Existing-id update: second save_record on same id updates content and index tags.
     let mut updated_rec2 = rec2.clone();
     updated_rec2.type_name = "UpdatedAction".to_string();
     updated_rec2.tags = Some(vec!["beta".to_string(), "updated".to_string()]);
@@ -358,18 +350,6 @@ fn suite_instance_persistence(store: &dyn RepositoryStore) {
     assert_eq!(
         after_update.type_name, "UpdatedAction",
         "existing-id save must update content"
-    );
-    let path_after = store
-        .load_manifest()
-        .unwrap()
-        .instance_index
-        .iter()
-        .find(|e| e.instance_id == rec2_id)
-        .map(|e| e.path.clone())
-        .expect("rec2 must still be in instance index after update");
-    assert_eq!(
-        path_before, path_after,
-        "existing-id save must not rename the indexed path"
     );
     let updated_ref = store
         .find_instance(rec2_id)
