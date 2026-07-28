@@ -297,10 +297,10 @@ fn resolve_brief_type(
     for fa in &field_assignments {
         match get_field_by_id(store, &fa.field_id)? {
             GetFieldResult::Found(field) => {
-                let field_ai = if field.ai_guidance.is_null() {
+                let field_ai = if field.ai_guidance.purpose.is_empty() {
                     None
                 } else {
-                    Some(field.ai_guidance.clone())
+                    serde_json::to_value(&field.ai_guidance).ok()
                 };
                 let value_type = serde_json::to_value(&field.value_type)
                     .ok()
@@ -440,7 +440,7 @@ mod tests {
     use crate::protocol_service::{import_protocol, ImportProtocolInput};
     use crate::store::memory::MemoryStore;
     use srs_core::types::blueprint::{Blueprint, RelationSpec, TypeRef};
-    use srs_core::types::field::{Field, ValueType};
+    use srs_core::types::field::{AiGuidance, Field, ValueType};
     use srs_core::types::record_type::{FieldAssignment, RecordType};
     use std::collections::HashMap;
     use std::path::PathBuf;
@@ -490,11 +490,19 @@ mod tests {
             version: 1,
             description: format!("A {name}"),
             instructions: None,
-            ai_guidance: serde_json::json!({ "purpose": format!("captures the {name}") }),
+            ai_guidance: AiGuidance {
+                purpose: format!("captures the {name}"),
+                ..Default::default()
+            },
+            content_format: None,
             value_type: vt,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         }
@@ -818,11 +826,16 @@ mod tests {
                 version: 1,
                 description: format!("{name} field"),
                 instructions: None,
-                ai_guidance: serde_json::Value::Null,
+                ai_guidance: AiGuidance::default(),
+                content_format: None,
                 value_type: *vt,
                 allowed_values: None,
                 vocabulary_ref: None,
                 default_value: None,
+                editor_hint: None,
+                tags: None,
+                lineage: None,
+                provenance: None,
                 created_at: "2026-01-01T00:00:00Z".to_string(),
                 extra: HashMap::new(),
             })

@@ -131,7 +131,7 @@ mod tests {
             "name": name,
             "version": version,
             "description": "",
-            "aiGuidance": null,
+            "aiGuidance": {"purpose": ""},
             "valueType": "string",
             "createdAt": "2026-01-01T00:00:00Z"
         }))

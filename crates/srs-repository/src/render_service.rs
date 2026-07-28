@@ -3418,7 +3418,7 @@ mod tests {
         use crate::package::Package;
         use crate::record_store::create_record;
         use crate::relation_service;
-        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, ValueType};
         use srs_core::types::record_type::{FieldAssignment, RecordType};
         use srs_core::types::relation::Relation;
         use srs_core::types::view::{
@@ -3433,10 +3433,15 @@ mod tests {
             value_type: ValueType::String,
             description: "Heading".to_string(),
             instructions: None,
-            ai_guidance: serde_json::json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -3448,10 +3453,15 @@ mod tests {
             value_type: ValueType::Text,
             description: "Body text".to_string(),
             instructions: None,
-            ai_guidance: serde_json::json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -3463,10 +3473,15 @@ mod tests {
             value_type: ValueType::String,
             description: "Caption for tables".to_string(),
             instructions: None,
-            ai_guidance: serde_json::json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -4131,7 +4146,7 @@ mod tests {
     ) -> crate::store::memory::MemoryStore {
         use crate::package::Package;
         use crate::record_store::create_record;
-        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, ValueType};
         use srs_core::types::record::{FieldGroupEntry, FieldGroupValue, FieldValue};
         use srs_core::types::record_type::{FieldAssignment, FieldGroup, RecordType};
         use srs_core::types::view::{DocumentSection, DocumentView, EmptyBehavior, SectionSource};
@@ -4144,10 +4159,15 @@ mod tests {
             value_type: ValueType::String,
             description: name.to_string(),
             instructions: None,
-            ai_guidance: serde_json::json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -4432,7 +4452,7 @@ mod tests {
     fn caption_template_html_escapes_label_value() {
         use crate::package::Package;
         use crate::record_store::create_record;
-        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, ValueType};
         use srs_core::types::record::{FieldGroupEntry, FieldGroupValue, FieldValue};
         use srs_core::types::record_type::{FieldAssignment, FieldGroup, RecordType};
         use srs_core::types::theme::{ElementTemplates, Theme};
@@ -4446,10 +4466,15 @@ mod tests {
             value_type: ValueType::String,
             description: name.to_string(),
             instructions: None,
-            ai_guidance: serde_json::json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -4715,7 +4740,7 @@ mod tests {
         use crate::index::InstanceIndexEntry;
         use crate::package::Package;
         use srs_core::types::container::Container;
-        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, ValueType};
         use srs_core::types::record::{FieldValue, Record};
         use srs_core::types::record_type::{FieldAssignment, RecordType};
         use srs_core::types::view::{
@@ -4730,10 +4755,15 @@ mod tests {
             value_type: ValueType::String,
             description: "Heading".to_string(),
             instructions: None,
-            ai_guidance: serde_json::json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -5051,7 +5081,7 @@ mod tests {
         extra_variants: Vec<srs_core::types::view::ThemeVariant>,
         extra_themes: Vec<srs_core::types::theme::Theme>,
     ) -> crate::store::memory::MemoryStore {
-        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, ValueType};
         use srs_core::types::record_type::{FieldAssignment, RecordType};
         use srs_core::types::theme::{ElementTemplates, Theme};
         use srs_core::types::view::{
@@ -5066,10 +5096,15 @@ mod tests {
             value_type: ValueType::Text,
             description: "Body".to_string(),
             instructions: None,
-            ai_guidance: serde_json::json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -5449,7 +5484,7 @@ mod tests {
         use crate::package::Package;
         use crate::record_store::create_record;
         use crate::relation_service;
-        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, ValueType};
         use srs_core::types::record_type::{FieldAssignment, RecordType};
         use srs_core::types::relation::Relation;
         use srs_core::types::view::{FieldView, View};
@@ -5462,10 +5497,15 @@ mod tests {
             value_type: ValueType::String,
             description: "Heading".to_string(),
             instructions: None,
-            ai_guidance: serde_json::json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -5477,10 +5517,15 @@ mod tests {
             value_type: ValueType::Text,
             description: "Body text".to_string(),
             instructions: None,
-            ai_guidance: serde_json::json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -5492,10 +5537,15 @@ mod tests {
             value_type: ValueType::String,
             description: "Caption for tables".to_string(),
             instructions: None,
-            ai_guidance: serde_json::json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -6999,7 +7049,7 @@ mod tests {
     ) {
         use crate::package::Package;
         use crate::record_store::create_record;
-        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, ValueType};
         use srs_core::types::record_type::{FieldAssignment, RecordType};
         use srs_core::types::view::{DocumentSection, DocumentView, EmptyBehavior, SectionSource};
 
@@ -7011,10 +7061,15 @@ mod tests {
             value_type: ValueType::String,
             description: "Heading field".to_string(),
             instructions: None,
-            ai_guidance: serde_json::json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -7027,10 +7082,15 @@ mod tests {
             description: "Other field (used as explicit titleFieldId in precedence test)"
                 .to_string(),
             instructions: None,
-            ai_guidance: serde_json::json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -7608,7 +7668,7 @@ mod tests {
         srs_core::types::field::Field,
         srs_core::types::record_type::RecordType,
     ) {
-        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, ValueType};
         use srs_core::types::record_type::{FieldAssignment, RecordType};
 
         let heading_field = Field {
@@ -7619,10 +7679,15 @@ mod tests {
             value_type: ValueType::String,
             description: "Heading".to_string(),
             instructions: None,
-            ai_guidance: serde_json::json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -8869,7 +8934,7 @@ mod tests {
     #[test]
     fn relations_block_display_label_identity_field() {
         use crate::index::InstanceIndexEntry;
-        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, ValueType};
         use srs_core::types::record::{FieldValue, Record};
         use srs_core::types::record_type::{FieldAssignment, RecordType};
 
@@ -8881,10 +8946,15 @@ mod tests {
             value_type: ValueType::String,
             description: "Name".to_string(),
             instructions: None,
-            ai_guidance: serde_json::json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };

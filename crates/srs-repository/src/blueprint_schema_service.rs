@@ -296,7 +296,7 @@ mod tests {
     use crate::store::memory::MemoryStore;
     use serde_json::json;
     use srs_core::types::blueprint::{Blueprint, RelationSpec, TypeRef};
-    use srs_core::types::field::{Field, ValueType};
+    use srs_core::types::field::{AiGuidance, Field, ValueType};
     use srs_core::types::record_type::{FieldAssignment, RecordType};
     use std::collections::HashMap;
     use std::path::PathBuf;
@@ -311,11 +311,16 @@ mod tests {
             version: 1,
             description: format!("{name} description"),
             instructions: None,
-            ai_guidance: json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             value_type: ValueType::String,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         }

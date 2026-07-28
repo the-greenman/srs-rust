@@ -2020,7 +2020,7 @@ mod tests {
 
     fn make_store_with_package() -> MemoryStore {
         use crate::package::Package;
-        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, ValueType};
         use srs_core::types::record_type::{FieldAssignment, RecordType};
 
         let name_field = Field {
@@ -2031,10 +2031,15 @@ mod tests {
             value_type: ValueType::String,
             description: "Name field".to_string(),
             instructions: None,
-            ai_guidance: json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -2046,10 +2051,15 @@ mod tests {
             value_type: ValueType::Select,
             description: "Status field".to_string(),
             instructions: None,
-            ai_guidance: json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: Some(vec!["active".to_string(), "inactive".to_string()]),
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -2133,7 +2143,7 @@ mod tests {
     /// by `copy_repository` accepts the fixture.
     fn make_store_with_title_field() -> MemoryStore {
         use crate::package::Package;
-        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, ValueType};
         use srs_core::types::record_type::{FieldAssignment, RecordType};
 
         let plain_field = |id: &str, name: &str| Field {
@@ -2144,10 +2154,15 @@ mod tests {
             value_type: ValueType::String,
             description: String::new(),
             instructions: None,
-            ai_guidance: json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -3003,7 +3018,7 @@ mod tests {
 
     fn make_store_with_lifecycle() -> MemoryStore {
         use crate::package::Package;
-        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, ValueType};
         use srs_core::types::record_type::{
             FieldAssignment, LifecycleState, LifecycleTransition, RecordType, TypeLifecycle,
         };
@@ -3019,10 +3034,15 @@ mod tests {
             value_type: ValueType::String,
             description: "Title".to_string(),
             instructions: None,
-            ai_guidance: json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -3382,7 +3402,7 @@ mod tests {
         status: Option<srs_core::types::relation_type_definition::RelationTypeStatus>,
     ) -> MemoryStore {
         use crate::package::Package;
-        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, ValueType};
         use srs_core::types::record_type::{
             FieldAssignment, LifecycleState, LifecycleTransition, RecordType, TypeLifecycle,
         };
@@ -3398,10 +3418,15 @@ mod tests {
             value_type: ValueType::String,
             description: "Title".to_string(),
             instructions: None,
-            ai_guidance: json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -4310,7 +4335,7 @@ mod tests {
 
     fn make_store_with_lifecycle_ref() -> MemoryStore {
         use crate::package::Package;
-        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, ValueType};
         use srs_core::types::lifecycle::{Lifecycle, LifecycleState, LifecycleTransition};
         use srs_core::types::record_type::{FieldAssignment, RecordType};
         use srs_core::types::relation_type_definition::{
@@ -4325,10 +4350,15 @@ mod tests {
             value_type: ValueType::String,
             description: "Title".to_string(),
             instructions: None,
-            ai_guidance: json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -4543,7 +4573,7 @@ mod tests {
     /// from the initial state.
     fn make_store_with_relational_state() -> MemoryStore {
         use crate::package::Package;
-        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, ValueType};
         use srs_core::types::lifecycle::{
             Lifecycle, LifecycleState, LifecycleTransition, RelationTypeSpec, RequiresRelation,
         };
@@ -4587,10 +4617,15 @@ mod tests {
             value_type: ValueType::String,
             description: "Title".to_string(),
             instructions: None,
-            ai_guidance: json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -5163,7 +5198,7 @@ mod tests {
     /// against either version.
     fn make_store_with_two_type_versions() -> MemoryStore {
         use crate::package::Package;
-        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, ValueType};
         use srs_core::types::record_type::{FieldAssignment, RecordType};
 
         let name_field = Field {
@@ -5174,10 +5209,15 @@ mod tests {
             value_type: ValueType::String,
             description: "Name field".to_string(),
             instructions: None,
-            ai_guidance: json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -5987,7 +6027,7 @@ mod tests {
     ///   when field-trigger-001 == "active", field-target-001 is required
     fn make_store_with_cfr_package() -> MemoryStore {
         use crate::package::Package;
-        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, ValueType};
         use srs_core::types::record_type::{
             CrossFieldRule, CrossFieldRuleKind, FieldAssignment, RecordType,
         };
@@ -6000,10 +6040,15 @@ mod tests {
             value_type: ValueType::String,
             description: "Trigger field".to_string(),
             instructions: None,
-            ai_guidance: json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -6015,10 +6060,15 @@ mod tests {
             value_type: ValueType::String,
             description: "Target field".to_string(),
             instructions: None,
-            ai_guidance: json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
