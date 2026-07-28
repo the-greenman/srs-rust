@@ -476,12 +476,16 @@ fn copy_repository_full_chain_memory_json_file_memory() {
         assert_eq!(&r.type_name, name, "type_name must survive full chain");
     }
 
-    // Instance count must match (plus whatever create_repository injects into dst_mem — use the
-    // manifest instance index length of the target rather than a hard-coded number).
-    let dst_count = dst_mem.load_manifest().unwrap().instance_index.len();
-    let src_count = json.load_manifest().unwrap().instance_index.len();
+    // Instance count must match — use list_instances (ADR-042 query surface) not the raw index.
+    let dst_refs = dst_mem
+        .list_instances(&InstanceQuery { tier: None, tag: None })
+        .expect("list_instances on copy destination must succeed");
+    let src_refs = json
+        .list_instances(&InstanceQuery { tier: None, tag: None })
+        .expect("list_instances on copy source must succeed");
     assert_eq!(
-        dst_count, src_count,
+        dst_refs.len(),
+        src_refs.len(),
         "instance count must be preserved across the full portability chain"
     );
 }

@@ -51,7 +51,7 @@ No changes to `srs/docs/schema/2.0/`. No schema sync required.
 
 **In scope:**
 - New integration test file `crates/srs-repository/tests/store_conformance.rs`
-- `run_conformance_suite(store: &dyn RepositoryStore)` helper covering 5 behavioral areas
+- `run_conformance_suite(store: &dyn RepositoryStore)` helper covering 4 behavioral areas
 - Three admission-gate tests: one each for FileStore, JsonStore, MemoryStore
 - Cross-store portability tests (memory→file, memory→json, full chain memory→json→file→memory)
 - FailPoint tests (MemoryStore-only, separate functions — not inside `run_conformance_suite`)
