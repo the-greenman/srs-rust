@@ -409,7 +409,7 @@ mod tests {
     fn record_with_field_values_produces_field_pairs() {
         use crate::manifest::Manifest;
         use crate::package::Package;
-        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, ValueType};
         use srs_core::types::record::FieldValue;
         use std::path::PathBuf;
 
@@ -421,11 +421,16 @@ mod tests {
             version: 1,
             description: String::new(),
             instructions: None,
-            ai_guidance: serde_json::Value::Null,
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             value_type: ValueType::String,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };

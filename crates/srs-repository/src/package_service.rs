@@ -1355,7 +1355,7 @@ mod tests {
     use super::*;
     use crate::package_types::DefinitionKind;
     use crate::store::memory::MemoryStore;
-    use srs_core::types::field::ValueType;
+    use srs_core::types::field::{AiGuidance, ValueType};
     use std::collections::HashMap;
 
     fn make_field(id: &str, name: &str) -> Field {
@@ -1367,10 +1367,15 @@ mod tests {
             value_type: ValueType::String,
             description: "A test field".to_string(),
             instructions: None,
-            ai_guidance: serde_json::json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         }

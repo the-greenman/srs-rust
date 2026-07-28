@@ -216,15 +216,18 @@ fn field_to_property(
     prop.insert("x-srs-order".into(), json!(assignment.order));
     prop.insert("x-srs-field-id".into(), json!(field.id));
 
-    // aiGuidance: a string becomes `description`; a structured object is preserved
-    // under a vendor key.
-    match &field.ai_guidance {
-        Value::String(s) if !s.is_empty() => {
-            prop.insert("description".into(), json!(s));
-        }
-        Value::Null => {}
-        other => {
-            prop.insert("x-srs-ai-guidance".into(), other.clone());
+    // aiGuidance.purpose becomes `description`; any richer structured
+    // guidance (extraction, negativeGuidance, examples) is preserved under a
+    // vendor key, since it has no standard JSON Schema keyword to land on.
+    if !field.ai_guidance.purpose.is_empty() {
+        prop.insert("description".into(), json!(field.ai_guidance.purpose));
+    }
+    let has_structured_guidance = field.ai_guidance.extraction.is_some()
+        || field.ai_guidance.negative_guidance.is_some()
+        || field.ai_guidance.examples.is_some();
+    if has_structured_guidance {
+        if let Ok(guidance) = serde_json::to_value(&field.ai_guidance) {
+            prop.insert("x-srs-ai-guidance".into(), guidance);
         }
     }
 
@@ -330,6 +333,7 @@ mod tests {
     use crate::manifest::Manifest;
     use crate::package::Package;
     use crate::store::memory::MemoryStore;
+    use srs_core::types::field::AiGuidance;
     use std::collections::HashMap;
     use std::path::PathBuf;
 
@@ -341,11 +345,16 @@ mod tests {
             version: 1,
             description: format!("{name} description"),
             instructions: None,
-            ai_guidance: json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             value_type,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         }

@@ -212,7 +212,7 @@ mod tests {
     use crate::package::Package;
     use crate::store::memory::MemoryStore;
     use crate::store::RepositoryStore;
-    use srs_core::types::field::{Field, ValueType};
+    use srs_core::types::field::{AiGuidance, Field, ValueType};
     use srs_core::types::record::{FieldValue, Record};
     use std::collections::HashMap;
     use std::path::PathBuf;
@@ -234,11 +234,16 @@ mod tests {
             version: 1,
             description: String::new(),
             instructions: None,
-            ai_guidance: serde_json::json!({}),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             value_type: ValueType::Text,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         }

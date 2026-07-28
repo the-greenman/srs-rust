@@ -194,7 +194,7 @@ fn value_strings(value: &serde_json::Value) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use srs_core::types::field::{Field, ValueType};
+    use srs_core::types::field::{AiGuidance, Field, ValueType};
     use srs_core::types::record::{FieldGroupEntry, FieldGroupValue, FieldValueEntry};
     use std::collections::HashMap;
 
@@ -211,11 +211,16 @@ mod tests {
             version: 1,
             description: String::new(),
             instructions: None,
-            ai_guidance: serde_json::json!({}),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             value_type: vt,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         }

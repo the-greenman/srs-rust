@@ -34,7 +34,7 @@ pub struct FieldContextResult {
     pub field_id: String,
     pub field_name: Option<String>,
     pub field_namespace: Option<String>,
-    /// None when field not in package, or when field.ai_guidance is Value::Null
+    /// None when field not in package, or when field.ai_guidance.purpose is empty
     pub ai_guidance: Option<serde_json::Value>,
     pub current_value: Option<serde_json::Value>,
     pub revisions: Vec<srs_core::types::revision::Revision>,
@@ -98,10 +98,10 @@ pub fn get_field_context(
     let (field_name, field_namespace, ai_guidance) =
         match package_service::get_field_by_id(store, &query.field_id)? {
             package_service::GetFieldResult::Found(field) => {
-                let guidance = if field.ai_guidance.is_null() {
+                let guidance = if field.ai_guidance.purpose.is_empty() {
                     None
                 } else {
-                    Some(field.ai_guidance.clone())
+                    serde_json::to_value(&field.ai_guidance).ok()
                 };
                 (
                     Some(field.name.clone()),
@@ -230,7 +230,7 @@ mod tests {
     use crate::store::memory::MemoryStore;
     use crate::{record_store, revision_service};
     use serde_json::json;
-    use srs_core::types::field::{Field, ValueType};
+    use srs_core::types::field::{AiGuidance, Field, ValueType};
     use srs_core::types::record::FieldValue;
     use srs_core::types::record_type::{FieldAssignment, RecordType};
     use srs_core::types::revision::{Revision, RevisionAgent};
@@ -245,10 +245,15 @@ mod tests {
             value_type: ValueType::String,
             description: "Name field".to_string(),
             instructions: None,
-            ai_guidance: json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::HashMap::new(),
         };
@@ -409,10 +414,15 @@ mod tests {
             value_type: ValueType::String,
             description: "Name field".to_string(),
             instructions: None,
-            ai_guidance: json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::HashMap::new(),
         };
@@ -443,7 +453,10 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::HashMap::new(),
         };
-        name_field.ai_guidance = json!("Write the full legal name");
+        name_field.ai_guidance = AiGuidance {
+            purpose: "Write the full legal name".to_string(),
+            ..Default::default()
+        };
         let manifest = Manifest {
             instance_index: vec![],
             container: None,
@@ -488,7 +501,10 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.ai_guidance, Some(json!("Write the full legal name")));
+        assert_eq!(
+            result.ai_guidance,
+            Some(json!({"purpose": "Write the full legal name"}))
+        );
         assert_eq!(result.field_name, Some("test-name".to_string()));
         assert_eq!(result.field_namespace, Some("com.test".to_string()));
     }

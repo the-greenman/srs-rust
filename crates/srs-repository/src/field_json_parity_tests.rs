@@ -13,7 +13,7 @@ use crate::repository_lifecycle::{
 };
 use crate::store::{FileStore, RepositoryStore};
 use serde_json::json;
-use srs_core::types::field::{Field, ValueType};
+use srs_core::types::field::{AiGuidance, Field, ValueType};
 use std::collections::HashMap;
 use tempfile::TempDir;
 
@@ -60,10 +60,15 @@ fn cross_store_field_json_parity() {
         value_type: ValueType::String,
         description: "Parity test field".to_string(),
         instructions: Some("Cross-store parity check.".to_string()),
-        ai_guidance: json!(null),
+        ai_guidance: AiGuidance::default(),
+        content_format: None,
         allowed_values: None,
         vocabulary_ref: None,
         default_value: None,
+        editor_hint: None,
+        tags: None,
+        lineage: None,
+        provenance: None,
         created_at: "2026-01-01T00:00:00Z".to_string(),
         extra: HashMap::from([("x-future-hint".to_string(), json!("preserved"))]),
     };

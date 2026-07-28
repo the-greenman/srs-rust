@@ -3636,7 +3636,7 @@ mod tests {
     #[test]
     fn file_store_field_instructions_roundtrip() {
         use crate::package_service::create_field;
-        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, ValueType};
 
         let temp = TempDir::new().unwrap();
         write_minimal_file_repo(&temp);
@@ -3650,10 +3650,15 @@ mod tests {
             value_type: ValueType::String,
             description: "A help field".to_string(),
             instructions: Some("Fill this in carefully.".to_string()),
-            ai_guidance: serde_json::Value::Null,
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };
@@ -4275,7 +4280,7 @@ mod tests {
         // "package/fields/..." rather than bare "fields/...", which is the key
         // invariant that makes resolve_definition_owner work correctly.
         use crate::package_service::create_field;
-        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, ValueType};
 
         let store = MemoryStore::default();
         let field = Field {
@@ -4286,10 +4291,15 @@ mod tests {
             value_type: ValueType::String,
             description: String::new(),
             instructions: None,
-            ai_guidance: serde_json::Value::Null,
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::HashMap::new(),
         };
@@ -4357,7 +4367,7 @@ mod tests {
     #[test]
     fn memory_store_resolve_definition_owner_primary() {
         use crate::package_types::DefinitionKind;
-        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, ValueType};
 
         let store = MemoryStore::default();
         let field_id = "00000000-0000-0000-0000-111111111111";
@@ -4369,10 +4379,15 @@ mod tests {
             value_type: ValueType::String,
             description: String::new(),
             instructions: None,
-            ai_guidance: serde_json::Value::Null,
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::HashMap::new(),
         };
@@ -4400,7 +4415,7 @@ mod tests {
     #[test]
     fn memory_store_resolve_definition_owner_sub_package() {
         use crate::package_types::DefinitionKind;
-        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, ValueType};
 
         let store = MemoryStore::default();
         let selector = Some("pkg/ext".to_string());
@@ -4415,10 +4430,15 @@ mod tests {
             value_type: ValueType::String,
             description: String::new(),
             instructions: None,
-            ai_guidance: serde_json::Value::Null,
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::HashMap::new(),
         };

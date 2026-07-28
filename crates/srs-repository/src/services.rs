@@ -1184,7 +1184,7 @@ mod tests {
     /// create_record_in_context with empty field_values (no required fields).
     fn store_with_note_and_type(note: &Note, note_path: &str) -> MemoryStore {
         use crate::package::Package;
-        use srs_core::types::field::{Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, ValueType};
         use srs_core::types::record_type::{FieldAssignment, RecordType};
 
         let body_field = Field {
@@ -1195,10 +1195,15 @@ mod tests {
             value_type: ValueType::String,
             description: "Body field".to_string(),
             instructions: None,
-            ai_guidance: serde_json::json!(null),
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
         };

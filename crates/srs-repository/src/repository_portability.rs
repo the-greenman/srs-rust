@@ -1177,6 +1177,7 @@ mod tests {
     use crate::store::memory::MemoryStore;
     use crate::store::{FileStore, RepositoryStore};
     use crate::validation::validate_repository;
+    use srs_core::types::field::AiGuidance;
     use std::collections::HashMap;
     use tempfile::TempDir;
 
@@ -1270,10 +1271,15 @@ mod tests {
             value_type: srs_core::types::field::ValueType::String,
             description: "".to_string(),
             instructions: None,
-            ai_guidance: serde_json::Value::Null,
+            ai_guidance: AiGuidance::default(),
+            content_format: None,
             allowed_values: None,
             vocabulary_ref: None,
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "".to_string(),
             extra: HashMap::new(),
         });

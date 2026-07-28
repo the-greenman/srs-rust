@@ -54,6 +54,7 @@ pub fn validate_field_v3(field: &Field) -> Vec<FieldDiagnostic> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::field::AiGuidance;
 
     fn make_field(value_type: ValueType, allowed: bool, vocab_ref: bool) -> Field {
         Field {
@@ -63,8 +64,9 @@ mod tests {
             version: 1,
             description: "test".to_string(),
             instructions: None,
-            ai_guidance: serde_json::Value::Null,
+            ai_guidance: AiGuidance::default(),
             value_type,
+            content_format: None,
             allowed_values: if allowed {
                 Some(vec!["a".to_string()])
             } else {
@@ -76,6 +78,10 @@ mod tests {
                 None
             },
             default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: Default::default(),
         }
