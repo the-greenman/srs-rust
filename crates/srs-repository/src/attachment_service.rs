@@ -429,6 +429,29 @@ pub struct ResolveDocumentViewAttachmentsResult {
     pub records: Vec<RecordAttachments>,
 }
 
+fn resolve_source_ref_to_attachment(
+    store: &dyn RepositoryStore,
+    source_ref: SourceReference,
+    index_map: &HashMap<&str, &SourceDocumentIndexEntry>,
+    src_docs_base: &str,
+) -> ResolvedAttachment {
+    let idx = index_map.get(source_ref.source_id.as_str());
+    let size_bytes = idx.and_then(|e| {
+        store
+            .file_byte_len(&format!("{src_docs_base}/{}", e.content_path))
+            .ok()
+    });
+    ResolvedAttachment {
+        document_id: source_ref.source_id,
+        content_path: idx.map(|e| e.content_path.clone()),
+        sidecar_path: idx.map(|e| e.sidecar_path.clone()),
+        title: idx.and_then(|e| e.title.clone()),
+        content_checksum: idx.and_then(|e| e.content_checksum.clone()),
+        sidecar_checksum: idx.and_then(|e| e.sidecar_checksum.clone()),
+        size_bytes,
+    }
+}
+
 /// Given a list of instance IDs from a rendered document_view, resolve each record's
 /// `sourceRefs` with `sourceRole: attaches` and `sourceType: repository-document`
 /// to their `SourceDocumentIndexEntry` metadata.
@@ -485,23 +508,7 @@ pub fn resolve_document_view_attachments(
                 r.source_role == Some(SourceRole::Attaches)
                     && r.source_type == SourceType::RepositoryDocument
             })
-            .map(|r| {
-                let idx = index_map.get(r.source_id.as_str());
-                let size_bytes = idx.and_then(|e| {
-                    store
-                        .file_byte_len(&format!("{src_docs_base}/{}", e.content_path))
-                        .ok()
-                });
-                ResolvedAttachment {
-                    document_id: r.source_id,
-                    content_path: idx.map(|e| e.content_path.clone()),
-                    sidecar_path: idx.map(|e| e.sidecar_path.clone()),
-                    title: idx.and_then(|e| e.title.clone()),
-                    content_checksum: idx.and_then(|e| e.content_checksum.clone()),
-                    sidecar_checksum: idx.and_then(|e| e.sidecar_checksum.clone()),
-                    size_bytes,
-                }
-            })
+            .map(|r| resolve_source_ref_to_attachment(store, r, &index_map, &src_docs_base))
             .collect();
 
         if !attachments.is_empty() {
@@ -582,23 +589,7 @@ pub fn get_record_attachments(
             r.source_role == Some(SourceRole::Attaches)
                 && r.source_type == SourceType::RepositoryDocument
         })
-        .map(|r| {
-            let idx = index_map.get(r.source_id.as_str());
-            let size_bytes = idx.and_then(|e| {
-                store
-                    .file_byte_len(&format!("{src_docs_base}/{}", e.content_path))
-                    .ok()
-            });
-            ResolvedAttachment {
-                document_id: r.source_id,
-                content_path: idx.map(|e| e.content_path.clone()),
-                sidecar_path: idx.map(|e| e.sidecar_path.clone()),
-                title: idx.and_then(|e| e.title.clone()),
-                content_checksum: idx.and_then(|e| e.content_checksum.clone()),
-                sidecar_checksum: idx.and_then(|e| e.sidecar_checksum.clone()),
-                size_bytes,
-            }
-        })
+        .map(|r| resolve_source_ref_to_attachment(store, r, &index_map, &src_docs_base))
         .collect();
 
     Ok(Some(GetRecordAttachmentsResult {
