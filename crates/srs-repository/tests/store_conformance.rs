@@ -25,6 +25,10 @@
 //!   - ADR-007 write-ordering invariants via `FailPoint` (MemoryStore only)
 //!   - `abort_batch` rollback (JsonStore only — FileStore/MemoryStore use the no-op default)
 
+use srs_core::types::container::Container;
+use srs_core::types::note::Note;
+use srs_core::types::record::Record;
+use srs_repository::index::{InstanceQuery, InstanceRef};
 use srs_repository::{
     repository_lifecycle::{
         create_repository, InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
@@ -33,10 +37,6 @@ use srs_repository::{
     store::memory::{FailPoint, MemoryStore},
     FileStore, JsonStore, RepositoryStore,
 };
-use srs_repository::index::{InstanceQuery, InstanceRef};
-use srs_core::types::container::Container;
-use srs_core::types::note::Note;
-use srs_core::types::record::Record;
 use std::collections::HashMap;
 use tempfile::TempDir;
 
@@ -161,10 +161,10 @@ fn run_conformance_suite(store: &dyn RepositoryStore) {
 // --- Area 1: Manifest round-trip ---
 
 fn suite_manifest_roundtrip(store: &dyn RepositoryStore) {
-    let mut manifest = store.load_manifest().expect("load_manifest must succeed on an initialized store");
-    let original_namespace = manifest.extra
-        .get("namespace")
-        .cloned();
+    let mut manifest = store
+        .load_manifest()
+        .expect("load_manifest must succeed on an initialized store");
+    let original_namespace = manifest.extra.get("namespace").cloned();
     // Add a sentinel to extra to prove the round-trip is identity.
     manifest.extra.insert(
         "x-conformance-sentinel".to_string(),
@@ -173,7 +173,9 @@ fn suite_manifest_roundtrip(store: &dyn RepositoryStore) {
     store
         .save_manifest(&manifest)
         .expect("save_manifest must succeed");
-    let reloaded = store.load_manifest().expect("load_manifest after save must succeed");
+    let reloaded = store
+        .load_manifest()
+        .expect("load_manifest after save must succeed");
     assert_eq!(
         reloaded.extra.get("x-conformance-sentinel"),
         Some(&serde_json::json!("harness-v1")),
@@ -194,7 +196,9 @@ fn suite_container_crud(store: &dyn RepositoryStore) {
     let cb = make_container(id_b, "Container Beta");
 
     // Save and load by id.
-    store.save_container(&ca).expect("save_container must succeed");
+    store
+        .save_container(&ca)
+        .expect("save_container must succeed");
     let loaded = store
         .load_container(id_a)
         .expect("load_container must return saved container");
@@ -202,7 +206,9 @@ fn suite_container_crud(store: &dyn RepositoryStore) {
     assert_eq!(loaded.title, "Container Alpha", "title must round-trip");
 
     // Two containers coexist.
-    store.save_container(&cb).expect("save second container must succeed");
+    store
+        .save_container(&cb)
+        .expect("save second container must succeed");
     let summaries = store
         .list_container_summaries()
         .expect("list_container_summaries must succeed");
@@ -247,8 +253,14 @@ fn suite_instance_persistence(store: &dyn RepositoryStore) {
     let loaded_rec = store
         .load_record_by_id(rec_id)
         .expect("load_record_by_id must succeed after save");
-    assert_eq!(loaded_rec.instance_id, rec_id, "record instance_id must round-trip");
-    assert_eq!(loaded_rec.type_name, "Decision", "record type_name must round-trip");
+    assert_eq!(
+        loaded_rec.instance_id, rec_id,
+        "record instance_id must round-trip"
+    );
+    assert_eq!(
+        loaded_rec.type_name, "Decision",
+        "record type_name must round-trip"
+    );
     assert_eq!(
         loaded_rec.tags.as_deref(),
         Some(&["alpha".to_string()][..]),
@@ -261,7 +273,10 @@ fn suite_instance_persistence(store: &dyn RepositoryStore) {
     let loaded_note = store
         .load_note_by_id(note_id)
         .expect("load_note_by_id must succeed after save");
-    assert_eq!(loaded_note.instance_id, note_id, "note instance_id must round-trip");
+    assert_eq!(
+        loaded_note.instance_id, note_id,
+        "note instance_id must round-trip"
+    );
     assert_eq!(
         loaded_note.title.as_deref(),
         Some("My Conformance Note"),
@@ -277,14 +292,22 @@ fn suite_instance_persistence(store: &dyn RepositoryStore) {
     let missing = store
         .find_instance("does-not-exist-0000-4000-8000-000000000000")
         .expect("find_instance must not error for unknown id");
-    assert!(missing.is_none(), "find_instance must return None for unknown id");
+    assert!(
+        missing.is_none(),
+        "find_instance must return None for unknown id"
+    );
 
     // delete_instance → find_instance returns None; load_record_by_id errors.
     store
         .delete_instance(rec_id)
         .expect("delete_instance must succeed");
-    let after_delete = store.find_instance(rec_id).expect("find_instance must not error after delete");
-    assert!(after_delete.is_none(), "find_instance must return None after delete");
+    let after_delete = store
+        .find_instance(rec_id)
+        .expect("find_instance must not error after delete");
+    assert!(
+        after_delete.is_none(),
+        "find_instance must return None after delete"
+    );
     assert!(
         store.load_record_by_id(rec_id).is_err(),
         "load_record_by_id must error after delete"
@@ -292,11 +315,19 @@ fn suite_instance_persistence(store: &dyn RepositoryStore) {
 
     // list_instances by tier: a second record + saved note → tier-2 query returns only records.
     let rec2 = make_record(rec2_id, "Action", Some(vec!["beta".to_string()]));
-    store.save_record(&rec2).expect("save second record must succeed");
+    store
+        .save_record(&rec2)
+        .expect("save second record must succeed");
     let tier2_refs = store
-        .list_instances(&InstanceQuery { tier: Some(2), tag: None })
+        .list_instances(&InstanceQuery {
+            tier: Some(2),
+            tag: None,
+        })
         .expect("list_instances by tier must succeed");
-    let tier2_ids: Vec<_> = tier2_refs.iter().map(|r: &InstanceRef| r.instance_id.as_str()).collect();
+    let tier2_ids: Vec<_> = tier2_refs
+        .iter()
+        .map(|r: &InstanceRef| r.instance_id.as_str())
+        .collect();
     assert!(
         tier2_ids.contains(&rec2_id),
         "list_instances tier=2 must include saved record"
@@ -318,7 +349,9 @@ fn suite_instance_persistence(store: &dyn RepositoryStore) {
     let mut updated_rec2 = rec2.clone();
     updated_rec2.type_name = "UpdatedAction".to_string();
     updated_rec2.tags = Some(vec!["beta".to_string(), "updated".to_string()]);
-    store.save_record(&updated_rec2).expect("save_record existing id must succeed");
+    store
+        .save_record(&updated_rec2)
+        .expect("save_record existing id must succeed");
     let after_update = store
         .load_record_by_id(rec2_id)
         .expect("load_record_by_id after update must succeed");
@@ -355,7 +388,9 @@ fn suite_batch_commit(store: &dyn RepositoryStore) {
     let note = make_note(note_id, "Batch Commit Note", None);
 
     store.begin_batch();
-    store.save_note(&note).expect("save_note during batch must succeed");
+    store
+        .save_note(&note)
+        .expect("save_note during batch must succeed");
     store.commit_batch().expect("commit_batch must succeed");
 
     let loaded = store
@@ -401,7 +436,8 @@ fn copy_repository_memory_to_file_preserves_instances() {
     let note_id = "nport-m2f-0002-4000-8000-aabbccddeeff";
     src.save_record(&make_record(rec_id, "Portability", None))
         .unwrap();
-    src.save_note(&make_note(note_id, "Port Note", None)).unwrap();
+    src.save_note(&make_note(note_id, "Port Note", None))
+        .unwrap();
 
     let tmp = TempDir::new().unwrap();
     let file = FileStore::new(tmp.path());
@@ -424,8 +460,10 @@ fn copy_repository_memory_to_json_preserves_instances() {
     let src = init_memory_store();
     let rec_id = "rport-m2j-0001-4000-8000-aabbccddeeff";
     let note_id = "nport-m2j-0002-4000-8000-aabbccddeeff";
-    src.save_record(&make_record(rec_id, "JsonPort", None)).unwrap();
-    src.save_note(&make_note(note_id, "Json Port Note", None)).unwrap();
+    src.save_record(&make_record(rec_id, "JsonPort", None))
+        .unwrap();
+    src.save_note(&make_note(note_id, "Json Port Note", None))
+        .unwrap();
 
     let tmp = TempDir::new().unwrap();
     let json = JsonStore::create(tmp.path().join("repo.srsj")).unwrap();
@@ -478,10 +516,16 @@ fn copy_repository_full_chain_memory_json_file_memory() {
 
     // Instance count must match — use list_instances (ADR-042 query surface) not the raw index.
     let dst_refs = dst_mem
-        .list_instances(&InstanceQuery { tier: None, tag: None })
+        .list_instances(&InstanceQuery {
+            tier: None,
+            tag: None,
+        })
         .expect("list_instances on copy destination must succeed");
     let src_refs = json
-        .list_instances(&InstanceQuery { tier: None, tag: None })
+        .list_instances(&InstanceQuery {
+            tier: None,
+            tag: None,
+        })
         .expect("list_instances on copy source must succeed");
     assert_eq!(
         dst_refs.len(),
@@ -560,7 +604,9 @@ fn json_store_batch_abort_rolls_back() {
         .expect("save_note during batch must succeed");
     store.abort_batch();
 
-    let result = store.find_instance(note_id).expect("find_instance must not error after abort");
+    let result = store
+        .find_instance(note_id)
+        .expect("find_instance must not error after abort");
     assert!(
         result.is_none(),
         "find_instance must return None after abort_batch — aborted writes must not be visible (ADR-021)"
