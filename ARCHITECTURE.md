@@ -92,3 +92,4 @@ This file is written for humans and AI agents that need to understand the repo q
 - Storage-boundary behavior must be validated against multiple concrete stores, not only one adapter.
 - `srs-repository` tests for lifecycle and portability must include both `FileStore` and `JsonStore` paths.
 - New repository service features should add at least one cross-store roundtrip test (for example: memory -> json -> file).
+- The admission gate for any new backend is `crates/srs-repository/tests/store_conformance.rs` — every new `impl RepositoryStore` must pass all tests in that file before its PR is mergeable (ADR-041 G9).

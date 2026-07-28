@@ -2098,7 +2098,6 @@ fn file_store_save_instance(
 // MemoryStore — in-memory test implementation
 // ---------------------------------------------------------------------------
 
-#[cfg(test)]
 pub mod memory {
     use super::*;
     use std::cell::RefCell;
