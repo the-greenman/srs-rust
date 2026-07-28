@@ -97,7 +97,7 @@
           "type": "string",
           "enum": ["plain", "markdown"]
         },
-        "selectOptions": {
+        "allowedValues": {
           "type": "array",
           "items": { "type": "string" }
         },
