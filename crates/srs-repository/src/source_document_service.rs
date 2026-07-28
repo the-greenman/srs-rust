@@ -454,7 +454,11 @@ mod tests {
             .unwrap();
         let result = list_source_documents(&store, ListSourceDocumentsFilter::default()).unwrap();
         assert_eq!(result.entries.len(), 2);
-        let paths: Vec<&str> = result.entries.iter().map(|e| e.sidecar_path.as_str()).collect();
+        let paths: Vec<&str> = result
+            .entries
+            .iter()
+            .map(|e| e.sidecar_path.as_str())
+            .collect();
         assert!(
             paths.contains(&"sub/a.meta.json"),
             "expected sub/a.meta.json, got {paths:?}"
@@ -493,7 +497,11 @@ mod tests {
             result.entries.len(),
             4,
             "expected 4 sidecars, got {:?}",
-            result.entries.iter().map(|e| &e.sidecar_path).collect::<Vec<_>>()
+            result
+                .entries
+                .iter()
+                .map(|e| &e.sidecar_path)
+                .collect::<Vec<_>>()
         );
         for entry in &result.entries {
             assert!(
@@ -556,11 +564,22 @@ mod tests {
         assert_eq!(result.entries.len(), 2, "expected 2 sidecars");
         assert!(result.errors.is_empty());
 
-        let ids: Vec<&str> = result.entries.iter().map(|e| e.meta.document_id.as_str()).collect();
+        let ids: Vec<&str> = result
+            .entries
+            .iter()
+            .map(|e| e.meta.document_id.as_str())
+            .collect();
         assert!(ids.contains(&"roundtrip-top-001"), "missing top sidecar");
-        assert!(ids.contains(&"roundtrip-nested-002"), "missing nested sidecar");
+        assert!(
+            ids.contains(&"roundtrip-nested-002"),
+            "missing nested sidecar"
+        );
 
-        let paths: Vec<&str> = result.entries.iter().map(|e| e.sidecar_path.as_str()).collect();
+        let paths: Vec<&str> = result
+            .entries
+            .iter()
+            .map(|e| e.sidecar_path.as_str())
+            .collect();
         assert!(
             paths.contains(&"top.md.meta.json"),
             "sidecar_path must be relative to src_docs_base, got {paths:?}"
