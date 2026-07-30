@@ -1,10 +1,13 @@
 use crate::commands::{with_store, CliContext, TypeCommand};
 use crate::output::{self, OutputDTO};
 use crate::payload::{
-    TypeDeletePayload, TypeListEntry, TypeListPayload, TypePayload, TypeSchemaPayload,
+    TypeDeletePayload, TypeJsonSchemaPayload, TypeListEntry, TypeListPayload, TypePayload,
+    TypeSchemaPayload,
 };
 use anyhow::Result;
 use srs_core::types::record_type::RecordType;
+use srs_projection::json_schema::to_canonical_json;
+use srs_projection::{type_to_json_schema, TypeToJsonSchemaInput};
 use srs_repository::package_service::{
     create_type_normalized, delete_type, get_type_by_id_latest, list_types_filtered, update_type,
     GetTypeResult, TypeListFilter,
@@ -23,6 +26,7 @@ pub fn dispatch(ctx: CliContext, cmd: TypeCommand) -> Result<String> {
         TypeCommand::Update { id } => cmd_type_update(ctx, id),
         TypeCommand::Delete { id, version } => cmd_type_delete(ctx, id, version),
         TypeCommand::Schema { id, type_version } => cmd_type_schema(ctx, id, type_version),
+        TypeCommand::JsonSchema { id, type_version } => cmd_type_json_schema(ctx, id, type_version),
     }
 }
 
@@ -156,5 +160,34 @@ fn cmd_type_schema(ctx: CliContext, id: String, type_version: Option<u32>) -> Re
             Ok(dto.render(ctx.format, ctx.pretty))
         }
         Err(e) => Ok(output::err("type schema", vec![e.to_string()])),
+    }
+}
+
+/// RFC-035 — the standards-compliant projection. Kept separate from
+/// `type schema` (the editor-facing draft-07 + `x-srs-*` artifact) because the
+/// two answer different questions: what validates a Record, and what renders a
+/// form for one.
+fn cmd_type_json_schema(ctx: CliContext, id: String, type_version: Option<u32>) -> Result<String> {
+    match with_store(&ctx, |store| {
+        Ok(type_to_json_schema(
+            store,
+            TypeToJsonSchemaInput {
+                type_id: id.clone(),
+                type_version,
+            },
+        )?)
+    }) {
+        Ok(result) => {
+            let canonical_json = to_canonical_json(&result.schema)?;
+            output::serialize_with_diagnostics(
+                "type json-schema",
+                TypeJsonSchemaPayload {
+                    schema: result.schema,
+                    canonical_json,
+                },
+                result.inexpressible,
+            )
+        }
+        Err(e) => Ok(output::err("type json-schema", vec![e.to_string()])),
     }
 }

@@ -17,6 +17,7 @@ path = "src/main.rs"
 [dependencies]
 srs-core = { workspace = true }
 srs-repository = { workspace = true }
+srs-projection = { workspace = true }
 srs-mcp = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

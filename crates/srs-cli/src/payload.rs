@@ -937,6 +937,39 @@ pub struct BlueprintSchemaPayload {
     pub diagnostics: Vec<String>,
 }
 
+/// `srs type json-schema` — the RFC-035 standards projection of one Type.
+///
+/// Two views of the same projection, because they answer different needs:
+///
+/// * `schema` — the structured object, for a consumer that wants to read it.
+///   **Its keys are sorted**: the envelope routes every payload through
+///   `serde_json::Value`, whose `Map` is `BTreeMap`-backed (ADR-017).
+/// * `canonicalJson` — the exact bytes `projection-rules.md` pins, with the
+///   required key ordering. This is what a generator writes to disk and what
+///   byte-parity is defined against. Without it the CLI could expose the
+///   projection but never be used to *produce* the artifact.
+///
+/// `schemars` cannot derive through `srs-projection` (whose shapes exist to pin
+/// key order), so the payload schema types `schema` as an object; its shape is
+/// normative in `docs/schema/2.0/projection-rules.md`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TypeJsonSchemaPayload {
+    #[schemars(with = "serde_json::Value")]
+    pub schema: srs_projection::json_schema::EntitySchema,
+    pub canonical_json: String,
+}
+
+/// `srs schema generate` — the RFC-035 bundle envelope. Same two views as
+/// [`TypeJsonSchemaPayload`], for the same reason.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SchemaGeneratePayload {
+    #[schemars(with = "serde_json::Value")]
+    pub bundle: srs_projection::json_schema::SchemaBundle,
+    pub canonical_json: String,
+}
+
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct BriefField {

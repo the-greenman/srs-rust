@@ -145,10 +145,14 @@ pub struct FieldTypeConstraints {
     pub max_length: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pattern: Option<String>,
+    /// `serde_json::Number`, not `f64`: a Field file writing `"minimum": 1`
+    /// must round-trip as `1`, not `1.0`. The RFC-035 projection is held to
+    /// byte-parity with the reference emitter, so integer-ness is part of the
+    /// wire contract, not a formatting detail.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub minimum: Option<f64>,
+    pub minimum: Option<serde_json::Number>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub maximum: Option<f64>,
+    pub maximum: Option<serde_json::Number>,
 }
 
 impl FieldTypeConstraints {
@@ -1133,14 +1137,14 @@ mod tests {
         assert!(string_bound.validate().iter().any(|v| v.rule == "R10"));
 
         let numeric_bound = FieldType::string().with_constraints(FieldTypeConstraints {
-            minimum: Some(0.0),
+            minimum: Some(0.into()),
             ..Default::default()
         });
         assert!(numeric_bound.validate().iter().any(|v| v.rule == "R10"));
 
         let ok = FieldType::number().with_constraints(FieldTypeConstraints {
-            minimum: Some(0.0),
-            maximum: Some(10.0),
+            minimum: Some(0.into()),
+            maximum: Some(10.into()),
             ..Default::default()
         });
         assert!(ok.validate().is_empty());
