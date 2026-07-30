@@ -9,7 +9,7 @@
 //!
 //! Both load. A revision-0 field is upgraded in memory by RFC-032 Change H
 //! ([`srs_core::types::field::FieldType::from_legacy`]), and
-//! `srs repo apply-migration field-type` makes that upgrade durable by writing
+//! `srs repo apply-migration --id field-type` makes that upgrade durable by writing
 //! the fields back. Without this path the migration would be unreachable: a
 //! binary that cannot read a revision-0 repository cannot migrate one either.
 //!
