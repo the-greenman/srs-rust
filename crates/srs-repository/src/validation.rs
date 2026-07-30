@@ -99,7 +99,7 @@ fn data_model_revision_diagnostics(manifest_value: &Value) -> Vec<ValidationDiag
             format!(
                 "this repository is at data-model revision {declared}; this build writes \
                  revision {CURRENT_DATA_MODEL_REVISION}. Definitions are being read through the \
-                 compatibility path — run `srs repo apply-migration field-type` to persist them \
+                 compatibility path — run `srs repo apply-migration --id field-type` to persist them \
                  in the current model."
             ),
         )
@@ -4104,9 +4104,13 @@ mod tests {
             .find(|d| d.message.contains("data-model revision"))
             .expect("an unstamped repository must be reported");
         assert_eq!(d.severity, DiagnosticSeverity::Warning);
+        // The exact invocation, not an approximation of it: an actionable
+        // diagnostic that names a command the CLI cannot parse is worse than
+        // no diagnostic, because the reader trusts it.
         assert!(
-            d.message.contains("apply-migration field-type"),
-            "the diagnostic must name the migration: {}",
+            d.message
+                .contains("srs repo apply-migration --id field-type"),
+            "the diagnostic must name the runnable command: {}",
             d.message
         );
     }

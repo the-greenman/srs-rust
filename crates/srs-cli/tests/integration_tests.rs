@@ -6941,6 +6941,108 @@ fn repo_migrations_lists_the_registered_migrations() {
 }
 
 #[test]
+fn repo_apply_migration_field_type_rewrites_a_legacy_field_end_to_end() {
+    // The service-level test proves the transform; this proves the *product*:
+    // a data-model-revision-0 repository on disk, migrated through the CLI, is
+    // afterwards clean, stamped, and idempotent. The earlier version of the
+    // load-time diagnostic named a command that clap could not parse — only an
+    // end-to-end run surfaces that class of defect.
+    let temp = TempDir::new().unwrap();
+    let repo_dir = create_repo_with_package(&temp, "fieldtype-migration");
+    let repo = repo_dir.as_path();
+
+    // A pre-RFC-032 field: multiselect + companions, and no manifest stamp.
+    write_json(
+        &repo.join("package/fields/legacy_status.json"),
+        serde_json::json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+            "id": "aaaaaaaa-0000-4000-8000-0000000000f1",
+            "namespace": "com.test",
+            "name": "legacy_status",
+            "version": 1,
+            "description": "Legacy select field",
+            "aiGuidance": {"purpose": "captures status"},
+            "valueType": "multiselect",
+            "allowedValues": ["draft", "active"],
+            "contentFormat": "plain",
+            "createdAt": "2026-01-01T00:00:00Z"
+        }),
+    );
+    let pkg_path = repo.join("package/package.json");
+    let mut pkg: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&pkg_path).unwrap()).unwrap();
+    pkg["fields"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!("fields/legacy_status.json"));
+    write_json(&pkg_path, pkg);
+
+    let manifest_path = repo.join("manifest.json");
+    let mut manifest: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&manifest_path).unwrap()).unwrap();
+    manifest
+        .as_object_mut()
+        .unwrap()
+        .remove("dataModelRevision");
+    write_json(&manifest_path, manifest);
+
+    // Before: the repository reads fine, but says it needs migrating — and the
+    // diagnostic must name a command the CLI actually accepts.
+    let before = run_srs_in_dir(repo, &["repo", "validate"]);
+    let warning = before["payload"]["diagnostics"]
+        .as_array()
+        .unwrap_or_else(|| panic!("validate must report diagnostics: {before:?}"))
+        .iter()
+        .find_map(|d| d["message"].as_str())
+        .filter(|m| m.contains("data-model revision"))
+        .unwrap_or_else(|| panic!("an unstamped repo must warn: {before:?}"));
+    assert!(
+        warning.contains("srs repo apply-migration --id field-type"),
+        "diagnostic must name the runnable command: {warning}"
+    );
+
+    let applied = run_srs_in_dir(repo, &["repo", "apply-migration", "--id", "field-type"]);
+    assert_eq!(applied["ok"], true, "expected ok: {applied:?}");
+    assert_eq!(applied["payload"]["payload"]["fromRevision"], 0);
+    assert_eq!(applied["payload"]["payload"]["toRevision"], 1);
+    assert_eq!(applied["payload"]["payload"]["fieldsMigrated"], 1);
+
+    // After: the file on disk carries the decomposed model, with the companion
+    // properties folded in rather than dropped.
+    let migrated: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(repo.join("package/fields/legacy_status.json")).unwrap(),
+    )
+    .unwrap();
+    assert!(migrated.get("valueType").is_none(), "{migrated}");
+    assert!(migrated.get("allowedValues").is_none(), "{migrated}");
+    assert!(migrated.get("contentFormat").is_none(), "{migrated}");
+    assert_eq!(migrated["fieldType"]["datatype"], "string");
+    assert_eq!(migrated["fieldType"]["cardinality"], "list");
+    assert_eq!(migrated["fieldType"]["valueDomain"], "closed");
+    assert_eq!(
+        migrated["fieldType"]["allowedValues"],
+        serde_json::json!(["draft", "active"])
+    );
+
+    // ...and the warning is gone.
+    let after = run_srs_in_dir(repo, &["repo", "validate"]);
+    assert_eq!(
+        after["payload"]["diagnostics"].as_array().unwrap().len(),
+        0,
+        "migrated repo must validate clean: {after:?}"
+    );
+
+    // Idempotent: a second run leaves the bytes untouched.
+    let bytes = std::fs::read(repo.join("package/fields/legacy_status.json")).unwrap();
+    run_srs_in_dir(repo, &["repo", "apply-migration", "--id", "field-type"]);
+    assert_eq!(
+        bytes,
+        std::fs::read(repo.join("package/fields/legacy_status.json")).unwrap(),
+        "re-running the migration must not rewrite the file"
+    );
+}
+
+#[test]
 fn repo_apply_migration_repo_upgrade_canonical_repo() {
     let temp = create_temp_repo();
     let repo_str = temp.path().to_str().unwrap().to_string();
