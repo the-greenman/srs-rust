@@ -71,6 +71,40 @@ pub(crate) struct FieldJson {
 
 impl FieldJson {
     pub(crate) fn into_field(self, path: &std::path::Path) -> Result<Field, RepositoryError> {
+        // A document carrying BOTH shapes is ambiguous, and preferring either
+        // one silently discards the other's meaning — a half-migrated Field
+        // (`fieldType` written, companions left behind) would lose its
+        // cardinality, value domain and constraints, and
+        // `apply-migration field-type` would then make that loss permanent.
+        // Refuse to guess.
+        if self.field_type.is_some() {
+            let stray: Vec<&str> = [
+                ("valueType", self.value_type.is_some()),
+                ("contentFormat", self.content_format.is_some()),
+                ("allowedValues", self.allowed_values.is_some()),
+                ("vocabularyRef", self.vocabulary_ref.is_some()),
+                ("validationRules", self.validation_rules.is_some()),
+            ]
+            .into_iter()
+            .filter_map(|(k, present)| present.then_some(k))
+            .collect();
+            if !stray.is_empty() {
+                return Err(RepositoryError::InvalidValueType {
+                    path: path.to_path_buf(),
+                    value_type: format!(
+                        "field declares both the RFC-032 `fieldType` and the pre-RFC-032 {} — \
+                         remove the pre-RFC-032 propert{} so the field's type has one definition",
+                        stray
+                            .iter()
+                            .map(|k| format!("`{k}`"))
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        if stray.len() == 1 { "y" } else { "ies" }
+                    ),
+                });
+            }
+        }
+
         let field_type = match self.field_type {
             Some(ft) => ft,
             None => {
@@ -253,6 +287,41 @@ mod tests {
     }
 
     #[test]
+    fn a_document_carrying_both_shapes_is_rejected_not_silently_halved() {
+        // A half-migrated Field (tool writes `fieldType`, leaves the companions)
+        // is a plausible real state. Preferring `fieldType` and dropping the
+        // rest would erase list-ness, the closed domain, the allowed values and
+        // the length constraint — and `apply-migration field-type` would then
+        // write that loss to disk with no diagnostic.
+        for stray in [
+            serde_json::json!({"valueType": "multiselect"}),
+            serde_json::json!({"allowedValues": ["a", "b"]}),
+            serde_json::json!({"contentFormat": "markdown"}),
+            serde_json::json!({"vocabularyRef": "ns/v@1"}),
+            serde_json::json!({"validationRules": [{"type": "maxLength", "value": 5}]}),
+        ] {
+            let mut doc = serde_json::json!({
+                "id": "f-1", "namespace": "com.test", "name": "x", "version": 1,
+                "description": "d", "createdAt": "2026-01-01T00:00:00Z",
+                "fieldType": {"datatype": "string"}
+            });
+            for (k, v) in stray.as_object().unwrap() {
+                doc[k] = v.clone();
+            }
+            let err = parse(doc.clone());
+            assert!(
+                err.is_err(),
+                "a Field with both `fieldType` and {stray} must be rejected, not silently halved"
+            );
+            let message = format!("{}", err.unwrap_err());
+            assert!(
+                message.contains("both"),
+                "the error must say what is ambiguous: {message}"
+            );
+        }
+    }
+
+    #[test]
     fn an_unknown_legacy_value_type_is_an_error() {
         let err = parse(serde_json::json!({
             "id": "f-1", "namespace": "com.test", "name": "x", "version": 1,
@@ -260,6 +329,25 @@ mod tests {
             "valueType": "quaternion"
         }));
         assert!(err.is_err());
+    }
+
+    #[test]
+    fn absent_ai_guidance_is_not_manufactured_on_the_write_path() {
+        // srs-rust#768 removed the injected `{"purpose": ""}` from the create
+        // gate; it must not survive on the load/rewrite path either, or
+        // `apply-migration field-type` would write it to disk and make "no
+        // guidance" permanently indistinguishable from "empty guidance".
+        let field = parse(serde_json::json!({
+            "id": "f-1", "namespace": "com.test", "name": "unguided", "version": 1,
+            "description": "d", "createdAt": "2026-01-01T00:00:00Z",
+            "fieldType": {"datatype": "string"}
+        }))
+        .unwrap();
+        let written = serde_json::to_value(&field).unwrap();
+        assert!(
+            written.get("aiGuidance").is_none(),
+            "absent guidance must stay absent, not become {{\"purpose\": \"\"}}: {written}"
+        );
     }
 
     #[test]

@@ -128,7 +128,7 @@ pub enum MapValueRange {
 /// members are required; distinct from the pre-RFC-009 spec-level `TypeRef`
 /// (Protocol context) where `typeVersion` was optional.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExactTypeRef {
     pub type_id: String,
     pub type_version: u32,
@@ -137,7 +137,7 @@ pub struct ExactTypeRef {
 /// RFC-032 R10 / Change F — datatype-appropriate value constraints. Carries the
 /// facets the retired `validationRules[]` array used to hold.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FieldTypeConstraints {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_length: Option<u32>,
@@ -782,8 +782,19 @@ fn apply_legacy_validation_rule(ft: &mut FieldType, rule: &LegacyValidationRule)
             }
         }
         "pattern" => {
-            if let Some(serde_json::Value::String(s)) = rule.value.as_ref() {
-                ft.constraints.get_or_insert_with(Default::default).pattern = Some(s.clone());
+            // `String(rule.value)` in the reference — a non-string pattern is a
+            // data defect, but dropping it during a *durable* migration loses
+            // the author's intent silently, which is worse than carrying it
+            // forward for the conformance check to flag.
+            match rule.value.as_ref() {
+                Some(serde_json::Value::String(s)) => {
+                    ft.constraints.get_or_insert_with(Default::default).pattern = Some(s.clone());
+                }
+                Some(other) => {
+                    ft.constraints.get_or_insert_with(Default::default).pattern =
+                        Some(other.to_string());
+                }
+                None => {}
             }
         }
         "enum" => {
@@ -842,6 +853,24 @@ mod tests {
             "notAFacet": 1
         }));
         assert!(err.is_err(), "unknown fieldType facet must be rejected");
+    }
+
+    #[test]
+    fn unknown_keys_in_nested_value_objects_are_rejected() {
+        // `$defs/FieldType.properties.constraints` and `$defs/ExactTypeRef` both
+        // set `additionalProperties: false`. Accepting an unknown key here and
+        // then dropping it on write is silent data loss that a
+        // `deny_unknown_fields` on the *outer* Field does not prevent.
+        assert!(serde_json::from_value::<FieldType>(json!({
+            "datatype": "string",
+            "constraints": {"minLength": 1, "bogus": 99}
+        }))
+        .is_err());
+        assert!(serde_json::from_value::<FieldType>(json!({
+            "datatype": "ref",
+            "rangeType": {"typeId": "T", "typeVersion": 1, "junk": 7}
+        }))
+        .is_err());
     }
 
     #[test]

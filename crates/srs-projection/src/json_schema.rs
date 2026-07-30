@@ -47,8 +47,15 @@ impl<T> OrderedMap<T> {
         OrderedMap(Vec::new())
     }
 
+    /// Insert or replace. JS object assignment (`obj[key] = v`) collapses a
+    /// repeated key; appending here instead would emit a duplicate key and
+    /// produce a JSON document no parser agrees on.
     pub fn insert(&mut self, key: impl Into<String>, value: T) {
-        self.0.push((key.into(), value));
+        let key = key.into();
+        match self.0.iter_mut().find(|(k, _)| *k == key) {
+            Some(slot) => slot.1 = value,
+            None => self.0.push((key, value)),
+        }
     }
 
     pub fn contains_key(&self, key: &str) -> bool {
@@ -127,9 +134,15 @@ pub struct SchemaNode {
     pub max_length: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pattern: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "serialize_js_number"
+    )]
     pub minimum: Option<serde_json::Number>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "serialize_js_number"
+    )]
     pub maximum: Option<serde_json::Number>,
     #[serde(rename = "enum", skip_serializing_if = "Option::is_none")]
     pub enumeration: Option<Vec<String>>,
@@ -299,16 +312,20 @@ pub struct ProjectionContext<'a> {
 impl<'a> ProjectionContext<'a> {
     /// Index a package's Types and Fields for projection.
     ///
-    /// When two Types share a name (different namespaces), the **first** wins,
-    /// mirroring how the reference emitter indexes a single-namespace metamodel
-    /// package; `type_by_id` is the unambiguous lookup and is what the `ref`
-    /// range resolution uses.
+    /// `types_by_name` is a convenience for addressing entities by name (the
+    /// bundle's `entities` list); it is **last-wins**, matching the reference
+    /// emitter's plain assignment. Name is not a unique key, so every
+    /// correctness-bearing lookup goes through `types_by_id` instead — which is
+    /// how `ref` range resolution finds a range's body. (The reference emitter
+    /// resolves that body by *name*, so in a package with two same-named Types
+    /// in different namespaces it emits the wrong body; that is an upstream bug
+    /// to fix in `schema-emitter.mjs`, not a behaviour to copy.)
     pub fn new(types: &'a [RecordType], fields: &'a [Field]) -> Self {
         let mut types_by_id = HashMap::new();
         let mut types_by_name = HashMap::new();
         for t in types {
-            types_by_id.entry(t.id.as_str()).or_insert(t);
-            types_by_name.entry(t.name.as_str()).or_insert(t);
+            types_by_id.insert(t.id.as_str(), t);
+            types_by_name.insert(t.name.as_str(), t);
         }
         let fields_by_id = fields.iter().map(|f| (f.id.as_str(), f)).collect();
         ProjectionContext {
@@ -318,7 +335,11 @@ impl<'a> ProjectionContext<'a> {
         }
     }
 
-    fn type_by_name(&self, name: &str) -> Result<&'a RecordType, ProjectionError> {
+    pub fn type_by_name(&self, name: &str) -> Option<&'a RecordType> {
+        self.types_by_name.get(name).copied()
+    }
+
+    fn require_type_by_name(&self, name: &str) -> Result<&'a RecordType, ProjectionError> {
         self.types_by_name
             .get(name)
             .copied()
@@ -326,12 +347,21 @@ impl<'a> ProjectionContext<'a> {
     }
 }
 
-/// Project one Type into a complete JSON Schema 2020-12 definition schema.
+/// Project the Type named `type_name` into a complete JSON Schema 2020-12
+/// definition schema. Prefer [`emit_entity_for`] when the caller has already
+/// resolved the Type — a name does not identify one.
 pub fn emit_entity(
     ctx: &ProjectionContext<'_>,
     type_name: &str,
 ) -> Result<EntitySchema, ProjectionError> {
-    let record_type = ctx.type_by_name(type_name)?;
+    emit_entity_for(ctx, ctx.require_type_by_name(type_name)?)
+}
+
+/// Project an already-resolved Type.
+pub fn emit_entity_for(
+    ctx: &ProjectionContext<'_>,
+    record_type: &RecordType,
+) -> Result<EntitySchema, ProjectionError> {
     let mut defs: OrderedMap<ObjectBody> = OrderedMap::new();
     // Walking the entity fills `defs` in pre-order DFS by first reference.
     let body = emit_body(ctx, record_type, &mut defs)?;
@@ -600,8 +630,158 @@ fn project_scalar(ft: &FieldType) -> SchemaNode {
     node
 }
 
+/// Emit a number the way `JSON.stringify` does.
+///
+/// JavaScript has one number type, so a whole-valued float prints without its
+/// fractional part: `1.0` → `1`, `-0.0` → `0`. `serde_json::Number` keeps the
+/// distinction, which is right for round-tripping a stored Field but wrong for
+/// byte-parity with the reference emitter. Storage keeps the distinction;
+/// **this projection** does not.
+fn serialize_js_number<S: Serializer>(
+    value: &Option<serde_json::Number>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    match value {
+        None => serializer.serialize_none(),
+        Some(n) => match n.as_f64() {
+            Some(f) if n.is_f64() && f.fract() == 0.0 && f.is_finite() && f.abs() < 1e21 => {
+                serializer.serialize_i64(f as i64)
+            }
+            _ => n.serialize(serializer),
+        },
+    }
+}
+
 /// Serialize an emitted artifact exactly as the reference emitter does:
 /// `JSON.stringify(obj, null, 2)` plus a trailing newline.
 pub fn to_canonical_json<T: Serialize>(value: &T) -> Result<String, serde_json::Error> {
     Ok(serde_json::to_string_pretty(value)? + "\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use srs_core::types::field::{AiGuidance, ExactTypeRef, FieldTypeConstraints};
+    use srs_core::types::record_type::FieldAssignment;
+
+    fn field(id: &str, name: &str, ft: FieldType) -> Field {
+        Field {
+            description: String::new(),
+            ai_guidance: AiGuidance::default(),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            ..Field::new(id, "com.test", name, ft)
+        }
+    }
+
+    fn record_type(id: &str, name: &str, version: u32, fields: Vec<FieldAssignment>) -> RecordType {
+        RecordType {
+            id: id.to_string(),
+            namespace: "com.test".to_string(),
+            name: name.to_string(),
+            version,
+            description: format!("v{version} shape"),
+            fields,
+            field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            identity_field_id: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            validation_rules: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: Default::default(),
+        }
+    }
+
+    fn assign(field_id: &str, order: u32) -> FieldAssignment {
+        FieldAssignment {
+            field_id: field_id.to_string(),
+            order,
+            required: false,
+            display_label: None,
+            repeatable: false,
+            min_items: None,
+            max_items: None,
+        }
+    }
+
+    #[test]
+    fn two_fields_projecting_to_one_key_do_not_emit_a_duplicate() {
+        // `assignment_default_value` maps to `defaultValue` through the override
+        // table; `default_value` maps to it mechanically. JS object assignment
+        // collapses the collision — appending would emit the key twice and
+        // produce a document no two parsers agree on.
+        let fields = vec![
+            field("f-1", "assignment_default_value", FieldType::string()),
+            field("f-2", "default_value", FieldType::number()),
+        ];
+        let types = vec![record_type(
+            "t-1",
+            "thing",
+            1,
+            vec![assign("f-1", 0), assign("f-2", 1)],
+        )];
+        let ctx = ProjectionContext::new(&types, &fields);
+        let schema = emit_entity(&ctx, "thing").expect("projects");
+        assert_eq!(schema.properties.len(), 1, "one key, not two");
+        let json = to_canonical_json(&schema).unwrap();
+        assert_eq!(
+            json.matches("\"defaultValue\"").count(),
+            1,
+            "the key must appear once: {json}"
+        );
+        // Last write wins, as it does in JS.
+        assert_eq!(
+            schema.properties.iter().next().unwrap().1.ty,
+            Some("number")
+        );
+    }
+
+    #[test]
+    fn whole_valued_floats_print_the_way_json_stringify_prints_them() {
+        // JS has one number type, so `1.0` serializes as `1`. Byte-parity is
+        // defined against that, and the metamodel carries no numeric
+        // constraints, so no golden covers this.
+        let ft = FieldType::number().with_constraints(FieldTypeConstraints {
+            minimum: Some(serde_json::Number::from_f64(1.0).unwrap()),
+            maximum: Some(serde_json::Number::from_f64(2.5).unwrap()),
+            ..Default::default()
+        });
+        let node = project_field(&ft, None);
+        let json = serde_json::to_string(&node).unwrap();
+        assert_eq!(json, r#"{"type":"number","minimum":1,"maximum":2.5}"#);
+    }
+
+    #[test]
+    fn a_ranges_body_is_resolved_by_id_not_by_name() {
+        // Two Types share the name `thing` in different namespaces. Resolving
+        // the range body by name would emit the wrong one.
+        let mut other = record_type("t-other", "thing", 1, vec![]);
+        other.namespace = "com.other".to_string();
+        let target = record_type("t-target", "thing", 1, vec![assign("f-leaf", 0)]);
+        let holder = record_type("t-holder", "holder", 1, vec![assign("f-ref", 0)]);
+        let fields = vec![
+            field("f-leaf", "leaf", FieldType::string()),
+            field(
+                "f-ref",
+                "child",
+                FieldType::inline_ref(ExactTypeRef {
+                    type_id: "t-target".to_string(),
+                    type_version: 1,
+                }),
+            ),
+        ];
+        let types = vec![other, target, holder];
+        let ctx = ProjectionContext::new(&types, &fields);
+        let schema = emit_entity(&ctx, "holder").expect("projects");
+        let defs = schema.defs.expect("an inline ref contributes a $def");
+        let (_, body) = defs.iter().next().unwrap();
+        assert_eq!(
+            body.properties.len(),
+            1,
+            "the $def body must come from `t-target`, not the same-named `com.other/thing`"
+        );
+    }
 }

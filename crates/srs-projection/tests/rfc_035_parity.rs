@@ -160,3 +160,111 @@ fn the_projection_reports_what_it_could_not_express() {
         "a `dependent` field projects to an unconstrained node"
     );
 }
+
+#[test]
+fn type_version_selects_the_version_the_caller_asked_for() {
+    // A UUID lineage has many versions and `name` addresses all of them, so a
+    // projection that resolves the version and then re-looks-up by name returns
+    // a *different* Type with `ok: true` and no diagnostic — a wrong answer
+    // from the capability's primary entry point.
+    use srs_core::types::field::{AiGuidance, Field, FieldType};
+    use srs_core::types::record_type::{FieldAssignment, RecordType};
+    use srs_repository::manifest::Manifest;
+    use srs_repository::package::Package;
+    use srs_repository::store::memory::MemoryStore;
+
+    const TID: &str = "aaaaaaaa-0000-4000-8000-00000000000a";
+
+    let mk_field = |id: &str, name: &str| Field {
+        description: String::new(),
+        ai_guidance: AiGuidance::default(),
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        ..Field::new(id, "com.probe", name, FieldType::string())
+    };
+    let assign = |field_id: &str| FieldAssignment {
+        field_id: field_id.to_string(),
+        order: 0,
+        required: false,
+        display_label: None,
+        repeatable: false,
+        min_items: None,
+        max_items: None,
+    };
+    let mk_type = |version: u32, field_id: &str| RecordType {
+        id: TID.to_string(),
+        namespace: "com.probe".to_string(),
+        name: "thing".to_string(),
+        version,
+        description: format!("v{version} shape"),
+        fields: vec![assign(field_id)],
+        field_groups: None,
+        extends_type_id: None,
+        extends_type_version: None,
+        field_order: None,
+        field_assignment_overrides: None,
+        identity_field_id: None,
+        lifecycle: None,
+        lifecycle_ref: None,
+        validation_rules: None,
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        extra: Default::default(),
+    };
+
+    let package = Package {
+        id: "pkg".to_string(),
+        namespace: "com.probe".to_string(),
+        name: "probe".to_string(),
+        version: "1.0.0".to_string(),
+        fields: vec![mk_field("f-v1", "alpha"), mk_field("f-v2", "beta")],
+        record_types: vec![mk_type(1, "f-v1"), mk_type(2, "f-v2")],
+        relation_type_definitions: vec![],
+        views: vec![],
+        document_views: vec![],
+        themes: vec![],
+        blueprints: vec![],
+        protocols: vec![],
+        root: std::path::PathBuf::new(),
+        dependency_refs: vec![],
+        vocabularies: vec![],
+        lifecycles: vec![],
+    };
+    let store = MemoryStore::new(Manifest::default(), package);
+
+    for (requested, expected_property, expected_id_suffix) in
+        [(1u32, "alpha", "thing/1.json"), (2, "beta", "thing/2.json")]
+    {
+        let result = type_to_json_schema(
+            &store,
+            TypeToJsonSchemaInput {
+                type_id: TID.to_string(),
+                type_version: Some(requested),
+            },
+        )
+        .expect("projects");
+        assert!(
+            result.schema.id.ends_with(expected_id_suffix),
+            "v{requested} must project its own $id, got {}",
+            result.schema.id
+        );
+        assert_eq!(
+            result.schema.properties.iter().next().map(|(k, _)| k),
+            Some(expected_property),
+            "v{requested} must project its own fields"
+        );
+    }
+
+    // Omitting the version resolves the latest.
+    let latest = type_to_json_schema(
+        &store,
+        TypeToJsonSchemaInput {
+            type_id: TID.to_string(),
+            type_version: None,
+        },
+    )
+    .expect("projects");
+    assert!(
+        latest.schema.id.ends_with("thing/2.json"),
+        "{}",
+        latest.schema.id
+    );
+}

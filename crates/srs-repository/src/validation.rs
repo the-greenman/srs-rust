@@ -1067,12 +1067,14 @@ pub fn validate_repository(
     if let Some(Some(ref pkg)) = package_for_tier2 {
         validate_vocabulary_invariants(pkg, &mut diagnostics);
         validate_identity_field_invariants(pkg, &mut diagnostics);
+        validate_field_type_conformance(pkg, &mut diagnostics);
     } else if package_for_tier2.is_none() {
         // Only fresh-load when no tier-2 records were processed (note-only repo).
         // When package_for_tier2 is Some(None), the load already failed; don't retry.
         if let Ok(pkg) = store.load_package() {
             validate_vocabulary_invariants(&pkg, &mut diagnostics);
             validate_identity_field_invariants(&pkg, &mut diagnostics);
+            validate_field_type_conformance(&pkg, &mut diagnostics);
         }
     }
 
@@ -1555,6 +1557,40 @@ fn validate_identity_field_invariants(
                     ),
                 });
             }
+        }
+    }
+}
+
+/// RFC-032 conformance rules R2–R10 over every Field in the package.
+///
+/// These are the semantic checks JSON Schema cannot express portably (the
+/// frozen seed only approximates a few of them with `allOf`/`if`/`then`), so
+/// without this pass they were declared and never run: `validate_field_v3` had
+/// no production caller at all, and a package could carry an unresolvable `ref`
+/// range or a datatype-inappropriate constraint and validate clean.
+///
+/// **Warning, not error — deliberately, for this release.** Turning a check on
+/// for the first time finds pre-existing defects, not new ones: the spec repo's
+/// own package has a `protocol-tags` Field that was a pre-RFC-032 `multiselect`
+/// with neither `allowedValues` nor `vocabularyRef`, which RFC-032's migration
+/// faithfully carries forward as a closed domain with no source set. Making
+/// that a hard error would fail `repo validate` across the ecosystem for a
+/// defect that predates this change. Reporting it makes the gap visible, which
+/// is the point; promoting these to errors belongs with the data cleanup, as a
+/// separate, deliberate step.
+fn validate_field_type_conformance(
+    pkg: &crate::package::Package,
+    diagnostics: &mut Vec<ValidationDiagnostic>,
+) {
+    use srs_core::validation::field::validate_field_v3;
+    for field in &pkg.fields {
+        for d in validate_field_v3(field) {
+            diagnostics.push(ValidationDiagnostic {
+                severity: DiagnosticSeverity::Warning,
+                relative_path: "package/package.json".to_string(),
+                schema_id: None,
+                message: format!("RFC-032 conformance: {}", d.message),
+            });
         }
     }
 }
