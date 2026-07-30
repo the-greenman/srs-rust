@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TypeJsonSchemaPayload",
+  "description": "`srs type json-schema` — the RFC-035 standards projection of one Type.\n\nTwo views of the same projection, because they answer different needs:\n\n* `schema` — the structured object, for a consumer that wants to read it. **Its keys are sorted**: the envelope routes every payload through `serde_json::Value`, whose `Map` is `BTreeMap`-backed (ADR-017). * `canonicalJson` — the exact bytes `projection-rules.md` pins, with the required key ordering. This is what a generator writes to disk and what byte-parity is defined against. Without it the CLI could expose the projection but never be used to *produce* the artifact.\n\n`schemars` cannot derive through `srs-projection` (whose shapes exist to pin key order), so the payload schema types `schema` as an object; its shape is normative in `docs/schema/2.0/projection-rules.md`.",
+  "type": "object",
+  "required": [
+    "canonicalJson",
+    "schema"
+  ],
+  "properties": {
+    "canonicalJson": {
+      "type": "string"
+    },
+    "schema": true
+  }
+}

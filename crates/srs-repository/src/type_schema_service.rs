@@ -356,10 +356,10 @@ fn insert_value_shape(
                 }),
             );
             if let Some(c) = &ft.constraints {
-                if let Some(min) = c.minimum {
+                if let Some(min) = &c.minimum {
                     target.insert("minimum".into(), json!(min));
                 }
-                if let Some(max) = c.maximum {
+                if let Some(max) = &c.maximum {
                     target.insert("maximum".into(), json!(max));
                 }
             }

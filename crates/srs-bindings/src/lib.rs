@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use srs_core::types::record::{FieldGroupValue, FieldValue};
 use srs_core::types::relation::Relation;
 use srs_repository::attachment_service::{
@@ -70,6 +70,16 @@ pub fn init() {
 
 fn js_err(e: impl std::fmt::Display) -> JsValue {
     JsValue::from_str(&e.to_string())
+}
+
+/// The JS-facing shape of an RFC-035 projection: the structured schema, the
+/// canonical bytes, and what could not be expressed.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct JsonSchemaBindingResult {
+    schema: serde_json::Value,
+    canonical_json: String,
+    inexpressible: Vec<String>,
 }
 
 #[wasm_bindgen]
@@ -661,6 +671,63 @@ impl SrsRepository {
         )
         .map_err(js_err)?;
         to_js(&result)
+    }
+
+    /// Project a Type into a **standard** JSON Schema 2020-12 definition schema
+    /// (RFC-035). Distinct from `type_schema`, which returns the editor-facing
+    /// draft-07 + `x-srs-*` projection: this one is what validates a Record.
+    ///
+    /// Returns `{ schema, canonicalJson, inexpressible }`. `schema` is the
+    /// structured object (its keys arrive sorted, since JS objects are built
+    /// from a `serde_json::Value`); `canonicalJson` is the exact byte sequence
+    /// `projection-rules.md` pins, which is what byte-parity is defined against
+    /// and what a client must write if it persists the artifact.
+    /// `inexpressible` names every constraint JSON Schema could not carry —
+    /// never silently dropped.
+    pub fn type_json_schema(
+        &self,
+        type_id: &str,
+        type_version: Option<u32>,
+    ) -> Result<JsValue, JsValue> {
+        let result = srs_projection::type_to_json_schema(
+            &self.store,
+            srs_projection::TypeToJsonSchemaInput {
+                type_id: type_id.to_string(),
+                type_version,
+            },
+        )
+        .map_err(js_err)?;
+        let canonical_json = srs_projection::json_schema::to_canonical_json(&result.schema)
+            .map_err(|e| JsValue::from_str(&format!("failed to serialize canonical JSON: {e}")))?;
+        to_js(&JsonSchemaBindingResult {
+            schema: serde_json::to_value(&result.schema).unwrap_or(serde_json::Value::Null),
+            canonical_json,
+            inexpressible: result.inexpressible,
+        })
+    }
+
+    /// Emit the RFC-035 generated-schema bundle envelope for the named
+    /// meta-model entities (default: `field`, `type`), stamped with the
+    /// repository's `dataModelRevision`. Same `{ ..., canonicalJson,
+    /// inexpressible }` contract as `type_json_schema`.
+    pub fn generate_schema_bundle(&self, entities: Vec<String>) -> Result<JsValue, JsValue> {
+        let entities = if entities.is_empty() {
+            vec!["field".to_string(), "type".to_string()]
+        } else {
+            entities
+        };
+        let result = srs_projection::schema_bundle(
+            &self.store,
+            srs_projection::SchemaBundleInput { entities },
+        )
+        .map_err(js_err)?;
+        let canonical_json = srs_projection::json_schema::to_canonical_json(&result.bundle)
+            .map_err(|e| JsValue::from_str(&format!("failed to serialize canonical JSON: {e}")))?;
+        to_js(&JsonSchemaBindingResult {
+            schema: serde_json::to_value(&result.bundle).unwrap_or(serde_json::Value::Null),
+            canonical_json,
+            inexpressible: result.inexpressible,
+        })
     }
 
     /// List blueprint summaries across all package boundaries.

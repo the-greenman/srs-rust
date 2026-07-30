@@ -107,6 +107,8 @@ fn main() {
     write_schema!("type-update", TypePayload);
     write_schema!("type-delete", TypeDeletePayload);
     write_schema!("type-schema", TypeSchemaPayload);
+    write_schema!("type-json-schema", TypeJsonSchemaPayload);
+    write_schema!("schema-generate", SchemaGeneratePayload);
 
     // Extension payloads
     write_schema!("extension-list", ExtensionListPayload);

@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SchemaGeneratePayload",
+  "description": "`srs schema generate` — the RFC-035 bundle envelope. Same two views as [`TypeJsonSchemaPayload`], for the same reason.",
+  "type": "object",
+  "required": [
+    "bundle",
+    "canonicalJson"
+  ],
+  "properties": {
+    "bundle": true,
+    "canonicalJson": {
+      "type": "string"
+    }
+  }
+}

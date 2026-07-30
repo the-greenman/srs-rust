@@ -100,6 +100,30 @@ pub fn serialize<T: serde::Serialize>(command: &str, payload: T) -> anyhow::Resu
     Ok(ok(command, value))
 }
 
+/// Serialize a typed payload alongside non-fatal diagnostics. The envelope
+/// stays `ok: true` — the command ran; the diagnostics say what the result does
+/// not cover (ADR-011: exit code means "ran", not "clean").
+pub fn serialize_with_diagnostics<T: serde::Serialize>(
+    command: &str,
+    payload: T,
+    diagnostics: Vec<String>,
+) -> anyhow::Result<String> {
+    let value = serde_json::to_value(payload)
+        .map_err(|e| anyhow::anyhow!("Failed to serialize payload for '{}': {}", command, e))?;
+    let dto = OutputDTO {
+        ok: true,
+        command: command.to_string(),
+        version: VERSION.to_string(),
+        payload: Some(value),
+        diagnostics: if diagnostics.is_empty() {
+            None
+        } else {
+            Some(diagnostics)
+        },
+    };
+    Ok(dto.render(OutputFormat::Json, false))
+}
+
 /// Legacy convenience function for JSON ok output (always compact)
 pub fn ok(command: &str, payload: serde_json::Value) -> String {
     OutputDTO::ok(command, payload).render(OutputFormat::Json, false)

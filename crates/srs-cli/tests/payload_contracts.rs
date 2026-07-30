@@ -276,6 +276,16 @@ fn type_schema() {
     check::<TypeSchemaPayload>("type-schema");
 }
 
+#[test]
+fn type_json_schema() {
+    check::<TypeJsonSchemaPayload>("type-json-schema");
+}
+
+#[test]
+fn schema_generate() {
+    check::<SchemaGeneratePayload>("schema-generate");
+}
+
 // ── Extension ─────────────────────────────────────────────────────────────────
 
 #[test]

@@ -21,6 +21,7 @@ pub mod relation;
 pub mod relation_type;
 pub mod render;
 pub mod repo;
+pub mod schema;
 pub mod tag;
 pub mod term;
 pub mod theme;
@@ -269,6 +270,9 @@ pub enum Commands {
     /// Note management commands
     #[command(subcommand)]
     Note(NoteCommand),
+    /// JSON Schema generation (RFC-035)
+    #[command(subcommand)]
+    Schema(SchemaCommand),
     /// Repository inspection commands
     #[command(subcommand)]
     Repo(RepoCommand),
@@ -1070,6 +1074,27 @@ pub enum TypeCommand {
         #[arg(long)]
         type_version: Option<u32>,
     },
+    /// Project this Type into a standard JSON Schema 2020-12 definition schema
+    /// (RFC-035). Distinct from `type schema`, which emits the editor-facing
+    /// draft-07 + `x-srs-*` projection.
+    JsonSchema {
+        /// Type definition ID
+        id: String,
+        /// Type version (defaults to latest)
+        #[arg(long)]
+        type_version: Option<u32>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SchemaCommand {
+    /// Emit the generated-schema bundle envelope (RFC-035 Change H) for the
+    /// named meta-model entities, stamped with the repository's dataModelRevision.
+    Generate {
+        /// Type name to emit; repeat for several. Defaults to `field` and `type`.
+        #[arg(long = "entity")]
+        entities: Vec<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1726,6 +1751,7 @@ pub fn dispatch(cli: Cli) -> Result<String> {
 
     match cli.command {
         Commands::Note(note_cmd) => note::dispatch(ctx, note_cmd),
+        Commands::Schema(schema_cmd) => schema::dispatch(ctx, schema_cmd),
         Commands::Repo(repo_cmd) => repo::dispatch(ctx, repo_cmd),
         Commands::Migrate(migrate_cmd) => migrate::dispatch(ctx, migrate_cmd),
         Commands::Tag(tag_cmd) => tag::dispatch(ctx, tag_cmd),
