@@ -42,7 +42,8 @@ async fn e2e_full_session_read_write_validate() {
         &store,
         serde_json::json!({
             "id": title_field_id, "namespace": NS, "name": "title",
-            "version": 1, "valueType": "string"
+            "version": 1, "valueType": "string",
+            "aiGuidance": {"purpose": "captures the decision title"}
         }),
         None,
     )

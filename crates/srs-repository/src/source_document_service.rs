@@ -225,8 +225,10 @@ mod tests {
         use crate::store::RepositoryStore;
 
         let store = crate::store::memory::MemoryStore::empty();
-        let mut manifest = Manifest::default();
-        manifest.source_documents_path = Some("attachments".to_string());
+        let manifest = Manifest {
+            source_documents_path: Some("attachments".to_string()),
+            ..Default::default()
+        };
         store.save_manifest(&manifest).unwrap();
 
         let meta_json = r#"{"documentId":"cccccccc-0000-4000-8000-000000000001","contentPath":"doc.md","contentType":"text/markdown","createdAt":"2026-01-01T00:00:00Z"}"#;
@@ -402,9 +404,7 @@ mod tests {
     #[test]
     fn attachment_service_list_source_documents_empty() {
         use crate::manifest::Manifest;
-        use crate::package::Package;
         use crate::store::memory::MemoryStore;
-        use std::path::PathBuf;
         let store = MemoryStore::new(Manifest::default(), test_package());
         let result = list_source_documents(&store, ListSourceDocumentsFilter::default()).unwrap();
         assert!(result.entries.is_empty());
@@ -414,9 +414,7 @@ mod tests {
     #[test]
     fn attachment_service_list_source_documents_single() {
         use crate::manifest::Manifest;
-        use crate::package::Package;
         use crate::store::memory::MemoryStore;
-        use std::path::PathBuf;
         let store = MemoryStore::new(Manifest::default(), test_package());
         store
             .save_text_file(
@@ -436,9 +434,7 @@ mod tests {
     #[test]
     fn attachment_service_list_source_documents_subdirectory() {
         use crate::manifest::Manifest;
-        use crate::package::Package;
         use crate::store::memory::MemoryStore;
-        use std::path::PathBuf;
         let store = MemoryStore::new(Manifest::default(), test_package());
         store
             .save_text_file(
@@ -472,9 +468,7 @@ mod tests {
     #[test]
     fn attachment_service_list_source_documents_malformed_returns_err() {
         use crate::manifest::Manifest;
-        use crate::package::Package;
         use crate::store::memory::MemoryStore;
-        use std::path::PathBuf;
         let store = MemoryStore::new(Manifest::default(), test_package());
         store
             .save_text_file("source-documents/bad.meta.json", "not valid json")
@@ -610,7 +604,6 @@ mod tests {
     }
 
     fn test_package() -> crate::package::Package {
-        use std::path::PathBuf;
         crate::package::Package {
             id: "test-pkg".to_string(),
             namespace: "com.test".to_string(),

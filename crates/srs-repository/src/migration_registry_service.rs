@@ -52,6 +52,28 @@ struct MigrationDefinition {
 
 static MIGRATIONS: &[MigrationDefinition] = &[
     MigrationDefinition {
+        id: "field-type",
+        title: "Adopt the RFC-032 fieldType model",
+        description: "Rewrites every Field definition from the pre-RFC-032 `valueType` \
+                       (+ contentFormat/allowedValues/vocabularyRef/validationRules) to the \
+                       decomposed `fieldType`, and stamps `dataModelRevision: 1` on the \
+                       manifest. This is RFC-033's migration #1 (revision 0 → 1). \
+                       Idempotent — safe to run multiple times.",
+        status_fn: |store| {
+            if crate::field_type_migration_service::migration_needed(store)? {
+                Ok(MigrationStatus::Needed)
+            } else {
+                Ok(MigrationStatus::AlreadyApplied)
+            }
+        },
+        apply_fn: |store| {
+            let result = crate::field_type_migration_service::migrate_field_types(store)?;
+            serde_json::to_value(&result).map_err(|e| RepositoryError::InvalidSnapshotData {
+                message: format!("failed to serialize field-type migration result: {e}"),
+            })
+        },
+    },
+    MigrationDefinition {
         id: "migrate-identity",
         title: "Graduate identity to purpose record",
         description: "Converts a Tier-0 note identity (or a container with no identity \
@@ -229,16 +251,45 @@ mod tests {
     }
 
     #[test]
-    fn list_migrations_returns_two_entries_for_store_with_no_identity_note() {
+    fn list_migrations_returns_every_entry_for_store_with_no_identity_note() {
         let store = make_store_with_container_no_identity();
         let migrations = list_migrations(&store).unwrap();
-        assert_eq!(migrations.len(), 2);
-        assert_eq!(migrations[0].id, "migrate-identity");
-        assert_eq!(migrations[1].id, "repo-upgrade");
-        // Container exists but identity_instance_id is None → migrate-identity Needed
+        assert_eq!(migrations.len(), 3);
+        assert_eq!(migrations[0].id, "field-type");
+        assert_eq!(migrations[1].id, "migrate-identity");
+        assert_eq!(migrations[2].id, "repo-upgrade");
+        // Unstamped manifest → field-type Needed
         assert_eq!(migrations[0].status, MigrationStatus::Needed);
+        // Container exists but identity_instance_id is None → migrate-identity Needed
+        assert_eq!(migrations[1].status, MigrationStatus::Needed);
         // Zero instances → all paths canonical → AlreadyApplied
-        assert_eq!(migrations[1].status, MigrationStatus::AlreadyApplied);
+        assert_eq!(migrations[2].status, MigrationStatus::AlreadyApplied);
+    }
+
+    #[test]
+    fn field_type_migration_stamps_the_manifest_and_is_idempotent() {
+        use crate::field_type_migration_service::{
+            data_model_revision, CURRENT_DATA_MODEL_REVISION,
+        };
+        let store = make_store_with_container_no_identity();
+        assert_eq!(data_model_revision(&store).unwrap(), 0);
+
+        apply_migration(&store, "field-type").expect("first apply must succeed");
+        assert_eq!(
+            data_model_revision(&store).unwrap(),
+            CURRENT_DATA_MODEL_REVISION
+        );
+        assert_eq!(
+            list_migrations(&store).unwrap()[0].status,
+            MigrationStatus::AlreadyApplied
+        );
+
+        // Re-running changes nothing.
+        apply_migration(&store, "field-type").expect("second apply must succeed");
+        assert_eq!(
+            data_model_revision(&store).unwrap(),
+            CURRENT_DATA_MODEL_REVISION
+        );
     }
 
     #[test]

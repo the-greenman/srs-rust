@@ -1,5 +1,5 @@
 use crate::error::CoreError;
-use crate::types::field::ValueType;
+use crate::types::field::Datatype;
 use crate::types::record::Record;
 use crate::types::record_type::{
     CrossFieldRule, CrossFieldRuleEffect, CrossFieldRuleKind, RecordType,
@@ -37,12 +37,12 @@ pub fn validate_record_type_v7(rt: &RecordType) -> Vec<RecordTypeDiagnostic> {
 
 /// Evaluate all cross-field rules from `ext:cross-field-validation` against a record.
 ///
-/// `field_types` maps field IDs to their `ValueType` as declared in the package.
+/// `field_types` maps field IDs to the `Datatype` their `fieldType` declares in the package.
 /// Returns one `CoreError` per violated rule. Returns empty vec if all rules pass.
 pub fn validate_cross_field_rules(
     record: &Record,
     rules: &[CrossFieldRule],
-    field_types: &HashMap<String, ValueType>,
+    field_types: &HashMap<String, Datatype>,
 ) -> Vec<CoreError> {
     let mut errors = Vec::new();
     for rule in rules {
@@ -98,7 +98,7 @@ fn evaluate_conditional_required(
 fn evaluate_field_ordering(
     record: &Record,
     rule: &CrossFieldRule,
-    field_types: &HashMap<String, ValueType>,
+    field_types: &HashMap<String, Datatype>,
     errors: &mut Vec<CoreError>,
 ) {
     let (Some(predicate_field_id), Some(target_field_id), Some(effect)) = (
@@ -121,16 +121,19 @@ fn evaluate_field_ordering(
         return;
     };
 
-    // field-ordering applies only to date and number fields
-    if !matches!(target_vtype, ValueType::Date | ValueType::Number) {
+    // field-ordering applies only to orderable scalars. RFC-032 split the
+    // pre-decomposition `date`/`number` pair into four: `integer` and
+    // `date-time` are equally comparable and are accepted on the same footing.
+    let orderable = |dt: &Datatype| {
+        matches!(
+            dt,
+            Datatype::Date | Datatype::DateTime | Datatype::Number | Datatype::Integer
+        )
+    };
+    if !orderable(target_vtype) || !orderable(predicate_vtype) {
         errors.push(CoreError::CrossFieldRuleMisconfigured {
-            reason: "field-ordering applies only to date and number fields".to_string(),
-        });
-        return;
-    }
-    if !matches!(predicate_vtype, ValueType::Date | ValueType::Number) {
-        errors.push(CoreError::CrossFieldRuleMisconfigured {
-            reason: "field-ordering applies only to date and number fields".to_string(),
+            reason: "field-ordering applies only to date, date-time, number and integer fields"
+                .to_string(),
         });
         return;
     }
@@ -144,7 +147,7 @@ fn evaluate_field_ordering(
     };
 
     let violation = match target_vtype {
-        ValueType::Number => {
+        Datatype::Number | Datatype::Integer => {
             let Ok(t) = target_val.parse::<f64>() else {
                 errors.push(CoreError::CrossFieldRuleMisconfigured {
                     reason: format!(
@@ -168,7 +171,7 @@ fn evaluate_field_ordering(
                 CrossFieldRuleEffect::MustFollow => t <= p,
             }
         }
-        ValueType::Date => {
+        Datatype::Date | Datatype::DateTime => {
             // ISO 8601 strings are lexicographically ordered
             match effect {
                 CrossFieldRuleEffect::MustPrecede => target_val >= predicate_val,
@@ -429,8 +432,8 @@ mod tests {
         // f-start must precede f-end: start < end → pass
         let rule = ordering_rule("f-end", "f-start", CrossFieldRuleEffect::MustPrecede);
         let mut ft = HashMap::new();
-        ft.insert("f-start".to_string(), ValueType::Number);
-        ft.insert("f-end".to_string(), ValueType::Number);
+        ft.insert("f-start".to_string(), Datatype::Number);
+        ft.insert("f-end".to_string(), Datatype::Number);
         let errs = validate_cross_field_rules(&record, &[rule], &ft);
         assert!(errs.is_empty());
     }
@@ -444,8 +447,8 @@ mod tests {
         // f-start must precede f-end: start(30) >= end(20) → violation
         let rule = ordering_rule("f-end", "f-start", CrossFieldRuleEffect::MustPrecede);
         let mut ft = HashMap::new();
-        ft.insert("f-start".to_string(), ValueType::Number);
-        ft.insert("f-end".to_string(), ValueType::Number);
+        ft.insert("f-start".to_string(), Datatype::Number);
+        ft.insert("f-end".to_string(), Datatype::Number);
         let errs = validate_cross_field_rules(&record, &[rule], &ft);
         assert_eq!(errs.len(), 1);
         assert!(matches!(errs[0], CoreError::CrossFieldOrdering { .. }));
@@ -464,8 +467,8 @@ mod tests {
             CrossFieldRuleEffect::MustFollow,
         );
         let mut ft = HashMap::new();
-        ft.insert("f-end-date".to_string(), ValueType::Date);
-        ft.insert("f-start-date".to_string(), ValueType::Date);
+        ft.insert("f-end-date".to_string(), Datatype::Date);
+        ft.insert("f-start-date".to_string(), Datatype::Date);
         let errs = validate_cross_field_rules(&record, &[rule], &ft);
         assert!(errs.is_empty());
     }
@@ -483,8 +486,8 @@ mod tests {
             CrossFieldRuleEffect::MustFollow,
         );
         let mut ft = HashMap::new();
-        ft.insert("f-end-date".to_string(), ValueType::Date);
-        ft.insert("f-start-date".to_string(), ValueType::Date);
+        ft.insert("f-end-date".to_string(), Datatype::Date);
+        ft.insert("f-start-date".to_string(), Datatype::Date);
         let errs = validate_cross_field_rules(&record, &[rule], &ft);
         assert_eq!(errs.len(), 1);
         assert!(matches!(errs[0], CoreError::CrossFieldOrdering { .. }));
@@ -498,13 +501,13 @@ mod tests {
         ]);
         let rule = ordering_rule("f-end", "f-text", CrossFieldRuleEffect::MustPrecede);
         let mut ft = HashMap::new();
-        ft.insert("f-text".to_string(), ValueType::String);
-        ft.insert("f-end".to_string(), ValueType::String);
+        ft.insert("f-text".to_string(), Datatype::String);
+        ft.insert("f-end".to_string(), Datatype::String);
         let errs = validate_cross_field_rules(&record, &[rule], &ft);
         assert_eq!(errs.len(), 1);
         assert!(matches!(
             &errs[0],
-            CoreError::CrossFieldRuleMisconfigured { reason } if reason.contains("date and number")
+            CoreError::CrossFieldRuleMisconfigured { reason } if reason.contains("field-ordering applies only to")
         ));
     }
 
@@ -513,8 +516,8 @@ mod tests {
         let record = make_record(vec![]);
         let rule = ordering_rule("f-end", "f-start", CrossFieldRuleEffect::MustPrecede);
         let mut ft = HashMap::new();
-        ft.insert("f-start".to_string(), ValueType::Number);
-        ft.insert("f-end".to_string(), ValueType::Number);
+        ft.insert("f-start".to_string(), Datatype::Number);
+        ft.insert("f-end".to_string(), Datatype::Number);
         let errs = validate_cross_field_rules(&record, &[rule], &ft);
         assert!(errs.is_empty());
     }
@@ -531,7 +534,7 @@ mod tests {
             "f-start",
             CrossFieldRuleEffect::MustPrecede,
         );
-        let ft: HashMap<String, ValueType> = HashMap::new();
+        let ft: HashMap<String, Datatype> = HashMap::new();
         let errs = validate_cross_field_rules(&record, &[rule], &ft);
         assert!(
             errs.is_empty(),

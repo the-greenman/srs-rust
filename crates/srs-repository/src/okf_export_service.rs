@@ -372,7 +372,7 @@ mod tests {
         add_member(&store, &c.container_id, &r1.instance_id).unwrap();
         add_member(&store, &c.container_id, &r2.instance_id).unwrap();
 
-        let relations = vec![
+        let relations = [
             make_precedes_relation("rel-1", &r1.instance_id, &r2.instance_id),
             make_precedes_relation("rel-2", &r2.instance_id, &r3.instance_id),
         ];
@@ -409,12 +409,13 @@ mod tests {
     fn record_with_field_values_produces_field_pairs() {
         use crate::manifest::Manifest;
         use crate::package::Package;
-        use srs_core::types::field::{AiGuidance, Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, FieldType};
         use srs_core::types::record::FieldValue;
         use std::path::PathBuf;
 
         let field_id = "f-title-0001-0000-0000-0000000000001".to_string();
         let field = Field {
+            schema: None,
             id: field_id.clone(),
             namespace: "com.test".to_string(),
             name: "title".to_string(),
@@ -422,17 +423,14 @@ mod tests {
             description: String::new(),
             instructions: None,
             ai_guidance: AiGuidance::default(),
-            content_format: None,
-            value_type: ValueType::String,
-            allowed_values: None,
-            vocabulary_ref: None,
+            field_type: FieldType::string(),
             default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
+            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
         };
         let manifest = Manifest {
             instance_index: vec![],

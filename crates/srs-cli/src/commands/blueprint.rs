@@ -189,7 +189,7 @@ fn map_brief_type(t: BriefTypeResult) -> BriefType {
                 name: f.name,
                 order: f.order,
                 required: f.required,
-                value_type: f.value_type,
+                field_type: f.field_type,
                 ai_guidance: f.ai_guidance,
             })
             .collect(),

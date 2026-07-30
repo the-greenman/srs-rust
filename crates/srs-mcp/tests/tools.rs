@@ -66,7 +66,8 @@ fn make_fixture() -> Fixture {
                 "namespace": NS,
                 "name": name,
                 "version": 1,
-                "valueType": value_type
+                "valueType": value_type,
+                "aiGuidance": {"purpose": format!("captures the {name}")}
             }),
             None,
         )

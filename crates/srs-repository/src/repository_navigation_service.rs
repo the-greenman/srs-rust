@@ -207,7 +207,7 @@ mod tests {
     use crate::store::memory::MemoryStore;
     use crate::store::RepositoryStore;
     use srs_core::types::container::Container;
-    use srs_core::types::field::{AiGuidance, Field, ValueType};
+    use srs_core::types::field::{AiGuidance, Field, FieldType};
     use srs_core::types::record::{FieldValue, Record};
     use std::collections::HashMap;
     use std::path::PathBuf;
@@ -219,6 +219,7 @@ mod tests {
             name: "nav".to_string(),
             version: "1.0.0".to_string(),
             fields: vec![Field {
+                schema: None,
                 id: "00000000-0000-4000-8000-00000000f100".to_string(),
                 namespace: "governance".to_string(),
                 name: "title".to_string(),
@@ -226,17 +227,14 @@ mod tests {
                 description: "Title".to_string(),
                 instructions: None,
                 ai_guidance: AiGuidance::default(),
-                content_format: None,
-                value_type: ValueType::String,
-                allowed_values: None,
-                vocabulary_ref: None,
+                field_type: FieldType::string(),
                 default_value: None,
                 editor_hint: None,
                 tags: None,
                 lineage: None,
                 provenance: None,
+                deprecated_at: None,
                 created_at: "2026-01-01T00:00:00Z".to_string(),
-                extra: HashMap::new(),
             }],
             record_types: vec![],
             relation_type_definitions: vec![],

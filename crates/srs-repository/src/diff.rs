@@ -494,6 +494,7 @@ mod tests {
 
     fn make_field(id: &str, name: &str, version: u32) -> srs_core::types::field::Field {
         srs_core::types::field::Field {
+            schema: None,
             id: id.to_string(),
             namespace: "com.example".to_string(),
             name: name.to_string(),
@@ -501,17 +502,14 @@ mod tests {
             description: String::new(),
             instructions: None,
             ai_guidance: srs_core::types::field::AiGuidance::default(),
-            content_format: None,
-            value_type: srs_core::types::field::ValueType::String,
-            allowed_values: None,
-            vocabulary_ref: None,
+            field_type: srs_core::types::field::FieldType::string(),
             default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
+            deprecated_at: None,
             created_at: "2024-01-01T00:00:00Z".to_string(),
-            extra: std::collections::HashMap::new(),
         }
     }
 

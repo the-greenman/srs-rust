@@ -944,7 +944,11 @@ pub struct BriefField {
     pub name: String,
     pub order: u32,
     pub required: bool,
-    pub value_type: String,
+    /// RFC-032 `fieldType`, carried whole. `schemars` cannot derive through
+    /// `srs-core` (which must not depend on it), so the payload schema types
+    /// this as an object; its shape is `$defs/FieldType` in `field.json`.
+    #[schemars(with = "serde_json::Value")]
+    pub field_type: srs_core::types::field::FieldType,
     #[schemars(with = "Option<serde_json::Value>")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_guidance: Option<serde_json::Value>,
@@ -2383,7 +2387,7 @@ mod tests {
             name: "Title".to_string(),
             order: 0,
             required: true,
-            value_type: "text".to_string(),
+            field_type: srs_core::types::field::FieldType::text(),
             ai_guidance: None,
         };
         let json = serde_json::to_string(&field).unwrap();

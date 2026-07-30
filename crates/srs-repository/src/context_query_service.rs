@@ -230,7 +230,7 @@ mod tests {
     use crate::store::memory::MemoryStore;
     use crate::{record_store, revision_service};
     use serde_json::json;
-    use srs_core::types::field::{AiGuidance, Field, ValueType};
+    use srs_core::types::field::{AiGuidance, Field, FieldType};
     use srs_core::types::record::FieldValue;
     use srs_core::types::record_type::{FieldAssignment, RecordType};
     use srs_core::types::revision::{Revision, RevisionAgent};
@@ -238,24 +238,22 @@ mod tests {
 
     fn make_store() -> MemoryStore {
         let name_field = Field {
+            schema: None,
             id: "field-name-001".to_string(),
             namespace: "com.test".to_string(),
             name: "test-name".to_string(),
             version: 1,
-            value_type: ValueType::String,
+            field_type: FieldType::string(),
             description: "Name field".to_string(),
             instructions: None,
             ai_guidance: AiGuidance::default(),
-            content_format: None,
-            allowed_values: None,
-            vocabulary_ref: None,
             default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
+            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::HashMap::new(),
         };
         let test_type = RecordType {
             id: "type-test-001".to_string(),
@@ -407,24 +405,22 @@ mod tests {
     fn field_context_ai_guidance_from_package() {
         // Build a store where field-name-001 has non-null ai_guidance
         let mut name_field = Field {
+            schema: None,
             id: "field-name-001".to_string(),
             namespace: "com.test".to_string(),
             name: "test-name".to_string(),
             version: 1,
-            value_type: ValueType::String,
+            field_type: FieldType::string(),
             description: "Name field".to_string(),
             instructions: None,
             ai_guidance: AiGuidance::default(),
-            content_format: None,
-            allowed_values: None,
-            vocabulary_ref: None,
             default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
+            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::HashMap::new(),
         };
         let test_type = RecordType {
             id: "type-test-001".to_string(),

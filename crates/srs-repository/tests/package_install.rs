@@ -220,24 +220,22 @@ fn install_skips_identical_uuid_definitions() {
     // Pre-create the fixture's `title` field in the PRIMARY package with the
     // exact same UUID — the installer must skip it, wherever it lives.
     let title = srs_core::types::field::Field {
+        schema: None,
         id: "9a1b0c2d-0001-4aaa-8bbb-00000000f001".to_string(),
         namespace: "com.example.install".to_string(),
         name: "title".to_string(),
         version: 1,
-        value_type: srs_core::types::field::ValueType::String,
+        field_type: srs_core::types::field::FieldType::string(),
         description: "Short label for this record.".to_string(),
         instructions: None,
         ai_guidance: srs_core::types::field::AiGuidance::default(),
-        content_format: None,
-        allowed_values: None,
-        vocabulary_ref: None,
         default_value: None,
         editor_hint: None,
         tags: None,
         lineage: None,
         provenance: None,
+        deprecated_at: None,
         created_at: "2026-01-01T00:00:00Z".to_string(),
-        extra: std::collections::HashMap::new(),
     };
     package_service::create_field(&store, title).expect("pre-create field");
 

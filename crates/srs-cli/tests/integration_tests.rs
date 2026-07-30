@@ -10,7 +10,8 @@ fn create_temp_repo() -> TempDir {
 
     // Create minimal manifest.json
     let manifest = serde_json::json!({
-        "instanceIndex": []
+        "instanceIndex": [],
+        "dataModelRevision": 1
     });
     let manifest_path = temp.path().join("manifest.json");
     std::fs::write(
@@ -909,6 +910,7 @@ fn json_store_cli_schema_record_and_roundtrip_workflow() {
             "namespace": "com.semanticops.dogfood",
             "name": "decision-title",
             "version": 1,
+            "aiGuidance": {"purpose": "captures the decision-title value"},
             "valueType": "string"
         }),
         serde_json::json!({
@@ -916,6 +918,7 @@ fn json_store_cli_schema_record_and_roundtrip_workflow() {
             "namespace": "com.semanticops.dogfood",
             "name": "decision-status",
             "version": 1,
+            "aiGuidance": {"purpose": "captures the decision-title value"},
             "valueType": "select",
             "allowedValues": ["proposed", "accepted"]
         }),
@@ -2037,6 +2040,7 @@ fn repo_extensions_list_returns_declared_extensions() {
         "srsVersion": "2.0-draft",
         "repositoryId": "test-repo",
         "instanceIndex": [],
+        "dataModelRevision": 1,
         "declaredExtensions": ["ext:repository", "ext:relations"]
     });
     std::fs::write(
@@ -2079,6 +2083,7 @@ fn repo_extensions_disable_removes_extension() {
         "srsVersion": "2.0-draft",
         "repositoryId": "test-repo",
         "instanceIndex": [],
+        "dataModelRevision": 1,
         "declaredExtensions": ["ext:test"]
     });
     std::fs::write(
@@ -2378,6 +2383,7 @@ fn field_list_returns_fields() {
         "namespace": "com.test",
         "name": "test-field",
         "version": 1,
+        "aiGuidance": {"purpose": "captures the test-field value"},
         "valueType": "string",
         "description": "A test field"
     });
@@ -2431,6 +2437,7 @@ fn field_get_returns_field_by_id() {
         "namespace": "com.test",
         "name": "test-field",
         "version": 1,
+        "aiGuidance": {"purpose": "captures the test-field value"},
         "valueType": "string",
         "description": "A test field"
     });
@@ -2491,7 +2498,7 @@ fn field_create_adds_field_to_package() {
         "name": "new-field",
         "version": 1,
         "description": "A new field",
-        "aiGuidance": {},
+        "aiGuidance": {"purpose": "captures the new field's value"},
         "valueType": "string",
         "createdAt": "2026-01-01T00:00:00Z"
     });
@@ -2537,12 +2544,15 @@ fn field_create_accepts_minimal_payload() {
     )
     .unwrap();
 
-    // Minimal payload: no description, aiGuidance, or createdAt.
+    // Minimal payload: no description or createdAt (both are mechanical
+    // defaults the service supplies). `aiGuidance.purpose` is NOT defaulted —
+    // srs-rust#768 — so it is part of even the minimal payload.
     let new_field = serde_json::json!({
         "id": "00000000-0000-0000-0000-0000000000ff",
         "namespace": "com.test",
         "name": "minimal-field",
         "version": 1,
+        "aiGuidance": {"purpose": "captures a minimal test value"},
         "valueType": "string"
     });
 
@@ -2901,6 +2911,7 @@ fn record_update_revalidates_and_rewrites_record() {
         "namespace": "com.test",
         "name": "title",
         "version": 1,
+        "aiGuidance": {"purpose": "captures the title value"},
         "valueType": "string",
         "description": "Title field"
     });
@@ -3491,6 +3502,7 @@ fn create_temp_repo_with_protocol_package() -> TempDir {
                 "title": "Protocol Test Repo"
             },
             "instanceIndex": [],
+            "dataModelRevision": 1,
             "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap(),
@@ -3909,6 +3921,7 @@ fn make_container_test_repo() -> TempDir {
     std::fs::create_dir(temp.path().join(".srs")).expect("Failed to create .srs dir");
     let manifest = serde_json::json!({
         "instanceIndex": [],
+        "dataModelRevision": 1,
         "containerIndex": []
     });
     std::fs::write(
@@ -4837,6 +4850,7 @@ fn create_temp_repo_with_package() -> TempDir {
             "title": "Package Test Repo"
         },
         "instanceIndex": [],
+        "dataModelRevision": 1,
         "createdAt": "2026-01-01T00:00:00Z"
     });
     std::fs::write(
@@ -5035,6 +5049,7 @@ fn field_create_in_sub_package() {
         "namespace": "com.ext",
         "name": "ext-field",
         "version": 1,
+        "aiGuidance": {"purpose": "captures the extension field's value"},
         "valueType": "string"
     });
     let result = run_srs_stdin_in_dir(
@@ -5095,6 +5110,7 @@ fn field_list_with_package_filter() {
             "namespace": "com.test",
             "name": "primary-field",
             "version": 1,
+            "aiGuidance": {"purpose": "captures the primary-field value"},
             "valueType": "string",
             "description": "",
             "createdAt": "2026-01-01T00:00:00Z"
@@ -5171,6 +5187,7 @@ fn create_temp_repo_with_views() -> TempDir {
                 "title": "Views Test Repo"
             },
             "instanceIndex": [],
+            "dataModelRevision": 1,
             "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap(),
@@ -5619,6 +5636,7 @@ fn minimal_field_json(id: &str, name: &str) -> String {
         "namespace": "com.test",
         "name": name,
         "version": 1,
+        "aiGuidance": {"purpose": format!("captures the {name} value")},
         "valueType": "string"
     })
     .to_string()
@@ -5857,6 +5875,7 @@ fn field_create_without_id_mints_uuid() {
         "namespace": "com.test",
         "name": "auto-id-field",
         "version": 1,
+        "aiGuidance": {"purpose": "captures the auto-id field value"},
         "valueType": "string"
     })
     .to_string();
@@ -5936,6 +5955,7 @@ fn type_schema_emits_draft07_for_record_field_values() {
             "namespace": "com.semanticops.schemademo",
             "name": "title",
             "version": 1,
+            "aiGuidance": {"purpose": "captures the title value"},
             "valueType": "string"
         }),
         serde_json::json!({
@@ -5943,6 +5963,7 @@ fn type_schema_emits_draft07_for_record_field_values() {
             "namespace": "com.semanticops.schemademo",
             "name": "status",
             "version": 1,
+            "aiGuidance": {"purpose": "captures the title value"},
             "valueType": "select",
             "allowedValues": ["proposed", "accepted"]
         }),
@@ -6079,6 +6100,7 @@ fn blueprint_schema_emits_nested_draft07() {
         "namespace": "com.semanticops.bpschema",
         "name": "title",
         "version": 1,
+        "aiGuidance": {"purpose": "captures the title"},
         "valueType": "string"
     });
     let r = run_srs_stdin_in_dir(
@@ -6695,12 +6717,14 @@ fn setup_repo_with_decision_type(temp: &TempDir, slug: &str) -> (std::path::Path
     for field in [
         serde_json::json!({
             "id": title_field_id, "namespace": "com.test",
-            "name": "decision-title", "version": 1, "valueType": "string"
+            "name": "decision-title", "version": 1, "valueType": "string",
+            "aiGuidance": {"purpose": "captures the decision title"}
         }),
         serde_json::json!({
             "id": status_field_id, "namespace": "com.test",
             "name": "decision-status", "version": 1, "valueType": "select",
-            "allowedValues": ["proposed", "accepted"]
+            "allowedValues": ["proposed", "accepted"],
+            "aiGuidance": {"purpose": "captures the decision status"}
         }),
     ] {
         let r = run_srs_stdin_in_dir(&repo, &["field", "create"], &field.to_string());
@@ -6873,7 +6897,7 @@ fn container_resolve_view_happy_path() {
 // ── repo migrations / apply-migration (#461) ──────────────────────────────────
 
 #[test]
-fn repo_migrations_lists_two_migrations() {
+fn repo_migrations_lists_the_registered_migrations() {
     let temp = create_temp_repo();
     let repo_str = temp.path().to_str().unwrap().to_string();
     let result = run_srs_in_dir(temp.path(), &["--repo", &repo_str, "repo", "migrations"]);
@@ -6883,13 +6907,13 @@ fn repo_migrations_lists_two_migrations() {
     let migrations = result["payload"]["migrations"]
         .as_array()
         .expect("migrations must be an array");
-    assert_eq!(migrations.len(), 2, "expected exactly two migrations");
+    assert_eq!(migrations.len(), 3, "expected exactly three migrations");
 
     let ids: Vec<&str> = migrations
         .iter()
         .map(|m| m["id"].as_str().unwrap())
         .collect();
-    assert_eq!(ids, vec!["migrate-identity", "repo-upgrade"]);
+    assert_eq!(ids, vec!["field-type", "migrate-identity", "repo-upgrade"]);
 
     // Each status object has exactly one bool set to true (exclusive-one invariant).
     for m in migrations {
@@ -6908,9 +6932,12 @@ fn repo_migrations_lists_two_migrations() {
         );
     }
 
-    // Minimal repo has no container → migrate-identity is notApplicable; no instances → repo-upgrade is alreadyApplied.
-    assert_eq!(migrations[0]["status"]["notApplicable"], true);
-    assert_eq!(migrations[1]["status"]["alreadyApplied"], true);
+    // The fixture manifest is stamped at the current revision → field-type is
+    // alreadyApplied; no container → migrate-identity is notApplicable; no
+    // instances → repo-upgrade is alreadyApplied.
+    assert_eq!(migrations[0]["status"]["alreadyApplied"], true);
+    assert_eq!(migrations[1]["status"]["notApplicable"], true);
+    assert_eq!(migrations[2]["status"]["alreadyApplied"], true);
 }
 
 #[test]

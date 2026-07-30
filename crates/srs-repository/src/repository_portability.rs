@@ -42,6 +42,7 @@ pub struct PackageBoundarySnapshot {
     /// None => primary package at `package/`; Some(path) => sub-package path from manifest packageRefs.
     pub boundary_path: Option<String>,
     pub metadata: PrimaryPackageMetadata,
+    #[serde(deserialize_with = "crate::field_json::deserialize_fields_compat")]
     pub fields: Vec<Field>,
     pub record_types: Vec<RecordType>,
     pub relation_type_definitions: Vec<RelationTypeDefinition>,
@@ -1264,24 +1265,22 @@ mod tests {
         source.initialize_repository(&make_input()).unwrap();
         let mut snapshot = export_repository_snapshot(&source).unwrap();
         snapshot.packages[0].fields.push(Field {
+            schema: None,
             id: "short".to_string(),
             namespace: "com.semanticops.copy".to_string(),
             name: "bad".to_string(),
             version: 1,
-            value_type: srs_core::types::field::ValueType::String,
+            field_type: srs_core::types::field::FieldType::string(),
             description: "".to_string(),
             instructions: None,
             ai_guidance: AiGuidance::default(),
-            content_format: None,
-            allowed_values: None,
-            vocabulary_ref: None,
             default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
+            deprecated_at: None,
             created_at: "".to_string(),
-            extra: HashMap::new(),
         });
 
         let target = MemoryStore::uninitialized();

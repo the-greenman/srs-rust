@@ -21,6 +21,11 @@
       "type": "string",
       "description": "Semver, e.g. '1.2.0'."
     },
+    "dataModelRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "RFC-033 / #265 — the data-model generation this bundle was generated for. Absent means revision 0. The emitter (#259) stamps this so repo stamp, bundle version, and migration-registry generation reference one number. Not dotted semver."
+    },
     "publishedAt": {
       "type": "string",
       "format": "date-time"
@@ -76,7 +81,7 @@
   "$defs": {
     "Field": {
       "type": "object",
-      "required": ["id", "namespace", "name", "version", "description", "aiGuidance", "valueType", "createdAt"],
+      "required": ["id", "namespace", "name", "version", "description", "aiGuidance", "fieldType", "createdAt"],
       "additionalProperties": true,
       "properties": {
         "id": { "type": "string", "format": "uuid" },
@@ -89,17 +94,17 @@
           "required": ["purpose"],
           "properties": { "purpose": { "type": "string" } }
         },
-        "valueType": {
-          "type": "string",
-          "enum": ["string", "text", "number", "boolean", "date", "url", "select", "multiselect"]
-        },
-        "contentFormat": {
-          "type": "string",
-          "enum": ["plain", "markdown"]
-        },
-        "allowedValues": {
-          "type": "array",
-          "items": { "type": "string" }
+        "fieldType": {
+          "type": "object",
+          "required": ["datatype"],
+          "additionalProperties": true,
+          "description": "RFC-032 decomposed value type — see field.json $defs.FieldType. Embedded loosely here (additionalProperties:true); the bundle schema mirrors field.json's Field shape.",
+          "properties": {
+            "datatype": {
+              "type": "string",
+              "enum": ["string", "number", "integer", "boolean", "date", "date-time", "ref", "dependent", "map"]
+            }
+          }
         },
         "editorHint": {
           "type": "string",

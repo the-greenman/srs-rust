@@ -1901,7 +1901,7 @@ mod tests {
     #[test]
     fn json_store_field_instructions_roundtrip() {
         use crate::package_service::create_field;
-        use srs_core::types::field::{AiGuidance, Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, FieldType};
 
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("repo.srsj");
@@ -1909,24 +1909,22 @@ mod tests {
         create_repository(&store, &init_input()).unwrap();
 
         let field = Field {
+            schema: None,
             id: "00000000-0000-0000-0000-aabbccddee03".to_string(),
             namespace: "com.test".to_string(),
             name: "help-field".to_string(),
             version: 1,
-            value_type: ValueType::String,
+            field_type: FieldType::string(),
             description: "A help field".to_string(),
             instructions: Some("Fill this in carefully.".to_string()),
             ai_guidance: AiGuidance::default(),
-            content_format: None,
-            allowed_values: None,
-            vocabulary_ref: None,
             default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
+            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
         };
         create_field(&store, field.clone()).unwrap();
         drop(store);

@@ -71,15 +71,18 @@
       "type": "object",
       "required": [
         "fieldId",
+        "fieldType",
         "name",
         "order",
-        "required",
-        "valueType"
+        "required"
       ],
       "properties": {
         "aiGuidance": true,
         "fieldId": {
           "type": "string"
+        },
+        "fieldType": {
+          "description": "RFC-032 `fieldType`, carried whole. `schemars` cannot derive through `srs-core` (which must not depend on it), so the payload schema types this as an object; its shape is `$defs/FieldType` in `field.json`."
         },
         "name": {
           "type": "string"
@@ -91,9 +94,6 @@
         },
         "required": {
           "type": "boolean"
-        },
-        "valueType": {
-          "type": "string"
         }
       }
     },

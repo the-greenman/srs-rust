@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 use srs_core::extensions::import_tracking::{
     ConflictState, DefinitionType, ImportMode, ImportRecord, ImportSummary,
 };
-use srs_core::types::field::Field;
+use srs_core::types::field::{Field, FieldType};
 use srs_core::types::record_type::RecordType;
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_schema::{SchemaRegistry, FIELD_SCHEMA_ID};
@@ -43,7 +43,9 @@ pub struct FieldSummary {
     pub namespace: String,
     pub name: String,
     pub version: u32,
-    pub value_type: String,
+    /// RFC-032 — the decomposed value type, carried whole. Clients present it;
+    /// they do not re-derive semantics from a flattened string.
+    pub field_type: FieldType,
     pub description: Option<String>,
     /// Boundary path of the package that owns this field.
     /// `None` = primary package (`package/`); `Some(path)` = sub-package path.
@@ -195,7 +197,7 @@ fn list_fields_internal(
             namespace: f.namespace.clone(),
             name: f.name.clone(),
             version: f.version,
-            value_type: format!("{:?}", f.value_type).to_lowercase(),
+            field_type: f.field_type.clone(),
             description: if f.description.is_empty() {
                 None
             } else {
@@ -388,47 +390,77 @@ pub fn list_relation_types_filtered(
     })
 }
 
-/// Create a field with normalized defaults (description, aiGuidance, createdAt),
+/// Create a field with normalized defaults (id, description, createdAt),
 /// deserializing from a raw JSON value.
 ///
 /// Moves normalization logic from CLI handlers into the service layer.
+///
+/// **Two things this deliberately does not do.**
+///
+/// *It does not manufacture `aiGuidance`* (srs-rust#768). The previous
+/// implementation injected `{"purpose": ""}` when guidance was absent, so a
+/// required property was satisfied by a value that carries no information and is
+/// indistinguishable from authored-but-empty guidance. Absent guidance is now an
+/// error the caller can act on. `createdAt` keeps its default: a timestamp is a
+/// mechanical value the system can supply correctly, where guidance is a
+/// semantic one only the author can.
+///
+/// *It does not require the caller to have migrated.* Input carrying the
+/// pre-RFC-032 `valueType` (+ companions) is upgraded through the same
+/// [`crate::field_json::FieldJson`] path the loaders use, so `field create` has
+/// exactly one parser and one answer about what a Field document may contain.
 pub fn create_field_normalized(
     store: &dyn RepositoryStore,
     mut raw: serde_json::Value,
     package_selector: PackageSelector,
 ) -> Result<CreateFieldResult, RepositoryError> {
-    // Normalize optional fields first so that schema validation sees a complete
-    // document. The schema requires description/aiGuidance/createdAt; we supply
-    // sensible defaults for callers that omit them.
+    // Normalize mechanical defaults first so that schema validation sees a
+    // complete document.
     if raw["id"].as_str().is_none_or(|s| s.is_empty()) {
         raw["id"] = serde_json::json!(new_instance_id());
     }
     if raw.get("description").is_none() || raw["description"].is_null() {
         raw["description"] = serde_json::json!("");
     }
-    // aiGuidance requires a "purpose" property; default to empty string when absent.
-    match raw.get("aiGuidance") {
-        None | Some(serde_json::Value::Null) => {
-            raw["aiGuidance"] = serde_json::json!({ "purpose": "" });
-        }
-        Some(serde_json::Value::Object(_)) if raw["aiGuidance"].get("purpose").is_none() => {
-            raw["aiGuidance"]["purpose"] = serde_json::json!("");
-        }
-        _ => {}
-    }
     if raw.get("createdAt").is_none() || raw["createdAt"].is_null() {
         raw["createdAt"] = serde_json::json!(chrono::Utc::now().to_rfc3339());
     }
 
-    // Validate after normalization so defaults satisfy the schema.
+    let purpose = raw
+        .get("aiGuidance")
+        .and_then(|g| g.get("purpose"))
+        .and_then(|p| p.as_str())
+        .unwrap_or("");
+    if purpose.trim().is_empty() {
+        return Err(RepositoryError::InvalidInput {
+            message: format!(
+                "field '{}': aiGuidance.purpose is required and must be non-empty — it is what \
+                 makes the field legible to an AI consumer. State in a sentence or two what this \
+                 field captures.",
+                raw.get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("<unnamed>")
+            ),
+        });
+    }
+
+    // Upgrade a data-model-revision-0 document (`valueType` + companions) before
+    // validating, so the schema always sees the current model.
+    let field: Field = {
+        let field_json: crate::field_json::FieldJson =
+            crate::input_normalization::from_value_with_path(raw.clone(), "Field")?;
+        field_json.into_field(std::path::Path::new("<stdin>"))?
+    };
+    let normalized = serde_json::to_value(&field).map_err(|e| RepositoryError::InvalidInput {
+        message: format!("failed to re-serialize normalized Field: {e}"),
+    })?;
+
     SchemaRegistry::global()
-        .validate_by_id(FIELD_SCHEMA_ID, &raw)
+        .validate_by_id(FIELD_SCHEMA_ID, &normalized)
         .map_err(|e| RepositoryError::SchemaValidation {
             path: std::path::PathBuf::from("<stdin>"),
             message: e.to_string(),
         })?;
-
-    let field: Field = crate::input_normalization::from_value_with_path(raw, "Field")?;
 
     create_field_in_package(store, field, package_selector)
 }
@@ -561,7 +593,7 @@ pub fn delete_field(
 }
 
 /// Find the repo-root-relative path and owner boundary for a field by its ID.
-fn find_field_path(
+pub(crate) fn find_field_path(
     store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<Option<(String, PackageSelector)>, RepositoryError> {
@@ -1355,29 +1387,27 @@ mod tests {
     use super::*;
     use crate::package_types::DefinitionKind;
     use crate::store::memory::MemoryStore;
-    use srs_core::types::field::{AiGuidance, ValueType};
+    use srs_core::types::field::{AiGuidance, FieldType};
     use std::collections::HashMap;
 
     fn make_field(id: &str, name: &str) -> Field {
         Field {
+            schema: None,
             id: id.to_string(),
             namespace: "com.test".to_string(),
             name: name.to_string(),
             version: 1,
-            value_type: ValueType::String,
+            field_type: FieldType::string(),
             description: "A test field".to_string(),
             instructions: None,
             ai_guidance: AiGuidance::default(),
-            content_format: None,
-            allowed_values: None,
-            vocabulary_ref: None,
             default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
+            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
         }
     }
 
