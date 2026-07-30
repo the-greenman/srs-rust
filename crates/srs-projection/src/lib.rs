@@ -9,7 +9,8 @@
 pub mod json_schema;
 
 use json_schema::{
-    emit_entity, EntitySchema, OrderedMap, ProjectionContext, ProjectionError, SchemaBundle,
+    emit_entity, emit_entity_for, EntitySchema, OrderedMap, ProjectionContext, ProjectionError,
+    SchemaBundle,
 };
 use srs_repository::error::RepositoryError;
 use srs_repository::store::RepositoryStore;
@@ -61,9 +62,12 @@ pub fn type_to_json_schema(
     input: TypeToJsonSchemaInput,
 ) -> Result<TypeJsonSchemaResult, RepositoryError> {
     let package = store.load_package()?;
-    let target = resolve_type_name(&package, &input.type_id, input.type_version)?;
+    let target = resolve_type(&package, &input.type_id, input.type_version)?;
     let ctx = ProjectionContext::new(&package.record_types, &package.fields);
-    let schema = emit_entity(&ctx, &target).map_err(to_repository_error)?;
+    // Project the *resolved* Type, not a re-lookup by name: a name can address
+    // several versions (and several namespaces), so re-resolving would quietly
+    // return a different Type than the caller asked for.
+    let schema = emit_entity_for(&ctx, &target).map_err(to_repository_error)?;
     let inexpressible = collect_inexpressible(&package, &target);
     Ok(TypeJsonSchemaResult {
         schema,
@@ -86,7 +90,11 @@ pub fn schema_bundle(
             name.clone(),
             emit_entity(&ctx, name).map_err(to_repository_error)?,
         );
-        inexpressible.extend(collect_inexpressible(&package, name));
+        inexpressible.extend(
+            ctx.type_by_name(name)
+                .map(|t| collect_inexpressible(&package, t))
+                .unwrap_or_default(),
+        );
     }
     Ok(SchemaBundleResult {
         bundle: SchemaBundle {
@@ -99,13 +107,16 @@ pub fn schema_bundle(
     })
 }
 
-/// Resolve a `typeId` (+ optional version) to the Type's name, which is how the
-/// projection addresses Types internally.
-fn resolve_type_name(
+/// Resolve a `typeId` (+ optional version) to the Type itself.
+///
+/// Returning the `RecordType` rather than its name is deliberate: `name` is not
+/// a unique key (a UUID lineage has many versions, and two namespaces may share
+/// a name), so addressing the projection by name loses the caller's selection.
+fn resolve_type(
     package: &srs_repository::package::Package,
     type_id: &str,
     type_version: Option<u32>,
-) -> Result<String, RepositoryError> {
+) -> Result<srs_core::types::record_type::RecordType, RepositoryError> {
     let found = match type_version {
         Some(version) => package.resolve_type(type_id, version).cloned(),
         None => package
@@ -115,12 +126,10 @@ fn resolve_type_name(
             .max_by_key(|t| t.version)
             .cloned(),
     };
-    found
-        .map(|t| t.name)
-        .ok_or_else(|| RepositoryError::TypeNotFound {
-            type_id: type_id.to_string(),
-            version: type_version.unwrap_or(0),
-        })
+    found.ok_or_else(|| RepositoryError::TypeNotFound {
+        type_id: type_id.to_string(),
+        version: type_version.unwrap_or(0),
+    })
 }
 
 /// Name every constraint the projection could not express.
@@ -132,14 +141,12 @@ fn resolve_type_name(
 /// complete.
 fn collect_inexpressible(
     package: &srs_repository::package::Package,
-    type_name: &str,
+    record_type: &srs_core::types::record_type::RecordType,
 ) -> Vec<String> {
     use srs_core::types::field::Datatype;
     use srs_core::types::record_type::CrossFieldRuleKind;
 
-    let Some(record_type) = package.record_types.iter().find(|t| t.name == type_name) else {
-        return Vec::new();
-    };
+    let type_name = &record_type.name;
     let mut out = Vec::new();
 
     for rule in record_type.validation_rules.iter().flatten() {

@@ -119,6 +119,14 @@ pub struct Field {
     pub description: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instructions: Option<String>,
+    /// Absent guidance stays absent through a round-trip (srs-rust#768).
+    /// Serializing a manufactured `{"purpose": ""}` for a Field that never had
+    /// one is the exact artifact that issue removed from the create gate — it
+    /// makes "no guidance written" indistinguishable from "guidance written and
+    /// empty", and writing it back during a migration would make the loss
+    /// permanent. A Field with no guidance therefore fails `field.json`'s
+    /// `required` check, which is the visible outcome the issue asks for.
+    #[serde(default, skip_serializing_if = "AiGuidance::is_empty")]
     pub ai_guidance: AiGuidance,
     /// RFC-032 — the decomposed value type: datatype × cardinality ×
     /// value-domain × format × constraints.
