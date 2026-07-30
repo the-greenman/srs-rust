@@ -23,6 +23,11 @@
       "type": "string",
       "description": "SRS spec version this repository conforms to, e.g. '2.0' or '2.0-draft'."
     },
+    "dataModelRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "RFC-033 / #265 — monotonic integer generation stamp for operational (2.0.x -> 2.0.y) data-model migrations within the srsVersion line. Absent means revision 0 (pre-stamp, for gating). RFC-032 (valueType -> fieldType) is migration #1, toRevision 1. Not dotted semver; carries no backward-compat promise."
+    },
     "repositoryId": {
       "type": "string",
       "format": "uuid",

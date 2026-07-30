@@ -18,6 +18,7 @@ use crate::package_service::{
 use crate::protocol_service::find_protocol_by_target_type;
 use crate::store::RepositoryStore;
 use srs_core::types::blueprint::TypeRef;
+use srs_core::types::field::FieldType;
 use srs_core::types::protocol::{FieldRef, ProtocolStage};
 
 // ---------------------------------------------------------------------------
@@ -34,7 +35,7 @@ pub struct BriefFieldResult {
     pub name: String,
     pub order: u32,
     pub required: bool,
-    pub value_type: String,
+    pub field_type: FieldType,
     pub ai_guidance: Option<serde_json::Value>,
 }
 
@@ -189,7 +190,7 @@ pub fn render_brief_markdown(result: &BlueprintBriefResult) -> String {
         }
         if !t.fields.is_empty() {
             out.push_str(
-                "| Field | ValueType | Required | Purpose | Extraction | Negative | Examples |\n",
+                "| Field | Type | Required | Purpose | Extraction | Negative | Examples |\n",
             );
             out.push_str("|---|---|---|---|---|---|---|\n");
             for f in &t.fields {
@@ -200,7 +201,13 @@ pub fn render_brief_markdown(result: &BlueprintBriefResult) -> String {
                 let required = if f.required { "yes" } else { "no" };
                 out.push_str(&format!(
                     "| `{}` | {} | {} | {} | {} | {} | {} |\n",
-                    f.name, f.value_type, required, purpose, extraction, negative, examples
+                    f.name,
+                    f.field_type.describe(),
+                    required,
+                    purpose,
+                    extraction,
+                    negative,
+                    examples
                 ));
             }
             out.push('\n');
@@ -302,16 +309,13 @@ fn resolve_brief_type(
                 } else {
                     serde_json::to_value(&field.ai_guidance).ok()
                 };
-                let value_type = serde_json::to_value(&field.value_type)
-                    .ok()
-                    .and_then(|v| v.as_str().map(|s| s.to_string()))
-                    .unwrap_or_default();
+                let field_type = field.field_type.clone();
                 fields.push(BriefFieldResult {
                     field_id: field.id.clone(),
                     name: field.name.clone(),
                     order: fa.order,
                     required: fa.required,
-                    value_type,
+                    field_type,
                     ai_guidance: field_ai,
                 });
             }
@@ -440,7 +444,7 @@ mod tests {
     use crate::protocol_service::{import_protocol, ImportProtocolInput};
     use crate::store::memory::MemoryStore;
     use srs_core::types::blueprint::{Blueprint, RelationSpec, TypeRef};
-    use srs_core::types::field::{AiGuidance, Field, ValueType};
+    use srs_core::types::field::{AiGuidance, Field, FieldType};
     use srs_core::types::record_type::{FieldAssignment, RecordType};
     use std::collections::HashMap;
     use std::path::PathBuf;
@@ -482,8 +486,9 @@ mod tests {
         store
     }
 
-    fn make_field(id: &str, name: &str, vt: ValueType) -> Field {
+    fn make_field(id: &str, name: &str, vt: FieldType) -> Field {
         Field {
+            schema: None,
             id: id.to_string(),
             namespace: "test.ns".to_string(),
             name: name.to_string(),
@@ -494,17 +499,14 @@ mod tests {
                 purpose: format!("captures the {name}"),
                 ..Default::default()
             },
-            content_format: None,
-            value_type: vt,
-            allowed_values: None,
-            vocabulary_ref: None,
+            field_type: vt.clone(),
             default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
+            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
         }
     }
 
@@ -560,8 +562,8 @@ mod tests {
     fn make_store_with_blueprint_and_type() -> (MemoryStore, String) {
         let store = make_package_store(
             vec![
-                make_field("field-aaa", "title", ValueType::String),
-                make_field("field-bbb", "summary", ValueType::Text),
+                make_field("field-aaa", "title", FieldType::string()),
+                make_field("field-bbb", "summary", FieldType::text()),
             ],
             vec![make_article_type()],
         );
@@ -779,47 +781,48 @@ mod tests {
     /// Build fields and RecordType for the meta.protocol system type (matching
     /// the UUIDs in srs/srs/package/).
     fn make_protocol_fields_and_type() -> (Vec<Field>, RecordType) {
-        const FIELDS: &[(&str, &str, ValueType)] = &[
+        let fields_spec: Vec<(&str, &str, FieldType)> = vec![
             (
                 "6c66d06c-3f95-4d17-8ecf-e1046a6f2ec1",
                 "protocol-id",
-                ValueType::String,
+                FieldType::string(),
             ),
             (
                 "8d0f55f9-80e3-4dd6-a05c-10c4b6b6cc87",
                 "protocol-namespace",
-                ValueType::String,
+                FieldType::string(),
             ),
             (
                 "09c5e389-cf6c-4f72-aad6-8cf26bce0b78",
                 "protocol-name",
-                ValueType::String,
+                FieldType::string(),
             ),
             (
                 "f7d28d9d-f90c-4a01-a3eb-2ff4cad54ff6",
                 "protocol-version",
-                ValueType::Number,
+                FieldType::number(),
             ),
             (
                 "4939a29b-7f70-481f-bf6b-bf693f8bd67f",
                 "protocol-target-type",
-                ValueType::String,
+                FieldType::string(),
             ),
             (
                 "0f1232c6-0db5-4383-b91d-64d81195f1c4",
                 "protocol-stages",
-                ValueType::Text,
+                FieldType::text(),
             ),
             (
                 "b953f716-383a-4218-bebf-96e93c4747a4",
                 "protocol-created-at",
-                ValueType::Date,
+                FieldType::date(),
             ),
         ];
 
-        let fields: Vec<Field> = FIELDS
+        let fields: Vec<Field> = fields_spec
             .iter()
             .map(|(id, name, vt)| Field {
+                schema: None,
                 id: id.to_string(),
                 namespace: "com.semanticops.srs".to_string(),
                 name: name.to_string(),
@@ -827,21 +830,18 @@ mod tests {
                 description: format!("{name} field"),
                 instructions: None,
                 ai_guidance: AiGuidance::default(),
-                content_format: None,
-                value_type: *vt,
-                allowed_values: None,
-                vocabulary_ref: None,
+                field_type: vt.clone(),
                 default_value: None,
                 editor_hint: None,
                 tags: None,
                 lineage: None,
                 provenance: None,
+                deprecated_at: None,
                 created_at: "2026-01-01T00:00:00Z".to_string(),
-                extra: HashMap::new(),
             })
             .collect();
 
-        let assignments: Vec<FieldAssignment> = FIELDS
+        let assignments: Vec<FieldAssignment> = fields_spec
             .iter()
             .enumerate()
             .map(|(i, (id, _, _))| FieldAssignment {
@@ -882,7 +882,7 @@ mod tests {
     #[test]
     fn test_brief_structure_relay() {
         let store = make_package_store(
-            vec![make_field("field-aaa", "title", ValueType::String)],
+            vec![make_field("field-aaa", "title", FieldType::string())],
             vec![make_article_type()],
         );
         let blueprint = Blueprint {
@@ -937,7 +937,7 @@ mod tests {
         let (proto_fields, proto_type) = make_protocol_fields_and_type();
         let store = make_package_store(
             [
-                vec![make_field("field-aaa", "title", ValueType::String)],
+                vec![make_field("field-aaa", "title", FieldType::string())],
                 proto_fields,
             ]
             .concat(),
@@ -1045,7 +1045,7 @@ mod tests {
         let (proto_fields, proto_type) = make_protocol_fields_and_type();
         let store = make_package_store(
             [
-                vec![make_field("field-aaa", "title", ValueType::String)],
+                vec![make_field("field-aaa", "title", FieldType::string())],
                 proto_fields,
             ]
             .concat(),
@@ -1133,7 +1133,7 @@ mod tests {
         let (proto_fields, proto_type) = make_protocol_fields_and_type();
         let store = make_package_store(
             [
-                vec![make_field("field-aaa", "title", ValueType::String)],
+                vec![make_field("field-aaa", "title", FieldType::string())],
                 proto_fields,
             ]
             .concat(),
@@ -1221,8 +1221,8 @@ mod tests {
         let store = make_package_store(
             [
                 vec![
-                    make_field("field-aaa", "title", ValueType::String),
-                    make_field("field-bbb", "summary", ValueType::Text),
+                    make_field("field-aaa", "title", FieldType::string()),
+                    make_field("field-bbb", "summary", FieldType::text()),
                 ],
                 proto_fields,
             ]

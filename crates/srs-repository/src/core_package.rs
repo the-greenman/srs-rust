@@ -16,21 +16,35 @@ use crate::error::RepositoryError;
 const CORE_BUNDLE_JSON: &str = include_str!("../assets/core-bundle.srsj");
 
 /// Parsed representation of the embedded core-bundle artifact.
-///
-/// Doubles as the serde target for the bundle JSON — `#[serde(rename_all = "camelCase")]`
-/// matches the bundle's camelCase keys; `#[serde(rename = "types")]` maps the bundle's
-/// `types` array to `record_types`.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct EmbeddedCorePackage {
     pub package_id: String,
     pub package_name: String,
     pub package_version: String,
     pub fields: Vec<Field>,
-    #[serde(rename = "types")]
     pub record_types: Vec<RecordType>,
-    #[serde(default)]
     pub relation_types: Vec<RelationTypeDefinition>,
+}
+
+/// The serde target for the bundle JSON — `#[serde(rename_all = "camelCase")]`
+/// matches the bundle's camelCase keys; `#[serde(rename = "types")]` maps the
+/// bundle's `types` array to `record_types`.
+///
+/// Fields land in [`FieldJson`], not [`Field`], so the embedded bundle goes
+/// through the **same** data-model-revision compatibility path as every other
+/// package source (`FileStore`, `JsonStore`). A bundle authored before RFC-032
+/// therefore still loads, upgraded in memory — see `field_json`.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EmbeddedCorePackageJson {
+    package_id: String,
+    package_name: String,
+    package_version: String,
+    #[serde(deserialize_with = "crate::field_json::deserialize_fields_compat")]
+    fields: Vec<Field>,
+    #[serde(rename = "types")]
+    record_types: Vec<RecordType>,
+    #[serde(default)]
+    relation_types: Vec<RelationTypeDefinition>,
 }
 
 static CORE_PACKAGE: OnceLock<EmbeddedCorePackage> = OnceLock::new();
@@ -41,8 +55,16 @@ static CORE_PACKAGE: OnceLock<EmbeddedCorePackage> = OnceLock::new();
 /// (ADR-025). Do not call this from service logic — use `store.load_package()`.
 pub fn core_package() -> &'static EmbeddedCorePackage {
     CORE_PACKAGE.get_or_init(|| {
-        serde_json::from_str(CORE_BUNDLE_JSON)
-            .expect("embedded assets/core-bundle.srsj must parse — file is corrupted or invalid")
+        let raw: EmbeddedCorePackageJson = serde_json::from_str(CORE_BUNDLE_JSON)
+            .expect("embedded assets/core-bundle.srsj must parse — file is corrupted or invalid");
+        EmbeddedCorePackage {
+            package_id: raw.package_id,
+            package_name: raw.package_name,
+            package_version: raw.package_version,
+            fields: raw.fields,
+            record_types: raw.record_types,
+            relation_types: raw.relation_types,
+        }
     })
 }
 
@@ -132,7 +154,7 @@ mod tests {
             "version": version,
             "description": "",
             "aiGuidance": {"purpose": ""},
-            "valueType": "string",
+            "fieldType": {"datatype": "string"},
             "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap()

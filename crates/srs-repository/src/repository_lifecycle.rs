@@ -91,7 +91,18 @@ pub fn create_repository(
     if resolved.repository.title.is_none() {
         resolved.repository.title = Some(input.repository.namespace.clone());
     }
-    store.initialize_repository(&resolved)
+    let result = store.initialize_repository(&resolved)?;
+
+    // A repository created by this build is, by construction, at this build's
+    // data-model generation (RFC-033 [R6]). Stamping it here is what makes an
+    // *absent* stamp mean "authored before migration #1" rather than "we never
+    // got around to writing one".
+    crate::field_type_migration_service::stamp_data_model_revision(
+        store,
+        crate::field_type_migration_service::CURRENT_DATA_MODEL_REVISION,
+    )?;
+
+    Ok(result)
 }
 
 /// Writes the root purpose record and registers the root container in `containerIndex`.

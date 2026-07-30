@@ -317,16 +317,43 @@ mod create_normalization_tests {
     }
 
     #[test]
-    fn field_create_normalized_still_defaults_boilerplate() {
+    fn field_create_normalized_still_defaults_mechanical_boilerplate() {
         let store = MemoryStore::default();
         let raw = json!({
             "namespace": "com.test",
             "name": "test_field",
             "version": 1,
+            "aiGuidance": {"purpose": "captures a test value"},
             "valueType": "string"
         });
         let result = crate::package_service::create_field_normalized(&store, raw, None)
-            .expect("field create without createdAt should succeed");
+            .expect("field create without id/description/createdAt should succeed");
         assert!(!result.field.created_at.is_empty());
+        assert!(!result.field.id.is_empty());
+        // A pre-RFC-032 payload is upgraded, not rejected.
+        assert_eq!(
+            result.field.field_type,
+            srs_core::types::field::FieldType::string()
+        );
+    }
+
+    #[test]
+    fn field_create_normalized_refuses_to_manufacture_ai_guidance() {
+        // srs-rust#768: absent guidance must surface as an actionable error,
+        // never as an injected `purpose: ""` that satisfies the schema while
+        // carrying no information.
+        let store = MemoryStore::default();
+        let raw = json!({
+            "namespace": "com.test",
+            "name": "unguided_field",
+            "version": 1,
+            "valueType": "string"
+        });
+        let err = crate::package_service::create_field_normalized(&store, raw, None)
+            .expect_err("a Field with no aiGuidance.purpose must be rejected");
+        assert!(
+            format!("{err}").contains("aiGuidance.purpose"),
+            "error must name the missing property: {err}"
+        );
     }
 }

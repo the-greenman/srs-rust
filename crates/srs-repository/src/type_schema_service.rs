@@ -16,7 +16,7 @@ use crate::package_service::GetTypeResult;
 use crate::package_service::{get_type_by_id, get_type_by_id_latest};
 use crate::store::RepositoryStore;
 use serde_json::{json, Map, Value};
-use srs_core::types::field::{Field, ValueType};
+use srs_core::types::field::{Datatype, Field, RefMode, StringFormat};
 use srs_core::types::record_type::{FieldAssignment, FieldGroup};
 
 /// Input contract for [`type_schema`].
@@ -147,37 +147,22 @@ fn field_to_property(
 ) -> Value {
     let mut prop = Map::new();
 
-    match field.value_type {
-        ValueType::String => {
-            prop.insert("type".into(), json!("string"));
+    // RFC-032: the shape comes from the `fieldType` facets. A list wraps the
+    // single-value shape in an array, which is how the pre-RFC-032
+    // `multiselect` case used to be special-cased.
+    let mut value_shape = Map::new();
+    insert_value_shape(&mut value_shape, field, diagnostics);
+    if field.is_list() {
+        prop.insert("type".into(), json!("array"));
+        prop.insert("items".into(), Value::Object(value_shape));
+        if let Some(min) = field.field_type.min_items {
+            prop.insert("minItems".into(), json!(min));
         }
-        ValueType::Text => {
-            prop.insert("type".into(), json!("string"));
-            prop.insert("x-srs-widget".into(), json!("textarea"));
+        if let Some(max) = field.field_type.max_items {
+            prop.insert("maxItems".into(), json!(max));
         }
-        ValueType::Number => {
-            prop.insert("type".into(), json!("number"));
-        }
-        ValueType::Boolean => {
-            prop.insert("type".into(), json!("boolean"));
-        }
-        ValueType::Date => {
-            prop.insert("type".into(), json!("string"));
-            prop.insert("format".into(), json!("date"));
-        }
-        ValueType::Url => {
-            prop.insert("type".into(), json!("string"));
-            prop.insert("format".into(), json!("uri"));
-        }
-        ValueType::Select => {
-            insert_enum(&mut prop, field, diagnostics);
-        }
-        ValueType::Multiselect => {
-            prop.insert("type".into(), json!("array"));
-            let mut items = Map::new();
-            insert_enum(&mut items, field, diagnostics);
-            prop.insert("items".into(), Value::Object(items));
-        }
+    } else {
+        prop.extend(value_shape);
     }
 
     // title: displayLabel wins, else the field's description.
@@ -308,10 +293,126 @@ fn field_group_to_property(
     Value::Object(prop)
 }
 
-/// Insert an `enum` populated from the field's `allowedValues`. Emits a diagnostic
-/// when no values are declared (the property is left without an `enum`).
+/// Insert the single-value shape a field's `fieldType` projects to, ignoring
+/// cardinality (the caller wraps a list in an array).
+///
+/// This is the **editor-facing** projection: draft-07 plus `x-srs-*` hints,
+/// consumed by schema-driven form renderers. The standards-compliant
+/// validation projection is `srs_projection::type_to_json_schema` — the two are
+/// deliberately separate artifacts (srs-rust#770).
+fn insert_value_shape(
+    target: &mut Map<String, Value>,
+    field: &Field,
+    diagnostics: &mut Vec<String>,
+) {
+    let ft = &field.field_type;
+    match ft.datatype {
+        Datatype::String => {
+            if ft.is_closed() {
+                insert_enum(target, field, diagnostics);
+                return;
+            }
+            target.insert("type".into(), json!("string"));
+            match ft.format {
+                // Prose formats keep the multi-line widget the pre-RFC-032
+                // `text` valueType used to select.
+                Some(StringFormat::Markdown) => {
+                    target.insert("contentMediaType".into(), json!("text/markdown"));
+                    target.insert("x-srs-widget".into(), json!("textarea"));
+                }
+                Some(StringFormat::Plain) => {
+                    target.insert("x-srs-widget".into(), json!("textarea"));
+                }
+                Some(StringFormat::Uri) => {
+                    target.insert("format".into(), json!("uri"));
+                }
+                Some(StringFormat::Uuid) => {
+                    target.insert("format".into(), json!("uuid"));
+                }
+                Some(StringFormat::Email) => {
+                    target.insert("format".into(), json!("email"));
+                }
+                None => {}
+            }
+            if let Some(c) = &ft.constraints {
+                if let Some(min) = c.min_length {
+                    target.insert("minLength".into(), json!(min));
+                }
+                if let Some(max) = c.max_length {
+                    target.insert("maxLength".into(), json!(max));
+                }
+                if let Some(pattern) = &c.pattern {
+                    target.insert("pattern".into(), json!(pattern));
+                }
+            }
+        }
+        Datatype::Number | Datatype::Integer => {
+            target.insert(
+                "type".into(),
+                json!(if ft.datatype == Datatype::Integer {
+                    "integer"
+                } else {
+                    "number"
+                }),
+            );
+            if let Some(c) = &ft.constraints {
+                if let Some(min) = c.minimum {
+                    target.insert("minimum".into(), json!(min));
+                }
+                if let Some(max) = c.maximum {
+                    target.insert("maximum".into(), json!(max));
+                }
+            }
+        }
+        Datatype::Boolean => {
+            target.insert("type".into(), json!("boolean"));
+        }
+        Datatype::Date => {
+            target.insert("type".into(), json!("string"));
+            target.insert("format".into(), json!("date"));
+        }
+        Datatype::DateTime => {
+            target.insert("type".into(), json!("string"));
+            target.insert("format".into(), json!("date-time"));
+        }
+        Datatype::Ref => {
+            match ft.effective_mode() {
+                // A reference carries the target instance id.
+                RefMode::Reference => {
+                    target.insert("type".into(), json!("string"));
+                    target.insert("format".into(), json!("uuid"));
+                }
+                // An inline ref carries a nested object. The editor projection
+                // does not expand the range here — that is the standards
+                // projection's job; the range is named so a form renderer can
+                // fetch it.
+                RefMode::Inline => {
+                    target.insert("type".into(), json!("object"));
+                }
+            }
+            if let Some(range) = &ft.range_type {
+                target.insert("x-srs-range-type-id".into(), json!(range.type_id));
+                target.insert("x-srs-range-type-version".into(), json!(range.type_version));
+            }
+        }
+        Datatype::Map => {
+            target.insert("type".into(), json!("object"));
+        }
+        Datatype::Dependent => {
+            // Deliberately unconstrained: the value conforms to another field's
+            // type, which JSON Schema cannot express here.
+            target.insert("x-srs-depends-on".into(), json!(ft.depends_on));
+        }
+    }
+}
+
+/// Insert an `enum` populated from the field's closed-domain `allowedValues`.
+/// Emits a diagnostic when no values are declared (the property is left without
+/// an `enum`).
 fn insert_enum(target: &mut Map<String, Value>, field: &Field, diagnostics: &mut Vec<String>) {
-    match &field.allowed_values {
+    // No `type` keyword: `enum` alone constrains the value, and this matches the
+    // shape editors have consumed since before RFC-032.
+    match field.allowed_values() {
         Some(values) if !values.is_empty() => {
             target.insert(
                 "enum".into(),
@@ -320,8 +421,9 @@ fn insert_enum(target: &mut Map<String, Value>, field: &Field, diagnostics: &mut
         }
         _ => {
             diagnostics.push(format!(
-                "field '{}' ({:?}) has no allowedValues; enum omitted",
-                field.name, field.value_type
+                "field '{}' (closed {}) has no allowedValues; enum omitted",
+                field.name,
+                field.datatype().as_str()
             ));
         }
     }
@@ -333,12 +435,13 @@ mod tests {
     use crate::manifest::Manifest;
     use crate::package::Package;
     use crate::store::memory::MemoryStore;
-    use srs_core::types::field::AiGuidance;
+    use srs_core::types::field::{AiGuidance, FieldType};
     use std::collections::HashMap;
     use std::path::PathBuf;
 
-    fn field(id: &str, name: &str, value_type: ValueType) -> Field {
+    fn field(id: &str, name: &str, field_type: FieldType) -> Field {
         Field {
+            schema: None,
             id: id.to_string(),
             namespace: "com.test".to_string(),
             name: name.to_string(),
@@ -346,17 +449,14 @@ mod tests {
             description: format!("{name} description"),
             instructions: None,
             ai_guidance: AiGuidance::default(),
-            content_format: None,
-            value_type,
-            allowed_values: None,
-            vocabulary_ref: None,
+            field_type,
             default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
+            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
         }
     }
 
@@ -481,26 +581,26 @@ mod tests {
     }
 
     #[test]
-    fn type_schema_covers_all_value_types() {
+    fn type_schema_covers_every_datatype() {
         let types = [
-            ValueType::String,
-            ValueType::Text,
-            ValueType::Number,
-            ValueType::Boolean,
-            ValueType::Date,
-            ValueType::Url,
-            ValueType::Select,
-            ValueType::Multiselect,
+            FieldType::string(),
+            FieldType::text(),
+            FieldType::markdown(),
+            FieldType::number(),
+            FieldType::integer(),
+            FieldType::boolean(),
+            FieldType::date(),
+            FieldType::date_time(),
+            FieldType::uri(),
+            FieldType::select(["a", "b"]),
+            FieldType::multiselect(["a", "b"]),
         ];
         let mut fields = Vec::new();
         let mut assignments = Vec::new();
         for (i, vt) in types.iter().enumerate() {
             let id = fid(i as u8);
             let name = format!("f_{i}");
-            let mut f = field(&id, &name, *vt);
-            if matches!(vt, ValueType::Select | ValueType::Multiselect) {
-                f.allowed_values = Some(vec!["a".into(), "b".into()]);
-            }
+            let f = field(&id, &name, vt.clone());
             fields.push(f);
             assignments.push(assignment(&id, i as u32, false));
         }
@@ -516,16 +616,23 @@ mod tests {
         .unwrap();
         let props = &result.schema["properties"];
 
+        // Order matches the `types` array above.
         assert_eq!(props["f_0"]["type"], json!("string"));
+        // `string (plain)` and `string (markdown)` both keep the multi-line
+        // widget the pre-RFC-032 `text` valueType selected.
         assert_eq!(props["f_1"]["type"], json!("string"));
         assert_eq!(props["f_1"]["x-srs-widget"], json!("textarea"));
-        assert_eq!(props["f_2"]["type"], json!("number"));
-        assert_eq!(props["f_3"]["type"], json!("boolean"));
-        assert_eq!(props["f_4"]["format"], json!("date"));
-        assert_eq!(props["f_5"]["format"], json!("uri"));
-        assert_eq!(props["f_6"]["enum"], json!(["a", "b"]));
-        assert_eq!(props["f_7"]["type"], json!("array"));
-        assert_eq!(props["f_7"]["items"]["enum"], json!(["a", "b"]));
+        assert_eq!(props["f_2"]["contentMediaType"], json!("text/markdown"));
+        assert_eq!(props["f_2"]["x-srs-widget"], json!("textarea"));
+        assert_eq!(props["f_3"]["type"], json!("number"));
+        assert_eq!(props["f_4"]["type"], json!("integer"));
+        assert_eq!(props["f_5"]["type"], json!("boolean"));
+        assert_eq!(props["f_6"]["format"], json!("date"));
+        assert_eq!(props["f_7"]["format"], json!("date-time"));
+        assert_eq!(props["f_8"]["format"], json!("uri"));
+        assert_eq!(props["f_9"]["enum"], json!(["a", "b"]));
+        assert_eq!(props["f_10"]["type"], json!("array"));
+        assert_eq!(props["f_10"]["items"]["enum"], json!(["a", "b"]));
         assert_eq!(
             result.schema["$schema"],
             json!("http://json-schema.org/draft-07/schema#")
@@ -540,7 +647,7 @@ mod tests {
 
     #[test]
     fn field_to_property_emits_description_and_instructions_keys() {
-        let mut f = field("f-help", "help_field", ValueType::String);
+        let mut f = field("f-help", "help_field", FieldType::string());
         f.description = "Short caption.".to_string();
         f.instructions = Some("Fuller how-to-complete guidance.".to_string());
         let a = assignment("f-help", 0, false);
@@ -557,7 +664,7 @@ mod tests {
 
     #[test]
     fn field_to_property_omits_absent_instructions() {
-        let mut f = field("f-no-help", "no_help_field", ValueType::String);
+        let mut f = field("f-no-help", "no_help_field", FieldType::string());
         f.description = String::new();
         f.instructions = None;
         let a = assignment("f-no-help", 0, false);
@@ -576,10 +683,8 @@ mod tests {
 
     #[test]
     fn type_schema_select_emits_enum() {
-        let mut sel = field(&fid(1), "color", ValueType::Select);
-        sel.allowed_values = Some(vec!["red".into(), "green".into()]);
-        let mut multi = field(&fid(2), "tags", ValueType::Multiselect);
-        multi.allowed_values = Some(vec!["x".into(), "y".into()]);
+        let sel = field(&fid(1), "color", FieldType::select(["red", "green"]));
+        let multi = field(&fid(2), "tags", FieldType::multiselect(["x", "y"]));
         let store = store_with(
             vec![sel, multi],
             make_type(
@@ -609,8 +714,8 @@ mod tests {
     fn type_schema_required_array() {
         let store = store_with(
             vec![
-                field(&fid(1), "a", ValueType::String),
-                field(&fid(2), "b", ValueType::String),
+                field(&fid(1), "a", FieldType::string()),
+                field(&fid(2), "b", FieldType::string()),
             ],
             make_type(
                 TID,
@@ -632,8 +737,8 @@ mod tests {
     fn type_schema_order_recoverable() {
         let store = store_with(
             vec![
-                field(&fid(1), "a", ValueType::String),
-                field(&fid(2), "b", ValueType::String),
+                field(&fid(1), "a", FieldType::string()),
+                field(&fid(2), "b", FieldType::string()),
             ],
             // Declared out of order; service sorts by `assignment.order` (2 < 5),
             // then emits 1-based positional x-srs-order so fieldOrder reordering
@@ -665,8 +770,8 @@ mod tests {
         let b = assignment(&fid(2), 1, false);
         let store = store_with(
             vec![
-                field(&fid(1), "a", ValueType::String),
-                field(&fid(2), "b", ValueType::String),
+                field(&fid(1), "a", FieldType::string()),
+                field(&fid(2), "b", FieldType::string()),
             ],
             make_type(TID, vec![a, b]),
         );
@@ -714,7 +819,7 @@ mod tests {
     #[test]
     fn type_schema_dangling_field_skipped() {
         let store = store_with(
-            vec![field(&fid(1), "a", ValueType::String)],
+            vec![field(&fid(1), "a", FieldType::string())],
             make_type(
                 TID,
                 vec![
@@ -748,7 +853,7 @@ mod tests {
     fn type_schema_memory_roundtrip() {
         // Populate a store, project, and confirm the output serializes as JSON
         // (cross-store coverage per the storage-boundary rules).
-        let mut f = field(&fid(1), "title", ValueType::String);
+        let mut f = field(&fid(1), "title", FieldType::string());
         f.default_value = Some(json!("untitled"));
         let store = store_with(vec![f], make_type(TID, vec![assignment(&fid(1), 0, true)]));
         let result = type_schema(
@@ -787,8 +892,8 @@ mod tests {
         // Both fields must be in the flat Package.fields list; resolve_field searches it.
         let store = store_with_types(
             vec![
-                field(&fid(1), "parent_field", ValueType::String),
-                field(&fid(2), "child_field", ValueType::String),
+                field(&fid(1), "parent_field", FieldType::string()),
+                field(&fid(2), "child_field", FieldType::string()),
             ],
             vec![parent, child],
         );
@@ -825,9 +930,9 @@ mod tests {
 
     #[test]
     fn type_schema_emits_field_groups_with_composite_renderer() {
-        let heading = field(&fid(0), "heading", ValueType::String);
-        let columns = field(&fid(1), "columns", ValueType::Text);
-        let rows = field(&fid(2), "rows", ValueType::Text);
+        let heading = field(&fid(0), "heading", FieldType::string());
+        let columns = field(&fid(1), "columns", FieldType::text());
+        let rows = field(&fid(2), "rows", FieldType::text());
 
         let mut rt = make_type(TID, vec![assignment(&fid(0), 0, false)]);
         rt.field_groups = Some(vec![FieldGroup {
@@ -882,8 +987,8 @@ mod tests {
         // Merged sort: group(order=0) < field(order=1) → group gets position 1.
         // This is the bug from issue #148: previously the group would get x-srs-order=0
         // (raw group.order), colliding with field positions 1 and 2.
-        let f1 = field(&fid(1), "alpha", ValueType::String);
-        let f2 = field(&fid(2), "beta", ValueType::String);
+        let f1 = field(&fid(1), "alpha", FieldType::string());
+        let f2 = field(&fid(2), "beta", FieldType::string());
         let mut rt = make_type(
             TID,
             vec![assignment(&fid(1), 1, false), assignment(&fid(2), 2, false)],
@@ -927,8 +1032,8 @@ mod tests {
     #[test]
     fn type_schema_field_order_interleaves_groups() {
         // fieldOrder: [field_a, group_id, field_b] → positions 1, 2, 3.
-        let fa_field = field(&fid(1), "field_a", ValueType::String);
-        let fb_field = field(&fid(2), "field_b", ValueType::String);
+        let fa_field = field(&fid(1), "field_a", FieldType::string());
+        let fb_field = field(&fid(2), "field_b", FieldType::string());
         let mut rt = make_type(
             TID,
             vec![assignment(&fid(1), 0, false), assignment(&fid(2), 1, false)],
@@ -970,9 +1075,9 @@ mod tests {
         // 1-based positional x-srs-order on each field.
         let store = store_with(
             vec![
-                field(&fid(1), "a", ValueType::String),
-                field(&fid(2), "b", ValueType::String),
-                field(&fid(3), "c", ValueType::String),
+                field(&fid(1), "a", FieldType::string()),
+                field(&fid(2), "b", FieldType::string()),
+                field(&fid(3), "c", FieldType::string()),
             ],
             make_type(
                 TID,

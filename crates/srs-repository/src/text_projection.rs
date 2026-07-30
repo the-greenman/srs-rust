@@ -2,7 +2,7 @@
 //! `ext:discovery` contract (RFC-012, `docs/schema/2.0/discovery.json`).
 //!
 //! [`project_text`] turns a [`Record`] into an ordered stream of [`TextSegment`]s.
-//! A field's [`ValueType`](srs_core::types::field::ValueType) decides whether its
+//! A field's [`FieldType`](srs_core::types::field::FieldType) decides whether its
 //! value is searchable. Normalization (NFC + Unicode simple lowercasing) is applied
 //! **at match time** via [`normalize`], not at construction — segment `text` holds
 //! the raw stored value so the stream is reproducible by any implementation.
@@ -38,7 +38,7 @@ pub struct TextSegment {
 pub struct FieldTextIndex {
     /// `field_id → field_name`, also the map [`record_label::record_display_label`] expects.
     names: HashMap<String, String>,
-    /// Field ids whose `ValueType` is searchable.
+    /// Field ids whose `fieldType` projects searchable text.
     searchable: HashSet<String>,
     /// RFC-020 — `(type_id, type_version) → identityFieldId`, the other map
     /// [`record_label::record_display_label`] expects.
@@ -65,15 +65,6 @@ impl FieldTextIndex {
     }
 }
 
-/// The searchable `ValueType`s per RFC-012 (compared against the lowercase
-/// serialized form produced by `FieldSummary.value_type`).
-fn is_searchable(value_type: &str) -> bool {
-    matches!(
-        value_type,
-        "string" | "text" | "url" | "select" | "multiselect"
-    )
-}
-
 /// Build the field text index from the repository package.
 ///
 /// Loads the package once and derives `names`, `searchable`, and `identity_field_ids`
@@ -88,8 +79,11 @@ pub fn build_field_text_index(
     let mut names = HashMap::new();
     let mut searchable = HashSet::new();
     for f in &package.fields {
-        let value_type = format!("{:?}", f.value_type).to_lowercase();
-        if is_searchable(&value_type) {
+        // RFC-012's searchable set is `datatype: string` after RFC-032 — see
+        // `FieldType::is_text_searchable`, which documents the one-to-one
+        // correspondence with the pre-decomposition
+        // string|text|url|select|multiselect set.
+        if f.field_type.is_text_searchable() {
             searchable.insert(f.id.clone());
         }
         names.insert(f.id.clone(), f.name.clone());
@@ -194,7 +188,7 @@ fn value_strings(value: &serde_json::Value) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use srs_core::types::field::{AiGuidance, Field, ValueType};
+    use srs_core::types::field::{AiGuidance, Field, FieldType, LegacyValueType};
     use srs_core::types::record::{FieldGroupEntry, FieldGroupValue, FieldValueEntry};
     use std::collections::HashMap;
 
@@ -203,8 +197,9 @@ mod tests {
     const COUNT: &str = "00000000-0000-4000-8000-00000000f003";
     const TAGS_FIELD: &str = "00000000-0000-4000-8000-00000000f004";
 
-    fn field(id: &str, name: &str, vt: ValueType) -> Field {
+    fn field(id: &str, name: &str, vt: FieldType) -> Field {
         Field {
+            schema: None,
             id: id.to_string(),
             namespace: "example".to_string(),
             name: name.to_string(),
@@ -212,35 +207,35 @@ mod tests {
             description: String::new(),
             instructions: None,
             ai_guidance: AiGuidance::default(),
-            content_format: None,
-            value_type: vt,
-            allowed_values: None,
-            vocabulary_ref: None,
+            field_type: vt.clone(),
             default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
+            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
         }
     }
 
     fn index() -> FieldTextIndex {
-        let entries = [
-            (TITLE, "title", true),
-            (BODY, "body", true),
-            (COUNT, "count", false),
-            (TAGS_FIELD, "labels", true),
+        // Built from real Fields so searchability is *derived* from `fieldType`
+        // exactly as `build_field_text_index` derives it, rather than asserted
+        // by a hand-maintained boolean that could drift from the projection.
+        let fields = [
+            field(TITLE, "title", FieldType::string()),
+            field(BODY, "body", FieldType::text()),
+            field(COUNT, "count", FieldType::number()),
+            field(TAGS_FIELD, "labels", FieldType::multiselect(["a", "b"])),
         ];
-        let names = entries
+        let names = fields
             .iter()
-            .map(|(id, name, _)| (id.to_string(), name.to_string()))
+            .map(|f| (f.id.clone(), f.name.clone()))
             .collect();
-        let searchable = entries
+        let searchable = fields
             .iter()
-            .filter(|(_, _, searchable)| *searchable)
-            .map(|(id, _, _)| id.to_string())
+            .filter(|f| f.field_type.is_text_searchable())
+            .map(|f| f.id.clone())
             .collect();
         FieldTextIndex {
             names,
@@ -360,20 +355,21 @@ mod tests {
     }
 
     #[test]
-    fn value_type_serializes_lowercase_matches_searchable_set() {
-        // Guards the string contract between FieldSummary.value_type and is_searchable.
-        for (vt, searchable) in [
-            (ValueType::String, true),
-            (ValueType::Text, true),
-            (ValueType::Url, true),
-            (ValueType::Select, true),
-            (ValueType::Multiselect, true),
-            (ValueType::Number, false),
-            (ValueType::Boolean, false),
-            (ValueType::Date, false),
+    fn rfc012_searchable_set_survives_the_rfc032_decomposition() {
+        // Guards the contract that migrating a pre-RFC-032 package does not
+        // silently change which fields are searchable.
+        for (legacy, searchable) in [
+            (LegacyValueType::String, true),
+            (LegacyValueType::Text, true),
+            (LegacyValueType::Url, true),
+            (LegacyValueType::Select, true),
+            (LegacyValueType::Multiselect, true),
+            (LegacyValueType::Number, false),
+            (LegacyValueType::Boolean, false),
+            (LegacyValueType::Date, false),
         ] {
-            let s = format!("{:?}", field("x", "x", vt).value_type).to_lowercase();
-            assert_eq!(is_searchable(&s), searchable, "value_type {s}");
+            let ft = FieldType::from_legacy(legacy, &Default::default());
+            assert_eq!(ft.is_text_searchable(), searchable, "{legacy:?}");
         }
     }
 }

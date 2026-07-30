@@ -473,7 +473,7 @@ mod tests {
     use crate::package::Package;
     use crate::store::memory::MemoryStore;
     use srs_core::types::container::Container;
-    use srs_core::types::field::{AiGuidance, Field, ValueType};
+    use srs_core::types::field::{AiGuidance, Field, FieldType};
     use srs_core::types::record::{FieldValue, Record};
     use srs_core::types::record_type::{FieldAssignment, RecordType};
     use srs_core::types::view::{
@@ -490,6 +490,7 @@ mod tests {
 
     fn field(id: &str, name: &str) -> Field {
         Field {
+            schema: None,
             id: id.to_string(),
             namespace: "com.test".to_string(),
             name: name.to_string(),
@@ -497,17 +498,14 @@ mod tests {
             description: String::new(),
             instructions: None,
             ai_guidance: AiGuidance::default(),
-            content_format: None,
-            value_type: ValueType::String,
-            allowed_values: None,
-            vocabulary_ref: None,
+            field_type: FieldType::string(),
             default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
+            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
         }
     }
 

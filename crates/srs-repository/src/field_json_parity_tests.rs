@@ -13,8 +13,7 @@ use crate::repository_lifecycle::{
 };
 use crate::store::{FileStore, RepositoryStore};
 use serde_json::json;
-use srs_core::types::field::{AiGuidance, Field, ValueType};
-use std::collections::HashMap;
+use srs_core::types::field::{AiGuidance, Field, FieldType};
 use tempfile::TempDir;
 
 fn write_minimal_file_repo(temp: &TempDir) {
@@ -53,24 +52,22 @@ fn write_minimal_file_repo(temp: &TempDir) {
 #[test]
 fn cross_store_field_json_parity() {
     let field = Field {
+        schema: None,
         id: "00000000-0000-0000-0000-aabbccddee10".to_string(),
         namespace: "com.test".to_string(),
         name: "parity-field".to_string(),
         version: 1,
-        value_type: ValueType::String,
+        field_type: FieldType::string(),
         description: "Parity test field".to_string(),
         instructions: Some("Cross-store parity check.".to_string()),
         ai_guidance: AiGuidance::default(),
-        content_format: None,
-        allowed_values: None,
-        vocabulary_ref: None,
         default_value: None,
         editor_hint: None,
         tags: None,
         lineage: None,
         provenance: None,
+        deprecated_at: None,
         created_at: "2026-01-01T00:00:00Z".to_string(),
-        extra: HashMap::from([("x-future-hint".to_string(), json!("preserved"))]),
     };
 
     // --- FileStore path ---
@@ -119,24 +116,56 @@ fn cross_store_field_json_parity() {
         .expect("field must be present in JsonStore after round-trip");
 
     // --- Assert parity ---
-    assert_eq!(fs_field.id, js_field.id);
-    assert_eq!(fs_field.namespace, js_field.namespace);
-    assert_eq!(fs_field.name, js_field.name);
-    assert_eq!(fs_field.version, js_field.version);
-    assert_eq!(fs_field.value_type, js_field.value_type);
-    assert_eq!(fs_field.description, js_field.description);
+    // Whole-struct equality, not a property-by-property list: a new Field
+    // property added to `srs-core` is then covered by this test automatically
+    // rather than silently escaping it.
     assert_eq!(
-        fs_field.instructions, js_field.instructions,
-        "instructions must round-trip identically through both adapters"
+        fs_field, js_field,
+        "the same Field must deserialize identically through both adapters"
     );
-    assert_eq!(
-        fs_field.extra.get("x-future-hint"),
-        Some(&json!("preserved")),
-        "unknown extra fields must survive the round-trip through FieldJson::into_field"
-    );
-    assert_eq!(
-        js_field.extra.get("x-future-hint"),
-        Some(&json!("preserved")),
-        "unknown extra fields must survive the round-trip through FieldJson::into_field"
+    assert_eq!(fs_field.field_type, FieldType::string());
+}
+
+#[test]
+fn cross_store_unknown_field_property_is_rejected_identically() {
+    // srs-rust#767: `field.json` sets `additionalProperties: false`. Both
+    // adapters must reject an unknown property — the answer may not depend on
+    // which store the Field entered through.
+    let raw = json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+        "id": "00000000-0000-0000-0000-aabbccddee11",
+        "namespace": "com.test",
+        "name": "hinted_field",
+        "version": 1,
+        "description": "Has an unknown property",
+        "aiGuidance": {"purpose": "p"},
+        "fieldType": {"datatype": "string"},
+        "createdAt": "2026-01-01T00:00:00Z",
+        "x-future-hint": "preserved"
+    });
+
+    let fs_tmp = TempDir::new().unwrap();
+    write_minimal_file_repo(&fs_tmp);
+    std::fs::create_dir_all(fs_tmp.path().join("package/fields")).unwrap();
+    std::fs::write(
+        fs_tmp.path().join("package/fields/hinted_field.json"),
+        serde_json::to_string_pretty(&raw).unwrap(),
+    )
+    .unwrap();
+    let package_json = json!({
+        "id": "parity-pkg", "namespace": "com.test", "name": "test", "version": "1.0.0",
+        "fields": ["fields/hinted_field.json"], "types": [], "views": [], "documentViews": []
+    });
+    std::fs::write(
+        fs_tmp.path().join("package/package.json"),
+        serde_json::to_string_pretty(&package_json).unwrap(),
+    )
+    .unwrap();
+
+    let err = FileStore::new(fs_tmp.path()).load_package();
+    assert!(
+        err.is_err(),
+        "a Field carrying an unknown property must be rejected on load, \
+         matching the create gate's additionalProperties: false"
     );
 }

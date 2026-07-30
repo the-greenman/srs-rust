@@ -2,7 +2,7 @@ use crate::error::RepositoryError;
 use crate::store::RepositoryStore;
 use serde_json::Value;
 use srs_core::types::blueprint::{Blueprint, BlueprintDiagnosticSeverity};
-use srs_core::types::field::ValueType;
+use srs_core::types::field::Datatype;
 use srs_core::types::lifecycle::RelationDirection;
 use srs_core::types::protocol::{Protocol, ProtocolDiagnosticSeverity};
 use srs_core::types::record::Record;
@@ -79,6 +79,48 @@ const BASE_MAX_TOTAL_BYTES_FIELD: &str = "maxTotalBytes";
 ///
 /// I/O errors and malformed JSON are returned as `Err(RepositoryError)`.
 /// Schema violations are returned as diagnostics inside the report.
+/// RFC-033 [R6] — compare the repository's `dataModelRevision` stamp against the
+/// generation this build writes, and say something actionable either way.
+fn data_model_revision_diagnostics(manifest_value: &Value) -> Vec<ValidationDiagnostic> {
+    use crate::field_type_migration_service::{
+        CURRENT_DATA_MODEL_REVISION, DATA_MODEL_REVISION_KEY,
+    };
+    let declared = manifest_value
+        .get(DATA_MODEL_REVISION_KEY)
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+
+    if declared == CURRENT_DATA_MODEL_REVISION {
+        return Vec::new();
+    }
+    let (severity, message) = if declared < CURRENT_DATA_MODEL_REVISION {
+        (
+            DiagnosticSeverity::Warning,
+            format!(
+                "this repository is at data-model revision {declared}; this build writes \
+                 revision {CURRENT_DATA_MODEL_REVISION}. Definitions are being read through the \
+                 compatibility path — run `srs repo apply-migration field-type` to persist them \
+                 in the current model."
+            ),
+        )
+    } else {
+        (
+            DiagnosticSeverity::Error,
+            format!(
+                "this repository is at data-model revision {declared}, which is newer than this \
+                 build supports (revision {CURRENT_DATA_MODEL_REVISION}). Upgrade the `srs` \
+                 binary — reading it with this build may silently drop newer definition content."
+            ),
+        )
+    };
+    vec![ValidationDiagnostic {
+        severity,
+        relative_path: "manifest.json".to_string(),
+        schema_id: None,
+        message,
+    }]
+}
+
 pub fn validate_repository(
     store: &dyn RepositoryStore,
 ) -> Result<RepositoryValidationReport, RepositoryError> {
@@ -86,7 +128,7 @@ pub fn validate_repository(
     let mut diagnostics: Vec<ValidationDiagnostic> = Vec::new();
     let mut checked = 0usize;
     let mut package_for_tier2: Option<Option<crate::package::Package>> = None;
-    let mut field_type_map: Option<HashMap<String, ValueType>> = None;
+    let mut field_type_map: Option<HashMap<String, Datatype>> = None;
     // RFC-022: relations loaded lazily for the at-rest requiresRelation check.
     // Outer None = not loaded yet; inner None = load failed (check is skipped —
     // a corrupt relations file is reported by relation validation, not here).
@@ -120,6 +162,14 @@ pub fn validate_repository(
     ) {
         diagnostics.extend(report);
     }
+
+    // RFC-033 [R6] / #265 — the data-model generation gate. A repository at a
+    // *lower* revision than this build still loads (definitions are upgraded in
+    // memory), so this is a warning naming the migration, not an error. A
+    // repository at a *higher* revision was written by a newer build and is the
+    // case where "failed to load" would otherwise be the only signal — RFC-033's
+    // stated motivation for the stamp.
+    diagnostics.extend(data_model_revision_diagnostics(&manifest_value));
 
     // --- Load manifest for instanceIndex ---
     let manifest = store.load_manifest()?;
@@ -482,7 +532,7 @@ pub fn validate_repository(
                     Some(p) => p
                         .fields
                         .iter()
-                        .map(|f| (f.id.clone(), f.value_type))
+                        .map(|f| (f.id.clone(), f.field_type.datatype))
                         .collect(),
                     None => HashMap::new(),
                 });
@@ -1515,7 +1565,7 @@ fn validate_vocabulary_invariants(
 ) {
     // V2: every field.vocabularyRef must resolve to an installed Vocabulary UUID
     for field in &pkg.fields {
-        if let Some(ref_id) = &field.vocabulary_ref {
+        if let Some(ref_id) = &field.field_type.vocabulary_ref {
             if !pkg.vocabularies.iter().any(|v| &v.id == ref_id) {
                 diagnostics.push(ValidationDiagnostic {
                     severity: DiagnosticSeverity::Error,
@@ -1765,6 +1815,7 @@ mod tests {
                 "title": "Test Repo"
             },
             "instanceIndex": instance_index,
+            "dataModelRevision": 1,
             "createdAt": "2026-01-01T00:00:00Z"
         })
     }
@@ -1956,11 +2007,16 @@ mod tests {
             "namespace": "com.test",
             "name": field_name,
             "version": 1,
-            "valueType": "string",
+            "fieldType": {"datatype": "string"},
             "createdAt": "2026-01-01T00:00:00Z"
         });
         if let Some(vr) = vocab_ref {
-            obj["vocabularyRef"] = json!(vr);
+            // A vocabularyRef only makes sense on a closed domain (RFC-032 R3).
+            obj["fieldType"] = json!({
+                "datatype": "string",
+                "valueDomain": "closed",
+                "vocabularyRef": vr
+            });
         }
         obj
     }
@@ -4027,6 +4083,56 @@ mod tests {
             !manifest_errors.is_empty(),
             "expected ERROR diagnostic for manifest.json (undeclared property), got: {:?}",
             report.diagnostics
+        );
+    }
+
+    #[test]
+    fn unstamped_repository_warns_and_names_the_migration() {
+        // RFC-033 [R6]: a revision-0 repository still loads (definitions are
+        // upgraded in memory), so this is a warning — but it must say which
+        // command clears it, or the stamp is just noise.
+        let mut manifest = minimal_manifest(json!([]));
+        manifest
+            .as_object_mut()
+            .unwrap()
+            .remove("dataModelRevision");
+        let store = manifest_store(manifest);
+        let report = validate_repository(&store).unwrap();
+        let d = report
+            .diagnostics
+            .iter()
+            .find(|d| d.message.contains("data-model revision"))
+            .expect("an unstamped repository must be reported");
+        assert_eq!(d.severity, DiagnosticSeverity::Warning);
+        assert!(
+            d.message.contains("apply-migration field-type"),
+            "the diagnostic must name the migration: {}",
+            d.message
+        );
+    }
+
+    #[test]
+    fn repository_from_a_newer_build_is_an_error_not_a_mystery() {
+        // The case RFC-033 introduced the stamp for: without it, a
+        // newer-than-supported repository surfaces as an unexplained load
+        // failure instead of "upgrade your binary".
+        let mut manifest = minimal_manifest(json!([]));
+        manifest
+            .as_object_mut()
+            .unwrap()
+            .insert("dataModelRevision".to_string(), json!(99));
+        let store = manifest_store(manifest);
+        let report = validate_repository(&store).unwrap();
+        let d = report
+            .diagnostics
+            .iter()
+            .find(|d| d.message.contains("data-model revision"))
+            .expect("a newer-revision repository must be reported");
+        assert_eq!(d.severity, DiagnosticSeverity::Error);
+        assert!(
+            d.message.contains("Upgrade the `srs` binary"),
+            "{}",
+            d.message
         );
     }
 
@@ -6624,7 +6730,7 @@ mod tests {
             "version": 1,
             "description": "invariant number",
             "aiGuidance": {},
-            "valueType": "text",
+            "fieldType": {"datatype": "string", "format": "plain"},
             "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
@@ -6772,7 +6878,7 @@ mod tests {
             "namespace": "com.semanticops.base",
             "name": "allowedMimeTypes",
             "version": 1, "description": "allowed MIME types",
-            "aiGuidance": {}, "valueType": "text", "createdAt": "2026-01-01T00:00:00Z"
+            "aiGuidance": {}, "fieldType": {"datatype": "string", "format": "plain"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let max_per_file_field: Field = serde_json::from_value(json!({
@@ -6780,7 +6886,7 @@ mod tests {
             "namespace": "com.semanticops.base",
             "name": "maxPerFileBytes",
             "version": 1, "description": "max per-file bytes",
-            "aiGuidance": {}, "valueType": "number", "createdAt": "2026-01-01T00:00:00Z"
+            "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let max_doc_field: Field = serde_json::from_value(json!({
@@ -6788,7 +6894,7 @@ mod tests {
             "namespace": "com.semanticops.base",
             "name": "maxDocBytes",
             "version": 1, "description": "max doc bytes",
-            "aiGuidance": {}, "valueType": "number", "createdAt": "2026-01-01T00:00:00Z"
+            "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let max_total_field: Field = serde_json::from_value(json!({
@@ -6796,7 +6902,7 @@ mod tests {
             "namespace": "com.semanticops.base",
             "name": "maxTotalBytes",
             "version": 1, "description": "max total bytes",
-            "aiGuidance": {}, "valueType": "number", "createdAt": "2026-01-01T00:00:00Z"
+            "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let repo_settings_type: RecordType = serde_json::from_value(json!({
@@ -7111,7 +7217,7 @@ mod tests {
         let allowed_mime_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_ALLOWED_MIME, "namespace": "com.semanticops.base",
             "name": "allowedMimeTypes", "version": 1, "description": "x",
-            "aiGuidance": {}, "valueType": "text", "createdAt": "2026-01-01T00:00:00Z"
+            "aiGuidance": {}, "fieldType": {"datatype": "string", "format": "plain"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let repo_settings_type: RecordType = serde_json::from_value(json!({
@@ -7271,25 +7377,25 @@ mod tests {
         let allowed_mime_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_ALLOWED_MIME, "namespace": "com.semanticops.base",
             "name": "allowedMimeTypes", "version": 1, "description": "",
-            "aiGuidance": {}, "valueType": "text", "createdAt": "2026-01-01T00:00:00Z"
+            "aiGuidance": {}, "fieldType": {"datatype": "string", "format": "plain"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let max_per_file_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_PER_FILE, "namespace": "com.semanticops.base",
             "name": "maxPerFileBytes", "version": 1, "description": "",
-            "aiGuidance": {}, "valueType": "number", "createdAt": "2026-01-01T00:00:00Z"
+            "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let max_doc_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_DOC, "namespace": "com.semanticops.base",
             "name": "maxDocBytes", "version": 1, "description": "",
-            "aiGuidance": {}, "valueType": "number", "createdAt": "2026-01-01T00:00:00Z"
+            "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let max_total_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_TOTAL, "namespace": "com.semanticops.base",
             "name": "maxTotalBytes", "version": 1, "description": "",
-            "aiGuidance": {}, "valueType": "number", "createdAt": "2026-01-01T00:00:00Z"
+            "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let repo_settings_type: RecordType = serde_json::from_value(json!({
@@ -7394,25 +7500,25 @@ mod tests {
         let allowed_mime_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_ALLOWED_MIME, "namespace": "com.semanticops.base",
             "name": "allowedMimeTypes", "version": 1, "description": "",
-            "aiGuidance": {}, "valueType": "text", "createdAt": "2026-01-01T00:00:00Z"
+            "aiGuidance": {}, "fieldType": {"datatype": "string", "format": "plain"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let max_per_file_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_PER_FILE, "namespace": "com.semanticops.base",
             "name": "maxPerFileBytes", "version": 1, "description": "",
-            "aiGuidance": {}, "valueType": "number", "createdAt": "2026-01-01T00:00:00Z"
+            "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let max_doc_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_DOC, "namespace": "com.semanticops.base",
             "name": "maxDocBytes", "version": 1, "description": "",
-            "aiGuidance": {}, "valueType": "number", "createdAt": "2026-01-01T00:00:00Z"
+            "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let max_total_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_TOTAL, "namespace": "com.semanticops.base",
             "name": "maxTotalBytes", "version": 1, "description": "",
-            "aiGuidance": {}, "valueType": "number", "createdAt": "2026-01-01T00:00:00Z"
+            "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let repo_settings_type: RecordType = serde_json::from_value(json!({

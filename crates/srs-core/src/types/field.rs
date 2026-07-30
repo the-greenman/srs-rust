@@ -1,11 +1,16 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+
+pub use crate::types::field_type::{
+    Cardinality, Datatype, ExactTypeRef, FieldType, FieldTypeConstraints, FieldTypeViolation,
+    LegacyContentFormat, LegacyFieldFacets, LegacyValidationRule, LegacyValueType, MapValueRange,
+    RefMode, StringFormat, ValueDomain,
+};
 
 /// AI-facing guidance for a Field: what it captures, how to extract or
 /// populate it, what to avoid, and worked examples. Mirrors `$defs/AiGuidance`
 /// in `field.json`. `purpose` is the schema's only required sub-property.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AiGuidance {
     #[serde(default)]
     pub purpose: String,
@@ -17,9 +22,23 @@ pub struct AiGuidance {
     pub examples: Option<Vec<AiGuidanceExample>>,
 }
 
+impl AiGuidance {
+    /// True when no author-supplied guidance is present.
+    ///
+    /// `purpose` carries the model's central claim — that a Field declares what
+    /// it means — so "absent" and "empty" must stay distinguishable rather than
+    /// being papered over with a manufactured default (srs-rust#768).
+    pub fn is_empty(&self) -> bool {
+        self.purpose.trim().is_empty()
+            && self.extraction.is_none()
+            && self.negative_guidance.is_none()
+            && self.examples.is_none()
+    }
+}
+
 /// One worked example in `AiGuidance.examples`. Mirrors `$defs/AiGuidanceExample`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AiGuidanceExample {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -30,7 +49,7 @@ pub struct AiGuidanceExample {
 
 /// Distribution/fork tracking for a Field. Mirrors `$defs/Lineage`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Lineage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_definition_id: Option<String>,
@@ -44,7 +63,7 @@ pub struct Lineage {
 
 /// Publisher/package attribution for a Field. Mirrors `$defs/Provenance`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Provenance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub publisher: Option<String>,
@@ -56,17 +75,8 @@ pub struct Provenance {
     pub imported_at: Option<String>,
 }
 
-/// Content encoding of a `string`/`text` value. See I-38 and
-/// [`Field::effective_content_format`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ContentFormat {
-    Plain,
-    Markdown,
-}
-
-/// Suggested UI control for editing this Field's value. Implementations and
-/// Views may override; this is a hint, not a contract.
+/// Suggested UI control for editing this Field's value. Presentation only — not
+/// part of the RFC-032 type model. Implementations and Views may override.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum EditorHint {
@@ -79,9 +89,26 @@ pub enum EditorHint {
     Voice,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+/// The atomic semantic unit of SRS: a reusable, versioned field definition.
+///
+/// Property order and optionality mirror `docs/schema/2.0/field.json` exactly.
+/// Since RFC-032 the value type is the decomposed [`FieldType`] rather than a
+/// scalar `valueType` enum with untyped companions.
+///
+/// **Forward compatibility (srs-rust#767).** `field.json` sets
+/// `additionalProperties: false`, and the self-hosted meta-model (`field` Type
+/// in `com.semanticops.srs/metamodel`) declares no extension bag — so this
+/// struct denies unknown properties too. Engine and schema now implement one
+/// policy on every code path, rather than the previous split where loading
+/// preserved unknown properties that the create gate rejected. `$schema` is a
+/// declared property, not an unknown one, so it is modelled explicitly.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Field {
+    /// The `$schema` pointer a field file may carry. Declared by `field.json`
+    /// itself; preserved so a loaded-then-written Field keeps it.
+    #[serde(rename = "$schema", default, skip_serializing_if = "Option::is_none")]
+    pub schema: Option<String>,
     // Required by field.json (`required: ["id", ...]`) — no `#[serde(default)]`.
     // A document with no `id` is malformed and must fail to deserialize, not
     // silently produce a Field with `id: ""` (srs-rust#769).
@@ -93,21 +120,10 @@ pub struct Field {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instructions: Option<String>,
     pub ai_guidance: AiGuidance,
-    pub value_type: ValueType,
-    // Meaningful only when `value_type` is `String`/`Text` (I-38) — use
-    // `effective_content_format()` rather than reading this directly.
-    //
-    // Property name intentionally kept as `contentFormat` (not the JSON
-    // Schema standard `contentMediaType`): a rename was floated in
-    // srs-rust#769's discussion but is a spec-level decision that belongs to
-    // the-greenman/srs#234, not decided unilaterally here.
+    /// RFC-032 — the decomposed value type: datatype × cardinality ×
+    /// value-domain × format × constraints.
+    pub field_type: FieldType,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub content_format: Option<ContentFormat>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub allowed_values: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub vocabulary_ref: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub default_value: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub editor_hint: Option<EditorHint>,
@@ -117,43 +133,82 @@ pub struct Field {
     pub lineage: Option<Lineage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provenance: Option<Provenance>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deprecated_at: Option<String>,
     // Decision (srs-rust#769): `id` and `created_at` stay plain `String` for
     // now rather than gaining parsed newtypes. `format: "uuid"`/`"date-time"`
     // in field.json are annotations only until srs-schema opts into format
     // assertion (the-greenman/srs#236); a Rust-side newtype would assert a
     // guarantee the schema itself does not yet give. Revisit once #236 lands.
     pub created_at: String,
-    #[serde(flatten)]
-    pub extra: HashMap<String, serde_json::Value>,
 }
 
 impl Field {
-    /// I-38 (spec section "core — Field.contentFormat"): `contentFormat` is
-    /// only meaningful when `valueType` is `string` or `text`; implementations
-    /// must ignore it for every other `valueType`. Consumers that want to
-    /// honour `contentFormat` (e.g. a renderer choosing markdown vs
-    /// plain-text treatment) must go through this accessor instead of
-    /// reading `self.content_format` directly, so the invariant cannot be
-    /// silently bypassed by a value type that shouldn't carry one.
-    pub fn effective_content_format(&self) -> Option<ContentFormat> {
-        match self.value_type {
-            ValueType::String | ValueType::Text => self.content_format,
+    /// A Field with only the schema-required properties set — the base every
+    /// construction site starts from.
+    pub fn new(
+        id: impl Into<String>,
+        namespace: impl Into<String>,
+        name: impl Into<String>,
+        field_type: FieldType,
+    ) -> Self {
+        Field {
+            schema: None,
+            id: id.into(),
+            namespace: namespace.into(),
+            name: name.into(),
+            version: 1,
+            description: String::new(),
+            instructions: None,
+            ai_guidance: AiGuidance::default(),
+            field_type,
+            default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
+            deprecated_at: None,
+            created_at: String::new(),
+        }
+    }
+
+    /// The base datatype facet — the successor of asking `valueType`.
+    pub fn datatype(&self) -> Datatype {
+        self.field_type.datatype
+    }
+
+    /// Whether this field holds an ordered list of values.
+    pub fn is_list(&self) -> bool {
+        self.field_type.is_list()
+    }
+
+    /// The inline closed vocabulary, when this field declares one.
+    pub fn allowed_values(&self) -> Option<&[String]> {
+        self.field_type.allowed_values()
+    }
+
+    /// The named Vocabulary this field's closed domain draws from, if any.
+    pub fn vocabulary_ref(&self) -> Option<&str> {
+        self.field_type.vocabulary_ref.as_deref()
+    }
+
+    /// I-38, restated in RFC-032 terms: a content format is only meaningful for
+    /// `datatype: string`. The invariant used to need an explicit accessor
+    /// because `contentFormat` was a companion property that could contradict
+    /// `valueType`; `format` now lives inside `fieldType`, where R5 forbids the
+    /// contradiction outright. This accessor remains the single read path so
+    /// consumers cannot reintroduce it.
+    pub fn effective_format(&self) -> Option<StringFormat> {
+        match self.field_type.datatype {
+            Datatype::String => self.field_type.format,
             _ => None,
         }
     }
-}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ValueType {
-    String,
-    Text,
-    Number,
-    Boolean,
-    Date,
-    Url,
-    Select,
-    Multiselect,
+    /// True when values should be rendered as CommonMark rather than plain text.
+    pub fn is_markdown(&self) -> bool {
+        self.effective_format() == Some(StringFormat::Markdown)
+    }
 }
 
 #[cfg(test)]
@@ -161,113 +216,118 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    #[test]
-    fn field_roundtrips_json() {
-        let field = Field {
-            id: "00000000-0000-4000-8000-000000000010".to_string(),
-            namespace: "test.ns".to_string(),
-            name: "test-field".to_string(),
-            version: 1,
+    fn sample() -> Field {
+        Field {
             description: "A test field".to_string(),
-            instructions: None,
             ai_guidance: AiGuidance {
                 purpose: "captures test data".to_string(),
                 ..Default::default()
             },
-            value_type: ValueType::Select,
-            content_format: None,
-            allowed_values: Some(vec!["a".to_string(), "b".to_string()]),
-            vocabulary_ref: None,
             default_value: Some(json!("a")),
-            editor_hint: None,
-            tags: None,
-            lineage: None,
-            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
-        };
+            ..Field::new(
+                "00000000-0000-4000-8000-000000000010",
+                "test.ns",
+                "test_field",
+                FieldType::select(["a", "b"]),
+            )
+        }
+    }
 
-        let json_str = serde_json::to_string(&field).unwrap();
-        let parsed: Field = serde_json::from_str(&json_str).unwrap();
-
-        assert_eq!(parsed.id, field.id);
-        assert_eq!(parsed.value_type, ValueType::Select);
-        assert_eq!(parsed.ai_guidance.purpose, "captures test data");
+    #[test]
+    fn field_roundtrips_json() {
+        let field = sample();
+        let parsed: Field = serde_json::from_str(&serde_json::to_string(&field).unwrap()).unwrap();
+        assert_eq!(parsed, field);
+        assert_eq!(parsed.datatype(), Datatype::String);
         assert_eq!(
-            parsed.allowed_values,
-            Some(vec!["a".to_string(), "b".to_string()])
+            parsed.allowed_values(),
+            Some(["a".to_string(), "b".to_string()].as_slice())
         );
     }
 
     #[test]
-    fn field_extra_fields_survive_roundtrip() {
+    fn unknown_properties_are_rejected() {
+        // srs-rust#767: `field.json` sets `additionalProperties: false` and the
+        // create gate enforces it. Deserialization must not implement the
+        // opposite policy — a Field's forward-compatibility answer may not
+        // depend on which code path it entered through.
         let json_str = r#"{
             "id": "00000000-0000-4000-8000-000000000010",
             "namespace": "test.ns",
-            "name": "test-field",
+            "name": "test_field",
             "version": 1,
             "description": "A field",
             "aiGuidance": {"purpose": "test"},
-            "valueType": "string",
+            "fieldType": {"datatype": "string"},
             "createdAt": "2026-01-01T00:00:00Z",
-            "unknownFutureField": "preserved",
-            "anotherExtra": 42
+            "unknownFutureField": "not preserved"
         }"#;
+        let result: Result<Field, _> = serde_json::from_str(json_str);
+        assert!(
+            result.is_err(),
+            "an unknown Field property must be rejected, matching additionalProperties: false"
+        );
+    }
 
+    #[test]
+    fn declared_schema_pointer_survives_a_roundtrip() {
+        // `$schema` is a *declared* property of field.json, so it must not be
+        // mistaken for an unknown one by `deny_unknown_fields`.
+        let json_str = r#"{
+            "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+            "id": "00000000-0000-4000-8000-000000000010",
+            "namespace": "test.ns",
+            "name": "test_field",
+            "version": 1,
+            "description": "A field",
+            "aiGuidance": {"purpose": "test"},
+            "fieldType": {"datatype": "string"},
+            "createdAt": "2026-01-01T00:00:00Z"
+        }"#;
         let field: Field = serde_json::from_str(json_str).unwrap();
         assert_eq!(
-            field.extra.get("unknownFutureField"),
-            Some(&json!("preserved"))
+            field.schema.as_deref(),
+            Some("https://srs.semanticops.com/schema/2.0/field.json")
         );
-        assert_eq!(field.extra.get("anotherExtra"), Some(&json!(42)));
-
-        let serialized = serde_json::to_string(&field).unwrap();
-        assert!(serialized.contains("unknownFutureField"));
-        assert!(serialized.contains("anotherExtra"));
-    }
-
-    #[test]
-    fn value_type_serializes_to_lowercase() {
+        let back = serde_json::to_value(&field).unwrap();
         assert_eq!(
-            serde_json::to_string(&ValueType::String).unwrap(),
-            "\"string\""
-        );
-        assert_eq!(
-            serde_json::to_string(&ValueType::Multiselect).unwrap(),
-            "\"multiselect\""
+            back["$schema"],
+            json!("https://srs.semanticops.com/schema/2.0/field.json")
         );
     }
 
     #[test]
-    fn minimal_field_passes_schema_contract() {
-        let reg = srs_schema::SchemaRegistry::global();
-        let field = Field {
-            id: "00000000-0000-4000-8000-000000000010".to_string(),
-            namespace: "test".to_string(),
-            name: "summary".to_string(),
-            version: 1,
-            description: "A short summary".to_string(),
-            instructions: None,
-            ai_guidance: AiGuidance {
-                purpose: "captures the summary".to_string(),
-                ..Default::default()
-            },
-            value_type: ValueType::Text,
-            content_format: None,
-            allowed_values: None,
-            vocabulary_ref: None,
-            default_value: None,
-            editor_hint: None,
-            tags: None,
-            lineage: None,
-            provenance: None,
-            created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
-        };
-        let mut value = serde_json::to_value(&field).unwrap();
-        value["$schema"] = json!("https://srs.semanticops.com/schema/2.0/field.json");
-        reg.validate_by_id(srs_schema::FIELD_SCHEMA_ID, &value)
-            .expect("minimal Field must pass field.json schema");
+    fn serialized_property_order_matches_the_frozen_seed() {
+        let mut field = sample();
+        field.schema = Some("https://srs.semanticops.com/schema/2.0/field.json".to_string());
+        field.instructions = Some("fill this in".to_string());
+        field.tags = Some(vec!["x".to_string()]);
+        field.deprecated_at = Some("2026-02-01T00:00:00Z".to_string());
+        let s = serde_json::to_string(&field).unwrap();
+        let order: Vec<&str> = [
+            "\"$schema\"",
+            "\"id\"",
+            "\"namespace\"",
+            "\"name\"",
+            "\"version\"",
+            "\"description\"",
+            "\"instructions\"",
+            "\"aiGuidance\"",
+            "\"fieldType\"",
+            "\"defaultValue\"",
+            "\"tags\"",
+            "\"deprecatedAt\"",
+            "\"createdAt\"",
+        ]
+        .to_vec();
+        let mut cursor = 0usize;
+        for key in order {
+            let at = s[cursor..]
+                .find(key)
+                .unwrap_or_else(|| panic!("{key} missing or out of order in {s}"));
+            cursor += at + key.len();
+        }
     }
 
     #[test]
@@ -276,11 +336,11 @@ mod tests {
         // must no longer default to "" when absent.
         let json_str = r#"{
             "namespace": "test.ns",
-            "name": "test-field",
+            "name": "test_field",
             "version": 1,
             "description": "A field with no id",
             "aiGuidance": {"purpose": "test"},
-            "valueType": "string",
+            "fieldType": {"datatype": "string"},
             "createdAt": "2026-01-01T00:00:00Z"
         }"#;
         let result: Result<Field, _> = serde_json::from_str(json_str);
@@ -291,18 +351,15 @@ mod tests {
     }
 
     #[test]
-    fn ai_guidance_and_content_format_are_typed() {
-        // Regression for srs-rust#769: aiGuidance and contentFormat must be
-        // real typed fields, not opaque Value / entries in `extra`.
+    fn ai_guidance_and_field_type_are_typed() {
         let json_str = r#"{
             "id": "00000000-0000-4000-8000-000000000010",
             "namespace": "test.ns",
-            "name": "test-field",
+            "name": "test_field",
             "version": 1,
             "description": "A field",
             "aiGuidance": {"purpose": "captures test data", "extraction": "extract verbatim"},
-            "valueType": "string",
-            "contentFormat": "markdown",
+            "fieldType": {"datatype": "string", "format": "markdown"},
             "editorHint": "rich-text",
             "tags": ["draft", "reviewed"],
             "createdAt": "2026-01-01T00:00:00Z"
@@ -313,71 +370,114 @@ mod tests {
             field.ai_guidance.extraction.as_deref(),
             Some("extract verbatim")
         );
-        assert_eq!(field.content_format, Some(ContentFormat::Markdown));
         assert_eq!(field.editor_hint, Some(EditorHint::RichText));
         assert_eq!(
             field.tags,
             Some(vec!["draft".to_string(), "reviewed".to_string()])
         );
-        assert!(
-            !field.extra.contains_key("contentFormat"),
-            "contentFormat must no longer fall through to `extra`"
-        );
+        assert!(field.is_markdown());
     }
 
     #[test]
-    fn i38_content_format_honoured_only_for_string_and_text() {
-        let mut field = Field {
-            id: "00000000-0000-4000-8000-000000000010".to_string(),
-            namespace: "test.ns".to_string(),
-            name: "test-field".to_string(),
-            version: 1,
-            description: "A field".to_string(),
-            instructions: None,
-            ai_guidance: AiGuidance::default(),
-            value_type: ValueType::String,
-            content_format: Some(ContentFormat::Markdown),
-            allowed_values: None,
-            vocabulary_ref: None,
-            default_value: None,
-            editor_hint: None,
-            tags: None,
-            lineage: None,
-            provenance: None,
+    fn i38_format_honoured_only_for_string_datatype() {
+        let mut field = Field::new("f-1", "test.ns", "test_field", FieldType::markdown());
+        assert_eq!(field.effective_format(), Some(StringFormat::Markdown));
+
+        // R5 forbids a non-string carrying a format, but should one arrive from
+        // a hand-edited file the accessor still ignores it (I-38's "must
+        // ignore", not "must reject").
+        field.field_type.datatype = Datatype::Number;
+        assert_eq!(field.effective_format(), None);
+        assert!(!field.is_markdown());
+    }
+
+    #[test]
+    fn empty_ai_guidance_is_distinguishable_from_authored_guidance() {
+        // srs-rust#768: an auto-filled `purpose: ""` used to be indistinguishable
+        // from authored guidance. It must not be.
+        assert!(AiGuidance::default().is_empty());
+        assert!(AiGuidance {
+            purpose: "   ".to_string(),
+            ..Default::default()
+        }
+        .is_empty());
+        assert!(!AiGuidance {
+            purpose: "captures the summary".to_string(),
+            ..Default::default()
+        }
+        .is_empty());
+    }
+
+    #[test]
+    fn minimal_field_passes_schema_contract() {
+        let reg = srs_schema::SchemaRegistry::global();
+        let field = Field {
+            description: "A short summary".to_string(),
+            ai_guidance: AiGuidance {
+                purpose: "captures the summary".to_string(),
+                ..Default::default()
+            },
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            ..Field::new(
+                "00000000-0000-4000-8000-000000000010",
+                "test",
+                "summary",
+                FieldType::markdown(),
+            )
         };
+        let mut value = serde_json::to_value(&field).unwrap();
+        value["$schema"] = json!("https://srs.semanticops.com/schema/2.0/field.json");
+        reg.validate_by_id(srs_schema::FIELD_SCHEMA_ID, &value)
+            .expect("minimal Field must pass field.json schema");
+    }
 
-        // Honoured for `string`.
-        assert_eq!(
-            field.effective_content_format(),
-            Some(ContentFormat::Markdown)
-        );
-
-        // Honoured for `text`.
-        field.value_type = ValueType::Text;
-        assert_eq!(
-            field.effective_content_format(),
-            Some(ContentFormat::Markdown)
-        );
-
-        // Ignored for every other valueType, even though `content_format`
-        // is still set on the struct — I-38 requires implementations to
-        // ignore it, not require authors to omit it.
-        for vt in [
-            ValueType::Number,
-            ValueType::Boolean,
-            ValueType::Date,
-            ValueType::Url,
-            ValueType::Select,
-            ValueType::Multiselect,
-        ] {
-            field.value_type = vt;
-            assert_eq!(
-                field.effective_content_format(),
-                None,
-                "contentFormat must be ignored for valueType {vt:?}"
+    #[test]
+    fn every_field_type_shape_passes_the_schema_contract() {
+        // The struct and the frozen seed must agree across the whole RFC-032
+        // surface, not just the scalar happy path.
+        let reg = srs_schema::SchemaRegistry::global();
+        let shapes = [
+            FieldType::string(),
+            FieldType::markdown(),
+            FieldType::uri(),
+            FieldType::number(),
+            FieldType::integer(),
+            FieldType::boolean(),
+            FieldType::date(),
+            FieldType::date_time(),
+            FieldType::select(["a", "b"]),
+            FieldType::multiselect(["a", "b"]),
+            FieldType::inline_ref(ExactTypeRef {
+                type_id: "4c000007-0000-4000-a000-000000000007".to_string(),
+                type_version: 1,
+            }),
+            FieldType::instance_ref(ExactTypeRef {
+                type_id: "4c000007-0000-4000-a000-000000000007".to_string(),
+                type_version: 1,
+            }),
+        ];
+        for shape in shapes {
+            let field = Field {
+                description: "d".to_string(),
+                ai_guidance: AiGuidance {
+                    purpose: "p".to_string(),
+                    ..Default::default()
+                },
+                created_at: "2026-01-01T00:00:00Z".to_string(),
+                ..Field::new(
+                    "00000000-0000-4000-8000-000000000010",
+                    "test",
+                    "f",
+                    shape.clone(),
+                )
+            };
+            assert!(
+                field.field_type.validate().is_empty(),
+                "{shape:?} must satisfy RFC-032 conformance"
             );
+            let value = serde_json::to_value(&field).unwrap();
+            reg.validate_by_id(srs_schema::FIELD_SCHEMA_ID, &value)
+                .unwrap_or_else(|e| panic!("{shape:?} must pass field.json: {e}"));
         }
     }
 }

@@ -36,19 +36,22 @@ fn minimal_srsj() -> String {
 }
 
 #[test]
-fn available_migrations_lists_two_migrations_with_status() {
+fn available_migrations_lists_the_registered_migrations_with_status() {
     let store = JsonStore::from_srsj(&minimal_srsj()).expect("fixture must load");
 
     let migrations =
         migration_registry_service::list_migrations(&store).expect("list_migrations must succeed");
 
-    assert_eq!(migrations.len(), 2, "expected exactly two migrations");
-    assert_eq!(migrations[0].id, "migrate-identity");
-    assert_eq!(migrations[1].id, "repo-upgrade");
+    assert_eq!(migrations.len(), 3, "expected exactly three migrations");
+    assert_eq!(migrations[0].id, "field-type");
+    assert_eq!(migrations[1].id, "migrate-identity");
+    assert_eq!(migrations[2].id, "repo-upgrade");
 
-    // No container → migrate-identity is NotApplicable; no instances → repo-upgrade is AlreadyApplied.
-    assert_eq!(migrations[0].status, MigrationStatus::NotApplicable);
-    assert_eq!(migrations[1].status, MigrationStatus::AlreadyApplied);
+    // Unstamped manifest → field-type is Needed; no container → migrate-identity
+    // is NotApplicable; no instances → repo-upgrade is AlreadyApplied.
+    assert_eq!(migrations[0].status, MigrationStatus::Needed);
+    assert_eq!(migrations[1].status, MigrationStatus::NotApplicable);
+    assert_eq!(migrations[2].status, MigrationStatus::AlreadyApplied);
 
     // Result serialises in camelCase for to_js.
     let json = serde_json::to_value(&migrations[0]).expect("must serialise");

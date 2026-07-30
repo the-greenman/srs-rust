@@ -6,7 +6,7 @@ use crate::relation_graph;
 use crate::relation_service::load_relations;
 use crate::store::RepositoryStore;
 use serde_json::json;
-use srs_core::types::field::ValueType;
+use srs_core::types::field::{Datatype, FieldType, StringFormat};
 use srs_core::types::record::Record;
 use srs_core::types::relation::Relation;
 use srs_core::types::relation::RelationStatus;
@@ -563,7 +563,7 @@ fn project_record_json(
         let field_id = &field.field_id;
         let field_value = record.find_field_value(field_id);
         let field_def = package.resolve_field(field_id);
-        let field_type = field_def.map(|f| f.value_type);
+        let field_type = field_def.map(|f| &f.field_type);
         let json_val = field_value.and_then(|fv| field_value_to_json(fv, field_type));
 
         if field.required && json_val.is_none() {
@@ -652,7 +652,7 @@ fn project_field_groups_json(
                     if let Some(fv) = fv {
                         let field_type = package
                             .resolve_field(&assignment.field_id)
-                            .map(|f| f.value_type);
+                            .map(|f| &f.field_type);
                         let json_val =
                             field_value_to_json(fv, field_type).unwrap_or(serde_json::Value::Null);
                         entry_fields.insert(assignment.field_id.clone(), json_val);
@@ -681,7 +681,7 @@ fn project_field_groups_json(
 
 fn field_value_to_json(
     field_value: &srs_core::types::record::FieldValue,
-    value_type: Option<ValueType>,
+    field_type: Option<&FieldType>,
 ) -> Option<serde_json::Value> {
     if let Some(entries) = &field_value.entries {
         if entries.is_empty() {
@@ -689,19 +689,19 @@ fn field_value_to_json(
         }
         let vals: Vec<serde_json::Value> = entries
             .iter()
-            .map(|e| coerce_json_value(&e.value, value_type))
+            .map(|e| coerce_json_value(&e.value, field_type))
             .collect();
         return Some(serde_json::Value::Array(vals));
     }
     if field_value.value.is_null() {
         return None;
     }
-    Some(coerce_json_value(&field_value.value, value_type))
+    Some(coerce_json_value(&field_value.value, field_type))
 }
 
-fn coerce_json_value(raw: &serde_json::Value, value_type: Option<ValueType>) -> serde_json::Value {
-    match value_type {
-        Some(ValueType::Number) => {
+fn coerce_json_value(raw: &serde_json::Value, field_type: Option<&FieldType>) -> serde_json::Value {
+    match field_type.map(|ft| ft.datatype) {
+        Some(Datatype::Number) | Some(Datatype::Integer) => {
             if let Some(n) = raw.as_str().and_then(|s| s.parse::<i64>().ok()) {
                 return json!(n);
             }
@@ -709,7 +709,7 @@ fn coerce_json_value(raw: &serde_json::Value, value_type: Option<ValueType>) -> 
                 return json!(f);
             }
         }
-        Some(ValueType::Boolean) => match raw.as_str() {
+        Some(Datatype::Boolean) => match raw.as_str() {
             Some("true") => return json!(true),
             Some("false") => return json!(false),
             _ => {}
@@ -1653,7 +1653,7 @@ fn render_record_at_level(
 
         let field_value = record.find_field_value(&field_id);
         let field_def = ctx.package.resolve_field(&field_id);
-        let field_type = field_def.map(|field| field.value_type);
+        let field_type = field_def.map(|field| &field.field_type);
         let rendered_value =
             field_value.and_then(|fv| render_field_value(fv, field_type, ctx.format));
         if field.required && rendered_value.is_none() {
@@ -2166,7 +2166,7 @@ fn render_field_group_baseline(
             let field_type = rt
                 .find_field_assignment(&assignment.field_id)
                 .and_then(|_| ctx.package.resolve_field(&assignment.field_id))
-                .map(|field| field.value_type);
+                .map(|field| &field.field_type);
             let Some(value_text) = render_field_value(fv, field_type, ctx.format) else {
                 continue;
             };
@@ -2454,7 +2454,7 @@ fn render_table_html(
 
 fn render_field_value(
     field_value: &srs_core::types::record::FieldValue,
-    value_type: Option<ValueType>,
+    field_type: Option<&FieldType>,
     format: &str,
 ) -> Option<String> {
     if let Some(entries) = &field_value.entries {
@@ -2468,13 +2468,24 @@ fn render_field_value(
         if texts.is_empty() {
             return None;
         }
-        let joined = match value_type {
-            Some(ValueType::Text) | Some(ValueType::Multiselect) => texts
+        // Multi-line prose and list-valued fields render as a bullet list;
+        // everything else joins inline. Pre-RFC-032 this was the `text` and
+        // `multiselect` valueTypes — now the prose formats and any list.
+        let is_prose = field_type.is_some_and(|ft| {
+            matches!(
+                ft.format,
+                Some(StringFormat::Plain) | Some(StringFormat::Markdown)
+            )
+        });
+        let is_list = field_type.is_some_and(|ft| ft.is_list());
+        let joined = if is_prose || is_list {
+            texts
                 .into_iter()
                 .map(|value| format!("- {value}"))
                 .collect::<Vec<_>>()
-                .join("\n"),
-            _ => texts.join(", "),
+                .join("\n")
+        } else {
+            texts.join(", ")
         };
         return Some(joined);
     }
@@ -3418,7 +3429,7 @@ mod tests {
         use crate::package::Package;
         use crate::record_store::create_record;
         use crate::relation_service;
-        use srs_core::types::field::{AiGuidance, Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, FieldType};
         use srs_core::types::record_type::{FieldAssignment, RecordType};
         use srs_core::types::relation::Relation;
         use srs_core::types::view::{
@@ -3426,64 +3437,58 @@ mod tests {
         };
 
         let heading_field = Field {
+            schema: None,
             id: "f-heading".to_string(),
             namespace: "com.test".to_string(),
             name: "heading".to_string(),
             version: 1,
-            value_type: ValueType::String,
+            field_type: FieldType::string(),
             description: "Heading".to_string(),
             instructions: None,
             ai_guidance: AiGuidance::default(),
-            content_format: None,
-            allowed_values: None,
-            vocabulary_ref: None,
             default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
+            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
         };
         let body_field = Field {
+            schema: None,
             id: "f-body".to_string(),
             namespace: "com.test".to_string(),
             name: "body".to_string(),
             version: 1,
-            value_type: ValueType::Text,
+            field_type: FieldType::text(),
             description: "Body text".to_string(),
             instructions: None,
             ai_guidance: AiGuidance::default(),
-            content_format: None,
-            allowed_values: None,
-            vocabulary_ref: None,
             default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
+            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
         };
         let caption_field = Field {
+            schema: None,
             id: "f-caption".to_string(),
             namespace: "com.test".to_string(),
             name: "caption".to_string(),
             version: 1,
-            value_type: ValueType::String,
+            field_type: FieldType::string(),
             description: "Caption for tables".to_string(),
             instructions: None,
             ai_guidance: AiGuidance::default(),
-            content_format: None,
-            allowed_values: None,
-            vocabulary_ref: None,
             default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
+            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
         };
 
         let text_type = RecordType {
@@ -4146,30 +4151,28 @@ mod tests {
     ) -> crate::store::memory::MemoryStore {
         use crate::package::Package;
         use crate::record_store::create_record;
-        use srs_core::types::field::{AiGuidance, Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, FieldType};
         use srs_core::types::record::{FieldGroupEntry, FieldGroupValue, FieldValue};
         use srs_core::types::record_type::{FieldAssignment, FieldGroup, RecordType};
         use srs_core::types::view::{DocumentSection, DocumentView, EmptyBehavior, SectionSource};
 
         let make_field = |id: &str, name: &str| Field {
+            schema: None,
             id: id.to_string(),
             namespace: "com.test".to_string(),
             name: name.to_string(),
             version: 1,
-            value_type: ValueType::String,
+            field_type: FieldType::string(),
             description: name.to_string(),
             instructions: None,
             ai_guidance: AiGuidance::default(),
-            content_format: None,
-            allowed_values: None,
-            vocabulary_ref: None,
             default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
+            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
         };
         let fields = vec![
             make_field("f-columns", "columns"),
@@ -4452,31 +4455,29 @@ mod tests {
     fn caption_template_html_escapes_label_value() {
         use crate::package::Package;
         use crate::record_store::create_record;
-        use srs_core::types::field::{AiGuidance, Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, FieldType};
         use srs_core::types::record::{FieldGroupEntry, FieldGroupValue, FieldValue};
         use srs_core::types::record_type::{FieldAssignment, FieldGroup, RecordType};
         use srs_core::types::theme::{ElementTemplates, Theme};
         use srs_core::types::view::{DocumentSection, DocumentView, EmptyBehavior, SectionSource};
 
         let make_field = |id: &str, name: &str| Field {
+            schema: None,
             id: id.to_string(),
             namespace: "com.test".to_string(),
             name: name.to_string(),
             version: 1,
-            value_type: ValueType::String,
+            field_type: FieldType::string(),
             description: name.to_string(),
             instructions: None,
             ai_guidance: AiGuidance::default(),
-            content_format: None,
-            allowed_values: None,
-            vocabulary_ref: None,
             default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
+            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
         };
         let fields = vec![
             make_field("f-columns", "columns"),
@@ -4740,7 +4741,7 @@ mod tests {
         use crate::index::InstanceIndexEntry;
         use crate::package::Package;
         use srs_core::types::container::Container;
-        use srs_core::types::field::{AiGuidance, Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, FieldType};
         use srs_core::types::record::{FieldValue, Record};
         use srs_core::types::record_type::{FieldAssignment, RecordType};
         use srs_core::types::view::{
@@ -4748,24 +4749,22 @@ mod tests {
         };
 
         let heading_field = Field {
+            schema: None,
             id: "f-heading".to_string(),
             namespace: "com.test".to_string(),
             name: "heading".to_string(),
             version: 1,
-            value_type: ValueType::String,
+            field_type: FieldType::string(),
             description: "Heading".to_string(),
             instructions: None,
             ai_guidance: AiGuidance::default(),
-            content_format: None,
-            allowed_values: None,
-            vocabulary_ref: None,
             default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
+            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
         };
 
         let record_type = RecordType {
@@ -5081,7 +5080,7 @@ mod tests {
         extra_variants: Vec<srs_core::types::view::ThemeVariant>,
         extra_themes: Vec<srs_core::types::theme::Theme>,
     ) -> crate::store::memory::MemoryStore {
-        use srs_core::types::field::{AiGuidance, Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, FieldType};
         use srs_core::types::record_type::{FieldAssignment, RecordType};
         use srs_core::types::theme::{ElementTemplates, Theme};
         use srs_core::types::view::{
@@ -5089,24 +5088,22 @@ mod tests {
         };
 
         let body_field = Field {
+            schema: None,
             id: "f-auto-body".to_string(),
             namespace: "com.test".to_string(),
             name: "body".to_string(),
             version: 1,
-            value_type: ValueType::Text,
+            field_type: FieldType::text(),
             description: "Body".to_string(),
             instructions: None,
             ai_guidance: AiGuidance::default(),
-            content_format: None,
-            allowed_values: None,
-            vocabulary_ref: None,
             default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
+            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
         };
 
         let rt = RecordType {
@@ -5484,70 +5481,64 @@ mod tests {
         use crate::package::Package;
         use crate::record_store::create_record;
         use crate::relation_service;
-        use srs_core::types::field::{AiGuidance, Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, FieldType};
         use srs_core::types::record_type::{FieldAssignment, RecordType};
         use srs_core::types::relation::Relation;
         use srs_core::types::view::{FieldView, View};
 
         let heading_field = Field {
+            schema: None,
             id: "f-heading".to_string(),
             namespace: "com.test".to_string(),
             name: "heading".to_string(),
             version: 1,
-            value_type: ValueType::String,
+            field_type: FieldType::string(),
             description: "Heading".to_string(),
             instructions: None,
             ai_guidance: AiGuidance::default(),
-            content_format: None,
-            allowed_values: None,
-            vocabulary_ref: None,
             default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
+            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
         };
         let body_field = Field {
+            schema: None,
             id: "f-body".to_string(),
             namespace: "com.test".to_string(),
             name: "body".to_string(),
             version: 1,
-            value_type: ValueType::Text,
+            field_type: FieldType::text(),
             description: "Body text".to_string(),
             instructions: None,
             ai_guidance: AiGuidance::default(),
-            content_format: None,
-            allowed_values: None,
-            vocabulary_ref: None,
             default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
+            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
         };
         let caption_field = Field {
+            schema: None,
             id: "f-caption".to_string(),
             namespace: "com.test".to_string(),
             name: "caption".to_string(),
             version: 1,
-            value_type: ValueType::String,
+            field_type: FieldType::string(),
             description: "Caption for tables".to_string(),
             instructions: None,
             ai_guidance: AiGuidance::default(),
-            content_format: None,
-            allowed_values: None,
-            vocabulary_ref: None,
             default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
+            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
         };
 
         let text_type = RecordType {
@@ -7049,50 +7040,46 @@ mod tests {
     ) {
         use crate::package::Package;
         use crate::record_store::create_record;
-        use srs_core::types::field::{AiGuidance, Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, FieldType};
         use srs_core::types::record_type::{FieldAssignment, RecordType};
         use srs_core::types::view::{DocumentSection, DocumentView, EmptyBehavior, SectionSource};
 
         let heading_field = Field {
+            schema: None,
             id: "f-head".to_string(),
             namespace: "com.test".to_string(),
             name: "heading".to_string(),
             version: 1,
-            value_type: ValueType::String,
+            field_type: FieldType::string(),
             description: "Heading field".to_string(),
             instructions: None,
             ai_guidance: AiGuidance::default(),
-            content_format: None,
-            allowed_values: None,
-            vocabulary_ref: None,
             default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
+            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
         };
         let other_field = Field {
+            schema: None,
             id: "f-other".to_string(),
             namespace: "com.test".to_string(),
             name: "other".to_string(),
             version: 1,
-            value_type: ValueType::String,
+            field_type: FieldType::string(),
             description: "Other field (used as explicit titleFieldId in precedence test)"
                 .to_string(),
             instructions: None,
             ai_guidance: AiGuidance::default(),
-            content_format: None,
-            allowed_values: None,
-            vocabulary_ref: None,
             default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
+            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
         };
 
         let identity_type = RecordType {
@@ -7668,28 +7655,26 @@ mod tests {
         srs_core::types::field::Field,
         srs_core::types::record_type::RecordType,
     ) {
-        use srs_core::types::field::{AiGuidance, Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, FieldType};
         use srs_core::types::record_type::{FieldAssignment, RecordType};
 
         let heading_field = Field {
+            schema: None,
             id: "f-heading".to_string(),
             namespace: "com.test".to_string(),
             name: "heading".to_string(),
             version: 1,
-            value_type: ValueType::String,
+            field_type: FieldType::string(),
             description: "Heading".to_string(),
             instructions: None,
             ai_guidance: AiGuidance::default(),
-            content_format: None,
-            allowed_values: None,
-            vocabulary_ref: None,
             default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
+            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
         };
         let item_type = RecordType {
             id: "t-item".to_string(),
@@ -8934,29 +8919,27 @@ mod tests {
     #[test]
     fn relations_block_display_label_identity_field() {
         use crate::index::InstanceIndexEntry;
-        use srs_core::types::field::{AiGuidance, Field, ValueType};
+        use srs_core::types::field::{AiGuidance, Field, FieldType};
         use srs_core::types::record::{FieldValue, Record};
         use srs_core::types::record_type::{FieldAssignment, RecordType};
 
         let field = Field {
+            schema: None,
             id: "f-name".to_string(),
             namespace: "com.test".to_string(),
             name: "name".to_string(),
             version: 1,
-            value_type: ValueType::String,
+            field_type: FieldType::string(),
             description: "Name".to_string(),
             instructions: None,
             ai_guidance: AiGuidance::default(),
-            content_format: None,
-            allowed_values: None,
-            vocabulary_ref: None,
             default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
+            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
         };
         let rt = RecordType {
             id: "t-named".to_string(),

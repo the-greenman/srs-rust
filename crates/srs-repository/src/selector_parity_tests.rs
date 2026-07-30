@@ -17,7 +17,7 @@ use crate::store::RepositoryStore;
 use crate::theme_service::create_theme;
 use crate::view_service::{create_document_view, create_view};
 use srs_core::types::blueprint::{Blueprint, TypeRef};
-use srs_core::types::field::{AiGuidance, Field, ValueType};
+use srs_core::types::field::{AiGuidance, Field, FieldType};
 use srs_core::types::lifecycle::{Lifecycle, LifecycleState, LifecycleTransition};
 use srs_core::types::protocol::Protocol;
 use srs_core::types::record_type::RecordType;
@@ -42,24 +42,22 @@ fn selector() -> Option<String> {
 
 fn make_field(id: &str, name: &str) -> Field {
     Field {
+        schema: None,
         id: id.to_string(),
         namespace: "com.test".to_string(),
         name: name.to_string(),
         version: 1,
-        value_type: ValueType::String,
+        field_type: FieldType::string(),
         description: "A test field".to_string(),
         instructions: None,
         ai_guidance: AiGuidance::default(),
-        content_format: None,
-        allowed_values: None,
-        vocabulary_ref: None,
         default_value: None,
         editor_hint: None,
         tags: None,
         lineage: None,
         provenance: None,
+        deprecated_at: None,
         created_at: "2026-01-01T00:00:00Z".to_string(),
-        extra: HashMap::new(),
     }
 }
 

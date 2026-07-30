@@ -3,8 +3,9 @@
   "$id": "https://srs.semanticops.com/schema/2.0/field.json",
   "title": "SRS Field Definition",
   "description": "An atomic, reusable field definition. Fields are the shared vocabulary of SRS — defined once, referenced across many Types.",
+  "$comment": "RFC-033 frozen-seed fixed point: this hand-authored schema is the bootstrap base case, loaded as committed and never re-derived at runtime (a schema that defines Field cannot be parsed without the Field schema). Its record-level source is the com.semanticops.srs/metamodel package (the `field` Type + FieldType/ExactTypeRef/AiGuidance/AiGuidanceExample/Lineage/Provenance value-object Types); the #259 emitter regenerates this file from those records, and docs/schema/2.0/metamodel-fidelity.md declares which features round-trip authoritatively vs are approximated.",
   "type": "object",
-  "required": ["id", "namespace", "name", "version", "description", "aiGuidance", "valueType", "createdAt"],
+  "required": ["id", "namespace", "name", "version", "description", "aiGuidance", "fieldType", "createdAt"],
   "additionalProperties": false,
   "properties": {
     "$schema": { "type": "string" },
@@ -31,36 +32,17 @@
       "description": "Fuller guidance for a human completing this field."
     },
     "aiGuidance": { "$ref": "#/$defs/AiGuidance" },
-    "valueType": {
-      "type": "string",
-      "enum": ["string", "text", "number", "boolean", "date", "url", "select", "multiselect"],
-      "description": "Primitive type of the value this field holds."
-    },
-    "contentFormat": {
-      "type": "string",
-      "enum": ["plain", "markdown"],
-      "description": "Meaningful only when valueType is 'string' or 'text'. Default: 'plain'."
-    },
-    "allowedValues": {
-      "type": "array",
-      "items": { "type": "string" },
-      "description": "Inline anonymous closed vocabulary. When valueType is select/multiselect, declare exactly one of allowedValues or vocabularyRef."
-    },
-    "vocabularyRef": {
-      "type": "string",
-      "description": "Reference to a named Vocabulary (id). Mutually exclusive with allowedValues. Must resolve to a mode: closed Vocabulary."
+    "fieldType": {
+      "$ref": "#/$defs/FieldType",
+      "description": "RFC-032 — the decomposed value type: datatype × cardinality × value-domain × format × constraints. Replaces the pre-RFC-032 closed scalar `valueType` enum and its companion properties (`contentFormat`, `allowedValues`, `vocabularyRef`, `validationRules`)."
     },
     "defaultValue": {
-      "description": "Default value applied when no value is supplied. Must conform to valueType."
-    },
-    "validationRules": {
-      "type": "array",
-      "items": { "$ref": "#/$defs/ValidationRule" }
+      "description": "Default value applied when no value is supplied. Must conform to this Field's fieldType (a value-of-self dependent — RFC-032 Change C)."
     },
     "editorHint": {
       "type": "string",
       "enum": ["singleline", "textarea", "rich-text", "date-picker", "dropdown", "multi-select", "voice"],
-      "description": "Suggested UI control; implementations and Views may override."
+      "description": "Presentation only (not part of the type model — RFC-032). Suggested UI control; implementations and Views may override. Consolidated by the rendering follow-up #262."
     },
     "tags": {
       "type": "array",
@@ -75,6 +57,128 @@
     "createdAt": { "type": "string", "format": "date-time" }
   },
   "$defs": {
+    "FieldType": {
+      "type": "object",
+      "description": "RFC-032 Change A — orthogonal type facets. Conditional requirements (R2/R3/R9/R10) are expressed in the allOf branches below; the full semantic conformance check (R1–R11) is scripts/lib/rfc-032-fieldtype.mjs::validateFieldType.",
+      "required": ["datatype"],
+      "additionalProperties": false,
+      "properties": {
+        "datatype": {
+          "type": "string",
+          "enum": ["string", "number", "integer", "boolean", "date", "date-time", "ref", "dependent", "map"],
+          "description": "The base datatype. `ref` = range is another Type (Change B); `dependent` = value-of-a-sibling-type (Change C); `map` = open string-keyed collection (Change D)."
+        },
+        "cardinality": {
+          "type": "string",
+          "enum": ["single", "list"],
+          "description": "Whether the field holds one value or an ordered list. Default: single. The sole cardinality mechanism (R4) — former `multiselect` and standalone `repeatable` are subsumed here."
+        },
+        "minItems": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "cardinality == list only (R4). 0 ≤ minItems ≤ maxItems."
+        },
+        "maxItems": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "cardinality == list only (R4)."
+        },
+        "valueDomain": {
+          "type": "string",
+          "enum": ["open", "closed"],
+          "description": "datatype == string only (R3). Default: open. When closed, exactly one of allowedValues or vocabularyRef is present."
+        },
+        "allowedValues": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Inline, field-fixed closed vocabulary (valueDomain == closed). Mutually exclusive with vocabularyRef."
+        },
+        "vocabularyRef": {
+          "type": "string",
+          "pattern": "^[^/@]+/[^/@]+@[0-9]+$",
+          "description": "A CONFIGURABLE data range: an RFC-006 Reference (namespace/name@version) to a mode:closed Vocabulary whose Terms are managed in package config. Mutually exclusive with allowedValues. Projects to a pure enum of the Vocabulary's effective Term keys at schema-generation time (Change G)."
+        },
+        "format": {
+          "type": "string",
+          "enum": ["plain", "markdown", "uri", "uuid", "email"],
+          "description": "datatype == string only. Semantic string format (JSON-Schema-aligned); date/date-time are first-class datatypes, not formats."
+        },
+        "constraints": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Datatype-appropriate value constraints (R10). Carries the former ValidationRule facets (Change F).",
+          "properties": {
+            "minLength": { "type": "integer", "minimum": 0, "description": "datatype == string." },
+            "maxLength": { "type": "integer", "minimum": 0, "description": "datatype == string." },
+            "pattern": { "type": "string", "description": "datatype == string; an ECMA-262 regular expression." },
+            "minimum": { "type": "number", "description": "datatype == number/integer." },
+            "maximum": { "type": "number", "description": "datatype == number/integer." }
+          }
+        },
+        "rangeType": {
+          "$ref": "#/$defs/ExactTypeRef",
+          "description": "datatype == ref only, REQUIRED (R2). The Type this field's range is (Change B)."
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["inline", "reference"],
+          "description": "datatype == ref only. inline = nested object(s) conforming to rangeType; reference = target instance id(s). Default: inline. Fixed per Field (R8)."
+        },
+        "dependsOn": {
+          "type": "string",
+          "description": "datatype == dependent only, REQUIRED (R6). \"self\" (the field's own fieldType) or a sibling field name whose type the value conforms to (Change C)."
+        },
+        "valueRange": {
+          "type": "string",
+          "enum": ["string", "number", "integer", "boolean", "date", "date-time", "open"],
+          "description": "datatype == map only, REQUIRED (R9). The scalar value datatype, or \"open\" for a true extension bag (Change D). Composite value ranges are out of scope."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "datatype": { "const": "ref" } }, "required": ["datatype"] },
+          "then": { "required": ["rangeType"] },
+          "else": { "not": { "anyOf": [{ "required": ["rangeType"] }, { "required": ["mode"] }] } }
+        },
+        {
+          "if": { "properties": { "datatype": { "const": "dependent" } }, "required": ["datatype"] },
+          "then": { "required": ["dependsOn"] },
+          "else": { "not": { "required": ["dependsOn"] } }
+        },
+        {
+          "if": { "properties": { "datatype": { "const": "map" } }, "required": ["datatype"] },
+          "then": { "required": ["valueRange"] },
+          "else": { "not": { "required": ["valueRange"] } }
+        },
+        {
+          "if": { "properties": { "valueDomain": { "const": "closed" } }, "required": ["valueDomain"] },
+          "then": {
+            "oneOf": [
+              { "required": ["allowedValues"], "not": { "required": ["vocabularyRef"] } },
+              { "required": ["vocabularyRef"], "not": { "required": ["allowedValues"] } }
+            ]
+          }
+        }
+      ]
+    },
+    "ExactTypeRef": {
+      "type": "object",
+      "required": ["typeId", "typeVersion"],
+      "additionalProperties": false,
+      "description": "RFC-009 I-78. A version-exact reference to a Type in the Package. Both typeId and typeVersion are required. Distinct from the pre-RFC-009 spec-level TypeRef (Protocol) where typeVersion was optional.",
+      "properties": {
+        "typeId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable UUID of the Type."
+        },
+        "typeVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Version of the Type this ref targets (required — version-exact anchor validated against the Package)."
+        }
+      }
+    },
     "AiGuidance": {
       "type": "object",
       "required": ["purpose"],
@@ -106,26 +210,6 @@
         "description": { "type": "string" },
         "input": { "type": "string" },
         "output": { "type": "string" }
-      }
-    },
-    "ValidationRule": {
-      "type": "object",
-      "required": ["type"],
-      "additionalProperties": false,
-      "properties": {
-        "type": {
-          "type": "string",
-          "enum": ["required", "minLength", "maxLength", "pattern", "enum"]
-        },
-        "value": {
-          "description": "Required for minLength, maxLength, pattern, enum.",
-          "oneOf": [
-            { "type": "string" },
-            { "type": "number" },
-            { "type": "array", "items": { "type": "string" } }
-          ]
-        },
-        "message": { "type": "string" }
       }
     },
     "Lineage": {
