@@ -10273,6 +10273,7 @@ mod tests {
         empty_behavior: Option<srs_core::types::view::EmptyBehavior>,
         summary_required: bool,
         summary_value: serde_json::Value,
+        l1_view: bool,
     ) -> crate::store::memory::MemoryStore {
         use crate::package::Package;
         use crate::record_store::create_record;
@@ -10356,7 +10357,7 @@ mod tests {
                     exclude_lifecycle_states: None,
                     container_scope: None,
                 },
-                render_view_id: None,
+                render_view_id: l1_view.then(|| "v-row-l1".to_string()),
                 type_dispatch: None,
                 title_field_id: None,
                 ordering: None,
@@ -10373,6 +10374,48 @@ mod tests {
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: HashMap::new(),
+        };
+
+        // The L1 View marks summary required too, so on that path the only thing
+        // suppressing the placeholder is the path itself.
+        let l1_views = if l1_view {
+            use srs_core::types::view::{ExportConfig, FieldView, View};
+            vec![View {
+                id: "v-row-l1".to_string(),
+                namespace: "com.test".to_string(),
+                name: "row-l1".to_string(),
+                version: 1,
+                description: "L1 View over the row record".to_string(),
+                field_views: vec![
+                    FieldView {
+                        field_id: "f-heading".to_string(),
+                        order: 0,
+                        required: None,
+                        visible: None,
+                        display_label: None,
+                    },
+                    FieldView {
+                        field_id: "f-summary".to_string(),
+                        order: 1,
+                        required: Some(true),
+                        visible: None,
+                        display_label: Some("Executive Summary".to_string()),
+                    },
+                ],
+                compatible_types: None,
+                protection: None,
+                export_config: Some(ExportConfig {
+                    format: None,
+                    preamble: None,
+                    field_order: None,
+                    omit_empty_fields: None,
+                }),
+                tags: None,
+                created_at: "2026-01-01T00:00:00Z".to_string(),
+                extra: HashMap::new(),
+            }]
+        } else {
+            vec![]
         };
 
         let manifest = crate::manifest::Manifest {
@@ -10398,7 +10441,7 @@ mod tests {
             ],
             record_types: vec![record_type],
             relation_type_definitions: vec![],
-            views: vec![],
+            views: l1_views,
             document_views: vec![doc_view],
             themes: vec![],
             blueprints: vec![],
@@ -10447,7 +10490,7 @@ mod tests {
     fn fr_037_10_empty_string_emits_no_row_end_to_end() {
         // The 86-row defect, held at the level it actually manifested: a label
         // with a trailing space and no value in committed output.
-        let store = make_row_baseline_store("markdown", None, false, serde_json::json!(""));
+        let store = make_row_baseline_store("markdown", None, false, serde_json::json!(""), false);
         let out = render_rows(&store);
         assert!(
             !out.contains("**Executive Summary**"),
@@ -10471,6 +10514,7 @@ mod tests {
             Some(EmptyBehavior::ShowPlaceholder),
             true,
             serde_json::json!(""),
+            false,
         );
         let out = render_rows(&store);
         assert!(
@@ -10489,6 +10533,7 @@ mod tests {
             Some(EmptyBehavior::ShowPlaceholder),
             false,
             serde_json::json!(""),
+            false,
         );
         let out = render_rows(&store);
         assert!(
@@ -10500,8 +10545,13 @@ mod tests {
     #[test]
     fn fr_037_7_consecutive_rows_are_blank_line_separated_end_to_end() {
         // Two present rows must not become one soft-wrapped CommonMark paragraph.
-        let store =
-            make_row_baseline_store("markdown", None, false, serde_json::json!("Summary value"));
+        let store = make_row_baseline_store(
+            "markdown",
+            None,
+            false,
+            serde_json::json!("Summary value"),
+            false,
+        );
         let out = render_rows(&store);
         assert!(
             out.contains("**heading**: Heading value\n\n**Executive Summary**: Summary value"),
@@ -10513,8 +10563,13 @@ mod tests {
     fn fr_037_12_display_label_does_not_move_the_identity_class_end_to_end() {
         // Field.name is `summary`; displayLabel is "Executive Summary". The class
         // must follow the name, the visible label must follow displayLabel.
-        let store =
-            make_row_baseline_store("html", None, false, serde_json::json!("Summary value"));
+        let store = make_row_baseline_store(
+            "html",
+            None,
+            false,
+            serde_json::json!("Summary value"),
+            false,
+        );
         let out = render_rows(&store);
         assert!(
             out.contains("srs-fieldname-summary"),
@@ -10527,6 +10582,28 @@ mod tests {
         assert!(
             out.contains(">Executive Summary</strong>"),
             "the visible label must still be the displayLabel; got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn fr_037_11_placeholder_does_not_reach_the_l1_view_path() {
+        // "emptyBehavior in the L1 View path: when renderViewId is set, empty
+        // field handling is governed by ExportConfig.omitEmptyFields on the
+        // referenced L1 View. DocumentSection.emptyBehavior does not apply in the
+        // L1 View rendering path." — srs-spec.md:1853. [FR-037-11] inherits that
+        // exclusion, so show-placeholder + required still emits no placeholder here.
+        use srs_core::types::view::EmptyBehavior;
+        let store = make_row_baseline_store(
+            "markdown",
+            Some(EmptyBehavior::ShowPlaceholder),
+            true,
+            serde_json::json!(""),
+            true,
+        );
+        let out = render_rows(&store);
+        assert!(
+            !out.contains("(empty)"),
+            "emptyBehavior must not reach the L1 View path; got:\n{out}"
         );
     }
 }
