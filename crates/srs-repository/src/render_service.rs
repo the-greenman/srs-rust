@@ -6,7 +6,7 @@ use crate::relation_graph;
 use crate::relation_service::load_relations;
 use crate::store::RepositoryStore;
 use serde_json::json;
-use srs_core::types::field::{Datatype, FieldType, StringFormat};
+use srs_core::types::field::{Datatype, FieldType};
 use srs_core::types::record::Record;
 use srs_core::types::relation::Relation;
 use srs_core::types::relation::RelationStatus;
@@ -83,6 +83,11 @@ pub struct ProjectedRelationTarget {
 pub struct ProjectedRelationRow {
     pub label: String,
     pub targets: Vec<ProjectedRelationTarget>,
+    /// The relation type key backing this row, used for the `srs-relationtype-*`
+    /// identity class of `[FR-037-12]`. Not serialised — the `json` projection is
+    /// governed by `document-view-output.json` and RFC-037 changes no schema.
+    #[serde(skip)]
+    pub relation_type_key: String,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -894,17 +899,225 @@ fn resolve_asset<'a>(theme: &'a Theme, name: &str) -> &'a str {
     }
 }
 
-fn format_field_row(format: &str, label: &str, value: &str) -> String {
-    match format {
-        "markdown" => format!("**{label}**: {value}"),
-        "html" => {
-            let el = html_escape(label);
-            let fn_class = normalise_css_class(label);
-            format!("<div class=\"srs-field srs-fieldname-{fn_class}\"><span class=\"field-label\">{el}</span> <span class=\"field-value\">{value}</span></div>")
+/// RFC-037 — the value carried by a field row.
+///
+/// `[FR-037-5]`: cardinality, not element count, selects the form. A sequence
+/// renders as a block list even when it holds exactly one entry, so the
+/// rendered shape stays a property of the Type rather than of instance data.
+#[derive(Debug, Clone, PartialEq)]
+enum RowValue {
+    /// A single value, emitted verbatim after the label (`[FR-037-3]`).
+    Scalar(String),
+    /// An ordered sequence, emitted as a per-format block list (`[FR-037-5]`).
+    Entries(Vec<String>),
+    /// The `(empty)` placeholder. Always scalar form regardless of the field's
+    /// cardinality, and in `html` the value element additionally carries
+    /// `srs-empty-value` (`[FR-037-11]`).
+    Placeholder,
+}
+
+impl RowValue {
+    /// The value substituted into a Theme's `{{field-value}}` template variable.
+    ///
+    /// RFC-037 governs the emitted row, not the `ext:themes-l1` variable table,
+    /// which defines no form for a sequence. Entries are joined by newline so no
+    /// punctuation is invented for them.
+    fn template_value(&self) -> String {
+        match self {
+            RowValue::Scalar(value) => value.clone(),
+            RowValue::Placeholder => EMPTY_PLACEHOLDER.to_string(),
+            RowValue::Entries(entries) => entries.join("\n"),
         }
-        _ => format!("{label}: {value}"),
     }
 }
+
+/// RFC-037 `[FR-037-12]` — what the row's identity CSS class is derived from.
+///
+/// A field row's identity is `Field.name` and never `FieldAssignment.displayLabel`,
+/// which is rendering-only and view-owned (RFC-015). A relation row has no
+/// `Field.name`, so it carries `srs-relationtype-*` in place of `srs-fieldname-*`.
+#[derive(Debug, Clone, Copy)]
+enum RowIdentity<'a> {
+    FieldName(&'a str),
+    RelationTypeKey(&'a str),
+}
+
+impl RowIdentity<'_> {
+    fn css_class(&self) -> String {
+        match self {
+            RowIdentity::FieldName(name) => {
+                format!("srs-fieldname-{}", normalise_css_class(name))
+            }
+            RowIdentity::RelationTypeKey(key) => {
+                format!("srs-relationtype-{}", normalise_css_class(key))
+            }
+        }
+    }
+}
+
+/// The separator emitted after a field row, per `[FR-037-7]`.
+///
+/// In the text formats this is a blank line, and it is not cosmetic: in
+/// CommonMark two unseparated rows are a single soft-wrapped paragraph, and a
+/// row following a block list without a blank line is a lazy continuation that
+/// disappears into the list's final item. In `html` the `div` boundary is the
+/// separation, so no separator element is inserted.
+fn row_separator(format: &str) -> &'static str {
+    match format {
+        "html" => "\n",
+        _ => "\n\n",
+    }
+}
+
+/// Indent an entry's continuation lines to its content column, per `[FR-037-8]`.
+///
+/// Two spaces — the width of the `- ` marker — and never more: at four spaces
+/// CommonMark reads the continuation as an indented code block. Blank lines stay
+/// genuinely blank so the item becomes a loose list item rather than gaining
+/// trailing whitespace; the item is not terminated by them.
+fn indent_entry_continuation(value: &str) -> String {
+    let mut lines = value.lines();
+    let Some(first) = lines.next() else {
+        return String::new();
+    };
+    let mut out = first.to_string();
+    for line in lines {
+        out.push('\n');
+        if !line.is_empty() {
+            out.push_str("  ");
+            out.push_str(line);
+        }
+    }
+    out
+}
+
+/// Attach an entry's subsequent blocks with AsciiDoc list continuations, per
+/// `[FR-037-8]`. Indentation is not normative in `adoc`; a `+` line is what
+/// actually attaches a following block to the list item.
+fn adoc_entry_continuation(value: &str) -> String {
+    let mut out = String::new();
+    let mut blank_run = false;
+    for (idx, line) in value.lines().enumerate() {
+        if line.is_empty() {
+            blank_run = true;
+            continue;
+        }
+        if idx > 0 {
+            if blank_run {
+                out.push_str("\n+\n");
+            } else {
+                out.push('\n');
+            }
+        }
+        out.push_str(line);
+        blank_run = false;
+    }
+    out
+}
+
+/// RFC-037 Changes A, A1, B and B1 — the normative emitted form of a field row.
+///
+/// This is the single row primitive: field rows and relation rows both route
+/// through it, which is what satisfies RFC-027 Change C rule 3's requirement
+/// that a relation row use "the same label/value markup that implementation
+/// emits for a field row in that format" by construction rather than by
+/// convention (`[FR-037-15]`).
+///
+/// Label and value are emitted verbatim in the text formats and HTML-escaped in
+/// `html` (`[FR-037-16]`); the baseline performs no markup conversion
+/// (`[FR-037-17]`).
+fn format_field_row(
+    format: &str,
+    identity: RowIdentity<'_>,
+    label: &str,
+    value: &RowValue,
+) -> String {
+    match format {
+        "html" => format_field_row_html(identity, label, value),
+        "markdown" => format_field_row_text(format, label, value, "**", "- "),
+        "adoc" => format_field_row_text(format, label, value, "*", "* "),
+        _ => format_field_row_text(format, label, value, "", "- "),
+    }
+}
+
+/// The `markdown`, `adoc` and `text` row forms. `emphasis` wraps the label —
+/// empty for `text`, which carries no bold requirement because the Heading
+/// Hierarchy table's preamble scopes it to `markdown`, `html` and `adoc`, and
+/// plain text has no portable emphasis convention.
+fn format_field_row_text(
+    format: &str,
+    label: &str,
+    value: &RowValue,
+    emphasis: &str,
+    marker: &str,
+) -> String {
+    let label = format!("{emphasis}{label}{emphasis}");
+    match value {
+        RowValue::Scalar(v) => format!("{label}: {v}"),
+        RowValue::Placeholder => format!("{label}: {EMPTY_PLACEHOLDER}"),
+        RowValue::Entries(entries) => {
+            // `[FR-037-5]`: the label occupies its own line and keeps its
+            // trailing colon; the list begins on the next line with no blank
+            // line between them.
+            let mut out = format!("{label}:");
+            for entry in entries {
+                let body = if format == "adoc" {
+                    adoc_entry_continuation(entry)
+                } else {
+                    indent_entry_continuation(entry)
+                };
+                out.push('\n');
+                out.push_str(marker);
+                out.push_str(&body);
+            }
+            out
+        }
+    }
+}
+
+/// The `html` row structure of Changes A1 and B1.
+///
+/// Normative here are the element names and their nesting, their order, the
+/// literal colon between `</strong>` and the value element, and the `srs-`
+/// prefixed class names. Inter-element whitespace is not normative
+/// (`[FR-037-4]`), and the single-line form is emitted so conformance fixtures
+/// have a canonical serialisation.
+fn format_field_row_html(identity: RowIdentity<'_>, label: &str, value: &RowValue) -> String {
+    let id_class = identity.css_class();
+    let label = html_escape(label);
+    let open = format!(
+        "<div class=\"srs-field {id_class}\"><strong class=\"{LABEL_CLASSES}\">{label}</strong>:"
+    );
+    match value {
+        RowValue::Scalar(v) => {
+            format!("{open} <span class=\"{VALUE_CLASSES}\">{v}</span></div>")
+        }
+        RowValue::Placeholder => {
+            format!(
+                "{open} <span class=\"{VALUE_CLASSES} srs-empty-value\">{EMPTY_PLACEHOLDER}</span></div>"
+            )
+        }
+        RowValue::Entries(entries) => {
+            // `[FR-037-6]`: the same enclosing `div` carries the classes `[T-8]`
+            // requires of every field row; the `ul` itself carries none.
+            let mut out = format!("{open}<ul>");
+            for entry in entries {
+                out.push_str(&format!("<li class=\"{VALUE_CLASSES}\">{entry}</li>"));
+            }
+            out.push_str("</ul></div>");
+            out
+        }
+    }
+}
+
+/// The portable placeholder of `[FR-037-11]`.
+const EMPTY_PLACEHOLDER: &str = "(empty)";
+
+/// `[FR-037-14]` — the prefixed names are the forward contract; the unprefixed
+/// aliases are temporary compatibility, emitted alongside them until the #242
+/// cutover so existing stylesheets keep working.
+const LABEL_CLASSES: &str = "srs-field-label field-label";
+const VALUE_CLASSES: &str = "srs-field-value field-value";
 
 fn normalise_css_class(value: &str) -> String {
     let s = value.to_lowercase();
@@ -1577,6 +1790,10 @@ fn render_record_at_level(
         None
     };
 
+    // `[FR-037-11]` inherits RFC-001's exclusion of `DocumentSection.emptyBehavior`
+    // from the L1 View rendering path, which is the path a resolved View drives.
+    let l1_view_path = use_view.is_some();
+
     if let Some(view) = use_view {
         if let Some(export_config) = &view.export_config {
             if let Some(preamble) = &export_config.preamble {
@@ -1667,16 +1884,26 @@ fn render_record_at_level(
         if rendered_value.is_none() && omit_empty {
             continue;
         }
-        if rendered_value.is_none()
-            && !matches!(
-                section.empty_behavior,
-                Some(srs_core::types::view::EmptyBehavior::ShowPlaceholder)
-            )
-        {
-            continue;
-        }
-
-        let value_text = rendered_value.unwrap_or_else(|| "(empty)".to_string());
+        // `[FR-037-10]`/`[FR-037-11]`: an absent field emits no row at all, and
+        // never a label with an empty value. The sole exception is
+        // `emptyBehavior: "show-placeholder"` on a field the Type marks
+        // `required: true` — and it does not reach the L1 View path, where
+        // `ExportConfig.omitEmptyFields` governs instead.
+        let row_value = match rendered_value {
+            Some(value) => value,
+            None => {
+                let placeholder_applies = !l1_view_path
+                    && field.required
+                    && matches!(
+                        section.empty_behavior,
+                        Some(srs_core::types::view::EmptyBehavior::ShowPlaceholder)
+                    );
+                if !placeholder_applies {
+                    continue;
+                }
+                RowValue::Placeholder
+            }
+        };
 
         let field_name = ctx
             .package
@@ -1695,7 +1922,15 @@ fn render_record_at_level(
             .or_else(|| Some(field_name.clone()))
             .unwrap_or_else(|| field_id.clone());
 
-        let row_content = format_field_row(ctx.format, &label, &value_text);
+        // `[FR-037-19]`: this form is the content `ElementTemplates.fieldRow`
+        // receives as `{{content}}`. A Theme wraps the row; it never replaces it.
+        let row_content = format_field_row(
+            ctx.format,
+            RowIdentity::FieldName(&field_name),
+            &label,
+            &row_value,
+        );
+        let value_text = row_value.template_value();
         if let Some(theme) = ctx.active_theme.as_ref() {
             if let Some(element_templates) = &theme.element_templates {
                 if let Some(field_row) = &element_templates.field_row {
@@ -1709,13 +1944,13 @@ fn render_record_at_level(
                         ],
                         Some(theme),
                     ));
-                    out.push('\n');
+                    out.push_str(row_separator(ctx.format));
                     continue;
                 }
             }
         }
         out.push_str(&row_content);
-        out.push('\n');
+        out.push_str(row_separator(ctx.format));
     }
     if let Some(rt) = &rt {
         if let Some(field_groups) = &rt.field_groups {
@@ -1952,6 +2187,7 @@ fn collect_relation_rows(
         rows.push(ProjectedRelationRow {
             label: row_label,
             targets,
+            relation_type_key: entry.relation_type.clone(),
         });
     }
 
@@ -2030,27 +2266,31 @@ fn render_relations_block(
     let mut out = String::new();
 
     for row in &rows {
+        // RFC-027 Change C rule 3 requires a relation row to use the same
+        // label/value markup as a field row in that format. Routing through the
+        // row primitive satisfies that by construction (`[FR-037-15]`), and
+        // `[FR-037-12]` substitutes `srs-relationtype-*` for the identity class
+        // a relation row cannot carry. RFC-027's comma-join of the related
+        // instances is a relation-row rule and is unaffected by `[FR-037-5]`.
         let targets_str = row
             .targets
             .iter()
             .map(|t| t.display_label.as_str())
             .collect::<Vec<_>>()
             .join(", ");
+        let value = if format == "html" {
+            RowValue::Scalar(html_escape(&targets_str))
+        } else {
+            RowValue::Scalar(targets_str)
+        };
 
-        match format {
-            "html" => {
-                out.push_str(&format!(
-                    "<div class=\"srs-relations-row\"><span class=\"relations-label\">{}</span>: {targets_str}</div>\n",
-                    row.label
-                ));
-            }
-            "markdown" => {
-                out.push_str(&format!("**{}**: {targets_str}\n", row.label));
-            }
-            _ => {
-                out.push_str(&format!("{}: {targets_str}\n", row.label));
-            }
-        }
+        out.push_str(&format_field_row(
+            format,
+            RowIdentity::RelationTypeKey(&row.relation_type_key),
+            &row.label,
+            &value,
+        ));
+        out.push_str(row_separator(format));
     }
 
     Ok(out)
@@ -2167,7 +2407,7 @@ fn render_field_group_baseline(
                 .find_field_assignment(&assignment.field_id)
                 .and_then(|_| ctx.package.resolve_field(&assignment.field_id))
                 .map(|field| &field.field_type);
-            let Some(value_text) = render_field_value(fv, field_type, ctx.format) else {
+            let Some(row_value) = render_field_value(fv, field_type, ctx.format) else {
                 continue;
             };
             let label = assignment
@@ -2194,12 +2434,17 @@ fn render_field_group_baseline(
 
             if let Some(tmpl) = tmpl {
                 let row = tmpl
-                    .replace("{{field-value}}", &value_text)
+                    .replace("{{field-value}}", &row_value.template_value())
                     .replace("{{field-label}}", &label);
                 out.push_str(&row);
             } else {
-                out.push_str(&format_field_row(ctx.format, &label, &value_text));
-                out.push('\n');
+                out.push_str(&format_field_row(
+                    ctx.format,
+                    RowIdentity::FieldName(field_name),
+                    &label,
+                    &row_value,
+                ));
+                out.push_str(row_separator(ctx.format));
             }
         }
     }
@@ -2452,44 +2697,51 @@ fn render_table_html(
     out
 }
 
+/// Resolve a field's value to the row form RFC-037 requires of it.
+///
+/// A field is multi-entry when RFC-001 Step 2 finds it present through an
+/// ordered sequence rather than a single scalar. Both mechanisms are covered
+/// without preferring either: the RFC-032 `cardinality: "list"` path, whose
+/// values are carried as an array in `FieldValue.value`, and the legacy
+/// `ext:repeatable-fields` path (`FieldValue.entries`).
+///
+/// Entries that render to nothing are dropped, and a sequence with no surviving
+/// entries is absent — the same outcome an empty string gets (`[FR-037-9]`).
 fn render_field_value(
     field_value: &srs_core::types::record::FieldValue,
     field_type: Option<&FieldType>,
     format: &str,
-) -> Option<String> {
+) -> Option<RowValue> {
     if let Some(entries) = &field_value.entries {
-        if entries.is_empty() {
-            return None;
-        }
         let texts: Vec<String> = entries
             .iter()
             .filter_map(|entry| value_to_text_owned(&entry.value, format))
             .collect();
-        if texts.is_empty() {
-            return None;
-        }
-        // Multi-line prose and list-valued fields render as a bullet list;
-        // everything else joins inline. Pre-RFC-032 this was the `text` and
-        // `multiselect` valueTypes — now the prose formats and any list.
-        let is_prose = field_type.is_some_and(|ft| {
-            matches!(
-                ft.format,
-                Some(StringFormat::Plain) | Some(StringFormat::Markdown)
-            )
-        });
-        let is_list = field_type.is_some_and(|ft| ft.is_list());
-        let joined = if is_prose || is_list {
-            texts
-                .into_iter()
-                .map(|value| format!("- {value}"))
-                .collect::<Vec<_>>()
-                .join("\n")
-        } else {
-            texts.join(", ")
-        };
-        return Some(joined);
+        return (!texts.is_empty()).then_some(RowValue::Entries(texts));
     }
-    value_to_text_owned(&field_value.value, format)
+    if let Some(items) = sequence_items(&field_value.value, field_type) {
+        let texts: Vec<String> = items
+            .iter()
+            .filter_map(|item| value_to_text_owned(item, format))
+            .collect();
+        return (!texts.is_empty()).then_some(RowValue::Entries(texts));
+    }
+    value_to_text_owned(&field_value.value, format).map(RowValue::Scalar)
+}
+
+/// The ordered sequence behind a multi-entry value, or `None` when the value is
+/// a scalar. An array value is a sequence whatever its Field declares — that is
+/// how a Tier 1 `TypedField` array is recognised (`[FR-037-18]`) — and a
+/// list-cardinality Field additionally accepts the JSON-encoded array form that
+/// `coerce_to_array` already tolerates elsewhere.
+fn sequence_items(
+    value: &serde_json::Value,
+    field_type: Option<&FieldType>,
+) -> Option<Vec<serde_json::Value>> {
+    if value.is_array() || field_type.is_some_and(|ft| ft.is_list()) {
+        return coerce_to_array(value);
+    }
+    None
 }
 
 /// Coerce a field value to a JSON array.
@@ -2508,6 +2760,13 @@ fn coerce_to_array(value: &serde_json::Value) -> Option<Vec<serde_json::Value>> 
 
 fn value_to_text_owned(value: &serde_json::Value, format: &str) -> Option<String> {
     if let Some(s) = value.as_str() {
+        // `[FR-037-10]` — an empty string is absent, as RFC-001 Step 2 already
+        // declares it to be. Returning `Some("")` here is what made the omit
+        // branches unreachable and put 86 label-with-no-value rows into the
+        // spec repository's committed exports.
+        if s.is_empty() {
+            return None;
+        }
         let text = if format == "html" {
             html_escape(s)
         } else {
