@@ -100,7 +100,32 @@
         },
         "displayLabel": { "type": "string" },
         "displayHint": { "type": "string" },
-        "editorHintOverride": { "type": "string" }
+        "editorHintOverride": {
+          "type": "string",
+          "description": "Presentation only (Invariant 13, extended by RFC-036 [CR-036-20]). Supersedes Field.editorHint for Records rendered or edited through this View. RFC-036 [CR-036-21]: the value MUST come from the same set as Field.editorHint (singleline, textarea, rich-text, date-picker, dropdown, multi-select, voice); a value outside that set is ignored with a diagnostic and Field.editorHint applies. Deliberately not constrained to an enum here so an unrecognised value does not fail the load of the whole View."
+        },
+        "compositeRenderer": {
+          "$ref": "#/$defs/CompositeRendererBinding",
+          "description": "RFC-036 — render this field's composite-range value through a named composite renderer. Highest-precedence declaration site (RFC-036 [CR-036-6]). Valid only on a Field whose fieldType.datatype is 'ref' and mode is 'inline' ([CR-036-3])."
+        }
+      }
+    },
+    "CompositeRendererBinding": {
+      "type": "object",
+      "required": ["renderer"],
+      "additionalProperties": false,
+      "description": "RFC-036 Change A (ext:views-l1) — a view-owned composite rendering dispatch record. Presentation only: it MUST NOT affect validity, field values, Relations, or Discovery Text Projection ([CR-036-20]).",
+      "properties": {
+        "renderer": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Composite renderer identifier. Bare lower-kebab names are SRS-reserved and introduced only by a ratified RFC ('table', and the sentinel 'baseline' meaning explicitly no renderer); vendor identifiers use '{reverse-domain}/{name}' with at least two reverse-domain labels. The grammar ^([a-z][a-z0-9-]*|[a-z0-9-]+(\\.[a-z0-9-]+)+/[^/]+)$ is enforced at render and validation time rather than here ([CR-036-1]), so a malformed or unknown value falls back to the composite baseline with a diagnostic ([CR-036-7]) instead of failing the load."
+        },
+        "roles": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "format": "uuid" },
+          "description": "Explicit, UUID-anchored role -> Field.id binding, overriding the by-name defaults of [CR-036-8]. Role names are defined by the renderer; the 'table' renderer defines rows and cells (required) plus columns, widths, subheading and label. A role the renderer does not define is silently ignored."
+        }
       }
     },
     "ExportConfig": {

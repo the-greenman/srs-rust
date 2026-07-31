@@ -140,13 +140,41 @@
         },
         "groupFieldRowTemplates": {
           "type": "object",
+          "deprecated": true,
           "additionalProperties": { "type": "string" },
-          "description": "ext:field-groups RFC-007 [T-Gx1] — per-field-name templates for individual field rows in group entries. Key: Field.name. Value: template string with {{field-value}} and {{field-label}}. Applied only when the group has no known compositeRenderer or falls back to baseline."
+          "description": "ext:themes-l1 RFC-007 [T-Gx1] — per-field-name templates for individual field rows in FieldGroup entries. Key: Field.name. Value: template string with {{field-value}} and {{field-label}}. Applied only when the group has no known compositeRenderer or falls back to baseline. DEPRECATED (RFC-036 [CR-036-18]): superseded by compositeFieldRowTemplates and retired with FieldGroup at the #242 cutover. Migrating a FieldGroup to a composite silently disables any key naming one of its fields — such keys MUST be carried over to compositeFieldRowTemplates in the same change."
+        },
+        "compositeFieldRowTemplates": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "ext:themes-l1 RFC-036 [CR-036-17] — per-field-name templates for individual field rows within a composite-range value rendered by the composite baseline. Key: Field.name. Value: template string with {{field-value}} and {{field-label}}; used in place of fieldRow. Keys matching no rendered field are silently ignored. MUST NOT be applied to a composite that resolved to a renderer; a composite that falls back to the baseline is baseline-rendered and MUST have it applied. Inert until the #242 cutover provides the inline-composite value carrier."
         },
         "compositeRendererConfig": {
           "type": "object",
           "additionalProperties": true,
-          "description": "ext:field-groups RFC-007 — per-renderer config, keyed by the same identifier space as FieldGroup.compositeRenderer. 'table' renderer reads: tableClass (string), wrapperTemplate (string with {{subheading}}/{{label}}/{{table}}), captionTemplate (string with {{field-value}})."
+          "description": "ext:themes-l1 RFC-007, RFC-036 [CR-036-16] — per-renderer config, keyed by the same identifier space as a composite renderer identifier. Keys naming unknown renderers, and unknown properties within a known renderer's sub-object, MUST be silently ignored and MUST NOT cause a loading or rendering error — the key grammar is deliberately not constrained here.",
+          "properties": {
+            "table": { "$ref": "#/$defs/TableRendererConfig" }
+          }
+        }
+      }
+    },
+    "TableRendererConfig": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "ext:themes-l1 — configuration for the SRS-defined 'table' composite renderer (RFC-007, restated by RFC-036 [CR-036-16]). additionalProperties stays open: unknown properties MUST be silently ignored. Every default below is the renderer's OUTPUT SPECIFICATION, not merely a config default — implementations MUST apply it whether or not ext:themes-l1 is declared and whether or not a Theme resolves.",
+      "properties": {
+        "tableClass": {
+          "type": "string",
+          "description": "CSS class on the <table> element (HTML output only). Default: 'srs-data-table'. An explicit empty string suppresses the class attribute entirely."
+        },
+        "wrapperTemplate": {
+          "type": "string",
+          "description": "Wraps one rendered table value. Tokens: {{subheading}}, {{label}}, {{table}}; an absent optional value MUST resolve to the empty string. Default (HTML): <figure class=\"srs-table\">{{subheading}}{{label}}{{table}}</figure>. Default (other formats): no wrapper. When explicitly set, applies regardless of output format."
+        },
+        "captionTemplate": {
+          "type": "string",
+          "description": "Renders the 'label' role. Token: {{field-value}}. Default (HTML): <figcaption>{{field-value}}</figcaption>. Default (markdown): *{{field-value}}*. Default (other formats): {{field-value}} undecorated."
         }
       }
     },

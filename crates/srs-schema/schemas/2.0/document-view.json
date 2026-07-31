@@ -46,6 +46,11 @@
       "items": { "$ref": "#/$defs/DocumentSection" },
       "description": "Ordered list of sections that make up the document."
     },
+    "compositeRenderers": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/CompositeRendererDirective" },
+      "description": "RFC-036 — document-wide default composite renderer dispatch, applied to any section that declares no matching DocumentSection.compositeRenderers entry. Lowest-precedence declaration site ([CR-036-6]); a section or FieldView cancels it with renderer: 'baseline'."
+    },
     "navigationLinks": {
       "type": "array",
       "items": { "$ref": "#/$defs/NavigationLink" },
@@ -146,6 +151,11 @@
           "type": "string",
           "enum": ["hide", "show-placeholder"],
           "description": "What to do when the section has no records. Default: hide."
+        },
+        "compositeRenderers": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/CompositeRendererDirective" },
+          "description": "RFC-036 — composite renderer dispatch for records rendered by this section. The primary ext:views-l2 declaration site, following RFC-027's placement of relationsPresentation. Resolved after FieldView.compositeRenderer and before DocumentView.compositeRenderers ([CR-036-6]). More than one entry for the same fieldId is a validation diagnostic; the first in array order wins."
         },
         "relationsPresentation": {
           "$ref": "#/$defs/RelationsPresentation",
@@ -324,6 +334,29 @@
         },
         "description": { "type": "string" },
         "themeRef": { "$ref": "#/$defs/ThemeReference" }
+      }
+    },
+    "CompositeRendererDirective": {
+      "type": "object",
+      "required": ["fieldId", "renderer"],
+      "additionalProperties": false,
+      "description": "RFC-036 Change B (ext:views-l2) — a CompositeRendererBinding (view.json) plus the composite-range Field it binds. Presentation only ([CR-036-20]).",
+      "properties": {
+        "fieldId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The composite-range Field this directive binds. MUST resolve to a Field whose fieldType.datatype is 'ref' and mode is 'inline' ([CR-036-3]); a fieldId absent from a rendered instance's Type is ignored without a diagnostic ([CR-036-4])."
+        },
+        "renderer": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Composite renderer identifier, as view.json $defs.CompositeRendererBinding.renderer. 'baseline' is the reserved sentinel meaning explicitly no renderer, used to cancel a broader declaration site. Grammar enforced at render and validation time, not here ([CR-036-1])."
+        },
+        "roles": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "format": "uuid" },
+          "description": "Explicit, UUID-anchored role -> Field.id binding, overriding the by-name defaults of [CR-036-8]."
+        }
       }
     },
     "ExactTypeRef": {
