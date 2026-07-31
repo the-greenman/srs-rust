@@ -149,13 +149,13 @@ Execute the plan phase by phase. For each phase:
 
 Do not start a phase until the previous milestone gate passes.
 
-## Stage 6 — Sync with main + final acceptance
+## Stage 6 — Sync with master + final acceptance
 
-First bring the branch up to date so acceptance, dogfooding, and CI all reflect current `main`:
+First bring the branch up to date so acceptance, dogfooding, and CI all reflect current `master`:
 ```bash
 # from inside the worktree
 git fetch origin
-git rebase origin/main
+git rebase origin/master
 ```
 If the rebase conflicts and you cannot resolve it confidently from context, **stop and report** — this is a genuine blocker. Re-run the milestone gates after a non-trivial rebase.
 
@@ -180,7 +180,7 @@ All checks for this repo must pass before proceeding.
 
 ## Stage 7 — Code review loop
 
-1. Spawn in parallel against the diff (`git diff main...HEAD`):
+1. Spawn in parallel against the diff (`git diff master...HEAD`):
    - **Architecture Reviewer** (`agents.md#architecture-reviewer`) `model: "sonnet"` — audits code against every ADR + crate-boundary rules.
    - **Verification Agent** (`agents.md#verification-agent`) `model: "haiku"` — runs tests, produces the boundary/duplication report.
 2. Post findings as issue comments.
@@ -223,11 +223,11 @@ The pipeline is not done until the docs match the code. This stage runs after th
 
 ## Stage 7.6 — Dogfooding (pre-PR, on the branch)
 
-Reference: `docs/dogfooding.md`. Read its principles first — dogfooding proves the change advances a *meaningful intention*, not just that a command returns `ok: true`. This runs **before** the PR, on the rebased feature branch (Stage 6 already synced it with `main`), so the dogfood results and any guide updates land in this same PR.
+Reference: `docs/dogfooding.md`. Read its principles first — dogfooding proves the change advances a *meaningful intention*, not just that a command returns `ok: true`. This runs **before** the PR, on the rebased feature branch (Stage 6 already synced it with `master`), so the dogfood results and any guide updates land in this same PR.
 
 **Skip** if purely internal (refactor, test-only, doc-only, build tooling). State the reason; do not skip silently.
 
-1. **Build from the branch under review** (the current worktree HEAD — do **not** check out `main`):
+1. **Build from the branch under review** (the current worktree HEAD — do **not** check out `master`):
    ```bash
    cargo build --bin srs            # from inside the worktree
    ```
@@ -256,7 +256,7 @@ Then push and open the PR:
 ```bash
 cd srs-rust
 git push -u origin feat/$ISSUE_N-$SLUG
-gh pr create --fill --base main --body "<summary>
+gh pr create --fill --base master --body "<summary>
 
 Closes #N
 
