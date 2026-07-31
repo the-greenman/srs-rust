@@ -212,7 +212,7 @@
         "repeatable": {
           "type": "boolean",
           "deprecated": true,
-          "description": "ext:repeatable-fields — whether this field may contain multiple entries. DEPRECATED (RFC-032 [R4]): cardinality is now the referenced Field's fieldType.cardinality (single/list), overridable per assignment. Retained (with minItems/maxItems) until the #242 cutover, because FieldGroup — whose removal is #242-gated — reuses FieldAssignment."
+          "description": "ext:repeatable-fields — whether this field may contain multiple entries. DEPRECATED (RFC-032 [R4]): cardinality is now the referenced Field's fieldType.cardinality (single/list), and is NOT overridable per assignment — Invariant 2 forbids a Type redefining a Field's semantics. Retained (with minItems/maxItems) until the #242 cutover, because FieldGroup — whose removal is #242-gated — reuses FieldAssignment."
         },
         "minItems": {
           "type": "integer",
