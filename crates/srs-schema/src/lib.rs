@@ -334,7 +334,7 @@ mod tests {
             "version": 1,
             "description": "A short summary",
             "aiGuidance": {"purpose": "captures the summary"},
-            "valueType": "text",
+            "fieldType": {"datatype": "string", "format": "markdown"},
             "createdAt": "2026-01-01T00:00:00Z"
         });
         reg.validate_by_id(FIELD_SCHEMA_ID, &field).unwrap();
