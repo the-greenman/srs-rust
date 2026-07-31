@@ -2359,6 +2359,9 @@ mod tests {
         let row = ProjectedRelationRow {
             label: "Related decisions".to_string(),
             targets: vec![target],
+            // Not serialised — it backs the `srs-relationtype-*` identity class
+            // of RFC-037 [FR-037-12], and the json projection is unchanged.
+            relation_type_key: "relates-to".to_string(),
         };
         let record = ProjectedRecord {
             instance_id: "rec-001".to_string(),

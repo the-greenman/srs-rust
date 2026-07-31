@@ -9862,4 +9862,671 @@ mod tests {
             "expected I-027-2b diagnostic for non-resolving entry; got: {diag:?}"
         );
     }
+
+    // ---------------------------------------------------------------------
+    // RFC-037 — the normative field-row rendering baseline.
+    //
+    // Before this block the whole row path carried two markdown assertions and
+    // nothing at all on `html`, `adoc`, `text`, empty values or the placeholder,
+    // so any of those arms could be changed without a test noticing. There is one
+    // test per conformance rule below, named for the rule it holds.
+    // ---------------------------------------------------------------------
+
+    fn scalar(value: &str) -> RowValue {
+        RowValue::Scalar(value.to_string())
+    }
+
+    fn entries(values: &[&str]) -> RowValue {
+        RowValue::Entries(values.iter().map(|v| v.to_string()).collect())
+    }
+
+    fn field_row(format: &str, name: &str, label: &str, value: &RowValue) -> String {
+        format_field_row(format, RowIdentity::FieldName(name), label, value)
+    }
+
+    /// A FieldValue carrying a single raw JSON value.
+    fn fv(value: serde_json::Value) -> srs_core::types::record::FieldValue {
+        srs_core::types::record::FieldValue {
+            field_id: "f".to_string(),
+            value,
+            entries: None,
+            source: None,
+            edited_at: None,
+        }
+    }
+
+    /// A FieldValue carrying a legacy `ext:repeatable-fields` sequence.
+    fn fv_entries(values: &[&str]) -> srs_core::types::record::FieldValue {
+        srs_core::types::record::FieldValue {
+            field_id: "f".to_string(),
+            value: serde_json::Value::Null,
+            entries: Some(
+                values
+                    .iter()
+                    .map(|v| srs_core::types::record::FieldValueEntry {
+                        value: serde_json::json!(v),
+                        source: None,
+                        edited_at: None,
+                    })
+                    .collect(),
+            ),
+            source: None,
+            edited_at: None,
+        }
+    }
+
+    #[test]
+    fn fr_037_3_scalar_row_forms_per_format() {
+        assert_eq!(
+            field_row("markdown", "rationale", "Rationale", &scalar("because")),
+            "**Rationale**: because"
+        );
+        assert_eq!(
+            field_row("adoc", "rationale", "Rationale", &scalar("because")),
+            "*Rationale*: because"
+        );
+        assert_eq!(
+            field_row("text", "rationale", "Rationale", &scalar("because")),
+            "Rationale: because"
+        );
+    }
+
+    #[test]
+    fn fr_037_3_separator_is_colon_space() {
+        // A literal U+003A U+0020 separates label from value in all three text
+        // formats — not a tab, not two spaces, not a colon alone.
+        for format in ["markdown", "adoc", "text"] {
+            let row = field_row(format, "f", "L", &scalar("v"));
+            assert!(
+                row.ends_with(": v"),
+                "{format} row must separate label and value with ': '; got {row:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn fr_037_4_html_scalar_structure() {
+        assert_eq!(
+            field_row("html", "rationale", "Rationale", &scalar("because")),
+            "<div class=\"srs-field srs-fieldname-rationale\">\
+             <strong class=\"srs-field-label field-label\">Rationale</strong>: \
+             <span class=\"srs-field-value field-value\">because</span></div>"
+        );
+    }
+
+    #[test]
+    fn fr_037_5_multi_entry_renders_as_block_list_not_comma_joined() {
+        assert_eq!(
+            field_row("markdown", "tags", "Tags", &entries(&["alpha", "beta"])),
+            "**Tags**:\n- alpha\n- beta"
+        );
+        assert_eq!(
+            field_row("adoc", "tags", "Tags", &entries(&["alpha", "beta"])),
+            "*Tags*:\n* alpha\n* beta"
+        );
+        assert_eq!(
+            field_row("text", "tags", "Tags", &entries(&["alpha", "beta"])),
+            "Tags:\n- alpha\n- beta"
+        );
+    }
+
+    #[test]
+    fn fr_037_5_label_line_keeps_its_colon_and_carries_no_value() {
+        // "Derived, not decided" in the RFC: the colon is retained so punctuation
+        // does not vary by cardinality. Held by a test so overturning it is a
+        // visible change rather than a silent drift.
+        let row = field_row("markdown", "tags", "Tags", &entries(&["alpha"]));
+        assert_eq!(row.lines().next().unwrap(), "**Tags**:");
+    }
+
+    #[test]
+    fn fr_037_5_single_element_sequence_still_renders_in_block_form() {
+        // Cardinality selects the form, never element count — otherwise two
+        // records of the same Type would disagree on structure.
+        assert_eq!(
+            field_row("markdown", "tags", "Tags", &entries(&["only"])),
+            "**Tags**:\n- only"
+        );
+    }
+
+    #[test]
+    fn fr_037_5_entries_keep_sequence_order() {
+        // Sequence order, not sorted order: array index order on a list-cardinality
+        // Field, `FieldValue.entries` order on the repeatable path.
+        assert_eq!(
+            field_row(
+                "text",
+                "tags",
+                "Tags",
+                &entries(&["gamma", "alpha", "beta"])
+            ),
+            "Tags:\n- gamma\n- alpha\n- beta"
+        );
+    }
+
+    #[test]
+    fn fr_037_6_html_multi_entry_structure() {
+        assert_eq!(
+            field_row("html", "tags", "Tags", &entries(&["alpha", "beta"])),
+            "<div class=\"srs-field srs-fieldname-tags\">\
+             <strong class=\"srs-field-label field-label\">Tags</strong>:\
+             <ul><li class=\"srs-field-value field-value\">alpha</li>\
+             <li class=\"srs-field-value field-value\">beta</li></ul></div>"
+        );
+    }
+
+    #[test]
+    fn fr_037_6_html_ul_carries_no_class() {
+        let row = field_row("html", "tags", "Tags", &entries(&["alpha"]));
+        assert!(
+            row.contains("<ul>"),
+            "the ul must carry no class; got {row}"
+        );
+    }
+
+    #[test]
+    fn fr_037_7_text_formats_separate_rows_with_a_blank_line() {
+        // Not cosmetic: in CommonMark two unseparated rows are one soft-wrapped
+        // paragraph, so without this the second row is not a row at all.
+        for format in ["markdown", "adoc", "text"] {
+            assert_eq!(row_separator(format), "\n\n", "format {format}");
+        }
+    }
+
+    #[test]
+    fn fr_037_7_html_inserts_no_separator_element() {
+        assert_eq!(row_separator("html"), "\n");
+    }
+
+    #[test]
+    fn fr_037_8_entry_continuation_indents_two_spaces() {
+        // Two spaces — the width of the `- ` marker. Four would make CommonMark
+        // read the continuation as an indented code block.
+        assert_eq!(
+            indent_entry_continuation("first line\nsecond line"),
+            "first line\n  second line"
+        );
+    }
+
+    #[test]
+    fn fr_037_8_blank_line_does_not_terminate_an_entry() {
+        // The item stays one item; the following block attaches at the same
+        // content column, and the blank line stays genuinely blank rather than
+        // gaining trailing whitespace.
+        assert_eq!(
+            indent_entry_continuation("para one\n\npara two"),
+            "para one\n\n  para two"
+        );
+    }
+
+    #[test]
+    fn fr_037_8_adoc_uses_a_plus_continuation_between_blocks() {
+        assert_eq!(
+            adoc_entry_continuation("para one\n\npara two"),
+            "para one\n+\npara two"
+        );
+    }
+
+    #[test]
+    fn fr_037_8_scalar_values_are_never_indented() {
+        // Indenting a scalar would corrupt every multi-line markdown body in the
+        // spec repository's own projection.
+        assert_eq!(
+            field_row("markdown", "body", "Body", &scalar("line one\nline two")),
+            "**Body**: line one\nline two"
+        );
+    }
+
+    #[test]
+    fn fr_037_9_entries_rendering_to_nothing_are_dropped() {
+        let fv = fv(serde_json::json!(["alpha", "", "beta"]));
+        assert_eq!(
+            render_field_value(&fv, None, "markdown"),
+            Some(entries(&["alpha", "beta"]))
+        );
+    }
+
+    #[test]
+    fn fr_037_9_sequence_with_no_surviving_entries_is_absent() {
+        let fv = fv(serde_json::json!(["", ""]));
+        assert_eq!(render_field_value(&fv, None, "markdown"), None);
+    }
+
+    #[test]
+    fn fr_037_10_empty_string_is_absent() {
+        // The defect that put 86 label-with-no-value rows into the spec repo's
+        // committed exports: `as_str()` succeeds on "", so the omit branch never
+        // fired and the renderer emitted `**Content**: ` with a trailing space.
+        assert_eq!(
+            value_to_text_owned(&serde_json::json!(""), "markdown"),
+            None
+        );
+        let fv = fv(serde_json::json!(""));
+        assert_eq!(render_field_value(&fv, None, "markdown"), None);
+    }
+
+    #[test]
+    fn fr_037_11_placeholder_is_the_literal_empty_marker() {
+        assert_eq!(
+            field_row("markdown", "owner", "Owner", &RowValue::Placeholder),
+            "**Owner**: (empty)"
+        );
+        assert_eq!(
+            field_row("adoc", "owner", "Owner", &RowValue::Placeholder),
+            "*Owner*: (empty)"
+        );
+        assert_eq!(
+            field_row("text", "owner", "Owner", &RowValue::Placeholder),
+            "Owner: (empty)"
+        );
+    }
+
+    #[test]
+    fn fr_037_11_html_placeholder_carries_srs_empty_value() {
+        assert_eq!(
+            field_row("html", "owner", "Owner", &RowValue::Placeholder),
+            "<div class=\"srs-field srs-fieldname-owner\">\
+             <strong class=\"srs-field-label field-label\">Owner</strong>: \
+             <span class=\"srs-field-value field-value srs-empty-value\">(empty)</span></div>"
+        );
+    }
+
+    #[test]
+    fn fr_037_12_identity_class_comes_from_field_name_not_display_label() {
+        // The original defect: a Type setting displayLabel "Decision Rationale"
+        // on field `rationale` emitted `srs-fieldname-decision-rationale`, so a
+        // purely presentational change silently moved a selector themes target.
+        let row = field_row("html", "rationale", "Decision Rationale", &scalar("v"));
+        assert!(
+            row.contains("srs-fieldname-rationale"),
+            "identity class must derive from Field.name; got {row}"
+        );
+        assert!(
+            !row.contains("srs-fieldname-decision-rationale"),
+            "identity class must not derive from displayLabel; got {row}"
+        );
+    }
+
+    #[test]
+    fn fr_037_12_relation_row_swaps_in_srs_relationtype() {
+        let row = format_field_row(
+            "html",
+            RowIdentity::RelationTypeKey("core/depends-on"),
+            "Depends on",
+            &scalar("Target"),
+        );
+        // The five-step rule has no replacement step for `/`, so it is deleted
+        // and a namespaced key normalises without a separator. Ugly, deterministic,
+        // and recorded in Change E so no implementer 'fixes' it unilaterally.
+        assert!(row.contains("srs-relationtype-coredepends-on"), "got {row}");
+        assert!(
+            !row.contains("srs-fieldname-"),
+            "a relation row has no Field.name and must omit srs-fieldname-*; got {row}"
+        );
+        assert!(
+            row.contains("srs-field "),
+            "srs-field is retained so a stylesheet can target both row kinds; got {row}"
+        );
+    }
+
+    #[test]
+    fn fr_037_14_prefixed_names_ship_with_their_unprefixed_aliases() {
+        let row = field_row("html", "f", "L", &scalar("v"));
+        assert!(
+            row.contains("class=\"srs-field-label field-label\""),
+            "{row}"
+        );
+        assert!(
+            row.contains("class=\"srs-field-value field-value\""),
+            "{row}"
+        );
+    }
+
+    #[test]
+    fn fr_037_15_relation_row_uses_the_same_markup_as_a_field_row() {
+        // RFC-027 Change C rule 3's MUST, satisfied by construction rather than
+        // by two hand-rolled matches agreeing with each other.
+        for format in ["markdown", "adoc", "text", "html"] {
+            let relation = format_field_row(
+                format,
+                RowIdentity::RelationTypeKey("depends-on"),
+                "Depends on",
+                &scalar("Target"),
+            );
+            let field = field_row(format, "depends-on", "Depends on", &scalar("Target"));
+            assert_eq!(
+                relation.replace("srs-relationtype-", "srs-fieldname-"),
+                field,
+                "{format}: relation and field rows must share label/value markup"
+            );
+        }
+    }
+
+    #[test]
+    fn fr_037_16_text_formats_emit_label_and_value_verbatim() {
+        // Field values in this model routinely are markup; escaping them would
+        // corrupt the projection.
+        let row = field_row("markdown", "body", "Body", &scalar("**bold** & <tag>"));
+        assert_eq!(row, "**Body**: **bold** & <tag>");
+    }
+
+    #[test]
+    fn fr_037_16_html_escapes_label_and_value() {
+        let row = field_row("html", "f", "A & B", &scalar(&html_escape("<x>")));
+        assert!(
+            row.contains("A &amp; B"),
+            "label must be escaped; got {row}"
+        );
+        assert!(
+            row.contains("&lt;x&gt;"),
+            "value must be escaped; got {row}"
+        );
+    }
+
+    #[test]
+    fn fr_037_17_markup_bearing_values_are_not_converted() {
+        // The baseline has no rule for which values are markup, so html output
+        // shows literal source rather than converted HTML.
+        let value = value_to_text_owned(&serde_json::json!("# heading"), "html").unwrap();
+        assert_eq!(value, "# heading");
+    }
+
+    #[test]
+    fn fr_037_18_label_falls_back_to_raw_field_name_without_humanising() {
+        // An author who wants human-facing text sets displayLabel; a baseline
+        // that rewrites labels makes output non-invertible against the record.
+        assert_eq!(
+            field_row("markdown", "instance_id", "instance_id", &scalar("v")),
+            "**instance_id**: v"
+        );
+    }
+
+    #[test]
+    fn fr_037_18_array_value_is_multi_entry_without_a_resolvable_field() {
+        // The Tier 1 shape: no FieldAssignment, no Field UUID — array-ness alone
+        // makes the value a sequence.
+        let fv = fv(serde_json::json!(["a", "b"]));
+        assert_eq!(
+            render_field_value(&fv, None, "markdown"),
+            Some(entries(&["a", "b"]))
+        );
+    }
+
+    #[test]
+    fn repeatable_entries_are_a_sequence_too() {
+        // Both mechanisms produce a sequence and the RFC covers them without
+        // preferring either: cardinality: "list" and the legacy
+        // ext:repeatable-fields entries path.
+        let fv = fv_entries(&["first", "second"]);
+        assert_eq!(
+            render_field_value(&fv, None, "markdown"),
+            Some(entries(&["first", "second"]))
+        );
+    }
+
+    /// A MemoryStore with one two-field type and a TypeQuery doc view, for the
+    /// RFC-037 rules that live at the emission site rather than in the row
+    /// primitive: empty-value omission, placeholder gating, and row separation
+    /// as actually emitted.
+    fn make_row_baseline_store(
+        format: &str,
+        empty_behavior: Option<srs_core::types::view::EmptyBehavior>,
+        summary_required: bool,
+        summary_value: serde_json::Value,
+    ) -> crate::store::memory::MemoryStore {
+        use crate::package::Package;
+        use crate::record_store::create_record;
+        use srs_core::types::field::{AiGuidance, Field, FieldType};
+        use srs_core::types::record::FieldValue;
+        use srs_core::types::record_type::{FieldAssignment, RecordType};
+        use srs_core::types::view::{DocumentSection, DocumentView, SectionSource};
+
+        let make_field = |id: &str, name: &str| Field {
+            schema: None,
+            id: id.to_string(),
+            namespace: "com.test".to_string(),
+            name: name.to_string(),
+            version: 1,
+            field_type: FieldType::string(),
+            description: name.to_string(),
+            instructions: None,
+            ai_guidance: AiGuidance::default(),
+            default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
+            deprecated_at: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let assignment =
+            |id: &str, order: u32, required: bool, label: Option<&str>| FieldAssignment {
+                field_id: id.to_string(),
+                order,
+                required,
+                display_label: label.map(|l| l.to_string()),
+                repeatable: false,
+                min_items: None,
+                max_items: None,
+            };
+
+        let record_type = RecordType {
+            id: "t-row".to_string(),
+            namespace: "com.test".to_string(),
+            name: "row-record".to_string(),
+            version: 1,
+            description: "Record for field-row baseline tests".to_string(),
+            fields: vec![
+                assignment("f-heading", 0, false, None),
+                // displayLabel differs from Field.name so [FR-037-12] is observable
+                // end to end, not only in the primitive.
+                assignment("f-summary", 1, summary_required, Some("Executive Summary")),
+            ],
+            field_groups: None,
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            identity_field_id: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            validation_rules: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let doc_view = DocumentView {
+            id: "dv-row".to_string(),
+            namespace: "com.test".to_string(),
+            name: "row-view".to_string(),
+            version: 1,
+            description: "Field-row baseline view".to_string(),
+            container_type: None,
+            root_type_refs: None,
+            sections: vec![DocumentSection {
+                section_id: "s-row".to_string(),
+                title: None,
+                description: None,
+                order: 0,
+                source: SectionSource::TypeQuery {
+                    semantic_object_type: "com.test/row-record".to_string(),
+                    lifecycle_state: None,
+                    container_ids: None,
+                    lifecycle_states: None,
+                    exclude_lifecycle_states: None,
+                    container_scope: None,
+                },
+                render_view_id: None,
+                type_dispatch: None,
+                title_field_id: None,
+                ordering: None,
+                required: None,
+                empty_behavior,
+                relations_presentation: None,
+            }],
+            navigation_links: None,
+            preamble: None,
+            format: Some(format.to_string()),
+            depth_offset: None,
+            theme_ref: None,
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: HashMap::new(),
+        };
+
+        let manifest = crate::manifest::Manifest {
+            instance_index: vec![],
+            container: None,
+            container_index: None,
+            federation_path: None,
+            upstream_package: None,
+            federation_events_path: None,
+            extra: HashMap::new(),
+            source_documents_path: None,
+            source_document_index: None,
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "pkg-row".to_string(),
+            namespace: "com.test".to_string(),
+            name: "row-package".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![
+                make_field("f-heading", "heading"),
+                make_field("f-summary", "summary"),
+            ],
+            record_types: vec![record_type],
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![doc_view],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = crate::store::memory::MemoryStore::new(manifest, package);
+
+        let values = vec![
+            FieldValue {
+                field_id: "f-heading".to_string(),
+                value: serde_json::json!("Heading value"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            },
+            FieldValue {
+                field_id: "f-summary".to_string(),
+                value: summary_value,
+                entries: None,
+                source: None,
+                edited_at: None,
+            },
+        ];
+        create_record(&store, "t-row", 1, values, None, None).unwrap();
+        store
+    }
+
+    fn render_rows(store: &crate::store::memory::MemoryStore) -> String {
+        render_document_view(RenderDocumentViewOptions {
+            store,
+            view_id: "dv-row",
+            format: None,
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect("render should succeed")
+        .rendered
+    }
+
+    #[test]
+    fn fr_037_10_empty_string_emits_no_row_end_to_end() {
+        // The 86-row defect, held at the level it actually manifested: a label
+        // with a trailing space and no value in committed output.
+        let store = make_row_baseline_store("markdown", None, false, serde_json::json!(""));
+        let out = render_rows(&store);
+        assert!(
+            !out.contains("**Executive Summary**"),
+            "an empty-string field must emit no row at all; got:\n{out}"
+        );
+        assert!(
+            !out.contains(": \n") && !out.ends_with(": "),
+            "no label may be emitted with an empty value; got:\n{out:?}"
+        );
+        assert!(
+            out.contains("**heading**: Heading value"),
+            "the present field must still render; got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn fr_037_11_placeholder_requires_show_placeholder_and_required() {
+        use srs_core::types::view::EmptyBehavior;
+        let store = make_row_baseline_store(
+            "markdown",
+            Some(EmptyBehavior::ShowPlaceholder),
+            true,
+            serde_json::json!(""),
+        );
+        let out = render_rows(&store);
+        assert!(
+            out.contains("**Executive Summary**: (empty)"),
+            "show-placeholder + required must emit the literal (empty); got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn fr_037_11_no_placeholder_when_the_field_is_not_required() {
+        // The condition is show-placeholder AND required: true. An optional field
+        // is simply absent — before this rule it got a placeholder regardless.
+        use srs_core::types::view::EmptyBehavior;
+        let store = make_row_baseline_store(
+            "markdown",
+            Some(EmptyBehavior::ShowPlaceholder),
+            false,
+            serde_json::json!(""),
+        );
+        let out = render_rows(&store);
+        assert!(
+            !out.contains("(empty)"),
+            "a non-required field must emit no placeholder row; got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn fr_037_7_consecutive_rows_are_blank_line_separated_end_to_end() {
+        // Two present rows must not become one soft-wrapped CommonMark paragraph.
+        let store =
+            make_row_baseline_store("markdown", None, false, serde_json::json!("Summary value"));
+        let out = render_rows(&store);
+        assert!(
+            out.contains("**heading**: Heading value\n\n**Executive Summary**: Summary value"),
+            "consecutive rows must be separated by a blank line; got:\n{out:?}"
+        );
+    }
+
+    #[test]
+    fn fr_037_12_display_label_does_not_move_the_identity_class_end_to_end() {
+        // Field.name is `summary`; displayLabel is "Executive Summary". The class
+        // must follow the name, the visible label must follow displayLabel.
+        let store =
+            make_row_baseline_store("html", None, false, serde_json::json!("Summary value"));
+        let out = render_rows(&store);
+        assert!(
+            out.contains("srs-fieldname-summary"),
+            "identity class must derive from Field.name; got:\n{out}"
+        );
+        assert!(
+            !out.contains("srs-fieldname-executive-summary"),
+            "identity class must not derive from displayLabel; got:\n{out}"
+        );
+        assert!(
+            out.contains(">Executive Summary</strong>"),
+            "the visible label must still be the displayLabel; got:\n{out}"
+        );
+    }
 }
