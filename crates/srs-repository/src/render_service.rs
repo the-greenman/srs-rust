@@ -1769,11 +1769,22 @@ fn render_record_at_level(
     let mut out = String::new();
     let mut record_heading_value = String::new();
 
+    // The field that actually became the record heading, which is not always the
+    // one the section declared: `[N+1]` can make an authored `titleFieldId`
+    // ineligible. The body-skip below must key on *this*, not on
+    // `section.title_field_id` — skip from the body iff emitted as the heading.
+    // Keying the skip on the declaration while the heading is eligibility-filtered
+    // drops the field from both, losing its value from the output entirely.
+    let mut heading_field_id: Option<String> = None;
+
     if let Some(title_field_id) = resolve_heading_field_id(section, rt.as_ref(), ctx.package) {
         if let Some(title) = record.get_field_value_str(&title_field_id) {
             record_heading_value = title.to_string();
             out.push_str(&format_heading(heading_level, ctx.format, title));
         }
+        // Set even when the record carries no value for it, preserving the
+        // pre-existing structured-mode behaviour for an eligible titleFieldId.
+        heading_field_id = Some(title_field_id);
     }
 
     let mut fields_to_render: Vec<ResolvedFieldRender> = Vec::new();
@@ -1872,10 +1883,12 @@ fn render_record_at_level(
 
     for field in fields_to_render {
         let field_id = field.field_id;
-        // In structured mode (titleFieldId set), skip the title field — already emitted as heading.
+        // In structured mode (titleFieldId set), skip the heading field — already
+        // emitted above. An ineligible titleFieldId is not the heading field, so it
+        // is not skipped and still renders as an ordinary field row.
         if structured {
-            if let Some(title_fid) = &section.title_field_id {
-                if &field_id == title_fid {
+            if let Some(heading_fid) = &heading_field_id {
+                if &field_id == heading_fid {
                     continue;
                 }
             }
@@ -2078,10 +2091,22 @@ fn resolve_display_label_for_relation_target(
                     }
                 }
             }
+            // `[N+1]` governs `titleFieldId` wherever it is consumed, not only in
+            // record headings. Without this check an ineligible titleFieldId is
+            // refused as a heading but still honoured here, which is incoherent.
+            // The `instance_id` fallback below already handles "no usable label".
             if let Some(title_fid) = &section.title_field_id {
-                if let Some(val) = target_record.get_field_value_str(title_fid) {
-                    if !val.is_empty() {
-                        return Ok(val.to_string());
+                // An unresolvable Type is *not* a reason to suppress the label —
+                // `title_field_id_is_eligible` already treats an unresolvable
+                // reference as eligible and leaves it to referential integrity.
+                // Only a resolvable-and-ineligible field is refused here.
+                let target_rt =
+                    package.resolve_type(&target_record.type_id, target_record.type_version);
+                if title_field_id_is_eligible(title_fid, target_rt, package) {
+                    if let Some(val) = target_record.get_field_value_str(title_fid) {
+                        if !val.is_empty() {
+                            return Ok(val.to_string());
+                        }
                     }
                 }
             }
@@ -3232,6 +3257,22 @@ mod tests {
         assert!(
             !result.rendered.contains("### first"),
             "a repeatable titleFieldId must not become a record heading, got: {}",
+            result.rendered
+        );
+        // Refusing it as a heading must not also delete it. The body-skip keys on
+        // the field actually emitted as the heading, so an ineligible titleFieldId
+        // still renders as an ordinary field row — with *every* entry, which the
+        // pre-[N+1] heading form could not show.
+        for entry in ["first", "second", "a", "b", "c", "d"] {
+            assert!(
+                result.rendered.contains(entry),
+                "entry {entry:?} must survive as a field row, got: {}",
+                result.rendered
+            );
+        }
+        assert!(
+            result.rendered.contains("**Title**"),
+            "the ineligible title field must render as a labelled row, got: {}",
             result.rendered
         );
     }

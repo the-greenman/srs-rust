@@ -577,6 +577,57 @@ mod tests {
         }
     }
 
+    /// The glue every I-94 call site depends on: `cross_field_type_map` must
+    /// carry `FieldAssignment.repeatable` across from the Type, including for a
+    /// field assigned inside a `FieldGroup` rather than at top level. The other
+    /// I-94 tests hand-build `CrossFieldFieldType`, so without this a bug that
+    /// always reported `repeatable: false` would go unnoticed.
+    #[test]
+    fn cross_field_type_map_carries_repeatable_from_the_assignment() {
+        let fields: Vec<Field> = ["f-plain", "f-repeat", "f-grouped"]
+            .iter()
+            .map(|id| {
+                serde_json::from_value(serde_json::json!({
+                    "id": id, "namespace": "com.test", "name": id, "version": 1,
+                    "description": "d", "fieldType": { "datatype": "string" },
+                    "createdAt": "2026-01-01T00:00:00Z",
+                }))
+                .expect("field fixture should deserialize")
+            })
+            .collect();
+        let rt: RecordType = serde_json::from_value(serde_json::json!({
+            "id": "t-1", "namespace": "com.test", "name": "t", "version": 1,
+            "description": "d",
+            "fields": [
+                { "fieldId": "f-plain", "order": 0, "required": false },
+                { "fieldId": "f-repeat", "order": 1, "required": false, "repeatable": true },
+            ],
+            "fieldGroups": [{
+                "groupId": "g-1", "order": 2, "required": false,
+                "fields": [
+                    { "fieldId": "f-grouped", "order": 0, "required": false, "repeatable": true },
+                ],
+            }],
+            "createdAt": "2026-01-01T00:00:00Z",
+        }))
+        .expect("type fixture should deserialize");
+
+        let map = cross_field_type_map(&fields, &rt);
+        assert!(!map["f-plain"].repeatable);
+        assert!(map["f-repeat"].repeatable);
+        assert!(
+            map["f-grouped"].repeatable,
+            "a field assigned inside a FieldGroup must still carry its own repeatable flag"
+        );
+        // And the flag must actually reach the predicate.
+        assert!(map["f-plain"]
+            .field_type
+            .is_conditional_required_eligible(map["f-plain"].repeatable));
+        assert!(!map["f-repeat"]
+            .field_type
+            .is_conditional_required_eligible(map["f-repeat"].repeatable));
+    }
+
     #[test]
     fn field_ordering_must_precede_passes() {
         let record = make_record(vec![
