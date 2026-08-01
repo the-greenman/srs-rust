@@ -2,7 +2,6 @@ use crate::error::RepositoryError;
 use crate::store::RepositoryStore;
 use serde_json::Value;
 use srs_core::types::blueprint::{Blueprint, BlueprintDiagnosticSeverity};
-use srs_core::types::field::Datatype;
 use srs_core::types::lifecycle::RelationDirection;
 use srs_core::types::protocol::{Protocol, ProtocolDiagnosticSeverity};
 use srs_core::types::record::Record;
@@ -15,7 +14,7 @@ use srs_core::validation::lifecycle::{
 };
 use srs_core::validation::protocol::validate_protocol;
 use srs_core::validation::record::validate_record;
-use srs_core::validation::record_type::validate_cross_field_rules;
+use srs_core::validation::record_type::{cross_field_type_map, validate_cross_field_rules};
 use srs_core::validation::relation::{validate_relation, RelationValidationContext};
 use srs_schema::{SchemaRegistry, NOTE_SCHEMA_ID, RECORD_SCHEMA_ID};
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -128,7 +127,6 @@ pub fn validate_repository(
     let mut diagnostics: Vec<ValidationDiagnostic> = Vec::new();
     let mut checked = 0usize;
     let mut package_for_tier2: Option<Option<crate::package::Package>> = None;
-    let mut field_type_map: Option<HashMap<String, Datatype>> = None;
     // RFC-022: relations loaded lazily for the at-rest requiresRelation check.
     // Outer None = not loaded yet; inner None = load failed (check is skipped —
     // a corrupt relations file is reported by relation validation, not here).
@@ -528,14 +526,6 @@ pub fn validate_repository(
         if entry.tier() == 2 {
             if package_for_tier2.is_none() {
                 let pkg = store.load_package().ok();
-                field_type_map = Some(match &pkg {
-                    Some(p) => p
-                        .fields
-                        .iter()
-                        .map(|f| (f.id.clone(), f.field_type.datatype))
-                        .collect(),
-                    None => HashMap::new(),
-                });
                 package_for_tier2 = Some(pkg);
             }
             match package_for_tier2.as_ref().and_then(|p| p.as_ref()) {
@@ -689,11 +679,14 @@ pub fn validate_repository(
                         if let Some(rt) = rt_opt {
                             if let Some(rules) = &rt.validation_rules {
                                 if !rules.is_empty() {
-                                    let ftype_map = field_type_map
-                                        .as_ref()
-                                        .expect("field_type_map is populated in the same tier-2 lazy-load block");
+                                    // Built per Type, not cached per store: the
+                                    // `FieldAssignment.repeatable` half of
+                                    // `effective-single` is per-assignment, so
+                                    // the same Field can differ between Types.
+                                    let ftype_map =
+                                        cross_field_type_map(&package.fields, rt);
                                     let cfr_errors =
-                                        validate_cross_field_rules(&record, rules, ftype_map);
+                                        validate_cross_field_rules(&record, rules, &ftype_map);
                                     for err in cfr_errors {
                                         diagnostics.push(ValidationDiagnostic {
                                             severity: DiagnosticSeverity::Error,
