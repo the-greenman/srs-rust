@@ -79,10 +79,12 @@ pub fn build_field_text_index(
     let mut names = HashMap::new();
     let mut searchable = HashSet::new();
     for f in &package.fields {
-        // RFC-012's searchable set is `datatype: string` after RFC-032 — see
-        // `FieldType::is_text_searchable`, which documents the one-to-one
-        // correspondence with the pre-decomposition
-        // string|text|url|select|multiselect set.
+        // I-120 / RFC-012 `[R8]`: `datatype == string` **and** an allow-listed
+        // `format`. Not datatype alone — RFC-032 Revision 7 excludes the
+        // string-datatyped `uuid` and `email` formats, so a field can be
+        // `datatype: string` and still contribute no `TextSegment`s. See
+        // `FieldType::is_text_searchable` for why the datatype-only reading is
+        // sound over the legacy eight and unsound over the model as a whole.
         if f.field_type.is_text_searchable() {
             searchable.insert(f.id.clone());
         }
@@ -188,7 +190,7 @@ fn value_strings(value: &serde_json::Value) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use srs_core::types::field::{AiGuidance, Field, FieldType, LegacyValueType};
+    use srs_core::types::field::{AiGuidance, Field, FieldType, LegacyValueType, StringFormat};
     use srs_core::types::record::{FieldGroupEntry, FieldGroupValue, FieldValueEntry};
     use std::collections::HashMap;
 
@@ -352,6 +354,66 @@ mod tests {
         // body precedes title (record order), then label.
         assert_eq!(a[0].field_name, "body");
         assert_eq!(a[1].field_name, "title");
+    }
+
+    /// I-120 / RFC-012 `[R8]` at its real consumption site.
+    ///
+    /// `rfc012_searchable_set_survives_the_rfc032_decomposition` below pins the
+    /// legacy-eight parity, and passes under both the datatype-only reading and
+    /// the RFC-032 Revision 7 allow-list — so it cannot show the allow-list is
+    /// actually wired into the index. This drives `project_text` with
+    /// `format: uuid` and `format: email` fields, which no first-party Tier-2
+    /// record uses (srs-rust#790, CC-33), and asserts they contribute no
+    /// `TextSegment`s while a plain string beside them still does.
+    #[test]
+    fn i120_r8_uuid_and_email_formats_contribute_no_text_segments() {
+        const KEY: &str = "00000000-0000-4000-8000-00000000f005";
+        const CONTACT: &str = "00000000-0000-4000-8000-00000000f006";
+
+        let fields = [
+            field(TITLE, "title", FieldType::string()),
+            field(KEY, "key", FieldType::string().with_format(StringFormat::Uuid)),
+            field(
+                CONTACT,
+                "contact",
+                FieldType::string().with_format(StringFormat::Email),
+            ),
+        ];
+        // Derived exactly as `build_field_text_index` derives it.
+        let index = FieldTextIndex {
+            names: fields
+                .iter()
+                .map(|f| (f.id.clone(), f.name.clone()))
+                .collect(),
+            searchable: fields
+                .iter()
+                .filter(|f| f.field_type.is_text_searchable())
+                .map(|f| f.id.clone())
+                .collect(),
+            identity_field_ids: HashMap::new(),
+        };
+
+        let rec = record(vec![
+            fv(TITLE, serde_json::json!("Adopt consent")),
+            fv(KEY, serde_json::json!("00000000-0000-4000-8000-000000000001")),
+            fv(CONTACT, serde_json::json!("someone@example.test")),
+        ]);
+        let segments = project_text(&rec, &index);
+        let projected = texts(&segments);
+        assert!(
+            projected.contains(&"Adopt consent"),
+            "a plain string field must still project, got: {projected:?}"
+        );
+        assert!(
+            !projected
+                .iter()
+                .any(|t| t.contains("00000000-0000-4000-8000-000000000001")),
+            "a format: uuid field must contribute no segment, got: {projected:?}"
+        );
+        assert!(
+            !projected.iter().any(|t| t.contains("someone@example.test")),
+            "a format: email field must contribute no segment, got: {projected:?}"
+        );
     }
 
     #[test]
