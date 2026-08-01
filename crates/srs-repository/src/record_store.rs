@@ -30,7 +30,6 @@ use crate::revision_service;
 use crate::store::{RecordTier, RepositoryStore};
 use crate::writer::{new_instance_id, slugify_instance_name, write_manifest};
 use serde::{Deserialize, Serialize};
-use srs_core::types::field::Datatype;
 use srs_core::types::lifecycle::{RelationDirection, RequiresRelation};
 use srs_core::types::record::{FieldValue, Record};
 use srs_core::types::relation::Relation;
@@ -39,7 +38,7 @@ use srs_core::types::revision::{Revision, RevisionAgent, RevisionProvenance};
 use srs_core::types::source_reference::SourceReference;
 use srs_core::validation::lifecycle::validate_type_lifecycle_v9;
 use srs_core::validation::record::{validate_record, validate_record_all, validate_type_lifecycle};
-use srs_core::validation::record_type::validate_cross_field_rules;
+use srs_core::validation::record_type::{cross_field_type_map, validate_cross_field_rules};
 use srs_core::validation::relation::validate_relation_type_for_write;
 use srs_schema::RECORD_SCHEMA_ID;
 use std::collections::HashMap;
@@ -246,11 +245,7 @@ pub(crate) fn create_record_at_dir(
     // Consistent with required-field enforcement above: first violation is a hard error.
     if let Some(rules) = &record_type.validation_rules {
         if !rules.is_empty() {
-            let field_type_map: HashMap<String, Datatype> = package
-                .fields
-                .iter()
-                .map(|f| (f.id.clone(), f.field_type.datatype))
-                .collect();
+            let field_type_map = cross_field_type_map(&package.fields, record_type);
             if let Some(err) = validate_cross_field_rules(&record, rules, &field_type_map)
                 .into_iter()
                 .next()
@@ -390,11 +385,7 @@ pub fn update_record(
     // Consistent with required-field enforcement above: first violation is a hard error.
     if let Some(rules) = &record_type.validation_rules {
         if !rules.is_empty() {
-            let field_type_map: HashMap<String, Datatype> = package
-                .fields
-                .iter()
-                .map(|f| (f.id.clone(), f.field_type.datatype))
-                .collect();
+            let field_type_map = cross_field_type_map(&package.fields, record_type);
             if let Some(err) = validate_cross_field_rules(&updated_record, rules, &field_type_map)
                 .into_iter()
                 .next()
@@ -467,11 +458,7 @@ pub fn validate_record_input(
     // A passing preflight must guarantee a passing write.
     if let Some(rules) = &record_type.validation_rules {
         if !rules.is_empty() {
-            let field_type_map: HashMap<String, Datatype> = package
-                .fields
-                .iter()
-                .map(|f| (f.id.clone(), f.field_type.datatype))
-                .collect();
+            let field_type_map = cross_field_type_map(&package.fields, record_type);
             let cfr_errors = validate_cross_field_rules(&record, rules, &field_type_map);
             errors.extend(cfr_errors.iter().map(|e| e.to_string()));
         }

@@ -1,5 +1,5 @@
 use crate::error::CoreError;
-use crate::types::field::Datatype;
+use crate::types::field::{Datatype, Field, FieldType};
 use crate::types::record::Record;
 use crate::types::record_type::{
     CrossFieldRule, CrossFieldRuleEffect, CrossFieldRuleKind, RecordType,
@@ -35,20 +35,62 @@ pub fn validate_record_type_v7(rt: &RecordType) -> Vec<RecordTypeDiagnostic> {
     diags
 }
 
+/// What a cross-field rule predicate needs to know about one assigned field.
+///
+/// `Datatype` alone is not enough: RFC-032 Revision 7 expresses I-94 over
+/// `effective-single`, which spans both the `fieldType.cardinality` facet and
+/// the legacy `FieldAssignment.repeatable` flag. The flag is per-assignment
+/// rather than per-Field, so it has to be carried alongside the `FieldType`.
+#[derive(Debug, Clone)]
+pub struct CrossFieldFieldType {
+    /// The field's declared `fieldType`, in full.
+    pub field_type: FieldType,
+    /// `FieldAssignment.repeatable` for this field in the Type being validated.
+    pub repeatable: bool,
+}
+
+/// Build the field-type map [`validate_cross_field_rules`] expects, pairing each
+/// Field's `fieldType` with its `FieldAssignment.repeatable` in `record_type`.
+///
+/// Every caller derives the map this way; sharing one builder keeps the
+/// `effective-single` union from being restated (and drifting) per call site.
+pub fn cross_field_type_map(
+    fields: &[Field],
+    record_type: &RecordType,
+) -> HashMap<String, CrossFieldFieldType> {
+    fields
+        .iter()
+        .map(|f| {
+            let repeatable = record_type
+                .find_field_assignment_anywhere(&f.id)
+                .is_some_and(|a| a.repeatable);
+            (
+                f.id.clone(),
+                CrossFieldFieldType {
+                    field_type: f.field_type.clone(),
+                    repeatable,
+                },
+            )
+        })
+        .collect()
+}
+
 /// Evaluate all cross-field rules from `ext:cross-field-validation` against a record.
 ///
-/// `field_types` maps field IDs to the `Datatype` their `fieldType` declares in the package.
+/// `field_types` maps field IDs to the `fieldType` their package declares plus the
+/// `FieldAssignment.repeatable` of their assignment in the Type under validation —
+/// build it with [`cross_field_type_map`].
 /// Returns one `CoreError` per violated rule. Returns empty vec if all rules pass.
 pub fn validate_cross_field_rules(
     record: &Record,
     rules: &[CrossFieldRule],
-    field_types: &HashMap<String, Datatype>,
+    field_types: &HashMap<String, CrossFieldFieldType>,
 ) -> Vec<CoreError> {
     let mut errors = Vec::new();
     for rule in rules {
         match rule.rule_type {
             CrossFieldRuleKind::ConditionalRequired => {
-                evaluate_conditional_required(record, rule, &mut errors);
+                evaluate_conditional_required(record, rule, field_types, &mut errors);
             }
             CrossFieldRuleKind::FieldOrdering => {
                 evaluate_field_ordering(record, rule, field_types, &mut errors);
@@ -71,6 +113,7 @@ fn field_value_str<'a>(record: &'a Record, field_id: &str) -> Option<&'a str> {
 fn evaluate_conditional_required(
     record: &Record,
     rule: &CrossFieldRule,
+    field_types: &HashMap<String, CrossFieldFieldType>,
     errors: &mut Vec<CoreError>,
 ) {
     let (Some(predicate_field_id), Some(predicate_value), Some(target_field_id)) = (
@@ -83,6 +126,25 @@ fn evaluate_conditional_required(
         });
         return;
     };
+
+    // I-94 / RFC-019 [R6]: the predicate field must be effective-single with a
+    // datatype the single declared `predicateValue` can be compared against.
+    // As in `evaluate_field_ordering`, a field id absent from the package is
+    // skipped silently — referential integrity is checked elsewhere.
+    if let Some(predicate_type) = field_types.get(predicate_field_id) {
+        if !predicate_type
+            .field_type
+            .is_conditional_required_eligible(predicate_type.repeatable)
+        {
+            errors.push(CoreError::CrossFieldRuleMisconfigured {
+                reason: format!(
+                    "conditional-required: predicate field '{}' must be a single-valued string, date or date-time field",
+                    predicate_field_id
+                ),
+            });
+            return;
+        }
+    }
 
     if field_value_str(record, predicate_field_id) == Some(predicate_value)
         && field_value_str(record, target_field_id).is_none()
@@ -98,7 +160,7 @@ fn evaluate_conditional_required(
 fn evaluate_field_ordering(
     record: &Record,
     rule: &CrossFieldRule,
-    field_types: &HashMap<String, Datatype>,
+    field_types: &HashMap<String, CrossFieldFieldType>,
     errors: &mut Vec<CoreError>,
 ) {
     let (Some(predicate_field_id), Some(target_field_id), Some(effect)) = (
@@ -114,12 +176,16 @@ fn evaluate_field_ordering(
     };
 
     // If field ID is absent from the package, skip silently — referential integrity checked elsewhere.
-    let Some(target_vtype) = field_types.get(target_field_id) else {
+    let Some(target_vtype) = field_types.get(target_field_id).map(|t| t.field_type.datatype) else {
         return;
     };
-    let Some(predicate_vtype) = field_types.get(predicate_field_id) else {
+    let Some(predicate_vtype) = field_types
+        .get(predicate_field_id)
+        .map(|t| t.field_type.datatype)
+    else {
         return;
     };
+    let (target_vtype, predicate_vtype) = (&target_vtype, &predicate_vtype);
 
     // field-ordering applies only to orderable scalars. RFC-032 split the
     // pre-decomposition `date`/`number` pair into four: `integer` and
@@ -363,6 +429,33 @@ mod tests {
 
     // ── validate_cross_field_rules tests ─────────────────────────────────────
 
+    /// A field-type map of plain single-valued fields, keyed by field id.
+    fn ftm(entries: &[(&str, Datatype)]) -> HashMap<String, CrossFieldFieldType> {
+        entries
+            .iter()
+            .map(|(id, dt)| {
+                (
+                    id.to_string(),
+                    CrossFieldFieldType {
+                        field_type: FieldType::new(*dt),
+                        repeatable: false,
+                    },
+                )
+            })
+            .collect()
+    }
+
+    /// The same, with one entry's `FieldType` and `repeatable` given explicitly.
+    fn ftm_one(id: &str, field_type: FieldType, repeatable: bool) -> HashMap<String, CrossFieldFieldType> {
+        HashMap::from([(
+            id.to_string(),
+            CrossFieldFieldType {
+                field_type,
+                repeatable,
+            },
+        )])
+    }
+
     #[test]
     fn cross_field_no_rules_returns_empty() {
         let record = make_record(vec![]);
@@ -423,6 +516,67 @@ mod tests {
         assert!(errs.is_empty());
     }
 
+    // I-94 / RFC-019 [R6] — the predicate field's eligibility. Constructed
+    // fixtures throughout: `predicateFieldId` has zero first-party use sites, so
+    // the corpus cannot exercise any of this.
+
+    #[test]
+    fn i94_r6_conditional_required_rejects_list_predicate_field() {
+        let record = make_record(vec![("f-predicate", serde_json::json!("yes"))]);
+        let rule = cond_required_rule("f-predicate", "yes", "f-target");
+        let ft = ftm_one("f-predicate", FieldType::string().into_list(), false);
+        let errs = validate_cross_field_rules(&record, &[rule], &ft);
+        assert!(
+            matches!(&errs[..], [CoreError::CrossFieldRuleMisconfigured { reason }]
+                if reason.contains("must be a single-valued string, date or date-time")),
+            "a list predicate field must be rejected, got: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn i94_r6_conditional_required_rejects_repeatable_predicate_field() {
+        // The legacy `FieldAssignment.repeatable` half of `effective-single`.
+        // `cardinality` is single here; only the assignment flag makes it repeat.
+        let record = make_record(vec![("f-predicate", serde_json::json!("yes"))]);
+        let rule = cond_required_rule("f-predicate", "yes", "f-target");
+        let ft = ftm_one("f-predicate", FieldType::string(), true);
+        let errs = validate_cross_field_rules(&record, &[rule], &ft);
+        assert!(
+            matches!(&errs[..], [CoreError::CrossFieldRuleMisconfigured { .. }]),
+            "a repeatable predicate field must be rejected, got: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn i94_r6_conditional_required_rejects_non_comparable_datatypes() {
+        for rejected in [Datatype::Boolean, Datatype::Number, Datatype::Integer] {
+            let record = make_record(vec![("f-predicate", serde_json::json!("yes"))]);
+            let rule = cond_required_rule("f-predicate", "yes", "f-target");
+            let ft = ftm(&[("f-predicate", rejected)]);
+            let errs = validate_cross_field_rules(&record, &[rule], &ft);
+            assert!(
+                matches!(&errs[..], [CoreError::CrossFieldRuleMisconfigured { .. }]),
+                "{rejected:?} must be rejected as a predicate field, got: {errs:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn i94_r6_conditional_required_admits_eligible_predicate_field() {
+        // Eligibility must not swallow the rule it guards: with an eligible
+        // predicate field the conditional-required violation still fires.
+        for admitted in [Datatype::String, Datatype::Date, Datatype::DateTime] {
+            let record = make_record(vec![("f-predicate", serde_json::json!("yes"))]);
+            let rule = cond_required_rule("f-predicate", "yes", "f-target");
+            let ft = ftm(&[("f-predicate", admitted)]);
+            let errs = validate_cross_field_rules(&record, &[rule], &ft);
+            assert!(
+                matches!(&errs[..], [CoreError::CrossFieldConditionalRequired { .. }]),
+                "{admitted:?} must be admitted and the rule still enforced, got: {errs:?}"
+            );
+        }
+    }
+
     #[test]
     fn field_ordering_must_precede_passes() {
         let record = make_record(vec![
@@ -431,9 +585,7 @@ mod tests {
         ]);
         // f-start must precede f-end: start < end → pass
         let rule = ordering_rule("f-end", "f-start", CrossFieldRuleEffect::MustPrecede);
-        let mut ft = HashMap::new();
-        ft.insert("f-start".to_string(), Datatype::Number);
-        ft.insert("f-end".to_string(), Datatype::Number);
+        let ft = ftm(&[("f-start", Datatype::Number), ("f-end", Datatype::Number)]);
         let errs = validate_cross_field_rules(&record, &[rule], &ft);
         assert!(errs.is_empty());
     }
@@ -446,9 +598,7 @@ mod tests {
         ]);
         // f-start must precede f-end: start(30) >= end(20) → violation
         let rule = ordering_rule("f-end", "f-start", CrossFieldRuleEffect::MustPrecede);
-        let mut ft = HashMap::new();
-        ft.insert("f-start".to_string(), Datatype::Number);
-        ft.insert("f-end".to_string(), Datatype::Number);
+        let ft = ftm(&[("f-start", Datatype::Number), ("f-end", Datatype::Number)]);
         let errs = validate_cross_field_rules(&record, &[rule], &ft);
         assert_eq!(errs.len(), 1);
         assert!(matches!(errs[0], CoreError::CrossFieldOrdering { .. }));
@@ -466,9 +616,7 @@ mod tests {
             "f-end-date",
             CrossFieldRuleEffect::MustFollow,
         );
-        let mut ft = HashMap::new();
-        ft.insert("f-end-date".to_string(), Datatype::Date);
-        ft.insert("f-start-date".to_string(), Datatype::Date);
+        let ft = ftm(&[("f-end-date", Datatype::Date), ("f-start-date", Datatype::Date)]);
         let errs = validate_cross_field_rules(&record, &[rule], &ft);
         assert!(errs.is_empty());
     }
@@ -485,9 +633,7 @@ mod tests {
             "f-end-date",
             CrossFieldRuleEffect::MustFollow,
         );
-        let mut ft = HashMap::new();
-        ft.insert("f-end-date".to_string(), Datatype::Date);
-        ft.insert("f-start-date".to_string(), Datatype::Date);
+        let ft = ftm(&[("f-end-date", Datatype::Date), ("f-start-date", Datatype::Date)]);
         let errs = validate_cross_field_rules(&record, &[rule], &ft);
         assert_eq!(errs.len(), 1);
         assert!(matches!(errs[0], CoreError::CrossFieldOrdering { .. }));
@@ -500,9 +646,7 @@ mod tests {
             ("f-end", serde_json::json!("world")),
         ]);
         let rule = ordering_rule("f-end", "f-text", CrossFieldRuleEffect::MustPrecede);
-        let mut ft = HashMap::new();
-        ft.insert("f-text".to_string(), Datatype::String);
-        ft.insert("f-end".to_string(), Datatype::String);
+        let ft = ftm(&[("f-text", Datatype::String), ("f-end", Datatype::String)]);
         let errs = validate_cross_field_rules(&record, &[rule], &ft);
         assert_eq!(errs.len(), 1);
         assert!(matches!(
@@ -515,9 +659,7 @@ mod tests {
     fn field_ordering_both_field_values_absent_no_violation() {
         let record = make_record(vec![]);
         let rule = ordering_rule("f-end", "f-start", CrossFieldRuleEffect::MustPrecede);
-        let mut ft = HashMap::new();
-        ft.insert("f-start".to_string(), Datatype::Number);
-        ft.insert("f-end".to_string(), Datatype::Number);
+        let ft = ftm(&[("f-start", Datatype::Number), ("f-end", Datatype::Number)]);
         let errs = validate_cross_field_rules(&record, &[rule], &ft);
         assert!(errs.is_empty());
     }
@@ -534,7 +676,7 @@ mod tests {
             "f-start",
             CrossFieldRuleEffect::MustPrecede,
         );
-        let ft: HashMap<String, Datatype> = HashMap::new();
+        let ft = ftm(&[]);
         let errs = validate_cross_field_rules(&record, &[rule], &ft);
         assert!(
             errs.is_empty(),

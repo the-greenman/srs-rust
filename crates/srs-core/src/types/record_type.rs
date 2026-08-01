@@ -159,6 +159,28 @@ impl RecordType {
             .iter()
             .find(|g| g.group_id == group_id)
     }
+
+    /// The `FieldAssignment` for `field_id` wherever it is declared — a
+    /// top-level assignment, or a member of a `FieldGroup`.
+    ///
+    /// [`find_field_assignment`](Self::find_field_assignment) searches only the
+    /// top-level `fields`. The conformance predicates need the assignment for
+    /// *any* assigned field, so they use this.
+    ///
+    /// This reads the field's **own** `repeatable` flag. A `FieldGroup` carries
+    /// a separate `repeatable` of its own, describing repetition of the group,
+    /// and it is deliberately not folded in here: RFC-032 Revision 7 defines
+    /// `effective-single` over `FieldAssignment.repeatable`, and treating group
+    /// repetition as field repetition would be an inference the erratum does
+    /// not make.
+    pub fn find_field_assignment_anywhere(&self, field_id: &str) -> Option<&FieldAssignment> {
+        self.find_field_assignment(field_id).or_else(|| {
+            self.field_groups
+                .as_ref()?
+                .iter()
+                .find_map(|g| g.fields.iter().find(|f| f.field_id == field_id))
+        })
+    }
 }
 
 #[cfg(test)]
