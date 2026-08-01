@@ -303,7 +303,7 @@
         "predicateFieldId": {
           "type": "string",
           "format": "uuid",
-          "description": "Field whose value is tested (conditional-required, field-ordering)."
+          "description": "Field whose value is tested. RFC-032 Rev-7 I-94: for conditional-required it must be effective-single (fieldType.cardinality absent/single and, until #242 Phase B, effective FieldAssignment.repeatable != true) with datatype string, date, or date-time; string format/valueDomain do not restrict eligibility. Field-ordering uses I-92."
         },
         "predicateValue": {
           "type": "string",

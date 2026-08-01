@@ -40,7 +40,7 @@
     "cssClassFields": {
       "type": "array",
       "items": { "type": "string", "format": "uuid" },
-      "description": "fieldIds whose values are injected as CSS classes on record wrapper elements. Only string, text, and select valueTypes generate classes. Only applies to 'html' and 'pdf' output."
+      "description": "fieldIds whose values are injected as CSS classes on record wrapper elements. RFC-032 Rev-7 [T-9]: the Field must be effective-single (fieldType.cardinality absent/single and, until #242 Phase B, effective FieldAssignment.repeatable != true), datatype string, and format absent/plain/markdown; valueDomain may be open or closed. URI/UUID/email, list/repeatable, non-string, and composite Fields are skipped. Only applies to 'html' and 'pdf' output."
     },
     "pageTemplates": { "$ref": "#/$defs/PageTemplates" },
     "elementTemplates": { "$ref": "#/$defs/ElementTemplates" },

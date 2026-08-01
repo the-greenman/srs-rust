@@ -124,7 +124,7 @@
         "titleFieldId": {
           "type": "string",
           "format": "uuid",
-          "description": "The fieldId whose value provides the per-record heading within this section. Must have valueType 'string' or 'text' and not be repeatable. When a record's type does not carry the designated field, implementations MUST omit the per-record heading for that record (this is not a render failure), enabling heterogeneous sections (e.g. container-subset). Enforced at render time."
+          "description": "The fieldId whose value provides the per-record heading within this section. RFC-032 Rev-7 [N+1]: the Field must be effective-single (fieldType.cardinality absent/single and, until #242 Phase B, effective FieldAssignment.repeatable != true), datatype string, valueDomain absent/open, and format absent/plain/markdown. Closed-domain, URI/UUID/email, non-string, and composite Fields are ineligible. When a record's type does not carry the designated field, implementations MUST omit the per-record heading for that record (this is not a render failure), enabling heterogeneous sections (e.g. container-subset). Enforced at render time."
         },
         "ordering": {
           "type": "object",
