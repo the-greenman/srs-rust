@@ -1156,8 +1156,21 @@ fn css_classes_for_record(
 
     if let Some(theme) = ctx.active_theme.as_ref() {
         if let Some(field_ids) = &theme.css_class_fields {
+            // `[T-9]` eligibility is per-assignment, so it needs the record's Type.
+            let record_type = ctx.package.resolve_type(&record.type_id, record.type_version);
             for field_id in field_ids {
                 if let Some(field) = ctx.package.resolve_field(field_id) {
+                    // `[T-9]` / ext:themes-l1: only an effective-single, prose
+                    // string field contributes a class. Testing the stored JSON
+                    // for `as_str()` is not equivalent — `date`, `date-time`,
+                    // `uri`, `uuid` and `email` all serialize as JSON strings
+                    // and are all ineligible.
+                    let repeatable = record_type
+                        .and_then(|rt| rt.find_field_assignment_anywhere(field_id))
+                        .is_some_and(|a| a.repeatable);
+                    if !field.field_type.is_theme_css_class_eligible(repeatable) {
+                        continue;
+                    }
                     if let Some(fv) = record.find_field_value(field_id) {
                         if let Some(raw) = fv.value.as_str() {
                             classes.push(' ');
@@ -2907,8 +2920,13 @@ fn depth(base: u32, depth_offset: u32) -> u32 {
 }
 
 /// RFC-020 Rule [N+37]: resolve the effective heading field ID for a section/record pair.
-/// Returns `section.title_field_id` when present (takes precedence), otherwise falls back
+/// Returns `section.title_field_id` when present **and eligible**, otherwise falls back
 /// to the Type's effective `identityFieldId` (when the Type is known).
+///
+/// `[N+1]` / ext:views-l2 governs the eligibility half: a `titleFieldId` must be an
+/// effective-single, open-domain, prose-formatted `string` field. An ineligible
+/// `titleFieldId` is not an error — it falls through to the identity field, exactly as
+/// an absent one does.
 fn resolve_heading_field_id(
     section: &DocumentSection,
     rt: Option<&srs_core::types::record_type::RecordType>,
@@ -2917,7 +2935,27 @@ fn resolve_heading_field_id(
     section
         .title_field_id
         .clone()
+        .filter(|field_id| title_field_id_is_eligible(field_id, rt, package))
         .or_else(|| rt.and_then(|t| package.effective_identity_field_id(t).ok().flatten()))
+}
+
+/// `[N+1]`: whether `field_id` may serve as a `DocumentSection.titleFieldId`.
+///
+/// An unresolvable field id is left to referential-integrity validation rather than
+/// being silently swallowed here, so it is reported as eligible and fails downstream
+/// the same way it did before this rule existed.
+fn title_field_id_is_eligible(
+    field_id: &str,
+    rt: Option<&srs_core::types::record_type::RecordType>,
+    package: &Package,
+) -> bool {
+    let Some(field) = package.resolve_field(field_id) else {
+        return true;
+    };
+    let repeatable = rt
+        .and_then(|t| t.find_field_assignment_anywhere(field_id))
+        .is_some_and(|a| a.repeatable);
+    field.field_type.is_title_field_eligible(repeatable)
 }
 
 #[cfg(test)]
@@ -3166,8 +3204,20 @@ mod tests {
         );
     }
 
+    /// `[N+1]` / ext:views-l2 — a repeatable `titleFieldId` is ineligible.
+    ///
+    /// **Inverted deliberately (srs-rust#790).** This test previously asserted
+    /// that a heading *was* emitted from this fixture, whose `titleFieldId`
+    /// points at a repeatable field. That locked in behaviour even the
+    /// pre-erratum rule forbade, and its assertion
+    /// (`contains("### first") || contains("### ")`) was satisfiable by any H3
+    /// anywhere in the output, so it did not pin what its name claimed.
+    ///
+    /// RFC-032 Revision 7 makes `effective-single` an explicit precondition, so
+    /// the ineligible `titleFieldId` now falls through to the Type's identity
+    /// field — here absent, so no record heading is emitted at all.
     #[test]
-    fn title_field_id_emits_record_heading() {
+    fn n1_repeatable_title_field_id_emits_no_record_heading() {
         let repo_root = repeatable_fixture_root();
         let store = FileStore::new(&repo_root);
         let result = render_document_view(RenderDocumentViewOptions {
@@ -3179,11 +3229,9 @@ mod tests {
             instance_id_filter: None,
         })
         .expect("render should succeed");
-        // titleFieldId points to the repeatable title field; first entry value is "first"
-        // expect an H3 heading containing that value
         assert!(
-            result.rendered.contains("### first") || result.rendered.contains("### "),
-            "expected H3 record heading from titleFieldId, got: {}",
+            !result.rendered.contains("### first"),
+            "a repeatable titleFieldId must not become a record heading, got: {}",
             result.rendered
         );
     }
@@ -3320,8 +3368,13 @@ mod tests {
             "expected section wrapper, got: {}",
             result.rendered
         );
+        // The heading variable is empty because this fixture's `titleFieldId`
+        // points at a repeatable field, which `[N+1]` makes ineligible
+        // (srs-rust#790) — the same fixture defect that
+        // `n1_repeatable_title_field_id_emits_no_record_heading` covers. What
+        // this test is about is the wrapper, and the wrapper is still applied.
         assert!(
-            result.rendered.contains("OVERRIDERECORD[first|"),
+            result.rendered.contains("OVERRIDERECORD[|"),
             "expected record wrapper, got: {}",
             result.rendered
         );
@@ -3683,6 +3736,135 @@ mod tests {
     /// Build a MemoryStore with two types (text-section and table-section), two
     /// fields (heading + body), a container, and a ContainerSubset document view.
     /// Used by the heterogeneous rendering tests below.
+    /// `[T-9]` / ext:themes-l1 — only effective-single prose `string` fields
+    /// contribute a CSS class via `Theme.cssClassFields`.
+    ///
+    /// Entirely constructed: `cssClassFields` has zero first-party use sites, so
+    /// nothing in the corpus reaches `css_classes_for_record`'s theme branch at
+    /// all (srs-rust#790, CC-33). Before this rule the branch emitted a class
+    /// for any field whose stored JSON value happened to be a string — which is
+    /// true of `date`, `date-time`, `uri`, `uuid` and `email` alike.
+    #[test]
+    fn t9_css_class_fields_admits_only_effective_single_prose_strings() {
+        use crate::package::Package;
+        use srs_core::types::field::Field;
+        use srs_core::types::record::Record;
+        use srs_core::types::record_type::RecordType;
+
+        fn field(id: &str, name: &str, field_type: serde_json::Value) -> Field {
+            serde_json::from_value(serde_json::json!({
+                "id": id, "namespace": "com.test", "name": name, "version": 1,
+                "description": "d", "fieldType": field_type,
+                "createdAt": "2026-01-01T00:00:00Z",
+            }))
+            .expect("field fixture should deserialize")
+        }
+
+        // Each field stores a JSON string, so the pre-rule `as_str()` test
+        // admitted every one of them. Only `status` and `note` are eligible.
+        let fields = vec![
+            field("f-status", "status", serde_json::json!({ "datatype": "string" })),
+            field("f-note", "note", serde_json::json!({ "datatype": "string", "format": "markdown" })),
+            field("f-due", "due", serde_json::json!({ "datatype": "date" })),
+            field("f-home", "home", serde_json::json!({ "datatype": "string", "format": "uri" })),
+            field("f-key", "key", serde_json::json!({ "datatype": "string", "format": "uuid" })),
+            field("f-contact", "contact", serde_json::json!({ "datatype": "string", "format": "email" })),
+            field("f-labels", "labels", serde_json::json!({ "datatype": "string", "cardinality": "list" })),
+            // Single by `cardinality`, made repeatable by the assignment below.
+            field("f-alias", "alias", serde_json::json!({ "datatype": "string" })),
+        ];
+        let assignment = |i: usize, id: &str, repeatable: bool| {
+            serde_json::json!({ "fieldId": id, "order": i, "required": false, "repeatable": repeatable })
+        };
+        let record_type: RecordType = serde_json::from_value(serde_json::json!({
+            "id": "t-task", "namespace": "com.test", "name": "task", "version": 1,
+            "description": "d",
+            "fields": [
+                assignment(0, "f-status", false), assignment(1, "f-note", false),
+                assignment(2, "f-due", false), assignment(3, "f-home", false),
+                assignment(4, "f-key", false), assignment(5, "f-contact", false),
+                assignment(6, "f-labels", false), assignment(7, "f-alias", true),
+            ],
+            "createdAt": "2026-01-01T00:00:00Z",
+        }))
+        .expect("type fixture should deserialize");
+        let record: Record = serde_json::from_value(serde_json::json!({
+            "instanceId": "i-1", "typeId": "t-task", "typeVersion": 1,
+            "typeNamespace": "com.test", "typeName": "task",
+            "fieldValues": [
+                { "fieldId": "f-status", "value": "open" },
+                { "fieldId": "f-note", "value": "prose" },
+                { "fieldId": "f-due", "value": "2026-01-01" },
+                { "fieldId": "f-home", "value": "https://example.test" },
+                { "fieldId": "f-key", "value": "00000000-0000-4000-8000-000000000001" },
+                { "fieldId": "f-contact", "value": "someone@example.test" },
+                { "fieldId": "f-labels", "value": "alpha" },
+                { "fieldId": "f-alias", "value": "nickname" },
+            ],
+        }))
+        .expect("record fixture should deserialize");
+        let theme: Theme = serde_json::from_value(serde_json::json!({
+            "id": "th-1", "namespace": "com.test", "name": "t9-theme", "version": 1,
+            "description": "d", "targets": ["html"],
+            "cssClassFields": [
+                "f-status", "f-note", "f-due", "f-home",
+                "f-key", "f-contact", "f-labels", "f-alias",
+            ],
+            "createdAt": "2026-01-01T00:00:00Z",
+        }))
+        .expect("theme fixture should deserialize");
+
+        let package = Package {
+            id: "p".to_string(),
+            namespace: "com.test".to_string(),
+            name: "p".to_string(),
+            version: "1.0.0".to_string(),
+            fields,
+            record_types: vec![record_type],
+            relation_type_definitions: Vec::new(),
+            views: Vec::new(),
+            document_views: Vec::new(),
+            themes: vec![theme.clone()],
+            blueprints: Vec::new(),
+            protocols: Vec::new(),
+            root: std::path::PathBuf::from("."),
+            dependency_refs: Vec::new(),
+            vocabularies: Vec::new(),
+            lifecycles: Vec::new(),
+        };
+        let ctx = RenderContext {
+            package: &package,
+            container_title: String::new(),
+            depth_offset: 0,
+            format: "html",
+            status_field_id: None,
+            active_theme: Some(theme),
+        };
+
+        let classes = css_classes_for_record(&record, &ctx);
+        assert!(
+            classes.contains("srs-field-status-open"),
+            "an open prose string must yield a class, got: {classes}"
+        );
+        assert!(
+            classes.contains("srs-field-note-prose"),
+            "a markdown string must yield a class, got: {classes}"
+        );
+        for (label, ineligible) in [
+            ("date", "srs-field-due-"),
+            ("format: uri", "srs-field-home-"),
+            ("format: uuid", "srs-field-key-"),
+            ("format: email", "srs-field-contact-"),
+            ("cardinality: list", "srs-field-labels-"),
+            ("assignment repeatable", "srs-field-alias-"),
+        ] {
+            assert!(
+                !classes.contains(ineligible),
+                "{label} is ineligible under [T-9] but emitted a class: {classes}"
+            );
+        }
+    }
+
     fn make_hetero_store() -> (crate::store::memory::MemoryStore, String, String, String) {
         use crate::container_service;
         use crate::package::Package;
