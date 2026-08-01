@@ -388,17 +388,113 @@ impl FieldType {
         self.effective_value_domain() == ValueDomain::Closed
     }
 
-    /// Whether values of this field are free text a reader can search.
+    /// RFC-032 Revision 7 — `effective-single`, the shared cardinality
+    /// precondition of I-94, `[T-9]` and `[N+1]`.
     ///
-    /// RFC-012's Text Projection asks exactly this question. Under the
+    /// A field is effective-single when `fieldType.cardinality` is absent or
+    /// `single` **and** the effective `FieldAssignment.repeatable` is not `true`.
+    /// This is deliberately a **union across both live cardinality mechanisms**,
+    /// not a re-key to `cardinality` alone: RFC-037 `:423` declined that re-key
+    /// as a model-level change beyond its remit, and the legacy `repeatable`
+    /// conjunct is removed only inside the atomic srs#242 Phase-B train, behind
+    /// five evidenced conditions. Dropping it early would silently widen every
+    /// rule that depends on it.
+    ///
+    /// `assignment_repeatable` is the `FieldAssignment.repeatable` of this field
+    /// **in the Type under consideration** — the flag is per-assignment, not per
+    /// field, so it cannot be read off the `FieldType`.
+    pub fn is_effective_single(&self, assignment_repeatable: bool) -> bool {
+        self.effective_cardinality() == Cardinality::Single && !assignment_repeatable
+    }
+
+    /// The prose `format` allow-list — `format` absent, `plain` or `markdown`.
+    ///
+    /// Shared by `[T-9]` and `[N+1]`. Enumerated as positives on purpose: an
+    /// unrecognised or future `format` is ineligible by default, so no `format`
+    /// semantics table has to exist for `uuid` and `email` to be excluded.
+    fn has_prose_format(&self) -> bool {
+        matches!(
+            self.format,
+            None | Some(StringFormat::Plain) | Some(StringFormat::Markdown)
+        )
+    }
+
+    /// I-120 / RFC-012 `[R8]` — whether values of this field are free text a
+    /// reader can search.
+    ///
+    /// `datatype == string` **and** `format` ∈ {absent, `plain`, `markdown`,
+    /// `uri`}. Both conjuncts are load-bearing: `format` is what excludes the
+    /// string-datatyped but non-prose `uuid` and `email`.
+    ///
+    /// The `format` clause is an **allow-list**, never a deny-list. Adding a
+    /// format to `StringFormat` must not silently make it searchable — a new
+    /// format is ineligible until it is enumerated here deliberately.
+    ///
+    /// A datatype-only test is **not** sufficient, though it looks it. Under the
     /// pre-RFC-032 model the searchable set was
-    /// `string | text | url | select | multiselect` — all five of which are
-    /// `datatype: string` after RFC-032, and none of the non-searchable four
-    /// (`number`, `boolean`, `date`, and the new `integer`/`date-time`) are. The
-    /// composite datatypes (`ref`, `dependent`, `map`) project structure, not
-    /// text, so they are not searchable either.
+    /// `string | text | url | select | multiselect`, and all five decompose to
+    /// `datatype: string` while none of the non-searchable four do — so
+    /// `datatype == string` reproduces the legacy eight exactly. That argument
+    /// is sound over the legacy eight and unsound over the model as a whole:
+    /// RFC-032 admits string-datatyped fields the legacy enum could not express,
+    /// and `uuid`/`email` are precisely those. RFC-032 Revision 7 settled the
+    /// allow-list above; `rfc012_searchable_set_survives_the_rfc032_decomposition`
+    /// still pins the legacy parity that the datatype-only reading was derived
+    /// from, and passes under both readings — which is why it cannot be the only
+    /// test here.
+    ///
+    /// The composite datatypes (`ref`, `dependent`, `map`) project structure,
+    /// not text, and are excluded outright. No composite recursion is defined by
+    /// the erratum: a `ref` whose range has searchable leaves is still not
+    /// searchable. That consequence is booked, not overlooked.
     pub fn is_text_searchable(&self) -> bool {
         self.datatype == Datatype::String
+            && matches!(
+                self.format,
+                None | Some(StringFormat::Plain)
+                    | Some(StringFormat::Markdown)
+                    | Some(StringFormat::Uri)
+            )
+    }
+
+    /// I-94 / RFC-019 `[R6]` — whether this field may be the `predicateFieldId`
+    /// of a `conditional-required` CrossFieldRule.
+    ///
+    /// Effective-single **and** `datatype` ∈ {`string`, `date`, `date-time`}.
+    /// The rule compares a single stored value against a single declared
+    /// `predicateValue`, so a list cardinality has no defined semantics.
+    pub fn is_conditional_required_eligible(&self, assignment_repeatable: bool) -> bool {
+        self.is_effective_single(assignment_repeatable)
+            && matches!(
+                self.datatype,
+                Datatype::String | Datatype::Date | Datatype::DateTime
+            )
+    }
+
+    /// `[T-9]` / ext:themes-l1 — whether this field may contribute a CSS class
+    /// via `Theme.cssClassFields`.
+    ///
+    /// Effective-single, `datatype == string`, and a prose `format` (absent,
+    /// `plain` or `markdown`). `valueDomain` is deliberately **unconstrained**:
+    /// both open and closed domains are eligible, since a closed vocabulary is
+    /// if anything the more natural source of a stable class name.
+    pub fn is_theme_css_class_eligible(&self, assignment_repeatable: bool) -> bool {
+        self.is_effective_single(assignment_repeatable)
+            && self.datatype == Datatype::String
+            && self.has_prose_format()
+    }
+
+    /// `[N+1]` / ext:views-l2 — whether this field may be a
+    /// `DocumentSection.titleFieldId`.
+    ///
+    /// Effective-single, `datatype == string`, `valueDomain` ∈ {absent, `open`},
+    /// and a prose `format`. Stricter than `[T-9]` in exactly one respect: a
+    /// closed vocabulary is **not** an eligible heading source.
+    pub fn is_title_field_eligible(&self, assignment_repeatable: bool) -> bool {
+        self.is_effective_single(assignment_repeatable)
+            && self.datatype == Datatype::String
+            && self.effective_value_domain() == ValueDomain::Open
+            && self.has_prose_format()
     }
 
     /// Whether values of this field are orderable scalars — the precondition
@@ -1184,5 +1280,144 @@ mod tests {
         let mut bad = FieldType::number();
         bad.format = Some(StringFormat::Uri);
         assert!(bad.validate().iter().any(|v| v.rule == "R5"));
+    }
+
+    // ── RFC-032 Revision 7 conformance predicates ────────────────────────────
+    //
+    // Every case below is a *constructed* fixture. None of these shapes occurs
+    // in the first-party corpus — `cssClassFields` and `predicateFieldId` have
+    // zero use sites, all 23 `titleFieldId` sites are eligible under both the
+    // old and new readings, and no Tier-2 record uses a `format: uuid` field.
+    // A corpus-driven test therefore passes whether or not these predicates
+    // exist; only the negative cases below can tell the two apart.
+
+    #[test]
+    fn effective_single_spans_both_cardinality_mechanisms() {
+        // Neither mechanism alone is sufficient, and neither is redundant.
+        assert!(FieldType::string().is_effective_single(false));
+        // `cardinality: list` defeats it on its own...
+        assert!(!FieldType::string().into_list().is_effective_single(false));
+        // ...and so does the legacy assignment flag, which is exactly why the
+        // conjunct may not be dropped as a tidy-up before srs#242 Phase B.
+        assert!(!FieldType::string().is_effective_single(true));
+        assert!(!FieldType::string().into_list().is_effective_single(true));
+    }
+
+    #[test]
+    fn i120_r8_text_projection_excludes_uuid_and_email_formats() {
+        // The negative case the corpus cannot supply: string-datatyped, and
+        // still not searchable, because `format` is load-bearing.
+        for excluded in [StringFormat::Uuid, StringFormat::Email] {
+            let ft = FieldType::string().with_format(excluded);
+            assert_eq!(ft.datatype, Datatype::String, "{excluded:?} is a string");
+            assert!(
+                !ft.is_text_searchable(),
+                "format {excluded:?} must not be text-searchable"
+            );
+        }
+    }
+
+    #[test]
+    fn i120_r8_text_projection_admits_the_prose_and_uri_formats() {
+        for admitted in [None, Some(StringFormat::Plain), Some(StringFormat::Markdown), Some(StringFormat::Uri)] {
+            let mut ft = FieldType::string();
+            ft.format = admitted;
+            assert!(
+                ft.is_text_searchable(),
+                "format {admitted:?} must be text-searchable"
+            );
+        }
+        // Composites are excluded outright — no recursion into `rangeType`.
+        for composite in [Datatype::Ref, Datatype::Dependent, Datatype::Map] {
+            assert!(!FieldType::new(composite).is_text_searchable());
+        }
+    }
+
+    #[test]
+    fn i94_r6_conditional_required_rejects_list_cardinality() {
+        // Eligible as a single, ineligible the moment either cardinality
+        // mechanism makes it repeat.
+        assert!(FieldType::string().is_conditional_required_eligible(false));
+        assert!(!FieldType::string().into_list().is_conditional_required_eligible(false));
+        assert!(!FieldType::string().is_conditional_required_eligible(true));
+    }
+
+    #[test]
+    fn i94_r6_conditional_required_admits_only_string_date_and_date_time() {
+        for admitted in [Datatype::String, Datatype::Date, Datatype::DateTime] {
+            assert!(
+                FieldType::new(admitted).is_conditional_required_eligible(false),
+                "{admitted:?} must be eligible"
+            );
+        }
+        for rejected in [
+            Datatype::Number,
+            Datatype::Integer,
+            Datatype::Boolean,
+            Datatype::Ref,
+            Datatype::Dependent,
+            Datatype::Map,
+        ] {
+            assert!(
+                !FieldType::new(rejected).is_conditional_required_eligible(false),
+                "{rejected:?} must be ineligible"
+            );
+        }
+    }
+
+    #[test]
+    fn t9_theme_css_class_rejects_date_and_non_prose_formats() {
+        // `date` and `date-time` serialize as strings on the record, which is
+        // why the pre-erratum implementation admitted them. The predicate keys
+        // on the declared datatype, not the stored JSON shape.
+        for rejected in [Datatype::Date, Datatype::DateTime] {
+            assert!(!FieldType::new(rejected).is_theme_css_class_eligible(false));
+        }
+        for rejected in [StringFormat::Uri, StringFormat::Uuid, StringFormat::Email] {
+            assert!(
+                !FieldType::string()
+                    .with_format(rejected)
+                    .is_theme_css_class_eligible(false),
+                "format {rejected:?} must not yield a CSS class"
+            );
+        }
+        assert!(!FieldType::string().into_list().is_theme_css_class_eligible(false));
+        assert!(!FieldType::string().is_theme_css_class_eligible(true));
+    }
+
+    #[test]
+    fn t9_theme_css_class_admits_both_value_domains() {
+        // `[T-9]` does not constrain valueDomain — this is the one place it is
+        // laxer than `[N+1]`, and it is deliberate.
+        assert!(FieldType::string().is_theme_css_class_eligible(false));
+        assert!(FieldType::closed().is_theme_css_class_eligible(false));
+        assert!(FieldType::markdown().is_theme_css_class_eligible(false));
+    }
+
+    #[test]
+    fn n1_title_field_rejects_closed_value_domain() {
+        // The negative case that separates `[N+1]` from `[T-9]`.
+        assert!(FieldType::string().is_title_field_eligible(false));
+        assert!(
+            !FieldType::closed().is_title_field_eligible(false),
+            "a closed vocabulary is not an eligible heading source"
+        );
+        assert!(!FieldType::closed_list().is_title_field_eligible(false));
+    }
+
+    #[test]
+    fn n1_title_field_rejects_repeatable_and_non_prose_formats() {
+        // The shape the `title_field_id_emits_record_heading` fixture used to
+        // assert *worked*: a repeatable title field.
+        assert!(!FieldType::string().is_title_field_eligible(true));
+        assert!(!FieldType::string().into_list().is_title_field_eligible(false));
+        for rejected in [StringFormat::Uri, StringFormat::Uuid, StringFormat::Email] {
+            assert!(
+                !FieldType::string()
+                    .with_format(rejected)
+                    .is_title_field_eligible(false),
+                "format {rejected:?} must not be a heading source"
+            );
+        }
     }
 }
