@@ -2947,23 +2947,28 @@ fn depth(base: u32, depth_offset: u32) -> u32 {
 }
 
 /// RFC-020 Rule [N+37]: resolve the effective heading field ID for a section/record pair.
-/// Returns `section.title_field_id` when present **and eligible**, otherwise falls back
-/// to the Type's effective `identityFieldId` (when the Type is known).
+/// When `section.title_field_id` is **absent**, falls back to the Type's effective
+/// `identityFieldId` (when the Type is known) — RFC-020 [N+37]'s literal scope.
 ///
-/// `[N+1]` / ext:views-l2 governs the eligibility half: a `titleFieldId` must be an
-/// effective-single, open-domain, prose-formatted `string` field. An ineligible
-/// `titleFieldId` is not an error — it falls through to the identity field, exactly as
-/// an absent one does.
+/// `[N+1]` / ext:views-l2 governs the eligibility half, and its consequence on failure
+/// was settled by owner decision (srs PR #341, 2026-08-02): when an **authored**
+/// `titleFieldId` fails eligibility, the heading is **omitted**, not substituted. It
+/// does *not* fall through to `identityFieldId` — that reading (RFC-020 [N+37]
+/// extended past its literal "does not declare" scope) was raised as an open question
+/// and the spec research defeated it before the owner ruled it out explicitly. An
+/// ineligible `titleFieldId` is reported separately as a validation diagnostic; see
+/// `validate_title_field_id_eligibility`.
 fn resolve_heading_field_id(
     section: &DocumentSection,
     rt: Option<&srs_core::types::record_type::RecordType>,
     package: &Package,
 ) -> Option<String> {
-    section
-        .title_field_id
-        .clone()
-        .filter(|field_id| title_field_id_is_eligible(field_id, rt, package))
-        .or_else(|| rt.and_then(|t| package.effective_identity_field_id(t).ok().flatten()))
+    match &section.title_field_id {
+        Some(field_id) => {
+            title_field_id_is_eligible(field_id, rt, package).then(|| field_id.clone())
+        }
+        None => rt.and_then(|t| package.effective_identity_field_id(t).ok().flatten()),
+    }
 }
 
 /// `[N+1]`: whether `field_id` may serve as a `DocumentSection.titleFieldId`.
@@ -3240,9 +3245,13 @@ mod tests {
     /// (`contains("### first") || contains("### ")`) was satisfiable by any H3
     /// anywhere in the output, so it did not pin what its name claimed.
     ///
-    /// RFC-032 Revision 7 makes `effective-single` an explicit precondition, so
-    /// the ineligible `titleFieldId` now falls through to the Type's identity
-    /// field — here absent, so no record heading is emitted at all.
+    /// RFC-032 Revision 7 makes `effective-single` an explicit precondition, and
+    /// the owner has since settled the ineligibility consequence (srs PR #341):
+    /// the heading is **omitted**, not substituted from the Type's identity
+    /// field. This fixture's Type has no `identityFieldId` either, so omission
+    /// and fall-through happen to coincide here — see
+    /// `n1_ineligible_title_field_id_omits_heading_without_identity_fallback`
+    /// for the fixture that discriminates the two.
     #[test]
     fn n1_repeatable_title_field_id_emits_no_record_heading() {
         let repo_root = repeatable_fixture_root();
@@ -7547,6 +7556,7 @@ mod tests {
         String,
         String,
         String,
+        String,
     ) {
         use crate::package::Package;
         use crate::record_store::create_record;
@@ -7591,6 +7601,29 @@ mod tests {
             deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
+        // Ineligible under `[N+1]` (closed value domain), used to prove the owner's
+        // omit-not-substitute disposition (srs PR #341): a Type carrying both an
+        // ineligible authored `titleFieldId` *and* an `identityFieldId` must emit no
+        // heading at all, not fall through to `identityFieldId`.
+        let closed_field = Field {
+            schema: None,
+            id: "f-closed".to_string(),
+            namespace: "com.test".to_string(),
+            name: "closed".to_string(),
+            version: 1,
+            field_type: FieldType::closed(),
+            description: "Closed-domain field, ineligible as titleFieldId under [N+1]"
+                .to_string(),
+            instructions: None,
+            ai_guidance: AiGuidance::default(),
+            default_value: None,
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
+            deprecated_at: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
 
         let identity_type = RecordType {
             id: "t-identity".to_string(),
@@ -7613,6 +7646,15 @@ mod tests {
                     order: 1,
                     required: false,
                     display_label: Some("Other".to_string()),
+                    repeatable: false,
+                    min_items: None,
+                    max_items: None,
+                },
+                FieldAssignment {
+                    field_id: "f-closed".to_string(),
+                    order: 2,
+                    required: false,
+                    display_label: Some("Closed".to_string()),
                     repeatable: false,
                     min_items: None,
                     max_items: None,
@@ -7726,6 +7768,12 @@ mod tests {
             make_type_query_section("com.test/identity-type", None),
             "json",
         );
+        let dv_ineligible_title_with_identity = make_dv(
+            "dv-ineligible-title-with-identity",
+            "ineligible-title-with-identity",
+            make_type_query_section("com.test/identity-type", Some("f-closed".to_string())),
+            "markdown",
+        );
 
         let manifest = crate::manifest::Manifest {
             instance_index: vec![],
@@ -7744,11 +7792,17 @@ mod tests {
             namespace: "com.test".to_string(),
             name: "identity-package".to_string(),
             version: "1.0.0".to_string(),
-            fields: vec![heading_field, other_field],
+            fields: vec![heading_field, other_field, closed_field],
             record_types: vec![identity_type, plain_type],
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![dv_no_title, dv_with_title, dv_no_identity, dv_json],
+            document_views: vec![
+                dv_no_title,
+                dv_with_title,
+                dv_no_identity,
+                dv_json,
+                dv_ineligible_title_with_identity,
+            ],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
@@ -7774,6 +7828,13 @@ mod tests {
                 source: None,
                 edited_at: None,
             },
+            srs_core::types::record::FieldValue {
+                field_id: "f-closed".to_string(),
+                value: serde_json::json!("Closed Value"),
+                entries: None,
+                source: None,
+                edited_at: None,
+            },
         ];
         create_record(&store, "t-identity", 1, fv_identity, None, None).unwrap();
 
@@ -7792,12 +7853,13 @@ mod tests {
             "dv-title-takes-precedence".to_string(),
             "dv-no-identity".to_string(),
             "dv-identity-json".to_string(),
+            "dv-ineligible-title-with-identity".to_string(),
         )
     }
 
     #[test]
     fn identity_field_id_fallback_emits_heading_markdown() {
-        let (store, view_id, _, _, _) = make_identity_fallback_store();
+        let (store, view_id, _, _, _, _) = make_identity_fallback_store();
         let result = render_document_view(RenderDocumentViewOptions {
             store: &store,
             view_id: &view_id,
@@ -7829,7 +7891,7 @@ mod tests {
 
     #[test]
     fn title_field_id_takes_precedence_over_identity_field_id() {
-        let (store, _, view_id, _, _) = make_identity_fallback_store();
+        let (store, _, view_id, _, _, _) = make_identity_fallback_store();
         let result = render_document_view(RenderDocumentViewOptions {
             store: &store,
             view_id: &view_id,
@@ -7854,7 +7916,7 @@ mod tests {
 
     #[test]
     fn no_identity_field_id_no_title_field_id_no_heading() {
-        let (store, _, _, view_id, _) = make_identity_fallback_store();
+        let (store, _, _, view_id, _, _) = make_identity_fallback_store();
         let result = render_document_view(RenderDocumentViewOptions {
             store: &store,
             view_id: &view_id,
@@ -7896,7 +7958,7 @@ mod tests {
 
     #[test]
     fn identity_field_id_fallback_record_heading_json() {
-        let (store, _, _, _, view_id) = make_identity_fallback_store();
+        let (store, _, _, _, view_id, _) = make_identity_fallback_store();
         let result = render_document_view(RenderDocumentViewOptions {
             store: &store,
             view_id: &view_id,
@@ -7913,6 +7975,52 @@ mod tests {
             projection.sections[0].records[0].record_heading.as_deref(),
             Some("My Identity Heading"),
             "record_heading should be populated from identityFieldId fallback in JSON projection"
+        );
+    }
+
+    /// `[N+1]` ineligibility consequence, owner-decided (srs PR #341, 2026-08-02):
+    /// an authored-but-ineligible `titleFieldId` must **omit** the heading, and
+    /// must **not** fall through to the Type's `identityFieldId` even when one is
+    /// present. `n1_repeatable_title_field_id_emits_no_record_heading` cannot
+    /// discriminate this — its Type has no `identityFieldId`, so omission (b) and
+    /// fall-through (a) are indistinguishable there. This fixture's Type carries
+    /// both an ineligible `titleFieldId` (`f-closed`, closed value domain) *and*
+    /// `identityFieldId: f-head`, so the two readings diverge and only (b) survives.
+    #[test]
+    fn n1_ineligible_title_field_id_omits_heading_without_identity_fallback() {
+        let (store, _, _, _, _, view_id) = make_identity_fallback_store();
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: &view_id,
+            format: None,
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect("render should succeed");
+        assert!(
+            !result.rendered.contains("### "),
+            "an ineligible titleFieldId must omit the heading rather than falling \
+             through to identityFieldId; got: {}",
+            result.rendered
+        );
+        // `identityFieldId`'s value ("My Identity Heading") legitimately still
+        // appears as an ordinary body row — `f-head` is a ordinary required field.
+        // What must NOT happen is that value being *promoted to a heading*, which
+        // the "### " check above already rules out. Assert the negative directly
+        // against the substituted heading form, for a self-explaining failure.
+        assert!(
+            !result.rendered.contains("### My Identity Heading"),
+            "identityFieldId must NOT be substituted for an ineligible authored \
+             titleFieldId (rejects reading (a)); got: {}",
+            result.rendered
+        );
+        // Refusing it as a heading must not delete its value — same data-loss
+        // guard as the repeatable case.
+        assert!(
+            result.rendered.contains("Closed Value"),
+            "the ineligible title field's value must survive as an ordinary field row; got: {}",
+            result.rendered
         );
     }
 
