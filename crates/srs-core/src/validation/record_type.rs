@@ -176,7 +176,10 @@ fn evaluate_field_ordering(
     };
 
     // If field ID is absent from the package, skip silently — referential integrity checked elsewhere.
-    let Some(target_vtype) = field_types.get(target_field_id).map(|t| t.field_type.datatype) else {
+    let Some(target_vtype) = field_types
+        .get(target_field_id)
+        .map(|t| t.field_type.datatype)
+    else {
         return;
     };
     let Some(predicate_vtype) = field_types
@@ -446,7 +449,11 @@ mod tests {
     }
 
     /// The same, with one entry's `FieldType` and `repeatable` given explicitly.
-    fn ftm_one(id: &str, field_type: FieldType, repeatable: bool) -> HashMap<String, CrossFieldFieldType> {
+    fn ftm_one(
+        id: &str,
+        field_type: FieldType,
+        repeatable: bool,
+    ) -> HashMap<String, CrossFieldFieldType> {
         HashMap::from([(
             id.to_string(),
             CrossFieldFieldType {
@@ -667,7 +674,10 @@ mod tests {
             "f-end-date",
             CrossFieldRuleEffect::MustFollow,
         );
-        let ft = ftm(&[("f-end-date", Datatype::Date), ("f-start-date", Datatype::Date)]);
+        let ft = ftm(&[
+            ("f-end-date", Datatype::Date),
+            ("f-start-date", Datatype::Date),
+        ]);
         let errs = validate_cross_field_rules(&record, &[rule], &ft);
         assert!(errs.is_empty());
     }
@@ -684,7 +694,10 @@ mod tests {
             "f-end-date",
             CrossFieldRuleEffect::MustFollow,
         );
-        let ft = ftm(&[("f-end-date", Datatype::Date), ("f-start-date", Datatype::Date)]);
+        let ft = ftm(&[
+            ("f-end-date", Datatype::Date),
+            ("f-start-date", Datatype::Date),
+        ]);
         let errs = validate_cross_field_rules(&record, &[rule], &ft);
         assert_eq!(errs.len(), 1);
         assert!(matches!(errs[0], CoreError::CrossFieldOrdering { .. }));

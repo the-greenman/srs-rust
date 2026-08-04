@@ -372,7 +372,11 @@ mod tests {
 
         let fields = [
             field(TITLE, "title", FieldType::string()),
-            field(KEY, "key", FieldType::string().with_format(StringFormat::Uuid)),
+            field(
+                KEY,
+                "key",
+                FieldType::string().with_format(StringFormat::Uuid),
+            ),
             field(
                 CONTACT,
                 "contact",
@@ -395,7 +399,10 @@ mod tests {
 
         let rec = record(vec![
             fv(TITLE, serde_json::json!("Adopt consent")),
-            fv(KEY, serde_json::json!("00000000-0000-4000-8000-000000000001")),
+            fv(
+                KEY,
+                serde_json::json!("00000000-0000-4000-8000-000000000001"),
+            ),
             fv(CONTACT, serde_json::json!("someone@example.test")),
         ]);
         let segments = project_text(&rec, &index);
