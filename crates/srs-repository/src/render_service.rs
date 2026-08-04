@@ -2976,7 +2976,11 @@ fn resolve_heading_field_id(
 /// An unresolvable field id is left to referential-integrity validation rather than
 /// being silently swallowed here, so it is reported as eligible and fails downstream
 /// the same way it did before this rule existed.
-fn title_field_id_is_eligible(
+///
+/// `pub(crate)`: also consumed by [`crate::validation::validate_title_field_id_eligibility`]
+/// so the package-validation diagnostic and the render-time behaviour share one predicate
+/// (ADR-010 — no restated logic between the two call sites).
+pub(crate) fn title_field_id_is_eligible(
     field_id: &str,
     rt: Option<&srs_core::types::record_type::RecordType>,
     package: &Package,
@@ -7612,8 +7616,7 @@ mod tests {
             name: "closed".to_string(),
             version: 1,
             field_type: FieldType::closed(),
-            description: "Closed-domain field, ineligible as titleFieldId under [N+1]"
-                .to_string(),
+            description: "Closed-domain field, ineligible as titleFieldId under [N+1]".to_string(),
             instructions: None,
             ai_guidance: AiGuidance::default(),
             default_value: None,

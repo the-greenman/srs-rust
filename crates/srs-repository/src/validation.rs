@@ -1060,6 +1060,7 @@ pub fn validate_repository(
         validate_vocabulary_invariants(pkg, &mut diagnostics);
         validate_identity_field_invariants(pkg, &mut diagnostics);
         validate_field_type_conformance(pkg, &mut diagnostics);
+        validate_title_field_id_eligibility(pkg, &mut diagnostics);
     } else if package_for_tier2.is_none() {
         // Only fresh-load when no tier-2 records were processed (note-only repo).
         // When package_for_tier2 is Some(None), the load already failed; don't retry.
@@ -1067,6 +1068,7 @@ pub fn validate_repository(
             validate_vocabulary_invariants(&pkg, &mut diagnostics);
             validate_identity_field_invariants(&pkg, &mut diagnostics);
             validate_field_type_conformance(&pkg, &mut diagnostics);
+            validate_title_field_id_eligibility(&pkg, &mut diagnostics);
         }
     }
 
@@ -1583,6 +1585,95 @@ fn validate_field_type_conformance(
                 schema_id: None,
                 message: format!("RFC-032 conformance: {}", d.message),
             });
+        }
+    }
+}
+
+/// `[N+1]` / ext:views-l2 — the "diagnose" half of the two-plane disposition the
+/// owner settled for an ineligible `titleFieldId` (srs PR #341, 2026-08-02): the
+/// render plane omits the heading (see [`crate::render_service::resolve_heading_field_id`]);
+/// this is the validation plane, surfacing the misconfiguration rather than letting
+/// it disappear silently into a missing heading.
+///
+/// Candidate Types are only resolvable when the section source statically declares
+/// one — `TypeQuery.semanticObjectType` or `ContainerSubset.typeFilter`. Other
+/// section sources (`FixedInstances`, `RelationQuery`) declare no static type, so
+/// only the field-only half of the predicate (datatype/format/valueDomain) is
+/// checked, without an assignment-`repeatable` override — the same fallback
+/// `title_field_id_is_eligible` uses at render time when no Type is resolvable.
+fn validate_title_field_id_eligibility(
+    pkg: &crate::package::Package,
+    diagnostics: &mut Vec<ValidationDiagnostic>,
+) {
+    use srs_core::types::view::SectionSource;
+
+    for dv in &pkg.document_views {
+        for section in &dv.sections {
+            let Some(field_id) = &section.title_field_id else {
+                continue;
+            };
+            // Unresolvable field ids are referential-integrity's job, not this
+            // rule's — mirrors `title_field_id_is_eligible`'s own guard.
+            if pkg.resolve_field(field_id).is_none() {
+                continue;
+            }
+
+            let candidate_types: Vec<&srs_core::types::record_type::RecordType> =
+                match &section.source {
+                    SectionSource::TypeQuery {
+                        semantic_object_type,
+                        ..
+                    } => match semantic_object_type.split_once('/') {
+                        Some((namespace, name)) => pkg
+                            .record_types()
+                            .iter()
+                            .filter(|t| t.namespace == namespace && t.name == name)
+                            .collect(),
+                        None => Vec::new(),
+                    },
+                    SectionSource::ContainerSubset {
+                        type_filter: Some(keys),
+                        ..
+                    } => keys
+                        .iter()
+                        .filter_map(|key| key.split_once('/'))
+                        .flat_map(|(namespace, name)| {
+                            pkg.record_types()
+                                .iter()
+                                .filter(move |t| t.namespace == namespace && t.name == name)
+                        })
+                        .collect(),
+                    _ => Vec::new(),
+                };
+
+            if candidate_types.is_empty() {
+                if !crate::render_service::title_field_id_is_eligible(field_id, None, pkg) {
+                    diagnostics.push(ValidationDiagnostic {
+                        severity: DiagnosticSeverity::Warning,
+                        relative_path: "package/package.json".to_string(),
+                        schema_id: None,
+                        message: format!(
+                            "RFC-032 Revision 7 ([N+1]): documentView '{}' section '{}' titleFieldId '{}' is not eligible (must be an effective-single, open-domain, prose-formatted string field); the heading will be omitted at render time",
+                            dv.id, section.section_id, field_id
+                        ),
+                    });
+                }
+                continue;
+            }
+
+            for rt in candidate_types {
+                if !crate::render_service::title_field_id_is_eligible(field_id, Some(rt), pkg) {
+                    diagnostics.push(ValidationDiagnostic {
+                        severity: DiagnosticSeverity::Warning,
+                        relative_path: "package/package.json".to_string(),
+                        schema_id: None,
+                        message: format!(
+                            "RFC-032 Revision 7 ([N+1]): documentView '{}' section '{}' titleFieldId '{}' is not eligible for type '{}/{}@{}' (must be an effective-single, open-domain, prose-formatted string field); the heading will be omitted at render time",
+                            dv.id, section.section_id, field_id, rt.namespace, rt.name, rt.version
+                        ),
+                    });
+                }
+            }
         }
     }
 }
@@ -3630,6 +3721,197 @@ mod tests {
                 .iter()
                 .any(|d| d.message.contains("I-63") && d.severity == DiagnosticSeverity::Warning),
             "expected an I-63 warning, got {:?}",
+            report.diagnostics
+        );
+    }
+
+    // ── `[N+1]` / ext:views-l2 titleFieldId eligibility diagnostic ───────────
+
+    #[test]
+    fn validate_flags_ineligible_title_field_id() {
+        // Owner decision (srs PR #341, 2026-08-02): an authored-but-ineligible
+        // titleFieldId gets a validation diagnostic (this test), on top of the
+        // render-time heading omission covered separately in render_service.rs.
+        // CC-33: no first-party repo has one of these, so this must be constructed.
+        let temp = TempDir::new().unwrap();
+        write_json(temp.path(), "manifest.json", &minimal_manifest(json!([])));
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                "id": "00000000-0000-4000-8000-000000000010",
+                "namespace": "com.test",
+                "name": "test-package",
+                "title": "Test Package",
+                "description": "test package",
+                "status": "active",
+                "version": "1.0.0",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "fields": ["fields/f1.json"],
+                "types": ["types/t1.json"],
+                "views": [],
+                "documentViews": ["document-views/dv.json"]
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/fields/f1.json",
+            &json!({
+                "id": "00000000-0000-4000-8000-0000000000f1",
+                "namespace": "com.test",
+                "name": "closed-field",
+                "version": 1,
+                // `valueDomain: closed` fails `[N+1]`'s allow-list — the predicate
+                // requires absent/open.
+                "fieldType": {"datatype": "string", "valueDomain": "closed"},
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/types/t1.json",
+            &json!({
+                "id": "00000000-0000-4000-8000-0000000000e1",
+                "namespace": "com.test",
+                "name": "test-type",
+                "version": 1,
+                "description": "Test type",
+                "fields": [{
+                    "fieldId": "00000000-0000-4000-8000-0000000000f1",
+                    "order": 0,
+                    "required": false
+                }],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/document-views/dv.json",
+            &json!({
+                "id": "00000000-0000-4000-8000-0000000000d2",
+                "namespace": "com.test",
+                "name": "dv",
+                "version": 1,
+                "description": "test doc view",
+                "sections": [{
+                    "sectionId": "s1",
+                    "order": 0,
+                    "source": {
+                        "type": "type-query",
+                        "semanticObjectType": "com.test/test-type"
+                    },
+                    "titleFieldId": "00000000-0000-4000-8000-0000000000f1"
+                }],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        assert!(
+            report.is_ok(),
+            "[N+1] is advisory; repo must stay ok: {:?}",
+            report.diagnostics
+        );
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("[N+1]")
+                    && d.message.contains("test-type")
+                    && d.severity == DiagnosticSeverity::Warning),
+            "expected an [N+1] warning naming the resolved type, got {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn validate_silent_for_eligible_title_field_id() {
+        // Same shape as `validate_flags_ineligible_title_field_id` but the
+        // titleFieldId is an ordinary open-domain string field — must not fire.
+        let temp = TempDir::new().unwrap();
+        write_json(temp.path(), "manifest.json", &minimal_manifest(json!([])));
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                "id": "00000000-0000-4000-8000-000000000010",
+                "namespace": "com.test",
+                "name": "test-package",
+                "title": "Test Package",
+                "description": "test package",
+                "status": "active",
+                "version": "1.0.0",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "fields": ["fields/f1.json"],
+                "types": ["types/t1.json"],
+                "views": [],
+                "documentViews": ["document-views/dv.json"]
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/fields/f1.json",
+            &json!({
+                "id": "00000000-0000-4000-8000-0000000000f1",
+                "namespace": "com.test",
+                "name": "open-field",
+                "version": 1,
+                "fieldType": {"datatype": "string"},
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/types/t1.json",
+            &json!({
+                "id": "00000000-0000-4000-8000-0000000000e1",
+                "namespace": "com.test",
+                "name": "test-type",
+                "version": 1,
+                "description": "Test type",
+                "fields": [{
+                    "fieldId": "00000000-0000-4000-8000-0000000000f1",
+                    "order": 0,
+                    "required": false
+                }],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/document-views/dv.json",
+            &json!({
+                "id": "00000000-0000-4000-8000-0000000000d2",
+                "namespace": "com.test",
+                "name": "dv",
+                "version": 1,
+                "description": "test doc view",
+                "sections": [{
+                    "sectionId": "s1",
+                    "order": 0,
+                    "source": {
+                        "type": "type-query",
+                        "semanticObjectType": "com.test/test-type"
+                    },
+                    "titleFieldId": "00000000-0000-4000-8000-0000000000f1"
+                }],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        assert!(
+            !report
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("[N+1]")),
+            "an eligible titleFieldId must not produce an [N+1] diagnostic, got {:?}",
             report.diagnostics
         );
     }
