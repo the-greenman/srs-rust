@@ -182,3 +182,66 @@ is inverted.
 
 - The erratum's predicate table in the issue body is authoritative and complete. Any question it
   does not settle stops implementation and goes to the owner (decision protocol), not to inference.
+
+---
+
+## Addendum: `[N+1]` ineligibility consequence, and I-94 Type-level enforcement
+
+The initial pass (`74cbf18`..`76e993f`) implemented `[N+1]`'s eligibility predicate but left its
+*consequence* an open question — the erratum states the predicate, not what happens when an
+authored `titleFieldId` fails it. Spec research returned `UNRESOLVED`; the owner then settled it
+in [srs PR #341](https://github.com/the-greenman/srs/pull/341) (merged 2026-08-02). This addendum
+covers the rework that decision requires, plus the I-94 Type-level gap the owner separately
+confirmed as ordinary implementation work (not an open principle).
+
+### Phase 4: `[N+1]` consequence — omit, don't substitute; diagnose
+
+**Goal:** implement the owner's two-plane disposition exactly, and prove it with a fixture that
+can actually discriminate it from the rejected reading.
+
+- [x] `resolve_heading_field_id` (render_service.rs): an **authored** `titleFieldId` that fails
+      eligibility now omits the heading — it no longer falls through to the Type's
+      `identityFieldId`. Absence still falls through (RFC-020 [N+37]'s literal scope; unaffected).
+- [x] Negative test with a Type carrying both an ineligible `titleFieldId` *and* an
+      `identityFieldId` (`n1_ineligible_title_field_id_omits_heading_without_identity_fallback`).
+      The original fixture's Type has no `identityFieldId`, so it cannot tell omission and
+      fall-through apart — this one can.
+- [x] New validation diagnostic: `validate_title_field_id_eligibility` (validation.rs), the
+      "diagnose" half. `Warning` severity, matching the existing I-63/I-64 package-validation style
+      (advisory; a bad heading degrades gracefully, it does not invalidate the repository).
+      Candidate Types resolve from `TypeQuery.semanticObjectType` / `ContainerSubset.typeFilter`;
+      other section sources fall back to a field-only check (no assignment-`repeatable` context
+      available), mirroring the render-time fallback for an unresolvable Type.
+- [x] `title_field_id_is_eligible` made `pub(crate)` so validation and render share the one
+      predicate rather than restating it (ADR-010).
+
+### Phase 5: I-94 Type-level enforcement
+
+**Goal:** close the gap the owner confirmed as ordinary work — I-92/94/95/96 all say "MUST be
+reported as a Type-level validation error", but every existing call site only runs
+`validate_cross_field_rules` against an actual Record, so a Type with a misconfigured rule and
+zero Records was never flagged.
+
+- [x] `validate_cross_field_rules_for_type` (srs-core, `validation/record_type.rs`): runs the
+      existing `evaluate_*` functions against a field-value-less phantom Record of the Type, then
+      filters to `CrossFieldRuleMisconfigured` only. Every value-comparison guard in the three
+      `evaluate_*` bodies short-circuits on a missing field value, so no other error variant can
+      surface from a phantom record — proven by dedicated tests, not just asserted.
+  - This shape turned out tractable enough to fold in rather than deferring: it reuses the
+    existing evaluators as-is (no logic duplicated or forked) and needed no signature change.
+- [x] `validate_cross_field_rule_configuration` (srs-repository, validation.rs) wraps it as an
+      `Error`-severity package diagnostic — matching the invariants' "MUST" — run once per Type,
+      independent of record count.
+- [x] Constructed negative/positive tests at both layers (srs-core unit tests with no `Record`
+      constructed anywhere; srs-repository integration tests over a zero-record `FileStore` repo).
+
+### Gates re-run after the addendum
+
+| Gate | Result |
+|---|---|
+| `cargo fmt --check` | clean (CC-50 — the first pass on this branch never ran it) |
+| `cargo test` (full workspace) | green |
+| `cargo clippy --all-targets -- -D warnings` | exit 0 |
+| `cargo test --test payload_contracts` | 114 passed |
+| `srs repo validate --repo ../srs/srs` | 0 errors, 38 warnings (unchanged from baseline) |
+| All 6 spec-repo document views, rendered with this branch vs. `origin/master` | byte-identical |

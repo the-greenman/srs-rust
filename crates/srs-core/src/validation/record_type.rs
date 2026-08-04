@@ -103,6 +103,53 @@ pub fn validate_cross_field_rules(
     errors
 }
 
+/// I-92/94/95/96 (ext:cross-field-validation) all say a misconfigured rule "MUST be
+/// reported as a Type-level validation error". [`validate_cross_field_rules`] above is
+/// record-driven — every call site enforces it while writing or validating a Record —
+/// so a Type carrying a misconfigured rule but owning zero Records is never flagged.
+/// That gap is narrower than the invariants' text.
+///
+/// Rather than duplicating the three `evaluate_*` bodies, this runs them against a
+/// field-value-less phantom Record of the Type. Every value-comparison guard in
+/// `evaluate_conditional_required` / `evaluate_field_ordering` / `evaluate_mutual_exclusion`
+/// short-circuits (`return`, or `populated_count` staying `0`) the moment a field value is
+/// absent, so only the structural/eligibility [`CoreError::CrossFieldRuleMisconfigured`]
+/// diagnostics can surface from a phantom record — never a spurious
+/// `CrossFieldConditionalRequired` / `CrossFieldOrdering` / `CrossFieldMutualExclusion`
+/// violation, which is why the result is filtered down to that one variant rather than
+/// returned as-is.
+pub fn validate_cross_field_rules_for_type(
+    record_type: &RecordType,
+    fields: &[Field],
+) -> Vec<CoreError> {
+    let Some(rules) = record_type
+        .validation_rules
+        .as_ref()
+        .filter(|r| !r.is_empty())
+    else {
+        return Vec::new();
+    };
+    let field_types = cross_field_type_map(fields, record_type);
+    let phantom = Record {
+        instance_id: String::new(),
+        type_id: record_type.id.clone(),
+        type_version: record_type.version,
+        type_namespace: record_type.namespace.clone(),
+        type_name: record_type.name.clone(),
+        field_values: Vec::new(),
+        group_values: None,
+        lifecycle_state: None,
+        tags: None,
+        created_at: None,
+        updated_at: None,
+        extra: HashMap::new(),
+    };
+    validate_cross_field_rules(&phantom, rules, &field_types)
+        .into_iter()
+        .filter(|e| matches!(e, CoreError::CrossFieldRuleMisconfigured { .. }))
+        .collect()
+}
+
 /// Returns the non-empty string value for the field with `field_id` in the record, or None.
 fn field_value_str<'a>(record: &'a Record, field_id: &str) -> Option<&'a str> {
     record
@@ -633,6 +680,86 @@ mod tests {
         assert!(!map["f-repeat"]
             .field_type
             .is_conditional_required_eligible(map["f-repeat"].repeatable));
+    }
+
+    /// I-92/94/95/96: a Type carrying a misconfigured rule must be flagged even
+    /// with **zero Records** — the gap `validate_cross_field_rules_for_type` exists
+    /// to close, since every other call site only runs against an actual Record.
+    /// No record is constructed anywhere in this test.
+    #[test]
+    fn i94_type_level_flags_ineligible_predicate_field_with_no_records() {
+        let fields: Vec<Field> = ["f-repeat", "f-target"]
+            .iter()
+            .map(|id| {
+                serde_json::from_value(serde_json::json!({
+                    "id": id, "namespace": "com.test", "name": id, "version": 1,
+                    "description": "d", "fieldType": { "datatype": "string" },
+                    "createdAt": "2026-01-01T00:00:00Z",
+                }))
+                .expect("field fixture should deserialize")
+            })
+            .collect();
+        let rt: RecordType = serde_json::from_value(serde_json::json!({
+            "id": "t-1", "namespace": "com.test", "name": "t", "version": 1,
+            "description": "d",
+            "fields": [
+                { "fieldId": "f-repeat", "order": 0, "required": false, "repeatable": true },
+                { "fieldId": "f-target", "order": 1, "required": false },
+            ],
+            "validationRules": [{
+                "type": "conditional-required",
+                "predicateFieldId": "f-repeat",
+                "predicateValue": "yes",
+                "targetFieldId": "f-target",
+            }],
+            "createdAt": "2026-01-01T00:00:00Z",
+        }))
+        .expect("type fixture should deserialize");
+
+        let errs = validate_cross_field_rules_for_type(&rt, &fields);
+        assert!(
+            matches!(
+                &errs[..],
+                [CoreError::CrossFieldRuleMisconfigured { reason }]
+                    if reason.contains("predicate field")
+            ),
+            "expected a Type-level CrossFieldRuleMisconfigured with no Record involved, got: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn i94_type_level_silent_for_well_configured_rule_with_no_records() {
+        // Same shape, eligible predicate field — the Type-level pass must not fire
+        // on a well-formed rule just because there are no Records to check it against.
+        let fields: Vec<Field> = ["f-predicate", "f-target"]
+            .iter()
+            .map(|id| {
+                serde_json::from_value(serde_json::json!({
+                    "id": id, "namespace": "com.test", "name": id, "version": 1,
+                    "description": "d", "fieldType": { "datatype": "string" },
+                    "createdAt": "2026-01-01T00:00:00Z",
+                }))
+                .expect("field fixture should deserialize")
+            })
+            .collect();
+        let rt: RecordType = serde_json::from_value(serde_json::json!({
+            "id": "t-1", "namespace": "com.test", "name": "t", "version": 1,
+            "description": "d",
+            "fields": [
+                { "fieldId": "f-predicate", "order": 0, "required": false },
+                { "fieldId": "f-target", "order": 1, "required": false },
+            ],
+            "validationRules": [{
+                "type": "conditional-required",
+                "predicateFieldId": "f-predicate",
+                "predicateValue": "yes",
+                "targetFieldId": "f-target",
+            }],
+            "createdAt": "2026-01-01T00:00:00Z",
+        }))
+        .expect("type fixture should deserialize");
+
+        assert!(validate_cross_field_rules_for_type(&rt, &fields).is_empty());
     }
 
     #[test]

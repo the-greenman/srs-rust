@@ -1061,6 +1061,7 @@ pub fn validate_repository(
         validate_identity_field_invariants(pkg, &mut diagnostics);
         validate_field_type_conformance(pkg, &mut diagnostics);
         validate_title_field_id_eligibility(pkg, &mut diagnostics);
+        validate_cross_field_rule_configuration(pkg, &mut diagnostics);
     } else if package_for_tier2.is_none() {
         // Only fresh-load when no tier-2 records were processed (note-only repo).
         // When package_for_tier2 is Some(None), the load already failed; don't retry.
@@ -1069,6 +1070,7 @@ pub fn validate_repository(
             validate_identity_field_invariants(&pkg, &mut diagnostics);
             validate_field_type_conformance(&pkg, &mut diagnostics);
             validate_title_field_id_eligibility(&pkg, &mut diagnostics);
+            validate_cross_field_rule_configuration(&pkg, &mut diagnostics);
         }
     }
 
@@ -1584,6 +1586,32 @@ fn validate_field_type_conformance(
                 relative_path: "package/package.json".to_string(),
                 schema_id: None,
                 message: format!("RFC-032 conformance: {}", d.message),
+            });
+        }
+    }
+}
+
+/// I-92/94/95/96 (ext:cross-field-validation): "MUST be reported as a Type-level
+/// validation error". `validate_cross_field_rules` (used at record write/validate time,
+/// `record_store.rs`/this file's Tier-2 record loop) only ever runs against an actual
+/// Record, so a Type carrying a misconfigured rule and zero Records was never flagged —
+/// narrower than the invariants' text. This closes that gap at the Type level, independent
+/// of record count. `Error`, matching the invariants' "MUST".
+fn validate_cross_field_rule_configuration(
+    pkg: &crate::package::Package,
+    diagnostics: &mut Vec<ValidationDiagnostic>,
+) {
+    use srs_core::validation::record_type::validate_cross_field_rules_for_type;
+    for rt in pkg.record_types() {
+        for err in validate_cross_field_rules_for_type(rt, &pkg.fields) {
+            diagnostics.push(ValidationDiagnostic {
+                severity: DiagnosticSeverity::Error,
+                relative_path: "package/package.json".to_string(),
+                schema_id: None,
+                message: format!(
+                    "ext:cross-field-validation (I-92/94/95/96): type '{}/{}@{}' {}",
+                    rt.namespace, rt.name, rt.version, err
+                ),
             });
         }
     }
@@ -3912,6 +3940,194 @@ mod tests {
                 .iter()
                 .any(|d| d.message.contains("[N+1]")),
             "an eligible titleFieldId must not produce an [N+1] diagnostic, got {:?}",
+            report.diagnostics
+        );
+    }
+
+    // ── I-92/94/95/96 cross-field-validation, Type-level enforcement ─────────
+
+    #[test]
+    fn validate_flags_misconfigured_cross_field_rule_with_zero_records() {
+        // Owner-confirmed ordinary implementation work (issue #790 dispatch): I-94's
+        // predicate-field eligibility is a Type-level invariant, and per-record
+        // enforcement alone never sees a Type with zero Records. No record is
+        // written anywhere in this fixture — the repository has none at all.
+        let temp = TempDir::new().unwrap();
+        write_json(temp.path(), "manifest.json", &minimal_manifest(json!([])));
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                "id": "00000000-0000-4000-8000-000000000010",
+                "namespace": "com.test",
+                "name": "test-package",
+                "title": "Test Package",
+                "description": "test package",
+                "status": "active",
+                "version": "1.0.0",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "fields": ["fields/f1.json", "fields/f2.json"],
+                "types": ["types/t1.json"],
+                "views": [],
+                "documentViews": []
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/fields/f1.json",
+            &json!({
+                "id": "00000000-0000-4000-8000-0000000000f1",
+                "namespace": "com.test",
+                "name": "repeat-field",
+                "version": 1,
+                "fieldType": {"datatype": "string"},
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/fields/f2.json",
+            &json!({
+                "id": "00000000-0000-4000-8000-0000000000f2",
+                "namespace": "com.test",
+                "name": "target-field",
+                "version": 1,
+                "fieldType": {"datatype": "string"},
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/types/t1.json",
+            &json!({
+                "id": "00000000-0000-4000-8000-0000000000e1",
+                "namespace": "com.test",
+                "name": "test-type",
+                "version": 1,
+                "description": "Test type",
+                "fields": [
+                    {"fieldId": "00000000-0000-4000-8000-0000000000f1", "order": 0, "required": false, "repeatable": true},
+                    {"fieldId": "00000000-0000-4000-8000-0000000000f2", "order": 1, "required": false}
+                ],
+                // I-94: a repeatable predicate field is not effective-single —
+                // ineligible as a conditional-required predicate.
+                "validationRules": [{
+                    "type": "conditional-required",
+                    "predicateFieldId": "00000000-0000-4000-8000-0000000000f1",
+                    "predicateValue": "yes",
+                    "targetFieldId": "00000000-0000-4000-8000-0000000000f2"
+                }],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        assert!(
+            !report.is_ok(),
+            "I-94 misconfiguration is a MUST — expected the repository to be invalid, got {:?}",
+            report.diagnostics
+        );
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("I-92/94/95/96")
+                    && d.message.contains("test-type")
+                    && d.severity == DiagnosticSeverity::Error),
+            "expected an I-92/94/95/96 error naming the Type, got {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn validate_silent_for_well_configured_cross_field_rule_with_zero_records() {
+        // Same shape, eligible predicate field — the Type-level pass must not
+        // fire on a well-formed rule just because it owns zero Records.
+        let temp = TempDir::new().unwrap();
+        write_json(temp.path(), "manifest.json", &minimal_manifest(json!([])));
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                "id": "00000000-0000-4000-8000-000000000010",
+                "namespace": "com.test",
+                "name": "test-package",
+                "title": "Test Package",
+                "description": "test package",
+                "status": "active",
+                "version": "1.0.0",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "fields": ["fields/f1.json", "fields/f2.json"],
+                "types": ["types/t1.json"],
+                "views": [],
+                "documentViews": []
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/fields/f1.json",
+            &json!({
+                "id": "00000000-0000-4000-8000-0000000000f1",
+                "namespace": "com.test",
+                "name": "predicate-field",
+                "version": 1,
+                "fieldType": {"datatype": "string"},
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/fields/f2.json",
+            &json!({
+                "id": "00000000-0000-4000-8000-0000000000f2",
+                "namespace": "com.test",
+                "name": "target-field",
+                "version": 1,
+                "fieldType": {"datatype": "string"},
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/types/t1.json",
+            &json!({
+                "id": "00000000-0000-4000-8000-0000000000e1",
+                "namespace": "com.test",
+                "name": "test-type",
+                "version": 1,
+                "description": "Test type",
+                "fields": [
+                    {"fieldId": "00000000-0000-4000-8000-0000000000f1", "order": 0, "required": false},
+                    {"fieldId": "00000000-0000-4000-8000-0000000000f2", "order": 1, "required": false}
+                ],
+                "validationRules": [{
+                    "type": "conditional-required",
+                    "predicateFieldId": "00000000-0000-4000-8000-0000000000f1",
+                    "predicateValue": "yes",
+                    "targetFieldId": "00000000-0000-4000-8000-0000000000f2"
+                }],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        assert!(
+            report.is_ok(),
+            "a well-configured rule must not be flagged merely for owning zero records, got {:?}",
+            report.diagnostics
+        );
+        assert!(
+            !report
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("I-92/94/95/96")),
+            "expected no I-92/94/95/96 diagnostic, got {:?}",
             report.diagnostics
         );
     }
