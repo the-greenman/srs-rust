@@ -1319,7 +1319,12 @@ mod tests {
 
     #[test]
     fn i120_r8_text_projection_admits_the_prose_and_uri_formats() {
-        for admitted in [None, Some(StringFormat::Plain), Some(StringFormat::Markdown), Some(StringFormat::Uri)] {
+        for admitted in [
+            None,
+            Some(StringFormat::Plain),
+            Some(StringFormat::Markdown),
+            Some(StringFormat::Uri),
+        ] {
             let mut ft = FieldType::string();
             ft.format = admitted;
             assert!(
@@ -1338,7 +1343,9 @@ mod tests {
         // Eligible as a single, ineligible the moment either cardinality
         // mechanism makes it repeat.
         assert!(FieldType::string().is_conditional_required_eligible(false));
-        assert!(!FieldType::string().into_list().is_conditional_required_eligible(false));
+        assert!(!FieldType::string()
+            .into_list()
+            .is_conditional_required_eligible(false));
         assert!(!FieldType::string().is_conditional_required_eligible(true));
     }
 
@@ -1381,7 +1388,9 @@ mod tests {
                 "format {rejected:?} must not yield a CSS class"
             );
         }
-        assert!(!FieldType::string().into_list().is_theme_css_class_eligible(false));
+        assert!(!FieldType::string()
+            .into_list()
+            .is_theme_css_class_eligible(false));
         assert!(!FieldType::string().is_theme_css_class_eligible(true));
     }
 
@@ -1410,7 +1419,9 @@ mod tests {
         // The shape the `title_field_id_emits_record_heading` fixture used to
         // assert *worked*: a repeatable title field.
         assert!(!FieldType::string().is_title_field_eligible(true));
-        assert!(!FieldType::string().into_list().is_title_field_eligible(false));
+        assert!(!FieldType::string()
+            .into_list()
+            .is_title_field_eligible(false));
         for rejected in [StringFormat::Uri, StringFormat::Uuid, StringFormat::Email] {
             assert!(
                 !FieldType::string()

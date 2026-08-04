@@ -1157,7 +1157,9 @@ fn css_classes_for_record(
     if let Some(theme) = ctx.active_theme.as_ref() {
         if let Some(field_ids) = &theme.css_class_fields {
             // `[T-9]` eligibility is per-assignment, so it needs the record's Type.
-            let record_type = ctx.package.resolve_type(&record.type_id, record.type_version);
+            let record_type = ctx
+                .package
+                .resolve_type(&record.type_id, record.type_version);
             for field_id in field_ids {
                 if let Some(field) = ctx.package.resolve_field(field_id) {
                     // `[T-9]` / ext:themes-l1: only an effective-single, prose
@@ -3804,19 +3806,45 @@ mod tests {
         // Each field stores a JSON string, so the pre-rule `as_str()` test
         // admitted every one of them. Only `status` and `note` are eligible.
         let fields = vec![
-            field("f-status", "status", serde_json::json!({ "datatype": "string" })),
-            field("f-note", "note", serde_json::json!({ "datatype": "string", "format": "markdown" })),
+            field(
+                "f-status",
+                "status",
+                serde_json::json!({ "datatype": "string" }),
+            ),
+            field(
+                "f-note",
+                "note",
+                serde_json::json!({ "datatype": "string", "format": "markdown" }),
+            ),
             field("f-due", "due", serde_json::json!({ "datatype": "date" })),
-            field("f-home", "home", serde_json::json!({ "datatype": "string", "format": "uri" })),
-            field("f-key", "key", serde_json::json!({ "datatype": "string", "format": "uuid" })),
-            field("f-contact", "contact", serde_json::json!({ "datatype": "string", "format": "email" })),
-            field("f-labels", "labels", serde_json::json!({ "datatype": "string", "cardinality": "list" })),
+            field(
+                "f-home",
+                "home",
+                serde_json::json!({ "datatype": "string", "format": "uri" }),
+            ),
+            field(
+                "f-key",
+                "key",
+                serde_json::json!({ "datatype": "string", "format": "uuid" }),
+            ),
+            field(
+                "f-contact",
+                "contact",
+                serde_json::json!({ "datatype": "string", "format": "email" }),
+            ),
+            field(
+                "f-labels",
+                "labels",
+                serde_json::json!({ "datatype": "string", "cardinality": "list" }),
+            ),
             // Single by `cardinality`, made repeatable by the assignment below.
-            field("f-alias", "alias", serde_json::json!({ "datatype": "string" })),
+            field(
+                "f-alias",
+                "alias",
+                serde_json::json!({ "datatype": "string" }),
+            ),
         ];
-        let assignment = |i: usize, id: &str, repeatable: bool| {
-            serde_json::json!({ "fieldId": id, "order": i, "required": false, "repeatable": repeatable })
-        };
+        let assignment = |i: usize, id: &str, repeatable: bool| serde_json::json!({ "fieldId": id, "order": i, "required": false, "repeatable": repeatable });
         let record_type: RecordType = serde_json::from_value(serde_json::json!({
             "id": "t-task", "namespace": "com.test", "name": "task", "version": 1,
             "description": "d",

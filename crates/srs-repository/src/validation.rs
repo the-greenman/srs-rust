@@ -683,8 +683,7 @@ pub fn validate_repository(
                                     // `FieldAssignment.repeatable` half of
                                     // `effective-single` is per-assignment, so
                                     // the same Field can differ between Types.
-                                    let ftype_map =
-                                        cross_field_type_map(&package.fields, rt);
+                                    let ftype_map = cross_field_type_map(&package.fields, rt);
                                     let cfr_errors =
                                         validate_cross_field_rules(&record, rules, &ftype_map);
                                     for err in cfr_errors {
