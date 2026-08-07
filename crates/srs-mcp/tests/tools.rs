@@ -487,7 +487,10 @@ async fn tool_note_create_and_find_roundtrip() {
         "expected exactly the note: {tier0_structured}"
     );
     assert_eq!(tier0_hits[0]["instanceId"].as_str(), Some(note_id.as_str()));
-    assert!(tier0_structured["diagnostics"].as_array().unwrap().is_empty());
+    assert!(tier0_structured["diagnostics"]
+        .as_array()
+        .unwrap()
+        .is_empty());
 
     client.cancel().await.unwrap();
 }

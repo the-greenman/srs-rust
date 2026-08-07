@@ -176,7 +176,21 @@ fn record_item(
     let record = &member["record"];
     let type_id = record["typeId"].as_str().unwrap_or("").to_string();
     let type_version = record["typeVersion"].as_u64().unwrap_or(1);
-    let schema = load_type_schema(repo, &type_id, type_version, schemas)?;
+    // Tier 0 (Note) / Tier 1 (TypedRecord) container members carry no type
+    // binding — `container resolve-view` returns `record: null` for them
+    // (ADR-019/020) — so there is no schema to load or fieldValues to shape.
+    let detail_rows = if type_id.is_empty() {
+        Vec::new()
+    } else {
+        let schema = load_type_schema(repo, &type_id, type_version, schemas)?;
+        detail_rows(
+            &schema,
+            record["fieldValues"]
+                .as_array()
+                .map(Vec::as_slice)
+                .unwrap_or(&[]),
+        )
+    };
     Ok(RecordItem {
         instance_id: member["instanceId"].as_str().unwrap_or("").to_string(),
         label: member["displayLabel"]
@@ -195,13 +209,7 @@ fn record_item(
         created_at: record["createdAt"].as_str().map(String::from),
         type_id,
         type_version,
-        detail_rows: detail_rows(
-            &schema,
-            record["fieldValues"]
-                .as_array()
-                .map(Vec::as_slice)
-                .unwrap_or(&[]),
-        ),
+        detail_rows,
         record: record.clone(),
     })
 }
