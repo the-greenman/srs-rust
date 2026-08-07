@@ -106,7 +106,7 @@ scripts/sync-schemas-from-spec.sh          # copies *.json + regenerates SHA256S
 
 Verify everything is in sync before committing:
 ```bash
-bash scripts/check-schema-sync.sh          # checks srs-rust and srs-vscode in one pass
+bash scripts/check-schema-sync.sh          # checks srs-rust always; srs-vscode when its tree is present (--require-vscode to make that mandatory)
 ```
 
 **Never regenerate SHA256SUMS manually.** The sync script uses `sha256sum *.json | sort` (sorted by hash digest). The drift check validates with the exact same command — using `sort -k2` or any other variant will cause "SHA256SUMS mismatch" in CI. Always go through `sync-schemas-from-spec.sh`.
@@ -123,7 +123,9 @@ git add schemas/2.0/
 git commit -m "chore(schema): sync schemas from spec (RFC-NNN)"
 ```
 
-**Multi-repo merge order:** the srs-rust and srs-vscode schema mirror PRs must be merged **before** the corresponding `srs` spec PR — the release-drift CI in `srs` checks that the artifact copies are up to date at HEAD. Open both mirror PRs at the same time as the spec PR.
+**Multi-repo merge order:** there is no merge order that avoids a red CI window, and none is required. `srs`'s `check-release-drift` (`srs/scripts/check-release-drift.mjs`) never inspects a sibling repository — it only validates state inside `srs` itself, so a spec PR goes green on its own regardless of mirror state. Meanwhile both mirror-facing drift jobs (`srs-rust/.github/workflows/ci.yml`'s `schema-drift` job and `schema-drift.yml`) check out `srs` with no `ref:`, so they always resolve to `srs`'s default branch — a mirror PR opened before the spec PR merges is red by construction, and one opened after leaves `srs-rust` red until it merges. A green spec PR is never evidence the mirrors are safe.
+
+Treat the spec change and its mirror as **one landing executed close together**, not an ordered pair: pre-stage the mirror branch while the spec PR is still open (accepting the red-by-construction drift job as expected), then merge the mirror immediately after the spec PR merges.
 
 CI enforces correctness via the `schema-drift` job (`scripts/check-schema-drift.sh ../srs`). If it fails locally, running `sync-schemas-from-spec.sh` will fix it.
 
