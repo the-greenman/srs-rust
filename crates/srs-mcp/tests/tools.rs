@@ -413,13 +413,14 @@ async fn tool_note_create_and_find_roundtrip() {
     )
     .await;
     assert_eq!(created.is_error, Some(false));
-    assert!(!created.structured_content.as_ref().unwrap()["instanceId"]
+    let note_id = created.structured_content.as_ref().unwrap()["instanceId"]
         .as_str()
         .unwrap()
-        .is_empty());
+        .to_string();
+    assert!(!note_id.is_empty());
 
-    // ...but discovery serves Tier 2 (Phase 1 of ext:discovery), so the
-    // find roundtrip goes through a typed record with matching content.
+    // ...and discovery spans all three tiers (srs-rust#797), so a Tier-2 record
+    // with matching content is found alongside the note.
     let record = call(
         &client,
         "record_create",
@@ -464,8 +465,14 @@ async fn tool_note_create_and_find_roundtrip() {
             .any(|h| h["instanceId"].as_str() == Some(record_id.as_str())),
         "created record should be found: {structured}"
     );
+    assert!(
+        hits.iter()
+            .any(|h| h["instanceId"].as_str() == Some(note_id.as_str())),
+        "created note should also be found (Tier 0 discovery, srs-rust#797): {structured}"
+    );
 
-    // Tier-0 discovery is deferred by the service: diagnostic + zero hits.
+    // Tier-0 discovery now serves Notes: the same content match, scoped to tier 0,
+    // finds only the note.
     let tier0 = call(
         &client,
         "find",
@@ -473,11 +480,14 @@ async fn tool_note_create_and_find_roundtrip() {
     )
     .await;
     let tier0_structured = tier0.structured_content.as_ref().unwrap();
-    assert_eq!(tier0_structured["total"], 0);
-    assert!(!tier0_structured["diagnostics"]
-        .as_array()
-        .unwrap()
-        .is_empty());
+    let tier0_hits = tier0_structured["hits"].as_array().unwrap();
+    assert_eq!(
+        tier0_hits.len(),
+        1,
+        "expected exactly the note: {tier0_structured}"
+    );
+    assert_eq!(tier0_hits[0]["instanceId"].as_str(), Some(note_id.as_str()));
+    assert!(tier0_structured["diagnostics"].as_array().unwrap().is_empty());
 
     client.cancel().await.unwrap();
 }

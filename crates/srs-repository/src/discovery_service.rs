@@ -2,18 +2,30 @@
 //! bindings, and web (`ext:discovery`, RFC-012 / ADR-019).
 //!
 //! Composes existing services (it does not duplicate them): the structured filter
-//! pass reuses [`record_store::list_records_filtered`]; content matching reuses
-//! [`text_projection::project_text`]; hit labels reuse
-//! [`record_label::record_display_label`]. Substring content matching is the
+//! pass reuses [`record_store::list_records_filtered`] for Tier 2 and the manifest
+//! instance index (via [`crate::container_service::list_members`] for container
+//! scoping) for Tier 0/1; content matching reuses
+//! [`text_projection::project_text`] / [`text_projection::project_note_text`] /
+//! [`text_projection::project_typed_record_text`]; hit labels reuse
+//! [`record_label::record_display_label`] for Tier 2 and the manifest `title`
+//! (falling back to `instanceId`) for Tier 0/1. Substring content matching is the
 //! recall floor — `score` is always `None` at Layer 1. A future `DiscoveryIndex`
 //! (Layer 2) may add recall and ranking but must never drop a Layer-1 match.
+//!
+//! Discovery spans all three tiers (RFC-012 `R1`/`I-113`, `R11`/`I-123` — see
+//! srs-rust#797): `typeId`/`typeNamespace`/`typeName`/`lifecycleState` are
+//! Tier-2-only predicates and exclude Tier 0/1 instances outright when specified,
+//! since those tiers carry none of those fields; `tag`, `containerId`, and `tier`
+//! apply uniformly.
 
+use crate::container_service;
 use crate::error::RepositoryError;
 use crate::record_label;
 use crate::record_store::{self, RecordListFilter};
 use crate::store::RepositoryStore;
-use crate::text_projection;
+use crate::text_projection::{self, FieldTextIndex, TextSegment};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 /// A conjunction of structured predicates plus an optional content-match floor.
 /// Mirrors `DiscoveryQuery` in `docs/schema/2.0/discovery.json`. Unspecified
@@ -40,7 +52,8 @@ pub struct DiscoveryQuery {
     /// the "show all" override for an authored default-hidden set.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exclude_lifecycle_states: Vec<String>,
-    /// Instance tier (0=Note, 1=TypedRecord, 2=Record). Phase 1 serves Tier 2.
+    /// Instance tier filter (0=Note, 1=TypedRecord, 2=Record). Unspecified matches
+    /// all tiers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tier: Option<u8>,
     /// Free-text recall-floor predicate over the Text Projection.
@@ -63,8 +76,12 @@ pub struct DiscoveryResult {
 pub struct DiscoveryHit {
     pub instance_id: String,
     pub label: String,
-    pub type_namespace: String,
-    pub type_name: String,
+    /// `None` for Tier 0/1 instances, which carry no type binding.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type_namespace: Option<String>,
+    /// `None` for Tier 0/1 instances, which carry no type binding.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lifecycle_state: Option<String>,
     /// `None` at Layer 1 (deterministic, unranked). Populated only by a Layer-2 index.
@@ -82,25 +99,102 @@ pub fn find(
     store: &dyn RepositoryStore,
     query: DiscoveryQuery,
 ) -> Result<DiscoveryResult, RepositoryError> {
-    let mut diagnostics = Vec::new();
+    let diagnostics = Vec::new();
 
-    // Tier predicate: Phase 1 composes `list_records_filtered`, which yields Tier-2
-    // Records only. Tier 0/1 projection is deferred (ADR-019).
-    if let Some(tier) = query.tier {
-        if tier != 2 {
-            diagnostics.push(format!(
-                "tier {tier} discovery is deferred; Phase 1 serves Tier 2 only"
-            ));
-            return Ok(DiscoveryResult {
-                hits: Vec::new(),
-                total: 0,
-                diagnostics,
-            });
+    // One field-metadata pass: the text index also carries the field_id → name map
+    // that Tier-2 hit-label resolution needs, so we avoid a second `list_fields` scan.
+    let field_text_index = text_projection::build_field_text_index(store)?;
+
+    let needle = query
+        .content_match
+        .as_deref()
+        .map(text_projection::normalize)
+        .filter(|q| !q.is_empty());
+
+    let mut hits = Vec::new();
+
+    if query.tier.is_none() || query.tier == Some(2) {
+        hits.extend(find_tier2(store, &query, &field_text_index, needle.as_deref())?);
+    }
+
+    // Tier 0/1 carry no typeId/typeNamespace/typeName/lifecycleState — a query
+    // constraining any of those predicates can never match them.
+    let tier2_only_predicate = query.type_id.is_some()
+        || query.type_namespace.is_some()
+        || query.type_name.is_some()
+        || query.lifecycle_state.is_some();
+
+    if !tier2_only_predicate {
+        if query.tier.is_none() || query.tier == Some(0) {
+            hits.extend(find_tier0(store, &query, needle.as_deref())?);
+        }
+        if query.tier.is_none() || query.tier == Some(1) {
+            hits.extend(find_tier1(store, &query, needle.as_deref())?);
         }
     }
 
-    // 1. Structured pass — push type ns/name, container, and the first tag into the
-    //    store query; the remaining predicates are applied in-service below.
+    // Deterministic order independent of index/store iteration order.
+    hits.sort_by(|a, b| a.instance_id.cmp(&b.instance_id));
+
+    let total = hits.len();
+    Ok(DiscoveryResult {
+        hits,
+        total,
+        diagnostics,
+    })
+}
+
+/// AND-conjunction: `instance_tags` must contain every value in `query_tags`.
+fn tags_match(query_tags: &[String], instance_tags: &[String]) -> bool {
+    query_tags
+        .iter()
+        .all(|t| instance_tags.iter().any(|it| it == t))
+}
+
+/// Run the content-match recall floor over a projected segment stream: the first
+/// matching segment's raw text becomes the snippet; every distinct matching field
+/// name (first-seen order) becomes `matched_fields`.
+fn match_content(segments: Vec<TextSegment>, needle: &str) -> (Vec<String>, Option<String>) {
+    let mut matched_fields = Vec::new();
+    let mut seen_fields = HashSet::new();
+    let mut snippet = None;
+    for seg in segments {
+        if text_projection::normalize(&seg.text).contains(needle) {
+            if snippet.is_none() {
+                snippet = Some(seg.text.clone());
+            }
+            if seen_fields.insert(seg.field_name.clone()) {
+                matched_fields.push(seg.field_name);
+            }
+        }
+    }
+    (matched_fields, snippet)
+}
+
+/// Resolve the container membership set once, if `container_id` is scoped.
+fn member_set(
+    store: &dyn RepositoryStore,
+    container_id: &Option<String>,
+) -> Result<Option<HashSet<String>>, RepositoryError> {
+    match container_id {
+        Some(cid) => Ok(Some(
+            container_service::list_members(store, cid)?
+                .into_iter()
+                .collect(),
+        )),
+        None => Ok(None),
+    }
+}
+
+/// Tier 2 (Record) structured pass + content match.
+fn find_tier2(
+    store: &dyn RepositoryStore,
+    query: &DiscoveryQuery,
+    field_text_index: &FieldTextIndex,
+    needle: Option<&str>,
+) -> Result<Vec<DiscoveryHit>, RepositoryError> {
+    // Push type ns/name, container, and the first tag into the store query; the
+    // remaining predicates are applied in-service below.
     let records = record_store::list_records_filtered(
         store,
         RecordListFilter {
@@ -111,16 +205,6 @@ pub fn find(
         },
     )?;
 
-    // One field-metadata pass: the text index also carries the field_id → name map
-    // that hit-label resolution needs, so we avoid a second `list_fields` scan.
-    let field_text_index = text_projection::build_field_text_index(store)?;
-
-    let needle = query
-        .content_match
-        .as_deref()
-        .map(text_projection::normalize)
-        .filter(|q| !q.is_empty());
-
     let mut hits = Vec::new();
     for record in &records {
         if let Some(type_id) = &query.type_id {
@@ -129,16 +213,8 @@ pub fn find(
             }
         }
 
-        // Remaining tags (AND) beyond the one pushed to the store query.
-        if query.tag.len() > 1 {
-            let record_tags = record.tags.as_deref().unwrap_or(&[]);
-            let has_all = query
-                .tag
-                .iter()
-                .all(|t| record_tags.iter().any(|rt| rt == t));
-            if !has_all {
-                continue;
-            }
+        if !tags_match(&query.tag, record.tags.as_deref().unwrap_or(&[])) {
+            continue;
         }
 
         if let Some(state) = &query.lifecycle_state {
@@ -157,24 +233,15 @@ pub fn find(
             }
         }
 
-        // 2 + 3. Content match (recall floor) over the text projection.
-        let mut matched_fields = Vec::new();
-        let mut seen_fields = std::collections::HashSet::new();
-        let mut snippet = None;
-        if let Some(needle) = &needle {
-            for seg in text_projection::project_text(record, &field_text_index) {
-                if text_projection::normalize(&seg.text).contains(needle) {
-                    if snippet.is_none() {
-                        snippet = Some(seg.text.clone());
-                    }
-                    if seen_fields.insert(seg.field_name.clone()) {
-                        matched_fields.push(seg.field_name);
-                    }
-                }
-            }
-            if matched_fields.is_empty() {
-                continue;
-            }
+        let (matched_fields, snippet) = match needle {
+            Some(needle) => match_content(
+                text_projection::project_text(record, field_text_index),
+                needle,
+            ),
+            None => (Vec::new(), None),
+        };
+        if needle.is_some() && matched_fields.is_empty() {
+            continue;
         }
 
         hits.push(DiscoveryHit {
@@ -184,8 +251,8 @@ pub fn find(
                 field_text_index.identity_field_ids(),
                 field_text_index.names(),
             ),
-            type_namespace: record.type_namespace.clone(),
-            type_name: record.type_name.clone(),
+            type_namespace: Some(record.type_namespace.clone()),
+            type_name: Some(record.type_name.clone()),
             lifecycle_state: record.lifecycle_state.clone(),
             score: None,
             snippet,
@@ -193,15 +260,117 @@ pub fn find(
         });
     }
 
-    // Deterministic order independent of index/store iteration order.
-    hits.sort_by(|a, b| a.instance_id.cmp(&b.instance_id));
+    Ok(hits)
+}
 
-    let total = hits.len();
-    Ok(DiscoveryResult {
-        hits,
-        total,
-        diagnostics,
-    })
+/// Tier 0 (Note) structured pass + content match. Notes carry no type binding or
+/// lifecycle state — only `tag`, `containerId`, and `tier` apply.
+fn find_tier0(
+    store: &dyn RepositoryStore,
+    query: &DiscoveryQuery,
+    needle: Option<&str>,
+) -> Result<Vec<DiscoveryHit>, RepositoryError> {
+    let members = member_set(store, &query.container_id)?;
+    let manifest = store.load_manifest()?;
+
+    let mut hits = Vec::new();
+    for entry in &manifest.instance_index {
+        if entry.tier() != 0 {
+            continue;
+        }
+        if let Some(ref members) = members {
+            if !members.contains(entry.instance_id()) {
+                continue;
+            }
+        }
+        if !tags_match(&query.tag, entry.tags.as_deref().unwrap_or(&[])) {
+            continue;
+        }
+
+        let note = store.load_note_by_id(entry.instance_id())?;
+        let (matched_fields, snippet) = match needle {
+            Some(needle) => match_content(text_projection::project_note_text(&note), needle),
+            None => (Vec::new(), None),
+        };
+        if needle.is_some() && matched_fields.is_empty() {
+            continue;
+        }
+
+        hits.push(DiscoveryHit {
+            label: note
+                .title
+                .clone()
+                .unwrap_or_else(|| note.instance_id.clone()),
+            instance_id: note.instance_id,
+            type_namespace: None,
+            type_name: None,
+            lifecycle_state: None,
+            score: None,
+            snippet,
+            matched_fields,
+        });
+    }
+
+    Ok(hits)
+}
+
+/// Tier 1 (TypedRecord) structured pass + content match. No typed `TypedRecord`
+/// struct exists yet, so the body is read via the generic-JSON shim
+/// (`load_instance_json` — CLAUDE.md storage boundary rules) rather than a typed
+/// logical-id method. TypedRecords carry no type binding or lifecycle state —
+/// only `tag`, `containerId`, and `tier` apply.
+fn find_tier1(
+    store: &dyn RepositoryStore,
+    query: &DiscoveryQuery,
+    needle: Option<&str>,
+) -> Result<Vec<DiscoveryHit>, RepositoryError> {
+    let members = member_set(store, &query.container_id)?;
+    let manifest = store.load_manifest()?;
+
+    let mut hits = Vec::new();
+    for entry in &manifest.instance_index {
+        if entry.tier() != 1 {
+            continue;
+        }
+        if let Some(ref members) = members {
+            if !members.contains(entry.instance_id()) {
+                continue;
+            }
+        }
+        if !tags_match(&query.tag, entry.tags.as_deref().unwrap_or(&[])) {
+            continue;
+        }
+
+        let value = store.load_instance_json(entry.path())?;
+        let (matched_fields, snippet) = match needle {
+            Some(needle) => {
+                match_content(text_projection::project_typed_record_text(&value), needle)
+            }
+            None => (Vec::new(), None),
+        };
+        if needle.is_some() && matched_fields.is_empty() {
+            continue;
+        }
+
+        let title = value
+            .get("title")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        let label = title.unwrap_or_else(|| entry.instance_id().to_string());
+
+        hits.push(DiscoveryHit {
+            instance_id: entry.instance_id().to_string(),
+            label,
+            type_namespace: None,
+            type_name: None,
+            lifecycle_state: None,
+            score: None,
+            snippet,
+            matched_fields,
+        });
+    }
+
+    Ok(hits)
 }
 
 #[cfg(test)]
@@ -213,6 +382,7 @@ mod tests {
     use crate::store::memory::MemoryStore;
     use crate::store::RepositoryStore;
     use srs_core::types::field::{AiGuidance, Field, FieldType};
+    use srs_core::types::note::{Note, NoteSection};
     use srs_core::types::record::{FieldValue, Record};
     use std::collections::HashMap;
     use std::path::PathBuf;
@@ -225,6 +395,8 @@ mod tests {
     const ID1: &str = "11111111-1111-4111-8111-111111111111";
     const ID2: &str = "22222222-2222-4222-8222-222222222222";
     const ID3: &str = "33333333-3333-4333-8333-333333333333";
+    const NOTE1: &str = "44444444-4444-4444-8444-444444444444";
+    const TYPED1: &str = "55555555-5555-4555-8555-555555555555";
 
     fn field(id: &str, name: &str) -> Field {
         Field {
@@ -363,6 +535,82 @@ mod tests {
         store
     }
 
+    fn note_fixture(id: &str, title: &str, sections: &[(&str, &str)], tags: &[&str]) -> Note {
+        Note {
+            instance_id: id.to_string(),
+            title: Some(title.to_string()),
+            tags: (!tags.is_empty()).then(|| tags.iter().map(|t| t.to_string()).collect()),
+            sections: sections
+                .iter()
+                .map(|(name, content)| NoteSection {
+                    name: name.to_string(),
+                    label: None,
+                    content: content.to_string(),
+                    content_hint: None,
+                    tags: None,
+                })
+                .collect(),
+            graduated_at: None,
+            source_refs: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+        }
+    }
+
+    /// Extends [`store_with`]'s three Tier-2 fixtures with one Tier-0 Note
+    /// (`NOTE1`, tag `policy`) and one Tier-1 TypedRecord (`TYPED1`, tag
+    /// `finance`), built the same way `store_with` builds Tier 2: manual
+    /// `InstanceIndexEntry` + `save_instance_json`, since no typed `TypedRecord`
+    /// struct exists yet (CLAUDE.md storage boundary rules).
+    fn store_with_all_tiers() -> MemoryStore {
+        let store = store_with(fixtures());
+        let mut manifest = store.load_manifest().unwrap();
+
+        let note = note_fixture(
+            NOTE1,
+            "Research notes",
+            &[(
+                "background",
+                "Full-text search needs a portable recall floor.",
+            )],
+            &["policy"],
+        );
+        let note_path = format!("records/notes/{NOTE1}.json");
+        manifest.instance_index.push(InstanceIndexEntry {
+            instance_id: NOTE1.to_string(),
+            tier: 0,
+            path: note_path.clone(),
+            title: note.title.clone().map(serde_json::Value::String),
+            tags: note.tags.clone(),
+        });
+        store
+            .save_instance_json(&note_path, &serde_json::to_value(&note).unwrap())
+            .unwrap();
+
+        let typed_tags = ["finance"];
+        let typed = serde_json::json!({
+            "instanceId": TYPED1,
+            "title": "Budget planning",
+            "fields": [
+                { "name": "owner", "valueType": "string", "value": "engineering" }
+            ],
+            "tags": typed_tags,
+        });
+        let typed_path = format!("records/typed-records/{TYPED1}.json");
+        manifest.instance_index.push(InstanceIndexEntry {
+            instance_id: TYPED1.to_string(),
+            tier: 1,
+            path: typed_path.clone(),
+            title: Some(serde_json::Value::String("Budget planning".to_string())),
+            tags: Some(typed_tags.iter().map(|t| t.to_string()).collect()),
+        });
+        store.save_instance_json(&typed_path, &typed).unwrap();
+
+        store.save_manifest(&manifest).unwrap();
+        store
+    }
+
     fn ids(result: &DiscoveryResult) -> Vec<&str> {
         result.hits.iter().map(|h| h.instance_id.as_str()).collect()
     }
@@ -488,8 +736,8 @@ mod tests {
     }
 
     #[test]
-    fn non_tier2_query_is_deferred_with_diagnostic() {
-        let store = store_with(fixtures());
+    fn tier_filter_note_returns_only_tier_0() {
+        let store = store_with_all_tiers();
         let result = find(
             &store,
             DiscoveryQuery {
@@ -498,7 +746,115 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(result.total, 0);
-        assert!(result.diagnostics.iter().any(|d| d.contains("tier 0")));
+        assert_eq!(ids(&result), vec![NOTE1]);
+        assert_eq!(result.hits[0].label, "Research notes");
+        assert!(result.hits[0].type_namespace.is_none());
+        assert!(result.hits[0].type_name.is_none());
+        assert!(result.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn tier_filter_typed_record_returns_only_tier_1() {
+        let store = store_with_all_tiers();
+        let result = find(
+            &store,
+            DiscoveryQuery {
+                tier: Some(1),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(ids(&result), vec![TYPED1]);
+        assert_eq!(result.hits[0].label, "Budget planning");
+    }
+
+    #[test]
+    fn empty_query_spans_all_three_tiers() {
+        let store = store_with_all_tiers();
+        let result = find(&store, DiscoveryQuery::default()).unwrap();
+        assert_eq!(result.total, 5);
+        let hit_ids = ids(&result);
+        assert!(hit_ids.contains(&NOTE1));
+        assert!(hit_ids.contains(&TYPED1));
+    }
+
+    #[test]
+    fn type_namespace_predicate_excludes_tier_0_and_1() {
+        let store = store_with_all_tiers();
+        let result = find(
+            &store,
+            DiscoveryQuery {
+                type_namespace: Some("governance".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(result.total, 3);
+        let hit_ids = ids(&result);
+        assert!(!hit_ids.contains(&NOTE1));
+        assert!(!hit_ids.contains(&TYPED1));
+    }
+
+    #[test]
+    fn content_match_recalls_note_and_typed_record_text() {
+        let store = store_with_all_tiers();
+        // "engineering" lives only in the TypedRecord's `owner` field.
+        let typed = find(
+            &store,
+            DiscoveryQuery {
+                content_match: Some("engineering".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(ids(&typed), vec![TYPED1]);
+
+        // "recall floor" lives only in the Note's `background` section.
+        let note = find(
+            &store,
+            DiscoveryQuery {
+                content_match: Some("recall floor".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(ids(&note), vec![NOTE1]);
+    }
+
+    #[test]
+    fn tag_predicate_applies_uniformly_across_tiers() {
+        let store = store_with_all_tiers();
+        let result = find(
+            &store,
+            DiscoveryQuery {
+                tag: vec!["policy".to_string()],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        // ID1 (Record, tags=[policy]), ID2 (Record, tags=[ops, policy]), and NOTE1
+        // all carry "policy"; TYPED1 (finance) does not.
+        assert_eq!(ids(&result), vec![ID1, ID2, NOTE1]);
+    }
+
+    #[test]
+    fn all_tiers_are_identical_across_stores_memory_to_file() {
+        // Cross-store roundtrip (memory -> file) covering the new Tier 0/1 path,
+        // per CLAUDE.md storage rules.
+        let store = store_with_all_tiers();
+        let query = DiscoveryQuery::default();
+        let from_memory = find(&store, query.clone()).unwrap();
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let file_store = crate::store::FileStore::new(temp.path());
+        crate::repository_portability::copy_repository(&store, &file_store).unwrap();
+        let from_file = find(&file_store, query).unwrap();
+
+        assert_eq!(from_memory.total, 5);
+        assert_eq!(
+            serde_json::to_value(&from_memory).unwrap(),
+            serde_json::to_value(&from_file).unwrap(),
+            "DiscoveryResult must be identical across stores (memory -> file) across all three tiers"
+        );
     }
 }
