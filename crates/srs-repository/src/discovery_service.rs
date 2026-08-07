@@ -114,7 +114,12 @@ pub fn find(
     let mut hits = Vec::new();
 
     if query.tier.is_none() || query.tier == Some(2) {
-        hits.extend(find_tier2(store, &query, &field_text_index, needle.as_deref())?);
+        hits.extend(find_tier2(
+            store,
+            &query,
+            &field_text_index,
+            needle.as_deref(),
+        )?);
     }
 
     // Tier 0/1 carry no typeId/typeNamespace/typeName/lifecycleState — a query
