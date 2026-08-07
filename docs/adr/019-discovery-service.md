@@ -4,6 +4,7 @@
 - **Date:** 2026-06-28
 - **Supersedes:** —
 - **Superseded by:** —
+- **Amended by:** srs-rust#797 (Tier 0/1 discovery landed — see the note below §Consequences)
 
 > Tracking note: epic #212 issue #214 titled this "ADR-018". In this repository
 > 018 is already taken (`018-container-view-column-source-precedence.md`), so the
@@ -126,9 +127,16 @@ srs-gov adapter.
   `tier`/`type_id` predicates are applied in the service after the structured pass
   rather than pushed into the store query (acceptable at Layer 1; an index can
   optimize later).
-- Phase 1 composes `list_records_filtered`, which yields Tier-2 Records only.
+- ~~Phase 1 composes `list_records_filtered`, which yields Tier-2 Records only.
   Tier 0/1 text projection (note/typed-record sentinels in the schema) is deferred;
-  a `tier` of 0 or 1 returns empty with a diagnostic until then.
+  a `tier` of 0 or 1 returns empty with a diagnostic until then.~~ **Resolved by
+  srs-rust#797**: `find` now composes Tier 0 (Note) and Tier 1 (TypedRecord)
+  alongside Tier 2, per RFC-012 `R1`/`I-113` and `R11`/`I-123` — there is no
+  spec-sanctioned "Tier 2 only" phase. `typeId`/`typeNamespace`/`typeName`/
+  `lifecycleState` remain Tier-2-only predicates (Tier 0/1 carry none of those
+  fields); `tag`, `containerId`, and `tier` apply uniformly. Tier 1 has no typed
+  `TypedRecord` struct in `srs-core` yet, so its body is read via the generic-JSON
+  `load_instance_json` shim rather than a typed logical-id method.
 - Select/Multiselect segments project the stored value token (recall-safe); label
   resolution from `allowed_values` is a later refinement.
 

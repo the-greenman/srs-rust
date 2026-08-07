@@ -11,6 +11,7 @@ use crate::error::RepositoryError;
 use crate::record_label;
 use crate::store::RepositoryStore;
 use serde::{Deserialize, Serialize};
+use srs_core::types::note::Note;
 use srs_core::types::record::{FieldValue, Record};
 use std::collections::{HashMap, HashSet};
 use unicode_normalization::UnicodeNormalization;
@@ -19,6 +20,16 @@ use unicode_normalization::UnicodeNormalization;
 pub const LABEL_SENTINEL: &str = "label";
 /// Sentinel `fieldId`/`fieldName` for tag segments.
 pub const TAG_SENTINEL: &str = "tag";
+/// Sentinel `fieldId`/`fieldName` for a Tier-0 Note's title segment.
+pub const NOTE_TITLE_SENTINEL: &str = "note-title";
+/// Sentinel `fieldId` for a Tier-0 Note section segment; `fieldName` is the
+/// section's `name`.
+pub const NOTE_SECTION_SENTINEL: &str = "note-section";
+/// Sentinel `fieldId`/`fieldName` for a Tier-1 TypedRecord's title segment.
+pub const TYPED_RECORD_TITLE_SENTINEL: &str = "typed-record-title";
+/// Sentinel `fieldId` for a Tier-1 TypedRecord field segment; `fieldName` is the
+/// `TypedField.name`.
+pub const TYPED_RECORD_FIELD_SENTINEL: &str = "typed-record-field";
 
 /// One searchable unit of a record's text projection.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -185,6 +196,110 @@ fn value_strings(value: &serde_json::Value) -> Vec<String> {
             .collect(),
         _ => vec![],
     }
+}
+
+/// Project a Tier-0 Note into its ordered, deterministic text-segment stream
+/// (RFC-012 Change B).
+///
+/// Order: title (if non-empty) → sections (array order, non-empty `content` only) →
+/// tags.
+pub fn project_note_text(note: &Note) -> Vec<TextSegment> {
+    let mut segments = Vec::new();
+
+    if let Some(title) = note.title.as_deref() {
+        if !title.is_empty() {
+            segments.push(TextSegment {
+                field_id: NOTE_TITLE_SENTINEL.to_string(),
+                field_name: NOTE_TITLE_SENTINEL.to_string(),
+                text: title.to_string(),
+            });
+        }
+    }
+
+    for section in &note.sections {
+        if !section.content.is_empty() {
+            segments.push(TextSegment {
+                field_id: NOTE_SECTION_SENTINEL.to_string(),
+                field_name: section.name.clone(),
+                text: section.content.clone(),
+            });
+        }
+    }
+
+    if let Some(tags) = &note.tags {
+        for tag in tags {
+            segments.push(TextSegment {
+                field_id: TAG_SENTINEL.to_string(),
+                field_name: TAG_SENTINEL.to_string(),
+                text: tag.clone(),
+            });
+        }
+    }
+
+    segments
+}
+
+/// Project a Tier-1 TypedRecord into its ordered, deterministic text-segment
+/// stream (RFC-012 Change B). Operates on the raw JSON value — no typed
+/// `TypedRecord` struct exists in `srs-core` yet (see
+/// `docs/schema/2.0/typed-record.json` for the storage shape).
+///
+/// Order: title (if non-empty) → `fields[]` (array order, searchable and
+/// non-empty only) → tags. A field is searchable when its `valueType` is one of
+/// `string | text | url | select | multiselect`, or — when `valueType` is absent —
+/// when the stored `value` is itself a JSON string or array.
+pub fn project_typed_record_text(value: &serde_json::Value) -> Vec<TextSegment> {
+    let mut segments = Vec::new();
+
+    if let Some(title) = value.get("title").and_then(|v| v.as_str()) {
+        if !title.is_empty() {
+            segments.push(TextSegment {
+                field_id: TYPED_RECORD_TITLE_SENTINEL.to_string(),
+                field_name: TYPED_RECORD_TITLE_SENTINEL.to_string(),
+                text: title.to_string(),
+            });
+        }
+    }
+
+    if let Some(fields) = value.get("fields").and_then(|v| v.as_array()) {
+        for field in fields {
+            let Some(name) = field.get("name").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let value_type = field.get("valueType").and_then(|v| v.as_str());
+            let field_value = field.get("value").unwrap_or(&serde_json::Value::Null);
+
+            let searchable = match value_type {
+                Some(vt) => matches!(vt, "string" | "text" | "url" | "select" | "multiselect"),
+                None => field_value.is_string() || field_value.is_array(),
+            };
+            if !searchable {
+                continue;
+            }
+
+            for text in value_strings(field_value) {
+                if !text.is_empty() {
+                    segments.push(TextSegment {
+                        field_id: TYPED_RECORD_FIELD_SENTINEL.to_string(),
+                        field_name: name.to_string(),
+                        text,
+                    });
+                }
+            }
+        }
+    }
+
+    if let Some(tags) = value.get("tags").and_then(|v| v.as_array()) {
+        for tag in tags.iter().filter_map(|t| t.as_str()) {
+            segments.push(TextSegment {
+                field_id: TAG_SENTINEL.to_string(),
+                field_name: TAG_SENTINEL.to_string(),
+                text: tag.to_string(),
+            });
+        }
+    }
+
+    segments
 }
 
 #[cfg(test)]
@@ -440,5 +555,107 @@ mod tests {
             let ft = FieldType::from_legacy(legacy, &Default::default());
             assert_eq!(ft.is_text_searchable(), searchable, "{legacy:?}");
         }
+    }
+
+    fn note(title: Option<&str>, sections: Vec<(&str, &str)>, tags: Option<Vec<&str>>) -> Note {
+        use srs_core::types::note::NoteSection;
+        Note {
+            instance_id: "n1".to_string(),
+            title: title.map(str::to_string),
+            tags: tags.map(|ts| ts.into_iter().map(str::to_string).collect()),
+            sections: sections
+                .into_iter()
+                .map(|(name, content)| NoteSection {
+                    name: name.to_string(),
+                    label: None,
+                    content: content.to_string(),
+                    content_hint: None,
+                    tags: None,
+                })
+                .collect(),
+            graduated_at: None,
+            source_refs: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+        }
+    }
+
+    #[test]
+    fn note_projection_orders_title_sections_then_tags() {
+        let n = note(
+            Some("Meeting capture"),
+            vec![
+                ("background", "Full-text search requires a portable floor."),
+                ("findings", ""), // empty content — must not project
+            ],
+            Some(vec!["meeting", "search"]),
+        );
+        let segments = project_note_text(&n);
+        assert_eq!(
+            texts(&segments),
+            vec![
+                "Meeting capture",
+                "Full-text search requires a portable floor.",
+                "meeting",
+                "search",
+            ]
+        );
+        assert_eq!(segments[0].field_id, NOTE_TITLE_SENTINEL);
+        assert_eq!(segments[1].field_id, NOTE_SECTION_SENTINEL);
+        assert_eq!(segments[1].field_name, "background");
+        assert_eq!(segments[2].field_id, TAG_SENTINEL);
+    }
+
+    #[test]
+    fn note_projection_skips_missing_title_and_empty_sections() {
+        let n = note(None, vec![("body", "")], None);
+        assert!(project_note_text(&n).is_empty());
+    }
+
+    #[test]
+    fn typed_record_projection_orders_title_fields_then_tags() {
+        let value = serde_json::json!({
+            "instanceId": "tr1",
+            "title": "Discovery Feature Planning Meeting",
+            "fields": [
+                { "name": "agenda", "valueType": "string", "value": "Discuss text projection algorithm" },
+                { "name": "attendee_count", "valueType": "number", "value": 4 },
+                { "name": "labels", "valueType": "multiselect", "value": ["alpha", "beta"] },
+                { "name": "untyped_note", "value": "no valueType but string value" }
+            ],
+            "tags": ["searchable"]
+        });
+        let segments = project_typed_record_text(&value);
+        assert_eq!(
+            texts(&segments),
+            vec![
+                "Discovery Feature Planning Meeting",
+                "Discuss text projection algorithm",
+                "alpha",
+                "beta",
+                "no valueType but string value",
+                "searchable",
+            ]
+        );
+        assert_eq!(segments[0].field_id, TYPED_RECORD_TITLE_SENTINEL);
+        assert_eq!(segments[1].field_id, TYPED_RECORD_FIELD_SENTINEL);
+        assert_eq!(segments[1].field_name, "agenda");
+        assert_eq!(segments.last().unwrap().field_id, TAG_SENTINEL);
+    }
+
+    #[test]
+    fn typed_record_projection_skips_number_boolean_date_and_empty_values() {
+        let value = serde_json::json!({
+            "instanceId": "tr2",
+            "fields": [
+                { "name": "score", "valueType": "number", "value": 3 },
+                { "name": "done", "valueType": "boolean", "value": true },
+                { "name": "due", "valueType": "date", "value": "2026-01-01" },
+                { "name": "empty", "valueType": "string", "value": "" },
+                { "name": "no_value" }
+            ]
+        });
+        assert!(project_typed_record_text(&value).is_empty());
     }
 }

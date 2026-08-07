@@ -14,18 +14,13 @@
 //! A failing scenario is a finding about `discovery_service`'s conformance, or about the fixture
 //! itself — never "fixed" by editing `scenarios.json`, which is spec-repo-owned (rfc-012:207).
 //!
-//! ## Known-failing quarantine (srs-rust#797)
+//! ## Tier 0/1 discovery (srs-rust#797)
 //!
 //! Spec research resolved (issue #793, `epic-256:decision:793-discovery-tier-scope`) that RFC-012
 //! `R1`/`I-113` and `R11`/`I-123` require discovery across Tiers 0, 1 and 2 — there is no "Phase 1
-//! = Tier 2 only" carve-out in the spec. `discovery_service::find` currently only composes
-//! `record_store::list_records_filtered`, which serves Tier 2 only, so it does not conform. That
-//! gap is tracked separately as srs-rust#797; it is not this issue's scope to fix `discovery_service`.
-//!
-//! The 5 scenarios below are quarantined here — asserted separately from the main pass/fail gate —
-//! so the runner lands green while the gap stays CI-visible and tracked. The quarantine is
-//! self-expiring in both directions: a quarantined scenario that starts passing, or a
-//! currently-passing scenario that regresses, fails the test loudly rather than silently drifting.
+//! = Tier 2 only" carve-out in the spec. srs-rust#797 landed that composition:
+//! `discovery_service::find` now composes Tier 0 (Note) and Tier 1 (TypedRecord) alongside Tier 2,
+//! so all 18 scenarios are asserted directly — no quarantine remains.
 
 use serde::Deserialize;
 use srs_repository::discovery_service::{find, DiscoveryQuery};
@@ -69,18 +64,6 @@ fn conformance_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../srs/conformance/discovery")
 }
 
-/// Scenarios known to fail solely because `discovery_service::find` only composes
-/// `record_store::list_records_filtered` (Tier 2), while RFC-012 `R1`/`I-113` and `R11`/`I-123`
-/// require discovery across Tiers 0, 1 and 2 (srs-rust#797). Exactly these 5, no more, no fewer —
-/// see the module doc for the citation trail.
-const QUARANTINED_SCENARIOS: [&str; 5] = [
-    "empty_query",
-    "tier_filter_note",
-    "tier_filter_typed_record",
-    "single_tag_searchable",
-    "content_match_discovery",
-];
-
 #[test]
 fn ext_discovery_fixture_scenarios() {
     let dir = conformance_dir();
@@ -106,7 +89,6 @@ fn ext_discovery_fixture_scenarios() {
 
     let store = FileStore::new(&fixture_repo);
 
-    // (scenario name, failure detail) for every scenario that failed, quarantined or not.
     let mut failures: Vec<(String, String)> = Vec::new();
     for scenario in &file.scenarios {
         let query = DiscoveryQuery {
@@ -153,58 +135,22 @@ fn ext_discovery_fixture_scenarios() {
         }
     }
 
-    let scenario_names: BTreeSet<&str> = file.scenarios.iter().map(|s| s.name.as_str()).collect();
-    for name in QUARANTINED_SCENARIOS {
-        assert!(
-            scenario_names.contains(name),
-            "quarantine names '{name}', which is not a scenario in {} — the allow-list has drifted from the fixture",
-            scenarios_path.display()
-        );
-    }
-
-    let failed_names: BTreeSet<&str> = failures.iter().map(|(n, _)| n.as_str()).collect();
-
-    // Self-expiring in the fix direction: a quarantined scenario that now passes means #797 was
-    // fixed (or the fixture changed) and the allow-list is stale — fail loudly rather than let it
-    // silently keep suppressing a scenario that no longer needs it.
-    let unexpectedly_passing: Vec<&str> = QUARANTINED_SCENARIOS
-        .into_iter()
-        .filter(|name| !failed_names.contains(name))
-        .collect();
     assert!(
-        unexpectedly_passing.is_empty(),
-        "quarantined scenario(s) {unexpectedly_passing:?} now PASS — remove them from \
-         QUARANTINED_SCENARIOS in {} and close/deduct srs-rust#797",
-        file!()
-    );
-
-    // Self-expiring in the regression direction: any failure not on the allow-list is a real,
-    // unquarantined conformance break and must fail the build.
-    let unquarantined: Vec<&str> = failures
-        .iter()
-        .map(|(n, _)| n.as_str())
-        .filter(|name| !QUARANTINED_SCENARIOS.contains(name))
-        .collect();
-    assert!(
-        unquarantined.is_empty(),
-        "{} of {} ext:discovery conformance scenarios failed outside the srs-rust#797 quarantine \
-         against {}:\n{}",
-        unquarantined.len(),
+        failures.is_empty(),
+        "{} of {} ext:discovery conformance scenarios failed against {}:\n{}",
+        failures.len(),
         file.scenarios.len(),
         scenarios_path.display(),
         failures
             .iter()
-            .filter(|(n, _)| unquarantined.contains(&n.as_str()))
             .map(|(_, detail)| detail.as_str())
             .collect::<Vec<_>>()
             .join("\n")
     );
 
     println!(
-        "{} of {} scenarios passed; {} quarantined for srs-rust#797 (Tier 0/1 discovery gap): {:?}",
+        "{} of {} scenarios passed",
         file.scenarios.len() - failures.len(),
         file.scenarios.len(),
-        failures.len(),
-        QUARANTINED_SCENARIOS
     );
 }
