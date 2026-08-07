@@ -4,13 +4,30 @@
 # Verifies that every JSON schema file in srs/docs/schema/2.0/ has an
 # identical copy in crates/srs-schema/schemas/2.0/.
 #
-# Exits 0 if all schemas are in sync.
-# Exits 1 if any schema is missing from the embedded copy or has diverged.
+# Exits 0 if all schemas in every mirror actually checked are in sync.
+# Exits 1 if any schema is missing from a checked mirror or has diverged.
+#
+# The srs-vscode mirror is only checked when its tree is present alongside
+# this workspace (a monorepo checkout) — every cloud worker container is a
+# single-repo checkout, so that mirror is normally skipped. Pass
+# --require-vscode to turn a skipped srs-vscode mirror into an error, for
+# environments (e.g. a release gate) that must have it present.
 #
 # Usage (from srs-rust/ workspace root):
-#   bash scripts/check-schema-sync.sh
+#   bash scripts/check-schema-sync.sh [--require-vscode]
 
 set -euo pipefail
+
+REQUIRE_VSCODE=0
+for arg in "$@"; do
+  case "$arg" in
+    --require-vscode) REQUIRE_VSCODE=1 ;;
+    *)
+      echo "ERROR: unknown argument: $arg" >&2
+      exit 1
+      ;;
+  esac
+done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_ROOT="$(dirname "$SCRIPT_DIR")"
@@ -50,11 +67,19 @@ for spec_file in "$SPEC_SCHEMA_DIR"/*.json; do
   fi
 done
 
+checked_mirrors=("crates/srs-schema/schemas/2.0")
+
 VSCODE_SCHEMA_DIR="$(dirname "$WORKSPACE_ROOT")/srs-vscode/schemas/2.0"
 
 if [[ ! -d "$VSCODE_SCHEMA_DIR" ]]; then
-  echo "WARN: srs-vscode schema directory not found (non-monorepo environment?): $VSCODE_SCHEMA_DIR" >&2
+  if [[ "$REQUIRE_VSCODE" -eq 1 ]]; then
+    echo "ERROR: --require-vscode set but srs-vscode schema directory not found: $VSCODE_SCHEMA_DIR" >&2
+    errors=$((errors + 1))
+  else
+    echo "WARN: srs-vscode schema directory not found (non-monorepo environment?): $VSCODE_SCHEMA_DIR — skipping that mirror" >&2
+  fi
 else
+  checked_mirrors+=("srs-vscode/schemas/2.0")
   for spec_file in "$SPEC_SCHEMA_DIR"/*.json; do
     filename="$(basename "$spec_file")"
     vscode_file="$VSCODE_SCHEMA_DIR/$filename"
@@ -77,10 +102,12 @@ else
   done
 fi
 
+mirror_list="$(IFS=', '; echo "${checked_mirrors[*]}")"
+
 if [[ $errors -eq 0 ]]; then
-  echo "OK: all $(ls "$SPEC_SCHEMA_DIR"/*.json | wc -l | tr -d ' ') spec schemas are in sync with all embedded copies"
+  echo "OK: all $(ls "$SPEC_SCHEMA_DIR"/*.json | wc -l | tr -d ' ') spec schemas are in sync with the following mirror(s): $mirror_list"
   exit 0
 else
-  echo "FAIL: $errors schema sync error(s) found" >&2
+  echo "FAIL: $errors schema sync error(s) found (mirrors checked: $mirror_list)" >&2
   exit 1
 fi
