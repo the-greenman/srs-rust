@@ -4,7 +4,7 @@ use crate::relation_service::{list_relations, ListRelationsFilter};
 use crate::store::RepositoryStore;
 use crate::writer::write_manifest;
 use serde_json::json;
-use std::collections::HashMap;
+
 
 const EXT_ADDRESSABILITY: &str = "ext:addressability";
 const EXT_DISCOVERY: &str = "ext:discovery";

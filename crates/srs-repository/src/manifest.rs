@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use srs_core::extensions::import_tracking::UpstreamPackage;
 use srs_core::types::container::{Container, ContainerIndexEntry};
 use srs_core::types::source_document::SourceDocumentIndexEntry;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

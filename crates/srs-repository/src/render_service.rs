@@ -1108,10 +1108,6 @@ fn css_classes_for_record(
 
     if let Some(theme) = ctx.active_theme.as_ref() {
         if let Some(field_ids) = &theme.css_class_fields {
-            // `[T-9]` eligibility is per-assignment, so it needs the record's Type.
-            let record_type = ctx
-                .package
-                .resolve_type(&record.type_id, record.type_version);
             for field_id in field_ids {
                 if let Some(field) = ctx.package.resolve_field(field_id) {
                     // `[T-9]` / ext:themes-l1: only an effective-single, prose
@@ -2513,15 +2509,7 @@ fn render_composite_baseline(
             let Some(row_value) = render_field_value(value, field_type, ctx.format) else {
                 continue;
             };
-            let label = field_def
-                .and_then(|f| {
-                    if f.description.is_empty() {
-                        None
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or_else(|| name.clone());
+            let label = name.clone();
 
             let tmpl = ctx
                 .active_theme
@@ -3100,7 +3088,7 @@ fn resolve_heading_field_id(
 /// (ADR-010 — no restated logic between the two call sites).
 pub(crate) fn title_field_id_is_eligible(
     field_id: &str,
-    rt: Option<&srs_core::types::record_type::RecordType>,
+    _rt: Option<&srs_core::types::record_type::RecordType>,
     package: &Package,
 ) -> bool {
     let Some(field) = package.resolve_field(field_id) else {
