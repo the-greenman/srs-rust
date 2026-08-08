@@ -19,7 +19,11 @@ use crate::store::RepositoryStore;
 use serde::Serialize;
 
 /// The data-model generation this build writes.
-pub const CURRENT_DATA_MODEL_REVISION: u64 = 1;
+/// The revision this build reads and writes — RFC-039's carrier model
+/// (migration #2). RFC-032's fieldType model is revision 1.
+pub const CURRENT_DATA_MODEL_REVISION: u64 = 2;
+/// The revision the RFC-032 `field-type` migration produces.
+pub const FIELD_TYPE_REVISION: u64 = 1;
 
 /// The manifest property carrying the generation stamp (RFC-033 [R6] / #265).
 pub const DATA_MODEL_REVISION_KEY: &str = "dataModelRevision";
@@ -50,7 +54,7 @@ pub fn data_model_revision(store: &dyn RepositoryStore) -> Result<u64, Repositor
 
 /// Whether this repository still needs migration #1.
 pub fn migration_needed(store: &dyn RepositoryStore) -> Result<bool, RepositoryError> {
-    Ok(data_model_revision(store)? < CURRENT_DATA_MODEL_REVISION)
+    Ok(data_model_revision(store)? < FIELD_TYPE_REVISION)
 }
 
 /// Apply migration #1: persist every Field in the `fieldType` model and stamp
@@ -81,13 +85,13 @@ pub fn migrate_field_types(
         fields_migrated += 1;
     }
 
-    stamp_data_model_revision(store, CURRENT_DATA_MODEL_REVISION)?;
+    stamp_data_model_revision(store, FIELD_TYPE_REVISION)?;
 
     Ok(FieldTypeMigrationResult {
         fields_migrated,
         fields_skipped_not_owned,
         from_revision,
-        to_revision: CURRENT_DATA_MODEL_REVISION,
+        to_revision: FIELD_TYPE_REVISION,
     })
 }
 

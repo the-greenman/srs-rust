@@ -74,6 +74,31 @@ static MIGRATIONS: &[MigrationDefinition] = &[
         },
     },
     MigrationDefinition {
+        id: "rfc039-carrier",
+        title: "Adopt the RFC-039 name-keyed fieldValues carrier",
+        description: "Rewrites every Tier-2 fieldValues array into the name-keyed \
+                       object carrier, converts FieldGroups into inline-composite \
+                       Fields over minted range Types (Change E.2), strips the \
+                       deprecated FieldAssignment repeatable/minItems/maxItems trio, \
+                       replaces Tier-1 valueType with an inline fieldType, and stamps \
+                       dataModelRevision: 2. This is data-model migration #2 \
+                       (revision 1 -> 2). Aborts rather than skips; an abort rolls \
+                       the store back (ADR-021).",
+        status_fn: |store| {
+            if crate::rfc039_carrier_migration_service::migration_needed(store)? {
+                Ok(MigrationStatus::Needed)
+            } else {
+                Ok(MigrationStatus::AlreadyApplied)
+            }
+        },
+        apply_fn: |store| {
+            let result = crate::rfc039_carrier_migration_service::migrate_carrier(store)?;
+            serde_json::to_value(&result).map_err(|e| RepositoryError::InvalidSnapshotData {
+                message: format!("failed to serialize carrier migration result: {e}"),
+            })
+        },
+    },
+    MigrationDefinition {
         id: "migrate-identity",
         title: "Graduate identity to purpose record",
         description: "Converts a Tier-0 note identity (or a container with no identity \

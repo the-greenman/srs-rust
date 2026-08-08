@@ -567,8 +567,7 @@ fn project_record_json(
     }
 
     // [R11]: keys are Field.name.
-    let ordered_field_keys: Vec<String> =
-        fields_to_render.iter().map(|f| f.name.clone()).collect();
+    let ordered_field_keys: Vec<String> = fields_to_render.iter().map(|f| f.name.clone()).collect();
     let mut fields_map = serde_json::Map::new();
 
     for field in &fields_to_render {
@@ -1779,7 +1778,8 @@ fn render_record_at_level(
                     .iter()
                     .cloned()
                     .map(|field_id| ResolvedFieldRender {
-                        name: ctx.package
+                        name: ctx
+                            .package
                             .resolve_field(&field_id)
                             .map(|f| f.name.clone())
                             .unwrap_or_default(),
@@ -1803,7 +1803,8 @@ fn render_record_at_level(
                     continue;
                 }
                 fields_to_render.push(ResolvedFieldRender {
-                    name: ctx.package
+                    name: ctx
+                        .package
                         .resolve_field(&fv.field_id)
                         .map(|f| f.name.clone())
                         .unwrap_or_default(),
@@ -1886,13 +1887,7 @@ fn render_record_at_level(
                         &field,
                         ft,
                         value,
-                        composite_binding_for(
-                            &field_id,
-                            use_view.as_ref(),
-                            section,
-                            ctx,
-                        )
-                        .as_ref(),
+                        composite_binding_for(&field_id, use_view.as_ref(), section, ctx).as_ref(),
                         diagnostics,
                     ));
                 }
@@ -2398,10 +2393,7 @@ fn render_composite_field(
                 .into_iter()
                 .map(|fa| {
                     let f = ctx.package.resolve_field(&fa.field_id).cloned();
-                    (
-                        f.as_ref().map(|f| f.name.clone()).unwrap_or_default(),
-                        f,
-                    )
+                    (f.as_ref().map(|f| f.name.clone()).unwrap_or_default(), f)
                 })
                 .collect()
         })
@@ -2490,10 +2482,7 @@ fn render_composite_baseline(
                                 .into_iter()
                                 .map(|fa| {
                                     let f = ctx.package.resolve_field(&fa.field_id).cloned();
-                                    (
-                                        f.as_ref().map(|f| f.name.clone()).unwrap_or_default(),
-                                        f,
-                                    )
+                                    (f.as_ref().map(|f| f.name.clone()).unwrap_or_default(), f)
                                 })
                                 .collect()
                         })
@@ -2662,7 +2651,10 @@ fn render_composite_table(
         let columns_json = get(&columns_name).and_then(|v| v.as_array().cloned());
         let rows_json = get("rows").and_then(|v| v.as_array().cloned());
 
-        let has_columns = columns_json.as_ref().map(|v| !v.is_empty()).unwrap_or(false);
+        let has_columns = columns_json
+            .as_ref()
+            .map(|v| !v.is_empty())
+            .unwrap_or(false);
         let has_rows = rows_json.as_ref().map(|v| !v.is_empty()).unwrap_or(false);
         if !has_columns && !has_rows {
             diagnostics.push(format!(
@@ -2694,14 +2686,15 @@ fn render_composite_table(
                         .filter_map(|c| c.as_str().map(|s| s.to_string()))
                         .collect(),
                 ),
-                serde_json::Value::Object(obj) => {
-                    obj.get(&cells_name).and_then(|c| c.as_array()).map(|cells| {
+                serde_json::Value::Object(obj) => obj
+                    .get(&cells_name)
+                    .and_then(|c| c.as_array())
+                    .map(|cells| {
                         cells
                             .iter()
                             .filter_map(|c| c.as_str().map(|s| s.to_string()))
                             .collect()
-                    })
-                }
+                    }),
                 _ => None,
             })
             .collect();

@@ -1882,7 +1882,6 @@ impl RepositoryStore for JsonStore {
     }
 }
 
-
 /// Recursively sort object keys for deterministic `.srsj` output (ADR-043),
 /// leaving `fieldValues`/`fieldMeta` subtrees in stored order — their key
 /// order is data ([R18]). `in_carrier` marks descent below such a key.

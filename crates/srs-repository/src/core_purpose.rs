@@ -18,7 +18,6 @@ pub(crate) const TITLE_FIELD_ID: &str = "3b000002-0000-4000-a000-000000000002";
 
 use srs_core::types::record::{FieldValues, Record};
 
-
 /// Components needed to create a `com.semanticops.core/purpose` record via `create_record`.
 #[derive(Debug)]
 pub(crate) struct PurposeRecordSpec {
