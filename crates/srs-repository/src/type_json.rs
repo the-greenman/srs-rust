@@ -9,9 +9,9 @@
 //! — the archive/type fidelity bug fixed under #684).
 
 use srs_core::types::record_type::{
-    CrossFieldRule, FieldAssignment, FieldAssignmentOverride, FieldGroup, RecordType, TypeLifecycle,
+    CrossFieldRule, FieldAssignment, FieldAssignmentOverride, RecordType, TypeLifecycle,
 };
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -22,8 +22,6 @@ pub(crate) struct TypeJson {
     version: u32,
     description: Option<String>,
     fields: Vec<FieldAssignmentJson>,
-    #[serde(default)]
-    field_groups: Option<Vec<FieldGroupJson>>,
     #[serde(default)]
     extends_type_id: Option<String>,
     #[serde(default)]
@@ -42,8 +40,11 @@ pub(crate) struct TypeJson {
     validation_rules: Option<Vec<CrossFieldRule>>,
     created_at: Option<String>,
     /// Non-modelled keys (`$schema`, `aiGuidance`, …) — preserved, not dropped.
+    /// A revision ≤ 1 file's `fieldGroups` would land here too; the loader runs
+    /// `revision_guard::check_type_document` ([R7]) before conversion, so at
+    /// revision ≥ 2 such a file never reaches this struct.
     #[serde(flatten)]
-    extra: HashMap<String, serde_json::Value>,
+    extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -53,27 +54,6 @@ struct FieldAssignmentJson {
     order: u32,
     required: Option<bool>,
     display_label: Option<String>,
-    #[serde(default)]
-    repeatable: bool,
-    min_items: Option<u32>,
-    max_items: Option<u32>,
-}
-
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct FieldGroupJson {
-    group_id: String,
-    order: u32,
-    fields: Vec<FieldAssignmentJson>,
-    label: Option<String>,
-    description: Option<String>,
-    #[serde(default)]
-    required: bool,
-    #[serde(default)]
-    repeatable: bool,
-    min_items: Option<u32>,
-    max_items: Option<u32>,
-    composite_renderer: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -91,32 +71,12 @@ fn into_assignment(fa: FieldAssignmentJson) -> FieldAssignment {
         order: fa.order,
         required: fa.required.unwrap_or(true),
         display_label: fa.display_label,
-        repeatable: fa.repeatable,
-        min_items: fa.min_items,
-        max_items: fa.max_items,
     }
 }
 
 impl TypeJson {
     pub(crate) fn into_record_type(self) -> RecordType {
         let fields: Vec<FieldAssignment> = self.fields.into_iter().map(into_assignment).collect();
-        let field_groups = self.field_groups.map(|groups| {
-            groups
-                .into_iter()
-                .map(|g| FieldGroup {
-                    group_id: g.group_id,
-                    order: g.order,
-                    fields: g.fields.into_iter().map(into_assignment).collect(),
-                    label: g.label,
-                    description: g.description,
-                    required: g.required,
-                    repeatable: g.repeatable,
-                    min_items: g.min_items,
-                    max_items: g.max_items,
-                    composite_renderer: g.composite_renderer,
-                })
-                .collect()
-        });
         let field_assignment_overrides = self.field_assignment_overrides.map(|overrides| {
             overrides
                 .into_iter()
@@ -135,7 +95,6 @@ impl TypeJson {
             version: self.version,
             description: self.description.unwrap_or_default(),
             fields,
-            field_groups,
             extends_type_id: self.extends_type_id,
             extends_type_version: self.extends_type_version,
             field_order: self.field_order,

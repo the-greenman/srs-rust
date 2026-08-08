@@ -56,23 +56,6 @@ pub struct RenderResult {
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ProjectedGroupEntry {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub entry_id: Option<String>,
-    pub fields: serde_json::Value,
-}
-
-#[derive(Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProjectedFieldGroup {
-    pub group_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
-    pub entries: Vec<ProjectedGroupEntry>,
-}
-
-#[derive(Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ProjectedRelationTarget {
     pub instance_id: String,
     pub display_label: String,
@@ -101,10 +84,11 @@ pub struct ProjectedRecord {
     pub record_heading: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preamble: Option<String>,
+    /// RFC-039 [R11]: keyed by `Field.name`; a composite value is carried
+    /// recursively under its own key, exactly as in the instance.
     pub fields: serde_json::Value,
+    /// `Field.name` keys in `FieldAssignment.order`.
     pub ordered_field_keys: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub field_groups: Option<Vec<ProjectedFieldGroup>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub relations: Option<Vec<ProjectedRelationRow>>,
 }
@@ -135,7 +119,11 @@ pub struct DocumentViewProjection {
 
 #[derive(Clone)]
 struct ResolvedFieldRender {
+    /// May be empty when the render list came from the record's own keys
+    /// (no Type resolved) — `name` is then the only identity.
     field_id: String,
+    /// `Field.name` — the RFC-039 carrier key.
+    name: String,
     required: bool,
 }
 
@@ -144,8 +132,13 @@ struct RenderContext<'a> {
     container_title: String,
     depth_offset: u32,
     format: &'a str,
-    status_field_id: Option<String>,
+    /// `Field.name` of the conventional status field, when the package has one
+    /// — the RFC-039 carrier keys by name.
+    status_field_name: Option<String>,
     active_theme: Option<Theme>,
+    /// RFC-036 — DocumentView.compositeRenderers, the lowest-precedence
+    /// composite dispatch site ([CR-036-6]).
+    doc_composite_renderers: Option<Vec<srs_core::types::view::CompositeRendererDirective>>,
 }
 
 pub fn render_document_view(
@@ -199,8 +192,9 @@ pub fn render_document_view(
         container_title,
         depth_offset,
         format,
-        status_field_id: package.find_field_by_name("status").map(|f| f.id.clone()),
+        status_field_name: package.find_field_by_name("status").map(|f| f.name.clone()),
         active_theme,
+        doc_composite_renderers: dv.composite_renderers.clone(),
     };
 
     let mut rendered = String::new();
@@ -475,7 +469,8 @@ fn project_record_json(
 
     let record_heading = resolve_heading_field_id(section, rt.as_ref(), package)
         .as_deref()
-        .and_then(|fid| record.get_field_value_str(fid).map(|v| v.to_string()));
+        .and_then(|fid| package.resolve_field(fid))
+        .and_then(|f| record.value_str(&f.name).map(|v| v.to_string()));
 
     let mut fields_to_render: Vec<ResolvedFieldRender> = Vec::new();
     let mut omit_empty = false;
@@ -515,6 +510,10 @@ fn project_record_json(
                     .iter()
                     .cloned()
                     .map(|field_id| ResolvedFieldRender {
+                        name: package
+                            .resolve_field(&field_id)
+                            .map(|f| f.name.clone())
+                            .unwrap_or_default(),
                         field_id,
                         required: false,
                     })
@@ -529,6 +528,10 @@ fn project_record_json(
                 // here. The JSON projection exports data; all fields must be included
                 // regardless of their display visibility.
                 fields_to_render.push(ResolvedFieldRender {
+                    name: package
+                        .resolve_field(&fv.field_id)
+                        .map(|f| f.name.clone())
+                        .unwrap_or_default(),
                     field_id: fv.field_id,
                     required: fv.required == Some(true),
                 });
@@ -540,6 +543,10 @@ fn project_record_json(
             Ok(assignments) => {
                 for fa in assignments {
                     fields_to_render.push(ResolvedFieldRender {
+                        name: package
+                            .resolve_field(&fa.field_id)
+                            .map(|f| f.name.clone())
+                            .unwrap_or_default(),
                         field_id: fa.field_id,
                         required: fa.required,
                     });
@@ -550,49 +557,61 @@ fn project_record_json(
             }
         }
     } else {
-        for fv in &record.field_values {
+        for (name, _value) in record.field_values.iter() {
             fields_to_render.push(ResolvedFieldRender {
-                field_id: fv.field_id.clone(),
+                field_id: String::new(),
+                name: name.clone(),
                 required: false,
             });
         }
     }
 
-    let ordered_field_keys: Vec<String> = fields_to_render
-        .iter()
-        .map(|f| f.field_id.clone())
-        .collect();
+    // [R11]: keys are Field.name.
+    let ordered_field_keys: Vec<String> =
+        fields_to_render.iter().map(|f| f.name.clone()).collect();
     let mut fields_map = serde_json::Map::new();
 
     for field in &fields_to_render {
-        let field_id = &field.field_id;
-        let field_value = record.find_field_value(field_id);
-        let field_def = package.resolve_field(field_id);
+        if field.name.is_empty() {
+            diagnostics.push(format!(
+                "field id {} resolves to no Field definition; skipped in projection",
+                field.field_id
+            ));
+            continue;
+        }
+        let field_value = record.value(&field.name);
+        let field_def = if field.field_id.is_empty() {
+            package.find_field_by_name(&field.name)
+        } else {
+            package.resolve_field(&field.field_id)
+        };
         let field_type = field_def.map(|f| &f.field_type);
-        let json_val = field_value.and_then(|fv| field_value_to_json(fv, field_type));
+        // [R11]: a composite value is carried recursively under its own key,
+        // exactly as in the instance — the projection inherits Change B's
+        // recursion instead of restating it.
+        let json_val = field_value.and_then(|v| project_field_value(v, field_type));
 
         if field.required && json_val.is_none() {
             diagnostics.push(format!(
                 "[view-required] view {} record {} is missing required field {} for rendered view",
                 effective_view_id.unwrap_or("<no-view-id>"),
                 record.instance_id,
-                field_id
+                field.name
             ));
         }
 
         match json_val {
             Some(v) => {
-                fields_map.insert(field_id.clone(), v);
+                fields_map.insert(field.name.clone(), v);
             }
             None => {
                 if !omit_empty {
-                    fields_map.insert(field_id.clone(), serde_json::Value::Null);
+                    fields_map.insert(field.name.clone(), serde_json::Value::Null);
                 }
             }
         }
     }
 
-    let field_groups = project_field_groups_json(package, record, &rt);
     let projected_relations =
         project_relations_json(store, section, record, relations, package, diagnostics)?;
 
@@ -605,7 +624,6 @@ fn project_record_json(
         preamble: record_preamble,
         fields: serde_json::Value::Object(fields_map),
         ordered_field_keys,
-        field_groups,
         relations: projected_relations,
     })
 }
@@ -623,85 +641,20 @@ fn substitute_vars_record_json(template: &str, record: &Record) -> String {
     out
 }
 
-fn project_field_groups_json(
-    package: &Package,
-    record: &Record,
-    rt: &Option<srs_core::types::record_type::RecordType>,
-) -> Option<Vec<ProjectedFieldGroup>> {
-    let rt = rt.as_ref()?;
-    let field_groups_def = rt.field_groups.as_ref()?;
-
-    let mut groups_def = field_groups_def.clone();
-    groups_def.sort_by_key(|g| g.order);
-
-    let mut result = Vec::new();
-    for group_def in &groups_def {
-        let group_value = match record.find_group_value(&group_def.group_id) {
-            Some(gv) if !gv.entries.is_empty() => gv,
-            _ => continue,
-        };
-
-        let mut field_assignments = group_def.fields.clone();
-        field_assignments.sort_by_key(|fa| fa.order);
-
-        let entries = group_value
-            .entries
-            .iter()
-            .map(|entry| {
-                let mut entry_fields = serde_json::Map::new();
-                for assignment in &field_assignments {
-                    let fv = entry
-                        .field_values
-                        .iter()
-                        .find(|v| v.field_id == assignment.field_id);
-                    if let Some(fv) = fv {
-                        let field_type = package
-                            .resolve_field(&assignment.field_id)
-                            .map(|f| &f.field_type);
-                        let json_val =
-                            field_value_to_json(fv, field_type).unwrap_or(serde_json::Value::Null);
-                        entry_fields.insert(assignment.field_id.clone(), json_val);
-                    }
-                }
-                ProjectedGroupEntry {
-                    entry_id: entry.entry_id.clone(),
-                    fields: serde_json::Value::Object(entry_fields),
-                }
-            })
-            .collect();
-
-        result.push(ProjectedFieldGroup {
-            group_id: group_def.group_id.clone(),
-            label: group_def.label.clone(),
-            entries,
-        });
-    }
-
-    if result.is_empty() {
-        None
-    } else {
-        Some(result)
-    }
-}
-
-fn field_value_to_json(
-    field_value: &srs_core::types::record::FieldValue,
+/// Project one stored value for the JSON projection. Scalars and lists pass
+/// through with date-format coercion; an inline-composite value (object, or
+/// array of objects) passes through **recursively unchanged** — the instance
+/// shape is the projection shape ([R11]). An empty string projects as absent
+/// (RFC-001 Step 2 rendering-presence, [R5a]).
+fn project_field_value(
+    value: &serde_json::Value,
     field_type: Option<&FieldType>,
 ) -> Option<serde_json::Value> {
-    if let Some(entries) = &field_value.entries {
-        if entries.is_empty() {
-            return None;
-        }
-        let vals: Vec<serde_json::Value> = entries
-            .iter()
-            .map(|e| coerce_json_value(&e.value, field_type))
-            .collect();
-        return Some(serde_json::Value::Array(vals));
+    match value {
+        serde_json::Value::Null => None,
+        serde_json::Value::String(s) if s.is_empty() => None,
+        _ => Some(coerce_json_value(value, field_type)),
     }
-    if field_value.value.is_null() {
-        return None;
-    }
-    Some(coerce_json_value(&field_value.value, field_type))
 }
 
 fn coerce_json_value(raw: &serde_json::Value, field_type: Option<&FieldType>) -> serde_json::Value {
@@ -1113,11 +1066,10 @@ fn format_field_row_html(identity: RowIdentity<'_>, label: &str, value: &RowValu
 /// The portable placeholder of `[FR-037-11]`.
 const EMPTY_PLACEHOLDER: &str = "(empty)";
 
-/// `[FR-037-14]` — the prefixed names are the forward contract; the unprefixed
-/// aliases are temporary compatibility, emitted alongside them until the #242
-/// cutover so existing stylesheets keep working.
-const LABEL_CLASSES: &str = "srs-field-label field-label";
-const VALUE_CLASSES: &str = "srs-field-value field-value";
+/// `[FR-037-14]` — the #242 cutover fired: only the prefixed names are
+/// emitted; the unprefixed compatibility aliases are gone.
+const LABEL_CLASSES: &str = "srs-field-label";
+const VALUE_CLASSES: &str = "srs-field-value";
 
 fn normalise_css_class(value: &str) -> String {
     let s = value.to_lowercase();
@@ -1163,18 +1115,13 @@ fn css_classes_for_record(
             for field_id in field_ids {
                 if let Some(field) = ctx.package.resolve_field(field_id) {
                     // `[T-9]` / ext:themes-l1: only an effective-single, prose
-                    // string field contributes a class. Testing the stored JSON
-                    // for `as_str()` is not equivalent — `date`, `date-time`,
-                    // `uri`, `uuid` and `email` all serialize as JSON strings
-                    // and are all ineligible.
-                    let repeatable = record_type
-                        .and_then(|rt| rt.find_field_assignment_anywhere(field_id))
-                        .is_some_and(|a| a.repeatable);
-                    if !field.field_type.is_theme_css_class_eligible(repeatable) {
+                    // string field contributes a class. Cardinality-only since
+                    // the #242 cutover (Change-I condition 4).
+                    if !field.field_type.is_theme_css_class_eligible() {
                         continue;
                     }
-                    if let Some(fv) = record.find_field_value(field_id) {
-                        if let Some(raw) = fv.value.as_str() {
+                    if let Some(value) = record.value(&field.name) {
+                        if let Some(raw) = value.as_str() {
                             classes.push(' ');
                             classes.push_str(&format!(
                                 "srs-field-{}-{}",
@@ -1780,7 +1727,11 @@ fn render_record_at_level(
     let mut heading_field_id: Option<String> = None;
 
     if let Some(title_field_id) = resolve_heading_field_id(section, rt.as_ref(), ctx.package) {
-        if let Some(title) = record.get_field_value_str(&title_field_id) {
+        if let Some(title) = ctx
+            .package
+            .resolve_field(&title_field_id)
+            .and_then(|f| record.value_str(&f.name))
+        {
             record_heading_value = title.to_string();
             out.push_str(&format_heading(heading_level, ctx.format, title));
         }
@@ -1820,7 +1771,7 @@ fn render_record_at_level(
     // from the L1 View rendering path, which is the path a resolved View drives.
     let l1_view_path = use_view.is_some();
 
-    if let Some(view) = use_view {
+    if let Some(view) = use_view.as_ref() {
         if let Some(export_config) = &view.export_config {
             if let Some(preamble) = &export_config.preamble {
                 out.push_str(&substitute_vars(preamble, ctx, Some(record), true));
@@ -1832,6 +1783,10 @@ fn render_record_at_level(
                     .iter()
                     .cloned()
                     .map(|field_id| ResolvedFieldRender {
+                        name: ctx.package
+                            .resolve_field(&field_id)
+                            .map(|f| f.name.clone())
+                            .unwrap_or_default(),
                         field_id,
                         required: false,
                     })
@@ -1852,6 +1807,10 @@ fn render_record_at_level(
                     continue;
                 }
                 fields_to_render.push(ResolvedFieldRender {
+                    name: ctx.package
+                        .resolve_field(&fv.field_id)
+                        .map(|f| f.name.clone())
+                        .unwrap_or_default(),
                     field_id: fv.field_id,
                     required: fv.required == Some(true),
                 });
@@ -1865,6 +1824,11 @@ fn render_record_at_level(
                         display_labels.insert(fa.field_id.clone(), label);
                     }
                     fields_to_render.push(ResolvedFieldRender {
+                        name: ctx
+                            .package
+                            .resolve_field(&fa.field_id)
+                            .map(|f| f.name.clone())
+                            .unwrap_or_default(),
                         field_id: fa.field_id,
                         required: fa.required,
                     });
@@ -1875,16 +1839,17 @@ fn render_record_at_level(
             }
         }
     } else {
-        for fv in &record.field_values {
+        for (name, _value) in record.field_values.iter() {
             fields_to_render.push(ResolvedFieldRender {
-                field_id: fv.field_id.clone(),
+                field_id: String::new(),
+                name: name.clone(),
                 required: false,
             });
         }
     }
 
     for field in fields_to_render {
-        let field_id = field.field_id;
+        let field_id = field.field_id.clone();
         // In structured mode (titleFieldId set), skip the heading field — already
         // emitted above. An ineligible titleFieldId is not the heading field, so it
         // is not skipped and still renders as an ordinary field row.
@@ -1895,18 +1860,58 @@ fn render_record_at_level(
                 }
             }
         }
+        if field.name.is_empty() {
+            diagnostics.push(format!(
+                "field id {field_id} resolves to no Field definition; row skipped"
+            ));
+            continue;
+        }
 
-        let field_value = record.find_field_value(&field_id);
-        let field_def = ctx.package.resolve_field(&field_id);
+        let field_value = record.value(&field.name);
+        let field_def = if field_id.is_empty() {
+            ctx.package.find_field_by_name(&field.name)
+        } else {
+            ctx.package.resolve_field(&field_id)
+        };
         let field_type = field_def.map(|field| &field.field_type);
+
+        // RFC-036/RFC-039: an inline-composite value renders structurally —
+        // through a named composite renderer when a view/section/document
+        // directive binds one ([CR-036-6]), else the composite baseline. It
+        // never falls through to the scalar row path (no raw JSON in output).
+        if let Some(ft) = field_type {
+            if ft.datatype == Datatype::Ref
+                && ft.effective_mode() == srs_core::types::field_type::RefMode::Inline
+            {
+                if let Some(value) = field_value {
+                    out.push_str(&render_composite_field(
+                        ctx,
+                        record,
+                        &field,
+                        ft,
+                        value,
+                        composite_binding_for(
+                            &field_id,
+                            use_view.as_ref(),
+                            section,
+                            ctx,
+                        )
+                        .as_ref(),
+                        diagnostics,
+                    ));
+                }
+                continue;
+            }
+        }
+
         let rendered_value =
-            field_value.and_then(|fv| render_field_value(fv, field_type, ctx.format));
+            field_value.and_then(|v| render_field_value(v, field_type, ctx.format));
         if field.required && rendered_value.is_none() {
             diagnostics.push(format!(
                 "[view-required] view {} record {} is missing required field {} for rendered view",
                 effective_view_id.unwrap_or("<no-view-id>"),
                 record.instance_id,
-                field_id
+                field.name
             ));
         }
         if rendered_value.is_none() && omit_empty {
@@ -1933,11 +1938,7 @@ fn render_record_at_level(
             }
         };
 
-        let field_name = ctx
-            .package
-            .resolve_field(&field_id)
-            .map(|f| f.name.clone())
-            .unwrap_or_else(|| field_id.clone());
+        let field_name = field.name.clone();
 
         let label = display_labels
             .get(&field_id)
@@ -1947,8 +1948,7 @@ fn render_record_at_level(
                     .and_then(|t| t.find_field_assignment(&field_id))
                     .and_then(|fa| fa.display_label.clone())
             })
-            .or_else(|| Some(field_name.clone()))
-            .unwrap_or_else(|| field_id.clone());
+            .unwrap_or_else(|| field_name.clone());
 
         // `[FR-037-19]`: this form is the content `ElementTemplates.fieldRow`
         // receives as `{{content}}`. A Theme wraps the row; it never replaces it.
@@ -1980,18 +1980,6 @@ fn render_record_at_level(
         out.push_str(&row_content);
         out.push_str(row_separator(ctx.format));
     }
-    if let Some(rt) = &rt {
-        if let Some(field_groups) = &rt.field_groups {
-            out.push_str(&render_field_groups(
-                ctx,
-                rt,
-                record,
-                field_groups,
-                diagnostics,
-            ));
-        }
-    }
-
     out.push_str(&render_relations_block(
         store,
         section,
@@ -2079,7 +2067,10 @@ fn resolve_display_label_for_relation_target(
             {
                 match package.effective_identity_field_id(rt) {
                     Ok(Some(fid)) => {
-                        if let Some(val) = target_record.get_field_value_str(&fid) {
+                        if let Some(val) = package
+                            .resolve_field(&fid)
+                            .and_then(|f| target_record.value_str(&f.name))
+                        {
                             if !val.is_empty() {
                                 return Ok(val.to_string());
                             }
@@ -2105,7 +2096,10 @@ fn resolve_display_label_for_relation_target(
                 let target_rt =
                     package.resolve_type(&target_record.type_id, target_record.type_version);
                 if title_field_id_is_eligible(title_fid, target_rt, package) {
-                    if let Some(val) = target_record.get_field_value_str(title_fid) {
+                    if let Some(val) = package
+                        .resolve_field(title_fid)
+                        .and_then(|f| target_record.value_str(&f.name))
+                    {
                         if !val.is_empty() {
                             return Ok(val.to_string());
                         }
@@ -2336,141 +2330,205 @@ fn render_relations_block(
     Ok(out)
 }
 
-fn render_field_groups(
+/// RFC-036 [CR-036-6] — resolve the composite renderer binding for a field:
+/// FieldView.compositeRenderer > DocumentSection.compositeRenderers >
+/// DocumentView.compositeRenderers > none (baseline). The `baseline` sentinel
+/// cancels lower-precedence sites.
+fn composite_binding_for(
+    field_id: &str,
+    use_view: Option<&srs_core::types::view::View>,
+    section: &DocumentSection,
     ctx: &RenderContext<'_>,
-    rt: &srs_core::types::record_type::RecordType,
-    record: &Record,
-    field_groups: &[srs_core::types::record_type::FieldGroup],
-    diagnostics: &mut Vec<String>,
-) -> String {
-    let mut groups = field_groups.to_vec();
-    groups.sort_by_key(|g| g.order);
-    let mut out = String::new();
-
-    for group in groups {
-        let Some(group_value) = record.find_group_value(&group.group_id) else {
-            continue;
-        };
-        if group_value.entries.is_empty() {
-            continue;
-        }
-
-        match group.composite_renderer.as_deref() {
-            Some("table") => {
-                if let Some(label) = &group.label {
-                    out.push('\n');
-                    out.push_str(&format_heading(
-                        depth(4, ctx.depth_offset),
-                        ctx.format,
-                        label,
-                    ));
-                }
-                let table_config = ctx
-                    .active_theme
-                    .as_ref()
-                    .and_then(|t| t.element_templates.as_ref())
-                    .and_then(|et| et.composite_renderer_config.as_ref())
-                    .and_then(|crc| crc.get("table"));
-                out.push_str(&render_composite_table(
-                    ctx,
-                    rt,
-                    record,
-                    &group,
-                    group_value,
-                    table_config,
-                    diagnostics,
-                ));
-            }
-            Some(unknown) => {
-                // [FG-Cx1]: Unknown compositeRenderer — fall back to baseline + emit diagnostic.
-                diagnostics.push(format!(
-                    "[FG-Cx1] Unrecognised compositeRenderer {:?} on group {:?}; falling back to per-field baseline",
-                    unknown, group.group_id
-                ));
-                out.push_str(&render_field_group_baseline(
-                    ctx,
-                    rt,
-                    record,
-                    &group,
-                    group_value,
-                ));
-            }
-            None => {
-                out.push_str(&render_field_group_baseline(
-                    ctx,
-                    rt,
-                    record,
-                    &group,
-                    group_value,
-                ));
+) -> Option<srs_core::types::view::CompositeRendererBinding> {
+    if let Some(view) = use_view {
+        if let Some(fv) = view.field_views.iter().find(|fv| fv.field_id == field_id) {
+            if let Some(binding) = &fv.composite_renderer {
+                return Some(binding.clone());
             }
         }
     }
-
-    out
+    if let Some(directives) = &section.composite_renderers {
+        // First in array order wins (document-view.json).
+        if let Some(d) = directives.iter().find(|d| d.field_id == field_id) {
+            return Some(srs_core::types::view::CompositeRendererBinding {
+                renderer: d.renderer.clone(),
+                roles: d.roles.clone(),
+            });
+        }
+    }
+    if let Some(directives) = &ctx.doc_composite_renderers {
+        if let Some(d) = directives.iter().find(|d| d.field_id == field_id) {
+            return Some(srs_core::types::view::CompositeRendererBinding {
+                renderer: d.renderer.clone(),
+                roles: d.roles.clone(),
+            });
+        }
+    }
+    None
 }
 
-fn render_field_group_baseline(
+/// Render an inline-composite field value (RFC-039 Change B row 4) through the
+/// bound composite renderer, or the composite baseline when none is bound
+/// ([CR-036-7] falls back with a diagnostic on an unknown identifier).
+#[allow(clippy::too_many_arguments)]
+fn render_composite_field(
     ctx: &RenderContext<'_>,
-    rt: &srs_core::types::record_type::RecordType,
-    _record: &Record,
-    group: &srs_core::types::record_type::FieldGroup,
-    group_value: &srs_core::types::record::FieldGroupValue,
+    record: &Record,
+    field: &ResolvedFieldRender,
+    field_type: &FieldType,
+    value: &serde_json::Value,
+    binding: Option<&srs_core::types::view::CompositeRendererBinding>,
+    diagnostics: &mut Vec<String>,
+) -> String {
+    // A single composite is rendered as a one-entry sequence; a list is the
+    // entry sequence itself ([R16] wraps uniformly).
+    let entries: Vec<&serde_json::Map<String, serde_json::Value>> = match value {
+        serde_json::Value::Array(items) => items.iter().filter_map(|v| v.as_object()).collect(),
+        serde_json::Value::Object(obj) => vec![obj],
+        _ => Vec::new(),
+    };
+    if entries.is_empty() {
+        return String::new();
+    }
+
+    let range_assignments: Vec<(String, Option<srs_core::types::field::Field>)> = field_type
+        .range_type
+        .as_ref()
+        .and_then(|range| ctx.package.resolve_type(&range.type_id, range.type_version))
+        .map(|range_rt| {
+            ctx.package
+                .effective_fields(range_rt)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|fa| {
+                    let f = ctx.package.resolve_field(&fa.field_id).cloned();
+                    (
+                        f.as_ref().map(|f| f.name.clone()).unwrap_or_default(),
+                        f,
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    match binding.map(|b| b.renderer.as_str()) {
+        Some("table") => {
+            let table_config = ctx
+                .active_theme
+                .as_ref()
+                .and_then(|t| t.element_templates.as_ref())
+                .and_then(|et| et.composite_renderer_config.as_ref())
+                .and_then(|crc| crc.get("table"));
+            render_composite_table(
+                ctx,
+                record,
+                field,
+                &entries,
+                binding.and_then(|b| b.roles.as_ref()),
+                table_config,
+                diagnostics,
+            )
+        }
+        Some("baseline") | None => {
+            render_composite_baseline(ctx, field, &entries, &range_assignments)
+        }
+        Some(unknown) => {
+            // [CR-036-7]: unknown renderer falls back to the composite
+            // baseline with a diagnostic.
+            diagnostics.push(format!(
+                "[CR-036-7] Unrecognised compositeRenderer {:?} on field {:?}; falling back to composite baseline",
+                unknown, field.name
+            ));
+            render_composite_baseline(ctx, field, &entries, &range_assignments)
+        }
+    }
+}
+
+/// The composite **baseline** (RFC-036): each entry renders its range fields as
+/// ordinary RFC-037 field rows in `FieldAssignment.order`, entries separated by
+/// a blank line. `compositeFieldRowTemplates` ([CR-036-18]) overrides a named
+/// field's row.
+fn render_composite_baseline(
+    ctx: &RenderContext<'_>,
+    field: &ResolvedFieldRender,
+    entries: &[&serde_json::Map<String, serde_json::Value>],
+    range_assignments: &[(String, Option<srs_core::types::field::Field>)],
 ) -> String {
     let mut out = String::new();
 
-    if let Some(label) = &group.label {
-        out.push('\n');
-        out.push_str(&format_heading(
-            depth(4, ctx.depth_offset),
-            ctx.format,
-            label,
-        ));
-    }
-
-    let mut assignments = group.fields.clone();
-    assignments.sort_by_key(|fa| fa.order);
-    for (idx, entry) in group_value.entries.iter().enumerate() {
+    for (idx, entry) in entries.iter().enumerate() {
         if idx > 0 {
             out.push('\n');
         }
-        for assignment in &assignments {
-            let Some(fv) = entry
-                .field_values
-                .iter()
-                .find(|value| value.field_id == assignment.field_id)
-            else {
+        // With no resolvable range Type, fall back to the entry's own key order
+        // ([R18] serialises in FieldAssignment.order anyway).
+        let names: Vec<(String, Option<&srs_core::types::field::Field>)> =
+            if range_assignments.is_empty() {
+                entry.keys().map(|k| (k.clone(), None)).collect()
+            } else {
+                range_assignments
+                    .iter()
+                    .map(|(n, f)| (n.clone(), f.as_ref()))
+                    .collect()
+            };
+        for (name, field_def) in names {
+            let Some(value) = entry.get(&name) else {
                 continue;
             };
-
-            let field_type = rt
-                .find_field_assignment(&assignment.field_id)
-                .and_then(|_| ctx.package.resolve_field(&assignment.field_id))
-                .map(|field| &field.field_type);
-            let Some(row_value) = render_field_value(fv, field_type, ctx.format) else {
+            let field_type = field_def.map(|f| &f.field_type);
+            // Nested composites recurse through the baseline.
+            if let Some(obj_entries) = composite_entries(value) {
+                let nested = ResolvedFieldRender {
+                    field_id: field_def.map(|f| f.id.clone()).unwrap_or_default(),
+                    name: name.clone(),
+                    required: false,
+                };
+                let nested_assignments: Vec<(String, Option<srs_core::types::field::Field>)> =
+                    field_def
+                        .and_then(|f| f.field_type.range_type.as_ref())
+                        .and_then(|r| ctx.package.resolve_type(&r.type_id, r.type_version))
+                        .map(|range_rt| {
+                            ctx.package
+                                .effective_fields(range_rt)
+                                .unwrap_or_default()
+                                .into_iter()
+                                .map(|fa| {
+                                    let f = ctx.package.resolve_field(&fa.field_id).cloned();
+                                    (
+                                        f.as_ref().map(|f| f.name.clone()).unwrap_or_default(),
+                                        f,
+                                    )
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                out.push_str(&render_composite_baseline(
+                    ctx,
+                    &nested,
+                    &obj_entries,
+                    &nested_assignments,
+                ));
+                continue;
+            }
+            let Some(row_value) = render_field_value(value, field_type, ctx.format) else {
                 continue;
             };
-            let label = assignment
-                .display_label
-                .clone()
-                .or_else(|| {
-                    ctx.package
-                        .resolve_field(&assignment.field_id)
-                        .map(|f| f.name.clone())
+            let label = field_def
+                .and_then(|f| {
+                    if f.description.is_empty() {
+                        None
+                    } else {
+                        None
+                    }
                 })
-                .unwrap_or_else(|| assignment.field_id.clone());
+                .unwrap_or_else(|| name.clone());
 
-            let field_name = ctx
-                .package
-                .resolve_field(&assignment.field_id)
-                .map(|f| f.name.as_str())
-                .unwrap_or(&label);
             let tmpl = ctx
                 .active_theme
                 .as_ref()
                 .and_then(|t| t.element_templates.as_ref())
-                .and_then(|et| et.group_field_row_templates.as_ref())
-                .and_then(|gft| gft.get(field_name));
+                .and_then(|et| et.composite_field_row_templates.as_ref())
+                .and_then(|gft| gft.get(&name));
 
             if let Some(tmpl) = tmpl {
                 let row = tmpl
@@ -2480,7 +2538,7 @@ fn render_field_group_baseline(
             } else {
                 out.push_str(&format_field_row(
                     ctx.format,
-                    RowIdentity::FieldName(field_name),
+                    RowIdentity::FieldName(&name),
                     &label,
                     &row_value,
                 ));
@@ -2488,39 +2546,61 @@ fn render_field_group_baseline(
             }
         }
     }
+    let _ = field;
     out
 }
 
+/// The object entries behind a nested composite value, or None for scalars.
+fn composite_entries(
+    value: &serde_json::Value,
+) -> Option<Vec<&serde_json::Map<String, serde_json::Value>>> {
+    match value {
+        serde_json::Value::Object(obj) => Some(vec![obj]),
+        serde_json::Value::Array(items) if items.iter().any(|v| v.is_object()) => {
+            Some(items.iter().filter_map(|v| v.as_object()).collect())
+        }
+        _ => None,
+    }
+}
+
+/// The SRS-defined `table` composite renderer (RFC-036), re-based onto the
+/// RFC-039 carrier. Role binding is by `Field.name` ([CR-036-8]), overridable
+/// by the binding's UUID-anchored `roles` map:
+/// `cells` binds inside each entry object; `columns`, `widths`, `subheading`
+/// and `label` bind first among the record's sibling fields, then inside the
+/// entry — covering both the spec shape (record-level `columns` + `rows` of
+/// `{cells}`) and per-entry table shapes.
+// ponytail: role search is record-then-entry by literal name; per-entry roles
+// with renderer `roles` overrides across namespaces extend here when muSrs's
+// five-field shape lands (unit 3).
 fn render_composite_table(
     ctx: &RenderContext<'_>,
-    rt: &srs_core::types::record_type::RecordType,
-    _record: &Record,
-    group: &srs_core::types::record_type::FieldGroup,
-    group_value: &srs_core::types::record::FieldGroupValue,
+    record: &Record,
+    field: &ResolvedFieldRender,
+    entries: &[&serde_json::Map<String, serde_json::Value>],
+    roles: Option<&std::collections::HashMap<String, String>>,
     table_config: Option<&serde_json::Value>,
     diagnostics: &mut Vec<String>,
 ) -> String {
     let mut out = String::new();
 
-    // Resolve field IDs for the table's named fields by Field.name.
-    let resolve_field_id = |name: &str| -> Option<String> {
-        group
-            .fields
-            .iter()
-            .find(|fa| {
-                ctx.package
-                    .resolve_field(&fa.field_id)
-                    .map(|f| f.name == name)
-                    .unwrap_or(false)
-            })
-            .map(|fa| fa.field_id.clone())
+    // Resolve a role to its bound Field.name: explicit UUID-anchored override
+    // first ([CR-036-8] override), else the role name itself.
+    let role_name = |role: &str| -> String {
+        roles
+            .and_then(|r| r.get(role))
+            .and_then(|fid| ctx.package.resolve_field(fid))
+            .map(|f| f.name.clone())
+            .unwrap_or_else(|| role.to_string())
     };
+    let cells_name = role_name("cells");
+    let columns_name = role_name("columns");
+    let widths_name = role_name("widths");
+    let subheading_name = role_name("subheading");
+    let label_name = role_name("label");
 
-    let columns_id = resolve_field_id("columns");
-    let rows_id = resolve_field_id("rows");
-    let widths_id = resolve_field_id("widths");
-    let subheading_id = resolve_field_id("subheading");
-    let label_id = resolve_field_id("label");
+    // Record-level role values (the spec table shape).
+    let record_role = |name: &str| -> Option<&serde_json::Value> { record.value(name) };
 
     // Read table config keys.
     let table_class = table_config
@@ -2534,56 +2614,29 @@ fn render_composite_table(
         .and_then(|c| c.get("captionTemplate"))
         .and_then(|v| v.as_str());
 
-    for (entry_idx, entry) in group_value.entries.iter().enumerate() {
-        let get_fv = |field_id: &Option<String>| -> Option<&srs_core::types::record::FieldValue> {
-            let id = field_id.as_deref()?;
-            entry.field_values.iter().find(|fv| fv.field_id == id)
-        };
+    // The spec shape: every entry is one row of `cells`; columns/widths/label
+    // come from record-level siblings. The per-entry shape: an entry carries
+    // its own columns/rows — detected by the presence of the columns role in
+    // the entry itself.
+    let per_entry = entries
+        .first()
+        .is_some_and(|e| e.contains_key(&columns_name) || !e.contains_key(&cells_name));
 
-        // Resolve columns and rows as JSON arrays.
-        // Fields stored as text-typed JSON strings (e.g. "[\"a\",\"b\"]") are parsed;
-        // fields already stored as native JSON arrays are used directly.
-        let columns_json = get_fv(&columns_id).and_then(|fv| coerce_to_array(&fv.value));
-        let rows_json = get_fv(&rows_id).and_then(|fv| coerce_to_array(&fv.value));
-
-        // [FG-Cx2]: Skip entry if neither columns nor rows have content.
-        let has_columns = columns_json
-            .as_ref()
-            .map(|v| !v.is_empty())
-            .unwrap_or(false);
-        let has_rows = rows_json.as_ref().map(|v| !v.is_empty()).unwrap_or(false);
-        if !has_columns && !has_rows {
-            diagnostics.push(format!(
-                "[FG-Cx2] compositeRenderer:table entry {} in group {:?} has no columns or rows; skipping",
-                entry_idx, group.group_id
-            ));
-            continue;
-        }
-
-        let widths: Vec<f64> = get_fv(&widths_id)
-            .and_then(|fv| coerce_to_array(&fv.value))
-            .map(|arr| arr.iter().filter_map(|v| v.as_f64()).collect())
-            .unwrap_or_default();
-
-        let subheading = get_fv(&subheading_id)
-            .and_then(|fv| fv.value.as_str())
-            .map(|s| s.to_string());
-
-        let label_text = get_fv(&label_id)
-            .and_then(|fv| fv.value.as_str())
-            .map(|s| s.to_string());
-
-        let cols: Vec<String> = columns_json
+    if !per_entry {
+        let cols: Vec<String> = record_role(&columns_name)
+            .and_then(|v| v.as_array().cloned())
             .unwrap_or_default()
             .iter()
             .filter_map(|v| v.as_str().map(|s| s.to_string()))
             .collect();
-
-        let rows: Vec<Vec<String>> = rows_json
-            .unwrap_or_default()
+        let widths: Vec<f64> = record_role(&widths_name)
+            .and_then(|v| v.as_array().cloned())
+            .map(|arr| arr.iter().filter_map(|v| v.as_f64()).collect())
+            .unwrap_or_default();
+        let rows: Vec<Vec<String>> = entries
             .iter()
-            .filter_map(|row| {
-                row.as_array().map(|cells| {
+            .filter_map(|e| {
+                e.get(&cells_name).and_then(|c| c.as_array()).map(|cells| {
                     cells
                         .iter()
                         .filter_map(|c| c.as_str().map(|s| s.to_string()))
@@ -2591,60 +2644,149 @@ fn render_composite_table(
                 })
             })
             .collect();
-
+        if cols.is_empty() && rows.is_empty() {
+            diagnostics.push(format!(
+                "[CR-036-2] compositeRenderer:table on field {:?} has no columns or rows; skipping",
+                field.name
+            ));
+            return out;
+        }
         let table_str = match ctx.format {
-            "html" => render_table_html(&cols, &rows, table_class, &widths, rt),
+            "html" => render_table_html(&cols, &rows, table_class, &widths),
             _ => render_table_markdown(&cols, &rows, &widths),
         };
+        let label_text = record_role(&label_name).and_then(|v| v.as_str());
+        let subheading = record_role(&subheading_name).and_then(|v| v.as_str());
+        out.push_str(&compose_table_entry(
+            ctx,
+            table_str,
+            subheading,
+            label_text,
+            wrapper_template,
+            caption_template,
+        ));
+        return out;
+    }
 
-        let subheading_str = match subheading.as_deref() {
-            Some(sh) if !sh.is_empty() => match ctx.format {
-                "html" => format!(
-                    "<h{}>{}</h{}>\n",
-                    depth(4, ctx.depth_offset),
-                    html_escape(sh),
-                    depth(4, ctx.depth_offset)
-                ),
-                _ => format!(
-                    "{}{sh}\n\n",
-                    heading_prefix(depth(4, ctx.depth_offset), ctx.format)
-                ),
-            },
-            _ => String::new(),
-        };
+    // Per-entry tables (each entry carries its own columns/rows roles).
+    for (entry_idx, entry) in entries.iter().enumerate() {
+        let get = |name: &str| -> Option<&serde_json::Value> { entry.get(name) };
+        let columns_json = get(&columns_name).and_then(|v| v.as_array().cloned());
+        let rows_json = get("rows").and_then(|v| v.as_array().cloned());
 
-        let label_str = match label_text.as_deref() {
-            Some(lbl) if !lbl.is_empty() => {
-                if let Some(tmpl) = caption_template {
-                    let safe = if ctx.format == "html" {
-                        html_escape(lbl)
-                    } else {
-                        lbl.to_owned()
-                    };
-                    tmpl.replace("{{field-value}}", &safe)
-                } else if ctx.format == "html" {
-                    format!("<figcaption>{}</figcaption>\n", html_escape(lbl))
-                } else {
-                    format!("*{lbl}*\n\n")
+        let has_columns = columns_json.as_ref().map(|v| !v.is_empty()).unwrap_or(false);
+        let has_rows = rows_json.as_ref().map(|v| !v.is_empty()).unwrap_or(false);
+        if !has_columns && !has_rows {
+            diagnostics.push(format!(
+                "[CR-036-2] compositeRenderer:table entry {} on field {:?} has no columns or rows; skipping",
+                entry_idx, field.name
+            ));
+            continue;
+        }
+
+        let widths: Vec<f64> = get(&widths_name)
+            .and_then(|v| v.as_array().cloned())
+            .map(|arr| arr.iter().filter_map(|v| v.as_f64()).collect())
+            .unwrap_or_default();
+        let subheading = get(&subheading_name).and_then(|v| v.as_str());
+        let label_text = get(&label_name).and_then(|v| v.as_str());
+
+        let cols: Vec<String> = columns_json
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+        let rows: Vec<Vec<String>> = rows_json
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|row| match row {
+                serde_json::Value::Array(cells) => Some(
+                    cells
+                        .iter()
+                        .filter_map(|c| c.as_str().map(|s| s.to_string()))
+                        .collect(),
+                ),
+                serde_json::Value::Object(obj) => {
+                    obj.get(&cells_name).and_then(|c| c.as_array()).map(|cells| {
+                        cells
+                            .iter()
+                            .filter_map(|c| c.as_str().map(|s| s.to_string()))
+                            .collect()
+                    })
                 }
-            }
-            _ => String::new(),
-        };
+                _ => None,
+            })
+            .collect();
 
-        let entry_out = if let Some(tmpl) = wrapper_template {
-            tmpl.replace("{{subheading}}", &subheading_str)
-                .replace("{{label}}", &label_str)
-                .replace("{{table}}", &table_str)
-        } else if ctx.format == "html" {
-            format!("<figure class=\"srs-table\">{subheading_str}{label_str}{table_str}</figure>\n")
-        } else {
-            format!("{subheading_str}{label_str}{table_str}")
+        let table_str = match ctx.format {
+            "html" => render_table_html(&cols, &rows, table_class, &widths),
+            _ => render_table_markdown(&cols, &rows, &widths),
         };
-
-        out.push_str(&entry_out);
+        out.push_str(&compose_table_entry(
+            ctx,
+            table_str,
+            subheading,
+            label_text,
+            wrapper_template,
+            caption_template,
+        ));
     }
 
     out
+}
+
+/// Shared table-entry envelope: subheading + caption + wrapper.
+fn compose_table_entry(
+    ctx: &RenderContext<'_>,
+    table_str: String,
+    subheading: Option<&str>,
+    label_text: Option<&str>,
+    wrapper_template: Option<&str>,
+    caption_template: Option<&str>,
+) -> String {
+    let subheading_str = match subheading {
+        Some(sh) if !sh.is_empty() => match ctx.format {
+            "html" => format!(
+                "<h{}>{}</h{}>\n",
+                depth(4, ctx.depth_offset),
+                html_escape(sh),
+                depth(4, ctx.depth_offset)
+            ),
+            _ => format!(
+                "{}{sh}\n\n",
+                heading_prefix(depth(4, ctx.depth_offset), ctx.format)
+            ),
+        },
+        _ => String::new(),
+    };
+
+    let label_str = match label_text {
+        Some(lbl) if !lbl.is_empty() => {
+            if let Some(tmpl) = caption_template {
+                let safe = if ctx.format == "html" {
+                    html_escape(lbl)
+                } else {
+                    lbl.to_owned()
+                };
+                tmpl.replace("{{field-value}}", &safe)
+            } else if ctx.format == "html" {
+                format!("<figcaption>{}</figcaption>\n", html_escape(lbl))
+            } else {
+                format!("*{lbl}*\n\n")
+            }
+        }
+        _ => String::new(),
+    };
+
+    if let Some(tmpl) = wrapper_template {
+        tmpl.replace("{{subheading}}", &subheading_str)
+            .replace("{{label}}", &label_str)
+            .replace("{{table}}", &table_str)
+    } else if ctx.format == "html" {
+        format!("<figure class=\"srs-table\">{subheading_str}{label_str}{table_str}</figure>\n")
+    } else {
+        format!("{subheading_str}{label_str}{table_str}")
+    }
 }
 
 fn render_table_markdown(cols: &[String], rows: &[Vec<String>], widths: &[f64]) -> String {
@@ -2693,7 +2835,6 @@ fn render_table_html(
     rows: &[Vec<String>],
     table_class: &str,
     widths: &[f64],
-    _rt: &srs_core::types::record_type::RecordType,
 ) -> String {
     let mut out = String::new();
 
@@ -2748,54 +2889,31 @@ fn render_table_html(
 /// Entries that render to nothing are dropped, and a sequence with no surviving
 /// entries is absent — the same outcome an empty string gets (`[FR-037-9]`).
 fn render_field_value(
-    field_value: &srs_core::types::record::FieldValue,
+    value: &serde_json::Value,
     field_type: Option<&FieldType>,
     format: &str,
 ) -> Option<RowValue> {
-    if let Some(entries) = &field_value.entries {
-        let texts: Vec<String> = entries
-            .iter()
-            .filter_map(|entry| value_to_text_owned(&entry.value, format))
-            .collect();
-        return (!texts.is_empty()).then_some(RowValue::Entries(texts));
-    }
-    if let Some(items) = sequence_items(&field_value.value, field_type) {
+    if let Some(items) = sequence_items(value, field_type) {
         let texts: Vec<String> = items
             .iter()
             .filter_map(|item| value_to_text_owned(item, format))
             .collect();
         return (!texts.is_empty()).then_some(RowValue::Entries(texts));
     }
-    value_to_text_owned(&field_value.value, format).map(RowValue::Scalar)
+    value_to_text_owned(value, format).map(RowValue::Scalar)
 }
 
 /// The ordered sequence behind a multi-entry value, or `None` when the value is
 /// a scalar. An array value is a sequence whatever its Field declares — that is
-/// how a Tier 1 `TypedField` array is recognised (`[FR-037-18]`) — and a
-/// list-cardinality Field additionally accepts the JSON-encoded array form that
-/// `coerce_to_array` already tolerates elsewhere.
+/// how a Tier 1 `TypedField` array is recognised (`[FR-037-18]`). The RFC-039
+/// carrier stores structure natively, so the pre-cutover JSON-in-a-string
+/// coercion branch is deleted, not ported (RFC-039: "no field value is a
+/// JSON-bearing string once structure is expressible").
 fn sequence_items(
     value: &serde_json::Value,
-    field_type: Option<&FieldType>,
+    _field_type: Option<&FieldType>,
 ) -> Option<Vec<serde_json::Value>> {
-    if value.is_array() || field_type.is_some_and(|ft| ft.is_list()) {
-        return coerce_to_array(value);
-    }
-    None
-}
-
-/// Coerce a field value to a JSON array.
-/// Accepts a native JSON array or a text-typed string containing a JSON-encoded array.
-fn coerce_to_array(value: &serde_json::Value) -> Option<Vec<serde_json::Value>> {
-    if let Some(arr) = value.as_array() {
-        return Some(arr.clone());
-    }
-    if let Some(s) = value.as_str() {
-        if let Ok(serde_json::Value::Array(arr)) = serde_json::from_str(s) {
-            return Some(arr);
-        }
-    }
-    None
+    value.as_array().cloned()
 }
 
 fn value_to_text_owned(value: &serde_json::Value, format: &str) -> Option<String> {
@@ -2877,9 +2995,9 @@ fn substitute_vars(
         out = out.replace("{{namespace}}", &record.type_namespace);
         out = out.replace("{{name}}", &record.type_name);
         let status = ctx
-            .status_field_id
-            .as_ref()
-            .and_then(|id| record.get_field_value_str(id))
+            .status_field_name
+            .as_deref()
+            .and_then(|name| record.value_str(name))
             .unwrap_or("");
         out = out.replace("{{status}}", status);
     } else {
@@ -2988,10 +3106,7 @@ pub(crate) fn title_field_id_is_eligible(
     let Some(field) = package.resolve_field(field_id) else {
         return true;
     };
-    let repeatable = rt
-        .and_then(|t| t.find_field_assignment_anywhere(field_id))
-        .is_some_and(|a| a.repeatable);
-    field.field_type.is_title_field_eligible(repeatable)
+    field.field_type.is_title_field_eligible()
 }
 
 #[cfg(test)]
@@ -3919,8 +4034,9 @@ mod tests {
             container_title: String::new(),
             depth_offset: 0,
             format: "html",
-            status_field_id: None,
+            status_field_name: None,
             active_theme: Some(theme),
+            doc_composite_renderers: None,
         };
 
         let classes = css_classes_for_record(&record, &ctx);
@@ -4051,7 +4167,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         let table_type = RecordType {
             id: "t-table".to_string(),
@@ -4090,7 +4206,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         // View that only matches text sections (has compatible_types constraint)
@@ -4112,7 +4228,7 @@ mod tests {
             export_config: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         // DocumentView: ContainerSubset section with the text-only view
@@ -4150,7 +4266,7 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         let manifest = crate::manifest::Manifest {
@@ -4160,7 +4276,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
@@ -4224,7 +4340,7 @@ mod tests {
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
                 updated_at: None,
                 meta: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .unwrap();
@@ -4591,7 +4707,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         let cols = vec!["Col A".to_string()];
         let rows = vec![vec!["val 1".to_string()]];
@@ -4625,7 +4741,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         let out = render_table_html(&[], &[], "", &[], &rt);
         assert!(
@@ -4655,7 +4771,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         let widths = vec![0.3, 0.7];
         let out = render_table_html(&[], &[], "cls", &widths, &rt);
@@ -4757,7 +4873,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         let doc_view = DocumentView {
@@ -4804,7 +4920,7 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         let manifest = crate::manifest::Manifest {
@@ -4814,7 +4930,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
@@ -5058,7 +5174,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         let theme = Theme {
             id: "th-cap".to_string(),
@@ -5087,7 +5203,7 @@ mod tests {
             typography: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         let doc_view = DocumentView {
             id: "dv-cap".to_string(),
@@ -5131,7 +5247,7 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         let manifest = crate::manifest::Manifest {
             instance_index: vec![],
@@ -5140,7 +5256,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
@@ -5316,7 +5432,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         let doc_view = DocumentView {
@@ -5356,7 +5472,7 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         let manifest = crate::manifest::Manifest {
@@ -5366,7 +5482,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
@@ -5407,7 +5523,7 @@ mod tests {
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
                 updated_at: None,
                 meta: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .unwrap();
@@ -5439,7 +5555,7 @@ mod tests {
                 tags: None,
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
                 updated_at: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             };
             let path = format!("records/{}.json", id);
             let value = serde_json::to_value(&record).unwrap();
@@ -5655,7 +5771,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         // Base theme targets markdown only.
@@ -5683,7 +5799,7 @@ mod tests {
             typography: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         let mut themes = vec![base_theme];
@@ -5735,7 +5851,7 @@ mod tests {
             depth_offset: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         let manifest = crate::manifest::Manifest {
@@ -5745,7 +5861,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
@@ -5801,7 +5917,7 @@ mod tests {
             typography: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         }
     }
 
@@ -5867,7 +5983,7 @@ mod tests {
                 typography: None,
                 tags: None,
                 created_at: "2026-01-01T00:00:00Z".to_string(),
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             }
         };
         let variant = ThemeVariant {
@@ -6101,7 +6217,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         let table_type = RecordType {
             id: "t-table".to_string(),
@@ -6140,7 +6256,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         let text_only_view = View {
@@ -6161,7 +6277,7 @@ mod tests {
             export_config: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         let manifest = crate::manifest::Manifest {
@@ -6171,7 +6287,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
@@ -6234,7 +6350,7 @@ mod tests {
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
                 updated_at: None,
                 meta: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .unwrap();
@@ -6361,7 +6477,7 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         }
     }
 
@@ -6706,7 +6822,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
@@ -6744,7 +6860,7 @@ mod tests {
                 tags: None,
                 created_at: None,
                 updated_at: None,
-                extra: std::collections::HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             };
             let path = format!("records/{id}.json");
             store
@@ -6809,7 +6925,7 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         }
     }
 
@@ -7059,7 +7175,7 @@ mod tests {
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
                 updated_at: None,
                 meta: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .unwrap();
@@ -7081,7 +7197,7 @@ mod tests {
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
                 updated_at: None,
                 meta: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .unwrap();
@@ -7200,7 +7316,7 @@ mod tests {
                 tags: None,
                 created_at: None,
                 updated_at: None,
-                extra: std::collections::HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             };
             let path = format!("records/{id}.json");
             std::fs::write(
@@ -7336,7 +7452,7 @@ mod tests {
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
                 updated_at: None,
                 meta: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .unwrap();
@@ -7358,7 +7474,7 @@ mod tests {
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
                 updated_at: None,
                 meta: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .unwrap();
@@ -7497,7 +7613,7 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         let store = make_rfc011_store(dv, &[]);
         let result = render_document_view(RenderDocumentViewOptions {
@@ -7673,7 +7789,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         // Type WITHOUT identityFieldId (for the no-heading regression test)
@@ -7702,7 +7818,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         let make_type_query_section = |sot: &str, title_field_id: Option<String>| DocumentSection {
@@ -7744,7 +7860,7 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         let dv_no_title = make_dv(
@@ -7785,7 +7901,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
@@ -8047,7 +8163,7 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         }
     }
 
@@ -8059,7 +8175,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
@@ -8088,7 +8204,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         store
             .save_container(&container)
@@ -8134,7 +8250,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         store
             .save_container(&container)
@@ -8149,12 +8265,12 @@ mod tests {
                 path: None,
                 container_type: None,
                 tags: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             }]),
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
@@ -8216,7 +8332,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         std::fs::write(
             repo_root.join(container_path),
@@ -8248,12 +8364,12 @@ mod tests {
                 path: Some(container_path.to_string()),
                 container_type: None,
                 tags: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             }]),
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: repo_root.to_path_buf(),
@@ -8322,7 +8438,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         (heading_field, item_type)
     }
@@ -8390,7 +8506,7 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         let manifest = crate::manifest::Manifest {
@@ -8400,7 +8516,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
@@ -8441,7 +8557,7 @@ mod tests {
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
                 updated_at: None,
                 meta: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .unwrap();
@@ -8587,7 +8703,7 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         let manifest = crate::manifest::Manifest {
@@ -8597,7 +8713,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
@@ -8638,7 +8754,7 @@ mod tests {
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
                 updated_at: None,
                 meta: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .unwrap();
@@ -8813,7 +8929,7 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         let manifest = crate::manifest::Manifest {
@@ -8823,7 +8939,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
@@ -8957,7 +9073,7 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         let manifest = crate::manifest::Manifest {
@@ -8967,7 +9083,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
@@ -9148,7 +9264,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
@@ -9214,7 +9330,7 @@ mod tests {
             tags: None,
             created_at: None,
             updated_at: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         let path = format!("records/{}.json", id);
@@ -9269,7 +9385,7 @@ mod tests {
             tags: None,
             created_at: None,
             updated_at: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         }
     }
 
@@ -9587,7 +9703,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         let manifest = crate::manifest::Manifest {
@@ -9597,7 +9713,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
@@ -9646,7 +9762,7 @@ mod tests {
             tags: None,
             created_at: None,
             updated_at: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         let path = "records/rec-named.json".to_string();
         store
@@ -9714,7 +9830,7 @@ mod tests {
             tags: None,
             created_at: None,
             updated_at: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         let path = "records/rec-titled.json".to_string();
         store
@@ -9862,7 +9978,7 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         let manifest = crate::manifest::Manifest {
@@ -9872,7 +9988,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
@@ -10023,7 +10139,7 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         let the_rtd = test_rtd(rtype, "Links To", None, false);
@@ -10037,7 +10153,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
@@ -10104,7 +10220,7 @@ mod tests {
                 tags: None,
                 created_at: None,
                 updated_at: None,
-                extra: std::collections::HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             };
             std::fs::write(
                 repo_root.join(format!("records/{id}.json")),
@@ -10695,7 +10811,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         let doc_view = DocumentView {
@@ -10735,7 +10851,7 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         // The L1 View marks summary required too, so on that path the only thing
@@ -10774,7 +10890,7 @@ mod tests {
                 }),
                 tags: None,
                 created_at: "2026-01-01T00:00:00Z".to_string(),
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             }]
         } else {
             vec![]
@@ -10787,7 +10903,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: std::path::PathBuf::from("/memory"),

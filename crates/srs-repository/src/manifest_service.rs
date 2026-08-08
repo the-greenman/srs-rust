@@ -9,7 +9,6 @@ use std::collections::HashMap;
 const EXT_ADDRESSABILITY: &str = "ext:addressability";
 const EXT_DISCOVERY: &str = "ext:discovery";
 const EXT_FEDERATION: &str = "ext:federation";
-const EXT_FIELD_GROUPS: &str = "ext:field-groups";
 const EXT_LIFECYCLE: &str = "ext:lifecycle";
 const EXT_RELATIONS: &str = "ext:relations";
 const EXT_REPOSITORY: &str = "ext:repository";
@@ -21,7 +20,6 @@ pub const SUPPORTED_EXTENSIONS: &[&str] = &[
     EXT_ADDRESSABILITY,
     EXT_DISCOVERY,
     EXT_FEDERATION,
-    EXT_FIELD_GROUPS,
     EXT_LIFECYCLE,
     EXT_RELATIONS,
     EXT_REPOSITORY,
@@ -97,29 +95,17 @@ fn detect_used_extensions(store: &dyn RepositoryStore) -> Result<Vec<String>, Re
     }
 
     // ext:type-inheritance — any package type declares an extends base type
-    // ext:field-groups — any package type declares field groups
+    // ext:field-groups is retired (RFC-039 [R15]) — no detection.
     match store.load_package() {
         Ok(package) => {
             let mut has_inheritance = false;
-            let mut has_field_groups = false;
             for record_type in &package.record_types {
                 if record_type.extends_type_id.is_some() {
                     has_inheritance = true;
                 }
-                if record_type
-                    .field_groups
-                    .as_ref()
-                    .map(|g| !g.is_empty())
-                    .unwrap_or(false)
-                {
-                    has_field_groups = true;
-                }
             }
             if has_inheritance {
                 used.push(EXT_TYPE_INHERITANCE.to_string());
-            }
-            if has_field_groups {
-                used.push(EXT_FIELD_GROUPS.to_string());
             }
         }
         Err(RepositoryError::Io { .. } | RepositoryError::PackageLoad { .. }) => {}
@@ -441,7 +427,7 @@ pub fn set_manifest_root_container(
                 created_at: None,
                 updated_at: None,
                 meta: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             });
     container.container_id = input.container_id.clone();
     container.identity_instance_id = Some(input.identity_instance_id.clone());
@@ -826,7 +812,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         });
         store.save_manifest(&manifest).unwrap();
 
@@ -1036,7 +1022,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: PathBuf::from("/memory"),

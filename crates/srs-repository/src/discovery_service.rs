@@ -476,7 +476,7 @@ mod tests {
             tags: (!tags.is_empty()).then(|| tags.iter().map(|t| t.to_string()).collect()),
             created_at: None,
             updated_at: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         }
     }
 
@@ -515,7 +515,7 @@ mod tests {
                 federation_path: None,
                 upstream_package: None,
                 federation_events_path: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
                 source_documents_path: None,
                 source_document_index: None,
                 root: PathBuf::from("/memory"),

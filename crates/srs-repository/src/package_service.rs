@@ -1430,7 +1430,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         }
     }
 

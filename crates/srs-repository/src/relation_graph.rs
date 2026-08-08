@@ -177,7 +177,7 @@ mod tests {
             tags: None,
             created_at: Some(created_at.to_string()),
             updated_at: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         }
     }
 

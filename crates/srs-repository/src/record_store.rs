@@ -31,7 +31,7 @@ use crate::store::{RecordTier, RepositoryStore};
 use crate::writer::{new_instance_id, slugify_instance_name, write_manifest};
 use serde::{Deserialize, Serialize};
 use srs_core::types::lifecycle::{RelationDirection, RequiresRelation};
-use srs_core::types::record::{FieldValue, Record};
+use srs_core::types::record::{FieldValues, Record};
 use srs_core::types::relation::Relation;
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::types::revision::{Revision, RevisionAgent, RevisionProvenance};
@@ -41,7 +41,7 @@ use srs_core::validation::record::{validate_record, validate_record_all, validat
 use srs_core::validation::record_type::{cross_field_type_map, validate_cross_field_rules};
 use srs_core::validation::relation::validate_relation_type_for_write;
 use srs_schema::RECORD_SCHEMA_ID;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /// List all Tier 2 records in the repository, regardless of type.
 pub fn list_all_records(store: &dyn RepositoryStore) -> Result<Vec<Record>, RepositoryError> {
@@ -124,10 +124,11 @@ impl LoadedInstance {
         }
     }
 
-    /// Field value lookup by field ID. Notes have no field values.
-    pub fn get_field_value_str(&self, field_id: &str) -> Option<&str> {
+    /// Field value lookup by `Field.name` (the RFC-039 carrier key). Notes
+    /// have no field values.
+    pub fn get_field_value_str(&self, name: &str) -> Option<&str> {
         match self {
-            LoadedInstance::Record(r) => r.get_field_value_str(field_id),
+            LoadedInstance::Record(r) => r.value_str(name),
             LoadedInstance::Note(_) => None,
         }
     }
@@ -153,8 +154,8 @@ pub fn create_record(
     store: &dyn RepositoryStore,
     type_id: &str,
     type_version: u32,
-    field_values: Vec<FieldValue>,
-    group_values: Option<Vec<srs_core::types::record::FieldGroupValue>>,
+    field_values: FieldValues,
+    field_meta: Option<indexmap::IndexMap<String, srs_core::types::record::FieldMeta>>,
     tags: Option<Vec<String>>,
 ) -> Result<Record, RepositoryError> {
     create_record_at_dir(
@@ -162,7 +163,7 @@ pub fn create_record(
         type_id,
         type_version,
         field_values,
-        group_values,
+        field_meta,
         tags,
         store.record_tier_dir(RecordTier::Tier2),
     )
@@ -177,8 +178,8 @@ pub(crate) fn create_record_at_dir(
     store: &dyn RepositoryStore,
     type_id: &str,
     type_version: u32,
-    field_values: Vec<FieldValue>,
-    group_values: Option<Vec<srs_core::types::record::FieldGroupValue>>,
+    field_values: FieldValues,
+    field_meta: Option<indexmap::IndexMap<String, srs_core::types::record::FieldMeta>>,
     tags: Option<Vec<String>>,
     relative_dir: &str,
 ) -> Result<Record, RepositoryError> {
@@ -225,16 +226,16 @@ pub(crate) fn create_record_at_dir(
         type_namespace: record_type.namespace.clone(),
         type_name: record_type.name.clone(),
         field_values,
-        group_values,
+        field_meta,
         lifecycle_state: initial_lifecycle_state,
         tags: initial_tags,
         created_at: Some(chrono::Utc::now().to_rfc3339()),
         updated_at: Some(chrono::Utc::now().to_rfc3339()),
-        extra: HashMap::new(),
+        extra: BTreeMap::new(),
     };
 
-    let effective_fields = package.effective_fields(record_type)?;
-    validate_record(&record, record_type, &effective_fields).map_err(|e| {
+    let effective_fields = package.resolved_effective_fields(record_type)?;
+    validate_record(&record, record_type, &effective_fields, &package).map_err(|e| {
         RepositoryError::RecordValidation {
             path: std::path::PathBuf::from(relative_dir),
             source: e,
@@ -352,10 +353,10 @@ pub fn update_record(
         Some(v) => Some(v),
     };
 
-    // group_values: None = preserve stored value; Some(v) = replace/clear.
-    let new_group_values = match input.group_values {
-        Some(gv) => Some(gv),
-        None => record.group_values,
+    // fieldMeta: None = preserve stored value; Some(m) = replace/clear.
+    let new_field_meta = match input.field_meta {
+        Some(m) => Some(m),
+        None => record.field_meta,
     };
 
     let updated_record = Record {
@@ -365,7 +366,7 @@ pub fn update_record(
         type_namespace: record_type.namespace.clone(),
         type_name: record_type.name.clone(),
         field_values: input.field_values,
-        group_values: new_group_values,
+        field_meta: new_field_meta,
         lifecycle_state: record.lifecycle_state,
         tags: updated_tags,
         created_at: record.created_at,
@@ -373,8 +374,8 @@ pub fn update_record(
         extra: record.extra,
     };
 
-    let effective_fields = package.effective_fields(record_type)?;
-    validate_record(&updated_record, record_type, &effective_fields).map_err(|e| {
+    let effective_fields = package.resolved_effective_fields(record_type)?;
+    validate_record(&updated_record, record_type, &effective_fields, &package).map_err(|e| {
         RepositoryError::RecordValidation {
             path: std::path::PathBuf::from("records"),
             source: e,
@@ -435,7 +436,7 @@ pub fn validate_record_input(
         type_namespace: record_type.namespace.clone(),
         type_name: record_type.name.clone(),
         field_values: input.field_values,
-        group_values: input.group_values,
+        field_meta: input.field_meta,
         lifecycle_state: record_type
             .lifecycle
             .as_ref()
@@ -443,13 +444,14 @@ pub fn validate_record_input(
         tags: input.tags,
         created_at: None,
         updated_at: None,
-        extra: HashMap::new(),
+        extra: BTreeMap::new(),
     };
 
-    let effective_fields = package.effective_fields(record_type)?;
+    let effective_fields = package.resolved_effective_fields(record_type)?;
     // Collect *all* diagnostics so a multi-record editor can show every problem
     // in one pass, not one-fix-revalidate at a time (#111).
-    let mut errors: Vec<String> = validate_record_all(&record, record_type, &effective_fields)
+    let mut errors: Vec<String> =
+        validate_record_all(&record, record_type, &effective_fields, &package)
         .iter()
         .map(|e| e.to_string())
         .collect();
@@ -541,13 +543,10 @@ pub struct RecordListFilter {
 
 /// Input for creating or updating a record.
 ///
-/// When used for updates via `record update`, `group_values` semantics:
-/// - Field absent or `null` in JSON → field-value `None` → existing group_values preserved.
-/// - `[]` (empty array) → `Some(vec![])` → group_values replaced with empty (effectively cleared).
-/// - `[{...}]` (non-empty array) → `Some(vec![...])` → group_values replaced with new entries.
-///
-/// There is no JSON representation to distinguish "null" from "absent"; both map to `None` (preserve).
-/// To clear all group_values, send `"groupValues": []`.
+/// `field_values` is the RFC-039 object carrier: keys are `Field.name`
+/// verbatim, values follow the recursive Change-B rule. `field_meta`
+/// semantics on update: absent/`null` → preserve stored; `{}` → clear;
+/// `{...}` → replace.
 ///
 /// `tags` semantics (both create and update):
 /// - Absent or `null` in JSON → `None` → on create: no tags; on update: preserve existing tags.
@@ -556,9 +555,9 @@ pub struct RecordListFilter {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateRecordInput {
-    pub field_values: Vec<FieldValue>,
+    pub field_values: FieldValues,
     #[serde(default)]
-    pub group_values: Option<Vec<srs_core::types::record::FieldGroupValue>>,
+    pub field_meta: Option<indexmap::IndexMap<String, srs_core::types::record::FieldMeta>>,
     #[serde(default)]
     pub tags: Option<Vec<String>>,
 }
@@ -576,9 +575,9 @@ pub struct CreateRecordInput {
 #[derive(Debug, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateRecordInput {
-    pub field_values: Vec<FieldValue>,
+    pub field_values: FieldValues,
     #[serde(default)]
-    pub group_values: Option<Vec<srs_core::types::record::FieldGroupValue>>,
+    pub field_meta: Option<indexmap::IndexMap<String, srs_core::types::record::FieldMeta>>,
     #[serde(default)]
     pub tags: Option<Vec<String>>,
     #[serde(default)]
@@ -595,9 +594,9 @@ pub struct UpdateRecordInput {
 pub struct ValidateRecordInput {
     pub type_id: String,
     pub type_version: u32,
-    pub field_values: Vec<FieldValue>,
+    pub field_values: FieldValues,
     #[serde(default)]
-    pub group_values: Option<Vec<srs_core::types::record::FieldGroupValue>>,
+    pub field_meta: Option<indexmap::IndexMap<String, srs_core::types::record::FieldMeta>>,
     #[serde(default)]
     pub tags: Option<Vec<String>>,
 }
@@ -864,7 +863,7 @@ pub fn create_record_in_context(
         &record_type.id,
         record_type.version,
         input.field_values,
-        input.group_values,
+        input.field_meta,
         input.tags,
         dir,
     )?;
@@ -911,9 +910,9 @@ pub struct CreateRecordInContainerInput {
     pub container_id: String,
     pub type_id: String,
     pub type_version: u32,
-    pub field_values: Vec<FieldValue>,
+    pub field_values: FieldValues,
     #[serde(default)]
-    pub group_values: Option<Vec<srs_core::types::record::FieldGroupValue>>,
+    pub field_meta: Option<indexmap::IndexMap<String, srs_core::types::record::FieldMeta>>,
     #[serde(default)]
     pub tags: Option<Vec<String>>,
 }
@@ -938,7 +937,7 @@ pub fn create_record_in_container(
         &input.type_id,
         input.type_version,
         input.field_values,
-        input.group_values,
+        input.field_meta,
         input.tags,
         store.record_tier_dir(RecordTier::Tier2),
     )?;
@@ -983,7 +982,7 @@ pub struct TransitionFulfillmentInput {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FulfillmentNewRecord {
-    pub field_values: Vec<FieldValue>,
+    pub field_values: FieldValues,
     /// Optional type version override (defaults to the predecessor's).
     pub type_version: Option<u32>,
 }
@@ -1036,7 +1035,7 @@ pub struct AllowedLifecycleTransitionsResult {
 pub struct CreateRecordSuccessorInput {
     /// "supersedes" or "refines"
     pub relation_type: String,
-    pub field_values: Vec<FieldValue>,
+    pub field_values: FieldValues,
     /// Optional initial lifecycle state for the successor (defaults to Type.initialState).
     pub lifecycle_state: Option<String>,
     /// Optional type version override (defaults to same as predecessor).
@@ -1295,18 +1294,33 @@ pub fn transition_record_lifecycle(
         transitioned_at: Some(now.clone()),
         import_source: None,
     };
-    for field_value in &updated.field_values {
-        let prior_revision_id = find_latest_revision_id(
-            store,
-            entry.path(),
-            &updated.instance_id,
-            &field_value.field_id,
-        );
+    // Name-keyed carrier: recover each key's fieldId through the Type
+    // (RFC-039 Type-mediated resolution); unresolvable keys are skipped on
+    // this best-effort path.
+    let name_to_id: std::collections::HashMap<String, String> = store
+        .load_package()
+        .ok()
+        .and_then(|p| {
+            let rt = p.resolve_type(&updated.type_id, updated.type_version)?;
+            let eff = p.resolved_effective_fields(rt).ok()?;
+            Some(
+                eff.into_iter()
+                    .map(|f| (f.name, f.field_id))
+                    .collect::<std::collections::HashMap<_, _>>(),
+            )
+        })
+        .unwrap_or_default();
+    for (key, value) in updated.field_values.iter() {
+        let Some(field_id) = name_to_id.get(key) else {
+            continue;
+        };
+        let prior_revision_id =
+            find_latest_revision_id(store, entry.path(), &updated.instance_id, field_id);
         let revision = Revision {
             revision_id: new_instance_id(),
             record_id: updated.instance_id.clone(),
-            field_id: field_value.field_id.clone(),
-            value: field_value.value.clone(),
+            field_id: field_id.clone(),
+            value: value.clone(),
             prior_revision_id,
             agent: RevisionAgent::Ai,
             provenance: Some(provenance.clone()),
@@ -1315,8 +1329,7 @@ pub fn transition_record_lifecycle(
         };
         if let Err(_e) = revision_service::append(store, entry.path(), revision) {
             warnings.push(format!(
-                "REVISION_APPEND_FAILED: could not append revision for field '{}'",
-                field_value.field_id
+                "REVISION_APPEND_FAILED: could not append revision for field '{key}'"
             ));
         }
     }
@@ -1837,27 +1850,9 @@ pub fn get_field_value_by_name(
         Some(r) => r,
         None => return Ok(GetFieldValueByNameResult { value: None }),
     };
-    let package = store.load_package()?;
-    let record_type = match package.resolve_type(&record.type_id, record.type_version) {
-        Some(rt) => rt,
-        None => return Ok(GetFieldValueByNameResult { value: None }),
-    };
-    let effective = package.effective_fields(record_type)?;
-    // Exact name match against Field.name as stored in the package JSON (no case normalization).
-    let field_id: Option<String> = effective
-        .iter()
-        .find(|fa| {
-            package
-                .resolve_field(&fa.field_id)
-                .map(|f| f.name == input.field_name)
-                .unwrap_or(false)
-        })
-        .map(|fa| fa.field_id.clone());
+    // RFC-039: the carrier is name-keyed, so the lookup is direct ([R2b]).
     Ok(GetFieldValueByNameResult {
-        value: field_id
-            .as_deref()
-            .and_then(|fid| record.find_field_value(fid))
-            .map(|fv| fv.value.clone()),
+        value: record.value(&input.field_name).cloned(),
     })
 }
 
@@ -2083,7 +2078,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         let manifest = Manifest {
             instance_index: vec![],
@@ -2092,7 +2087,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: PathBuf::from("/memory"),
@@ -2177,7 +2172,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         let manifest = Manifest {
             instance_index: vec![],
@@ -2186,7 +2181,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: PathBuf::from("/memory"),
@@ -3116,7 +3111,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         let supersedes_def = RelationTypeDefinition {
@@ -3168,7 +3163,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: PathBuf::from("/memory"),
@@ -3473,7 +3468,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         let supersedes_def = RelationTypeDefinition {
@@ -3504,7 +3499,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: PathBuf::from("/memory"),
@@ -3677,7 +3672,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: PathBuf::from("/memory"),
@@ -4411,7 +4406,7 @@ mod tests {
             extends_lifecycle_version: None,
             description: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         // RecordType binds lifecycle via lifecycleRef; inline lifecycle is None.
@@ -4441,7 +4436,7 @@ mod tests {
             lifecycle_ref: Some("lc-ref-standalone-001".to_string()),
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         let supersedes_def = RelationTypeDefinition {
@@ -4472,7 +4467,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: PathBuf::from("/memory"),
@@ -4632,7 +4627,7 @@ mod tests {
             extends_lifecycle_version: None,
             description: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         let gov_type = RecordType {
@@ -4660,7 +4655,7 @@ mod tests {
             lifecycle_ref: Some("lc-rfc022-001".to_string()),
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         let supersedes_def = RelationTypeDefinition {
@@ -4691,7 +4686,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: PathBuf::from("/memory"),
@@ -5219,7 +5214,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         let type_v2 = RecordType {
             id: "type-test-001".to_string(),
@@ -5239,7 +5234,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         let manifest = Manifest {
             instance_index: vec![],
@@ -5248,7 +5243,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: PathBuf::from("/memory"),
@@ -5701,7 +5696,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         container_service::create_container(store, c)
             .expect("container created")
@@ -6084,7 +6079,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: Some(vec![cfr_rule]),
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         let manifest = Manifest {
             instance_index: vec![],
@@ -6093,7 +6088,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: PathBuf::from("/memory"),
@@ -6600,7 +6595,7 @@ mod tests {
 
     #[test]
     fn write_record_includes_schema_header() {
-        use srs_core::types::record::{FieldValue, Record};
+        use srs_core::types::record::{FieldValues, Record};
 
         let store = make_store_with_package();
 
@@ -6622,7 +6617,7 @@ mod tests {
             tags: None,
             created_at: None,
             updated_at: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         let path = "records/tier-2/test-type-aaaabbbb.json";

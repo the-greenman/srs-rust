@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use srs_core::extensions::import_tracking::UpstreamPackage;
 use srs_core::types::container::{Container, ContainerIndexEntry};
 use srs_core::types::source_document::SourceDocumentIndexEntry;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -27,7 +27,7 @@ pub struct Manifest {
     pub source_document_index: Option<Vec<SourceDocumentIndexEntry>>,
     // all other manifest fields preserved for round-trip write
     #[serde(flatten)]
-    pub extra: HashMap<String, serde_json::Value>,
+    pub extra: BTreeMap<String, serde_json::Value>,
     // set by loader, not from JSON
     #[serde(skip)]
     pub root: PathBuf,
@@ -44,7 +44,7 @@ impl Default for Manifest {
             upstream_package: None,
             source_documents_path: None,
             source_document_index: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             root: PathBuf::new(),
         }
     }

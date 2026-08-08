@@ -19,7 +19,7 @@
 //! output::ok("extension create", result)
 //! ```
 
-use srs_core::types::record::{FieldValue, Record};
+use srs_core::types::record::{FieldValues, Record};
 
 use crate::error::RepositoryError;
 use crate::record_store::{
@@ -83,16 +83,7 @@ pub fn create_extension(
             message: "fieldValues must be an object".to_string(),
         })?;
 
-    let field_values: Vec<FieldValue> = field_values_json
-        .iter()
-        .map(|(k, v)| FieldValue {
-            field_id: k.clone(),
-            value: v.clone(),
-            entries: None,
-            source: None,
-            edited_at: None,
-        })
-        .collect();
+    let field_values = FieldValues(field_values_json.clone());
 
     let type_id = json_value
         .get("typeId")
@@ -129,23 +120,14 @@ pub fn update_extension(
             source: e,
         })?;
 
-    let field_values: Vec<FieldValue> = field_values_json
-        .into_iter()
-        .map(|(k, v)| FieldValue {
-            field_id: k,
-            value: v,
-            entries: None,
-            source: None,
-            edited_at: None,
-        })
-        .collect();
+    let field_values = FieldValues(field_values_json);
 
     let record = update_record(
         store,
         id,
         UpdateRecordInput {
             field_values,
-            group_values: None,
+            field_meta: None,
             tags: None,
             type_version: None,
         },
@@ -248,16 +230,7 @@ fn parse_record_compat(content: &str) -> Option<Record> {
     let (type_namespace, type_name) = type_str.split_once('.')?;
 
     let field_values_obj = obj.get("fieldValues")?.as_object()?;
-    let field_values = field_values_obj
-        .iter()
-        .map(|(k, v)| FieldValue {
-            field_id: k.clone(),
-            value: v.clone(),
-            entries: None,
-            source: None,
-            edited_at: None,
-        })
-        .collect();
+    let field_values = FieldValues(field_values_obj.clone());
 
     Some(Record {
         instance_id: obj.get("instanceId")?.as_str()?.to_string(),
@@ -266,7 +239,7 @@ fn parse_record_compat(content: &str) -> Option<Record> {
         type_namespace: type_namespace.to_string(),
         type_name: type_name.to_string(),
         field_values,
-        group_values: None,
+        field_meta: None,
         lifecycle_state: obj
             .get("lifecycleState")
             .and_then(|v| v.as_str().map(|s| s.to_string())),
@@ -283,7 +256,7 @@ fn parse_record_compat(content: &str) -> Option<Record> {
         updated_at: obj
             .get("updatedAt")
             .and_then(|v| v.as_str().map(|s| s.to_string())),
-        extra: std::collections::HashMap::new(),
+        extra: std::collections::BTreeMap::new(),
     })
 }
 

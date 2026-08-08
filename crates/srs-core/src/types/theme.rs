@@ -63,13 +63,14 @@ pub struct ElementTemplates {
     pub record_wrapper_overrides: Option<Vec<RecordWrapperOverride>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub field_row: Option<String>,
-    /// Per-field-name templates for individual field rows in group entries. [T-Gx1]
-    /// Key: Field.name. Value: template string with `{{field-value}}` and `{{field-label}}`.
-    /// Applies only when the group has no known compositeRenderer (or falls back to baseline).
+    /// RFC-036 [CR-036-18] (successor of `groupFieldRowTemplates`, retired with
+    /// FieldGroup at the srs#242 cutover): per-field-name templates for rows
+    /// inside composite baseline rendering. Key: Field.name. Value: template
+    /// with `{{field-value}}` and `{{field-label}}`.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub group_field_row_templates: Option<HashMap<String, String>>,
-    /// Per-renderer config, keyed by the same identifier space as FieldGroup.compositeRenderer.
-    /// "table" renderer reads: tableClass, wrapperTemplate, captionTemplate.
+    pub composite_field_row_templates: Option<HashMap<String, String>>,
+    /// Per-renderer config, keyed by the composite renderer identifier space
+    /// (RFC-036). "table" reads: tableClass, wrapperTemplate, captionTemplate.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub composite_renderer_config: Option<HashMap<String, serde_json::Value>>,
 }
@@ -170,7 +171,7 @@ mod tests {
                     template: "<article class=\"special\">{{content}}</article>".to_string(),
                 }]),
                 field_row: Some("<p>{{field-label}}: {{field-value}}</p>".to_string()),
-                group_field_row_templates: None,
+                composite_field_row_templates: None,
                 composite_renderer_config: None,
             }),
             stylesheet: Some(serde_json::json!({"mode": "inline", "content": "body{}"})),

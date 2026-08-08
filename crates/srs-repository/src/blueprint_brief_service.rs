@@ -458,7 +458,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: PathBuf::from("/memory"),
@@ -873,7 +873,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         (fields, proto_type)

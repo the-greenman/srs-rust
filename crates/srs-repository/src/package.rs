@@ -2,7 +2,7 @@ use srs_core::types::blueprint::Blueprint;
 use srs_core::types::field::Field;
 use srs_core::types::lifecycle::{Lifecycle, LifecycleState, LifecycleTransition};
 use srs_core::types::protocol::Protocol;
-use srs_core::types::record_type::{FieldAssignment, FieldGroup, RecordType};
+use srs_core::types::record_type::{FieldAssignment, RecordType};
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::types::term::Term;
 use srs_core::types::theme::Theme;
@@ -76,28 +76,6 @@ pub struct EffectiveLifecycle<'a> {
     pub states: &'a [LifecycleState],
     pub transitions: &'a [LifecycleTransition],
 }
-
-/// Returned by [`Package::effective_fields_and_groups`].
-#[derive(Debug)]
-pub struct EffectiveFieldsAndGroups {
-    /// Fields in their final sorted/fieldOrder-reordered order (same as `effective_fields`).
-    pub fields: Vec<FieldAssignment>,
-    /// 1-based position of each field in the merged field+group sequence.
-    /// Parallel to `fields`: `field_positions[i]` is the merged position of `fields[i]`.
-    pub field_positions: Vec<usize>,
-    /// Groups with their 1-based position in the merged field+group sequence.
-    pub groups: Vec<OrderedGroup>,
-}
-
-/// A field group with its computed 1-based position in the merged (fields + groups) sequence.
-#[derive(Debug)]
-pub struct OrderedGroup {
-    /// The full FieldGroup struct (including group_id, order, fields, label, etc.).
-    pub group: FieldGroup,
-    /// 1-based position of this group in the merged sequence.
-    pub merged_position: usize,
-}
-
 impl Package {
     /// Resolve a relation type definition by its UUID id.
     pub fn resolve_relation_type_by_id(&self, id: &str) -> Option<&RelationTypeDefinition> {
@@ -137,6 +115,32 @@ impl Package {
     }
 
     /// Resolve a record type by its ID and version.
+    /// Effective field set resolved to Field definitions — the input RFC-039
+    /// carrier validation consumes ([R1]/[R3]/[R5]): each assignment joined to
+    /// its Field's `name` (the verbatim carrier key, [R2b]) and `fieldType`.
+    /// An unresolvable `fieldId` yields an entry with an empty name and no
+    /// `fieldType`; definition-level validation reports the dangling id.
+    pub fn resolved_effective_fields(
+        &self,
+        record_type: &RecordType,
+    ) -> Result<Vec<srs_core::validation::value_shape::EffectiveField>, crate::error::RepositoryError>
+    {
+        let assignments = self.effective_fields(record_type)?;
+        Ok(assignments
+            .into_iter()
+            .map(|fa| {
+                let field = self.fields.iter().find(|f| f.id == fa.field_id);
+                srs_core::validation::value_shape::EffectiveField {
+                    field_id: fa.field_id,
+                    name: field.map(|f| f.name.clone()).unwrap_or_default(),
+                    required: fa.required,
+                    order: fa.order,
+                    field_type: field.map(|f| f.field_type.clone()),
+                }
+            })
+            .collect())
+    }
+
     pub fn resolve_type(&self, type_id: &str, version: u32) -> Option<&RecordType> {
         self.record_types
             .iter()
@@ -340,19 +344,8 @@ impl Package {
             }
 
             // fieldOrder must not reference unknown fields (not in effective set).
-            // Group IDs are allowed through here — they are not field IDs but are valid
-            // fieldOrder entries handled by effective_fields_and_groups.
-            let group_ids_in_type: HashSet<&str> = record_type
-                .field_groups
-                .as_deref()
-                .unwrap_or(&[])
-                .iter()
-                .map(|g| g.group_id.as_str())
-                .collect();
             for fid in field_order {
-                if !effective_ids.contains(fid.as_str())
-                    && !group_ids_in_type.contains(fid.as_str())
-                {
+                if !effective_ids.contains(fid.as_str()) {
                     return Err(RepositoryError::FieldOrderMismatch {
                         type_id: record_type.id.clone(),
                         field_id: fid.clone(),
@@ -393,144 +386,6 @@ impl Package {
         Ok(chain.iter().find_map(|rt| rt.identity_field_id.clone()))
     }
 
-    /// Resolve the effective field list AND the merged position of each field group.
-    ///
-    /// Extends [`effective_fields`] to support group IDs in `fieldOrder`. When `fieldOrder`
-    /// is declared on a type that has `fieldGroups`, this function validates that all group
-    /// IDs are listed in `fieldOrder` (in addition to the field-completeness check already
-    /// performed by `effective_fields`). When `fieldOrder` is absent, groups are merged into
-    /// the position sequence using a stable merge-sort by `order` (fields before groups on
-    /// tie; groups by `group_id` on group-group tie).
-    ///
-    /// Callers that do not need group ordering should continue to use [`effective_fields`].
-    pub fn effective_fields_and_groups(
-        &self,
-        record_type: &RecordType,
-    ) -> Result<EffectiveFieldsAndGroups, crate::error::RepositoryError> {
-        use crate::error::RepositoryError;
-
-        let fields = self.effective_fields(record_type)?;
-
-        let groups = match &record_type.field_groups {
-            None => vec![],
-            Some(g) if g.is_empty() => vec![],
-            Some(groups) => groups.clone(),
-        };
-
-        if groups.is_empty() {
-            // No groups: field positions are their 1-based index in effective_fields.
-            let field_positions = (1..=fields.len()).collect();
-            return Ok(EffectiveFieldsAndGroups {
-                fields,
-                field_positions,
-                groups: vec![],
-            });
-        }
-
-        if let Some(field_order) = &record_type.field_order {
-            // `effective_fields` already validated that all field IDs are in `field_order`
-            // and that no unknown field IDs appear. Here we add the group layer.
-            let field_ids: std::collections::HashSet<&str> =
-                fields.iter().map(|fa| fa.field_id.as_str()).collect();
-            let group_ids: std::collections::HashSet<&str> =
-                groups.iter().map(|g| g.group_id.as_str()).collect();
-
-            // Validate: no unknown IDs (IDs that are neither a field ID nor a group ID).
-            for id in field_order {
-                if !field_ids.contains(id.as_str()) && !group_ids.contains(id.as_str()) {
-                    return Err(RepositoryError::FieldOrderMismatch {
-                        type_id: record_type.id.clone(),
-                        field_id: id.clone(),
-                    });
-                }
-            }
-
-            // Validate: all group IDs must appear in field_order.
-            let listed_ids: std::collections::HashSet<&str> =
-                field_order.iter().map(|s| s.as_str()).collect();
-            for group in &groups {
-                if !listed_ids.contains(group.group_id.as_str()) {
-                    return Err(RepositoryError::FieldOrderMismatch {
-                        type_id: record_type.id.clone(),
-                        field_id: group.group_id.clone(),
-                    });
-                }
-            }
-
-            // Walk field_order sequentially (1-based), recording positions for fields and groups.
-            let mut ordered_groups: Vec<OrderedGroup> = Vec::new();
-            // field_positions maps field_id → merged position; filled as we walk.
-            let mut field_pos_map: std::collections::HashMap<&str, usize> =
-                std::collections::HashMap::new();
-            for (pos, id) in field_order.iter().enumerate() {
-                let merged_position = pos + 1;
-                if let Some(group) = groups.iter().find(|g| g.group_id == *id) {
-                    ordered_groups.push(OrderedGroup {
-                        group: group.clone(),
-                        merged_position,
-                    });
-                } else {
-                    field_pos_map.insert(id.as_str(), merged_position);
-                }
-            }
-            // Build field_positions in the same order as `fields`.
-            // unwrap_or(&0) is safe: every field_id in `fields` was in field_order
-            // (validated above via effective_fields), so it was inserted into field_pos_map.
-            let field_positions: Vec<usize> = fields
-                .iter()
-                .map(|fa| *field_pos_map.get(fa.field_id.as_str()).unwrap_or(&0))
-                .collect();
-
-            Ok(EffectiveFieldsAndGroups {
-                fields,
-                field_positions,
-                groups: ordered_groups,
-            })
-        } else {
-            // No fieldOrder: stable merge-sort of fields (by assignment.order) and groups
-            // (by group.order) into a single position sequence.
-            // Tie-breaking: fields before groups at equal order; groups by group_id
-            // lexicographically at equal group order.
-            let mut groups_sorted = groups.clone();
-            groups_sorted.sort_by(|a, b| a.order.cmp(&b.order).then(a.group_id.cmp(&b.group_id)));
-
-            // Two-pointer merge: fields are already sorted by effective_fields.
-            let mut field_idx = 0usize;
-            let mut group_idx = 0usize;
-            let mut position = 0usize;
-            let mut ordered_groups: Vec<OrderedGroup> = Vec::new();
-            let mut field_positions: Vec<usize> = vec![0; fields.len()];
-
-            while field_idx < fields.len() || group_idx < groups_sorted.len() {
-                position += 1;
-                let take_field = if field_idx >= fields.len() {
-                    false
-                } else if group_idx >= groups_sorted.len() {
-                    true
-                } else {
-                    // Fields before groups at equal order.
-                    fields[field_idx].order <= groups_sorted[group_idx].order
-                };
-
-                if take_field {
-                    field_positions[field_idx] = position;
-                    field_idx += 1;
-                } else {
-                    ordered_groups.push(OrderedGroup {
-                        group: groups_sorted[group_idx].clone(),
-                        merged_position: position,
-                    });
-                    group_idx += 1;
-                }
-            }
-
-            Ok(EffectiveFieldsAndGroups {
-                fields,
-                field_positions,
-                groups: ordered_groups,
-            })
-        }
-    }
 
     /// Resolve a Vocabulary by its UUID id.
     pub fn resolve_vocabulary(&self, id: &str) -> Option<&Vocabulary> {
@@ -579,6 +434,20 @@ impl Package {
                 transitions: &lc.transitions,
             })
         }
+    }
+}
+
+
+/// RFC-039 [R3]: inline-composite recursion resolves range Types against the
+/// loaded package. One resolver for validation and the migration verifier.
+impl srs_core::validation::value_shape::RangeResolver for Package {
+    fn effective_fields(
+        &self,
+        type_id: &str,
+        type_version: u32,
+    ) -> Option<Vec<srs_core::validation::value_shape::EffectiveField>> {
+        let rt = self.resolve_type(type_id, type_version)?;
+        self.resolved_effective_fields(rt).ok()
     }
 }
 
@@ -1318,7 +1187,6 @@ mod tests {
             version: 1,
             description: "test".to_string(),
             fields,
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -1328,7 +1196,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         }
     }
 
@@ -1346,7 +1214,6 @@ mod tests {
             version: 1,
             description: "test".to_string(),
             fields,
-            field_groups: None,
             extends_type_id: Some(parent_id.to_string()),
             extends_type_version: Some(1),
             field_order,
@@ -1356,7 +1223,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         }
     }
 
@@ -1583,56 +1450,6 @@ mod tests {
     }
 
     #[test]
-    fn effective_fields_field_order_group_id_is_allowed() {
-        // A group ID in fieldOrder is valid — effective_fields must pass it through silently
-        // so that effective_fields_and_groups can handle it. A group ID is not a field ID
-        // and must not be treated as "unknown".
-        let rt = srs_core::types::record_type::RecordType {
-            id: "t".to_string(),
-            namespace: "com.test".to_string(),
-            name: "t".to_string(),
-            version: 1,
-            description: String::new(),
-            fields: vec![fa("f1", 0, true), fa("f2", 1, false)],
-            field_groups: Some(vec![srs_core::types::record_type::FieldGroup {
-                group_id: "my-group".to_string(),
-                order: 0,
-                fields: vec![],
-                label: None,
-                description: None,
-                required: false,
-                repeatable: false,
-                min_items: None,
-                max_items: None,
-                composite_renderer: None,
-            }]),
-            extends_type_id: None,
-            extends_type_version: None,
-            field_order: Some(vec![
-                "f1".to_string(),
-                "my-group".to_string(),
-                "f2".to_string(),
-            ]),
-            field_assignment_overrides: None,
-
-            identity_field_id: None,
-            lifecycle: None,
-            lifecycle_ref: None,
-            validation_rules: None,
-            created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::HashMap::new(),
-        };
-        let pkg = make_package_with_types(vec![rt.clone()]);
-        let fields = pkg
-            .effective_fields(&rt)
-            .expect("group ID in fieldOrder must not cause an error");
-        // Only field IDs returned; group ID is skipped during reordering.
-        assert_eq!(fields.len(), 2);
-        assert_eq!(fields[0].field_id, "f1");
-        assert_eq!(fields[1].field_id, "f2");
-    }
-
-    #[test]
     fn effective_fields_override_targets_unknown_field_errors() {
         let base = make_type("base", vec![fa("f1", 0, false)]);
         // override targets "bogus" which is neither inherited nor owned
@@ -1780,7 +1597,7 @@ mod tests {
             tags: None,
             created_at: None,
             updated_at: None,
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
 
         // f1 is inherited (required) and present → should pass
@@ -1857,7 +1674,6 @@ mod tests {
             version: 1,
             description: "test".to_string(),
             fields: vec![],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -1868,7 +1684,7 @@ mod tests {
             lifecycle_ref,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         }
     }
 
@@ -1922,7 +1738,7 @@ mod tests {
             extends_lifecycle_version: None,
             description: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         let rt = make_minimal_record_type(None, Some("lc-ref-standalone-001".to_string()));
         let pkg = make_minimal_package(vec![standalone]);
@@ -1958,7 +1774,7 @@ mod tests {
             extends_lifecycle_version: None,
             description: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         let rt =
             make_minimal_record_type(Some(inline_lc), Some("lc-ref-standalone-001".to_string()));
@@ -1970,173 +1786,4 @@ mod tests {
         );
     }
 
-    // ── effective_fields_and_groups tests ─────────────────────────────────────
-
-    fn make_group(group_id: &str, order: u32) -> srs_core::types::record_type::FieldGroup {
-        srs_core::types::record_type::FieldGroup {
-            group_id: group_id.to_string(),
-            order,
-            fields: vec![],
-            label: None,
-            description: None,
-            required: false,
-            repeatable: false,
-            min_items: None,
-            max_items: None,
-            composite_renderer: None,
-        }
-    }
-
-    fn make_type_with_groups(
-        id: &str,
-        fields: Vec<FieldAssignment>,
-        groups: Option<Vec<srs_core::types::record_type::FieldGroup>>,
-        field_order: Option<Vec<String>>,
-    ) -> RecordType {
-        RecordType {
-            id: id.to_string(),
-            namespace: "com.test".to_string(),
-            name: id.to_string(),
-            version: 1,
-            description: "test".to_string(),
-            fields,
-            field_groups: groups,
-            extends_type_id: None,
-            extends_type_version: None,
-            field_order,
-            field_assignment_overrides: None,
-
-            identity_field_id: None,
-            lifecycle: None,
-            lifecycle_ref: None,
-            validation_rules: None,
-            created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::HashMap::new(),
-        }
-    }
-
-    #[test]
-    fn effective_fields_and_groups_no_groups_returns_empty() {
-        let rt = make_type("base", vec![fa("f1", 0, false), fa("f2", 1, false)]);
-        let pkg = make_package_with_types(vec![rt.clone()]);
-        let result = pkg.effective_fields_and_groups(&rt).unwrap();
-        assert_eq!(result.fields.len(), 2);
-        assert!(result.groups.is_empty());
-    }
-
-    #[test]
-    fn effective_fields_and_groups_no_field_order_interleaves_by_order() {
-        // field(order=0), group(order=1), field(order=2) → merged positions 1, 2, 3.
-        // group gets merged_position=2 (field at 0 takes slot 1, group at 1 takes slot 2,
-        // field at 2 takes slot 3).
-        let rt = make_type_with_groups(
-            "t",
-            vec![fa("f1", 0, false), fa("f2", 2, false)],
-            Some(vec![make_group("g1", 1)]),
-            None,
-        );
-        let pkg = make_package_with_types(vec![rt.clone()]);
-        let result = pkg.effective_fields_and_groups(&rt).unwrap();
-        assert_eq!(result.fields.len(), 2);
-        assert_eq!(result.groups.len(), 1);
-        assert_eq!(result.groups[0].group.group_id, "g1");
-        assert_eq!(
-            result.groups[0].merged_position, 2,
-            "group at order=1 merges between field(order=0) and field(order=2) → position 2"
-        );
-    }
-
-    #[test]
-    fn effective_fields_and_groups_field_order_assigns_group_positions() {
-        // fieldOrder: [field_a, group_id, field_b] → group gets merged_position: 2.
-        let rt = make_type_with_groups(
-            "t",
-            vec![fa("fa", 0, false), fa("fb", 1, false)],
-            Some(vec![make_group("g1", 99)]),
-            Some(vec!["fa".to_string(), "g1".to_string(), "fb".to_string()]),
-        );
-        let pkg = make_package_with_types(vec![rt.clone()]);
-        let result = pkg.effective_fields_and_groups(&rt).unwrap();
-        assert_eq!(result.groups.len(), 1);
-        assert_eq!(result.groups[0].group.group_id, "g1");
-        assert_eq!(
-            result.groups[0].merged_position, 2,
-            "g1 is at position 2 in fieldOrder [fa, g1, fb]"
-        );
-    }
-
-    #[test]
-    fn effective_fields_and_groups_field_order_missing_group_errors() {
-        // fieldOrder lists only field IDs when a group is present → FieldOrderMismatch.
-        let rt = make_type_with_groups(
-            "t",
-            vec![fa("fa", 0, false)],
-            Some(vec![make_group("g1", 0)]),
-            Some(vec!["fa".to_string()]),
-        );
-        let pkg = make_package_with_types(vec![rt.clone()]);
-        let err = pkg.effective_fields_and_groups(&rt).unwrap_err();
-        assert!(
-            matches!(err, crate::error::RepositoryError::FieldOrderMismatch { ref field_id, .. } if field_id == "g1"),
-            "expected FieldOrderMismatch with field_id=g1, got: {err:?}"
-        );
-    }
-
-    #[test]
-    fn effective_fields_and_groups_field_order_unknown_id_errors() {
-        // fieldOrder contains a string that is neither a field ID nor a group ID.
-        let rt = make_type_with_groups(
-            "t",
-            vec![fa("fa", 0, false)],
-            Some(vec![make_group("g1", 0)]),
-            Some(vec![
-                "fa".to_string(),
-                "g1".to_string(),
-                "unknown-id".to_string(),
-            ]),
-        );
-        let pkg = make_package_with_types(vec![rt.clone()]);
-        let err = pkg.effective_fields_and_groups(&rt).unwrap_err();
-        assert!(
-            matches!(err, crate::error::RepositoryError::FieldOrderMismatch { ref field_id, .. } if field_id == "unknown-id"),
-            "expected FieldOrderMismatch with field_id=unknown-id, got: {err:?}"
-        );
-    }
-
-    #[test]
-    fn effective_fields_and_groups_group_before_all_fields() {
-        // group(order=0) with two fields(order=1, order=2) and no fieldOrder.
-        // Fields before groups on tie, but group.order=0 < field.order=1 → group first.
-        let rt = make_type_with_groups(
-            "t",
-            vec![fa("f1", 1, false), fa("f2", 2, false)],
-            Some(vec![make_group("g1", 0)]),
-            None,
-        );
-        let pkg = make_package_with_types(vec![rt.clone()]);
-        let result = pkg.effective_fields_and_groups(&rt).unwrap();
-        assert_eq!(result.groups.len(), 1);
-        assert_eq!(
-            result.groups[0].merged_position, 1,
-            "group at order=0 is before fields at order=1 and order=2 → position 1"
-        );
-    }
-
-    #[test]
-    fn effective_fields_and_groups_tie_fields_before_groups() {
-        // field(order=0) and group(order=0): fields come before groups on equal order.
-        let rt = make_type_with_groups(
-            "t",
-            vec![fa("f1", 0, false)],
-            Some(vec![make_group("g1", 0)]),
-            None,
-        );
-        let pkg = make_package_with_types(vec![rt.clone()]);
-        let result = pkg.effective_fields_and_groups(&rt).unwrap();
-        assert_eq!(result.groups.len(), 1);
-        assert_eq!(
-            result.groups[0].merged_position, 2,
-            "field and group both at order=0; field goes first → group gets position 2"
-        );
-    }
 }

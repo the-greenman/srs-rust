@@ -1923,7 +1923,7 @@ fn file_store_upsert_container_index(
         path: Some(path.to_string()),
         container_type: None,
         tags: None,
-        extra: HashMap::new(),
+        extra: std::collections::BTreeMap::new(),
     });
     manifest.container_index = Some(entries);
     store.save_manifest(&manifest)
@@ -2181,7 +2181,7 @@ pub mod memory {
                 federation_path: None,
                 upstream_package: None,
                 federation_events_path: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
                 source_documents_path: None,
                 source_document_index: None,
                 root: PathBuf::from("/memory"),
@@ -2350,7 +2350,7 @@ pub mod memory {
                 federation_path: None,
                 upstream_package: None,
                 federation_events_path: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
                 source_documents_path: None,
                 source_document_index: None,
                 root: PathBuf::from("/memory"),
@@ -2529,7 +2529,7 @@ pub mod memory {
                 });
             }
 
-            let mut manifest_extra = HashMap::new();
+            let mut manifest_extra = std::collections::BTreeMap::new();
             manifest_extra.insert(
                 "srsVersion".to_string(),
                 serde_json::Value::String(input.repository.srs_version.clone()),
@@ -3168,7 +3168,7 @@ pub mod memory {
                 path: None,
                 container_type: None,
                 tags: None,
-                extra: std::collections::HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             });
             manifest.container_index = Some(entries);
             Ok(())
@@ -3569,7 +3569,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: repo_root.to_path_buf(),
@@ -3927,7 +3927,7 @@ mod tests {
             updated_at: None,
             meta: None,
             identity_instance_id: None,
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         }
     }
 
@@ -4045,7 +4045,7 @@ mod tests {
             tags,
             created_at: None,
             updated_at: None,
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         }
     }
 

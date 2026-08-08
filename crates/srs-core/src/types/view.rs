@@ -1,6 +1,32 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// RFC-036 Change A (ext:views-l1) — a view-owned composite rendering dispatch
+/// record. Presentation only ([CR-036-20]).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompositeRendererBinding {
+    /// Renderer identifier. Bare lower-kebab names are SRS-reserved (`table`,
+    /// and the sentinel `baseline` meaning explicitly no renderer); vendor
+    /// identifiers use `{reverse-domain}/{name}` ([CR-036-1]).
+    pub renderer: String,
+    /// Explicit role → Field.id bindings overriding the by-name defaults of
+    /// [CR-036-8]. Role names are renderer-defined.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub roles: Option<std::collections::HashMap<String, String>>,
+}
+
+/// RFC-036 Change B (ext:views-l2) — a CompositeRendererBinding plus the
+/// composite-range Field it binds.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompositeRendererDirective {
+    pub field_id: String,
+    pub renderer: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub roles: Option<std::collections::HashMap<String, String>>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FieldView {
@@ -12,6 +38,10 @@ pub struct FieldView {
     pub visible: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_label: Option<String>,
+    /// RFC-036 — render this field's composite-range value through a named
+    /// composite renderer. Highest-precedence declaration site ([CR-036-6]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub composite_renderer: Option<CompositeRendererBinding>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -191,6 +221,10 @@ pub struct DocumentSection {
     pub empty_behavior: Option<EmptyBehavior>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub relations_presentation: Option<RelationsPresentation>,
+    /// RFC-036 — composite renderer dispatch for records rendered by this
+    /// section; primary ext:views-l2 declaration site ([CR-036-6]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub composite_renderers: Option<Vec<CompositeRendererDirective>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -278,6 +312,10 @@ pub struct DocumentView {
     pub theme_ref: Option<ThemeReference>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub theme_variants: Option<Vec<ThemeVariant>>,
+    /// RFC-036 — document-wide default composite renderer dispatch, applied to
+    /// sections with no matching entry; lowest precedence ([CR-036-6]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub composite_renderers: Option<Vec<CompositeRendererDirective>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tags: Option<Vec<String>>,
     pub created_at: String,

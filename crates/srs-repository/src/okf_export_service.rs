@@ -79,13 +79,11 @@ fn okf_entry_from_instance(
                 format!("{slug}-{id8}.md")
             };
             let type_label = format!("{}/{}", r.type_namespace, r.type_name);
+            // RFC-039: keys are Field.name already — no id→name index needed.
             let field_pairs = r
                 .field_values
                 .iter()
-                .filter_map(|fv| {
-                    fni.get(&fv.field_id)
-                        .map(|name| (name.clone(), fv.value.to_string()))
-                })
+                .map(|(name, value)| (name.clone(), value.to_string()))
                 .collect();
             OkfEntry {
                 path,
@@ -162,7 +160,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         }
     }
 
@@ -179,7 +177,7 @@ mod tests {
             tags: None,
             created_at: created_at.map(|s| s.to_string()),
             updated_at: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         }
     }
 
@@ -439,7 +437,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: PathBuf::from("/memory"),

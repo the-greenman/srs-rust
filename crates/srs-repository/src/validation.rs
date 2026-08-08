@@ -534,11 +534,14 @@ pub fn validate_repository(
                         let rt_opt = package.resolve_type(&record.type_id, record.type_version);
 
                         if let Some(record_type) = rt_opt {
-                            match package.effective_fields(record_type) {
+                            match package.resolved_effective_fields(record_type) {
                                 Ok(effective_fields) => {
-                                    if let Err(err) =
-                                        validate_record(&record, record_type, &effective_fields)
-                                    {
+                                    if let Err(err) = validate_record(
+                                        &record,
+                                        record_type,
+                                        &effective_fields,
+                                        package,
+                                    ) {
                                         diagnostics.push(ValidationDiagnostic {
                                             severity: DiagnosticSeverity::Error,
                                             relative_path: rel_path.clone(),
@@ -709,11 +712,14 @@ pub fn validate_repository(
                         if record.type_namespace == SPEC_NAMESPACE
                             && record.type_name == SPEC_INVARIANT_TYPE_NAME
                         {
-                            if let Some(inv_field) =
-                                package.find_field(SPEC_NAMESPACE, SPEC_INVARIANT_NUMBER_FIELD_NAME)
+                            if package
+                                .find_field(SPEC_NAMESPACE, SPEC_INVARIANT_NUMBER_FIELD_NAME)
+                                .is_some()
                             {
-                                if let Some(fv) = record.find_field_value(&inv_field.id) {
-                                    let num_str = match &fv.value {
+                                if let Some(value) =
+                                    record.value(SPEC_INVARIANT_NUMBER_FIELD_NAME)
+                                {
+                                    let num_str = match value {
                                         serde_json::Value::String(s) => Some(s.clone()),
                                         serde_json::Value::Number(n) => Some(n.to_string()),
                                         _ => None,
@@ -854,9 +860,8 @@ pub fn validate_repository(
         if let Some(Some(pkg)) = package_for_tier2.as_ref() {
             // Extract optional u64 limit from a named policy field.
             let get_u64 = |field_name: &str| -> Option<u64> {
-                let field = pkg.find_field(BASE_NAMESPACE, field_name)?;
-                let fv = policy_record.find_field_value(&field.id)?;
-                fv.value.as_u64()
+                pkg.find_field(BASE_NAMESPACE, field_name)?;
+                policy_record.value(field_name)?.as_u64()
             };
 
             let max_per_file_bytes = get_u64(BASE_MAX_PER_FILE_BYTES_FIELD);
@@ -865,15 +870,17 @@ pub fn validate_repository(
 
             // Extract allowed_mime_types — accepts Array, JSON-array string, or single string.
             let allowed_mime_types: Option<Vec<String>> = 'mime: {
-                let field = match pkg.find_field(BASE_NAMESPACE, BASE_ALLOWED_MIME_TYPES_FIELD) {
-                    Some(f) => f,
+                if pkg
+                    .find_field(BASE_NAMESPACE, BASE_ALLOWED_MIME_TYPES_FIELD)
+                    .is_none()
+                {
+                    break 'mime None;
+                }
+                let value = match policy_record.value(BASE_ALLOWED_MIME_TYPES_FIELD) {
+                    Some(v) => v,
                     None => break 'mime None,
                 };
-                let fv = match policy_record.find_field_value(&field.id) {
-                    Some(f) => f,
-                    None => break 'mime None,
-                };
-                match &fv.value {
+                match value {
                     Value::Array(arr) => Some(
                         arr.iter()
                             .filter_map(|v| v.as_str().map(|s| s.to_string()))
@@ -4708,7 +4715,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         crate::container_service::create_container(&store, container).unwrap();
 
@@ -4769,7 +4776,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         crate::container_service::create_container(&store, container).unwrap();
 
@@ -4826,7 +4833,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         crate::container_service::create_container(&store, container).unwrap();
 
@@ -4900,7 +4907,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         crate::container_service::create_container(&file_store, container).unwrap();
 
@@ -5090,7 +5097,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         }
     }
 
@@ -5494,7 +5501,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         // Section container roots other_id, not section_id
         let section_container = rfc013_container(section_container_id, &[other_id], &[other_id]);
@@ -5567,7 +5574,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         let section_container = rfc013_container(section_container_id, &[other_id], &[other_id]);
 
@@ -5636,7 +5643,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         // Section container that roots section_id.
         let section_container =

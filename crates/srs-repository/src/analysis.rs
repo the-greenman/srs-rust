@@ -807,7 +807,7 @@ mod tests {
                 updated_at: None,
                 meta: None,
                 identity_instance_id: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             }
         }
 

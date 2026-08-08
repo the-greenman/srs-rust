@@ -79,7 +79,7 @@ fn make_type(id: &str, name: &str) -> RecordType {
         lifecycle_ref: None,
         validation_rules: None,
         created_at: "2026-01-01T00:00:00Z".to_string(),
-        extra: HashMap::new(),
+        extra: std::collections::BTreeMap::new(),
     }
 }
 
@@ -102,7 +102,7 @@ fn make_view(name: &str) -> View {
         export_config: None,
         tags: None,
         created_at: "2026-01-01T00:00:00Z".to_string(),
-        extra: HashMap::new(),
+        extra: std::collections::BTreeMap::new(),
     }
 }
 
@@ -139,7 +139,7 @@ fn make_document_view(name: &str) -> DocumentView {
         theme_variants: None,
         tags: None,
         created_at: "2026-01-01T00:00:00Z".to_string(),
-        extra: HashMap::new(),
+        extra: std::collections::BTreeMap::new(),
     }
 }
 
@@ -159,7 +159,7 @@ fn make_theme(name: &str) -> Theme {
         typography: None,
         tags: None,
         created_at: "2026-01-01T00:00:00Z".to_string(),
-        extra: HashMap::new(),
+        extra: std::collections::BTreeMap::new(),
     }
 }
 
@@ -271,7 +271,7 @@ fn make_lifecycle(name: &str) -> Lifecycle {
         extends_lifecycle_version: None,
         description: None,
         created_at: "2026-01-01T00:00:00Z".to_string(),
-        extra: HashMap::new(),
+        extra: std::collections::BTreeMap::new(),
     }
 }
 
