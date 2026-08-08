@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
   "id": "1a000010-0000-4000-a000-000000000010",
   "namespace": "com.semanticops.spec",
-  "name": "version-label",
+  "name": "version_label",
   "version": 1,
   "description": "The version identifier for this specification or definition.",
   "aiGuidance": {

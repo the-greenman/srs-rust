@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
   "id": "5a000005-0000-4000-a000-000000000005",
   "namespace": "com.semanticops.spec",
-  "name": "revision-history",
+  "name": "revision_history",
   "version": 1,
   "description": "A summary of revisions made to this RFC, in reverse-chronological order.",
   "aiGuidance": {

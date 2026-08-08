@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
   "id": "1a000003-0000-4000-a000-000000000003",
   "namespace": "com.semanticops.spec",
-  "name": "normative-statement",
+  "name": "normative_statement",
   "version": 1,
   "description": "A single atomic normative requirement, expressed using RFC 2119 keywords.",
   "aiGuidance": {

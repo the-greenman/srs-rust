@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
   "id": "5a000008-0000-4000-a000-000000000008",
   "namespace": "com.semanticops.spec",
-  "name": "open-questions",
+  "name": "open_questions",
   "version": 1,
   "description": "Unresolved questions that must be answered before this RFC can be accepted.",
   "aiGuidance": {

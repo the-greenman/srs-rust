@@ -63,16 +63,16 @@ impl RepositoryValidationReport {
 /// Used for both type-dispatch and field-namespace lookups in the invariant uniqueness check.
 const SPEC_NAMESPACE: &str = "com.semanticops.spec";
 const SPEC_INVARIANT_TYPE_NAME: &str = "invariant";
-const SPEC_INVARIANT_NUMBER_FIELD_NAME: &str = "invariant-number";
+const SPEC_INVARIANT_NUMBER_FIELD_NAME: &str = "invariant_number";
 
 /// RFC-017 Change B/E: optional com.semanticops.base package with attachment_policy.
 /// Field lookup is runtime-resolved via package.find_field to avoid UUID hardcoding.
 const BASE_NAMESPACE: &str = "com.semanticops.base";
 const BASE_REPO_SETTINGS_TYPE_NAME: &str = "repo_settings";
-const BASE_ALLOWED_MIME_TYPES_FIELD: &str = "allowedMimeTypes";
-const BASE_MAX_PER_FILE_BYTES_FIELD: &str = "maxPerFileBytes";
-const BASE_MAX_DOC_BYTES_FIELD: &str = "maxDocBytes";
-const BASE_MAX_TOTAL_BYTES_FIELD: &str = "maxTotalBytes";
+const BASE_ALLOWED_MIME_TYPES_FIELD: &str = "allowed_mime_types";
+const BASE_MAX_PER_FILE_BYTES_FIELD: &str = "max_per_file_bytes";
+const BASE_MAX_DOC_BYTES_FIELD: &str = "max_doc_bytes";
+const BASE_MAX_TOTAL_BYTES_FIELD: &str = "max_total_bytes";
 
 /// Validate an entire repository via the storage trait.
 ///
@@ -863,7 +863,7 @@ pub fn validate_repository(
             let max_doc_bytes = get_u64(BASE_MAX_DOC_BYTES_FIELD);
             let max_total_bytes = get_u64(BASE_MAX_TOTAL_BYTES_FIELD);
 
-            // Extract allowedMimeTypes — accepts Array, JSON-array string, or single string.
+            // Extract allowed_mime_types — accepts Array, JSON-array string, or single string.
             let allowed_mime_types: Option<Vec<String>> = 'mime: {
                 let field = match pkg.find_field(BASE_NAMESPACE, BASE_ALLOWED_MIME_TYPES_FIELD) {
                     Some(f) => f,
@@ -889,7 +889,7 @@ pub fn validate_repository(
                                         severity: DiagnosticSeverity::Warning,
                                         relative_path: policy_path.clone(),
                                         schema_id: None,
-                                        message: "attachment_policy: allowedMimeTypes could not be parsed; MIME-type check skipped".to_string(),
+                                        message: "attachment_policy: allowed_mime_types could not be parsed; MIME-type check skipped".to_string(),
                                     });
                                     break 'mime None;
                                 }
@@ -944,7 +944,7 @@ pub fn validate_repository(
                     }
                 };
 
-                // I-107: maxPerFileBytes
+                // I-107: max_per_file_bytes
                 if let Some(limit) = max_per_file_bytes {
                     if size > limit {
                         diagnostics.push(ValidationDiagnostic {
@@ -953,14 +953,14 @@ pub fn validate_repository(
                             schema_id: None,
                             message: format!(
                                 "RFC-017 I-107: '{}' is {size} bytes, \
-                                 exceeding maxPerFileBytes limit of {limit} bytes",
+                                 exceeding max_per_file_bytes limit of {limit} bytes",
                                 entry.content_path
                             ),
                         });
                     }
                 }
 
-                // I-107: maxDocBytes (per-document limit; independent of maxPerFileBytes)
+                // I-107: max_doc_bytes (per-document limit; independent of max_per_file_bytes)
                 if let Some(limit) = max_doc_bytes {
                     if size > limit {
                         diagnostics.push(ValidationDiagnostic {
@@ -969,7 +969,7 @@ pub fn validate_repository(
                             schema_id: None,
                             message: format!(
                                 "RFC-017 I-107: '{}' is {size} bytes, \
-                                 exceeding maxDocBytes limit of {limit} bytes",
+                                 exceeding max_doc_bytes limit of {limit} bytes",
                                 entry.content_path
                             ),
                         });
@@ -978,7 +978,7 @@ pub fn validate_repository(
 
                 total_bytes = total_bytes.saturating_add(size);
 
-                // I-107: allowedMimeTypes (exact case-sensitive match)
+                // I-107: allowed_mime_types (exact case-sensitive match)
                 if let Some(ref allowed) = allowed_mime_types {
                     if let Some(actual_mime) = mime_map.get(&entry.content_path) {
                         if !allowed.contains(actual_mime) {
@@ -988,7 +988,7 @@ pub fn validate_repository(
                                 schema_id: None,
                                 message: format!(
                                     "RFC-017 I-107: '{}' has MIME type '{}' which is not in \
-                                     allowedMimeTypes {:?}",
+                                     allowed_mime_types {:?}",
                                     entry.content_path, actual_mime, allowed
                                 ),
                             });
@@ -997,7 +997,7 @@ pub fn validate_repository(
                 }
             }
 
-            // I-107: maxTotalBytes (aggregate)
+            // I-107: max_total_bytes (aggregate)
             if let Some(limit) = max_total_bytes {
                 if total_bytes > limit {
                     diagnostics.push(ValidationDiagnostic {
@@ -1006,7 +1006,7 @@ pub fn validate_repository(
                         schema_id: None,
                         message: format!(
                             "RFC-017 I-107: aggregate source-document bytes ({total_bytes}) \
-                             exceed maxTotalBytes limit of {limit} bytes"
+                             exceed max_total_bytes limit of {limit} bytes"
                         ),
                     });
                 }
@@ -7415,7 +7415,7 @@ mod tests {
             &json!({
                 "id": TEST_INV_NUM_FIELD_ID,
                 "namespace": "com.semanticops.spec",
-                "name": "invariant-number",
+                "name": "invariant_number",
                 "version": 1,
                 "description": "invariant number",
                 "aiGuidance": {},
@@ -7635,7 +7635,7 @@ mod tests {
         let inv_field: srs_core::types::field::Field = serde_json::from_value(json!({
             "id": TEST_INV_NUM_FIELD_ID,
             "namespace": "com.semanticops.spec",
-            "name": "invariant-number",
+            "name": "invariant_number",
             "version": 1,
             "description": "invariant number",
             "aiGuidance": {},
@@ -7785,7 +7785,7 @@ mod tests {
         let allowed_mime_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_ALLOWED_MIME,
             "namespace": "com.semanticops.base",
-            "name": "allowedMimeTypes",
+            "name": "allowed_mime_types",
             "version": 1, "description": "allowed MIME types",
             "aiGuidance": {}, "fieldType": {"datatype": "string", "format": "plain"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
@@ -7793,7 +7793,7 @@ mod tests {
         let max_per_file_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_PER_FILE,
             "namespace": "com.semanticops.base",
-            "name": "maxPerFileBytes",
+            "name": "max_per_file_bytes",
             "version": 1, "description": "max per-file bytes",
             "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
@@ -7801,7 +7801,7 @@ mod tests {
         let max_doc_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_DOC,
             "namespace": "com.semanticops.base",
-            "name": "maxDocBytes",
+            "name": "max_doc_bytes",
             "version": 1, "description": "max doc bytes",
             "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
@@ -7809,7 +7809,7 @@ mod tests {
         let max_total_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_TOTAL,
             "namespace": "com.semanticops.base",
-            "name": "maxTotalBytes",
+            "name": "max_total_bytes",
             "version": 1, "description": "max total bytes",
             "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
@@ -7964,7 +7964,7 @@ mod tests {
 
     #[test]
     fn policy_max_per_file_bytes_warn() {
-        // File 200 bytes, maxPerFileBytes limit 100 → one Warning mentioning maxPerFileBytes.
+        // File 200 bytes, max_per_file_bytes limit 100 → one Warning mentioning max_per_file_bytes.
         let store = build_policy_store(
             &PolicyLimits {
                 max_per_file_bytes: Some(100),
@@ -7977,13 +7977,14 @@ mod tests {
             .diagnostics
             .iter()
             .filter(|d| {
-                d.severity == DiagnosticSeverity::Warning && d.message.contains("maxPerFileBytes")
+                d.severity == DiagnosticSeverity::Warning
+                    && d.message.contains("max_per_file_bytes")
             })
             .collect();
         assert_eq!(
             warns.len(),
             1,
-            "expected 1 maxPerFileBytes warning, got: {:?}",
+            "expected 1 max_per_file_bytes warning, got: {:?}",
             report.diagnostics
         );
         assert!(
@@ -8000,7 +8001,7 @@ mod tests {
 
     #[test]
     fn policy_max_doc_bytes_warn() {
-        // File 200 bytes, maxDocBytes limit 100 → one Warning mentioning maxDocBytes.
+        // File 200 bytes, max_doc_bytes limit 100 → one Warning mentioning max_doc_bytes.
         let store = build_policy_store(
             &PolicyLimits {
                 max_doc_bytes: Some(100),
@@ -8013,20 +8014,20 @@ mod tests {
             .diagnostics
             .iter()
             .filter(|d| {
-                d.severity == DiagnosticSeverity::Warning && d.message.contains("maxDocBytes")
+                d.severity == DiagnosticSeverity::Warning && d.message.contains("max_doc_bytes")
             })
             .collect();
         assert_eq!(
             warns.len(),
             1,
-            "expected 1 maxDocBytes warning, got: {:?}",
+            "expected 1 max_doc_bytes warning, got: {:?}",
             report.diagnostics
         );
     }
 
     #[test]
     fn policy_max_total_bytes_warn() {
-        // Two 60-byte files, maxTotalBytes 100 → one aggregate Warning.
+        // Two 60-byte files, max_total_bytes 100 → one aggregate Warning.
         let store = build_policy_store(
             &PolicyLimits {
                 max_total_bytes: Some(100),
@@ -8042,13 +8043,13 @@ mod tests {
             .diagnostics
             .iter()
             .filter(|d| {
-                d.severity == DiagnosticSeverity::Warning && d.message.contains("maxTotalBytes")
+                d.severity == DiagnosticSeverity::Warning && d.message.contains("max_total_bytes")
             })
             .collect();
         assert_eq!(
             warns.len(),
             1,
-            "expected 1 maxTotalBytes aggregate warning, got: {:?}",
+            "expected 1 max_total_bytes aggregate warning, got: {:?}",
             report.diagnostics
         );
         assert!(
@@ -8060,7 +8061,7 @@ mod tests {
 
     #[test]
     fn policy_mime_type_mismatch_warn() {
-        // allowedMimeTypes: ["text/plain"], file is "application/pdf" → one Warning.
+        // allowed_mime_types: ["text/plain"], file is "application/pdf" → one Warning.
         let store = build_policy_store(
             &PolicyLimits {
                 allowed_mime_types: Some(vec!["text/plain".to_string()]),
@@ -8091,7 +8092,7 @@ mod tests {
 
     #[test]
     fn policy_mime_type_match_no_warn() {
-        // File MIME type IS in allowedMimeTypes → zero MIME warnings.
+        // File MIME type IS in allowed_mime_types → zero MIME warnings.
         let store = build_policy_store(
             &PolicyLimits {
                 allowed_mime_types: Some(vec!["application/pdf".to_string()]),
@@ -8125,7 +8126,7 @@ mod tests {
 
         let allowed_mime_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_ALLOWED_MIME, "namespace": "com.semanticops.base",
-            "name": "allowedMimeTypes", "version": 1, "description": "x",
+            "name": "allowed_mime_types", "version": 1, "description": "x",
             "aiGuidance": {}, "fieldType": {"datatype": "string", "format": "plain"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
@@ -8285,25 +8286,25 @@ mod tests {
 
         let allowed_mime_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_ALLOWED_MIME, "namespace": "com.semanticops.base",
-            "name": "allowedMimeTypes", "version": 1, "description": "",
+            "name": "allowed_mime_types", "version": 1, "description": "",
             "aiGuidance": {}, "fieldType": {"datatype": "string", "format": "plain"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let max_per_file_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_PER_FILE, "namespace": "com.semanticops.base",
-            "name": "maxPerFileBytes", "version": 1, "description": "",
+            "name": "max_per_file_bytes", "version": 1, "description": "",
             "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let max_doc_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_DOC, "namespace": "com.semanticops.base",
-            "name": "maxDocBytes", "version": 1, "description": "",
+            "name": "max_doc_bytes", "version": 1, "description": "",
             "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let max_total_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_TOTAL, "namespace": "com.semanticops.base",
-            "name": "maxTotalBytes", "version": 1, "description": "",
+            "name": "max_total_bytes", "version": 1, "description": "",
             "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
@@ -8396,7 +8397,7 @@ mod tests {
 
     #[test]
     fn policy_mime_string_value_single_type() {
-        // allowedMimeTypes stored as a bare string (e.g. "text/plain") — a single-MIME
+        // allowed_mime_types stored as a bare string (e.g. "text/plain") — a single-MIME
         // shorthand the String variant of the parser handles.
         // File is application/pdf → mismatch → I-107 warning.
         use crate::manifest::Manifest;
@@ -8408,25 +8409,25 @@ mod tests {
 
         let allowed_mime_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_ALLOWED_MIME, "namespace": "com.semanticops.base",
-            "name": "allowedMimeTypes", "version": 1, "description": "",
+            "name": "allowed_mime_types", "version": 1, "description": "",
             "aiGuidance": {}, "fieldType": {"datatype": "string", "format": "plain"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let max_per_file_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_PER_FILE, "namespace": "com.semanticops.base",
-            "name": "maxPerFileBytes", "version": 1, "description": "",
+            "name": "max_per_file_bytes", "version": 1, "description": "",
             "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let max_doc_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_DOC, "namespace": "com.semanticops.base",
-            "name": "maxDocBytes", "version": 1, "description": "",
+            "name": "max_doc_bytes", "version": 1, "description": "",
             "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let max_total_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_TOTAL, "namespace": "com.semanticops.base",
-            "name": "maxTotalBytes", "version": 1, "description": "",
+            "name": "max_total_bytes", "version": 1, "description": "",
             "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
@@ -8489,7 +8490,7 @@ mod tests {
         let manifest_str = serde_json::to_string(&manifest_json).unwrap();
         let manifest: Manifest = serde_json::from_value(manifest_json).unwrap();
 
-        // allowedMimeTypes as a bare string "text/plain" (not an array).
+        // allowed_mime_types as a bare string "text/plain" (not an array).
         let policy_record_json = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
             "instanceId": POLICY_RECORD_ID,
@@ -8526,14 +8527,14 @@ mod tests {
             .collect();
         assert_eq!(
             i107_mime_warns.len(), 1,
-            "bare-string allowedMimeTypes 'text/plain' should trigger I-107 for application/pdf; got: {:?}",
+            "bare-string allowed_mime_types 'text/plain' should trigger I-107 for application/pdf; got: {:?}",
             i107_mime_warns
         );
     }
 
     #[test]
     fn policy_both_per_file_limits_fire_independently() {
-        // maxPerFileBytes and maxDocBytes are independent limits, both citing I-107.
+        // max_per_file_bytes and max_doc_bytes are independent limits, both citing I-107.
         // A file exceeding both must produce two separate warnings.
         let store = build_policy_store(
             &PolicyLimits {
@@ -8550,7 +8551,7 @@ mod tests {
             .filter(|d| {
                 d.severity == DiagnosticSeverity::Warning
                     && d.message.contains("I-107")
-                    && d.message.contains("maxPerFileBytes")
+                    && d.message.contains("max_per_file_bytes")
             })
             .collect();
         let doc_warns: Vec<_> = report
@@ -8559,19 +8560,19 @@ mod tests {
             .filter(|d| {
                 d.severity == DiagnosticSeverity::Warning
                     && d.message.contains("I-107")
-                    && d.message.contains("maxDocBytes")
+                    && d.message.contains("max_doc_bytes")
             })
             .collect();
         assert_eq!(
             per_file_warns.len(),
             1,
-            "expected I-107 (maxPerFileBytes) warning; got: {:?}",
+            "expected I-107 (max_per_file_bytes) warning; got: {:?}",
             per_file_warns
         );
         assert_eq!(
             doc_warns.len(),
             1,
-            "expected I-107 (maxDocBytes) warning; got: {:?}",
+            "expected I-107 (max_doc_bytes) warning; got: {:?}",
             doc_warns
         );
     }

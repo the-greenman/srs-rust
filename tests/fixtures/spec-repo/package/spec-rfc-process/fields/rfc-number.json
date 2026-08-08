@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
   "id": "5a000001-0000-4000-a000-000000000001",
   "namespace": "com.semanticops.spec",
-  "name": "rfc-number",
+  "name": "rfc_number",
   "version": 1,
   "description": "The sequential number of this RFC within the specification.",
   "aiGuidance": {

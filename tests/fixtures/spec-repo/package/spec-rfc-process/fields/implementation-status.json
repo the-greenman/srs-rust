@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
   "id": "5a000013-0000-4000-a000-000000000013",
   "namespace": "com.semanticops.spec",
-  "name": "implementation-status",
+  "name": "implementation_status",
   "version": 1,
   "description": "The implementation state of an accepted RFC.",
   "aiGuidance": {

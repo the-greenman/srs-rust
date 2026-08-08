@@ -143,7 +143,7 @@ impl SrsRepository {
     ///   `severity: "warning"` are non-blocking advisories; they do not affect `summary.errors`
     ///   and the repository still passes validation when they are present. RFC-017 I-107
     ///   attachment size-limit violations (emitted when a `com.semanticops.base/repo_settings`
-    ///   record specifies `maxPerFileBytes`) are one example of a warning source.
+    ///   record specifies `max_per_file_bytes`) are one example of a warning source.
     /// - `summary`: `{ checked, errors, warnings }`. `summary.warnings` counts warning-severity
     ///   diagnostics. A repository passes validation when `summary.errors === 0`, even if
     ///   `summary.warnings > 0`.
@@ -2175,17 +2175,17 @@ mod tests {
                     "description": "Attachment policy fields and types for size-warning tests.",
                     "status": "active",
                     "version": "1.0.0",
-                    "fields": ["fields/maxPerFileBytes.json"],
+                    "fields": ["fields/max_per_file_bytes.json"],
                     "types": ["types/repo_settings.json"],
                     "relationTypes": [],
                     "views": [],
                     "documentViews": [],
                     "createdAt": "2026-01-01T00:00:00Z"
                 },
-                "package/fields/maxPerFileBytes.json": {
+                "package/fields/max_per_file_bytes.json": {
                     "id": MAX_FILE,
                     "namespace": "com.semanticops.base",
-                    "name": "maxPerFileBytes",
+                    "name": "max_per_file_bytes",
                     "version": 1,
                     "description": "max per-file bytes",
                     "aiGuidance": null,

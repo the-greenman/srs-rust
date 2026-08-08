@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
   "id": "5a000017-0000-4000-a000-000000000017",
   "namespace": "com.semanticops.spec",
-  "name": "artifact-kind",
+  "name": "artifact_kind",
   "version": 1,
   "description": "The kind of artifact included in an RFC proposal.",
   "aiGuidance": {
