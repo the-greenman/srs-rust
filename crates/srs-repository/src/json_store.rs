@@ -99,7 +99,7 @@ impl JsonStore {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: file_path
@@ -644,7 +644,7 @@ impl RepositoryStore for JsonStore {
             .unwrap_or_default()
             .to_string();
         let created_at = Utc::now().to_rfc3339();
-        let mut extra = HashMap::new();
+        let mut extra = std::collections::BTreeMap::new();
         extra.insert(
             "$schema".to_string(),
             serde_json::Value::String(srs_schema::MANIFEST_SCHEMA_ID.to_string()),
@@ -2318,7 +2318,7 @@ mod tests {
             tags,
             created_at: None,
             updated_at: None,
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         }
     }
 
@@ -2401,7 +2401,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         store.save_container(&container).unwrap();
 
@@ -2438,7 +2438,7 @@ mod tests {
                     created_at: None,
                     updated_at: None,
                     meta: None,
-                    extra: std::collections::HashMap::new(),
+                    extra: std::collections::BTreeMap::new(),
                 })
                 .unwrap();
         }
@@ -2474,7 +2474,7 @@ mod tests {
                 created_at: None,
                 updated_at: None,
                 meta: None,
-                extra: std::collections::HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             })
             .unwrap();
         store.delete_container("delete-me").unwrap();
@@ -2510,7 +2510,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         store.save_container(&container).unwrap();
 
@@ -2614,7 +2614,7 @@ mod tests {
                 created_at: None,
                 updated_at: None,
                 meta: None,
-                extra: std::collections::HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             })
             .unwrap();
 
@@ -2653,7 +2653,7 @@ mod tests {
                 created_at: None,
                 updated_at: None,
                 meta: None,
-                extra: std::collections::HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             })
             .unwrap();
 
@@ -2700,7 +2700,7 @@ mod tests {
                 created_at: None,
                 updated_at: None,
                 meta: None,
-                extra: std::collections::HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             })
             .unwrap();
         store.delete_container("del-idx-c").unwrap();

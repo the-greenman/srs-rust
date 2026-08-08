@@ -11,13 +11,12 @@
 //! [`RepositoryError`].
 
 use crate::error::RepositoryError;
-use crate::package::{EffectiveFieldsAndGroups, OrderedGroup};
 use crate::package_service::GetTypeResult;
 use crate::package_service::{get_type_by_id, get_type_by_id_latest};
 use crate::store::RepositoryStore;
 use serde_json::{json, Map, Value};
 use srs_core::types::field::{Datatype, Field, RefMode, StringFormat};
-use srs_core::types::record_type::{FieldAssignment, FieldGroup};
+use srs_core::types::record_type::FieldAssignment;
 
 /// Input contract for [`type_schema`].
 #[derive(Debug, Clone)]
@@ -69,14 +68,8 @@ pub fn type_schema(
 
     let package = store.load_package()?;
     // Walk the inheritance chain to collect all effective field assignments
-    // (own + inherited), sorted by order. Also computes each group's 1-based
-    // position in the merged field+group sequence so x-srs-order is consistent
-    // across fields and groups in the same schema.
-    let EffectiveFieldsAndGroups {
-        fields: assignments,
-        field_positions,
-        groups: ordered_groups,
-    } = package.effective_fields_and_groups(&record_type)?;
+    // (own + inherited), sorted by order.
+    let assignments = package.effective_fields(&record_type)?;
 
     let mut diagnostics = Vec::new();
     let mut properties = Map::new();
@@ -94,35 +87,16 @@ pub fn type_schema(
             }
         };
 
-        let mut property = field_to_property(&field, fa, &mut diagnostics);
-        // Use the merged position (1-based) as x-srs-order so that fields and groups
-        // share a single consistent position namespace. When no groups are present,
-        // field_positions[i] == i+1, giving the same behaviour as before.
-        let merged_pos = field_positions.get(idx).copied().unwrap_or(idx + 1);
+        let mut visiting = vec![(record_type.id.clone(), record_type.version)];
+        let mut property =
+            field_to_property(&field, fa, &package, &mut visiting, &mut diagnostics);
         if let Some(obj) = property.as_object_mut() {
-            obj.insert("x-srs-order".into(), json!(merged_pos));
+            obj.insert("x-srs-order".into(), json!(idx + 1));
         }
         if fa.required {
             required.push(Value::String(field.name.clone()));
         }
         properties.insert(field.name.clone(), property);
-    }
-
-    // ext:field-groups (RFC-007) — emit each repeatable/composite group as an
-    // array (or object) property so schema-driven editors can render it. The
-    // group's `groupId` is the property key; sub-fields become the item schema.
-    // merged_position is the 1-based position in the combined field+group sequence,
-    // ensuring groups and fields share a single consistent x-srs-order namespace.
-    for OrderedGroup {
-        group,
-        merged_position,
-    } in &ordered_groups
-    {
-        let property = field_group_to_property(group, &package, *merged_position, &mut diagnostics);
-        if group.required {
-            required.push(Value::String(group.group_id.clone()));
-        }
-        properties.insert(group.group_id.clone(), property);
     }
 
     let schema = json!({
@@ -140,9 +114,14 @@ pub fn type_schema(
 }
 
 /// Map a single resolved Field + its assignment to a draft-07 property schema.
+///
+/// `visiting` carries the (typeId, version) chain of inline-composite ranges
+/// currently being expanded, for cycle protection.
 fn field_to_property(
     field: &Field,
     assignment: &FieldAssignment,
+    package: &crate::package::Package,
+    visiting: &mut Vec<(String, u32)>,
     diagnostics: &mut Vec<String>,
 ) -> Value {
     let mut prop = Map::new();
@@ -151,7 +130,7 @@ fn field_to_property(
     // single-value shape in an array, which is how the pre-RFC-032
     // `multiselect` case used to be special-cased.
     let mut value_shape = Map::new();
-    insert_value_shape(&mut value_shape, field, diagnostics);
+    insert_value_shape(&mut value_shape, field, package, visiting, diagnostics);
     if field.is_list() {
         prop.insert("type".into(), json!("array"));
         prop.insert("items".into(), Value::Object(value_shape));
@@ -198,8 +177,9 @@ fn field_to_property(
         prop.insert("default".into(), default.clone());
     }
 
+    // RFC-039: `x-srs-field-id` is retired — instance keys and schema keys are
+    // both `Field.name`, so there is no id-keyed instance left to bridge to.
     prop.insert("x-srs-order".into(), json!(assignment.order));
-    prop.insert("x-srs-field-id".into(), json!(field.id));
 
     // aiGuidance.purpose becomes `description`; any richer structured
     // guidance (extraction, negativeGuidance, examples) is preserved under a
@@ -219,80 +199,6 @@ fn field_to_property(
     Value::Object(prop)
 }
 
-/// Map a field group (ext:field-groups, RFC-007) to a draft-07 property schema.
-///
-/// A repeatable group becomes an `array` of objects; a non-repeatable group an
-/// `object`. The group's sub-fields become the item object's properties. The
-/// `x-srs-group-id`, `x-srs-composite-renderer`, and `x-srs-repeatable` hints let
-/// a schema-driven editor pick the right widget (e.g. a table grid).
-///
-/// `merged_position` is the 1-based position of this group in the combined
-/// field+group sequence; it is written to `x-srs-order` so editors can correctly
-/// interleave groups and fields.
-fn field_group_to_property(
-    group: &FieldGroup,
-    package: &crate::package::Package,
-    merged_position: usize,
-    diagnostics: &mut Vec<String>,
-) -> Value {
-    let mut item_props = Map::new();
-    let mut item_required = Vec::new();
-    for fa in &group.fields {
-        match package.resolve_field(&fa.field_id) {
-            Some(field) => {
-                let prop = field_to_property(&field.clone(), fa, diagnostics);
-                if fa.required {
-                    item_required.push(Value::String(field.name.clone()));
-                }
-                item_props.insert(field.name.clone(), prop);
-            }
-            None => diagnostics.push(format!(
-                "field group '{}' references unknown fieldId '{}'; skipped",
-                group.group_id, fa.field_id
-            )),
-        }
-    }
-
-    let item = json!({
-        "type": "object",
-        "properties": Value::Object(item_props),
-        "required": Value::Array(item_required),
-        "additionalProperties": false
-    });
-
-    let mut prop = Map::new();
-    if group.repeatable {
-        prop.insert("type".into(), json!("array"));
-        prop.insert("items".into(), item);
-        if let Some(min) = group.min_items {
-            prop.insert("minItems".into(), json!(min));
-        }
-        if let Some(max) = group.max_items {
-            prop.insert("maxItems".into(), json!(max));
-        }
-    } else {
-        // Non-repeatable group: a single object with the same item shape.
-        if let Value::Object(obj) = item {
-            prop.extend(obj);
-        }
-    }
-
-    if let Some(label) = group.label.clone().filter(|s| !s.is_empty()) {
-        prop.insert("title".into(), json!(label));
-    }
-    if let Some(desc) = group.description.clone().filter(|s| !s.is_empty()) {
-        prop.insert("description".into(), json!(desc));
-    }
-    prop.insert("x-srs-order".into(), json!(merged_position));
-    prop.insert("x-srs-group-id".into(), json!(group.group_id));
-    prop.insert("x-srs-repeatable".into(), json!(group.repeatable));
-    if let Some(renderer) = &group.composite_renderer {
-        prop.insert("x-srs-composite-renderer".into(), json!(renderer));
-    }
-
-    Value::Object(prop)
-}
-
 /// Insert the single-value shape a field's `fieldType` projects to, ignoring
 /// cardinality (the caller wraps a list in an array).
 ///
@@ -303,6 +209,8 @@ fn field_group_to_property(
 fn insert_value_shape(
     target: &mut Map<String, Value>,
     field: &Field,
+    package: &crate::package::Package,
+    visiting: &mut Vec<(String, u32)>,
     diagnostics: &mut Vec<String>,
 ) {
     let ft = &field.field_type;
@@ -382,12 +290,75 @@ fn insert_value_shape(
                     target.insert("type".into(), json!("string"));
                     target.insert("format".into(), json!("uuid"));
                 }
-                // An inline ref carries a nested object. The editor projection
-                // does not expand the range here — that is the standards
-                // projection's job; the range is named so a form renderer can
-                // fetch it.
+                // RFC-039 [R3]: an inline-composite value is a fieldValues map
+                // for the rangeType — the editor projection expands the range
+                // recursively so schema-driven editors can render the nested
+                // form/grid the retired FieldGroup projection used to supply.
                 RefMode::Inline => {
                     target.insert("type".into(), json!("object"));
+                    if let Some(range) = &field.field_type.range_type {
+                        let key = (range.type_id.clone(), range.type_version);
+                        if visiting.contains(&key) {
+                            diagnostics.push(format!(
+                                "inline composite range cycle at {}@{}; emitted unexpanded object",
+                                range.type_id, range.type_version
+                            ));
+                        } else if let Some(range_rt) =
+                            package.resolve_type(&range.type_id, range.type_version)
+                        {
+                            visiting.push(key);
+                            let range_rt = range_rt.clone();
+                            let mut item_props = Map::new();
+                            let mut item_required = Vec::new();
+                            match package.effective_fields(&range_rt) {
+                                Ok(assignments) => {
+                                    for fa in &assignments {
+                                        match package.resolve_field(&fa.field_id) {
+                                            Some(f) => {
+                                                let f = f.clone();
+                                                let prop = field_to_property(
+                                                    &f,
+                                                    fa,
+                                                    package,
+                                                    visiting,
+                                                    diagnostics,
+                                                );
+                                                if fa.required {
+                                                    item_required
+                                                        .push(Value::String(f.name.clone()));
+                                                }
+                                                item_props.insert(f.name.clone(), prop);
+                                            }
+                                            None => diagnostics.push(format!(
+                                                "range type {}@{} references unknown fieldId '{}'; skipped",
+                                                range.type_id, range.type_version, fa.field_id
+                                            )),
+                                        }
+                                    }
+                                    target.insert(
+                                        "properties".into(),
+                                        Value::Object(item_props),
+                                    );
+                                    target.insert(
+                                        "required".into(),
+                                        Value::Array(item_required),
+                                    );
+                                    target
+                                        .insert("additionalProperties".into(), json!(false));
+                                }
+                                Err(e) => diagnostics.push(format!(
+                                    "could not resolve effective fields of range {}@{}: {e}",
+                                    range.type_id, range.type_version
+                                )),
+                            }
+                            visiting.pop();
+                        } else {
+                            diagnostics.push(format!(
+                                "inline composite rangeType {}@{} does not resolve; emitted unexpanded object",
+                                range.type_id, range.type_version
+                            ));
+                        }
+                    }
                 }
             }
             if let Some(range) = &ft.range_type {
@@ -484,7 +455,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: PathBuf::from("/memory"),
@@ -522,7 +493,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: PathBuf::from("/memory"),
@@ -570,7 +541,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         }
     }
 

@@ -7,7 +7,7 @@ use crate::store::RepositoryStore;
 use crate::view_service::{delete_document_view, list_document_views, update_document_view};
 use serde::{Deserialize, Serialize};
 use srs_core::types::container::Container;
-use srs_core::types::record::FieldValue;
+use srs_core::types::record::FieldValues;
 use srs_core::types::view::SectionSource;
 use std::collections::HashMap;
 
@@ -128,22 +128,19 @@ pub fn scaffold_governance_repo(
     let package = store.load_package()?;
     // RFC-018 I-81: the identity record must be com.semanticops.core/purpose.
     // The core types are available via the ADR-025 implicit-core merge.
-    let statement_field_id = package
+    // RFC-039: the carrier keys by Field.name; the lookups below still assert
+    // the fields exist in the package before we write records against them.
+    package
         .find_field("com.semanticops.core", "statement")
         .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
             message: "com.semanticops.core/statement field not found in package".to_string(),
-        })?
-        .id
-        .clone();
-    let core_title_field_id = package
+        })?;
+    package
         .find_field("com.semanticops.core", "title")
         .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
             message: "com.semanticops.core/title field not found in package".to_string(),
-        })?
-        .id
-        .clone();
-    // Namespace-qualified lookup for the decision-log root title field.
-    let dl_title_field_id = package
+        })?;
+    package
         .find_field("governance", "title")
         .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
             message: "governance/title field not found in package".to_string(),
@@ -157,23 +154,13 @@ pub fn scaffold_governance_repo(
         "com.semanticops.core/purpose",
         None,
         CreateRecordInput {
-            field_values: vec![
-                FieldValue {
-                    field_id: statement_field_id,
-                    value: serde_json::json!(purpose_text),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                },
-                FieldValue {
-                    field_id: core_title_field_id,
-                    value: serde_json::json!(input.title),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                },
-            ],
-            group_values: None,
+            field_values: {
+                let mut fv = FieldValues::new();
+                fv.insert("statement", serde_json::json!(purpose_text));
+                fv.insert("title", serde_json::json!(input.title));
+                fv
+            },
+            field_meta: None,
             tags: None,
         },
         None,
@@ -199,7 +186,7 @@ pub fn scaffold_governance_repo(
             created_at: None,
             updated_at: None,
             meta: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         },
     )?;
     let dl_container_id = dl_container.container_id.clone();
@@ -209,14 +196,12 @@ pub fn scaffold_governance_repo(
         "governance/decision_log",
         None,
         CreateRecordInput {
-            field_values: vec![FieldValue {
-                field_id: dl_title_field_id,
-                value: serde_json::json!(dl_title),
-                entries: None,
-                source: None,
-                edited_at: None,
-            }],
-            group_values: None,
+            field_values: {
+                let mut fv = FieldValues::new();
+                fv.insert("title", serde_json::json!(dl_title));
+                fv
+            },
+            field_meta: None,
             tags: None,
         },
         None,
@@ -244,7 +229,7 @@ pub fn scaffold_governance_repo(
             created_at: None,
             updated_at: None,
             meta: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         },
     )?;
     let root_container_id = root_container.container_id.clone();

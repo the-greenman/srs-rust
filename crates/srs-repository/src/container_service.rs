@@ -551,7 +551,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         }
     }
 

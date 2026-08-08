@@ -73,10 +73,11 @@ pub fn read_attachment_policy(
         }
     };
 
+    // RFC-039: the carrier keys by Field.name — the package lookup still
+    // asserts the field is defined before its value is trusted.
     let get_u64 = |field_name: &str| -> Option<u64> {
-        let field = pkg.find_field(BASE_NAMESPACE, field_name)?;
-        let fv = policy_record.find_field_value(&field.id)?;
-        fv.value.as_u64()
+        pkg.find_field(BASE_NAMESPACE, field_name)?;
+        policy_record.value(field_name)?.as_u64()
     };
 
     let max_per_file_bytes = get_u64("max_per_file_bytes");
@@ -84,15 +85,14 @@ pub fn read_attachment_policy(
     let max_total_bytes = get_u64("max_total_bytes");
 
     let allowed_mime_types: Option<Vec<String>> = 'mime: {
-        let field = match pkg.find_field(BASE_NAMESPACE, "allowed_mime_types") {
-            Some(f) => f,
+        if pkg.find_field(BASE_NAMESPACE, "allowed_mime_types").is_none() {
+            break 'mime None;
+        }
+        let value = match policy_record.value("allowed_mime_types") {
+            Some(v) => v,
             None => break 'mime None,
         };
-        let fv = match policy_record.find_field_value(&field.id) {
-            Some(f) => f,
-            None => break 'mime None,
-        };
-        match &fv.value {
+        match value {
             Value::Array(arr) => Some(
                 arr.iter()
                     .filter_map(|v| v.as_str().map(|s| s.to_string()))

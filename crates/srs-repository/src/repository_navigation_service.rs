@@ -269,7 +269,7 @@ mod tests {
             tags: None,
             created_at: Some(created_at.to_string()),
             updated_at: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         }
     }
 
@@ -320,13 +320,13 @@ mod tests {
                 created_at: None,
                 updated_at: None,
                 meta: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             }),
             container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: PathBuf::from("/memory"),
@@ -380,7 +380,7 @@ mod tests {
                 created_at: None,
                 updated_at: None,
                 meta: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .unwrap();
@@ -401,7 +401,7 @@ mod tests {
                 created_at: None,
                 updated_at: None,
                 meta: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .unwrap();
@@ -422,7 +422,7 @@ mod tests {
                 created_at: None,
                 updated_at: None,
                 meta: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .unwrap();
@@ -489,13 +489,13 @@ mod tests {
                 created_at: None,
                 updated_at: None,
                 meta: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             }),
             container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: PathBuf::from("/memory"),
@@ -587,13 +587,13 @@ mod tests {
                 created_at: None,
                 updated_at: None,
                 meta: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             }),
             container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: PathBuf::from("/memory"),
@@ -616,7 +616,7 @@ mod tests {
                 created_at: None,
                 updated_at: None,
                 meta: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .unwrap();
@@ -684,13 +684,13 @@ mod tests {
                 created_at: None,
                 updated_at: None,
                 meta: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             }),
             container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: PathBuf::from("/memory"),
@@ -712,7 +712,7 @@ mod tests {
                 created_at: None,
                 updated_at: None,
                 meta: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .unwrap();
@@ -752,7 +752,7 @@ mod tests {
                 created_at: None,
                 updated_at: None,
                 meta: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .unwrap();
@@ -773,7 +773,7 @@ mod tests {
                 created_at: None,
                 updated_at: None,
                 meta: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .unwrap();
@@ -815,13 +815,13 @@ mod tests {
                 created_at: None,
                 updated_at: None,
                 meta: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             }),
             container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: PathBuf::from("/memory"),
@@ -875,7 +875,7 @@ mod tests {
                 created_at: None,
                 updated_at: None,
                 meta: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .unwrap();
@@ -921,13 +921,13 @@ mod tests {
                 created_at: None,
                 updated_at: None,
                 meta: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             }),
             container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: PathBuf::from("/memory"),
@@ -972,7 +972,7 @@ mod tests {
                 created_at: None,
                 updated_at: None,
                 meta: None,
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .unwrap();

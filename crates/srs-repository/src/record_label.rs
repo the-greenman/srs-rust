@@ -61,12 +61,10 @@ pub(crate) fn record_display_label(
 ) -> String {
     if let Some(field_id) = identity_field_index.get(&(record.type_id.clone(), record.type_version))
     {
-        if let Some(fv) = record
-            .field_values
-            .iter()
-            .find(|fv| &fv.field_id == field_id)
-        {
-            if let Some(s) = fv.value.as_str() {
+        // RFC-039: the carrier keys by Field.name — recover the identity
+        // field's name through the index built from the package.
+        if let Some(name) = field_name_index.get(field_id) {
+            if let Some(s) = record.value_str(name) {
                 if !s.is_empty() {
                     return s.to_string();
                 }
@@ -75,14 +73,11 @@ pub(crate) fn record_display_label(
     }
     // "heading" is a conventional section-title field name, more specific than the
     // catch-all "name" identifier, so it ranks higher in the heuristic fallback.
+    // Under the name-keyed carrier the ladder is a direct key probe ([R2b]).
     for priority in &["title", "heading", "name", "label"] {
-        for fv in &record.field_values {
-            if field_name_index.get(&fv.field_id).map(|n| n.as_str()) == Some(priority) {
-                if let Some(s) = fv.value.as_str() {
-                    if !s.is_empty() {
-                        return s.to_string();
-                    }
-                }
+        if let Some(s) = record.value_str(priority) {
+            if !s.is_empty() {
+                return s.to_string();
             }
         }
     }
@@ -114,7 +109,7 @@ mod tests {
             tags: None,
             created_at: None,
             updated_at: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         }
     }
 
@@ -146,7 +141,7 @@ mod tests {
             tags: None,
             created_at: None,
             updated_at: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         }
     }
 
@@ -324,7 +319,7 @@ mod tests {
                 lifecycle_ref: None,
                 validation_rules: None,
                 created_at: "2026-01-01T00:00:00Z".to_string(),
-                extra: HashMap::new(),
+                extra: std::collections::BTreeMap::new(),
             }
         }
 

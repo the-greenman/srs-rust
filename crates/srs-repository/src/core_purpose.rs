@@ -16,16 +16,15 @@ pub(crate) const STATEMENT_FIELD_ID: &str = "3b000001-0000-4000-a000-00000000000
 #[cfg(test)]
 pub(crate) const TITLE_FIELD_ID: &str = "3b000002-0000-4000-a000-000000000002";
 
-use srs_core::types::record::{FieldValue, Record};
+use srs_core::types::record::{FieldValues, Record};
 
-use std::collections::HashMap;
 
 /// Components needed to create a `com.semanticops.core/purpose` record via `create_record`.
 #[derive(Debug)]
 pub(crate) struct PurposeRecordSpec {
     pub(crate) type_id: String,
     pub(crate) type_version: u32,
-    pub(crate) field_values: Vec<FieldValue>,
+    pub(crate) field_values: FieldValues,
 }
 
 /// Return the components needed to create a `com.semanticops.core/purpose` record via
@@ -45,26 +44,19 @@ pub(crate) fn purpose_record_spec(statement: &str, title: Option<&str>) -> Purpo
         .find(|f| f.namespace == "com.semanticops.core" && f.name == "statement")
         .expect("embedded core bundle must contain com.semanticops.core/statement field");
 
-    let mut field_values = vec![FieldValue {
-        field_id: statement_field.id.clone(),
-        value: serde_json::Value::String(statement.to_string()),
-        entries: None,
-        source: None,
-        edited_at: None,
-    }];
+    // RFC-039 carrier: keys are Field.name verbatim ([R2b]).
+    let _ = statement_field; // still asserts the field exists in the bundle
+    let mut field_values = FieldValues::new();
+    field_values.insert(
+        "statement",
+        serde_json::Value::String(statement.to_string()),
+    );
     if let Some(t) = title {
-        let title_field = cp
-            .fields
+        cp.fields
             .iter()
             .find(|f| f.namespace == "com.semanticops.core" && f.name == "title")
             .expect("embedded core bundle must contain com.semanticops.core/title field");
-        field_values.push(FieldValue {
-            field_id: title_field.id.clone(),
-            value: serde_json::Value::String(t.to_string()),
-            entries: None,
-            source: None,
-            edited_at: None,
-        });
+        field_values.insert("title", serde_json::Value::String(t.to_string()));
     }
     PurposeRecordSpec {
         type_id: purpose_type.id.clone(),
@@ -89,12 +81,12 @@ pub(crate) fn build_purpose_record(
         type_namespace: PURPOSE_TYPE_NAMESPACE.to_string(),
         type_name: PURPOSE_TYPE_NAME.to_string(),
         field_values: spec.field_values,
-        group_values: None,
+        field_meta: None,
         lifecycle_state: None,
         tags: None,
         created_at: Some(now.to_string()),
         updated_at: Some(now.to_string()),
-        extra: HashMap::new(),
+        extra: std::collections::BTreeMap::new(),
     }
 }
 

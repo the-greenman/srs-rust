@@ -1313,7 +1313,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         });
         source.save_manifest(&manifest).unwrap();
 
@@ -1342,7 +1342,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         });
 
         // Import into a .srsj JsonStore bundle — this is the exact `srs repo copy
@@ -1500,7 +1500,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         });
         snapshot.relations.push(Relation {
             relation_id: "33333333-3333-4333-8333-333333333333".to_string(),

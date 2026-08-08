@@ -70,7 +70,7 @@ pub(crate) fn default_repository_container(container_id: &str, title: &str) -> C
         created_at: None,
         updated_at: None,
         meta: None,
-        extra: std::collections::HashMap::new(),
+        extra: std::collections::BTreeMap::new(),
     }
 }
 
@@ -147,7 +147,7 @@ fn scaffold_purpose_record(
         created_at: None,
         updated_at: None,
         meta: None,
-        extra: HashMap::new(),
+        extra: std::collections::BTreeMap::new(),
     });
     container.identity_instance_id = Some(instance_id.clone());
     container

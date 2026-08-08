@@ -52,7 +52,7 @@ pub struct RecordContextResult {
     pub type_name: String,
     pub type_namespace: String,
     pub display_label: String,
-    pub field_values: Vec<srs_core::types::record::FieldValue>,
+    pub field_values: srs_core::types::record::FieldValues,
     pub relations: Vec<crate::relation_service::RelationSummary>,
     /// Always empty; placeholder for tagged-chunk storage (#252)
     pub tagged_chunks: Vec<serde_json::Value>,
@@ -80,11 +80,16 @@ pub fn get_field_context(
         }
     })?;
 
-    let current_value = record
-        .field_values
-        .iter()
-        .find(|fv| fv.field_id == query.field_id)
-        .map(|fv| fv.value.clone())
+    // Query addresses the field by id; the RFC-039 carrier keys by name —
+    // recover the name through the package (Type-mediated resolution).
+    let field_name = store
+        .load_package()?
+        .resolve_field(&query.field_id)
+        .map(|f| f.name.clone());
+    let current_value = field_name
+        .as_deref()
+        .and_then(|name| record.value(name))
+        .cloned()
         .filter(|v| !v.is_null());
 
     let revisions = record_store::list_record_revisions(
@@ -280,7 +285,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         let manifest = Manifest {
             instance_index: vec![],
@@ -289,7 +294,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: PathBuf::from("/memory"),
@@ -447,7 +452,7 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         name_field.ai_guidance = AiGuidance {
             purpose: "Write the full legal name".to_string(),
@@ -460,7 +465,7 @@ mod tests {
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             source_document_index: None,
             root: PathBuf::from("/memory"),
