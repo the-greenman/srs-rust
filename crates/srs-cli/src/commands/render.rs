@@ -1,19 +1,16 @@
 use crate::commands::{with_store, CliContext, RenderCommand};
 use crate::output;
 use crate::payload::{
-    DocumentViewProjection, ExportBundlePayload, OkfBundlePayload, ProjectedFieldGroup,
-    ProjectedGroupEntry, ProjectedRecord, ProjectedRelationRow, ProjectedRelationTarget,
-    ProjectedSection, RenderDocumentViewPayload,
+    DocumentViewProjection, ExportBundlePayload, OkfBundlePayload, ProjectedRecord,
+    ProjectedRelationRow, ProjectedRelationTarget, ProjectedSection, RenderDocumentViewPayload,
 };
 use anyhow::Result;
 use srs_repository::export_service::{export_record_bundle, ExportBundleInput};
 use srs_repository::okf_export_service::{OkfBundle, OkfEntry, OkfExportInput};
 use srs_repository::render_service::{
-    render_document_view, DocumentViewProjection as SvcProjection,
-    ProjectedFieldGroup as SvcFieldGroup, ProjectedGroupEntry as SvcGroupEntry,
-    ProjectedRecord as SvcRecord, ProjectedRelationRow as SvcRelationRow,
-    ProjectedRelationTarget as SvcRelationTarget, ProjectedSection as SvcSection,
-    RenderDocumentViewOptions,
+    render_document_view, DocumentViewProjection as SvcProjection, ProjectedRecord as SvcRecord,
+    ProjectedRelationRow as SvcRelationRow, ProjectedRelationTarget as SvcRelationTarget,
+    ProjectedSection as SvcSection, RenderDocumentViewOptions,
 };
 use std::path::{Path, PathBuf};
 
@@ -35,21 +32,6 @@ pub fn dispatch(ctx: CliContext, cmd: RenderCommand) -> Result<String> {
             container_id,
             output,
         } => cmd_render_okf_bundle(ctx, container_id, output),
-    }
-}
-
-fn map_group_entry(e: SvcGroupEntry) -> ProjectedGroupEntry {
-    ProjectedGroupEntry {
-        entry_id: e.entry_id,
-        fields: e.fields,
-    }
-}
-
-fn map_field_group(g: SvcFieldGroup) -> ProjectedFieldGroup {
-    ProjectedFieldGroup {
-        group_id: g.group_id,
-        label: g.label,
-        entries: g.entries.into_iter().map(map_group_entry).collect(),
     }
 }
 
@@ -77,9 +59,6 @@ fn map_record(r: SvcRecord) -> ProjectedRecord {
         preamble: r.preamble,
         fields: r.fields,
         ordered_field_keys: r.ordered_field_keys,
-        field_groups: r
-            .field_groups
-            .map(|gs| gs.into_iter().map(map_field_group).collect()),
         relations: r
             .relations
             .map(|rows| rows.into_iter().map(map_relation_row).collect()),
