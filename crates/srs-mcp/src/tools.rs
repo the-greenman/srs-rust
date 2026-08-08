@@ -17,7 +17,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::Value;
 use srs_core::types::note::{Note, NoteSection};
-use srs_core::types::record::{FieldGroupEntry, FieldGroupValue, FieldValue, FieldValueEntry};
+use srs_core::types::record::{FieldMeta, FieldValues};
 use srs_core::types::relation::{AssertedBy, Relation, RelationStatus};
 use srs_repository::container_service;
 use srs_repository::discovery_service::{self, DiscoveryQuery};
@@ -171,85 +171,31 @@ impl From<FindToolInput> for DiscoveryQuery {
     }
 }
 
-/// Mirrors `srs_core::types::record::FieldValueEntry`.
+/// Per-field provenance, mirroring `srs_core::types::record::FieldMeta`
+/// (RFC-039 Change C). Keys of the enclosing `fieldMeta` map MUST be a subset
+/// of the sibling `fieldValues` keys ([R6]).
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct FieldValueEntryInput {
-    pub value: Value,
+pub struct FieldMetaInput {
     pub source: Option<String>,
     pub edited_at: Option<String>,
+    pub source_refs: Option<Vec<Value>>,
 }
 
-impl From<FieldValueEntryInput> for FieldValueEntry {
-    fn from(input: FieldValueEntryInput) -> Self {
-        FieldValueEntry {
-            value: input.value,
+impl From<FieldMetaInput> for FieldMeta {
+    fn from(input: FieldMetaInput) -> Self {
+        FieldMeta {
             source: input.source,
             edited_at: input.edited_at,
+            source_refs: input.source_refs,
         }
     }
 }
 
-/// Mirrors `srs_core::types::record::FieldValue`.
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct FieldValueInput {
-    /// The field's UUID from the type's fieldAssignments — never a field name.
-    pub field_id: String,
-    #[serde(default)]
-    pub value: Value,
-    /// Repeatable-field entries (ext:repeatable-fields).
-    pub entries: Option<Vec<FieldValueEntryInput>>,
-    pub source: Option<String>,
-    pub edited_at: Option<String>,
-}
-
-impl From<FieldValueInput> for FieldValue {
-    fn from(input: FieldValueInput) -> Self {
-        FieldValue {
-            field_id: input.field_id,
-            value: input.value,
-            entries: input
-                .entries
-                .map(|es| es.into_iter().map(Into::into).collect()),
-            source: input.source,
-            edited_at: input.edited_at,
-        }
-    }
-}
-
-/// Mirrors `srs_core::types::record::FieldGroupEntry`.
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct FieldGroupEntryInput {
-    pub field_values: Vec<FieldValueInput>,
-    pub entry_id: Option<String>,
-}
-
-impl From<FieldGroupEntryInput> for FieldGroupEntry {
-    fn from(input: FieldGroupEntryInput) -> Self {
-        FieldGroupEntry {
-            field_values: input.field_values.into_iter().map(Into::into).collect(),
-            entry_id: input.entry_id,
-        }
-    }
-}
-
-/// Mirrors `srs_core::types::record::FieldGroupValue`.
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct FieldGroupValueInput {
-    pub group_id: String,
-    pub entries: Vec<FieldGroupEntryInput>,
-}
-
-impl From<FieldGroupValueInput> for FieldGroupValue {
-    fn from(input: FieldGroupValueInput) -> Self {
-        FieldGroupValue {
-            group_id: input.group_id,
-            entries: input.entries.into_iter().map(Into::into).collect(),
-        }
-    }
+fn field_meta_map(
+    input: Option<std::collections::BTreeMap<String, FieldMetaInput>>,
+) -> Option<indexmap::IndexMap<String, FieldMeta>> {
+    input.map(|m| m.into_iter().map(|(k, v)| (k, v.into())).collect())
 }
 
 /// Envelope: type binding + container scope around a `CreateRecordInput` mirror.
@@ -261,8 +207,12 @@ pub struct RecordCreateToolInput {
     pub type_filter: String,
     /// Pin a specific type version (default: latest).
     pub type_version: Option<u32>,
-    pub field_values: Vec<FieldValueInput>,
-    pub group_values: Option<Vec<FieldGroupValueInput>>,
+    /// RFC-039 carrier: an object keyed by `Field.name` verbatim. Values
+    /// follow the recursive Change-B rule — an inline-composite value is
+    /// itself a fieldValues object (or an array of them for a list).
+    pub field_values: std::collections::BTreeMap<String, Value>,
+    /// Per-field provenance keyed identically to `fieldValues` ([R6]).
+    pub field_meta: Option<std::collections::BTreeMap<String, FieldMetaInput>>,
     pub tags: Option<Vec<String>>,
     /// Add the new record to this container atomically.
     pub container_id: Option<String>,
@@ -271,10 +221,8 @@ pub struct RecordCreateToolInput {
 impl From<RecordCreateToolInput> for CreateRecordInput {
     fn from(input: RecordCreateToolInput) -> Self {
         CreateRecordInput {
-            field_values: input.field_values.into_iter().map(Into::into).collect(),
-            group_values: input
-                .group_values
-                .map(|gs| gs.into_iter().map(Into::into).collect()),
+            field_values: FieldValues(input.field_values.into_iter().collect()),
+            field_meta: field_meta_map(input.field_meta),
             tags: input.tags,
         }
     }
@@ -451,9 +399,11 @@ impl From<TypeSchemaToolInput> for TypeSchemaInput {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RecordUpdateToolInput {
     pub instance_id: String,
-    pub field_values: Vec<FieldValueInput>,
+    /// RFC-039 carrier: an object keyed by `Field.name` verbatim.
+    pub field_values: std::collections::BTreeMap<String, Value>,
+    /// Per-field provenance: omit = preserve stored, {} = clear, {...} = replace.
     #[serde(default)]
-    pub group_values: Option<Vec<FieldGroupValueInput>>,
+    pub field_meta: Option<std::collections::BTreeMap<String, FieldMetaInput>>,
     #[serde(default)]
     pub tags: Option<Vec<String>>,
     #[serde(default)]
@@ -463,10 +413,8 @@ pub struct RecordUpdateToolInput {
 impl From<RecordUpdateToolInput> for UpdateRecordInput {
     fn from(input: RecordUpdateToolInput) -> Self {
         UpdateRecordInput {
-            field_values: input.field_values.into_iter().map(Into::into).collect(),
-            group_values: input
-                .group_values
-                .map(|gs| gs.into_iter().map(Into::into).collect()),
+            field_values: FieldValues(input.field_values.into_iter().collect()),
+            field_meta: field_meta_map(input.field_meta),
             tags: input.tags,
             type_version: input.type_version,
         }
@@ -477,14 +425,15 @@ impl From<RecordUpdateToolInput> for UpdateRecordInput {
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct FulfillmentNewRecordInput {
-    pub field_values: Vec<FieldValueInput>,
+    /// RFC-039 carrier: an object keyed by `Field.name` verbatim.
+    pub field_values: std::collections::BTreeMap<String, Value>,
     pub type_version: Option<u32>,
 }
 
 impl From<FulfillmentNewRecordInput> for FulfillmentNewRecord {
     fn from(input: FulfillmentNewRecordInput) -> Self {
         FulfillmentNewRecord {
-            field_values: input.field_values.into_iter().map(Into::into).collect(),
+            field_values: FieldValues(input.field_values.into_iter().collect()),
             type_version: input.type_version,
         }
     }
@@ -544,7 +493,8 @@ pub struct RecordAllowedTransitionsToolInput {
 pub struct RecordSuccessorToolInput {
     pub predecessor_id: String,
     pub relation_type: String,
-    pub field_values: Vec<FieldValueInput>,
+    /// RFC-039 carrier: an object keyed by `Field.name` verbatim.
+    pub field_values: std::collections::BTreeMap<String, Value>,
     pub lifecycle_state: Option<String>,
     pub type_version: Option<u32>,
 }
@@ -553,14 +503,14 @@ impl From<RecordSuccessorToolInput> for CreateRecordSuccessorInput {
     fn from(input: RecordSuccessorToolInput) -> Self {
         CreateRecordSuccessorInput {
             relation_type: input.relation_type,
-            field_values: input.field_values.into_iter().map(Into::into).collect(),
+            field_values: FieldValues(input.field_values.into_iter().collect()),
             lifecycle_state: input.lifecycle_state,
             type_version: input.type_version,
         }
     }
 }
 
-/// Mirrors `services::GraduateNoteInput`. `field_values`, `group_values`, and
+/// Mirrors `services::GraduateNoteInput`. `field_values`, `field_meta`, and
 /// `tags` are forwarded into `record_input: CreateRecordInput` on conversion.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -570,9 +520,10 @@ pub struct NoteGraduateToolInput {
     #[serde(rename = "type")]
     pub type_ref: String,
     pub type_version: Option<u32>,
-    pub field_values: Vec<FieldValueInput>,
+    /// RFC-039 carrier: an object keyed by `Field.name` verbatim.
+    pub field_values: std::collections::BTreeMap<String, Value>,
     #[serde(default)]
-    pub group_values: Option<Vec<FieldGroupValueInput>>,
+    pub field_meta: Option<std::collections::BTreeMap<String, FieldMetaInput>>,
     #[serde(default)]
     pub tags: Option<Vec<String>>,
     pub container_id: Option<String>,
@@ -586,10 +537,8 @@ impl From<NoteGraduateToolInput> for GraduateNoteInput {
             type_version: input.type_version,
             container_id: input.container_id,
             record_input: CreateRecordInput {
-                field_values: input.field_values.into_iter().map(Into::into).collect(),
-                group_values: input
-                    .group_values
-                    .map(|gs| gs.into_iter().map(Into::into).collect()),
+                field_values: FieldValues(input.field_values.into_iter().collect()),
+                field_meta: field_meta_map(input.field_meta),
                 tags: input.tags,
             },
         }

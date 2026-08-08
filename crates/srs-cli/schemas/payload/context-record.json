@@ -18,8 +18,7 @@
       "type": "string"
     },
     "fieldValues": {
-      "type": "array",
-      "items": true
+      "description": "RFC-039 carrier: object keyed by Field.name ([R2b])."
     },
     "protocolRunHistory": {
       "type": "array",

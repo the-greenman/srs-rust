@@ -71,47 +71,6 @@
         }
       }
     },
-    "ProjectedFieldGroup": {
-      "description": "A projected field group (one group definition + its record data).",
-      "type": "object",
-      "required": [
-        "entries",
-        "groupId"
-      ],
-      "properties": {
-        "entries": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/ProjectedGroupEntry"
-          }
-        },
-        "groupId": {
-          "type": "string"
-        },
-        "label": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      }
-    },
-    "ProjectedGroupEntry": {
-      "description": "A single field-group entry in a JSON projection record.",
-      "type": "object",
-      "required": [
-        "fields"
-      ],
-      "properties": {
-        "entryId": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "fields": true
-      }
-    },
     "ProjectedRecord": {
       "description": "A single record in a JSON projection section.",
       "type": "object",
@@ -124,20 +83,14 @@
         "typeNamespace"
       ],
       "properties": {
-        "fieldGroups": {
-          "type": [
-            "array",
-            "null"
-          ],
-          "items": {
-            "$ref": "#/definitions/ProjectedFieldGroup"
-          }
+        "fields": {
+          "description": "RFC-039 [R11]: keyed by Field.name; composites recurse under their key."
         },
-        "fields": true,
         "instanceId": {
           "type": "string"
         },
         "orderedFieldKeys": {
+          "description": "Field.name keys in FieldAssignment.order.",
           "type": "array",
           "items": {
             "type": "string"

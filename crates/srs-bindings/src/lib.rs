@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use srs_core::types::record::{FieldGroupValue, FieldValue};
+use srs_core::types::record::{FieldMeta, FieldValues};
 use srs_core::types::relation::Relation;
 use srs_repository::attachment_service::{
     self as attachment_service, AddAttachmentInput, GetAttachmentBytesInput,
@@ -302,7 +302,7 @@ impl SrsRepository {
             type_id,
             type_version,
             input.field_values,
-            input.group_values,
+            input.field_meta,
             input.tags,
         )
         .map_err(js_err)?;
@@ -335,7 +335,7 @@ impl SrsRepository {
                 type_id: type_id.to_string(),
                 type_version,
                 field_values: input.field_values,
-                group_values: input.group_values,
+                field_meta: input.field_meta,
                 tags: input.tags,
             },
         )
@@ -1374,9 +1374,9 @@ struct RelationTypeListBindingFilter {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CreateRecordBindingInput {
-    field_values: Vec<FieldValue>,
+    field_values: FieldValues,
     #[serde(default)]
-    group_values: Option<Vec<FieldGroupValue>>,
+    field_meta: Option<indexmap::IndexMap<String, FieldMeta>>,
     #[serde(default)]
     tags: Option<Vec<String>>,
 }

@@ -1155,25 +1155,6 @@ pub struct ThemeDeletePayload {
 
 // ── Render payloads ───────────────────────────────────────────────────────────
 
-/// A single field-group entry in a JSON projection record.
-#[derive(Debug, Serialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ProjectedGroupEntry {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub entry_id: Option<String>,
-    pub fields: serde_json::Value,
-}
-
-/// A projected field group (one group definition + its record data).
-#[derive(Debug, Serialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ProjectedFieldGroup {
-    pub group_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
-    pub entries: Vec<ProjectedGroupEntry>,
-}
-
 /// A single target instance in a projected relation row.
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -1202,10 +1183,10 @@ pub struct ProjectedRecord {
     pub record_heading: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preamble: Option<String>,
+    /// RFC-039 [R11]: keyed by Field.name; composites recurse under their key.
     pub fields: serde_json::Value,
+    /// Field.name keys in FieldAssignment.order.
     pub ordered_field_keys: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub field_groups: Option<Vec<ProjectedFieldGroup>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub relations: Option<Vec<ProjectedRelationRow>>,
 }
@@ -2085,8 +2066,9 @@ pub struct ContextRecordPayload {
     pub type_name: String,
     pub type_namespace: String,
     pub display_label: String,
-    #[schemars(with = "Vec<serde_json::Value>")]
-    pub field_values: Vec<srs_core::types::record::FieldValue>,
+    /// RFC-039 carrier: object keyed by Field.name ([R2b]).
+    #[schemars(with = "serde_json::Value")]
+    pub field_values: srs_core::types::record::FieldValues,
     #[schemars(with = "Vec<serde_json::Value>")]
     pub relations: Vec<srs_repository::relation_service::RelationSummary>,
     pub tagged_chunks: Vec<serde_json::Value>,
