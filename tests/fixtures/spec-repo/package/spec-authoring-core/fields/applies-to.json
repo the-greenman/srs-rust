@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
   "id": "1a000021-0000-4000-a000-000000000021",
   "namespace": "com.semanticops.spec",
-  "name": "applies-to",
+  "name": "applies_to",
   "version": 1,
   "description": "Which types, extensions, or contexts this invariant or requirement applies to.",
   "aiGuidance": {

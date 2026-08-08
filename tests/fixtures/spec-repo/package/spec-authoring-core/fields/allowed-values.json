@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
   "id": "1a000023-0000-4000-a000-000000000023",
   "namespace": "com.semanticops.spec",
-  "name": "allowed-values",
+  "name": "allowed_values",
   "version": 1,
   "description": "The enumeration of valid values for a field or property being documented.",
   "aiGuidance": {

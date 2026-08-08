@@ -79,12 +79,12 @@ pub fn read_attachment_policy(
         fv.value.as_u64()
     };
 
-    let max_per_file_bytes = get_u64("maxPerFileBytes");
-    let max_doc_bytes = get_u64("maxDocBytes");
-    let max_total_bytes = get_u64("maxTotalBytes");
+    let max_per_file_bytes = get_u64("max_per_file_bytes");
+    let max_doc_bytes = get_u64("max_doc_bytes");
+    let max_total_bytes = get_u64("max_total_bytes");
 
     let allowed_mime_types: Option<Vec<String>> = 'mime: {
-        let field = match pkg.find_field(BASE_NAMESPACE, "allowedMimeTypes") {
+        let field = match pkg.find_field(BASE_NAMESPACE, "allowed_mime_types") {
             Some(f) => f,
             None => break 'mime None,
         };
@@ -145,25 +145,25 @@ mod tests {
     fn make_base_package() -> Package {
         let allowed_mime_field: Field = serde_json::from_value(json!({
             "id": FIELD_ALLOWED_MIME, "namespace": "com.semanticops.base",
-            "name": "allowedMimeTypes", "version": 1, "description": "allowed MIME types",
+            "name": "allowed_mime_types", "version": 1, "description": "allowed MIME types",
             "aiGuidance": {}, "fieldType": {"datatype": "string", "format": "plain"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let max_per_file_field: Field = serde_json::from_value(json!({
             "id": FIELD_MAX_PER_FILE, "namespace": "com.semanticops.base",
-            "name": "maxPerFileBytes", "version": 1, "description": "max per-file bytes",
+            "name": "max_per_file_bytes", "version": 1, "description": "max per-file bytes",
             "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let max_doc_field: Field = serde_json::from_value(json!({
             "id": FIELD_MAX_DOC, "namespace": "com.semanticops.base",
-            "name": "maxDocBytes", "version": 1, "description": "max doc bytes",
+            "name": "max_doc_bytes", "version": 1, "description": "max doc bytes",
             "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let max_total_field: Field = serde_json::from_value(json!({
             "id": FIELD_MAX_TOTAL, "namespace": "com.semanticops.base",
-            "name": "maxTotalBytes", "version": 1, "description": "max total bytes",
+            "name": "max_total_bytes", "version": 1, "description": "max total bytes",
             "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
@@ -449,28 +449,28 @@ mod tests {
         write_json(
             "package/fields/allowedMimeTypes.json",
             json!({"id": FIELD_ALLOWED_MIME, "namespace": "com.semanticops.base",
-                "name": "allowedMimeTypes", "version": 1, "fieldType": {"datatype": "string", "format": "plain"},
+                "name": "allowed_mime_types", "version": 1, "fieldType": {"datatype": "string", "format": "plain"},
                 "description": "allowed MIME types", "aiGuidance": {},
                 "createdAt": "2026-01-01T00:00:00Z"}),
         );
         write_json(
             "package/fields/maxPerFileBytes.json",
             json!({"id": FIELD_MAX_PER_FILE, "namespace": "com.semanticops.base",
-                "name": "maxPerFileBytes", "version": 1, "fieldType": {"datatype": "number"},
+                "name": "max_per_file_bytes", "version": 1, "fieldType": {"datatype": "number"},
                 "description": "max per-file bytes", "aiGuidance": {},
                 "createdAt": "2026-01-01T00:00:00Z"}),
         );
         write_json(
             "package/fields/maxDocBytes.json",
             json!({"id": FIELD_MAX_DOC, "namespace": "com.semanticops.base",
-                "name": "maxDocBytes", "version": 1, "fieldType": {"datatype": "number"},
+                "name": "max_doc_bytes", "version": 1, "fieldType": {"datatype": "number"},
                 "description": "max doc bytes", "aiGuidance": {},
                 "createdAt": "2026-01-01T00:00:00Z"}),
         );
         write_json(
             "package/fields/maxTotalBytes.json",
             json!({"id": FIELD_MAX_TOTAL, "namespace": "com.semanticops.base",
-                "name": "maxTotalBytes", "version": 1, "fieldType": {"datatype": "number"},
+                "name": "max_total_bytes", "version": 1, "fieldType": {"datatype": "number"},
                 "description": "max total bytes", "aiGuidance": {},
                 "createdAt": "2026-01-01T00:00:00Z"}),
         );

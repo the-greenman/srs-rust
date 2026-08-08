@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
   "id": "5a000011-0000-4000-a000-000000000011",
   "namespace": "com.semanticops.spec",
-  "name": "accepted-revision",
+  "name": "accepted_revision",
   "version": 1,
   "description": "The RFC revision number that was accepted.",
   "aiGuidance": {

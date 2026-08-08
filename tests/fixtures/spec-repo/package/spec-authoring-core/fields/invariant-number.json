@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
   "id": "1a000020-0000-4000-a000-000000000020",
   "namespace": "com.semanticops.spec",
-  "name": "invariant-number",
+  "name": "invariant_number",
   "version": 1,
   "description": "The integer sequence number of this invariant within its specification.",
   "aiGuidance": {

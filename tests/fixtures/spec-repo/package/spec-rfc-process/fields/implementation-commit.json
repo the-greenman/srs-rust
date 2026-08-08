@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
   "id": "5a000015-0000-4000-a000-000000000015",
   "namespace": "com.semanticops.spec",
-  "name": "implementation-commit",
+  "name": "implementation_commit",
   "version": 1,
   "description": "The commit, change identifier, or release reference that applied an accepted RFC.",
   "aiGuidance": {

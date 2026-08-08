@@ -2185,7 +2185,7 @@ mod tests {
                 "package/fields/maxPerFileBytes.json": {
                     "id": MAX_FILE,
                     "namespace": "com.semanticops.base",
-                    "name": "maxPerFileBytes",
+                    "name": "max_per_file_bytes",
                     "version": 1,
                     "description": "max per-file bytes",
                     "aiGuidance": null,

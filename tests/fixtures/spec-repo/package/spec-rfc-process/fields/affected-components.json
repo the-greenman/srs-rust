@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
   "id": "5a000009-0000-4000-a000-000000000009",
   "namespace": "com.semanticops.spec",
-  "name": "affected-components",
+  "name": "affected_components",
   "version": 1,
   "description": "The spec sections, extensions, or types that this RFC changes.",
   "aiGuidance": {

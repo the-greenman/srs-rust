@@ -7,7 +7,7 @@
   "outputFormats": ["markdown", "html", "text"],
   "rootType": "com.semanticops.spec/rfc",
   "ordering": {
-    "field": "rfc-number"
+    "field": "rfc_number"
   },
   "createdAt": "2026-05-27T00:00:00Z"
 }

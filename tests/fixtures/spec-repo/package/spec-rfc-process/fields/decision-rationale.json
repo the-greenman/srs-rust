@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
   "id": "5a000012-0000-4000-a000-000000000012",
   "namespace": "com.semanticops.spec",
-  "name": "decision-rationale",
+  "name": "decision_rationale",
   "version": 1,
   "description": "The reason an RFC was accepted, rejected, withdrawn, or superseded.",
   "aiGuidance": {

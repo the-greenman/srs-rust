@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
   "id": "1a000017-0000-4000-a000-000000000017",
   "namespace": "com.semanticops.spec",
-  "name": "short-name",
+  "name": "short_name",
   "version": 1,
   "description": "A short identifier or abbreviation, suitable for compact displays and cross-references.",
   "aiGuidance": {

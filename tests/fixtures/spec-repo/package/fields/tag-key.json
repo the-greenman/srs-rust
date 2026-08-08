@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
   "id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
   "namespace": "com.semanticops.srs",
-  "name": "tag-key",
+  "name": "tag_key",
   "version": 1,
   "description": "The raw tag string (e.g., \"foundation\") used as the primary identifier for the tag.",
   "valueType": "string",

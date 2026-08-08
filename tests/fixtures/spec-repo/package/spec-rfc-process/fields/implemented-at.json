@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
   "id": "5a000014-0000-4000-a000-000000000014",
   "namespace": "com.semanticops.spec",
-  "name": "implemented-at",
+  "name": "implemented_at",
   "version": 1,
   "description": "The date when an accepted RFC was applied to active spec artifacts.",
   "aiGuidance": {
