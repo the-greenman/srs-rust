@@ -1060,7 +1060,7 @@ pub fn validate_repository(
         validate_vocabulary_invariants(pkg, &mut diagnostics);
         validate_identity_field_invariants(pkg, &mut diagnostics);
         validate_field_type_conformance(pkg, &mut diagnostics);
-        validate_title_field_id_eligibility(pkg, &mut diagnostics);
+        validate_title_field_id_eligibility(store, pkg, &mut diagnostics);
         validate_cross_field_rule_configuration(pkg, &mut diagnostics);
     } else if package_for_tier2.is_none() {
         // Only fresh-load when no tier-2 records were processed (note-only repo).
@@ -1069,7 +1069,7 @@ pub fn validate_repository(
             validate_vocabulary_invariants(&pkg, &mut diagnostics);
             validate_identity_field_invariants(&pkg, &mut diagnostics);
             validate_field_type_conformance(&pkg, &mut diagnostics);
-            validate_title_field_id_eligibility(&pkg, &mut diagnostics);
+            validate_title_field_id_eligibility(store, &pkg, &mut diagnostics);
             validate_cross_field_rule_configuration(&pkg, &mut diagnostics);
         }
     }
@@ -1623,17 +1623,42 @@ fn validate_cross_field_rule_configuration(
 /// this is the validation plane, surfacing the misconfiguration rather than letting
 /// it disappear silently into a missing heading.
 ///
-/// Candidate Types are only resolvable when the section source statically declares
-/// one — `TypeQuery.semanticObjectType` or `ContainerSubset.typeFilter`. Other
-/// section sources (`FixedInstances`, `RelationQuery`) declare no static type, so
-/// only the field-only half of the predicate (datatype/format/valueDomain) is
-/// checked, without an assignment-`repeatable` override — the same fallback
-/// `title_field_id_is_eligible` uses at render time when no Type is resolvable.
+/// `TypeQuery.semanticObjectType` and `ContainerSubset.typeFilter` declare their
+/// candidate Types statically. `FixedInstances` and `RelationQuery` declare none —
+/// their members are only known by resolving actual instances, exactly as the
+/// render plane's `resolve_section_instances` does — so this reads those instances
+/// (and, for `RelationQuery`, the relations file) via `store` to recover the same
+/// per-record actual Type the render plane would use for `rt` in
+/// `resolve_heading_field_id`. When an instance can't be resolved (I/O error, dangling
+/// id, a Tier-0/1 instance with no Type), it contributes no candidate — referential
+/// integrity is a separate diagnostic's job, and a Tier-0/1 instance renders with no
+/// Type either, so there is nothing here to warn about for that instance.
 fn validate_title_field_id_eligibility(
+    store: &dyn RepositoryStore,
     pkg: &crate::package::Package,
     diagnostics: &mut Vec<ValidationDiagnostic>,
 ) {
     use srs_core::types::view::SectionSource;
+
+    // Resolves the actual Type of a live instance, mirroring how the render plane
+    // derives `rt` for `resolve_heading_field_id` (`record.type_id`/`type_version`
+    // looked up in `pkg`). A plain fn, not a closure, so its return lifetime ties
+    // to `pkg` rather than to whatever transient `&str` is passed in.
+    fn resolve_instance_type<'p>(
+        store: &dyn RepositoryStore,
+        pkg: &'p crate::package::Package,
+        id: &str,
+    ) -> Option<&'p srs_core::types::record_type::RecordType> {
+        match crate::record_store::get_instance_by_id(store, id).ok().flatten()? {
+            crate::record_store::LoadedInstance::Record(record) => {
+                pkg.resolve_type(&record.type_id, record.type_version)
+            }
+            crate::record_store::LoadedInstance::Note(_) => None,
+        }
+    }
+
+    // Loaded at most once, and only when a RelationQuery section actually needs it.
+    let mut relations: Option<Vec<srs_core::types::relation::Relation>> = None;
 
     for dv in &pkg.document_views {
         for section in &dv.sections {
@@ -1671,6 +1696,39 @@ fn validate_title_field_id_eligibility(
                                 .filter(move |t| t.namespace == namespace && t.name == name)
                         })
                         .collect(),
+                    SectionSource::FixedInstances { instance_ids } => instance_ids
+                        .iter()
+                        .filter_map(|id| resolve_instance_type(store, pkg, id))
+                        .collect(),
+                    SectionSource::RelationQuery {
+                        from_instance_id,
+                        relation_type,
+                        direction,
+                    } => {
+                        let rels = relations.get_or_insert_with(|| {
+                            crate::relation_service::load_relations(store).unwrap_or_default()
+                        });
+                        let dir = direction
+                            .as_ref()
+                            .unwrap_or(&srs_core::types::view::RelationDirection::Forward);
+                        rels.iter()
+                            .filter(|r| r.relation_type == *relation_type)
+                            .filter_map(|r| match dir {
+                                srs_core::types::view::RelationDirection::Forward
+                                    if r.source_instance_id == *from_instance_id =>
+                                {
+                                    Some(r.target_instance_id.as_str())
+                                }
+                                srs_core::types::view::RelationDirection::Inverse
+                                    if r.target_instance_id == *from_instance_id =>
+                                {
+                                    Some(r.source_instance_id.as_str())
+                                }
+                                _ => None,
+                            })
+                            .filter_map(|id| resolve_instance_type(store, pkg, id))
+                            .collect()
+                    }
                     _ => Vec::new(),
                 };
 
@@ -3941,6 +3999,324 @@ mod tests {
                 .any(|d| d.message.contains("[N+1]")),
             "an eligible titleFieldId must not produce an [N+1] diagnostic, got {:?}",
             report.diagnostics
+        );
+    }
+
+    #[test]
+    fn validate_flags_ineligible_title_field_id_for_fixed_instances() {
+        // srs-rust#795: FixedInstances declares no static candidate Type, so before
+        // this fix `validate_title_field_id_eligibility` fell into the
+        // `candidate_types.is_empty()` branch and checked eligibility with `rt =
+        // None`, i.e. `assignment_repeatable` defaulted to `false` — silent even
+        // though the render plane (`resolve_heading_field_id`, which resolves each
+        // record's *actual* Type) omits the heading for a `repeatable: true`
+        // assignment. CC-33: the corpus can't exercise this; it must be constructed.
+        // The field itself is otherwise fully eligible (open string, no format) —
+        // only the assignment's `repeatable: true` makes it ineligible, so this
+        // fixture discriminates the assignment-repeatable branch specifically.
+        let temp = TempDir::new().unwrap();
+        let record_id = "00000000-0000-4000-8000-000000000501";
+        write_json(
+            temp.path(),
+            "manifest.json",
+            &minimal_manifest(json!([rfc013_instance_entry(record_id)])),
+        );
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                "id": "00000000-0000-4000-8000-000000000010",
+                "namespace": "com.test",
+                "name": "test-package",
+                "title": "Test Package",
+                "description": "test package",
+                "status": "active",
+                "version": "1.0.0",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "fields": ["fields/f1.json"],
+                "types": ["types/t1.json"],
+                "views": [],
+                "documentViews": ["document-views/dv.json"]
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/fields/f1.json",
+            &json!({
+                "id": "00000000-0000-4000-8000-0000000000f1",
+                "namespace": "com.test",
+                "name": "repeatable-title-field",
+                "version": 1,
+                // Open string, no format — fully eligible on its own; only the Type's
+                // `repeatable: true` assignment (below) makes it ineligible.
+                "fieldType": {"datatype": "string"},
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/types/t1.json",
+            &json!({
+                "id": "00000000-0000-4000-8000-0000000000e1",
+                "namespace": "com.test",
+                "name": "test-type",
+                "version": 1,
+                "description": "Test type",
+                "fields": [{
+                    "fieldId": "00000000-0000-4000-8000-0000000000f1",
+                    "order": 0,
+                    "required": false,
+                    "repeatable": true
+                }],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/document-views/dv.json",
+            &json!({
+                "id": "00000000-0000-4000-8000-0000000000d2",
+                "namespace": "com.test",
+                "name": "dv",
+                "version": 1,
+                "description": "test doc view",
+                "sections": [{
+                    "sectionId": "s1",
+                    "order": 0,
+                    "source": {
+                        "type": "fixed-instances",
+                        "instanceIds": [record_id]
+                    },
+                    "titleFieldId": "00000000-0000-4000-8000-0000000000f1"
+                }],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+        write_json(
+            temp.path(),
+            &format!("records/{record_id}.json"),
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                "instanceId": record_id,
+                "typeId": "00000000-0000-4000-8000-0000000000e1",
+                "typeVersion": 1,
+                "typeNamespace": "com.test",
+                "typeName": "test-type",
+                "fieldValues": [{
+                    "fieldId": "00000000-0000-4000-8000-0000000000f1",
+                    "value": "Repeatable Title Value"
+                }]
+            }),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("[N+1]")
+                    && d.message.contains("test-type")
+                    && d.severity == DiagnosticSeverity::Warning),
+            "expected an [N+1] warning for a FixedInstances section whose only \
+             candidate instance resolves to a repeatable-only-ineligible \
+             titleFieldId, got {:?}",
+            report.diagnostics
+        );
+
+        // The render plane must agree: the heading is omitted, not substituted.
+        // Read it structurally off the JSON projection's `record_heading` (as
+        // `identity_field_id_fallback_record_heading_json` does) rather than
+        // string-matching the markdown, since the field's value legitimately still
+        // renders as an ordinary body row either way (omit-not-substitute, srs
+        // PR #341) — only heading *promotion* is what must not happen.
+        let result = crate::render_service::render_document_view(
+            crate::render_service::RenderDocumentViewOptions {
+                store: &store,
+                view_id: "00000000-0000-4000-8000-0000000000d2",
+                format: Some("json"),
+                theme_variant: None,
+                container_id: None,
+                instance_id_filter: None,
+            },
+        )
+        .expect("render should succeed");
+        let projection = result
+            .projection
+            .expect("json format should produce a projection");
+        assert_eq!(
+            projection.sections[0].records[0].record_heading, None,
+            "the render plane must omit the heading for the same repeatable-only \
+             ineligible titleFieldId the validation plane now warns about"
+        );
+    }
+
+    #[test]
+    fn validate_flags_ineligible_title_field_id_for_relation_query() {
+        // srs-rust#795: same coverage gap as the FixedInstances fixture above, for
+        // RelationQuery — its candidate instances are only known by resolving the
+        // relations graph, which the validator did not do before this fix.
+        let temp = TempDir::new().unwrap();
+        let from_id = "00000000-0000-4000-8000-000000000601";
+        let target_id = "00000000-0000-4000-8000-000000000602";
+        write_json(
+            temp.path(),
+            "manifest.json",
+            &minimal_manifest(json!([
+                rfc013_instance_entry(from_id),
+                rfc013_instance_entry(target_id)
+            ])),
+        );
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                "id": "00000000-0000-4000-8000-000000000010",
+                "namespace": "com.test",
+                "name": "test-package",
+                "title": "Test Package",
+                "description": "test package",
+                "status": "active",
+                "version": "1.0.0",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "fields": ["fields/f1.json"],
+                "types": ["types/t1.json"],
+                "views": [],
+                "documentViews": ["document-views/dv.json"]
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/fields/f1.json",
+            &json!({
+                "id": "00000000-0000-4000-8000-0000000000f1",
+                "namespace": "com.test",
+                "name": "repeatable-title-field",
+                "version": 1,
+                "fieldType": {"datatype": "string"},
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/types/t1.json",
+            &json!({
+                "id": "00000000-0000-4000-8000-0000000000e1",
+                "namespace": "com.test",
+                "name": "test-type",
+                "version": 1,
+                "description": "Test type",
+                "fields": [{
+                    "fieldId": "00000000-0000-4000-8000-0000000000f1",
+                    "order": 0,
+                    "required": false,
+                    "repeatable": true
+                }],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/document-views/dv.json",
+            &json!({
+                "id": "00000000-0000-4000-8000-0000000000d2",
+                "namespace": "com.test",
+                "name": "dv",
+                "version": 1,
+                "description": "test doc view",
+                "sections": [{
+                    "sectionId": "s1",
+                    "order": 0,
+                    "source": {
+                        "type": "relation-query",
+                        "fromInstanceId": from_id,
+                        "relationType": "depends-on",
+                        "direction": "forward"
+                    },
+                    "titleFieldId": "00000000-0000-4000-8000-0000000000f1"
+                }],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+        write_json(
+            temp.path(),
+            &format!("records/{from_id}.json"),
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                "instanceId": from_id,
+                "typeId": "00000000-0000-4000-8000-0000000000e1",
+                "typeVersion": 1,
+                "typeNamespace": "com.test",
+                "typeName": "test-type",
+                "fieldValues": []
+            }),
+        );
+        write_json(
+            temp.path(),
+            &format!("records/{target_id}.json"),
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                "instanceId": target_id,
+                "typeId": "00000000-0000-4000-8000-0000000000e1",
+                "typeVersion": 1,
+                "typeNamespace": "com.test",
+                "typeName": "test-type",
+                "fieldValues": [{
+                    "fieldId": "00000000-0000-4000-8000-0000000000f1",
+                    "value": "Related Title Value"
+                }]
+            }),
+        );
+        write_json(
+            temp.path(),
+            "relations/relations-collection.json",
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
+                "relations": [{
+                    "sourceInstanceId": from_id,
+                    "targetInstanceId": target_id,
+                    "relationType": "depends-on",
+                    "createdAt": "2026-01-01T00:00:00Z"
+                }]
+            }),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("[N+1]")
+                    && d.message.contains("test-type")
+                    && d.severity == DiagnosticSeverity::Warning),
+            "expected an [N+1] warning for a RelationQuery section whose resolved \
+             target instance has a repeatable-only-ineligible titleFieldId, got {:?}",
+            report.diagnostics
+        );
+
+        let result = crate::render_service::render_document_view(
+            crate::render_service::RenderDocumentViewOptions {
+                store: &store,
+                view_id: "00000000-0000-4000-8000-0000000000d2",
+                format: Some("json"),
+                theme_variant: None,
+                container_id: None,
+                instance_id_filter: None,
+            },
+        )
+        .expect("render should succeed");
+        let projection = result
+            .projection
+            .expect("json format should produce a projection");
+        assert_eq!(
+            projection.sections[0].records[0].record_heading, None,
+            "the render plane must omit the heading for the same repeatable-only \
+             ineligible titleFieldId the validation plane now warns about"
         );
     }
 
