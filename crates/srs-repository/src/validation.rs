@@ -63,16 +63,16 @@ impl RepositoryValidationReport {
 /// Used for both type-dispatch and field-namespace lookups in the invariant uniqueness check.
 const SPEC_NAMESPACE: &str = "com.semanticops.spec";
 const SPEC_INVARIANT_TYPE_NAME: &str = "invariant";
-const SPEC_INVARIANT_NUMBER_FIELD_NAME: &str = "invariant-number";
+const SPEC_INVARIANT_NUMBER_FIELD_NAME: &str = "invariant_number";
 
 /// RFC-017 Change B/E: optional com.semanticops.base package with attachment_policy.
 /// Field lookup is runtime-resolved via package.find_field to avoid UUID hardcoding.
 const BASE_NAMESPACE: &str = "com.semanticops.base";
 const BASE_REPO_SETTINGS_TYPE_NAME: &str = "repo_settings";
-const BASE_ALLOWED_MIME_TYPES_FIELD: &str = "allowedMimeTypes";
-const BASE_MAX_PER_FILE_BYTES_FIELD: &str = "maxPerFileBytes";
-const BASE_MAX_DOC_BYTES_FIELD: &str = "maxDocBytes";
-const BASE_MAX_TOTAL_BYTES_FIELD: &str = "maxTotalBytes";
+const BASE_ALLOWED_MIME_TYPES_FIELD: &str = "allowed_mime_types";
+const BASE_MAX_PER_FILE_BYTES_FIELD: &str = "max_per_file_bytes";
+const BASE_MAX_DOC_BYTES_FIELD: &str = "max_doc_bytes";
+const BASE_MAX_TOTAL_BYTES_FIELD: &str = "max_total_bytes";
 
 /// Validate an entire repository via the storage trait.
 ///
@@ -7036,7 +7036,7 @@ mod tests {
             &json!({
                 "id": TEST_INV_NUM_FIELD_ID,
                 "namespace": "com.semanticops.spec",
-                "name": "invariant-number",
+                "name": "invariant_number",
                 "version": 1,
                 "description": "invariant number",
                 "aiGuidance": {},
@@ -7256,7 +7256,7 @@ mod tests {
         let inv_field: srs_core::types::field::Field = serde_json::from_value(json!({
             "id": TEST_INV_NUM_FIELD_ID,
             "namespace": "com.semanticops.spec",
-            "name": "invariant-number",
+            "name": "invariant_number",
             "version": 1,
             "description": "invariant number",
             "aiGuidance": {},
@@ -7406,7 +7406,7 @@ mod tests {
         let allowed_mime_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_ALLOWED_MIME,
             "namespace": "com.semanticops.base",
-            "name": "allowedMimeTypes",
+            "name": "allowed_mime_types",
             "version": 1, "description": "allowed MIME types",
             "aiGuidance": {}, "fieldType": {"datatype": "string", "format": "plain"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
@@ -7414,7 +7414,7 @@ mod tests {
         let max_per_file_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_PER_FILE,
             "namespace": "com.semanticops.base",
-            "name": "maxPerFileBytes",
+            "name": "max_per_file_bytes",
             "version": 1, "description": "max per-file bytes",
             "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
@@ -7422,7 +7422,7 @@ mod tests {
         let max_doc_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_DOC,
             "namespace": "com.semanticops.base",
-            "name": "maxDocBytes",
+            "name": "max_doc_bytes",
             "version": 1, "description": "max doc bytes",
             "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
@@ -7430,7 +7430,7 @@ mod tests {
         let max_total_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_TOTAL,
             "namespace": "com.semanticops.base",
-            "name": "maxTotalBytes",
+            "name": "max_total_bytes",
             "version": 1, "description": "max total bytes",
             "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
@@ -7746,7 +7746,7 @@ mod tests {
 
         let allowed_mime_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_ALLOWED_MIME, "namespace": "com.semanticops.base",
-            "name": "allowedMimeTypes", "version": 1, "description": "x",
+            "name": "allowed_mime_types", "version": 1, "description": "x",
             "aiGuidance": {}, "fieldType": {"datatype": "string", "format": "plain"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
@@ -7906,25 +7906,25 @@ mod tests {
 
         let allowed_mime_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_ALLOWED_MIME, "namespace": "com.semanticops.base",
-            "name": "allowedMimeTypes", "version": 1, "description": "",
+            "name": "allowed_mime_types", "version": 1, "description": "",
             "aiGuidance": {}, "fieldType": {"datatype": "string", "format": "plain"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let max_per_file_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_PER_FILE, "namespace": "com.semanticops.base",
-            "name": "maxPerFileBytes", "version": 1, "description": "",
+            "name": "max_per_file_bytes", "version": 1, "description": "",
             "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let max_doc_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_DOC, "namespace": "com.semanticops.base",
-            "name": "maxDocBytes", "version": 1, "description": "",
+            "name": "max_doc_bytes", "version": 1, "description": "",
             "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let max_total_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_TOTAL, "namespace": "com.semanticops.base",
-            "name": "maxTotalBytes", "version": 1, "description": "",
+            "name": "max_total_bytes", "version": 1, "description": "",
             "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
@@ -8029,25 +8029,25 @@ mod tests {
 
         let allowed_mime_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_ALLOWED_MIME, "namespace": "com.semanticops.base",
-            "name": "allowedMimeTypes", "version": 1, "description": "",
+            "name": "allowed_mime_types", "version": 1, "description": "",
             "aiGuidance": {}, "fieldType": {"datatype": "string", "format": "plain"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let max_per_file_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_PER_FILE, "namespace": "com.semanticops.base",
-            "name": "maxPerFileBytes", "version": 1, "description": "",
+            "name": "max_per_file_bytes", "version": 1, "description": "",
             "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let max_doc_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_DOC, "namespace": "com.semanticops.base",
-            "name": "maxDocBytes", "version": 1, "description": "",
+            "name": "max_doc_bytes", "version": 1, "description": "",
             "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let max_total_field: Field = serde_json::from_value(json!({
             "id": POLICY_FIELD_MAX_TOTAL, "namespace": "com.semanticops.base",
-            "name": "maxTotalBytes", "version": 1, "description": "",
+            "name": "max_total_bytes", "version": 1, "description": "",
             "aiGuidance": {}, "fieldType": {"datatype": "number"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();

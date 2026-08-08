@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
   "id": "5a000010-0000-4000-a000-000000000010",
   "namespace": "com.semanticops.spec",
-  "name": "dependency-refs",
+  "name": "dependency_refs",
   "version": 1,
   "description": "Other RFCs or changes that this RFC depends on or must be co-applied with.",
   "aiGuidance": {

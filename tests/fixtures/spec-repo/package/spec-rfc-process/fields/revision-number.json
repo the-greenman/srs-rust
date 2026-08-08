@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
   "id": "5a000018-0000-4000-a000-000000000018",
   "namespace": "com.semanticops.spec",
-  "name": "revision-number",
+  "name": "revision_number",
   "version": 1,
   "description": "The sequential revision number of an RFC revision entry.",
   "aiGuidance": {

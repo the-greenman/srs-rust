@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
   "id": "5a000016-0000-4000-a000-000000000016",
   "namespace": "com.semanticops.spec",
-  "name": "proposal-artifact-path",
+  "name": "proposal_artifact_path",
   "version": 1,
   "description": "A repository path to an artifact that belongs to an RFC proposal rather than active spec state.",
   "aiGuidance": {

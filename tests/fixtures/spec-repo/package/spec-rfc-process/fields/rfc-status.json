@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
   "id": "5a000002-0000-4000-a000-000000000002",
   "namespace": "com.semanticops.spec",
-  "name": "rfc-status",
+  "name": "rfc_status",
   "version": 1,
   "description": "The editorial status of an RFC.",
   "aiGuidance": {
