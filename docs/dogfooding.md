@@ -2981,6 +2981,52 @@ $SRS render okf-bundle \
 
 ---
 
+
+### S46 — Author and render a name-keyed Record with a composite table (RFC-039 carrier)
+
+**Intention:** an author wants tabular content stored as structure — not JSON-in-a-string —
+and rendered as a real table, with the record's stored shape validating against its Type's
+projected schema by construction (srs#242 Phase B / RFC-039).
+
+```bash
+SRS=target/debug/srs
+R=/tmp/dogfood-rfc039
+rm -rf "$R" && $SRS repo create --repo "$R" --namespace com.example.dogfood --pretty
+
+# 1. A range Type for table rows, and a composite list Field over it, plus columns.
+echo '{"namespace":"com.example.dogfood","name":"cells","description":"Row cells","aiGuidance":{"purpose":"One table row's cell strings"},"fieldType":{"datatype":"string","cardinality":"list"}}' | $SRS field create --repo "$R"
+# (capture the returned field id as CELLS_ID, then:)
+echo '{"namespace":"com.example.dogfood","name":"table_rows","description":"Table row","fields":[{"fieldId":"'$CELLS_ID'","order":0,"required":true}]}' | $SRS type create --repo "$R"
+# (capture ROWS_TYPE_ID; then the composite Field and the owning Type:)
+echo '{"namespace":"com.example.dogfood","name":"rows","description":"Table rows","aiGuidance":{"purpose":"The table body"},"fieldType":{"datatype":"ref","mode":"inline","cardinality":"list","rangeType":{"typeId":"'$ROWS_TYPE_ID'","typeVersion":1}}}' | $SRS field create --repo "$R"
+echo '{"namespace":"com.example.dogfood","name":"columns","description":"Column headings","aiGuidance":{"purpose":"Table column headings"},"fieldType":{"datatype":"string","cardinality":"list"}}' | $SRS field create --repo "$R"
+echo '{"namespace":"com.example.dogfood","name":"table","description":"A table","fields":[{"fieldId":"'$COLUMNS_ID'","order":0,"required":false},{"fieldId":"'$ROWS_ID'","order":1,"required":true}]}' | $SRS type create --repo "$R"
+
+# 2. The record: fieldValues is an OBJECT keyed by Field.name; the composite value
+#    is an array of fieldValues maps for the range Type — no fieldId anywhere.
+echo '{"fieldValues":{"columns":["Name","Role"],"rows":[{"cells":["ada","engineer"]},{"cells":["grace","admiral"]}]}}' | $SRS record create --type com.example.dogfood/table --repo "$R"
+
+# 3. The Type's editor schema is standard JSON Schema keyed by the same names,
+#    with the composite range expanded — no x-srs-field-id bridge.
+$SRS type schema --type com.example.dogfood/table --repo "$R" --pretty
+
+# 4. Validate: 0 errors; the stored object validates against the projection by construction.
+$SRS repo validate --repo "$R" --pretty
+```
+
+**Negative case:** the revision-1 array carrier is rejected, not coerced ([R9]):
+
+```bash
+echo '{"fieldValues":[{"fieldId":"00000000-0000-4000-8000-000000000001","value":"x"}]}'   | $SRS record create --type com.example.dogfood/table --repo "$R" --pretty
+# → error envelope: "fieldValues is an array — this is a dataModelRevision <= 1 document …
+#    expected dataModelRevision 2 … Migrate the repository with `srs migrate`"
+```
+
+**Done when:** the create returns the object carrier back; `type schema` shows `rows` as an
+array-of-objects with `cells` required and `additionalProperties: false`; validate reports 0
+errors; the negative case names `dataModelRevision` and `[R9]` in its diagnostic.
+
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -3055,6 +3101,8 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `render okf-bundle` (OKF markdown folder export — index.md + per-member files with YAML frontmatter, #677) | S45 (#677); 10 unit tests in `okf_export_service.rs` (empty container, note-only, record-only, mixed, field-value pairs, ordering, display-label multiline strip, slug-collision-safe path via id8, empty-slug fallback, record with field values → field_pairs); WASM binding deferred to #758. |
 | `srs-gov export-decision` (governance operator exports shareable bundle, #289) | S38 (#289); exercises record lookup → view discovery → `render export-bundle` chain; `--explain` pre-stages all 3 underlying srs calls; default output filename (`<id8>.zip`). |
 | `mcp serve` (MCP stdio server: resources map/navigation/record/container/view/**type** + all 13 tools: `repo_validate`/`find`/`type_schema`/`record_create`/`relation_create`/`note_create`/`record_update`/`record_transition`/`record_allowed_transitions`/`record_successor`/`note_graduate`/`container_member_add`/`container_member_remove` + **prompts** `prompts/list`/`prompts/get`, ADR-037 + #692 amendment + #682 prompts + **#680 second-wave write tools**) | S42 (incl. the #692 discover-then-author step, #682 prompts step 10b, and #680 second-wave step 10c); 32 crate tests in `crates/srs-mcp/` (13 unit + 13 duplex-transport integration + 6 second-wave integration) + 2 binary-level handshake tests in `crates/srs-cli/tests/mcp_serve.rs` + 4 unit tests in `crates/srs-mcp/src/prompts.rs` |
+
+| RFC-039 revision-2 carrier (`record create`/`update` object `fieldValues` + `fieldMeta`, [R9] rejection, composite values, `type schema` range expansion, `repo apply-migration --id rfc039-carrier`) | S46 (#806); migration service unit tests in `rfc039_carrier_migration_service.rs`; carrier round-trip + order tests in `srs-core` `record.rs`; value-grammar tests in `srs-core` `validation/value_shape.rs` |
 
 Gaps are intentional and visible: they are the backlog of surfaces that need a meaningful scenario. Do not delete a gap row — fill it when a feature gives the surface a real workflow to demonstrate.
 
