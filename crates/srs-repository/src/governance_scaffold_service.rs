@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use srs_core::types::container::Container;
 use srs_core::types::record::FieldValues;
 use srs_core::types::view::SectionSource;
-use std::collections::HashMap;
+
 
 /// Input for `scaffold_governance_repo`.
 ///
@@ -144,9 +144,7 @@ pub fn scaffold_governance_repo(
         .find_field("governance", "title")
         .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
             message: "governance/title field not found in package".to_string(),
-        })?
-        .id
-        .clone();
+        })?;
 
     // 1. Identity record: com.semanticops.core/purpose carrying statement + title (RFC-018 I-81).
     let identity = create_record_in_context(

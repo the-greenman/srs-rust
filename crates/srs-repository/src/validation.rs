@@ -137,6 +137,11 @@ pub fn validate_repository(
     let mut invariant_number_occurrences: HashMap<String, Vec<(String, String)>> = HashMap::new();
     // RFC-017 Change E: collects (path, record) tuples for post-loop attachment_policy check.
     let mut policy_records: Vec<(String, Record)> = Vec::new();
+    // RFC-039 [R14]: reference-mode values to verify once every instance's type
+    // is known. (path, record_id, key, target, expected_type, expected_version)
+    let mut reference_values: Vec<(String, String, String, String, String, u32)> = Vec::new();
+    // instance_id -> (type_id, type_version) for every Tier-2 record seen.
+    let mut instance_types: HashMap<String, (String, u32)> = HashMap::new();
 
     // --- Validate root manifest.json ---
     let manifest_raw = store.load_text_file("manifest.json").map_err(|e| match e {
@@ -168,6 +173,35 @@ pub fn validate_repository(
     // case where "failed to load" would otherwise be the only signal — RFC-033's
     // stated motivation for the stamp.
     diagnostics.extend(data_model_revision_diagnostics(&manifest_value));
+
+    // RFC-039 [R15]: a revision >= 2 manifest must not declare the retired
+    // extensions — a declaration implies constructs [R7] rejects.
+    {
+        let declared_revision = manifest_value
+            .get(crate::field_type_migration_service::DATA_MODEL_REVISION_KEY)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+        let declared_exts: Vec<String> = manifest_value
+            .get("declaredExtensions")
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
+        for err in srs_core::validation::revision_guard::check_declared_extensions(
+            &declared_exts,
+            declared_revision,
+        ) {
+            diagnostics.push(ValidationDiagnostic {
+                severity: DiagnosticSeverity::Error,
+                relative_path: "manifest.json".to_string(),
+                schema_id: None,
+                message: err.to_string(),
+            });
+        }
+    }
 
     // --- Load manifest for instanceIndex ---
     let manifest = store.load_manifest()?;
@@ -711,10 +745,10 @@ pub fn validate_repository(
                         // strings ("I-1"); both representations are compared after coercion.
                         if record.type_namespace == SPEC_NAMESPACE
                             && record.type_name == SPEC_INVARIANT_TYPE_NAME
-                        {
-                            if package
+                            && package
                                 .find_field(SPEC_NAMESPACE, SPEC_INVARIANT_NUMBER_FIELD_NAME)
                                 .is_some()
+                        {
                             {
                                 if let Some(value) =
                                     record.value(SPEC_INVARIANT_NUMBER_FIELD_NAME)
@@ -740,6 +774,50 @@ pub fn validate_repository(
                             && record.type_name == BASE_REPO_SETTINGS_TYPE_NAME
                         {
                             policy_records.push((rel_path.clone(), record.clone()));
+                        }
+
+                        // RFC-039 [R14]: collect reference-mode values for the
+                        // post-loop integrity check (targets may appear later
+                        // in the index).
+                        instance_types.insert(
+                            record.instance_id.clone(),
+                            (record.type_id.clone(), record.type_version),
+                        );
+                        if let Some(rt) = rt_opt {
+                            if let Ok(effective) = package.resolved_effective_fields(rt) {
+                                for ef in &effective {
+                                    let Some(ft) = &ef.field_type else { continue };
+                                    if ft.datatype
+                                        != srs_core::types::field_type::Datatype::Ref
+                                        || ft.effective_mode()
+                                            != srs_core::types::field_type::RefMode::Reference
+                                    {
+                                        continue;
+                                    }
+                                    let Some(range) = &ft.range_type else { continue };
+                                    let Some(value) = record.value(&ef.name) else {
+                                        continue;
+                                    };
+                                    let targets: Vec<&str> = match value {
+                                        Value::String(s) => vec![s.as_str()],
+                                        Value::Array(items) => items
+                                            .iter()
+                                            .filter_map(|v| v.as_str())
+                                            .collect(),
+                                        _ => Vec::new(),
+                                    };
+                                    for target in targets {
+                                        reference_values.push((
+                                            rel_path.clone(),
+                                            record.instance_id.clone(),
+                                            ef.name.clone(),
+                                            target.to_string(),
+                                            range.type_id.clone(),
+                                            range.type_version,
+                                        ));
+                                    }
+                                }
+                            }
                         }
                     }
                     Err(err) => diagnostics.push(ValidationDiagnostic {
@@ -813,6 +891,38 @@ pub fn validate_repository(
     // Emit an Error for every record that participates in a duplicate invariant number.
     // The same I-NN number on two or more records is a data-integrity error: projection
     // scripts and downstream validators cannot unambiguously resolve a number to one record.
+    // RFC-039 [R14]: every reference-mode value must resolve to an indexed
+    // instance of the declared rangeType@typeVersion.
+    for (rel_path, record_id, key, target, expected_type, expected_version) in &reference_values {
+        match instance_types.get(target) {
+            None => diagnostics.push(ValidationDiagnostic {
+                severity: DiagnosticSeverity::Error,
+                relative_path: rel_path.clone(),
+                schema_id: None,
+                message: srs_core::error::CoreError::DanglingReference {
+                    key: format!("{record_id}.{key}"),
+                    target: target.clone(),
+                }
+                .to_string(),
+            }),
+            Some((tid, tver)) if tid != expected_type || tver != expected_version => {
+                diagnostics.push(ValidationDiagnostic {
+                    severity: DiagnosticSeverity::Error,
+                    relative_path: rel_path.clone(),
+                    schema_id: None,
+                    message: srs_core::error::CoreError::ReferenceTypeMismatch {
+                        key: format!("{record_id}.{key}"),
+                        target: target.clone(),
+                        expected_type: expected_type.clone(),
+                        expected_version: *expected_version,
+                    }
+                    .to_string(),
+                });
+            }
+            Some(_) => {}
+        }
+    }
+
     let mut invariant_dup_keys: Vec<&String> = invariant_number_occurrences
         .keys()
         .filter(|k| invariant_number_occurrences[*k].len() > 1)
@@ -1823,6 +1933,36 @@ fn validate_vocabulary_invariants(
                             ),
                         });
                     }
+                }
+            }
+        }
+    }
+
+    // RFC-039 [R4]: within a Type's effective field set every referenced
+    // Field.name must be distinct — name-keying makes a duplicate an instance
+    // ambiguity, so it is rejected at definition time, not instance time.
+    for rt in &pkg.record_types {
+        if let Ok(effective) = pkg.resolved_effective_fields(rt) {
+            let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+            for ef in &effective {
+                if ef.name.is_empty() {
+                    continue; // dangling fieldId — reported separately
+                }
+                if !seen.insert(ef.name.as_str()) {
+                    diagnostics.push(ValidationDiagnostic {
+                        severity: DiagnosticSeverity::Error,
+                        relative_path: "package/package.json".to_string(),
+                        schema_id: None,
+                        message: format!(
+                            "type '{}/{}@{}': {}",
+                            rt.namespace,
+                            rt.name,
+                            rt.version,
+                            srs_core::error::CoreError::DuplicateEffectiveFieldName {
+                                name: ef.name.clone(),
+                            }
+                        ),
+                    });
                 }
             }
         }

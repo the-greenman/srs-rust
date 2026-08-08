@@ -354,6 +354,14 @@ impl JsonStore {
 
     /// Returns the repository's current state as a `.srsj` JSON string.
     /// Pure: no filesystem access. Safe to call from WASM.
+    ///
+    /// ADR-043 (amending ADR-017/036): with `preserve_order` enabled, the
+    /// determinism of `.srsj` output no longer falls out of BTreeMap-backed
+    /// `Value` re-sorting — it is imposed here by an explicit
+    /// canonicalize-on-write step that recursively sorts every object's keys
+    /// **except** `fieldValues`/`fieldMeta` subtrees, whose key order is data
+    /// (RFC-039 [R18]). For all non-carrier content this is byte-identical to
+    /// the old implicit sort, and it is construction-path-independent.
     pub fn to_srsj_string(&self) -> Result<String, RepositoryError> {
         let state = self.state.borrow();
         let manifest =
@@ -361,10 +369,15 @@ impl JsonStore {
                 path: self.file_path.clone(),
                 source,
             })?;
+        let data: std::collections::BTreeMap<String, serde_json::Value> = state
+            .data
+            .iter()
+            .map(|(k, v)| (k.clone(), canonicalize_srsj_value(v.clone(), false)))
+            .collect();
         let envelope = JsonStoreFile {
             srsj: "1".to_string(),
-            manifest,
-            data: state.data.clone(),
+            manifest: canonicalize_srsj_value(manifest, false),
+            data,
         };
         serde_json::to_string_pretty(&envelope).map_err(|source| RepositoryError::Serialize {
             path: self.file_path.clone(),
@@ -1866,6 +1879,43 @@ impl RepositoryStore for JsonStore {
             }
         }
         Err(RepositoryError::DefinitionNotFound { id: id.to_string() })
+    }
+}
+
+
+/// Recursively sort object keys for deterministic `.srsj` output (ADR-043),
+/// leaving `fieldValues`/`fieldMeta` subtrees in stored order — their key
+/// order is data ([R18]). `in_carrier` marks descent below such a key.
+fn canonicalize_srsj_value(value: serde_json::Value, in_carrier: bool) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            if in_carrier {
+                // Order is data at every depth of a carrier subtree ([R18]);
+                // recurse without re-sorting.
+                serde_json::Value::Object(
+                    map.into_iter()
+                        .map(|(k, v)| (k, canonicalize_srsj_value(v, true)))
+                        .collect(),
+                )
+            } else {
+                let mut sorted: Vec<(String, serde_json::Value)> = map
+                    .into_iter()
+                    .map(|(k, v)| {
+                        let carrier = k == "fieldValues" || k == "fieldMeta";
+                        (k.clone(), canonicalize_srsj_value(v, carrier))
+                    })
+                    .collect();
+                sorted.sort_by(|a, b| a.0.cmp(&b.0));
+                serde_json::Value::Object(sorted.into_iter().collect())
+            }
+        }
+        serde_json::Value::Array(items) => serde_json::Value::Array(
+            items
+                .into_iter()
+                .map(|v| canonicalize_srsj_value(v, in_carrier))
+                .collect(),
+        ),
+        other => other,
     }
 }
 
