@@ -1649,7 +1649,10 @@ fn validate_title_field_id_eligibility(
         pkg: &'p crate::package::Package,
         id: &str,
     ) -> Option<&'p srs_core::types::record_type::RecordType> {
-        match crate::record_store::get_instance_by_id(store, id).ok().flatten()? {
+        match crate::record_store::get_instance_by_id(store, id)
+            .ok()
+            .flatten()?
+        {
             crate::record_store::LoadedInstance::Record(record) => {
                 pkg.resolve_type(&record.type_id, record.type_version)
             }
