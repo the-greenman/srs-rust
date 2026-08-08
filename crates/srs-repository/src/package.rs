@@ -386,7 +386,6 @@ impl Package {
         Ok(chain.iter().find_map(|rt| rt.identity_field_id.clone()))
     }
 
-
     /// Resolve a Vocabulary by its UUID id.
     pub fn resolve_vocabulary(&self, id: &str) -> Option<&Vocabulary> {
         self.vocabularies.iter().find(|v| v.id == id)
@@ -436,7 +435,6 @@ impl Package {
         }
     }
 }
-
 
 /// RFC-039 [R3]: inline-composite recursion resolves range Types against the
 /// loaded package. One resolver for validation and the migration verifier.
@@ -1785,5 +1783,4 @@ mod tests {
             "lifecycle_ref must take priority over inline"
         );
     }
-
 }

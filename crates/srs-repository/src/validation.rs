@@ -750,8 +750,7 @@ pub fn validate_repository(
                                 .is_some()
                         {
                             {
-                                if let Some(value) =
-                                    record.value(SPEC_INVARIANT_NUMBER_FIELD_NAME)
+                                if let Some(value) = record.value(SPEC_INVARIANT_NUMBER_FIELD_NAME)
                                 {
                                     let num_str = match value {
                                         serde_json::Value::String(s) => Some(s.clone()),
@@ -787,23 +786,23 @@ pub fn validate_repository(
                             if let Ok(effective) = package.resolved_effective_fields(rt) {
                                 for ef in &effective {
                                     let Some(ft) = &ef.field_type else { continue };
-                                    if ft.datatype
-                                        != srs_core::types::field_type::Datatype::Ref
+                                    if ft.datatype != srs_core::types::field_type::Datatype::Ref
                                         || ft.effective_mode()
                                             != srs_core::types::field_type::RefMode::Reference
                                     {
                                         continue;
                                     }
-                                    let Some(range) = &ft.range_type else { continue };
+                                    let Some(range) = &ft.range_type else {
+                                        continue;
+                                    };
                                     let Some(value) = record.value(&ef.name) else {
                                         continue;
                                     };
                                     let targets: Vec<&str> = match value {
                                         Value::String(s) => vec![s.as_str()],
-                                        Value::Array(items) => items
-                                            .iter()
-                                            .filter_map(|v| v.as_str())
-                                            .collect(),
+                                        Value::Array(items) => {
+                                            items.iter().filter_map(|v| v.as_str()).collect()
+                                        }
                                         _ => Vec::new(),
                                     };
                                     for target in targets {

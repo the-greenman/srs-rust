@@ -5,7 +5,6 @@ use crate::store::RepositoryStore;
 use crate::writer::write_manifest;
 use serde_json::json;
 
-
 const EXT_ADDRESSABILITY: &str = "ext:addressability";
 const EXT_DISCOVERY: &str = "ext:discovery";
 const EXT_FEDERATION: &str = "ext:federation";

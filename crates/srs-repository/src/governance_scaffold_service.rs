@@ -10,7 +10,6 @@ use srs_core::types::container::Container;
 use srs_core::types::record::FieldValues;
 use srs_core::types::view::SectionSource;
 
-
 /// Input for `scaffold_governance_repo`.
 ///
 /// Caller supplies the human-facing title and optional purpose text. A pre-seeded
@@ -140,11 +139,11 @@ pub fn scaffold_governance_repo(
         .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
             message: "com.semanticops.core/title field not found in package".to_string(),
         })?;
-    package
-        .find_field("governance", "title")
-        .ok_or_else(|| RepositoryError::InvalidRepositoryInitialization {
+    package.find_field("governance", "title").ok_or_else(|| {
+        RepositoryError::InvalidRepositoryInitialization {
             message: "governance/title field not found in package".to_string(),
-        })?;
+        }
+    })?;
 
     // 1. Identity record: com.semanticops.core/purpose carrying statement + title (RFC-018 I-81).
     let identity = create_record_in_context(

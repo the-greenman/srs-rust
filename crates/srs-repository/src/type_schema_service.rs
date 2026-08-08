@@ -88,8 +88,7 @@ pub fn type_schema(
         };
 
         let mut visiting = vec![(record_type.id.clone(), record_type.version)];
-        let mut property =
-            field_to_property(&field, fa, &package, &mut visiting, &mut diagnostics);
+        let mut property = field_to_property(&field, fa, &package, &mut visiting, &mut diagnostics);
         if let Some(obj) = property.as_object_mut() {
             obj.insert("x-srs-order".into(), json!(idx + 1));
         }
@@ -335,16 +334,9 @@ fn insert_value_shape(
                                             )),
                                         }
                                     }
-                                    target.insert(
-                                        "properties".into(),
-                                        Value::Object(item_props),
-                                    );
-                                    target.insert(
-                                        "required".into(),
-                                        Value::Array(item_required),
-                                    );
-                                    target
-                                        .insert("additionalProperties".into(), json!(false));
+                                    target.insert("properties".into(), Value::Object(item_props));
+                                    target.insert("required".into(), Value::Array(item_required));
+                                    target.insert("additionalProperties".into(), json!(false));
                                 }
                                 Err(e) => diagnostics.push(format!(
                                     "could not resolve effective fields of range {}@{}: {e}",

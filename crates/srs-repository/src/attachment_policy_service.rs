@@ -85,7 +85,10 @@ pub fn read_attachment_policy(
     let max_total_bytes = get_u64("max_total_bytes");
 
     let allowed_mime_types: Option<Vec<String>> = 'mime: {
-        if pkg.find_field(BASE_NAMESPACE, "allowed_mime_types").is_none() {
+        if pkg
+            .find_field(BASE_NAMESPACE, "allowed_mime_types")
+            .is_none()
+        {
             break 'mime None;
         }
         let value = match policy_record.value("allowed_mime_types") {

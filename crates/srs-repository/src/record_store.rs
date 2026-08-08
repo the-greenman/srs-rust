@@ -452,9 +452,9 @@ pub fn validate_record_input(
     // in one pass, not one-fix-revalidate at a time (#111).
     let mut errors: Vec<String> =
         validate_record_all(&record, record_type, &effective_fields, &package)
-        .iter()
-        .map(|e| e.to_string())
-        .collect();
+            .iter()
+            .map(|e| e.to_string())
+            .collect();
 
     // ext:cross-field-validation — also collect CFR diagnostics for preflight consistency.
     // A passing preflight must guarantee a passing write.
