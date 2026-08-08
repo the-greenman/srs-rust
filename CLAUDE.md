@@ -30,6 +30,7 @@ cargo run --bin generate-schemas          # regenerate payload JSON Schema golde
 | `srs-bindings` | JSON-first binding surface over repository services | Calls the same services as the CLI. No duplicated logic. |
 | `srs-mcp` | MCP stdio server over repository services (`srs mcp serve`, ADR-037) | Sole owner of `rmcp`/`tokio`. One service call per handler. Tool inputs are shadow structs with mandatory `From` conversions. No business logic. |
 | `srs-projection` | Rendering and export projections | Placeholder — no work until consumers exist. |
+| `srs-gov` | Governance TUI/workflow layer over repository services | Consumes services only; no schema or storage logic of its own. |
 
 When in doubt about where logic belongs: if it would also be needed by an HTTP API or Python binding, it belongs in `srs-repository`, not `srs-cli`.
 
@@ -87,9 +88,15 @@ Tags are weak discovery labels. They are not semantic claims, not formal ontolog
 `srs/` is an external SRS repository consumed by the Rust workspace as test data — it is not internal source. Do not embed spec content directly in Rust source or tests. Use fixture copies or vendor the spec repo.
 
 ```bash
-srs repo validate --repo ../srs/srs        # should be 0 errors
+srs repo validate --repo ../srs/srs        # 0 errors once ../srs is on dataModelRevision 2
 cargo test --test payload_contracts        # golden schema tests
 ```
+
+**RFC-039 carrier note:** a binary at data-model revision 2 (RFC-039, srs#242 Phase B)
+**rejects** a pre-cutover spec repo with an [R9] diagnostic naming `dataModelRevision` —
+expected until the `srs` cutover PR (unit 2 of the #242 train) migrates the spec data.
+Migrate a local copy with `srs repo apply-migration --id rfc039-carrier` (after
+`--id field-type` if it is still pre-RFC-032).
 
 ## Schema Sync
 

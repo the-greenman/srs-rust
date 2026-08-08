@@ -1,6 +1,6 @@
 # ADR-043: RFC-039 revision-2 carrier representation, serialization order, and migration I/O
 
-**Status:** proposed
+**Status:** accepted
 **Date:** 2026-08-08
 **Issues:** srs-rust#806 (srs#242 Phase B unit 1)
 **Amends:** ADR-017, ADR-036, ADR-037 (mechanism only — the determinism guarantee is
