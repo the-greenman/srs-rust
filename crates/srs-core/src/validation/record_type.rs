@@ -35,18 +35,18 @@ pub fn validate_record_type_v7(rt: &RecordType) -> Vec<RecordTypeDiagnostic> {
     diags
 }
 
-/// What a cross-field rule predicate needs to know about one assigned field.
+/// What a cross-field rule needs to know about one assigned field.
 ///
-/// `Datatype` alone is not enough: RFC-032 Revision 7 expresses I-94 over
-/// `effective-single`, which spans both the `fieldType.cardinality` facet and
-/// the legacy `FieldAssignment.repeatable` flag. The flag is per-assignment
-/// rather than per-Field, so it has to be carried alongside the `FieldType`.
+/// Rules address fields by `fieldId` (a Type-level declaration, unchanged by
+/// RFC-039), but the record carrier keys values by `Field.name` — so the map
+/// carries the name to bridge the two. `effective-single` is cardinality-only
+/// since the srs#242 Phase-B train (Change-I condition 4).
 #[derive(Debug, Clone)]
 pub struct CrossFieldFieldType {
     /// The field's declared `fieldType`, in full.
     pub field_type: FieldType,
-    /// `FieldAssignment.repeatable` for this field in the Type being validated.
-    pub repeatable: bool,
+    /// `Field.name` — the record's carrier key for this field.
+    pub name: String,
 }
 
 /// Build the field-type map [`validate_cross_field_rules`] expects, pairing each
@@ -56,19 +56,16 @@ pub struct CrossFieldFieldType {
 /// `effective-single` union from being restated (and drifting) per call site.
 pub fn cross_field_type_map(
     fields: &[Field],
-    record_type: &RecordType,
+    _record_type: &RecordType,
 ) -> HashMap<String, CrossFieldFieldType> {
     fields
         .iter()
         .map(|f| {
-            let repeatable = record_type
-                .find_field_assignment_anywhere(&f.id)
-                .is_some_and(|a| a.repeatable);
             (
                 f.id.clone(),
                 CrossFieldFieldType {
                     field_type: f.field_type.clone(),
-                    repeatable,
+                    name: f.name.clone(),
                 },
             )
         })
@@ -96,7 +93,7 @@ pub fn validate_cross_field_rules(
                 evaluate_field_ordering(record, rule, field_types, &mut errors);
             }
             CrossFieldRuleKind::MutualExclusion => {
-                evaluate_mutual_exclusion(record, rule, &mut errors);
+                evaluate_mutual_exclusion(record, rule, field_types, &mut errors);
             }
         }
     }
@@ -136,13 +133,13 @@ pub fn validate_cross_field_rules_for_type(
         type_version: record_type.version,
         type_namespace: record_type.namespace.clone(),
         type_name: record_type.name.clone(),
-        field_values: Vec::new(),
-        group_values: None,
+        field_values: crate::types::record::FieldValues::new(),
+        field_meta: None,
         lifecycle_state: None,
         tags: None,
         created_at: None,
         updated_at: None,
-        extra: HashMap::new(),
+        extra: std::collections::BTreeMap::new(),
     };
     validate_cross_field_rules(&phantom, rules, &field_types)
         .into_iter()
@@ -150,11 +147,17 @@ pub fn validate_cross_field_rules_for_type(
         .collect()
 }
 
-/// Returns the non-empty string value for the field with `field_id` in the record, or None.
-fn field_value_str<'a>(record: &'a Record, field_id: &str) -> Option<&'a str> {
-    record
-        .find_field_value(field_id)
-        .and_then(|fv| fv.value.as_str().filter(|s| !s.is_empty()))
+/// Returns the non-empty string value for the field with `field_id` in the
+/// record, or None. Rules address fields by id; the carrier keys by name —
+/// the map bridges. An id absent from the map resolves to None (absent from
+/// the package; referential integrity is checked elsewhere).
+fn field_value_str<'a>(
+    record: &'a Record,
+    field_types: &HashMap<String, CrossFieldFieldType>,
+    field_id: &str,
+) -> Option<&'a str> {
+    let name = &field_types.get(field_id)?.name;
+    record.value_str(name).filter(|s| !s.is_empty())
 }
 
 fn evaluate_conditional_required(
@@ -179,10 +182,7 @@ fn evaluate_conditional_required(
     // As in `evaluate_field_ordering`, a field id absent from the package is
     // skipped silently — referential integrity is checked elsewhere.
     if let Some(predicate_type) = field_types.get(predicate_field_id) {
-        if !predicate_type
-            .field_type
-            .is_conditional_required_eligible(predicate_type.repeatable)
-        {
+        if !predicate_type.field_type.is_conditional_required_eligible() {
             errors.push(CoreError::CrossFieldRuleMisconfigured {
                 reason: format!(
                     "conditional-required: predicate field '{}' must be a single-valued string, date or date-time field",
@@ -193,8 +193,8 @@ fn evaluate_conditional_required(
         }
     }
 
-    if field_value_str(record, predicate_field_id) == Some(predicate_value)
-        && field_value_str(record, target_field_id).is_none()
+    if field_value_str(record, field_types, predicate_field_id) == Some(predicate_value)
+        && field_value_str(record, field_types, target_field_id).is_none()
     {
         errors.push(CoreError::CrossFieldConditionalRequired {
             predicate_field_id: predicate_field_id.to_string(),
@@ -255,10 +255,10 @@ fn evaluate_field_ordering(
     }
 
     // Skip if either value is absent or empty on the record — nothing to compare.
-    let Some(target_val) = field_value_str(record, target_field_id) else {
+    let Some(target_val) = field_value_str(record, field_types, target_field_id) else {
         return;
     };
-    let Some(predicate_val) = field_value_str(record, predicate_field_id) else {
+    let Some(predicate_val) = field_value_str(record, field_types, predicate_field_id) else {
         return;
     };
 
@@ -310,7 +310,12 @@ fn evaluate_field_ordering(
     }
 }
 
-fn evaluate_mutual_exclusion(record: &Record, rule: &CrossFieldRule, errors: &mut Vec<CoreError>) {
+fn evaluate_mutual_exclusion(
+    record: &Record,
+    rule: &CrossFieldRule,
+    field_types: &HashMap<String, CrossFieldFieldType>,
+    errors: &mut Vec<CoreError>,
+) {
     let Some(field_ids) = rule.field_ids.as_ref() else {
         errors.push(CoreError::CrossFieldRuleMisconfigured {
             reason: "mutual-exclusion rule requires fieldIds with at least 2 entries".to_string(),
@@ -326,7 +331,7 @@ fn evaluate_mutual_exclusion(record: &Record, rule: &CrossFieldRule, errors: &mu
 
     let populated_count = field_ids
         .iter()
-        .filter(|id| field_value_str(record, id).is_some())
+        .filter(|id| field_value_str(record, field_types, id).is_some())
         .count();
 
     if populated_count > 1 {
@@ -339,7 +344,6 @@ fn evaluate_mutual_exclusion(record: &Record, rule: &CrossFieldRule, errors: &mu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::record::FieldValue;
     use crate::types::record_type::{
         CrossFieldRule, CrossFieldRuleEffect, CrossFieldRuleKind, RecordType, TypeLifecycle,
     };
@@ -353,7 +357,6 @@ mod tests {
             version: 1,
             description: "test".to_string(),
             fields: vec![],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -376,11 +379,17 @@ mod tests {
             },
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         }
     }
 
     fn make_record(field_values: Vec<(&str, serde_json::Value)>) -> Record {
+        // Test field ids double as Field.names: the cross_field_type_map in
+        // each test carries name == id, so the carrier keys by the same string.
+        let mut fv = crate::types::record::FieldValues::new();
+        for (id, val) in field_values {
+            fv.insert(id, val);
+        }
         Record {
             instance_id: "rec-1".to_string(),
             type_id: "rt-1".to_string(),
@@ -389,20 +398,11 @@ mod tests {
             type_version: 1,
             created_at: None,
             updated_at: None,
-            group_values: None,
+            field_meta: None,
             lifecycle_state: None,
             tags: None,
-            field_values: field_values
-                .into_iter()
-                .map(|(id, val)| FieldValue {
-                    field_id: id.to_string(),
-                    value: val,
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                })
-                .collect(),
-            extra: std::collections::HashMap::new(),
+            field_values: fv,
+            extra: std::collections::BTreeMap::new(),
         }
     }
 
@@ -488,24 +488,20 @@ mod tests {
                     id.to_string(),
                     CrossFieldFieldType {
                         field_type: FieldType::new(*dt),
-                        repeatable: false,
+                        name: (*id).to_string(),
                     },
                 )
             })
             .collect()
     }
 
-    /// The same, with one entry's `FieldType` and `repeatable` given explicitly.
-    fn ftm_one(
-        id: &str,
-        field_type: FieldType,
-        repeatable: bool,
-    ) -> HashMap<String, CrossFieldFieldType> {
+    /// The same, with one entry's `FieldType` given explicitly.
+    fn ftm_one(id: &str, field_type: FieldType) -> HashMap<String, CrossFieldFieldType> {
         HashMap::from([(
             id.to_string(),
             CrossFieldFieldType {
                 field_type,
-                repeatable,
+                name: id.to_string(),
             },
         )])
     }
@@ -547,7 +543,11 @@ mod tests {
     fn conditional_required_triggered_target_absent() {
         let record = make_record(vec![("f-predicate", serde_json::json!("yes"))]);
         let rule = cond_required_rule("f-predicate", "yes", "f-target");
-        let errs = validate_cross_field_rules(&record, &[rule], &HashMap::new());
+        let ft = ftm(&[
+            ("f-predicate", Datatype::String),
+            ("f-target", Datatype::String),
+        ]);
+        let errs = validate_cross_field_rules(&record, &[rule], &ft);
         assert_eq!(errs.len(), 1);
         assert_eq!(
             errs[0],
@@ -578,7 +578,7 @@ mod tests {
     fn i94_r6_conditional_required_rejects_list_predicate_field() {
         let record = make_record(vec![("f-predicate", serde_json::json!("yes"))]);
         let rule = cond_required_rule("f-predicate", "yes", "f-target");
-        let ft = ftm_one("f-predicate", FieldType::string().into_list(), false);
+        let ft = ftm_one("f-predicate", FieldType::string().into_list());
         let errs = validate_cross_field_rules(&record, &[rule], &ft);
         assert!(
             matches!(&errs[..], [CoreError::CrossFieldRuleMisconfigured { reason }]
@@ -588,16 +588,35 @@ mod tests {
     }
 
     #[test]
-    fn i94_r6_conditional_required_rejects_repeatable_predicate_field() {
-        // The legacy `FieldAssignment.repeatable` half of `effective-single`.
-        // `cardinality` is single here; only the assignment flag makes it repeat.
-        let record = make_record(vec![("f-predicate", serde_json::json!("yes"))]);
+    fn cross_field_rules_resolve_field_id_to_carrier_name() {
+        // Rules address fields by `fieldId`; the RFC-039 carrier keys values
+        // by `Field.name`. The map bridges — a record keyed by the *name*
+        // must satisfy a rule declared over the *id*.
+        let mut fv = crate::types::record::FieldValues::new();
+        fv.insert("predicate_name", serde_json::json!("yes"));
+        let mut record = make_record(vec![]);
+        record.field_values = fv;
         let rule = cond_required_rule("f-predicate", "yes", "f-target");
-        let ft = ftm_one("f-predicate", FieldType::string(), true);
+        let ft = HashMap::from([
+            (
+                "f-predicate".to_string(),
+                CrossFieldFieldType {
+                    field_type: FieldType::string(),
+                    name: "predicate_name".to_string(),
+                },
+            ),
+            (
+                "f-target".to_string(),
+                CrossFieldFieldType {
+                    field_type: FieldType::string(),
+                    name: "target_name".to_string(),
+                },
+            ),
+        ]);
         let errs = validate_cross_field_rules(&record, &[rule], &ft);
         assert!(
-            matches!(&errs[..], [CoreError::CrossFieldRuleMisconfigured { .. }]),
-            "a repeatable predicate field must be rejected, got: {errs:?}"
+            matches!(&errs[..], [CoreError::CrossFieldConditionalRequired { .. }]),
+            "the id-declared rule must fire against the name-keyed record, got: {errs:?}"
         );
     }
 
@@ -631,18 +650,17 @@ mod tests {
         }
     }
 
-    /// The glue every I-94 call site depends on: `cross_field_type_map` must
-    /// carry `FieldAssignment.repeatable` across from the Type, including for a
-    /// field assigned inside a `FieldGroup` rather than at top level. The other
-    /// I-94 tests hand-build `CrossFieldFieldType`, so without this a bug that
-    /// always reported `repeatable: false` would go unnoticed.
+    /// The glue every cross-field call site depends on: `cross_field_type_map`
+    /// must carry `Field.name` across, since the carrier keys by name and the
+    /// rules key by id. The other I-94 tests hand-build `CrossFieldFieldType`,
+    /// so without this a bug that dropped the name bridge would go unnoticed.
     #[test]
-    fn cross_field_type_map_carries_repeatable_from_the_assignment() {
-        let fields: Vec<Field> = ["f-plain", "f-repeat", "f-grouped"]
+    fn cross_field_type_map_carries_field_names() {
+        let fields: Vec<Field> = [("f-plain", "plain_name"), ("f-two", "two_name")]
             .iter()
-            .map(|id| {
+            .map(|(id, name)| {
                 serde_json::from_value(serde_json::json!({
-                    "id": id, "namespace": "com.test", "name": id, "version": 1,
+                    "id": id, "namespace": "com.test", "name": name, "version": 1,
                     "description": "d", "fieldType": { "datatype": "string" },
                     "createdAt": "2026-01-01T00:00:00Z",
                 }))
@@ -654,32 +672,15 @@ mod tests {
             "description": "d",
             "fields": [
                 { "fieldId": "f-plain", "order": 0, "required": false },
-                { "fieldId": "f-repeat", "order": 1, "required": false, "repeatable": true },
+                { "fieldId": "f-two", "order": 1, "required": false },
             ],
-            "fieldGroups": [{
-                "groupId": "g-1", "order": 2, "required": false,
-                "fields": [
-                    { "fieldId": "f-grouped", "order": 0, "required": false, "repeatable": true },
-                ],
-            }],
             "createdAt": "2026-01-01T00:00:00Z",
         }))
         .expect("type fixture should deserialize");
 
         let map = cross_field_type_map(&fields, &rt);
-        assert!(!map["f-plain"].repeatable);
-        assert!(map["f-repeat"].repeatable);
-        assert!(
-            map["f-grouped"].repeatable,
-            "a field assigned inside a FieldGroup must still carry its own repeatable flag"
-        );
-        // And the flag must actually reach the predicate.
-        assert!(map["f-plain"]
-            .field_type
-            .is_conditional_required_eligible(map["f-plain"].repeatable));
-        assert!(!map["f-repeat"]
-            .field_type
-            .is_conditional_required_eligible(map["f-repeat"].repeatable));
+        assert_eq!(map["f-plain"].name, "plain_name");
+        assert_eq!(map["f-two"].name, "two_name");
     }
 
     /// I-92/94/95/96: a Type carrying a misconfigured rule must be flagged even
@@ -688,12 +689,15 @@ mod tests {
     /// No record is constructed anywhere in this test.
     #[test]
     fn i94_type_level_flags_ineligible_predicate_field_with_no_records() {
+        // Ineligible via list cardinality — the sole mechanism post Change-I.
         let fields: Vec<Field> = ["f-repeat", "f-target"]
             .iter()
             .map(|id| {
+                let cardinality = if *id == "f-repeat" { "list" } else { "single" };
                 serde_json::from_value(serde_json::json!({
                     "id": id, "namespace": "com.test", "name": id, "version": 1,
-                    "description": "d", "fieldType": { "datatype": "string" },
+                    "description": "d",
+                    "fieldType": { "datatype": "string", "cardinality": cardinality },
                     "createdAt": "2026-01-01T00:00:00Z",
                 }))
                 .expect("field fixture should deserialize")
@@ -703,7 +707,7 @@ mod tests {
             "id": "t-1", "namespace": "com.test", "name": "t", "version": 1,
             "description": "d",
             "fields": [
-                { "fieldId": "f-repeat", "order": 0, "required": false, "repeatable": true },
+                { "fieldId": "f-repeat", "order": 0, "required": false },
                 { "fieldId": "f-target", "order": 1, "required": false },
             ],
             "validationRules": [{
@@ -899,7 +903,8 @@ mod tests {
             ("f-b", serde_json::json!("value b")),
         ]);
         let rule = mutex_rule(vec!["f-a", "f-b"]);
-        let errs = validate_cross_field_rules(&record, &[rule], &HashMap::new());
+        let ft = ftm(&[("f-a", Datatype::String), ("f-b", Datatype::String)]);
+        let errs = validate_cross_field_rules(&record, &[rule], &ft);
         assert_eq!(errs.len(), 1);
         assert!(matches!(
             &errs[0],

@@ -4,16 +4,16 @@ use crate::types::container::Container;
 pub fn validate_container(container: &Container) -> Result<(), CoreError> {
     if container.container_id.is_empty() {
         return Err(CoreError::MissingRequiredField {
-            field_id: "containerId".to_string(),
+            key: "containerId".to_string(),
         });
     }
     uuid::Uuid::parse_str(&container.container_id).map_err(|_| CoreError::InvalidFieldValue {
-        field_id: "containerId".to_string(),
+        key: "containerId".to_string(),
         reason: "must be a valid UUID".to_string(),
     })?;
     if container.title.is_empty() {
         return Err(CoreError::MissingRequiredField {
-            field_id: "title".to_string(),
+            key: "title".to_string(),
         });
     }
     Ok(())
@@ -22,6 +22,7 @@ pub fn validate_container(container: &Container) -> Result<(), CoreError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
     use std::collections::HashMap;
 
     fn minimal() -> Container {
@@ -39,7 +40,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
-            extra: HashMap::new(),
+            extra: BTreeMap::new(),
         }
     }
 
@@ -55,7 +56,7 @@ mod tests {
         assert_eq!(
             validate_container(&c),
             Err(CoreError::MissingRequiredField {
-                field_id: "containerId".to_string()
+                key: "containerId".to_string()
             })
         );
     }
@@ -67,7 +68,7 @@ mod tests {
         assert_eq!(
             validate_container(&c),
             Err(CoreError::InvalidFieldValue {
-                field_id: "containerId".to_string(),
+                key: "containerId".to_string(),
                 reason: "must be a valid UUID".to_string()
             })
         );
@@ -80,7 +81,7 @@ mod tests {
         assert_eq!(
             validate_container(&c),
             Err(CoreError::MissingRequiredField {
-                field_id: "title".to_string()
+                key: "title".to_string()
             })
         );
     }

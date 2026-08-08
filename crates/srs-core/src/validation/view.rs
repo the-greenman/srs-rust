@@ -70,6 +70,7 @@ mod tests {
         DocumentSection, DocumentView, FieldView, SectionSource, ThemeMode, ThemeReference,
         ThemeVariant, View,
     };
+    use std::collections::BTreeMap;
     use std::collections::HashMap;
 
     fn minimal_view() -> View {
@@ -91,7 +92,7 @@ mod tests {
             export_config: None,
             tags: None,
             created_at: "2026-05-29T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: BTreeMap::new(),
         }
     }
 
@@ -128,7 +129,7 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-05-29T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: BTreeMap::new(),
         }
     }
 

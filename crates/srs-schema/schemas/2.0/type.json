@@ -5,10 +5,21 @@
   "description": "A named collection of FieldAssignments that defines the structure of a TypedRecord or Record. Types belong to a namespace and are versioned.",
   "$comment": "RFC-033 frozen-seed fixed point: this hand-authored schema is the bootstrap base case, loaded as committed and never re-derived at runtime. Its record-level source is the com.semanticops.srs/metamodel package (the `type` + `field-assignment` Types; v1.0.0 covers the core definition facets, deferring lifecycle/type-inheritance/cross-field-validation/field-groups/identityFieldId). The #259 emitter regenerates this file from those records; docs/schema/2.0/metamodel-fidelity.md declares per-emitter fidelity.",
   "type": "object",
-  "required": ["$schema", "id", "namespace", "name", "version", "description", "fields", "createdAt"],
+  "required": [
+    "$schema",
+    "id",
+    "namespace",
+    "name",
+    "version",
+    "description",
+    "fields",
+    "createdAt"
+  ],
   "additionalProperties": false,
   "properties": {
-    "$schema": { "type": "string" },
+    "$schema": {
+      "type": "string"
+    },
     "id": {
       "type": "string",
       "format": "uuid"
@@ -37,21 +48,23 @@
       "description": "Guidance for AI agents determining whether source material matches this Type.",
       "additionalProperties": false,
       "properties": {
-        "purpose": { "type": "string" },
-        "extraction": { "type": "string" },
-        "negativeGuidance": { "type": "string" }
+        "purpose": {
+          "type": "string"
+        },
+        "extraction": {
+          "type": "string"
+        },
+        "negativeGuidance": {
+          "type": "string"
+        }
       }
     },
     "fields": {
       "type": "array",
-      "items": { "$ref": "#/$defs/FieldAssignment" },
+      "items": {
+        "$ref": "#/$defs/FieldAssignment"
+      },
       "description": "Ordered list of fields that make up this Type."
-    },
-    "fieldGroups": {
-      "type": "array",
-      "items": { "$ref": "#/$defs/FieldGroup" },
-      "deprecated": true,
-      "description": "ext:field-groups — grouped, potentially repeatable field sets. DEPRECATED (RFC-032 Change E): subsumed by a datatype:ref, mode:inline Field over the group's Type. Retained until the #242 cutover provides the inline-composite instance carrier; new authoring MUST use composite range, not FieldGroup."
     },
     "lifecycle": {
       "$ref": "#/$defs/TypeLifecycle",
@@ -63,7 +76,9 @@
     },
     "tags": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
     "extendsTypeId": {
       "type": "string",
@@ -77,12 +92,17 @@
     },
     "fieldOrder": {
       "type": "array",
-      "items": { "type": "string", "format": "uuid" },
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      },
       "description": "ext:type-inheritance — explicit ordering for the merged field list (base + own). Must contain every fieldId from the effective field set exactly once."
     },
     "fieldAssignmentOverrides": {
       "type": "array",
-      "items": { "$ref": "#/$defs/FieldAssignmentOverride" },
+      "items": {
+        "$ref": "#/$defs/FieldAssignmentOverride"
+      },
       "description": "ext:type-inheritance — per-field overrides applied to inherited FieldAssignments."
     },
     "identityFieldId": {
@@ -92,7 +112,9 @@
     },
     "validationRules": {
       "type": "array",
-      "items": { "$ref": "#/$defs/CrossFieldRule" },
+      "items": {
+        "$ref": "#/$defs/CrossFieldRule"
+      },
       "description": "ext:cross-field-validation — cross-field validation rules applied to Records of this Type."
     },
     "createdAt": {
@@ -103,17 +125,25 @@
   "$defs": {
     "TypeLifecycle": {
       "type": "object",
-      "required": ["states", "transitions", "initialState"],
+      "required": [
+        "states",
+        "transitions",
+        "initialState"
+      ],
       "additionalProperties": false,
       "properties": {
         "states": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/LifecycleState" }
+          "items": {
+            "$ref": "#/$defs/LifecycleState"
+          }
         },
         "transitions": {
           "type": "array",
-          "items": { "$ref": "#/$defs/LifecycleTransition" }
+          "items": {
+            "$ref": "#/$defs/LifecycleTransition"
+          }
         },
         "initialState": {
           "type": "string",
@@ -123,51 +153,95 @@
     },
     "LifecycleState": {
       "type": "object",
-      "required": ["key"],
+      "required": [
+        "key"
+      ],
       "additionalProperties": false,
       "description": "A lifecycle state (VocabularyEntry specialization). key is the unified substrate field (was name pre-RFC-006).",
       "properties": {
-        "id": { "type": "string", "format": "uuid" },
-        "version": { "type": "integer", "minimum": 1 },
-        "namespace": { "type": "string" },
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "namespace": {
+          "type": "string"
+        },
         "key": {
           "type": "string",
           "description": "Machine-readable state key. Unified substrate field (was name)."
         },
-        "label": { "type": "string" },
-        "description": { "type": "string" },
-        "aliases": { "type": "array", "items": { "type": "string" } },
-        "isInitial": { "type": "boolean" },
-        "isFinal": { "type": "boolean" },
+        "label": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "isInitial": {
+          "type": "boolean"
+        },
+        "isFinal": {
+          "type": "boolean"
+        },
         "status": {
           "type": "string",
-          "enum": ["active", "deprecated", "tombstone", "retired"]
+          "enum": [
+            "active",
+            "deprecated",
+            "tombstone",
+            "retired"
+          ]
         },
-        "requiresRelation": { "$ref": "#/$defs/RequiresRelation" },
-        "properties": { "type": "object", "additionalProperties": true }
+        "requiresRelation": {
+          "$ref": "#/$defs/RequiresRelation"
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": true
+        }
       }
     },
     "RequiresRelation": {
       "type": "object",
-      "required": ["relationType"],
+      "required": [
+        "relationType"
+      ],
       "additionalProperties": false,
       "description": "RFC-022 relational state: a record may only be in this state if a relation satisfying this obligation exists.",
       "properties": {
         "relationType": {
           "type": "array",
           "minItems": 1,
-          "items": { "type": "string", "minLength": 1 },
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
           "description": "Relation type(s) that satisfy the obligation (any-of interpretation, unchanged from RFC-022). RFC-032 Change F normalized this declaration form from string|string[] to a list (length ≥ 1); the single-string form is removed. The distinct scalar fulfillment.relationType selector is untouched."
         },
         "direction": {
           "type": "string",
-          "enum": ["incoming", "outgoing"],
+          "enum": [
+            "incoming",
+            "outgoing"
+          ],
           "default": "incoming",
           "description": "incoming: an edge whose target is the record (e.g. successor → predecessor supersedes). outgoing: an edge whose source is the record."
         },
         "enforcement": {
           "type": "string",
-          "enum": ["hard", "advisory"],
+          "enum": [
+            "hard",
+            "advisory"
+          ],
           "default": "hard",
           "description": "hard (default): a transition into this state MUST be rejected unless the obligation is satisfied or fulfilled (definitional relational states whose meaning is the relationship, e.g. superseded). advisory: the transition is permitted even when unsatisfied, and an unsatisfied obligation is surfaced as a warning at rest, never a rejection (evidentiary obligations that may be established later)."
         }
@@ -175,7 +249,11 @@
     },
     "LifecycleTransition": {
       "type": "object",
-      "required": ["name", "from", "to"],
+      "required": [
+        "name",
+        "from",
+        "to"
+      ],
       "additionalProperties": false,
       "properties": {
         "id": {
@@ -183,16 +261,31 @@
           "format": "uuid",
           "description": "Stable UUID identity for this transition edge."
         },
-        "name": { "type": "string" },
-        "from": { "type": "string" },
-        "to": { "type": "string" },
-        "description": { "type": "string" },
-        "properties": { "type": "object", "additionalProperties": true }
+        "name": {
+          "type": "string"
+        },
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": true
+        }
       }
     },
     "FieldAssignment": {
       "type": "object",
-      "required": ["fieldId", "order", "required"],
+      "required": [
+        "fieldId",
+        "order",
+        "required"
+      ],
       "additionalProperties": false,
       "properties": {
         "fieldId": {
@@ -209,23 +302,6 @@
           "type": "boolean",
           "description": "Whether this field must be populated before a Record can be logged."
         },
-        "repeatable": {
-          "type": "boolean",
-          "deprecated": true,
-          "description": "ext:repeatable-fields — whether this field may contain multiple entries. DEPRECATED (RFC-032 [R4]): cardinality is now the referenced Field's fieldType.cardinality (single/list), and is NOT overridable per assignment — Invariant 2 forbids a Type redefining a Field's semantics. Retained (with minItems/maxItems) until the #242 cutover, because FieldGroup — whose removal is #242-gated — reuses FieldAssignment."
-        },
-        "minItems": {
-          "type": "integer",
-          "minimum": 0,
-          "deprecated": true,
-          "description": "DEPRECATED (RFC-032 [R4]): moved to fieldType. Retained until the #242 cutover (see `repeatable`)."
-        },
-        "maxItems": {
-          "type": "integer",
-          "minimum": 0,
-          "deprecated": true,
-          "description": "DEPRECATED (RFC-032 [R4]): moved to fieldType. Retained until the #242 cutover (see `repeatable`)."
-        },
         "displayLabel": {
           "type": "string",
           "description": "Context-specific label override for this field within this Type."
@@ -237,7 +313,9 @@
     },
     "FieldAssignmentOverride": {
       "type": "object",
-      "required": ["fieldId"],
+      "required": [
+        "fieldId"
+      ],
       "additionalProperties": false,
       "description": "ext:type-inheritance — overrides for a single inherited FieldAssignment.",
       "properties": {
@@ -260,40 +338,21 @@
         }
       }
     },
-    "FieldGroup": {
-      "type": "object",
-      "required": ["groupId", "order", "fields"],
-      "additionalProperties": false,
-      "deprecated": true,
-      "description": "ext:field-groups. DEPRECATED (RFC-032 Change E): an inline object-of-scalars subsumed by a datatype:ref, mode:inline Field over a first-class Type. Retained (schema + `groupValues` instance carrier) until the #242 cutover provides the inline-composite carrier and #262 restores composite rendering; only then is FieldGroup removed.",
-      "properties": {
-        "groupId": { "type": "string" },
-        "label": { "type": "string" },
-        "description": { "type": "string" },
-        "order": { "type": "integer", "minimum": 0 },
-        "required": { "type": "boolean" },
-        "repeatable": { "type": "boolean" },
-        "minItems": { "type": "integer", "minimum": 0 },
-        "maxItems": { "type": "integer", "minimum": 0 },
-        "fields": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/FieldAssignment" }
-        },
-        "compositeRenderer": {
-          "type": "string",
-          "description": "ext:field-groups RFC-007 — dispatch rendering to a named composite renderer. Bare names (e.g. 'table') are SRS-reserved; vendor values use 'reverse-domain/name'. Unknown values fall back to per-field baseline with a diagnostic [FG-Cx1]. SUPERSEDED (RFC-036): for composite-range fields the successor is a view-owned CompositeRendererBinding (view.json) or CompositeRendererDirective (document-view.json). This property remains in force for FieldGroup only, and retires with FieldGroup at the #242 cutover (RFC-036 [CR-036-19]); the two mechanisms MUST NOT interact."
-        }
-      }
-    },
     "CrossFieldRule": {
       "type": "object",
-      "required": ["type"],
+      "required": [
+        "type"
+      ],
       "additionalProperties": false,
       "description": "ext:cross-field-validation — a constraint that validates a relationship between fields in a Record.",
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["conditional-required", "field-ordering", "mutual-exclusion"],
+          "enum": [
+            "conditional-required",
+            "field-ordering",
+            "mutual-exclusion"
+          ],
           "description": "The kind of cross-field constraint."
         },
         "message": {
@@ -303,7 +362,7 @@
         "predicateFieldId": {
           "type": "string",
           "format": "uuid",
-          "description": "Field whose value is tested. RFC-032 Rev-7 I-94: for conditional-required it must be effective-single (fieldType.cardinality absent/single and, until #242 Phase B, effective FieldAssignment.repeatable != true) with datatype string, date, or date-time; string format/valueDomain do not restrict eligibility. Field-ordering uses I-92."
+          "description": "Field whose value is tested. RFC-032 Rev-7 I-94: for conditional-required it must be effective-single (fieldType.cardinality absent/single — the sole cardinality mechanism since the #242 Phase-B cutover removed FieldAssignment.repeatable, RFC-039 [R7]) with datatype string, date, or date-time; string format/valueDomain do not restrict eligibility. Field-ordering uses I-92."
         },
         "predicateValue": {
           "type": "string",
@@ -320,7 +379,10 @@
         },
         "fieldIds": {
           "type": "array",
-          "items": { "type": "string", "format": "uuid" },
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
           "minItems": 2,
           "description": "Fields of which at most one may be non-empty (mutual-exclusion)."
         }
@@ -328,7 +390,10 @@
     },
     "CrossFieldRuleEffect": {
       "type": "string",
-      "enum": ["must-precede", "must-follow"],
+      "enum": [
+        "must-precede",
+        "must-follow"
+      ],
       "description": "Ordering direction for a field-ordering rule: the predicate field must-precede or must-follow the target."
     }
   }

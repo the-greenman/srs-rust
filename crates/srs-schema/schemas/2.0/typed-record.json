@@ -4,22 +4,31 @@
   "title": "SRS TypedRecord (Tier 1)",
   "description": "A structured instance with named, typed fields but no formal Type binding. Used for exploratory or in-progress work (e.g. exercises, inquiries).",
   "type": "object",
-  "required": ["instanceId", "fields"],
+  "required": [
+    "instanceId",
+    "fields"
+  ],
   "additionalProperties": false,
   "properties": {
-    "$schema": { "type": "string" },
+    "$schema": {
+      "type": "string"
+    },
     "instanceId": {
       "type": "string",
       "format": "uuid"
     },
-    "title": { "type": "string" },
+    "title": {
+      "type": "string"
+    },
     "instanceType": {
       "type": "string",
       "description": "Lightweight semantic hint; not a formal type declaration. Use namespace/name format for clarity (e.g. 'governance/exercise')."
     },
     "fields": {
       "type": "array",
-      "items": { "$ref": "#/$defs/TypedField" },
+      "items": {
+        "$ref": "#/$defs/TypedField"
+      },
       "description": "Ordered list of named, typed fields."
     },
     "graduatedAt": {
@@ -29,15 +38,26 @@
     },
     "sourceRefs": {
       "type": "array",
-      "items": { "$ref": "#/$defs/SourceReference" }
+      "items": {
+        "$ref": "#/$defs/SourceReference"
+      }
     },
     "tags": {
       "type": "array",
       "description": "Topic membership labels. When a Vocabulary is declared, each value MUST resolve to a Term key or alias.",
-      "items": { "type": "string", "minLength": 1 }
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
     },
-    "createdAt": { "type": "string", "format": "date-time" },
-    "updatedAt": { "type": "string", "format": "date-time" },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
     "meta": {
       "type": "object",
       "description": "Implementation-local key-value pairs."
@@ -46,64 +66,176 @@
   "$defs": {
     "TypedField": {
       "type": "object",
-      "required": ["name", "value"],
+      "required": [
+        "name",
+        "value",
+        "fieldType"
+      ],
       "additionalProperties": false,
       "properties": {
         "name": {
           "type": "string",
           "description": "Field key; snake_case recommended; unique within the TypedRecord."
         },
-        "label": { "type": "string" },
-        "valueType": {
-          "type": "string",
-          "enum": ["string", "text", "number", "boolean", "date", "url", "select", "multiselect"]
+        "label": {
+          "type": "string"
         },
-        "selectOptions": {
-          "type": "array",
-          "items": { "type": "string" }
+        "fieldType": {
+          "type": "object",
+          "description": "RFC-039 [R8] (Change G): inline RFC-032 fieldType facets, self-contained — Tier 1 has no Type binding to resolve against. datatype MUST NOT be 'ref' (no rangeType to resolve) or 'dependent' (no declared sibling descriptor).",
+          "required": [
+            "datatype"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "datatype": {
+              "type": "string",
+              "enum": [
+                "string",
+                "number",
+                "integer",
+                "boolean",
+                "date",
+                "date-time",
+                "map"
+              ]
+            },
+            "cardinality": {
+              "type": "string",
+              "enum": [
+                "single",
+                "list"
+              ]
+            },
+            "valueDomain": {
+              "type": "string",
+              "enum": [
+                "open",
+                "closed"
+              ]
+            },
+            "allowedValues": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "plain",
+                "markdown",
+                "uri",
+                "uuid",
+                "email"
+              ]
+            },
+            "constraints": {
+              "type": "object"
+            }
+          }
         },
         "value": {
           "description": "The field value. Type depends on valueType.",
           "oneOf": [
-            { "type": "string" },
-            { "type": "number" },
-            { "type": "boolean" },
-            { "type": "array", "items": { "type": "string" } },
-            { "type": "null" }
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "source": {
           "type": "string",
-          "enum": ["human", "ai", "imported", "derived"]
+          "enum": [
+            "human",
+            "ai",
+            "imported",
+            "derived"
+          ]
         },
-        "editedAt": { "type": "string", "format": "date-time" }
+        "editedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       }
     },
     "SourceReference": {
       "type": "object",
-      "required": ["sourceType", "sourceId"],
+      "required": [
+        "sourceType",
+        "sourceId"
+      ],
       "additionalProperties": false,
-      "not": { "required": ["sourceRole", "relationType"] },
+      "not": {
+        "required": [
+          "sourceRole",
+          "relationType"
+        ]
+      },
       "properties": {
         "sourceType": {
           "type": "string",
-          "enum": ["transcript-chunk", "transcript-segment", "external-document", "repository-document"]
+          "enum": [
+            "transcript-chunk",
+            "transcript-segment",
+            "external-document",
+            "repository-document"
+          ]
         },
-        "sourceId": { "type": "string" },
-        "sourceStandard": { "type": "string" },
-        "streamId": { "type": "string", "format": "uuid" },
+        "sourceId": {
+          "type": "string"
+        },
+        "sourceStandard": {
+          "type": "string"
+        },
+        "streamId": {
+          "type": "string",
+          "format": "uuid"
+        },
         "sourceRole": {
           "type": "string",
-          "enum": ["evidence", "extracted-from", "quoted-from", "inspired-by", "attaches"],
+          "enum": [
+            "evidence",
+            "extracted-from",
+            "quoted-from",
+            "inspired-by",
+            "attaches"
+          ],
           "description": "The role the source material plays for this instance (RFC-023). Replaces relationType. 'attaches' added by RFC-017: material attachment of a source document to a record (RFC-017 [R1])."
         },
         "relationType": {
           "type": "string",
-          "enum": ["evidence", "derived-from", "quoted-from", "inspired-by", "supersedes-context"],
+          "enum": [
+            "evidence",
+            "derived-from",
+            "quoted-from",
+            "inspired-by",
+            "supersedes-context"
+          ],
           "description": "DEPRECATED (RFC-023): legacy name for sourceRole. Readers accept it during the migration window (SOURCEREF_LEGACY_RELATIONTYPE warning) using the RFC-023 Change B value mapping; writers must not emit it. Removed by a scheduled follow-up schema revision."
         },
-        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
-        "note": { "type": "string" }
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "note": {
+          "type": "string"
+        }
       }
     }
   }

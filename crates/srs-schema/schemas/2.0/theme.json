@@ -4,7 +4,16 @@
   "title": "SRS Theme Definition (ext:themes-l1)",
   "description": "Visual presentation layer for a DocumentView. Specifies assets, element templates, and stylesheets without altering semantic structure. Depends on ext:views-l2.",
   "type": "object",
-  "required": ["$schema", "id", "namespace", "name", "version", "description", "targets", "createdAt"],
+  "required": [
+    "$schema",
+    "id",
+    "namespace",
+    "name",
+    "version",
+    "description",
+    "targets",
+    "createdAt"
+  ],
   "additionalProperties": false,
   "properties": {
     "$schema": {
@@ -16,8 +25,12 @@
       "format": "uuid",
       "description": "Stable UUID for this Theme."
     },
-    "namespace": { "type": "string" },
-    "name": { "type": "string" },
+    "namespace": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
     "version": {
       "type": "integer",
       "minimum": 1
@@ -29,46 +42,85 @@
     "targets": {
       "type": "array",
       "minItems": 1,
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "description": "Output formats this theme is designed for (e.g. 'html', 'markdown'). Implementations apply this theme only when DocumentView.format appears in this list. MUST contain at least one entry (Rule [T-1b])."
     },
     "assets": {
       "type": "object",
-      "additionalProperties": { "$ref": "#/$defs/AssetDeclaration" },
+      "additionalProperties": {
+        "$ref": "#/$defs/AssetDeclaration"
+      },
       "description": "Named asset declarations. Names must be unique within the Theme. Referenced in templates as {{asset:name}}."
     },
     "cssClassFields": {
       "type": "array",
-      "items": { "type": "string", "format": "uuid" },
-      "description": "fieldIds whose values are injected as CSS classes on record wrapper elements. RFC-032 Rev-7 [T-9]: the Field must be effective-single (fieldType.cardinality absent/single and, until #242 Phase B, effective FieldAssignment.repeatable != true), datatype string, and format absent/plain/markdown; valueDomain may be open or closed. URI/UUID/email, list/repeatable, non-string, and composite Fields are skipped. Only applies to 'html' and 'pdf' output."
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "description": "fieldIds whose values are injected as CSS classes on record wrapper elements. RFC-032 Rev-7 [T-9]: the Field must be effective-single (fieldType.cardinality absent/single — the sole cardinality mechanism since the #242 Phase-B cutover removed FieldAssignment.repeatable, RFC-039 [R7]), datatype string, and format absent/plain/markdown; valueDomain may be open or closed. URI/UUID/email, list, non-string, and composite Fields are skipped. Only applies to 'html' and 'pdf' output."
     },
-    "pageTemplates": { "$ref": "#/$defs/PageTemplates" },
-    "elementTemplates": { "$ref": "#/$defs/ElementTemplates" },
-    "stylesheet": { "$ref": "#/$defs/StylesheetDeclaration" },
-    "typography": { "$ref": "#/$defs/TypographyHints" },
+    "pageTemplates": {
+      "$ref": "#/$defs/PageTemplates"
+    },
+    "elementTemplates": {
+      "$ref": "#/$defs/ElementTemplates"
+    },
+    "stylesheet": {
+      "$ref": "#/$defs/StylesheetDeclaration"
+    },
+    "typography": {
+      "$ref": "#/$defs/TypographyHints"
+    },
     "tags": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
-    "createdAt": { "type": "string", "format": "date-time" },
-    "updatedAt": { "type": "string", "format": "date-time" },
-    "lineage": { "type": "object" },
-    "provenance": { "type": "object" }
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "lineage": {
+      "type": "object"
+    },
+    "provenance": {
+      "type": "object"
+    }
   },
   "$defs": {
     "AssetDeclaration": {
       "type": "object",
-      "required": ["type", "mode"],
+      "required": [
+        "type",
+        "mode"
+      ],
       "additionalProperties": false,
       "description": "A named asset referenced in templates via {{asset:name}}.",
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["image", "font", "stylesheet", "data"]
+          "enum": [
+            "image",
+            "font",
+            "stylesheet",
+            "data"
+          ]
         },
         "mode": {
           "type": "string",
-          "enum": ["local", "remote", "inline"]
+          "enum": [
+            "local",
+            "remote",
+            "inline"
+          ]
         },
         "path": {
           "type": "string",
@@ -122,7 +174,9 @@
         },
         "sectionWrapperOverrides": {
           "type": "array",
-          "items": { "$ref": "#/$defs/SectionWrapperOverride" },
+          "items": {
+            "$ref": "#/$defs/SectionWrapperOverride"
+          },
           "description": "Per-section overrides. Takes precedence over sectionWrapper when sectionId matches. sectionId values MUST be unique within this array."
         },
         "recordWrapper": {
@@ -131,22 +185,20 @@
         },
         "recordWrapperOverrides": {
           "type": "array",
-          "items": { "$ref": "#/$defs/RecordWrapperOverride" },
+          "items": {
+            "$ref": "#/$defs/RecordWrapperOverride"
+          },
           "description": "Per-type overrides. Takes precedence over recordWrapper when typeId matches. typeId values MUST be unique within this array."
         },
         "fieldRow": {
           "type": "string",
           "description": "Wraps each field label+value pair. Available: {{field-label}}, {{field-value}}, {{field-name}}, {{content}}. Applied after ExportConfig filtering/ordering when renderViewId is set. Does not wrap ExportConfig.preamble content."
         },
-        "groupFieldRowTemplates": {
-          "type": "object",
-          "deprecated": true,
-          "additionalProperties": { "type": "string" },
-          "description": "ext:themes-l1 RFC-007 [T-Gx1] — per-field-name templates for individual field rows in FieldGroup entries. Key: Field.name. Value: template string with {{field-value}} and {{field-label}}. Applied only when the group has no known compositeRenderer or falls back to baseline. DEPRECATED (RFC-036 [CR-036-18]): superseded by compositeFieldRowTemplates and retired with FieldGroup at the #242 cutover. Migrating a FieldGroup to a composite silently disables any key naming one of its fields — such keys MUST be carried over to compositeFieldRowTemplates in the same change."
-        },
         "compositeFieldRowTemplates": {
           "type": "object",
-          "additionalProperties": { "type": "string" },
+          "additionalProperties": {
+            "type": "string"
+          },
           "description": "ext:themes-l1 RFC-036 [CR-036-17] — per-field-name templates for individual field rows within a composite-range value rendered by the composite baseline. Key: Field.name. Value: template string with {{field-value}} and {{field-label}}; used in place of fieldRow. Keys matching no rendered field are silently ignored. MUST NOT be applied to a composite that resolved to a renderer; a composite that falls back to the baseline is baseline-rendered and MUST have it applied. Inert until the #242 cutover provides the inline-composite value carrier."
         },
         "compositeRendererConfig": {
@@ -154,7 +206,9 @@
           "additionalProperties": true,
           "description": "ext:themes-l1 RFC-007, RFC-036 [CR-036-16] — per-renderer config, keyed by the same identifier space as a composite renderer identifier. Keys naming unknown renderers, and unknown properties within a known renderer's sub-object, MUST be silently ignored and MUST NOT cause a loading or rendering error — the key grammar is deliberately not constrained here.",
           "properties": {
-            "table": { "$ref": "#/$defs/TableRendererConfig" }
+            "table": {
+              "$ref": "#/$defs/TableRendererConfig"
+            }
           }
         }
       }
@@ -180,19 +234,27 @@
     },
     "SectionWrapperOverride": {
       "type": "object",
-      "required": ["sectionId", "template"],
+      "required": [
+        "sectionId",
+        "template"
+      ],
       "additionalProperties": false,
       "properties": {
         "sectionId": {
           "type": "string",
           "description": "Matches DocumentSection.sectionId; case-sensitive."
         },
-        "template": { "type": "string" }
+        "template": {
+          "type": "string"
+        }
       }
     },
     "RecordWrapperOverride": {
       "type": "object",
-      "required": ["typeId", "template"],
+      "required": [
+        "typeId",
+        "template"
+      ],
       "additionalProperties": false,
       "properties": {
         "typeId": {
@@ -200,17 +262,25 @@
           "format": "uuid",
           "description": "Matches Record.typeId; targets all records of this type."
         },
-        "template": { "type": "string" }
+        "template": {
+          "type": "string"
+        }
       }
     },
     "StylesheetDeclaration": {
       "type": "object",
-      "required": ["mode"],
+      "required": [
+        "mode"
+      ],
       "additionalProperties": false,
       "properties": {
         "mode": {
           "type": "string",
-          "enum": ["inline", "local", "remote"]
+          "enum": [
+            "inline",
+            "local",
+            "remote"
+          ]
         },
         "content": {
           "type": "string",
@@ -231,11 +301,23 @@
       "additionalProperties": false,
       "description": "Informative declarations. No normative rendering behaviour is derived from these values.",
       "properties": {
-        "baseFont": { "type": "string" },
-        "headingFont": { "type": "string" },
-        "monoFont": { "type": "string" },
-        "baseFontSize": { "type": "string", "description": "e.g. '16px', '1rem', '11pt'." },
-        "lineHeight": { "type": "string", "description": "e.g. '1.5', '24px'." }
+        "baseFont": {
+          "type": "string"
+        },
+        "headingFont": {
+          "type": "string"
+        },
+        "monoFont": {
+          "type": "string"
+        },
+        "baseFontSize": {
+          "type": "string",
+          "description": "e.g. '16px', '1rem', '11pt'."
+        },
+        "lineHeight": {
+          "type": "string",
+          "description": "e.g. '1.5', '24px'."
+        }
       }
     }
   }

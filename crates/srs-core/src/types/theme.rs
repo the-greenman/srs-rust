@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -100,7 +100,7 @@ pub struct Theme {
     pub tags: Option<Vec<String>>,
     pub created_at: String,
     #[serde(flatten)]
-    pub extra: HashMap<String, serde_json::Value>,
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[cfg(test)]
@@ -124,7 +124,7 @@ mod tests {
             typography: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: BTreeMap::new(),
         };
 
         let json = serde_json::to_string(&theme).expect("serialize");
@@ -134,7 +134,7 @@ mod tests {
 
     #[test]
     fn theme_roundtrips_full_element_templates() {
-        let mut extra = HashMap::new();
+        let mut extra = BTreeMap::new();
         extra.insert("xCustom".to_string(), serde_json::json!(true));
 
         let theme = Theme {

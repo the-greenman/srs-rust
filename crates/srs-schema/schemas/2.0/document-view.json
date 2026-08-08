@@ -4,7 +4,16 @@
   "title": "SRS Document View Definition (ext:views-l2)",
   "description": "A versioned, Container-level projection. Assembles multiple Records from a Container into a coherent, ordered document. Depends on ext:views-l1.",
   "type": "object",
-  "required": ["$schema", "id", "namespace", "name", "version", "description", "sections", "createdAt"],
+  "required": [
+    "$schema",
+    "id",
+    "namespace",
+    "name",
+    "version",
+    "description",
+    "sections",
+    "createdAt"
+  ],
   "additionalProperties": false,
   "properties": {
     "$schema": {
@@ -38,22 +47,30 @@
     },
     "rootTypeRefs": {
       "type": "array",
-      "items": { "$ref": "#/$defs/ExactTypeRef" },
+      "items": {
+        "$ref": "#/$defs/ExactTypeRef"
+      },
       "description": "When set, this DocumentView applies to Containers whose root Record's resolved Type (typeId + typeVersion) matches one of these refs (version-exact, RFC-009). When absent, no root-type restriction applies."
     },
     "sections": {
       "type": "array",
-      "items": { "$ref": "#/$defs/DocumentSection" },
+      "items": {
+        "$ref": "#/$defs/DocumentSection"
+      },
       "description": "Ordered list of sections that make up the document."
     },
     "compositeRenderers": {
       "type": "array",
-      "items": { "$ref": "#/$defs/CompositeRendererDirective" },
+      "items": {
+        "$ref": "#/$defs/CompositeRendererDirective"
+      },
       "description": "RFC-036 — document-wide default composite renderer dispatch, applied to any section that declares no matching DocumentSection.compositeRenderers entry. Lowest-precedence declaration site ([CR-036-6]); a section or FieldView cancels it with renderer: 'baseline'."
     },
     "navigationLinks": {
       "type": "array",
-      "items": { "$ref": "#/$defs/NavigationLink" },
+      "items": {
+        "$ref": "#/$defs/NavigationLink"
+      },
       "description": "Assembly-time cross-section reading aids. Do not appear in the Relation graph."
     },
     "preamble": {
@@ -75,13 +92,19 @@
     },
     "themeVariants": {
       "type": "array",
-      "items": { "$ref": "#/$defs/ThemeVariant" },
+      "items": {
+        "$ref": "#/$defs/ThemeVariant"
+      },
       "description": "Named alternative themes selectable at render invocation. Variant names MUST be unique within this array. Ignored when ext:themes-l1 is not declared."
     },
-    "aiGuidance": { "type": "object" },
+    "aiGuidance": {
+      "type": "object"
+    },
     "tags": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
     "createdAt": {
       "type": "string",
@@ -91,26 +114,40 @@
       "type": "string",
       "format": "date-time"
     },
-    "lineage": { "type": "object" },
-    "provenance": { "type": "object" }
+    "lineage": {
+      "type": "object"
+    },
+    "provenance": {
+      "type": "object"
+    }
   },
   "$defs": {
     "DocumentSection": {
       "type": "object",
-      "required": ["sectionId", "order", "source"],
+      "required": [
+        "sectionId",
+        "order",
+        "source"
+      ],
       "additionalProperties": false,
       "properties": {
         "sectionId": {
           "type": "string",
           "description": "Stable identifier for this section within the DocumentView."
         },
-        "title": { "type": "string" },
-        "description": { "type": "string" },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
         "order": {
           "type": "integer",
           "minimum": 0
         },
-        "source": { "$ref": "#/$defs/SectionSource" },
+        "source": {
+          "$ref": "#/$defs/SectionSource"
+        },
         "renderViewId": {
           "type": "string",
           "format": "uuid",
@@ -118,27 +155,39 @@
         },
         "typeDispatch": {
           "type": "object",
-          "additionalProperties": { "type": "string", "format": "uuid" },
+          "additionalProperties": {
+            "type": "string",
+            "format": "uuid"
+          },
           "description": "RFC-008 (ext:views-l2). Map from a record's resolved type key (namespace/name, version-independent) to the ext:views-l1 View UUID used to render records of that type within this section. Consulted before renderViewId; unmatched types fall back to renderViewId then the default baseline. The value-is-existing-view constraint is enforced at render/package-validation time, not by this schema. Keys are namespace/name strings; bare names are permitted only in single-system DocumentViews not included in a Package."
         },
         "titleFieldId": {
           "type": "string",
           "format": "uuid",
-          "description": "The fieldId whose value provides the per-record heading within this section. RFC-032 Rev-7 [N+1]: the Field must be effective-single (fieldType.cardinality absent/single and, until #242 Phase B, effective FieldAssignment.repeatable != true), datatype string, valueDomain absent/open, and format absent/plain/markdown. Closed-domain, URI/UUID/email, non-string, and composite Fields are ineligible. When a record's type does not carry the designated field, implementations MUST omit the per-record heading for that record (this is not a render failure), enabling heterogeneous sections (e.g. container-subset). Enforced at render time."
+          "description": "The fieldId whose value provides the per-record heading within this section. RFC-032 Rev-7 [N+1]: the Field must be effective-single (fieldType.cardinality absent/single \u2014 the sole cardinality mechanism since the #242 Phase-B cutover removed FieldAssignment.repeatable, RFC-039 [R7]), datatype string, valueDomain absent/open, and format absent/plain/markdown. Closed-domain, URI/UUID/email, non-string, list, and composite Fields are ineligible. When a record's type does not carry the designated field, implementations MUST omit the per-record heading for that record (this is not a render failure), enabling heterogeneous sections (e.g. container-subset). Enforced at render time."
         },
         "ordering": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "fieldId": { "type": "string", "format": "uuid" },
+            "fieldId": {
+              "type": "string",
+              "format": "uuid"
+            },
             "direction": {
               "type": "string",
-              "enum": ["asc", "desc"],
+              "enum": [
+                "asc",
+                "desc"
+              ],
               "description": "Default: 'asc'."
             },
             "memberOrder": {
               "type": "array",
-              "items": { "type": "string", "format": "uuid" },
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              },
               "description": "RFC-015 [N+29]. View-owned explicit presentation sequence for container-subset sections. Lists instanceIds in presentation order. Container members not listed are appended in [N+12] order (precedes topological sort, createdAt tiebreak). MUST NOT be combined with fieldId on the same section. Ignored with a diagnostic on non-container-subset sections."
             }
           }
@@ -149,12 +198,17 @@
         },
         "emptyBehavior": {
           "type": "string",
-          "enum": ["hide", "show-placeholder"],
+          "enum": [
+            "hide",
+            "show-placeholder"
+          ],
           "description": "What to do when the section has no records. Default: hide."
         },
         "compositeRenderers": {
           "type": "array",
-          "items": { "$ref": "#/$defs/CompositeRendererDirective" },
+          "items": {
+            "$ref": "#/$defs/CompositeRendererDirective"
+          },
           "description": "RFC-036 — composite renderer dispatch for records rendered by this section. The primary ext:views-l2 declaration site, following RFC-027's placement of relationsPresentation. Resolved after FieldView.compositeRenderer and before DocumentView.compositeRenderers ([CR-036-6]). More than one entry for the same fieldId is a validation diagnostic; the first in array order wins."
         },
         "relationsPresentation": {
@@ -165,13 +219,17 @@
     },
     "RelationsPresentation": {
       "type": "object",
-      "required": ["include"],
+      "required": [
+        "include"
+      ],
       "additionalProperties": false,
       "properties": {
         "include": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/RelationPresentationEntry" },
+          "items": {
+            "$ref": "#/$defs/RelationPresentationEntry"
+          },
           "description": "Which relation types to display, in display order. Duplicate relationType entries are a repository-validation diagnostic (RFC-027 [I-027-2a])."
         },
         "label": {
@@ -182,7 +240,9 @@
     },
     "RelationPresentationEntry": {
       "type": "object",
-      "required": ["relationType"],
+      "required": [
+        "relationType"
+      ],
       "additionalProperties": false,
       "properties": {
         "relationType": {
@@ -191,7 +251,11 @@
         },
         "directions": {
           "type": "string",
-          "enum": ["forward", "inverse", "both"],
+          "enum": [
+            "forward",
+            "inverse",
+            "both"
+          ],
           "description": "Which edge directions to display for the member. Default: 'forward'. Display-only — inverse Relations are never stored or synthesised (Invariant 16, RFC-027 [I-027-3])."
         },
         "forwardLabel": {
@@ -208,75 +272,131 @@
       "oneOf": [
         {
           "type": "object",
-          "required": ["type", "instanceIds"],
+          "required": [
+            "type",
+            "instanceIds"
+          ],
           "additionalProperties": false,
           "properties": {
-            "type": { "type": "string", "const": "fixed-instances" },
+            "type": {
+              "type": "string",
+              "const": "fixed-instances"
+            },
             "instanceIds": {
               "type": "array",
-              "items": { "type": "string", "format": "uuid" },
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              },
               "description": "Explicit list of instance UUIDs. For preamble, cover page, or curated sections."
             }
           }
         },
         {
           "type": "object",
-          "required": ["type", "semanticObjectType"],
+          "required": [
+            "type",
+            "semanticObjectType"
+          ],
           "additionalProperties": false,
           "properties": {
-            "type": { "type": "string", "const": "type-query" },
+            "type": {
+              "type": "string",
+              "const": "type-query"
+            },
             "semanticObjectType": {
               "type": "string",
               "description": "For cross-system portability use namespace/name format (e.g. 'core/decision'). Bare strings are acceptable in single-system DocumentViews not included in a Package."
             },
-            "lifecycleState": { "type": "string" },
+            "lifecycleState": {
+              "type": "string"
+            },
             "containerIds": {
               "type": "array",
-              "items": { "type": "string", "format": "uuid" }
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              }
             },
             "lifecycleStates": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": {
+                "type": "string"
+              },
               "description": "RFC-011 [N+25]. When non-empty, restricts to Records whose lifecycleState matches any listed value (OR semantics). Records with no lifecycleState are excluded. When absent or empty, all lifecycle states are included."
             },
             "excludeLifecycleStates": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": {
+                "type": "string"
+              },
               "description": "RFC-011 [N+26]. When non-empty, excludes Records whose lifecycleState matches any value in the list. Applied after lifecycleStates. Records with no lifecycleState are NOT excluded by this filter."
             },
             "containerScope": {
               "type": "string",
-              "enum": ["explicit", "repository", "subtree"],
+              "enum": [
+                "explicit",
+                "repository",
+                "subtree"
+              ],
               "description": "RFC-011 [N+27]. Controls which containers are queried. 'explicit' (default): scope to containerIds[]. 'repository': all containers, ignores containerIds and any cli container override. 'subtree': traverse contains-relations from listed containers (v1: falls back to explicit with diagnostic when containerIds absent)."
             }
           }
         },
         {
           "type": "object",
-          "required": ["type", "fromInstanceId", "relationType"],
+          "required": [
+            "type",
+            "fromInstanceId",
+            "relationType"
+          ],
           "additionalProperties": false,
           "properties": {
-            "type": { "type": "string", "const": "relation-query" },
-            "fromInstanceId": { "type": "string", "format": "uuid" },
-            "relationType": { "type": "string" },
+            "type": {
+              "type": "string",
+              "const": "relation-query"
+            },
+            "fromInstanceId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "relationType": {
+              "type": "string"
+            },
             "direction": {
               "type": "string",
-              "enum": ["forward", "inverse"],
+              "enum": [
+                "forward",
+                "inverse"
+              ],
               "description": "Default: 'forward'."
             }
           }
         },
         {
           "type": "object",
-          "required": ["type", "containerId"],
+          "required": [
+            "type",
+            "containerId"
+          ],
           "additionalProperties": false,
           "properties": {
-            "type": { "type": "string", "const": "container-subset" },
-            "containerId": { "type": "string", "format": "uuid" },
-            "containerType": { "type": "string" },
+            "type": {
+              "type": "string",
+              "const": "container-subset"
+            },
+            "containerId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "containerType": {
+              "type": "string"
+            },
             "typeFilter": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": {
+                "type": "string"
+              },
               "description": "RFC-008 (ext:views-l2). When present and non-empty, restricts the section to container members whose resolved type (namespace/name, version-independent) matches one of these keys. Ordering is the base-spec [N+12] order computed over the full container, then projected onto the survivors (filter-then-project). Absent or empty array = all members (no-op). Exclusive to the container-subset source."
             }
           }
@@ -285,12 +405,21 @@
     },
     "NavigationLink": {
       "type": "object",
-      "required": ["fromSectionId", "toSectionId"],
+      "required": [
+        "fromSectionId",
+        "toSectionId"
+      ],
       "additionalProperties": false,
       "properties": {
-        "fromSectionId": { "type": "string" },
-        "toSectionId": { "type": "string" },
-        "label": { "type": "string" },
+        "fromSectionId": {
+          "type": "string"
+        },
+        "toSectionId": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
         "bidirectional": {
           "type": "boolean",
           "description": "Default: false."
@@ -299,13 +428,19 @@
     },
     "ThemeReference": {
       "type": "object",
-      "required": ["mode"],
+      "required": [
+        "mode"
+      ],
       "additionalProperties": false,
       "description": "A pointer to a Theme (ext:themes-l1). Follows the same mode-based reference pattern as packageRef in the manifest.",
       "properties": {
         "mode": {
           "type": "string",
-          "enum": ["local", "remote", "bundled"]
+          "enum": [
+            "local",
+            "remote",
+            "bundled"
+          ]
         },
         "path": {
           "type": "string",
@@ -324,7 +459,10 @@
     },
     "ThemeVariant": {
       "type": "object",
-      "required": ["name", "themeRef"],
+      "required": [
+        "name",
+        "themeRef"
+      ],
       "additionalProperties": false,
       "description": "A named alternative theme selectable at render time instead of DocumentView.themeRef.",
       "properties": {
@@ -332,13 +470,20 @@
           "type": "string",
           "description": "Case-sensitive identifier. MUST be unique within DocumentView.themeVariants."
         },
-        "description": { "type": "string" },
-        "themeRef": { "$ref": "#/$defs/ThemeReference" }
+        "description": {
+          "type": "string"
+        },
+        "themeRef": {
+          "$ref": "#/$defs/ThemeReference"
+        }
       }
     },
     "CompositeRendererDirective": {
       "type": "object",
-      "required": ["fieldId", "renderer"],
+      "required": [
+        "fieldId",
+        "renderer"
+      ],
       "additionalProperties": false,
       "description": "RFC-036 Change B (ext:views-l2) — a CompositeRendererBinding (view.json) plus the composite-range Field it binds. Presentation only ([CR-036-20]).",
       "properties": {
@@ -354,7 +499,10 @@
         },
         "roles": {
           "type": "object",
-          "additionalProperties": { "type": "string", "format": "uuid" },
+          "additionalProperties": {
+            "type": "string",
+            "format": "uuid"
+          },
           "description": "Explicit, UUID-anchored role -> Field.id binding, overriding the by-name defaults of [CR-036-8]."
         }
       }
@@ -362,7 +510,10 @@
     "ExactTypeRef": {
       "type": "object",
       "description": "RFC-009. A version-exact reference to a Type, used in DocumentView.rootTypeRefs. Distinct from the spec-level TypeRef (Protocol/Blueprint) where typeVersion is optional. Both typeId and typeVersion are required — this is a package-validation-time claim against a specific type version.",
-      "required": ["typeId", "typeVersion"],
+      "required": [
+        "typeId",
+        "typeVersion"
+      ],
       "additionalProperties": false,
       "properties": {
         "typeId": {

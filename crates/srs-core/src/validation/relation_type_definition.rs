@@ -16,37 +16,37 @@ use crate::types::relation_type_definition::RelationTypeDefinition;
 pub fn validate_relation_type_definition(rtd: &RelationTypeDefinition) -> Result<(), CoreError> {
     if rtd.id.is_empty() {
         return Err(CoreError::MissingRequiredField {
-            field_id: "id".to_string(),
+            key: "id".to_string(),
         });
     }
 
     if rtd.key.is_empty() {
         return Err(CoreError::MissingRequiredField {
-            field_id: "relationType".to_string(),
+            key: "relationType".to_string(),
         });
     }
 
     if rtd.namespace.is_empty() {
         return Err(CoreError::MissingRequiredField {
-            field_id: "namespace".to_string(),
+            key: "namespace".to_string(),
         });
     }
 
     if rtd.label.is_empty() {
         return Err(CoreError::MissingRequiredField {
-            field_id: "label".to_string(),
+            key: "label".to_string(),
         });
     }
 
     if rtd.version < 1 {
         return Err(CoreError::MissingRequiredField {
-            field_id: "version".to_string(),
+            key: "version".to_string(),
         });
     }
 
     if rtd.created_at.is_empty() {
         return Err(CoreError::MissingRequiredField {
-            field_id: "createdAt".to_string(),
+            key: "createdAt".to_string(),
         });
     }
 
@@ -141,7 +141,7 @@ mod tests {
         let result = validate_relation_type_definition(&make_rtd(""));
         assert!(matches!(
             result.unwrap_err(),
-            CoreError::MissingRequiredField { field_id } if field_id == "relationType"
+            CoreError::MissingRequiredField { key } if key == "relationType"
         ));
     }
 
@@ -154,7 +154,7 @@ mod tests {
         let result = validate_relation_type_definition(&rtd);
         assert!(matches!(
             result.unwrap_err(),
-            CoreError::MissingRequiredField { field_id } if field_id == "id"
+            CoreError::MissingRequiredField { key } if key == "id"
         ));
     }
 
@@ -167,7 +167,7 @@ mod tests {
         let result = validate_relation_type_definition(&rtd);
         assert!(matches!(
             result.unwrap_err(),
-            CoreError::MissingRequiredField { field_id } if field_id == "label"
+            CoreError::MissingRequiredField { key } if key == "label"
         ));
     }
 

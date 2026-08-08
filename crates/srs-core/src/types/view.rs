@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -55,7 +55,7 @@ pub struct View {
     pub tags: Option<Vec<String>>,
     pub created_at: String,
     #[serde(flatten)]
-    pub extra: HashMap<String, serde_json::Value>,
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -282,7 +282,7 @@ pub struct DocumentView {
     pub tags: Option<Vec<String>>,
     pub created_at: String,
     #[serde(flatten)]
-    pub extra: HashMap<String, serde_json::Value>,
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[cfg(test)]
@@ -291,7 +291,7 @@ mod tests {
 
     #[test]
     fn document_view_roundtrips_json() {
-        let mut extra = HashMap::new();
+        let mut extra = BTreeMap::new();
         extra.insert("xCustom".to_string(), serde_json::json!("keep"));
         let dv = DocumentView {
             id: "ec34f54b-8636-5c8b-af5b-c9eb3df24fe6".to_string(),
