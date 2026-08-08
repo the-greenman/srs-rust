@@ -313,7 +313,7 @@ mod tests {
 
     #[test]
     fn read_policy_allowed_mime_types_json_string() {
-        // allowedMimeTypes stored as a JSON-encoded array string.
+        // allowed_mime_types stored as a JSON-encoded array string.
         let field_values = json!([
             {"fieldId": FIELD_ALLOWED_MIME, "value": "[\"application/pdf\", \"text/plain\"]"}
         ]);
@@ -422,7 +422,7 @@ mod tests {
 
         let result = read_attachment_policy(&store).expect("should not error");
         assert!(result.policy_record_present);
-        // First record has maxPerFileBytes = 1000, second has 9999.
+        // First record has max_per_file_bytes = 1000, second has 9999.
         assert_eq!(result.policy.max_per_file_bytes, Some(1000));
     }
 
@@ -447,28 +447,28 @@ mod tests {
             .unwrap()
         };
         write_json(
-            "package/fields/allowedMimeTypes.json",
+            "package/fields/allowed_mime_types.json",
             json!({"id": FIELD_ALLOWED_MIME, "namespace": "com.semanticops.base",
                 "name": "allowed_mime_types", "version": 1, "fieldType": {"datatype": "string", "format": "plain"},
                 "description": "allowed MIME types", "aiGuidance": {},
                 "createdAt": "2026-01-01T00:00:00Z"}),
         );
         write_json(
-            "package/fields/maxPerFileBytes.json",
+            "package/fields/max_per_file_bytes.json",
             json!({"id": FIELD_MAX_PER_FILE, "namespace": "com.semanticops.base",
                 "name": "max_per_file_bytes", "version": 1, "fieldType": {"datatype": "number"},
                 "description": "max per-file bytes", "aiGuidance": {},
                 "createdAt": "2026-01-01T00:00:00Z"}),
         );
         write_json(
-            "package/fields/maxDocBytes.json",
+            "package/fields/max_doc_bytes.json",
             json!({"id": FIELD_MAX_DOC, "namespace": "com.semanticops.base",
                 "name": "max_doc_bytes", "version": 1, "fieldType": {"datatype": "number"},
                 "description": "max doc bytes", "aiGuidance": {},
                 "createdAt": "2026-01-01T00:00:00Z"}),
         );
         write_json(
-            "package/fields/maxTotalBytes.json",
+            "package/fields/max_total_bytes.json",
             json!({"id": FIELD_MAX_TOTAL, "namespace": "com.semanticops.base",
                 "name": "max_total_bytes", "version": 1, "fieldType": {"datatype": "number"},
                 "description": "max total bytes", "aiGuidance": {},
@@ -496,8 +496,8 @@ mod tests {
                 "id": "bb000000-0000-4000-b000-000000000000",
                 "namespace": "com.semanticops.base",
                 "name": "base", "version": "1.0.0",
-                "fields": ["fields/allowedMimeTypes.json", "fields/maxPerFileBytes.json",
-                           "fields/maxDocBytes.json", "fields/maxTotalBytes.json"],
+                "fields": ["fields/allowed_mime_types.json", "fields/max_per_file_bytes.json",
+                           "fields/max_doc_bytes.json", "fields/max_total_bytes.json"],
                 "types": ["types/repo_settings.json"]
             }),
         );
