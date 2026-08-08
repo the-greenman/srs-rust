@@ -140,7 +140,7 @@ deterministic serialization holds with [R18] order.
 
 #### Tasks
 
-- [ ] Workspace: add `indexmap` (features `serde`); enable `serde_json/preserve_order`;
+- [x] Workspace: add `indexmap` (features `serde`); enable `serde_json/preserve_order`;
   update the `Cargo.toml:44` audit comment (it currently documents the *absence* of
   `preserve_order` as deliberate — ADR-043 changes the policy). **Feature-unification
   fallout (ADR-036/037 amendment):** verify MCP output is key-order-insensitive by protocol
@@ -149,7 +149,7 @@ deterministic serialization holds with [R18] order.
   `fieldValues`/`fieldMeta` subtrees) so ADR-036's determinism claim becomes
   construction-path-independent instead of relying on the disabled flag; update the stale
   `crates/srs-projection/src/json_schema.rs:14-17` comment
-- [ ] `crates/srs-core/src/types/record.rs`: `field_values: FieldValues` where
+- [x] `crates/srs-core/src/types/record.rs`: `field_values: FieldValues` where
   `pub struct FieldValues(IndexMap<String, serde_json::Value>)` (newtype; serializes as a
   JSON object in map order; deserializes preserving file order); add
   `field_meta: Option<IndexMap<String, FieldMeta>>` with
@@ -157,15 +157,15 @@ deterministic serialization holds with [R18] order.
   `FieldValue`, `FieldValueEntry`, `FieldGroupValue`, `FieldGroupEntry`, `group_values`;
   new accessors `fn value(&self, name: &str)`, `fn field_id_for(name, effective_set)`
   (Type-mediated recovery)
-- [ ] Canonical-serialization audit (ADR-017 amendment): `Record.extra` and every other
+- [x] Canonical-serialization audit (ADR-017 amendment): `Record.extra` and every other
   serialized entity map currently typed `HashMap` becomes `BTreeMap` (deterministic without
   the old BTreeMap-Value re-sort); enumerate every `serde_json::to_value(` call site in
   `crates/` and confirm each either feeds a canonical type or is order-insensitive; fix
   `json_store.rs` snapshot writing if it re-canonicalizes
-- [ ] `crates/srs-core/src/types/record_type.rs`: delete `Type.field_groups`, `FieldGroup`,
+- [x] `crates/srs-core/src/types/record_type.rs`: delete `Type.field_groups`, `FieldGroup`,
   `FieldAssignment.{repeatable, min_items, max_items}`, and the `effective-single`
   repeatable-conjunct helpers
-- [ ] **One value rule (shared primitive):** `crates/srs-core/src/validation/value_shape.rs`
+- [x] **One value rule (shared primitive):** `crates/srs-core/src/validation/value_shape.rs`
   — `fn validate_value(field_type: &FieldType, value: &serde_json::Value, resolver: &dyn
   RangeTypeResolver) -> Result<(), ValueShapeError>` implementing Change B's single-case
   table + [R16] uniform list wrap + recursive `ref`/`inline` descent ([R3]). This is the
@@ -173,22 +173,22 @@ deterministic serialization holds with [R18] order.
   verifies its output with it; a conformance test asserts `type_schema_service`'s emitted
   schema accepts exactly what it accepts over the fixture corpus (guards the
   RFC's "same rule read in two directions" property)
-- [ ] `crates/srs-core/src/validation/record.rs`: [R1] keys resolve in the effective field
+- [x] `crates/srs-core/src/validation/record.rs`: [R1] keys resolve in the effective field
   set + unknown-key rejection; [R2b] verbatim keys (no transform anywhere); [R5]
   required ⇒ key present, `null` rejected; [R6] `fieldMeta` keys ⊆ `fieldValues` keys, no
   `fieldMeta` inside composites; [R14] reference-mode integrity (target in `instanceIndex`,
   rangeType/typeVersion match)
-- [ ] `crates/srs-core/src/validation/record_type.rs`: [R4] effective-set `Field.name`
+- [x] `crates/srs-core/src/validation/record_type.rs`: [R4] effective-set `Field.name`
   uniqueness (definition-time diagnostic); [R7] removed-construct rejection at
   `dataModelRevision ≥ 2` (revision resolved from the enclosing manifest, plumbed by
   caller); [R15] a revision ≥ 2 manifest declaring `ext:field-groups` or
   `ext:repeatable-fields` is an **error**, not ignored (declaration-rejection half, distinct
   from the construct-deletion half)
-- [ ] [R9] generation discrimination at deserialization: array `fieldValues` ⇒ typed error
+- [x] [R9] generation discrimination at deserialization: array `fieldValues` ⇒ typed error
   naming the document and expected `dataModelRevision`; Tier-1 documents: `TypedField`
   without `fieldType` ⇒ same, in the Tier-1 validation path (see Phase 2 — Tier 1 has no
   typed struct; the check lives where Tier-1 JSON is read)
-- [ ] Cardinality-only predicate switch (**Change-I condition 4**; the five-condition gate is
+- [x] Cardinality-only predicate switch (**Change-I condition 4**; the five-condition gate is
   RFC-039 "Migration plan → Ordering", inherited from RFC-032 Change I): remove the
   transition-only `effective FieldAssignment.repeatable != true` conjunct from
   `is_text_searchable` (`field_type.rs`), `[T-9]` theme eligibility, `[N+1]`
@@ -198,12 +198,12 @@ deterministic serialization holds with [R18] order.
 
 #### Acceptance Criteria
 
-- [ ] `cargo test -p srs-core` green; no symbol `FieldValue`, `FieldGroupValue`,
+- [x] `cargo test -p srs-core` green; no symbol `FieldValue`, `FieldGroupValue`,
   `FieldGroupEntry`, `group_values`, `repeatable` (assignment-level) remains in srs-core
-- [ ] A revision-1 record JSON fails deserialization with the [R9] diagnostic
-- [ ] A composite value validates recursively to depth ≥ 3 through `validate_value`
-- [ ] A Type with duplicate effective `Field.name`s is rejected at definition time ([R4])
-- [ ] Serializing a `Record` through `serde_json::to_value` **and** direct-to-writer both
+- [x] A revision-1 record JSON fails deserialization with the [R9] diagnostic
+- [x] A composite value validates recursively to depth ≥ 3 through `validate_value`
+- [x] A Type with duplicate effective `Field.name`s is rejected at definition time ([R4])
+- [x] Serializing a `Record` through `serde_json::to_value` **and** direct-to-writer both
   preserve `FieldValues` insertion order (the ADR-017-amendment property)
 
 #### Testing
@@ -410,11 +410,13 @@ Commit: `feat(cli,bindings,mcp,gov): object carrier across adapter surfaces (#80
 
 #### Tasks
 
-- [ ] Author the 8 schema-file changes (RFC-039 Schema-changes table) on `srs` branch
+- [x] Author the 8 schema-file changes (RFC-039 Schema-changes table) on `srs` branch
   `feat/242-phase-b-schemas`; validate each against its meta-schema; push the branch
-- [ ] Pre-stage the mirror: run `scripts/sync-schemas-from-spec.sh` against the local
-  sibling checked out on `feat/242-phase-b-schemas`; verify `bash
-  scripts/check-schema-sync.sh` green locally
+  *(done during Phase 1 — the schema-contract tests in every crate validate against
+  the embedded mirror, so the pre-stage had to precede the Phase-1 gate)*
+- [x] Pre-stage the mirror: run `scripts/sync-schemas-from-spec.sh` against the local
+  sibling checked out on `feat/242-phase-b-schemas` *(done during Phase 1; SHA256SUMS
+  regenerated by the sync script)*
 - [ ] Migrate every fixture repository under `crates/*/tests/fixtures/**` through the
   Phase-3 transform (dogfood); rewrite inline test JSON by hand; re-pack `core-bundle.srsj`,
   `governance-seed.srsj`, `gallery.srsj` deterministically (ADR-017 as amended)

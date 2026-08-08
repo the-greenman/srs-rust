@@ -107,6 +107,7 @@ pub fn validate_vocabulary(vocab: &Vocabulary) -> Vec<VocabularyDiagnostic> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
     use crate::types::term::{Term, VocabularyEntryStatus};
     use crate::types::vocabulary::{Vocabulary, VocabularyMode};
 
@@ -144,7 +145,7 @@ mod tests {
             promotion_window: None,
             description: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         }
     }
 

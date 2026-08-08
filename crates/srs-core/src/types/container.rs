@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -31,7 +31,7 @@ pub struct Container {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub meta: Option<serde_json::Value>,
     #[serde(flatten)]
-    pub extra: HashMap<String, serde_json::Value>,
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -49,7 +49,7 @@ pub struct ContainerIndexEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tags: Option<Vec<String>>,
     #[serde(flatten)]
-    pub extra: HashMap<String, serde_json::Value>,
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[cfg(test)]
@@ -58,7 +58,7 @@ mod tests {
 
     #[test]
     fn container_roundtrips_all_fields() {
-        let mut extra = HashMap::new();
+        let mut extra = BTreeMap::new();
         extra.insert("xCustom".to_string(), serde_json::json!("value"));
         let container = Container {
             container_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
@@ -98,7 +98,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
-            extra: HashMap::new(),
+            extra: BTreeMap::new(),
         };
 
         let value = serde_json::to_value(&container).unwrap();
@@ -139,7 +139,7 @@ mod tests {
     #[test]
     fn container_index_entry_roundtrips() {
         // Full entry — all fields survive round-trip
-        let mut extra = HashMap::new();
+        let mut extra = BTreeMap::new();
         extra.insert("xFoo".to_string(), serde_json::json!(42));
         let entry = ContainerIndexEntry {
             container_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
@@ -160,7 +160,7 @@ mod tests {
             path: None,
             container_type: None,
             tags: None,
-            extra: HashMap::new(),
+            extra: BTreeMap::new(),
         };
         let value = serde_json::to_value(&minimal).unwrap();
         assert!(value.get("title").is_none());
@@ -185,7 +185,7 @@ mod tests {
             created_at: Some("2026-01-01T00:00:00Z".to_string()),
             updated_at: None,
             meta: None,
-            extra: HashMap::new(),
+            extra: BTreeMap::new(),
         };
         let mut value = serde_json::to_value(&container).unwrap();
         value["$schema"] =

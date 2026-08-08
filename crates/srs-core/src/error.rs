@@ -11,11 +11,15 @@ pub enum CoreError {
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
 
-    #[error("missing required field: {field_id}")]
-    MissingRequiredField { field_id: String },
+    #[error("missing required field key: {key}")]
+    MissingRequiredField { key: String },
 
-    #[error("unknown field in record: {field_id}")]
-    UnknownField { field_id: String },
+    /// RFC-039 [R1]: a `fieldValues` key that names no Field in the Type's
+    /// effective field set.
+    #[error(
+        "unknown fieldValues key '{key}': no Field of that name in the Type's effective field set"
+    )]
+    UnknownFieldKey { key: String },
 
     #[error("tag key must be non-empty")]
     EmptyTagKey,
@@ -23,8 +27,61 @@ pub enum CoreError {
     #[error("invalid relation type: {relation_type}")]
     InvalidRelationType { relation_type: String },
 
-    #[error("invalid field value for {field_id}: {reason}")]
-    InvalidFieldValue { field_id: String, reason: String },
+    #[error("invalid field value for {key}: {reason}")]
+    InvalidFieldValue { key: String, reason: String },
+
+    /// RFC-039 [R3]/[R16]: the value at a key does not conform to the Change-B
+    /// rule for that Field's `fieldType`.
+    #[error("value shape mismatch at '{key}': expected {expected}, got {got}")]
+    ValueShape {
+        key: String,
+        expected: String,
+        got: String,
+    },
+
+    /// RFC-039 [R5]: `null` is not a value — key absence is the sole
+    /// representation of "unset".
+    #[error("null value at '{key}': omit the key instead (RFC-039 [R5])")]
+    NullFieldValue { key: String },
+
+    /// RFC-039 [R6]: a `fieldMeta` key with no corresponding `fieldValues` key.
+    #[error("fieldMeta key '{key}' has no corresponding fieldValues key (RFC-039 [R6])")]
+    FieldMetaUnknownKey { key: String },
+
+    /// RFC-039 [R14]: a `mode: "reference"` value whose target is not in the
+    /// repository's instanceIndex.
+    #[error("dangling reference at '{key}': instance {target} not found in instanceIndex (RFC-039 [R14])")]
+    DanglingReference { key: String, target: String },
+
+    /// RFC-039 [R14]: a `mode: "reference"` target of the wrong Type/version.
+    #[error("reference type mismatch at '{key}': instance {target} is not a {expected_type}@{expected_version} (RFC-039 [R14])")]
+    ReferenceTypeMismatch {
+        key: String,
+        target: String,
+        expected_type: String,
+        expected_version: u32,
+    },
+
+    /// RFC-039 [R4]: two Fields in one Type's effective field set share a name.
+    #[error("duplicate Field.name '{name}' in the Type's effective field set (RFC-039 [R4])")]
+    DuplicateEffectiveFieldName { name: String },
+
+    /// RFC-039 [R7]: a removed construct present in a `dataModelRevision >= 2`
+    /// document.
+    #[error("removed construct '{construct}' in {location}: rejected at dataModelRevision >= 2 (RFC-039 [R7])")]
+    RemovedConstruct { construct: String, location: String },
+
+    /// RFC-039 [R15]: a `dataModelRevision >= 2` manifest declaring a retired
+    /// extension.
+    #[error("retired extension '{extension}' declared: ext:field-groups and ext:repeatable-fields are removed at dataModelRevision >= 2 (RFC-039 [R15])")]
+    RetiredExtensionDeclared { extension: String },
+
+    /// RFC-039 [R9]: a document of a generation this reader does not support.
+    #[error("unsupported data-model generation in {document}: expected dataModelRevision {expected_revision} (RFC-039 [R9]); migrate with `srs migrate`")]
+    UnsupportedGeneration {
+        document: String,
+        expected_revision: u32,
+    },
 
     #[error("document view must contain at least one section")]
     EmptyDocumentViewSections,
@@ -49,40 +106,6 @@ pub enum CoreError {
 
     #[error("duplicate theme record wrapper override type id: {type_id}")]
     DuplicateThemeRecordOverrideTypeId { type_id: String },
-
-    #[error("repeatable field {field_id} has {count} entries but minItems is {min}")]
-    TooFewEntries {
-        field_id: String,
-        count: usize,
-        min: u32,
-    },
-
-    #[error("repeatable field {field_id} has {count} entries but maxItems is {max}")]
-    TooManyEntries {
-        field_id: String,
-        count: usize,
-        max: u32,
-    },
-
-    #[error("non-repeatable field {field_id} must use `value`, not `entries`")]
-    EntriesOnNonRepeatableField { field_id: String },
-
-    #[error("required field group {group_id} is missing from record")]
-    MissingRequiredFieldGroup { group_id: String },
-
-    #[error("field group {group_id} has {count} entries but minItems is {min}")]
-    TooFewGroupEntries {
-        group_id: String,
-        count: usize,
-        min: u32,
-    },
-
-    #[error("field group {group_id} has {count} entries but maxItems is {max}")]
-    TooManyGroupEntries {
-        group_id: String,
-        count: usize,
-        max: u32,
-    },
 
     /// Record.tags value must be a non-empty string.
     #[error("invalid tag value '{tag}': tag strings must be non-empty")]
@@ -128,169 +151,10 @@ pub enum CoreError {
 
 impl PartialEq for CoreError {
     fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (
-                CoreError::DuplicateSectionName { name: a },
-                CoreError::DuplicateSectionName { name: b },
-            ) => a == b,
-            (CoreError::EmptyTag, CoreError::EmptyTag) => true,
-            // Json errors compared by their display representation
-            (CoreError::Json(a), CoreError::Json(b)) => a.to_string() == b.to_string(),
-            (
-                CoreError::MissingRequiredField { field_id: a },
-                CoreError::MissingRequiredField { field_id: b },
-            ) => a == b,
-            (CoreError::UnknownField { field_id: a }, CoreError::UnknownField { field_id: b }) => {
-                a == b
-            }
-            (CoreError::EmptyTagKey, CoreError::EmptyTagKey) => true,
-            (
-                CoreError::InvalidRelationType { relation_type: a },
-                CoreError::InvalidRelationType { relation_type: b },
-            ) => a == b,
-            (
-                CoreError::InvalidFieldValue {
-                    field_id: af,
-                    reason: ar,
-                },
-                CoreError::InvalidFieldValue {
-                    field_id: bf,
-                    reason: br,
-                },
-            ) => af == bf && ar == br,
-            (CoreError::EmptyDocumentViewSections, CoreError::EmptyDocumentViewSections) => true,
-            (
-                CoreError::DuplicateDocumentSectionId { section_id: a },
-                CoreError::DuplicateDocumentSectionId { section_id: b },
-            ) => a == b,
-            (
-                CoreError::DuplicateFieldViewId { field_id: a },
-                CoreError::DuplicateFieldViewId { field_id: b },
-            ) => a == b,
-            (CoreError::EmptyViewFieldViews, CoreError::EmptyViewFieldViews) => true,
-            (
-                CoreError::DuplicateThemeVariantName { name: a },
-                CoreError::DuplicateThemeVariantName { name: b },
-            ) => a == b,
-            (CoreError::ThemeTargetsEmpty, CoreError::ThemeTargetsEmpty) => true,
-            (
-                CoreError::DuplicateThemeSectionOverrideId { section_id: a },
-                CoreError::DuplicateThemeSectionOverrideId { section_id: b },
-            ) => a == b,
-            (
-                CoreError::DuplicateThemeRecordOverrideTypeId { type_id: a },
-                CoreError::DuplicateThemeRecordOverrideTypeId { type_id: b },
-            ) => a == b,
-            (
-                CoreError::TooFewEntries {
-                    field_id: af,
-                    count: ac,
-                    min: am,
-                },
-                CoreError::TooFewEntries {
-                    field_id: bf,
-                    count: bc,
-                    min: bm,
-                },
-            ) => af == bf && ac == bc && am == bm,
-            (
-                CoreError::TooManyEntries {
-                    field_id: af,
-                    count: ac,
-                    max: am,
-                },
-                CoreError::TooManyEntries {
-                    field_id: bf,
-                    count: bc,
-                    max: bm,
-                },
-            ) => af == bf && ac == bc && am == bm,
-            (
-                CoreError::EntriesOnNonRepeatableField { field_id: a },
-                CoreError::EntriesOnNonRepeatableField { field_id: b },
-            ) => a == b,
-            (
-                CoreError::MissingRequiredFieldGroup { group_id: a },
-                CoreError::MissingRequiredFieldGroup { group_id: b },
-            ) => a == b,
-            (
-                CoreError::TooFewGroupEntries {
-                    group_id: ag,
-                    count: ac,
-                    min: am,
-                },
-                CoreError::TooFewGroupEntries {
-                    group_id: bg,
-                    count: bc,
-                    min: bm,
-                },
-            ) => ag == bg && ac == bc && am == bm,
-            (
-                CoreError::TooManyGroupEntries {
-                    group_id: ag,
-                    count: ac,
-                    max: am,
-                },
-                CoreError::TooManyGroupEntries {
-                    group_id: bg,
-                    count: bc,
-                    max: bm,
-                },
-            ) => ag == bg && ac == bc && am == bm,
-            (
-                CoreError::InvalidLifecycleState { state: a },
-                CoreError::InvalidLifecycleState { state: b },
-            ) => a == b,
-            (
-                CoreError::InvalidLifecycleInitialState { state: a },
-                CoreError::InvalidLifecycleInitialState { state: b },
-            ) => a == b,
-            (
-                CoreError::InvalidLifecycleTransitionState {
-                    state: sa,
-                    transition_name: ta,
-                },
-                CoreError::InvalidLifecycleTransitionState {
-                    state: sb,
-                    transition_name: tb,
-                },
-            ) => sa == sb && ta == tb,
-            (CoreError::InvalidTagValue { tag: a }, CoreError::InvalidTagValue { tag: b }) => {
-                a == b
-            }
-            (
-                CoreError::CrossFieldConditionalRequired {
-                    predicate_field_id: apf,
-                    predicate_value: apv,
-                    target_field_id: atf,
-                },
-                CoreError::CrossFieldConditionalRequired {
-                    predicate_field_id: bpf,
-                    predicate_value: bpv,
-                    target_field_id: btf,
-                },
-            ) => apf == bpf && apv == bpv && atf == btf,
-            (
-                CoreError::CrossFieldOrdering {
-                    target_field_id: at,
-                    effect: ae,
-                    predicate_field_id: ap,
-                },
-                CoreError::CrossFieldOrdering {
-                    target_field_id: bt,
-                    effect: be,
-                    predicate_field_id: bp,
-                },
-            ) => at == bt && ae == be && ap == bp,
-            (
-                CoreError::CrossFieldMutualExclusion { field_ids: a },
-                CoreError::CrossFieldMutualExclusion { field_ids: b },
-            ) => a == b,
-            (
-                CoreError::CrossFieldRuleMisconfigured { reason: a },
-                CoreError::CrossFieldRuleMisconfigured { reason: b },
-            ) => a == b,
-            _ => false,
-        }
+        // Every variant's payload is fully rendered in its Display message, so
+        // discriminant + message equality is exactly payload equality (and the
+        // only comparison available for the non-PartialEq serde_json::Error).
+        std::mem::discriminant(self) == std::mem::discriminant(other)
+            && self.to_string() == other.to_string()
     }
 }

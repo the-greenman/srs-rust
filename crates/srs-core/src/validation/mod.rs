@@ -8,6 +8,8 @@ pub mod record;
 pub mod record_type;
 pub mod relation;
 pub mod relation_type_definition;
+pub mod revision_guard;
 pub mod theme;
+pub mod value_shape;
 pub mod view;
 pub mod vocabulary;

@@ -1,6 +1,6 @@
 use super::term::VocabularyEntryStatus;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// Which end of the relation the record in the state must occupy (RFC-022).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -141,7 +141,7 @@ pub struct Lifecycle {
     pub description: Option<String>,
     pub created_at: String,
     #[serde(flatten)]
-    pub extra: HashMap<String, serde_json::Value>,
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[cfg(test)]
@@ -252,7 +252,7 @@ mod tests {
             extends_lifecycle_version: None,
             description: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::HashMap::new(),
+            extra: std::collections::BTreeMap::new(),
         };
         let json = serde_json::to_string(&lc).unwrap();
         let parsed: Lifecycle = serde_json::from_str(&json).unwrap();

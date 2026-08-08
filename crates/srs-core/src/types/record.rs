@@ -1,5 +1,68 @@
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
+
+/// RFC-039 revision-2 value carrier: a JSON object keyed by `Field.name`
+/// verbatim ([R2b]), whose values follow the recursive Change-B rule. Key
+/// order is data — [R18] requires serialisation in `FieldAssignment.order` —
+/// so the map is insertion-ordered (`serde_json::Map` under `preserve_order`,
+/// ADR-043) at every boundary, including `to_value` funnels.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct FieldValues(pub serde_json::Map<String, serde_json::Value>);
+
+impl FieldValues {
+    #[must_use]
+    pub fn new() -> Self {
+        Self(serde_json::Map::new())
+    }
+
+    #[must_use]
+    pub fn get(&self, name: &str) -> Option<&serde_json::Value> {
+        self.0.get(name)
+    }
+
+    pub fn insert(&mut self, name: impl Into<String>, value: serde_json::Value) {
+        self.0.insert(name.into(), value);
+    }
+
+    #[must_use]
+    pub fn contains_key(&self, name: &str) -> bool {
+        self.0.contains_key(name)
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &serde_json::Value)> {
+        self.0.iter()
+    }
+
+    pub fn keys(&self) -> impl Iterator<Item = &String> {
+        self.0.keys()
+    }
+}
+
+/// Per-field provenance ([R6], RFC-039 Change C): metadata about the
+/// assertion, keyed identically to the sibling `fieldValues` map. One object
+/// per field — never per list item, never inside a composite interior.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldMeta {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edited_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_refs: Option<Vec<serde_json::Value>>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -9,9 +72,14 @@ pub struct Record {
     pub type_version: u32,
     pub type_namespace: String,
     pub type_name: String,
-    pub field_values: Vec<FieldValue>,
+    /// Name-keyed recursive value carrier (RFC-039 [R1]–[R3]). An array here
+    /// is a revision ≤ 1 document and is rejected at deserialization ([R9])
+    /// by `reject_legacy_field_values`.
+    #[serde(deserialize_with = "deserialize_field_values")]
+    pub field_values: FieldValues,
+    /// Per-field provenance, keys ⊆ `field_values` keys ([R6]).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub group_values: Option<Vec<FieldGroupValue>>,
+    pub field_meta: Option<IndexMap<String, FieldMeta>>,
     /// ext:lifecycle — current lifecycle state. Must name a state in the associated
     /// Type's lifecycle.states[] when the Type declares a lifecycle (Invariant 6).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -24,66 +92,56 @@ pub struct Record {
     pub created_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<String>,
+    /// Envelope extras (`$schema`, `meta`, `sourceRefs`, …). `BTreeMap` for
+    /// deterministic serialisation (ADR-043 canonical-types discipline).
     #[serde(flatten)]
-    pub extra: HashMap<String, serde_json::Value>,
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FieldValueEntry {
-    pub value: serde_json::Value,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub edited_at: Option<String>,
+/// [R9]: a reader MUST determine instance generation structurally — an array
+/// `fieldValues` is revision ≤ 1 — and MUST reject it with a diagnostic
+/// rather than coerce, partially read, or silently skip.
+fn deserialize_field_values<'de, D>(deserializer: D) -> Result<FieldValues, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    match value {
+        serde_json::Value::Object(map) => Ok(FieldValues(map)),
+        serde_json::Value::Array(_) => Err(serde::de::Error::custom(
+            "fieldValues is an array — this is a dataModelRevision <= 1 document; \
+             expected dataModelRevision 2 (object keyed by Field.name, RFC-039 [R9]). \
+             Migrate the repository with `srs migrate`",
+        )),
+        other => Err(serde::de::Error::custom(format!(
+            "fieldValues must be an object keyed by Field.name (RFC-039 [R1]), got {}",
+            json_type_name(&other)
+        ))),
+    }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FieldValue {
-    pub field_id: String,
-    #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
-    pub value: serde_json::Value,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub entries: Option<Vec<FieldValueEntry>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub edited_at: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FieldGroupEntry {
-    pub field_values: Vec<FieldValue>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub entry_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FieldGroupValue {
-    pub group_id: String,
-    pub entries: Vec<FieldGroupEntry>,
+pub(crate) fn json_type_name(v: &serde_json::Value) -> &'static str {
+    match v {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "boolean",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
+    }
 }
 
 impl Record {
-    /// Find a field value by field_id
-    pub fn find_field_value(&self, field_id: &str) -> Option<&FieldValue> {
-        self.field_values.iter().find(|fv| fv.field_id == field_id)
+    /// Value at a `Field.name` key ([R2b]: verbatim, no transform).
+    #[must_use]
+    pub fn value(&self, name: &str) -> Option<&serde_json::Value> {
+        self.field_values.get(name)
     }
 
-    pub fn find_group_value(&self, group_id: &str) -> Option<&FieldGroupValue> {
-        self.group_values
-            .as_ref()?
-            .iter()
-            .find(|gv| gv.group_id == group_id)
-    }
-
-    /// Get a string value from a field
-    pub fn get_field_value_str(&self, field_id: &str) -> Option<&str> {
-        self.find_field_value(field_id)
-            .and_then(|fv| fv.value.as_str())
+    /// String value at a `Field.name` key.
+    #[must_use]
+    pub fn value_str(&self, name: &str) -> Option<&str> {
+        self.value(name).and_then(|v| v.as_str())
     }
 }
 
@@ -99,35 +157,23 @@ mod tests {
             type_version: 1,
             type_namespace: "test.ns".to_string(),
             type_name: "test-type".to_string(),
-            field_values: vec![],
-            group_values: None,
+            field_values: FieldValues::new(),
+            field_meta: None,
             lifecycle_state: None,
             tags: None,
             created_at: None,
             updated_at: None,
-            extra: HashMap::new(),
+            extra: BTreeMap::new(),
         }
     }
 
     #[test]
     fn record_roundtrips_json() {
+        let mut fv = FieldValues::new();
+        fv.insert("title", json!("value1"));
+        fv.insert("count", json!(42));
         let record = Record {
-            field_values: vec![
-                FieldValue {
-                    field_id: "field-1".to_string(),
-                    value: json!("value1"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                },
-                FieldValue {
-                    field_id: "field-2".to_string(),
-                    value: json!(42),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                },
-            ],
+            field_values: fv,
             created_at: Some("2024-01-01T00:00:00Z".to_string()),
             ..minimal_record()
         };
@@ -139,6 +185,7 @@ mod tests {
         assert_eq!(parsed.type_namespace, "test.ns");
         assert_eq!(parsed.type_name, "test-type");
         assert_eq!(parsed.field_values.len(), 2);
+        assert_eq!(parsed.value_str("title"), Some("value1"));
     }
 
     #[test]
@@ -149,7 +196,7 @@ mod tests {
             "typeVersion": 1,
             "typeNamespace": "test.ns",
             "typeName": "test-type",
-            "fieldValues": [],
+            "fieldValues": {},
             "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
         }"#;
 
@@ -164,38 +211,108 @@ mod tests {
     }
 
     #[test]
-    fn find_field_value_works() {
-        let record = Record {
-            field_values: vec![FieldValue {
-                field_id: "field-a".to_string(),
-                value: json!("value-a"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            }],
-            ..minimal_record()
-        };
-
-        assert!(record.find_field_value("field-a").is_some());
-        assert!(record.find_field_value("unknown").is_none());
-        assert_eq!(record.get_field_value_str("field-a"), Some("value-a"));
-        assert_eq!(record.get_field_value_str("unknown"), None);
+    fn rev1_array_field_values_rejected_with_r9_diagnostic() {
+        let json_str = r#"{
+            "instanceId": "00000000-0000-4000-8000-000000000001",
+            "typeId": "00000000-0000-4000-8000-000000000002",
+            "typeVersion": 1,
+            "typeNamespace": "test.ns",
+            "typeName": "test-type",
+            "fieldValues": [{"fieldId": "00000000-0000-4000-8000-000000000009", "value": "x"}]
+        }"#;
+        let err = serde_json::from_str::<Record>(json_str).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("dataModelRevision"),
+            "diagnostic names the expected revision: {msg}"
+        );
+        assert!(msg.contains("[R9]"), "diagnostic cites the rule: {msg}");
     }
 
     #[test]
-    fn multiselect_field_value_is_array() {
-        let fv = FieldValue {
-            field_id: "roles".to_string(),
-            value: json!(["foundation", "navigation"]),
-            entries: None,
-            source: None,
-            edited_at: None,
+    fn scalar_field_values_rejected() {
+        let json_str = r#"{
+            "instanceId": "00000000-0000-4000-8000-000000000001",
+            "typeId": "00000000-0000-4000-8000-000000000002",
+            "typeVersion": 1,
+            "typeNamespace": "test.ns",
+            "typeName": "test-type",
+            "fieldValues": "nope"
+        }"#;
+        assert!(serde_json::from_str::<Record>(json_str).is_err());
+    }
+
+    #[test]
+    fn field_values_order_survives_to_value_roundtrip() {
+        // ADR-043 / ADR-017 amendment: insertion order must survive the
+        // serde_json::Value funnel (preserve_order) and direct serialisation.
+        let mut fv = FieldValues::new();
+        fv.insert("zeta", json!("z"));
+        fv.insert("alpha", json!("a"));
+        fv.insert("midway", json!("m"));
+        let record = Record {
+            field_values: fv,
+            ..minimal_record()
         };
 
-        let arr = fv.value.as_array().unwrap();
-        assert_eq!(arr.len(), 2);
-        assert_eq!(arr[0], json!("foundation"));
-        assert_eq!(arr[1], json!("navigation"));
+        let value = serde_json::to_value(&record).unwrap();
+        let keys: Vec<&String> = value["fieldValues"].as_object().unwrap().keys().collect();
+        assert_eq!(keys, ["zeta", "alpha", "midway"]);
+
+        let direct = serde_json::to_string(&record).unwrap();
+        let z = direct.find("zeta").unwrap();
+        let a = direct.find("alpha").unwrap();
+        let m = direct.find("midway").unwrap();
+        assert!(
+            z < a && a < m,
+            "direct serialisation preserves insertion order"
+        );
+    }
+
+    #[test]
+    fn nested_composite_value_roundtrips() {
+        // An inline-composite value is itself a fieldValues-shaped object
+        // (RFC-039 Change B) — carried recursively with no wrapper construct.
+        let mut fv = FieldValues::new();
+        fv.insert(
+            "rows",
+            json!([
+                {"cells": ["a", "b"]},
+                {"cells": ["c", "d"]}
+            ]),
+        );
+        let record = Record {
+            field_values: fv,
+            ..minimal_record()
+        };
+        let value = serde_json::to_value(&record).unwrap();
+        let parsed: Record = serde_json::from_value(value).unwrap();
+        assert_eq!(parsed.value("rows").unwrap()[0]["cells"], json!(["a", "b"]));
+    }
+
+    #[test]
+    fn field_meta_roundtrips_and_absent_omits_key() {
+        let mut meta = IndexMap::new();
+        meta.insert(
+            "title".to_string(),
+            FieldMeta {
+                source: Some("human".to_string()),
+                ..Default::default()
+            },
+        );
+        let mut fv = FieldValues::new();
+        fv.insert("title", json!("t"));
+        let record = Record {
+            field_values: fv,
+            field_meta: Some(meta),
+            ..minimal_record()
+        };
+        let value = serde_json::to_value(&record).unwrap();
+        assert_eq!(value["fieldMeta"]["title"]["source"], json!("human"));
+
+        let bare = minimal_record();
+        let bare_value = serde_json::to_value(&bare).unwrap();
+        assert!(bare_value.get("fieldMeta").is_none());
     }
 
     #[test]
@@ -227,138 +344,5 @@ mod tests {
         value["$schema"] = json!("https://srs.semanticops.com/schema/2.0/record.json");
         reg.validate_by_id(srs_schema::RECORD_SCHEMA_ID, &value)
             .expect("minimal Record must pass record.json schema");
-    }
-
-    #[test]
-    fn field_value_entry_roundtrips_json() {
-        let entry = FieldValueEntry {
-            value: json!("hello"),
-            source: Some("human".to_string()),
-            edited_at: None,
-        };
-        let value = serde_json::to_value(&entry).unwrap();
-        let parsed: FieldValueEntry = serde_json::from_value(value).unwrap();
-        assert_eq!(parsed.source.as_deref(), Some("human"));
-        assert_eq!(parsed.value, json!("hello"));
-    }
-
-    #[test]
-    fn field_value_entries_roundtrips() {
-        let field_value = FieldValue {
-            field_id: "f1".to_string(),
-            value: json!("primary"),
-            entries: Some(vec![FieldValueEntry {
-                value: json!("v1"),
-                source: Some("human".to_string()),
-                edited_at: Some("2026-01-01T00:00:00Z".to_string()),
-            }]),
-            source: None,
-            edited_at: None,
-        };
-        let value = serde_json::to_value(&field_value).unwrap();
-        let parsed: FieldValue = serde_json::from_value(value).unwrap();
-        assert_eq!(parsed.entries.as_ref().map(std::vec::Vec::len), Some(1));
-    }
-
-    #[test]
-    fn field_value_without_entries_omits_entries_key() {
-        let field_value = FieldValue {
-            field_id: "f1".to_string(),
-            value: json!("primary"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        };
-        let value = serde_json::to_value(&field_value).unwrap();
-        assert!(value.get("entries").is_none());
-    }
-
-    #[test]
-    fn field_group_value_roundtrips_json() {
-        let value = FieldGroupValue {
-            group_id: "g1".to_string(),
-            entries: vec![
-                FieldGroupEntry {
-                    field_values: vec![FieldValue {
-                        field_id: "f1".to_string(),
-                        value: json!("a"),
-                        entries: None,
-                        source: None,
-                        edited_at: None,
-                    }],
-                    entry_id: Some("e1".to_string()),
-                },
-                FieldGroupEntry {
-                    field_values: vec![FieldValue {
-                        field_id: "f2".to_string(),
-                        value: json!("b"),
-                        entries: None,
-                        source: None,
-                        edited_at: None,
-                    }],
-                    entry_id: Some("e2".to_string()),
-                },
-            ],
-        };
-        let json_value = serde_json::to_value(&value).unwrap();
-        let parsed: FieldGroupValue = serde_json::from_value(json_value).unwrap();
-        assert_eq!(parsed.entries.len(), 2);
-    }
-
-    #[test]
-    fn record_with_group_values_roundtrips() {
-        let record = Record {
-            group_values: Some(vec![FieldGroupValue {
-                group_id: "g1".to_string(),
-                entries: vec![FieldGroupEntry {
-                    field_values: vec![],
-                    entry_id: None,
-                }],
-            }]),
-            ..minimal_record()
-        };
-        let value = serde_json::to_value(&record).unwrap();
-        let parsed: Record = serde_json::from_value(value).unwrap();
-        assert!(parsed.group_values.is_some());
-    }
-
-    #[test]
-    fn record_without_group_values_omits_key() {
-        let record = minimal_record();
-        let value = serde_json::to_value(&record).unwrap();
-        assert!(value.get("groupValues").is_none());
-    }
-
-    #[test]
-    fn find_group_value_returns_correct_group() {
-        let record = Record {
-            group_values: Some(vec![
-                FieldGroupValue {
-                    group_id: "g1".to_string(),
-                    entries: vec![],
-                },
-                FieldGroupValue {
-                    group_id: "g2".to_string(),
-                    entries: vec![],
-                },
-            ]),
-            ..minimal_record()
-        };
-        assert_eq!(
-            record.find_group_value("g2").map(|g| g.group_id.as_str()),
-            Some("g2")
-        );
-    }
-
-    #[test]
-    fn find_group_value_returns_none_for_unknown() {
-        let record = Record {
-            group_values: Some(vec![FieldGroupValue {
-                group_id: "g1".to_string(),
-                entries: vec![],
-            }]),
-            ..minimal_record()
-        };
-        assert!(record.find_group_value("missing").is_none());
     }
 }

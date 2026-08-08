@@ -392,19 +392,11 @@ impl FieldType {
     /// precondition of I-94, `[T-9]` and `[N+1]`.
     ///
     /// A field is effective-single when `fieldType.cardinality` is absent or
-    /// `single` **and** the effective `FieldAssignment.repeatable` is not `true`.
-    /// This is deliberately a **union across both live cardinality mechanisms**,
-    /// not a re-key to `cardinality` alone: RFC-037 `:423` declined that re-key
-    /// as a model-level change beyond its remit, and the legacy `repeatable`
-    /// conjunct is removed only inside the atomic srs#242 Phase-B train, behind
-    /// five evidenced conditions. Dropping it early would silently widen every
-    /// rule that depends on it.
-    ///
-    /// `assignment_repeatable` is the `FieldAssignment.repeatable` of this field
-    /// **in the Type under consideration** — the flag is per-assignment, not per
-    /// field, so it cannot be read off the `FieldType`.
-    pub fn is_effective_single(&self, assignment_repeatable: bool) -> bool {
-        self.effective_cardinality() == Cardinality::Single && !assignment_repeatable
+    /// `single`. The transition-only `FieldAssignment.repeatable` conjunct was
+    /// removed in the srs#242 Phase-B train (RFC-039 [R7] deletes the trio;
+    /// RFC-032 Change-I condition 4), so `cardinality` is the sole mechanism.
+    pub fn is_effective_single(&self) -> bool {
+        self.effective_cardinality() == Cardinality::Single
     }
 
     /// The prose `format` allow-list — `format` absent, `plain` or `markdown`.
@@ -463,8 +455,8 @@ impl FieldType {
     /// Effective-single **and** `datatype` ∈ {`string`, `date`, `date-time`}.
     /// The rule compares a single stored value against a single declared
     /// `predicateValue`, so a list cardinality has no defined semantics.
-    pub fn is_conditional_required_eligible(&self, assignment_repeatable: bool) -> bool {
-        self.is_effective_single(assignment_repeatable)
+    pub fn is_conditional_required_eligible(&self) -> bool {
+        self.is_effective_single()
             && matches!(
                 self.datatype,
                 Datatype::String | Datatype::Date | Datatype::DateTime
@@ -478,10 +470,8 @@ impl FieldType {
     /// `plain` or `markdown`). `valueDomain` is deliberately **unconstrained**:
     /// both open and closed domains are eligible, since a closed vocabulary is
     /// if anything the more natural source of a stable class name.
-    pub fn is_theme_css_class_eligible(&self, assignment_repeatable: bool) -> bool {
-        self.is_effective_single(assignment_repeatable)
-            && self.datatype == Datatype::String
-            && self.has_prose_format()
+    pub fn is_theme_css_class_eligible(&self) -> bool {
+        self.is_effective_single() && self.datatype == Datatype::String && self.has_prose_format()
     }
 
     /// `[N+1]` / ext:views-l2 — whether this field may be a
@@ -490,8 +480,8 @@ impl FieldType {
     /// Effective-single, `datatype == string`, `valueDomain` ∈ {absent, `open`},
     /// and a prose `format`. Stricter than `[T-9]` in exactly one respect: a
     /// closed vocabulary is **not** an eligible heading source.
-    pub fn is_title_field_eligible(&self, assignment_repeatable: bool) -> bool {
-        self.is_effective_single(assignment_repeatable)
+    pub fn is_title_field_eligible(&self) -> bool {
+        self.is_effective_single()
             && self.datatype == Datatype::String
             && self.effective_value_domain() == ValueDomain::Open
             && self.has_prose_format()
@@ -1292,15 +1282,13 @@ mod tests {
     // exist; only the negative cases below can tell the two apart.
 
     #[test]
-    fn effective_single_spans_both_cardinality_mechanisms() {
-        // Neither mechanism alone is sufficient, and neither is redundant.
-        assert!(FieldType::string().is_effective_single(false));
-        // `cardinality: list` defeats it on its own...
-        assert!(!FieldType::string().into_list().is_effective_single(false));
-        // ...and so does the legacy assignment flag, which is exactly why the
-        // conjunct may not be dropped as a tidy-up before srs#242 Phase B.
-        assert!(!FieldType::string().is_effective_single(true));
-        assert!(!FieldType::string().into_list().is_effective_single(true));
+    fn effective_single_is_cardinality_only() {
+        // Change-I condition 5 (post-removal): scalar accepted, list rejected.
+        // The legacy `FieldAssignment.repeatable` conjunct was removed in the
+        // srs#242 Phase-B train — `cardinality` is the sole mechanism, so the
+        // flag can no longer defeat eligibility (the trio no longer exists).
+        assert!(FieldType::string().is_effective_single());
+        assert!(!FieldType::string().into_list().is_effective_single());
     }
 
     #[test]
@@ -1342,18 +1330,17 @@ mod tests {
     fn i94_r6_conditional_required_rejects_list_cardinality() {
         // Eligible as a single, ineligible the moment either cardinality
         // mechanism makes it repeat.
-        assert!(FieldType::string().is_conditional_required_eligible(false));
+        assert!(FieldType::string().is_conditional_required_eligible());
         assert!(!FieldType::string()
             .into_list()
-            .is_conditional_required_eligible(false));
-        assert!(!FieldType::string().is_conditional_required_eligible(true));
+            .is_conditional_required_eligible());
     }
 
     #[test]
     fn i94_r6_conditional_required_admits_only_string_date_and_date_time() {
         for admitted in [Datatype::String, Datatype::Date, Datatype::DateTime] {
             assert!(
-                FieldType::new(admitted).is_conditional_required_eligible(false),
+                FieldType::new(admitted).is_conditional_required_eligible(),
                 "{admitted:?} must be eligible"
             );
         }
@@ -1366,7 +1353,7 @@ mod tests {
             Datatype::Map,
         ] {
             assert!(
-                !FieldType::new(rejected).is_conditional_required_eligible(false),
+                !FieldType::new(rejected).is_conditional_required_eligible(),
                 "{rejected:?} must be ineligible"
             );
         }
@@ -1378,55 +1365,51 @@ mod tests {
         // why the pre-erratum implementation admitted them. The predicate keys
         // on the declared datatype, not the stored JSON shape.
         for rejected in [Datatype::Date, Datatype::DateTime] {
-            assert!(!FieldType::new(rejected).is_theme_css_class_eligible(false));
+            assert!(!FieldType::new(rejected).is_theme_css_class_eligible());
         }
         for rejected in [StringFormat::Uri, StringFormat::Uuid, StringFormat::Email] {
             assert!(
                 !FieldType::string()
                     .with_format(rejected)
-                    .is_theme_css_class_eligible(false),
+                    .is_theme_css_class_eligible(),
                 "format {rejected:?} must not yield a CSS class"
             );
         }
         assert!(!FieldType::string()
             .into_list()
-            .is_theme_css_class_eligible(false));
-        assert!(!FieldType::string().is_theme_css_class_eligible(true));
+            .is_theme_css_class_eligible());
     }
 
     #[test]
     fn t9_theme_css_class_admits_both_value_domains() {
         // `[T-9]` does not constrain valueDomain — this is the one place it is
         // laxer than `[N+1]`, and it is deliberate.
-        assert!(FieldType::string().is_theme_css_class_eligible(false));
-        assert!(FieldType::closed().is_theme_css_class_eligible(false));
-        assert!(FieldType::markdown().is_theme_css_class_eligible(false));
+        assert!(FieldType::string().is_theme_css_class_eligible());
+        assert!(FieldType::closed().is_theme_css_class_eligible());
+        assert!(FieldType::markdown().is_theme_css_class_eligible());
     }
 
     #[test]
     fn n1_title_field_rejects_closed_value_domain() {
         // The negative case that separates `[N+1]` from `[T-9]`.
-        assert!(FieldType::string().is_title_field_eligible(false));
+        assert!(FieldType::string().is_title_field_eligible());
         assert!(
-            !FieldType::closed().is_title_field_eligible(false),
+            !FieldType::closed().is_title_field_eligible(),
             "a closed vocabulary is not an eligible heading source"
         );
-        assert!(!FieldType::closed_list().is_title_field_eligible(false));
+        assert!(!FieldType::closed_list().is_title_field_eligible());
     }
 
     #[test]
-    fn n1_title_field_rejects_repeatable_and_non_prose_formats() {
+    fn n1_title_field_rejects_list_and_non_prose_formats() {
         // The shape the `title_field_id_emits_record_heading` fixture used to
-        // assert *worked*: a repeatable title field.
-        assert!(!FieldType::string().is_title_field_eligible(true));
-        assert!(!FieldType::string()
-            .into_list()
-            .is_title_field_eligible(false));
+        // assert *worked*: a list-cardinality title field.
+        assert!(!FieldType::string().into_list().is_title_field_eligible());
         for rejected in [StringFormat::Uri, StringFormat::Uuid, StringFormat::Email] {
             assert!(
                 !FieldType::string()
                     .with_format(rejected)
-                    .is_title_field_eligible(false),
+                    .is_title_field_eligible(),
                 "format {rejected:?} must not be a heading source"
             );
         }

@@ -25,7 +25,12 @@ srs-repository = { path = "crates/srs-repository" }
 srs-projection = { path = "crates/srs-projection" }
 srs-mcp = { path = "crates/srs-mcp" }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# preserve_order: enabled deliberately (ADR-043, amending ADR-017/036/037) — the RFC-039
+# carrier's fieldValues/fieldMeta key order is data ([R18]); determinism for everything
+# else comes from canonical types + the .srsj canonicalize-on-write step, not from the
+# old BTreeMap-backed Value re-sort.
+serde_json = { version = "1", features = ["preserve_order"] }
+indexmap = { version = "2", features = ["serde"] }
 serde_path_to_error = "0.1"
 uuid = { version = "1", features = ["v4"] }
 thiserror = "1"
@@ -42,6 +47,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 ratatui = "0.28"
 crossterm = "0.28"
 # MCP adapter surface (ADR-037): rmcp + tokio are referenced ONLY by srs-mcp.
-# rmcp's serde_json tree audited: does NOT enable preserve_order (ADR-017).
+# rmcp's serde_json tree audited under ADR-037; preserve_order is now enabled workspace-wide
+# by ADR-043 (MCP JSON-RPC output is key-order-insensitive by protocol; snapshot tests verify).
 rmcp = { version = "2", features = ["server", "transport-io"] }
 tokio = { version = "1", features = ["rt", "macros", "io-std", "time"] }

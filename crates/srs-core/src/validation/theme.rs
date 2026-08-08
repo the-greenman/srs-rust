@@ -41,6 +41,7 @@ mod tests {
         AssetDeclaration, AssetMode, AssetType, ElementTemplates, RecordWrapperOverride,
         SectionWrapperOverride, Theme,
     };
+    use std::collections::BTreeMap;
     use std::collections::HashMap;
 
     fn minimal_theme() -> Theme {
@@ -59,7 +60,7 @@ mod tests {
             typography: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: BTreeMap::new(),
         }
     }
 

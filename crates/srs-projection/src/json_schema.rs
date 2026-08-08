@@ -11,8 +11,9 @@
 //!
 //! **Byte-parity is a serialization constraint, not just a content one.** The
 //! projection rules pin key order (top-level, `$defs` bag, and intra-fragment),
-//! while this workspace deliberately does *not* enable serde_json's
-//! `preserve_order` (ADR-017 depends on `serde_json::Map` being sorted). So the
+//! and this module predates the workspace enabling serde_json's
+//! `preserve_order` (ADR-043, amending ADR-017/036/037 — determinism now comes
+//! from canonical types + the .srsj canonicalize-on-write step). So the
 //! schema is modelled as **typed structs whose field declaration order is the
 //! emitted key order**, and ordered maps are `OrderedMap`, a `Vec`-backed map
 //! that serializes in insertion order. Nothing here builds a

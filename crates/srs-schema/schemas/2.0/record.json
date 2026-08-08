@@ -4,10 +4,19 @@
   "title": "SRS Record (Tier 2)",
   "description": "An instantiated Type with field values. A fully structured, settled instance. Intended for composition via allOf in domain schemas — $schema is not constrained here.",
   "type": "object",
-  "required": ["instanceId", "typeId", "typeVersion", "typeNamespace", "typeName", "fieldValues"],
+  "required": [
+    "instanceId",
+    "typeId",
+    "typeVersion",
+    "typeNamespace",
+    "typeName",
+    "fieldValues"
+  ],
   "additionalProperties": false,
   "properties": {
-    "$schema": { "type": "string" },
+    "$schema": {
+      "type": "string"
+    },
     "instanceId": {
       "type": "string",
       "format": "uuid"
@@ -20,140 +29,148 @@
       "type": "integer",
       "minimum": 1
     },
-    "typeNamespace": { "type": "string" },
-    "typeName": { "type": "string" },
+    "typeNamespace": {
+      "type": "string"
+    },
+    "typeName": {
+      "type": "string"
+    },
     "lifecycleState": {
       "type": "string",
       "description": "ext:lifecycle — current lifecycle state of this Record."
     },
     "fieldValues": {
-      "type": "array",
-      "items": { "$ref": "#/$defs/FieldValue" }
+      "type": "object",
+      "description": "RFC-039: the name-keyed recursive value carrier. Keys are Field.name verbatim ([R2b]); each value follows the recursive Change-B rule for that Field's fieldType — the instance space of RFC-032 projectField. null is not a value: absence of the key is the sole representation of unset ([R5]). The Type's projected JSON Schema validates this object's interior ([R17]); this envelope schema constrains only its shape.",
+      "additionalProperties": {
+        "not": {
+          "type": "null"
+        }
+      }
     },
-    "groupValues": {
-      "type": "array",
-      "description": "ext:field-groups — grouped field value sets.",
-      "items": { "$ref": "#/$defs/FieldGroupValue" }
+    "fieldMeta": {
+      "type": "object",
+      "description": "RFC-039 Change C: per-field provenance — metadata about the assertion, keyed identically to fieldValues. Keys MUST be a subset of the sibling fieldValues keys ([R6]). One object per field: never per list item, never inside an inline-composite interior.",
+      "additionalProperties": {
+        "$ref": "#/$defs/FieldMeta"
+      }
     },
     "sourceRefs": {
       "type": "array",
-      "items": { "$ref": "#/$defs/SourceReference" }
+      "items": {
+        "$ref": "#/$defs/SourceReference"
+      }
     },
     "tags": {
       "type": "array",
       "description": "Topic membership labels. When a Vocabulary is declared, each value MUST resolve to a Term key or alias (tier-graduated: Records enforce resolution; Notes do not).",
-      "items": { "type": "string", "minLength": 1 }
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
     },
-    "createdAt": { "type": "string", "format": "date-time" },
-    "updatedAt": { "type": "string", "format": "date-time" },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
     "meta": {
       "type": "object",
       "description": "Implementation-local key-value pairs. Use for lock state, visibility, session references. Cross-system keys should be namespaced (e.g. 'com.acme.locking.locked-by')."
     }
   },
   "$defs": {
-    "FieldValue": {
+    "FieldMeta": {
       "type": "object",
-      "required": ["fieldId"],
       "additionalProperties": false,
       "properties": {
-        "fieldId": { "type": "string", "format": "uuid" },
-        "value": {
-          "description": "Non-repeatable value. Mutually exclusive with entries.",
-          "oneOf": [
-            { "type": "string" },
-            { "type": "number" },
-            { "type": "boolean" },
-            { "type": "array", "items": { "type": "string" } },
-            { "type": "null" }
-          ]
-        },
-        "entries": {
-          "type": "array",
-          "description": "ext:repeatable-fields — repeatable value entries.",
-          "items": { "$ref": "#/$defs/FieldValueEntry" }
-        },
         "source": {
           "type": "string",
-          "enum": ["human", "ai", "imported", "derived"]
+          "enum": [
+            "human",
+            "ai",
+            "imported",
+            "derived"
+          ]
         },
-        "editedAt": { "type": "string", "format": "date-time" },
+        "editedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
         "sourceRefs": {
           "type": "array",
-          "items": { "$ref": "#/$defs/SourceReference" }
-        }
-      }
-    },
-    "FieldValueEntry": {
-      "type": "object",
-      "required": ["value"],
-      "additionalProperties": false,
-      "properties": {
-        "value": {
-          "oneOf": [
-            { "type": "string" },
-            { "type": "number" },
-            { "type": "boolean" },
-            { "type": "array", "items": { "type": "string" } },
-            { "type": "null" }
-          ]
-        },
-        "source": {
-          "type": "string",
-          "enum": ["human", "ai", "imported", "derived"]
-        },
-        "editedAt": { "type": "string", "format": "date-time" }
-      }
-    },
-    "FieldGroupValue": {
-      "type": "object",
-      "required": ["groupId", "entries"],
-      "additionalProperties": false,
-      "properties": {
-        "groupId": { "type": "string" },
-        "entries": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/FieldGroupEntry" }
-        }
-      }
-    },
-    "FieldGroupEntry": {
-      "type": "object",
-      "required": ["fieldValues"],
-      "additionalProperties": false,
-      "properties": {
-        "entryId": { "type": "string", "format": "uuid" },
-        "fieldValues": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/FieldValue" }
+          "items": {
+            "$ref": "#/$defs/SourceReference"
+          }
         }
       }
     },
     "SourceReference": {
       "type": "object",
-      "required": ["sourceType", "sourceId"],
+      "required": [
+        "sourceType",
+        "sourceId"
+      ],
       "additionalProperties": false,
-      "not": { "required": ["sourceRole", "relationType"] },
+      "not": {
+        "required": [
+          "sourceRole",
+          "relationType"
+        ]
+      },
       "properties": {
         "sourceType": {
           "type": "string",
-          "enum": ["transcript-chunk", "transcript-segment", "external-document", "repository-document"]
+          "enum": [
+            "transcript-chunk",
+            "transcript-segment",
+            "external-document",
+            "repository-document"
+          ]
         },
-        "sourceId": { "type": "string" },
-        "sourceStandard": { "type": "string" },
-        "streamId": { "type": "string", "format": "uuid" },
+        "sourceId": {
+          "type": "string"
+        },
+        "sourceStandard": {
+          "type": "string"
+        },
+        "streamId": {
+          "type": "string",
+          "format": "uuid"
+        },
         "sourceRole": {
           "type": "string",
-          "enum": ["evidence", "extracted-from", "quoted-from", "inspired-by", "attaches"],
+          "enum": [
+            "evidence",
+            "extracted-from",
+            "quoted-from",
+            "inspired-by",
+            "attaches"
+          ],
           "description": "The role the source material plays for this instance (RFC-023). Replaces relationType. 'attaches' added by RFC-017: material attachment of a source document to a record (RFC-017 [R1])."
         },
         "relationType": {
           "type": "string",
-          "enum": ["evidence", "derived-from", "quoted-from", "inspired-by", "supersedes-context"],
+          "enum": [
+            "evidence",
+            "derived-from",
+            "quoted-from",
+            "inspired-by",
+            "supersedes-context"
+          ],
           "description": "DEPRECATED (RFC-023): legacy name for sourceRole. Readers accept it during the migration window (SOURCEREF_LEGACY_RELATIONTYPE warning) using the RFC-023 Change B value mapping; writers must not emit it. Removed by a scheduled follow-up schema revision."
         },
-        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
-        "note": { "type": "string" }
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "note": {
+          "type": "string"
+        }
       }
     }
   }

@@ -1,6 +1,6 @@
 use super::term::Term;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -35,7 +35,7 @@ pub struct Vocabulary {
     pub description: Option<String>,
     pub created_at: String,
     #[serde(flatten)]
-    pub extra: HashMap<String, serde_json::Value>,
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 impl Vocabulary {
@@ -113,7 +113,7 @@ mod tests {
             promotion_window: None,
             description: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: HashMap::new(),
+            extra: BTreeMap::new(),
         }
     }
 
