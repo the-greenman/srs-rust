@@ -245,22 +245,181 @@ fn migrate_definitions(
         }
     }
     let mut version_bumps: HashMap<(String, u64), u64> = HashMap::new();
+    let mut raw_types: HashMap<(String, u64), Value> = HashMap::new();
     for root in &package_roots {
         migrate_package_root(
             store,
             root,
             &mut fields,
             &mut types,
+            &mut raw_types,
             &mut version_bumps,
             result,
         )?;
     }
+
+    // ext:type-inheritance (srs-rust#812): replace each inheriting Type's
+    // assignment list with its effective field set — Package::effective_fields
+    // mirrored over the raw docs — so [R1] membership and [R18] ordering see
+    // inherited fields. Runs after ALL roots so cross-package bases resolve.
+    resolve_inheritance(&mut types, &raw_types)?;
 
     Ok(DefinitionIndex {
         fields,
         types,
         version_bumps,
     })
+}
+
+/// Mirror of `Package::effective_fields` (Inv 39–42) over the migration's raw
+/// definition index. Every inheriting Type's `types` entry is replaced by the
+/// merged list: ancestors' own assignments root-first, then own, then
+/// `fieldAssignmentOverrides` (required may only tighten), then `fieldOrder`
+/// (a total, duplicate-free permutation). Every violation aborts — this
+/// migration never skips ([R13]).
+fn resolve_inheritance(
+    types: &mut HashMap<(String, u64), Vec<(String, bool)>>,
+    raw_types: &HashMap<(String, u64), Value>,
+) -> Result<(), RepositoryError> {
+    // Own-assignment snapshot: ancestors always contribute their OWN fields,
+    // never their merged set, and iteration order must not matter.
+    let own_snapshot = types.clone();
+
+    for (key, doc) in raw_types {
+        let Some(base_id) = doc.get("extendsTypeId").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let type_label = format!("type {}@{}", key.0, key.1);
+
+        // Walk the chain child→root, collecting ancestor keys.
+        let mut chain: Vec<(String, u64)> = Vec::new();
+        let mut cur = (
+            base_id.to_string(),
+            doc.get("extendsTypeVersion")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(1),
+        );
+        loop {
+            if chain.len() >= 32 || chain.contains(&cur) {
+                return Err(abort(
+                    &type_label,
+                    "inheritance chain is cyclic or too deep",
+                ));
+            }
+            if !own_snapshot.contains_key(&cur) {
+                return Err(abort(
+                    &type_label,
+                    format!("unresolvable extendsTypeId {}@{}", cur.0, cur.1),
+                ));
+            }
+            chain.push(cur.clone());
+            match raw_types.get(&cur).and_then(|d| {
+                d.get("extendsTypeId").and_then(|v| v.as_str()).map(|next| {
+                    (
+                        next.to_string(),
+                        d.get("extendsTypeVersion")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(1),
+                    )
+                })
+            }) {
+                Some(next) => cur = next,
+                None => break,
+            }
+        }
+
+        // Merge: ancestors root-first, then own (Inv 39/40).
+        let own = own_snapshot[key].clone();
+        let own_ids: std::collections::HashSet<&str> =
+            own.iter().map(|(id, _)| id.as_str()).collect();
+        let mut merged: Vec<(String, bool)> = Vec::new();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for anc in chain.iter().rev() {
+            for (fid, req) in &own_snapshot[anc] {
+                if own_ids.contains(fid.as_str()) {
+                    return Err(abort(
+                        &type_label,
+                        format!("own assignment duplicates inherited field {fid} (Inv 40)"),
+                    ));
+                }
+                if seen.insert(fid.clone()) {
+                    merged.push((fid.clone(), *req));
+                }
+            }
+        }
+        merged.extend(own.iter().cloned());
+
+        // fieldAssignmentOverrides (Inv 42): required may only tighten.
+        for ovr in doc
+            .get("fieldAssignmentOverrides")
+            .and_then(|v| v.as_array())
+            .into_iter()
+            .flatten()
+        {
+            let fid = ovr.get("fieldId").and_then(|v| v.as_str()).unwrap_or("");
+            if own_ids.contains(fid) {
+                return Err(abort(
+                    &type_label,
+                    format!("fieldAssignmentOverrides targets own field {fid} (Inv 42)"),
+                ));
+            }
+            let Some(slot) = merged.iter_mut().find(|(id, _)| id == fid) else {
+                return Err(abort(
+                    &type_label,
+                    format!("fieldAssignmentOverrides names unknown field {fid} (Inv 42)"),
+                ));
+            };
+            if let Some(req) = ovr.get("required").and_then(|v| v.as_bool()) {
+                if !req && slot.1 {
+                    return Err(abort(
+                        &type_label,
+                        format!("fieldAssignmentOverrides relaxes required on {fid} (Inv 42)"),
+                    ));
+                }
+                slot.1 = req;
+            }
+        }
+
+        // fieldOrder (Inv 41): a total, duplicate-free permutation.
+        if let Some(order) = doc.get("fieldOrder").and_then(|v| v.as_array()) {
+            let order_ids: Vec<&str> = order.iter().filter_map(|v| v.as_str()).collect();
+            let mut seen_order: std::collections::HashSet<&str> = std::collections::HashSet::new();
+            for fid in &order_ids {
+                if !seen_order.insert(fid) {
+                    return Err(abort(
+                        &type_label,
+                        format!("duplicate {fid} in fieldOrder (Inv 41)"),
+                    ));
+                }
+            }
+            let merged_ids: std::collections::HashSet<&str> =
+                merged.iter().map(|(id, _)| id.as_str()).collect();
+            if let Some((fid, _)) = merged
+                .iter()
+                .find(|(id, _)| !seen_order.contains(id.as_str()))
+            {
+                return Err(abort(
+                    &type_label,
+                    format!("effective field {fid} missing from fieldOrder (Inv 41)"),
+                ));
+            }
+            if let Some(fid) = order_ids.iter().find(|fid| !merged_ids.contains(*fid)) {
+                return Err(abort(
+                    &type_label,
+                    format!("fieldOrder names unknown field {fid} (Inv 41)"),
+                ));
+            }
+            let mut reordered = Vec::with_capacity(merged.len());
+            for fid in order_ids {
+                let pos = merged.iter().position(|(id, _)| id == fid).unwrap();
+                reordered.push(merged.remove(pos));
+            }
+            merged = reordered;
+        }
+
+        types.insert(key.clone(), merged);
+    }
+    Ok(())
 }
 
 /// Load, transform (Change E.2 minting + trio strip) and index one package
@@ -271,6 +430,7 @@ fn migrate_package_root(
     root: &str,
     fields: &mut HashMap<String, (String, Value)>,
     types: &mut HashMap<(String, u64), Vec<(String, bool)>>,
+    raw_types: &mut HashMap<(String, u64), Value>,
     version_bumps: &mut HashMap<(String, u64), u64>,
     result: &mut CarrierMigrationResult,
 ) -> Result<(), RepositoryError> {
@@ -430,7 +590,15 @@ fn migrate_package_root(
                     "fieldType": field_type,
                     "createdAt": created_at,
                 });
-                let field_rel = format!("fields/{}.json", group_id.replace('/', "_"));
+                // Filename carries a uuid8 suffix (corpus `name-uuid8.json`
+                // convention): two Types may each own a group with the same
+                // groupId, and bare `fields/{groupId}.json` silently
+                // overwrites the first mint (found live on muSrs).
+                let field_rel = format!(
+                    "fields/{}-{}.json",
+                    group_id.replace('/', "_"),
+                    &new_field_id[..8]
+                );
                 store.save_instance_json(&format!("{root}/{field_rel}"), &new_field)?;
                 new_field_files.push(field_rel.clone());
                 result
@@ -457,6 +625,20 @@ fn migrate_package_root(
                 }
                 if let Some(fas) = doc.get_mut("fields").and_then(|f| f.as_array_mut()) {
                     fas.push(assignment);
+                }
+                // Inv 41: an authored fieldOrder must stay total over the
+                // effective set, so the minted Field joins it. Corpora place
+                // groups by writing the groupId token into fieldOrder (muSrs) —
+                // replace that token in place to preserve the authored
+                // position; append when no token exists.
+                if let Some(order_list) = doc.get_mut("fieldOrder").and_then(|f| f.as_array_mut()) {
+                    match order_list
+                        .iter_mut()
+                        .find(|v| v.as_str() == Some(group_id.as_str()))
+                    {
+                        Some(slot) => *slot = json!(new_field_id),
+                        None => order_list.push(json!(new_field_id)),
+                    }
                 }
             }
             // Version bump: replacing a group with a composite Field changes
@@ -491,6 +673,7 @@ fn migrate_package_root(
             })
             .unwrap_or_default();
         let effective_version = doc.get("version").and_then(|v| v.as_u64()).unwrap_or(1);
+        raw_types.insert((type_id.clone(), effective_version), doc.clone());
         types.insert((type_id, effective_version), assignments);
     }
 
@@ -1276,6 +1459,117 @@ mod tests {
         // collapsed and counted.
         assert_eq!(record["fieldValues"]["labels"], json!(["a", "b"]));
         assert!(result.dual_writes_collapsed >= 1);
+    }
+
+    /// ext:type-inheritance (srs-rust#812): a record of an inheriting Type
+    /// carries pairs for inherited fields; the effective set must merge the
+    /// chain (Inv 39/40), honour a required-tightening override (Inv 42), and
+    /// serialise carrier keys in fieldOrder (Inv 41 + [R18]).
+    #[test]
+    fn inheriting_type_resolves_effective_field_set() {
+        const T_BASE: &str = "bb000001-0000-4000-a000-000000000001";
+        const T_CHILD: &str = "bb000002-0000-4000-a000-000000000002";
+        const F_HEADING: &str = "bb00f001-0000-4000-a000-00000000f001";
+        const F_BODY: &str = "bb00f002-0000-4000-a000-00000000f002";
+        const F_NOTE: &str = "bb00f003-0000-4000-a000-00000000f003";
+        const R_CHILD: &str = "bb00c001-0000-4000-a000-00000000c001";
+
+        let field = |id: &str, name: &str| {
+            json!({
+                "id": id, "namespace": "com.test", "name": name, "version": 1,
+                "description": name, "aiGuidance": {"purpose": name},
+                "fieldType": {"datatype": "string"}, "createdAt": "2026-01-01T00:00:00Z"
+            })
+        };
+        let srsj = json!({
+            "srsj": "1",
+            "manifest": {
+                "srsVersion": "2.0",
+                "repositoryId": "00000000-0000-4000-8000-0000000000fe",
+                "title": "Inheritance Fixture",
+                "dataModelRevision": 1,
+                "instanceIndex": [
+                    {"instanceId": R_CHILD, "tier": 2, "path": "records/r-child.json"}
+                ],
+                "packageRef": {"mode": "local", "path": "package"},
+                "createdAt": "2026-01-01T00:00:00Z"
+            },
+            "data": {
+                "records/r-child.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                    "instanceId": R_CHILD, "typeId": T_CHILD, "typeVersion": 1,
+                    "typeNamespace": "com.test", "typeName": "child",
+                    // Legacy pairs deliberately NOT in fieldOrder order.
+                    // body (inherited, override-required) is present.
+                    "fieldValues": [
+                        {"fieldId": F_NOTE, "value": "n"},
+                        {"fieldId": F_BODY, "value": "b"},
+                        {"fieldId": F_HEADING, "value": "h"}
+                    ],
+                    // muSrs shape: an inheriting Type that ALSO owns a group —
+                    // the minted Field must join the authored fieldOrder.
+                    "groupValues": [{
+                        "groupId": "extras",
+                        "entries": [{"fieldValues": [{"fieldId": F_NOTE, "value": "x"}]}]
+                    }],
+                    "createdAt": "2026-01-01T00:00:00Z"
+                },
+                "package/package.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                    "id": "00000000-0000-4000-8000-0000000000ab",
+                    "namespace": "com.test", "name": "inh", "title": "Inh",
+                    "description": "inheritance fixture", "status": "active",
+                    "version": "1.0.0", "createdAt": "2026-01-01T00:00:00Z",
+                    "fields": ["fields/heading.json", "fields/body.json", "fields/note.json"],
+                    "types": ["types/base.json", "types/child.json"],
+                    "views": [], "documentViews": []
+                },
+                "package/fields/heading.json": field(F_HEADING, "heading"),
+                "package/fields/body.json": field(F_BODY, "body"),
+                "package/fields/note.json": field(F_NOTE, "note"),
+                "package/types/base.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+                    "id": T_BASE, "namespace": "com.test", "name": "base", "version": 1,
+                    "description": "base",
+                    "fields": [
+                        {"fieldId": F_HEADING, "order": 0, "required": true},
+                        {"fieldId": F_BODY, "order": 1, "required": false}
+                    ],
+                    "createdAt": "2026-01-01T00:00:00Z"
+                },
+                "package/types/child.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+                    "id": T_CHILD, "namespace": "com.test", "name": "child", "version": 1,
+                    "description": "child",
+                    "extendsTypeId": T_BASE, "extendsTypeVersion": 1,
+                    "fields": [{"fieldId": F_NOTE, "order": 0, "required": false}],
+                    "fieldGroups": [{
+                        "groupId": "extras", "order": 1, "repeatable": true,
+                        "fields": [{"fieldId": F_NOTE, "order": 0, "required": false}]
+                    }],
+                    "fieldAssignmentOverrides": [{"fieldId": F_BODY, "required": true}],
+                    // "extras" is the groupId token convention (muSrs): the
+                    // minted Field replaces it in place.
+                    "fieldOrder": [F_HEADING, "extras", F_NOTE, F_BODY],
+                    "createdAt": "2026-01-01T00:00:00Z"
+                }
+            }
+        })
+        .to_string();
+
+        let store = JsonStore::from_srsj(&srsj).unwrap();
+        migrate_carrier(&store).expect("inheriting record must migrate");
+        let record = store.load_instance_json("records/r-child.json").unwrap();
+        let keys: Vec<&str> = record["fieldValues"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        // fieldOrder, not pair encounter order, not base-then-own order; the
+        // minted group Field replaces its groupId token in fieldOrder,
+        // keeping the authored position (Inv 41 totality).
+        assert_eq!(keys, vec!["heading", "extras", "note", "body"]);
     }
 
     /// [R18]: carrier keys serialise in FieldAssignment.order even when the
