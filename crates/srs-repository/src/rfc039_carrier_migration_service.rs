@@ -201,25 +201,67 @@ fn migrate_definitions(
         }
     }
 
-    let pkg_index_path = "package/package.json";
-    let mut pkg_index = match store.load_instance_json(pkg_index_path) {
-        Ok(v) => v,
-        // A packageless repository has no local definitions to migrate — the
-        // core-seeded index still resolves installed-type records.
-        Err(_) => {
-            return Ok(DefinitionIndex {
-                fields,
-                types,
-                version_bumps: HashMap::new(),
-            })
+    // Package roots: the primary "package" plus every local manifest
+    // packageRef (srs-rust#809 — the spec repo declares five sub-packages;
+    // resolving types only from the primary root aborted its migration).
+    let mut package_roots: Vec<String> = vec!["package".to_string()];
+    if let Ok(manifest) = store.load_manifest() {
+        for r in manifest
+            .extra
+            .get("packageRefs")
+            .and_then(|v| v.as_array())
+            .into_iter()
+            .flatten()
+        {
+            if r.get("mode").and_then(|m| m.as_str()) == Some("local") {
+                if let Some(path) = r.get("path").and_then(|p| p.as_str()) {
+                    package_roots.push(path.to_string());
+                }
+            }
         }
+    }
+    let mut version_bumps: HashMap<(String, u64), u64> = HashMap::new();
+    for root in &package_roots {
+        migrate_package_root(
+            store,
+            root,
+            &mut fields,
+            &mut types,
+            &mut version_bumps,
+            result,
+        )?;
+    }
+
+    Ok(DefinitionIndex {
+        fields,
+        types,
+        version_bumps,
+    })
+}
+
+/// Load, transform (Change E.2 minting + trio strip) and index one package
+/// root's definitions. `root` is `"package"` or a `manifest.packageRefs`
+/// local path (srs-rust#809 — sub-package Types must resolve too).
+fn migrate_package_root(
+    store: &dyn RepositoryStore,
+    root: &str,
+    fields: &mut HashMap<String, (String, Value)>,
+    types: &mut HashMap<(String, u64), Vec<(String, bool)>>,
+    version_bumps: &mut HashMap<(String, u64), u64>,
+    result: &mut CarrierMigrationResult,
+) -> Result<(), RepositoryError> {
+    let pkg_index_path = format!("{root}/package.json");
+    let mut pkg_index = match store.load_instance_json(&pkg_index_path) {
+        Ok(v) => v,
+        // A missing root (packageless repository) has no definitions here.
+        Err(_) => return Ok(()),
     };
 
     let field_paths: Vec<String> = list_of_strings(&pkg_index, "fields");
     let type_paths: Vec<String> = list_of_strings(&pkg_index, "types");
 
     for rel in &field_paths {
-        let path = format!("package/{rel}");
+        let path = format!("{root}/{rel}");
         let doc = store.load_instance_json(&path)?;
         let id = str_of(&doc, "id", &path)?;
         let name = str_of(&doc, "name", &path)?;
@@ -227,12 +269,11 @@ fn migrate_definitions(
         fields.insert(id, (name, ft));
     }
 
-    let mut version_bumps: HashMap<(String, u64), u64> = HashMap::new();
     let mut new_field_files: Vec<String> = Vec::new();
     let mut new_type_files: Vec<String> = Vec::new();
 
     for rel in &type_paths {
-        let path = format!("package/{rel}");
+        let path = format!("{root}/{rel}");
         let mut doc = store.load_instance_json(&path)?;
         let type_id = str_of(&doc, "id", &path)?;
         let type_version = doc.get("version").and_then(|v| v.as_u64()).unwrap_or(1);
@@ -300,7 +341,7 @@ fn migrate_definitions(
                     "createdAt": created_at,
                 });
                 let range_rel = format!("types/{range_name}.json");
-                store.save_instance_json(&format!("package/{range_rel}"), &range_type)?;
+                store.save_instance_json(&format!("{root}/{range_rel}"), &range_type)?;
                 new_type_files.push(range_rel.clone());
                 result
                     .minted
@@ -343,7 +384,7 @@ fn migrate_definitions(
                     "createdAt": created_at,
                 });
                 let field_rel = format!("fields/{}.json", group_id.replace('/', "_"));
-                store.save_instance_json(&format!("package/{field_rel}"), &new_field)?;
+                store.save_instance_json(&format!("{root}/{field_rel}"), &new_field)?;
                 new_field_files.push(field_rel.clone());
                 result
                     .minted
@@ -414,14 +455,9 @@ fn migrate_definitions(
         if let Some(arr) = pkg_index.get_mut("types").and_then(|v| v.as_array_mut()) {
             arr.extend(new_type_files.iter().map(|p| json!(p)));
         }
-        store.save_instance_json(pkg_index_path, &pkg_index)?;
+        store.save_instance_json(&pkg_index_path, &pkg_index)?;
     }
-
-    Ok(DefinitionIndex {
-        fields,
-        types,
-        version_bumps,
-    })
+    Ok(())
 }
 
 /// Phase 1, Tier 2 — the pair→key transform (steps 1–5).
@@ -798,13 +834,34 @@ fn migrate_themes(
     Ok(())
 }
 
-/// Phase 2 step 8 — stamp every first-party package manifest.
+/// Phase 2 step 8 — stamp every first-party package manifest: the primary
+/// root and every local manifest packageRef (RFC-039 Change H names all of
+/// them; srs-rust#809).
 fn stamp_package_manifests(store: &dyn RepositoryStore) -> Result<(), RepositoryError> {
-    if let Ok(mut pkg_index) = store.load_instance_json("package/package.json") {
-        if let Some(obj) = pkg_index.as_object_mut() {
-            obj.insert("dataModelRevision".to_string(), json!(CARRIER_REVISION));
+    let mut roots: Vec<String> = vec!["package".to_string()];
+    if let Ok(manifest) = store.load_manifest() {
+        for r in manifest
+            .extra
+            .get("packageRefs")
+            .and_then(|v| v.as_array())
+            .into_iter()
+            .flatten()
+        {
+            if r.get("mode").and_then(|m| m.as_str()) == Some("local") {
+                if let Some(path) = r.get("path").and_then(|p| p.as_str()) {
+                    roots.push(path.to_string());
+                }
+            }
         }
-        store.save_instance_json("package/package.json", &pkg_index)?;
+    }
+    for root in roots {
+        let path = format!("{root}/package.json");
+        if let Ok(mut pkg_index) = store.load_instance_json(&path) {
+            if let Some(obj) = pkg_index.as_object_mut() {
+                obj.insert("dataModelRevision".to_string(), json!(CARRIER_REVISION));
+            }
+            store.save_instance_json(&path, &pkg_index)?;
+        }
     }
     Ok(())
 }
@@ -1248,5 +1305,86 @@ mod tests {
                 "{path} must pass value-shape validation, got: {diagnostics:?}"
             );
         }
+    }
+
+    /// srs-rust#809: a record typed by a `manifest.packageRefs` sub-package
+    /// Type must migrate — the definition index reads every local root, and
+    /// Phase 2 stamps every root's package manifest.
+    #[test]
+    fn sub_package_types_resolve_and_all_manifests_stamped() {
+        let srsj = serde_json::json!({
+            "srsj": "1",
+            "manifest": {
+                "instanceIndex": [
+                    {"instanceId": "00000000-0000-4000-8000-000000000901", "tier": 2,
+                     "path": "records/r-sub.json"}
+                ],
+                "packageRef": {"mode": "local", "path": "package"},
+                "packageRefs": [{"mode": "local", "path": "package/sub"}],
+                "createdAt": "2026-01-01T00:00:00Z"
+            },
+            "data": {
+                "records/r-sub.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                    "instanceId": "00000000-0000-4000-8000-000000000901",
+                    "typeId": "00000000-0000-4000-8000-000000000922",
+                    "typeVersion": 1,
+                    "typeNamespace": "com.test.sub", "typeName": "subthing",
+                    "fieldValues": [
+                        {"fieldId": "00000000-0000-4000-8000-000000000921", "value": "hello"}
+                    ]
+                },
+                "package/package.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                    "id": "00000000-0000-4000-8000-0000000000aa",
+                    "namespace": "com.test", "name": "root-pkg", "title": "Root",
+                    "description": "root", "status": "active", "version": "1.0.0",
+                    "createdAt": "2026-01-01T00:00:00Z",
+                    "fields": [], "types": [], "views": [], "documentViews": []
+                },
+                "package/sub/package.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                    "id": "00000000-0000-4000-8000-0000000000ab",
+                    "namespace": "com.test.sub", "name": "sub-pkg", "title": "Sub",
+                    "description": "sub", "status": "active", "version": "1.0.0",
+                    "createdAt": "2026-01-01T00:00:00Z",
+                    "fields": ["fields/subtitle.json"], "types": ["types/subthing.json"],
+                    "views": [], "documentViews": []
+                },
+                "package/sub/fields/subtitle.json": {
+                    "id": "00000000-0000-4000-8000-000000000921",
+                    "namespace": "com.test.sub", "name": "subtitle", "version": 1,
+                    "description": "subtitle", "aiGuidance": {"purpose": "subtitle"},
+                    "fieldType": {"datatype": "string"},
+                    "createdAt": "2026-01-01T00:00:00Z"
+                },
+                "package/sub/types/subthing.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+                    "id": "00000000-0000-4000-8000-000000000922",
+                    "namespace": "com.test.sub", "name": "subthing", "version": 1,
+                    "description": "sub-package type",
+                    "fields": [{"fieldId": "00000000-0000-4000-8000-000000000921",
+                                "order": 0, "required": true}],
+                    "createdAt": "2026-01-01T00:00:00Z"
+                }
+            }
+        })
+        .to_string();
+        let store = JsonStore::from_srsj(&srsj).unwrap();
+        let result = migrate_carrier(&store).expect("sub-package type must resolve (srs-rust#809)");
+        assert_eq!(result.instances_migrated, 1);
+
+        let record = store.load_instance_json("records/r-sub.json").unwrap();
+        assert_eq!(record["fieldValues"]["subtitle"], "hello");
+
+        let root_pkg = store.load_instance_json("package/package.json").unwrap();
+        assert_eq!(root_pkg["dataModelRevision"], 2);
+        let sub_pkg = store
+            .load_instance_json("package/sub/package.json")
+            .unwrap();
+        assert_eq!(
+            sub_pkg["dataModelRevision"], 2,
+            "packageRefs manifests are stamped too (Change H)"
+        );
     }
 }
