@@ -90,6 +90,19 @@ pub fn migrate_carrier(
 ) -> Result<CarrierMigrationResult, RepositoryError> {
     let from_revision = crate::field_type_migration_service::data_model_revision(store)?;
 
+    // Sequencing guard (srs-rust#809): the carrier transform keys every step
+    // on `Field.fieldType`; a revision-0 repository's definitions still carry
+    // `valueType`, so running here would stamp revision 2 over pre-RFC-032
+    // definitions — the inconsistent artifact RFC-039's migration ordering
+    // exists to prevent. RFC-032's migration must run first.
+    if from_revision < crate::field_type_migration_service::FIELD_TYPE_REVISION {
+        return Err(RepositoryError::InvalidSnapshotData {
+            message: format!(
+                "carrier migration requires data-model revision >= 1 (found {from_revision}):                  run `srs repo apply-migration --id field-type` first (RFC-032, migration #1)"
+            ),
+        });
+    }
+
     store.begin_batch();
     let result = run_migration(store, from_revision);
     match result {
@@ -1386,5 +1399,28 @@ mod tests {
             sub_pkg["dataModelRevision"], 2,
             "packageRefs manifests are stamped too (Change H)"
         );
+    }
+
+    /// srs-rust#809 (guard): a revision-0 repository must be refused — its
+    /// definitions still carry `valueType`, so stamping revision 2 over them
+    /// would produce an inconsistent artifact. The diagnostic names the
+    /// prerequisite migration.
+    #[test]
+    fn revision_zero_repository_refused_with_field_type_pointer() {
+        let srsj = serde_json::json!({
+            "srsj": "1",
+            "manifest": {
+                "instanceIndex": [],
+                "packageRef": {"mode": "local", "path": "package"},
+                "createdAt": "2026-01-01T00:00:00Z"
+            },
+            "data": {}
+        })
+        .to_string();
+        let store = JsonStore::from_srsj(&srsj).unwrap();
+        let err = migrate_carrier(&store).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("--id field-type"), "{msg}");
+        assert!(msg.contains("revision >= 1"), "{msg}");
     }
 }
