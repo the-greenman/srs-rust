@@ -1383,9 +1383,19 @@ mod tests {
         assert_eq!(item_type["version"], json!(2));
         assert!(item_type.get("fieldGroups").is_none());
 
-        // A composite Field named after the groupId was minted and assigned.
+        // A composite Field named after the groupId was minted and assigned
+        // (filename carries a uuid8 suffix — resolve it via the package index).
+        let pkg_index = store.load_instance_json("package/package.json").unwrap();
+        let minted_rel = pkg_index["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str())
+            .find(|p| p.starts_with("fields/people-"))
+            .expect("minted field registered in package index")
+            .to_string();
         let minted_field = store
-            .load_instance_json("package/fields/people.json")
+            .load_instance_json(&format!("package/{minted_rel}"))
             .expect("minted composite field file");
         assert_eq!(minted_field["name"], json!("people"));
         assert_eq!(minted_field["fieldType"]["datatype"], json!("ref"));
@@ -1409,12 +1419,13 @@ mod tests {
             );
         }
 
-        // Both minted definitions are registered in the package index.
+        // Both minted definitions are registered in the package index (the
+        // field path was already resolved from it above).
         let pkg = store.load_instance_json("package/package.json").unwrap();
         assert!(pkg["fields"]
             .as_array()
             .unwrap()
-            .contains(&json!("fields/people.json")));
+            .contains(&json!(minted_rel)));
         assert!(pkg["types"]
             .as_array()
             .unwrap()
