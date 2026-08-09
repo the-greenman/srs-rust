@@ -106,9 +106,9 @@ fn bundle_envelope_matches_the_reference_emitter_byte_for_byte() {
     .expect("bundle must emit");
 
     // RFC-033 [R6]: the bundle carries the revision it was generated for. The
-    // spec repo is stamped 1, so this also proves the stamp is being read
-    // rather than defaulted.
-    assert_eq!(result.bundle.data_model_revision, 1);
+    // spec repo is stamped 2 (RFC-039 cutover, srs#242 Phase B); absent ⇒ 0,
+    // so this also proves the stamp is being read rather than defaulted.
+    assert_eq!(result.bundle.data_model_revision, 2);
 
     let got = to_canonical_json(&result.bundle).expect("serializes");
     let want = golden(&spec, "bundle.json");

@@ -78,6 +78,17 @@ impl DefinitionIndex {
     fn field_type(&self, field_id: &str) -> Option<&Value> {
         self.fields.get(field_id).map(|(_, ft)| ft)
     }
+
+    /// For a composite-range Field: the ordered assignments of its rangeType,
+    /// used to apply [R18] ordering inside inline-composite rows.
+    fn range_assignments(&self, field_id: &str) -> Option<&[(String, bool)]> {
+        let range = self.field_type(field_id)?.get("rangeType")?;
+        let type_id = range.get("typeId")?.as_str()?;
+        let type_version = range.get("typeVersion")?.as_u64()?;
+        self.types
+            .get(&(type_id.to_string(), type_version))
+            .map(Vec::as_slice)
+    }
 }
 
 /// Is this migration needed? Structural [R9] test over the manifest revision.
@@ -359,6 +370,29 @@ fn migrate_package_root(
                 result
                     .minted
                     .push(format!("type {namespace}/{range_name}@1 {range_type_id}"));
+                // Register in the in-memory index so [R18] row ordering can
+                // resolve the range Type's assignments during Phase 1.
+                let mut sorted_range: Vec<&Value> = range_type["fields"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .collect();
+                sorted_range
+                    .sort_by_key(|fa| fa.get("order").and_then(|o| o.as_u64()).unwrap_or(0));
+                types.insert(
+                    (range_type_id.clone(), 1),
+                    sorted_range
+                        .into_iter()
+                        .filter_map(|fa| {
+                            Some((
+                                fa.get("fieldId")?.as_str()?.to_string(),
+                                fa.get("required")
+                                    .and_then(|r| r.as_bool())
+                                    .unwrap_or(false),
+                            ))
+                        })
+                        .collect(),
+                );
 
                 // The minted composite Field.
                 let group_repeatable = group
@@ -639,11 +673,55 @@ fn migrate_tier2(
         }
     }
 
+    // [R18]: carrier keys MUST serialise in FieldAssignment.order — legacy
+    // pair *encounter* order leaks through otherwise (found live on the spec
+    // corpus: dual-write pairs appended at the array tail). fieldMeta and
+    // nested composite rows are reordered identically.
+    let carrier = reorder_by_assignments(carrier, assignments, index);
+    let meta = reorder_by_assignments(meta, assignments, index);
+
     doc["fieldValues"] = Value::Object(carrier);
     if !meta.is_empty() {
         doc["fieldMeta"] = Value::Object(meta);
     }
     Ok(doc)
+}
+
+/// [R18] ordering: rebuild `map` with keys in `assignments` order (assignments
+/// are already order-sorted; keys are Field.name resolved via the index). An
+/// inline-composite value's rows are reordered recursively against the range
+/// Type's assignments. Unresolvable keys cannot occur (out-of-set fieldIds
+/// abort earlier); any defensive leftover keeps encounter order at the tail.
+fn reorder_by_assignments(
+    mut map: Map<String, Value>,
+    assignments: &[(String, bool)],
+    index: &DefinitionIndex,
+) -> Map<String, Value> {
+    let mut ordered = Map::new();
+    for (field_id, _) in assignments {
+        let Some(name) = index.field_name(field_id) else {
+            continue;
+        };
+        let Some(mut value) = map.remove(name) else {
+            continue;
+        };
+        if let Some(range_assignments) = index.range_assignments(field_id) {
+            if let Value::Array(rows) = &mut value {
+                for row in rows.iter_mut() {
+                    if let Value::Object(row_map) = row {
+                        *row_map = reorder_by_assignments(
+                            std::mem::take(row_map),
+                            range_assignments,
+                            index,
+                        );
+                    }
+                }
+            }
+        }
+        ordered.insert(name.to_string(), value);
+    }
+    ordered.append(&mut map);
+    ordered
 }
 
 /// Steps 2–3 for one legacy pair: the value, honouring [R20] (dual-written
@@ -955,6 +1033,9 @@ mod tests {
         /// The item Type carries an assignment whose fieldId has no Field
         /// definition, and the record carries a pair for it ([R10]).
         ghost_field: bool,
+        /// Legacy pairs and nested group-entry pairs are stored in reverse
+        /// assignment order ([R18] — encounter order must not leak through).
+        reversed_pairs: bool,
     }
 
     /// A revision-1 repository: legacy pair-array `fieldValues`, a dual-written
@@ -1019,6 +1100,15 @@ mod tests {
             item_pairs
                 .push(json!({"fieldId": "aa00dead-0000-4000-a000-00000000dead", "value": "x"}));
         }
+        if knobs.reversed_pairs {
+            item_pairs.reverse();
+        }
+        let entry_pairs = |mut pairs: Vec<Value>| {
+            if knobs.reversed_pairs {
+                pairs.reverse();
+            }
+            pairs
+        };
 
         let item_record = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
@@ -1030,11 +1120,11 @@ mod tests {
                 "entries": [
                     {
                         "entryId": "e1",
-                        "fieldValues": [
-                            {"fieldId": F_NAME, "value": "alice"},
-                            {"fieldId": F_ROLE},
-                            {"fieldId": F_ALIASES, "entries": [{"value": "x"}, {"value": "y"}]}
-                        ]
+                        "fieldValues": entry_pairs(vec![
+                            json!({"fieldId": F_NAME, "value": "alice"}),
+                            json!({"fieldId": F_ROLE}),
+                            json!({"fieldId": F_ALIASES, "entries": [{"value": "x"}, {"value": "y"}]})
+                        ])
                     },
                     {"fieldValues": [{"fieldId": F_NAME, "value": "bob"}]}
                 ]
@@ -1186,6 +1276,40 @@ mod tests {
         // collapsed and counted.
         assert_eq!(record["fieldValues"]["labels"], json!(["a", "b"]));
         assert!(result.dual_writes_collapsed >= 1);
+    }
+
+    /// [R18]: carrier keys serialise in FieldAssignment.order even when the
+    /// legacy pairs (and nested group-entry pairs) are stored in another
+    /// encounter order — the defect found live on the spec corpus.
+    #[test]
+    fn carrier_keys_follow_assignment_order_not_encounter_order() {
+        let store = JsonStore::from_srsj(&fixture_srsj(&FixtureKnobs {
+            reversed_pairs: true,
+            ..Default::default()
+        }))
+        .unwrap();
+        migrate_carrier(&store).expect("migration must succeed");
+
+        let record = store.load_instance_json("records/r-item.json").unwrap();
+        let keys: Vec<&str> = record["fieldValues"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        // title (order 0), labels (order 1), people (minted from the group,
+        // order 2 carried over) — not the reversed encounter order.
+        assert_eq!(keys, vec!["title", "labels", "people"]);
+
+        // Nested composite rows follow the range Type's assignment order
+        // (person_name 0, role 1 — valueless, omitted — aliases 2).
+        let row_keys: Vec<&str> = record["fieldValues"]["people"][0]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(row_keys, vec!["person_name", "aliases"]);
     }
 
     #[test]
