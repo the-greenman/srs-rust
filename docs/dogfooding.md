@@ -2994,13 +2994,13 @@ R=/tmp/dogfood-rfc039
 rm -rf "$R" && $SRS repo create --repo "$R" --namespace com.example.dogfood --pretty
 
 # 1. A range Type for table rows, and a composite list Field over it, plus columns.
-echo '{"namespace":"com.example.dogfood","name":"cells","description":"Row cells","aiGuidance":{"purpose":"One table row's cell strings"},"fieldType":{"datatype":"string","cardinality":"list"}}' | $SRS field create --repo "$R"
+echo '{"namespace":"com.example.dogfood","name":"cells","version":1,"description":"Row cells","aiGuidance":{"purpose":"One table row's cell strings"},"fieldType":{"datatype":"string","cardinality":"list"}}' | $SRS field create --repo "$R"
 # (capture the returned field id as CELLS_ID, then:)
-echo '{"namespace":"com.example.dogfood","name":"table_rows","description":"Table row","fields":[{"fieldId":"'$CELLS_ID'","order":0,"required":true}]}' | $SRS type create --repo "$R"
+echo '{"namespace":"com.example.dogfood","name":"table_rows","version":1,"description":"Table row","fields":[{"fieldId":"'$CELLS_ID'","order":0,"required":true}]}' | $SRS type create --repo "$R"
 # (capture ROWS_TYPE_ID; then the composite Field and the owning Type:)
-echo '{"namespace":"com.example.dogfood","name":"rows","description":"Table rows","aiGuidance":{"purpose":"The table body"},"fieldType":{"datatype":"ref","mode":"inline","cardinality":"list","rangeType":{"typeId":"'$ROWS_TYPE_ID'","typeVersion":1}}}' | $SRS field create --repo "$R"
-echo '{"namespace":"com.example.dogfood","name":"columns","description":"Column headings","aiGuidance":{"purpose":"Table column headings"},"fieldType":{"datatype":"string","cardinality":"list"}}' | $SRS field create --repo "$R"
-echo '{"namespace":"com.example.dogfood","name":"table","description":"A table","fields":[{"fieldId":"'$COLUMNS_ID'","order":0,"required":false},{"fieldId":"'$ROWS_ID'","order":1,"required":true}]}' | $SRS type create --repo "$R"
+echo '{"namespace":"com.example.dogfood","name":"rows","version":1,"description":"Table rows","aiGuidance":{"purpose":"The table body"},"fieldType":{"datatype":"ref","mode":"inline","cardinality":"list","rangeType":{"typeId":"'$ROWS_TYPE_ID'","typeVersion":1}}}' | $SRS field create --repo "$R"
+echo '{"namespace":"com.example.dogfood","name":"columns","version":1,"description":"Column headings","aiGuidance":{"purpose":"Table column headings"},"fieldType":{"datatype":"string","cardinality":"list"}}' | $SRS field create --repo "$R"
+echo '{"namespace":"com.example.dogfood","name":"table","version":1,"description":"A table","fields":[{"fieldId":"'$COLUMNS_ID'","order":0,"required":false},{"fieldId":"'$ROWS_ID'","order":1,"required":true}]}' | $SRS type create --repo "$R"
 
 # 2. The record: fieldValues is an OBJECT keyed by Field.name; the composite value
 #    is an array of fieldValues maps for the range Type — no fieldId anywhere.
@@ -3008,7 +3008,8 @@ echo '{"fieldValues":{"columns":["Name","Role"],"rows":[{"cells":["ada","enginee
 
 # 3. The Type's editor schema is standard JSON Schema keyed by the same names,
 #    with the composite range expanded — no x-srs-field-id bridge.
-$SRS type schema --type com.example.dogfood/table --repo "$R" --pretty
+# (TABLE_TYPE_ID = the id returned by the table `type create` above)
+$SRS type schema "$TABLE_TYPE_ID" --type-version 1 --repo "$R" --pretty
 
 # 4. Validate: 0 errors; the stored object validates against the projection by construction.
 $SRS repo validate --repo "$R" --pretty
