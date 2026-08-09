@@ -4153,16 +4153,11 @@ mod tests {
 
     #[test]
     fn validate_flags_ineligible_title_field_id_for_fixed_instances() {
-        // srs-rust#795: FixedInstances declares no static candidate Type, so before
-        // this fix `validate_title_field_id_eligibility` fell into the
-        // `candidate_types.is_empty()` branch and checked eligibility with `rt =
-        // None`, i.e. `assignment_repeatable` defaulted to `false` — silent even
-        // though the render plane (`resolve_heading_field_id`, which resolves each
-        // record's *actual* Type) omits the heading for a `repeatable: true`
-        // assignment. CC-33: the corpus can't exercise this; it must be constructed.
-        // The field itself is otherwise fully eligible (open string, no format) —
-        // only the assignment's `repeatable: true` makes it ineligible, so this
-        // fixture discriminates the assignment-repeatable branch specifically.
+        // srs-rust#795: FixedInstances declares no static candidate Type, so
+        // eligibility must be checked against each candidate instance's *actual*
+        // Type. Post-#242 (Change-I condition 4) cardinality is the sole
+        // mechanism: the field is ineligible via `cardinality: "list"` — the
+        // fixture still discriminates the resolve-the-instance's-Type branch.
         let temp = TempDir::new().unwrap();
         let record_id = "00000000-0000-4000-8000-000000000501";
         write_json(
@@ -4196,11 +4191,11 @@ mod tests {
             &json!({
                 "id": "00000000-0000-4000-8000-0000000000f1",
                 "namespace": "com.test",
-                "name": "repeatable-title-field",
+                "name": "repeatable_title_field",
                 "version": 1,
-                // Open string, no format — fully eligible on its own; only the Type's
-                // `repeatable: true` assignment (below) makes it ineligible.
-                "fieldType": {"datatype": "string"},
+                // Open string, no format — but list cardinality makes it
+                // [N+1]-ineligible (cardinality-only since the #242 cutover).
+                "fieldType": {"datatype": "string", "cardinality": "list"},
                 "createdAt": "2026-01-01T00:00:00Z"
             }),
         );
@@ -4216,8 +4211,7 @@ mod tests {
                 "fields": [{
                     "fieldId": "00000000-0000-4000-8000-0000000000f1",
                     "order": 0,
-                    "required": false,
-                    "repeatable": true
+                    "required": false
                 }],
                 "createdAt": "2026-01-01T00:00:00Z"
             }),
@@ -4253,10 +4247,9 @@ mod tests {
                 "typeVersion": 1,
                 "typeNamespace": "com.test",
                 "typeName": "test-type",
-                "fieldValues": [{
-                    "fieldId": "00000000-0000-4000-8000-0000000000f1",
-                    "value": "Repeatable Title Value"
-                }]
+                "fieldValues": {
+                    "repeatable_title_field": ["Repeatable Title Value"]
+                }
             }),
         );
 
@@ -4297,7 +4290,7 @@ mod tests {
             .expect("json format should produce a projection");
         assert_eq!(
             projection.sections[0].records[0].record_heading, None,
-            "the render plane must omit the heading for the same repeatable-only \
+            "the render plane must omit the heading for the same list-cardinality \
              ineligible titleFieldId the validation plane now warns about"
         );
     }
@@ -4344,9 +4337,9 @@ mod tests {
             &json!({
                 "id": "00000000-0000-4000-8000-0000000000f1",
                 "namespace": "com.test",
-                "name": "repeatable-title-field",
+                "name": "repeatable_title_field",
                 "version": 1,
-                "fieldType": {"datatype": "string"},
+                "fieldType": {"datatype": "string", "cardinality": "list"},
                 "createdAt": "2026-01-01T00:00:00Z"
             }),
         );
@@ -4362,8 +4355,7 @@ mod tests {
                 "fields": [{
                     "fieldId": "00000000-0000-4000-8000-0000000000f1",
                     "order": 0,
-                    "required": false,
-                    "repeatable": true
+                    "required": false
                 }],
                 "createdAt": "2026-01-01T00:00:00Z"
             }),
@@ -4401,7 +4393,7 @@ mod tests {
                 "typeVersion": 1,
                 "typeNamespace": "com.test",
                 "typeName": "test-type",
-                "fieldValues": []
+                "fieldValues": {}
             }),
         );
         write_json(
@@ -4414,10 +4406,9 @@ mod tests {
                 "typeVersion": 1,
                 "typeNamespace": "com.test",
                 "typeName": "test-type",
-                "fieldValues": [{
-                    "fieldId": "00000000-0000-4000-8000-0000000000f1",
-                    "value": "Related Title Value"
-                }]
+                "fieldValues": {
+                    "repeatable_title_field": ["Related Title Value"]
+                }
             }),
         );
         write_json(
@@ -4426,6 +4417,7 @@ mod tests {
             &json!({
                 "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
                 "relations": [{
+                    "relationId": "00000000-0000-4000-8000-000000000699",
                     "sourceInstanceId": from_id,
                     "targetInstanceId": target_id,
                     "relationType": "depends-on",
@@ -4444,7 +4436,7 @@ mod tests {
                     && d.message.contains("test-type")
                     && d.severity == DiagnosticSeverity::Warning),
             "expected an [N+1] warning for a RelationQuery section whose resolved \
-             target instance has a repeatable-only-ineligible titleFieldId, got {:?}",
+             target instance has a list-cardinality-ineligible titleFieldId, got {:?}",
             report.diagnostics
         );
 
@@ -4464,7 +4456,7 @@ mod tests {
             .expect("json format should produce a projection");
         assert_eq!(
             projection.sections[0].records[0].record_heading, None,
-            "the render plane must omit the heading for the same repeatable-only \
+            "the render plane must omit the heading for the same list-cardinality \
              ineligible titleFieldId the validation plane now warns about"
         );
     }
