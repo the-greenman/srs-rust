@@ -1061,6 +1061,7 @@ mod tests {
                     {"instanceId": R_PLAIN, "tier": 2, "path": "records/r-plain.json"}
                 ],
                 "packageRef": {"mode": "local", "path": "package"},
+                "dataModelRevision": 1,
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             "data": {
@@ -1334,6 +1335,7 @@ mod tests {
                 ],
                 "packageRef": {"mode": "local", "path": "package"},
                 "packageRefs": [{"mode": "local", "path": "package/sub"}],
+                "dataModelRevision": 1,
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             "data": {
