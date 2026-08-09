@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /// Defines a named relation type within a package's relation type vocabulary.
 ///
@@ -53,7 +53,7 @@ pub struct RelationTypeDefinition {
     pub updated_at: Option<String>,
     /// Arbitrary metadata per substrate Change H policy. Unknown top-level fields are rejected; use this.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub properties: Option<HashMap<String, serde_json::Value>>,
+    pub properties: Option<BTreeMap<String, serde_json::Value>>,
 }
 
 /// Structural category of a relation type.

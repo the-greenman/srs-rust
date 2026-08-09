@@ -149,6 +149,28 @@ pub fn get_instance_by_id(
     }
 }
 
+/// RFC-039 [R18]: instance `fieldValues` keys are serialised in
+/// `FieldAssignment.order`. Write paths normalise the authored map here so
+/// storage order is a property of the Type, not of the input path (CLI stdin,
+/// MCP's sorted map, WASM) — unknown keys (caught by validation) keep their
+/// input order at the tail.
+fn normalize_field_value_order(
+    field_values: FieldValues,
+    effective_fields: &[srs_core::validation::value_shape::EffectiveField],
+) -> FieldValues {
+    let mut source = field_values.0;
+    let mut ordered = serde_json::Map::new();
+    for ef in effective_fields {
+        if let Some(v) = source.shift_remove(&ef.name) {
+            ordered.insert(ef.name.clone(), v);
+        }
+    }
+    for (k, v) in source {
+        ordered.insert(k, v);
+    }
+    FieldValues(ordered)
+}
+
 /// Create a new Tier 2 record in the default directory (`records/tier-2`).
 pub fn create_record(
     store: &dyn RepositoryStore,
@@ -219,6 +241,8 @@ pub(crate) fn create_record_at_dir(
         _ => None,
     };
 
+    let effective_fields = package.resolved_effective_fields(record_type)?;
+    let field_values = normalize_field_value_order(field_values, &effective_fields);
     let mut record = Record {
         instance_id: String::new(),
         type_id: type_id.to_string(),
@@ -234,7 +258,6 @@ pub(crate) fn create_record_at_dir(
         extra: BTreeMap::new(),
     };
 
-    let effective_fields = package.resolved_effective_fields(record_type)?;
     validate_record(&record, record_type, &effective_fields, &package).map_err(|e| {
         RepositoryError::RecordValidation {
             path: std::path::PathBuf::from(relative_dir),
@@ -359,13 +382,14 @@ pub fn update_record(
         None => record.field_meta,
     };
 
+    let effective_fields = package.resolved_effective_fields(record_type)?;
     let updated_record = Record {
         instance_id: record.instance_id,
         type_id: record.type_id,
         type_version: effective_type_version,
         type_namespace: record_type.namespace.clone(),
         type_name: record_type.name.clone(),
-        field_values: input.field_values,
+        field_values: normalize_field_value_order(input.field_values, &effective_fields),
         field_meta: new_field_meta,
         lifecycle_state: record.lifecycle_state,
         tags: updated_tags,
@@ -374,7 +398,6 @@ pub fn update_record(
         extra: record.extra,
     };
 
-    let effective_fields = package.resolved_effective_fields(record_type)?;
     validate_record(&updated_record, record_type, &effective_fields, &package).map_err(|e| {
         RepositoryError::RecordValidation {
             path: std::path::PathBuf::from("records"),

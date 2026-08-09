@@ -68,11 +68,11 @@ pub struct ElementTemplates {
     /// inside composite baseline rendering. Key: Field.name. Value: template
     /// with `{{field-value}}` and `{{field-label}}`.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub composite_field_row_templates: Option<HashMap<String, String>>,
+    pub composite_field_row_templates: Option<BTreeMap<String, String>>,
     /// Per-renderer config, keyed by the composite renderer identifier space
     /// (RFC-036). "table" reads: tableClass, wrapperTemplate, captionTemplate.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub composite_renderer_config: Option<HashMap<String, serde_json::Value>>,
+    pub composite_renderer_config: Option<BTreeMap<String, serde_json::Value>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

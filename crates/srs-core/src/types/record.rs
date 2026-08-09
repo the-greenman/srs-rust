@@ -145,6 +145,20 @@ impl Record {
     pub fn value_str(&self, name: &str) -> Option<&str> {
         self.value(name).and_then(|v| v.as_str())
     }
+
+    /// Type-mediated `fieldId` recovery ([R19] rationale): the instance stores
+    /// no ids — a key's `fieldId` comes from the Type's effective field set.
+    #[must_use]
+    pub fn field_id_for<'a>(
+        &self,
+        name: &str,
+        effective_fields: &'a [crate::validation::value_shape::EffectiveField],
+    ) -> Option<&'a str> {
+        effective_fields
+            .iter()
+            .find(|f| f.name == name)
+            .map(|f| f.field_id.as_str())
+    }
 }
 
 #[cfg(test)]

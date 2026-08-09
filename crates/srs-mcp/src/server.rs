@@ -30,8 +30,8 @@ srs://<repositoryId>/record/{instanceId} resource template, containers via \
 srs://<repositoryId>/container/<containerId>, and rendered document views via \
 srs://<repositoryId>/view/<documentViewId>. Type schemas live at \
 srs://<repositoryId>/type/{typeId} (also via the type_schema tool): read one before \
-authoring records of an unfamiliar type — it carries each field's UUID (x-srs-field-id) \
-and aiGuidance. Use the find tool for structured discovery \
+authoring records of an unfamiliar type — its properties are keyed by Field.name (the \
+same keys record_create fieldValues uses, RFC-039) and carry aiGuidance. Use the find tool for structured discovery \
 (type, tag, lifecycle, tier, container, content match). Writes are validated: record_create, \
 relation_create, and note_create enforce the repository's type and relation contracts and \
 return diagnostics on rejection. Run repo_validate after a write batch and check its \

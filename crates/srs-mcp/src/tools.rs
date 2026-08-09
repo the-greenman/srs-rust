@@ -64,11 +64,12 @@ with instanceId, label, type, lifecycleState, snippet, and matchedFields. This b
 Tier 2 (typed Records); other tier values return zero hits with a diagnostic.";
 
 pub const DESC_RECORD_CREATE: &str = "Create a typed Tier-2 Record. 'type' is \
-'namespace/name'; resolve the type's fieldAssignments first via the type_schema tool \
-or the srs://<repositoryId>/type/{typeId} resource (each property's x-srs-field-id \
-is the UUID to use here) — fieldValues entries are keyed by fieldId UUID, never by \
-field name. Validation is enforced: missing required fields or unknown fields \
-are rejected with diagnostics and nothing is written. Optional containerId adds the record to \
+'namespace/name'; read the type's schema first via the type_schema tool or the \
+srs://<repositoryId>/type/{typeId} resource — fieldValues is an OBJECT keyed by \
+Field.name verbatim (RFC-039), exactly the schema's property keys; a composite \
+(inline-ref) value is itself such an object, or an array of them for a list. \
+Validation is enforced: missing required fields or unknown keys are rejected with \
+diagnostics and nothing is written. Optional containerId adds the record to \
 a container atomically.";
 
 pub const DESC_RELATION_CREATE: &str = "Assert a typed binary relation between two instance \
@@ -85,7 +86,8 @@ later when its structure stabilises.";
 
 pub const DESC_TYPE_SCHEMA: &str = "Get the authoring schema for a type by its UUID \
 (typeVersion optional; latest when omitted). The result is a JSON Schema whose properties \
-carry x-srs-field-id (the UUID to use in record_create fieldValues), x-srs-ai-guidance, \
+are keyed by Field.name — the same keys record_create fieldValues uses (RFC-039) — \
+and carry x-srs-ai-guidance, \
 x-srs-description, and x-srs-instructions; required fields are listed in 'required'. Read \
 this before creating records of an unfamiliar type — discover typeIds from the type \
 resources in resources/list.";
@@ -210,7 +212,7 @@ pub struct RecordCreateToolInput {
     /// RFC-039 carrier: an object keyed by `Field.name` verbatim. Values
     /// follow the recursive Change-B rule — an inline-composite value is
     /// itself a fieldValues object (or an array of them for a list).
-    pub field_values: std::collections::BTreeMap<String, Value>,
+    pub field_values: serde_json::Map<String, Value>,
     /// Per-field provenance keyed identically to `fieldValues` ([R6]).
     pub field_meta: Option<std::collections::BTreeMap<String, FieldMetaInput>>,
     pub tags: Option<Vec<String>>,
@@ -221,7 +223,7 @@ pub struct RecordCreateToolInput {
 impl From<RecordCreateToolInput> for CreateRecordInput {
     fn from(input: RecordCreateToolInput) -> Self {
         CreateRecordInput {
-            field_values: FieldValues(input.field_values.into_iter().collect()),
+            field_values: FieldValues(input.field_values),
             field_meta: field_meta_map(input.field_meta),
             tags: input.tags,
         }
@@ -400,7 +402,7 @@ impl From<TypeSchemaToolInput> for TypeSchemaInput {
 pub struct RecordUpdateToolInput {
     pub instance_id: String,
     /// RFC-039 carrier: an object keyed by `Field.name` verbatim.
-    pub field_values: std::collections::BTreeMap<String, Value>,
+    pub field_values: serde_json::Map<String, Value>,
     /// Per-field provenance: omit = preserve stored, {} = clear, {...} = replace.
     #[serde(default)]
     pub field_meta: Option<std::collections::BTreeMap<String, FieldMetaInput>>,
@@ -413,7 +415,7 @@ pub struct RecordUpdateToolInput {
 impl From<RecordUpdateToolInput> for UpdateRecordInput {
     fn from(input: RecordUpdateToolInput) -> Self {
         UpdateRecordInput {
-            field_values: FieldValues(input.field_values.into_iter().collect()),
+            field_values: FieldValues(input.field_values),
             field_meta: field_meta_map(input.field_meta),
             tags: input.tags,
             type_version: input.type_version,
@@ -426,14 +428,14 @@ impl From<RecordUpdateToolInput> for UpdateRecordInput {
 #[serde(rename_all = "camelCase")]
 pub struct FulfillmentNewRecordInput {
     /// RFC-039 carrier: an object keyed by `Field.name` verbatim.
-    pub field_values: std::collections::BTreeMap<String, Value>,
+    pub field_values: serde_json::Map<String, Value>,
     pub type_version: Option<u32>,
 }
 
 impl From<FulfillmentNewRecordInput> for FulfillmentNewRecord {
     fn from(input: FulfillmentNewRecordInput) -> Self {
         FulfillmentNewRecord {
-            field_values: FieldValues(input.field_values.into_iter().collect()),
+            field_values: FieldValues(input.field_values),
             type_version: input.type_version,
         }
     }
@@ -494,7 +496,7 @@ pub struct RecordSuccessorToolInput {
     pub predecessor_id: String,
     pub relation_type: String,
     /// RFC-039 carrier: an object keyed by `Field.name` verbatim.
-    pub field_values: std::collections::BTreeMap<String, Value>,
+    pub field_values: serde_json::Map<String, Value>,
     pub lifecycle_state: Option<String>,
     pub type_version: Option<u32>,
 }
@@ -503,7 +505,7 @@ impl From<RecordSuccessorToolInput> for CreateRecordSuccessorInput {
     fn from(input: RecordSuccessorToolInput) -> Self {
         CreateRecordSuccessorInput {
             relation_type: input.relation_type,
-            field_values: FieldValues(input.field_values.into_iter().collect()),
+            field_values: FieldValues(input.field_values),
             lifecycle_state: input.lifecycle_state,
             type_version: input.type_version,
         }
@@ -521,7 +523,7 @@ pub struct NoteGraduateToolInput {
     pub type_ref: String,
     pub type_version: Option<u32>,
     /// RFC-039 carrier: an object keyed by `Field.name` verbatim.
-    pub field_values: std::collections::BTreeMap<String, Value>,
+    pub field_values: serde_json::Map<String, Value>,
     #[serde(default)]
     pub field_meta: Option<std::collections::BTreeMap<String, FieldMetaInput>>,
     #[serde(default)]
@@ -537,7 +539,7 @@ impl From<NoteGraduateToolInput> for GraduateNoteInput {
             type_version: input.type_version,
             container_id: input.container_id,
             record_input: CreateRecordInput {
-                field_values: FieldValues(input.field_values.into_iter().collect()),
+                field_values: FieldValues(input.field_values),
                 field_meta: field_meta_map(input.field_meta),
                 tags: input.tags,
             },

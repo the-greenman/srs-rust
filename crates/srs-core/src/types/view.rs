@@ -13,7 +13,7 @@ pub struct CompositeRendererBinding {
     /// Explicit role → Field.id bindings overriding the by-name defaults of
     /// [CR-036-8]. Role names are renderer-defined.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub roles: Option<std::collections::HashMap<String, String>>,
+    pub roles: Option<std::collections::BTreeMap<String, String>>,
 }
 
 /// RFC-036 Change B (ext:views-l2) — a CompositeRendererBinding plus the
@@ -24,7 +24,7 @@ pub struct CompositeRendererDirective {
     pub field_id: String,
     pub renderer: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub roles: Option<std::collections::HashMap<String, String>>,
+    pub roles: Option<std::collections::BTreeMap<String, String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -210,7 +210,7 @@ pub struct DocumentSection {
     /// to the ext:views-l1 View UUID for rendering records of that type within this section.
     /// Consulted before renderViewId; unmatched types fall back to renderViewId then baseline.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub type_dispatch: Option<std::collections::HashMap<String, String>>,
+    pub type_dispatch: Option<std::collections::BTreeMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title_field_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -655,7 +655,7 @@ mod tests {
 
     #[test]
     fn document_section_type_dispatch_round_trips() {
-        let mut dispatch = std::collections::HashMap::new();
+        let mut dispatch = BTreeMap::new();
         dispatch.insert("ns/name".to_string(), "view-uuid-1".to_string());
         dispatch.insert("ns/other".to_string(), "view-uuid-2".to_string());
         let section = DocumentSection {

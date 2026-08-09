@@ -558,6 +558,27 @@ pub fn validate_repository(
         }
 
         if entry.tier() == 2 {
+            // RFC-039 [R7]: groupValues in a revision >= 2 instance is a removed
+            // construct — named diagnostic from the raw document (the typed
+            // loader's flatten would silently absorb it).
+            {
+                let declared_revision = manifest_value
+                    .get(crate::field_type_migration_service::DATA_MODEL_REVISION_KEY)
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as u32;
+                for err in srs_core::validation::revision_guard::check_record_document(
+                    &value,
+                    declared_revision,
+                    &rel_path,
+                ) {
+                    diagnostics.push(ValidationDiagnostic {
+                        severity: DiagnosticSeverity::Error,
+                        relative_path: rel_path.clone(),
+                        schema_id: None,
+                        message: err.to_string(),
+                    });
+                }
+            }
             if package_for_tier2.is_none() {
                 let pkg = store.load_package().ok();
                 package_for_tier2 = Some(pkg);
@@ -1200,6 +1221,34 @@ pub fn validate_repository(
             reg,
         ) {
             diagnostics.extend(report);
+        }
+
+        // RFC-039 [R7]: at dataModelRevision >= 2 a Type definition carrying a
+        // removed construct (fieldGroups; the assignment trio) is rejected with
+        // a named diagnostic — the typed loader's serde would silently absorb
+        // the stray keys, so the check runs on the raw documents here.
+        let declared_revision = manifest_value
+            .get(crate::field_type_migration_service::DATA_MODEL_REVISION_KEY)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+        if let Some(type_paths) = pkg_value.get("types").and_then(|v| v.as_array()) {
+            for rel in type_paths.iter().filter_map(|v| v.as_str()) {
+                let path = format!("package/{rel}");
+                if let Ok(type_doc) = store.load_instance_json(&path) {
+                    for err in srs_core::validation::revision_guard::check_type_document(
+                        &type_doc,
+                        declared_revision,
+                        &path,
+                    ) {
+                        diagnostics.push(ValidationDiagnostic {
+                            severity: DiagnosticSeverity::Error,
+                            relative_path: path.clone(),
+                            schema_id: None,
+                            message: err.to_string(),
+                        });
+                    }
+                }
+            }
         }
     }
 
