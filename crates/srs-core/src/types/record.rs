@@ -7,9 +7,34 @@ use std::collections::BTreeMap;
 /// order is data — [R18] requires serialisation in `FieldAssignment.order` —
 /// so the map is insertion-ordered (`serde_json::Map` under `preserve_order`,
 /// ADR-043) at every boundary, including `to_value` funnels.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(transparent)]
 pub struct FieldValues(pub serde_json::Map<String, serde_json::Value>);
+
+/// [R9] at every entry point: an array `fieldValues` is a revision ≤ 1
+/// document and is rejected with a diagnostic naming the expected revision —
+/// on `Record` loads and on every input struct embedding `FieldValues`
+/// (CLI stdin, MCP tools, bindings) alike. Never coerced.
+impl<'de> Deserialize<'de> for FieldValues {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        match value {
+            serde_json::Value::Object(map) => Ok(FieldValues(map)),
+            serde_json::Value::Array(_) => Err(serde::de::Error::custom(
+                "fieldValues is an array — this is a dataModelRevision <= 1 document; \
+                 expected dataModelRevision 2 (object keyed by Field.name, RFC-039 [R9]). \
+                 Migrate the repository with `srs repo apply-migration --id rfc039-carrier`",
+            )),
+            other => Err(serde::de::Error::custom(format!(
+                "fieldValues must be an object keyed by Field.name (RFC-039 [R1]), got {}",
+                json_type_name(&other)
+            ))),
+        }
+    }
+}
 
 impl FieldValues {
     #[must_use]
@@ -73,9 +98,8 @@ pub struct Record {
     pub type_namespace: String,
     pub type_name: String,
     /// Name-keyed recursive value carrier (RFC-039 [R1]–[R3]). An array here
-    /// is a revision ≤ 1 document and is rejected at deserialization ([R9])
-    /// by `reject_legacy_field_values`.
-    #[serde(deserialize_with = "deserialize_field_values")]
+    /// is a revision ≤ 1 document, rejected at deserialization by
+    /// `FieldValues`' own [R9] impl.
     pub field_values: FieldValues,
     /// Per-field provenance, keys ⊆ `field_values` keys ([R6]).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -96,28 +120,6 @@ pub struct Record {
     /// deterministic serialisation (ADR-043 canonical-types discipline).
     #[serde(flatten)]
     pub extra: BTreeMap<String, serde_json::Value>,
-}
-
-/// [R9]: a reader MUST determine instance generation structurally — an array
-/// `fieldValues` is revision ≤ 1 — and MUST reject it with a diagnostic
-/// rather than coerce, partially read, or silently skip.
-fn deserialize_field_values<'de, D>(deserializer: D) -> Result<FieldValues, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = serde_json::Value::deserialize(deserializer)?;
-    match value {
-        serde_json::Value::Object(map) => Ok(FieldValues(map)),
-        serde_json::Value::Array(_) => Err(serde::de::Error::custom(
-            "fieldValues is an array — this is a dataModelRevision <= 1 document; \
-             expected dataModelRevision 2 (object keyed by Field.name, RFC-039 [R9]). \
-             Migrate the repository with `srs repo apply-migration --id rfc039-carrier`",
-        )),
-        other => Err(serde::de::Error::custom(format!(
-            "fieldValues must be an object keyed by Field.name (RFC-039 [R1]), got {}",
-            json_type_name(&other)
-        ))),
-    }
 }
 
 pub(crate) fn json_type_name(v: &serde_json::Value) -> &'static str {

@@ -235,38 +235,38 @@ from structured values only; Tier-1 surfaces read `fieldType`.
 
 #### Tasks
 
-- [ ] `json_store.rs` / `file store` load paths: [R9] rejection with document-naming
+- [x] `json_store.rs` / `file store` load paths: [R9] rejection with document-naming
   diagnostics; manifest/package `dataModelRevision` plumbing for [R7]
-- [ ] `render_service.rs`: re-base `render_composite_table` + RFC-036 baseline renderer onto
+- [x] `render_service.rs`: re-base `render_composite_table` + RFC-036 baseline renderer onto
   recursive name-keyed values; **delete `coerce_to_array`'s string branch** (`:2173`, no
   JSON-in-text); stop emitting unprefixed `field-label`/`field-value` aliases
   ([FR-037-14]); heading/body paths use name-keyed access; **[R5a] preserved**: structural
   presence (key present — validity) and rendering presence (RFC-001 Step 2 — `""` is
   absent, no row) stay distinct; a `required` field valued `""` validates and emits no row
-- [ ] `text_projection.rs` + `discovery_service.rs`: Tier-2 text projection iterates
+- [x] `text_projection.rs` + `discovery_service.rs`: Tier-2 text projection iterates
   `FieldAssignment.order` over the object carrier (RFC-012 amendment reading side, [R18]);
   Tier-1 handling reads inline `fieldType` in place of `valueType` ([R8]) and applies the
   Tier-1 [R9] structural test
-- [ ] `type_schema_service.rs`: assert domain Types emit `Field.name` verbatim ([R2a] —
+- [x] `type_schema_service.rs`: assert domain Types emit `Field.name` verbatim ([R2a] —
   existing behaviour, add the conformance test); **remove `x-srs-field-id`**
-- [ ] Document-view projection ([R11]): `ProjectedRecord.fields`/`orderedFieldKeys` keyed by
+- [x] Document-view projection ([R11]): `ProjectedRecord.fields`/`orderedFieldKeys` keyed by
   `Field.name`; composites recurse under their own key; `fieldGroups` projection +
   `ProjectedFieldGroup`/`ProjectedGroupEntry` removed
-- [ ] Remaining call sites (record_service, context_query_service, container_view_service,
+- [x] Remaining call sites (record_service, context_query_service, container_view_service,
   agent_index_service, tag_service, view_service, lifecycle, repository_portability):
   name-keyed access via the Phase-1 accessors
-- [ ] Theme handling: runtime support for `groupFieldRowTemplates` removed ([R12]'s
+- [x] Theme handling: runtime support for `groupFieldRowTemplates` removed ([R12]'s
   carry-over is migration-only, Phase 3)
 
 #### Acceptance Criteria
 
-- [ ] `cargo test -p srs-repository` green (fixture-dependent tests may be red until
+- [x] `cargo test -p srs-repository` green (fixture-dependent tests may be red until
   Phase 5 — tracked, not silently skipped: the gate for this phase is compile + non-fixture
   unit tests; the 12 composite/table tests re-base here and go green against Phase-2-local
   in-memory stores)
-- [ ] `composite_table_no_raw_json_in_output` trivially true; `render_composite_table`
+- [x] `composite_table_no_raw_json_in_output` trivially true; `render_composite_table`
   consumes only structured values
-- [ ] No `group_values`/`x-srs-field-id`/`groupFieldRowTemplates` symbol in the crate outside
+- [x] No `group_values`/`x-srs-field-id`/`groupFieldRowTemplates` symbol in the crate outside
   the migration module
 
 #### Testing
@@ -297,7 +297,7 @@ muSrs) runs through the released binary — store-routed, batch-wrapped, idempot
 
 #### Tasks
 
-- [ ] New `crates/srs-repository/src/rfc039_carrier_migration_service.rs` operating on **raw
+- [x] New `crates/srs-repository/src/rfc039_carrier_migration_service.rs` operating on **raw
   `serde_json::Value` documents obtained and written through `RepositoryStore`'s
   generic-JSON methods** — `load_instance_json`/`save_instance_json`, used for definition
   documents too (existing precedent: `package_service.rs` tests; there is no separate raw
@@ -311,40 +311,40 @@ muSrs) runs through the released binary — store-routed, batch-wrapped, idempot
   general-purpose caller pile #726 exists to shrink). The whole run is wrapped
   `begin_batch` → … → `commit_batch`, with `abort_batch` on every abort disposition
   (ADR-021/ADR-041 G6) so no store is ever half-migrated ([R13])
-- [ ] Phase 0 (definitions): E.2 FieldGroup→composite minting (fresh UUIDs logged to the
+- [x] Phase 0 (definitions): E.2 FieldGroup→composite minting (fresh UUIDs logged to the
   migration log; `<T.name>_<G.groupId>` snake_case range Type; `required = minItems ≥ 1`),
   strip the trio from every FieldAssignment, Tier-1 `valueType`/`selectOptions` → inline
   `fieldType`, Type version bumps + the zero-referent deletion marker
-- [ ] Phase 1 (instances, enumerated from `instanceIndex` [R13]): typeVersion re-pin;
+- [x] Phase 1 (instances, enumerated from `instanceIndex` [R13]): typeVersion re-pin;
   pair→key transform ([R10] abort on unresolvable fieldId); [R20] value/entries agreement;
   recursive `groupValues` descent (steps 2–3 at every depth, step 5 at depth 0 only);
   per-value provenance → `fieldMeta`
-- [ ] Phase 2 (repository): theme `groupFieldRowTemplates` → `compositeFieldRowTemplates`
+- [x] Phase 2 (repository): theme `groupFieldRowTemplates` → `compositeFieldRowTemplates`
   carry-over ([R12] abort on unmatched key); `dataModelRevision: 2` stamping (repo manifest,
   package manifests, `.srsj` envelopes); [R13] count assertion; zero-referent Type version
   deletion
-- [ ] The full 11-row totality disposition table from RFC-039 — every branch implemented and
+- [x] The full 11-row totality disposition table from RFC-039 — every branch implemented and
   tested (aborts produce named diagnostics; the two logged-notice rows log and count)
-- [ ] [R18] output ordering: `FieldAssignment.order` at every depth via the `FieldValues`
+- [x] [R18] output ordering: `FieldAssignment.order` at every depth via the `FieldValues`
   carrier; re-run byte-idempotence
-- [ ] Round-trip verifier: old → new → logical comparison modulo the two declared
+- [x] Round-trip verifier: old → new → logical comparison modulo the two declared
   non-round-trippable classes (valueless pairs; dual-written value/entries), emitting a
   counted audit log — the evidence artifact unit 2 cites (Change-I condition 3 input)
-- [ ] Post-transform verification: every migrated Record re-validated through Phase 1's
+- [x] Post-transform verification: every migrated Record re-validated through Phase 1's
   `validate_value` + [R1]–[R6] — the migration does **not** reimplement the value grammar
-- [ ] Register as migration #2 in `migration_registry_service.rs` (`status_fn` = [R9]
+- [x] Register as migration #2 in `migration_registry_service.rs` (`status_fn` = [R9]
   structural test over the store); exposed via the existing `srs migrate` surface — **no new
   public upgrade command** (RFC-038 constraint)
-- [ ] Explicit-path mode for manifest-less trees (`tests/rfc-032/` reconciliation:
+- [x] Explicit-path mode for manifest-less trees (`tests/rfc-032/` reconciliation:
   `values` → `fieldValues`), used by unit 2
 
 #### Acceptance Criteria
 
-- [ ] Transform over a fixture copy of a revision-1 repository yields a repository that
+- [x] Transform over a fixture copy of a revision-1 repository yields a repository that
   loads clean, validates with 0 errors, and re-runs byte-identically
-- [ ] Every abort disposition covered by a test; an abort leaves the store untouched
+- [x] Every abort disposition covered by a test; an abort leaves the store untouched
   (batch rollback verified)
-- [ ] Round-trip audit log counts match the fixture's known population
+- [x] Round-trip audit log counts match the fixture's known population
 
 #### Testing
 
@@ -374,19 +374,19 @@ Commit: `feat(repository): RFC-039 carrier migration as data-model migration #2 
 
 #### Tasks
 
-- [ ] `srs-cli`: `payload.rs` structs (object `fieldValues` + optional `fieldMeta`;
+- [x] `srs-cli`: `payload.rs` structs (object `fieldValues` + optional `fieldMeta`;
   `groupValues` removed from `CreateRecordInput` and all outputs); regenerate goldens
   (`cargo run --bin generate-schemas`); handlers otherwise untouched
-- [ ] `srs-bindings` (5 files): shapes follow the services; no logic
-- [ ] `srs-mcp` (2 files): `record_create`/`record_update`/`note_graduate` tool input
+- [x] `srs-bindings` (5 files): shapes follow the services; no logic
+- [x] `srs-mcp` (2 files): `record_create`/`record_update`/`note_graduate` tool input
   schemas + shadow structs re-documented to the object carrier
-- [ ] `srs-gov` (3 files): name-keyed access; `x-srs-field-id` consumers removed;
+- [x] `srs-gov` (3 files): name-keyed access; `x-srs-field-id` consumers removed;
   `governance-seed.srsj` regenerated through the Phase-3 transform
 
 #### Acceptance Criteria
 
-- [ ] `cargo test --test payload_contracts` green after regeneration
-- [ ] `cargo test -p srs-cli -p srs-bindings -p srs-mcp -p srs-gov` green except
+- [x] `cargo test --test payload_contracts` green after regeneration
+- [x] `cargo test -p srs-cli -p srs-bindings -p srs-mcp -p srs-gov` green except
   fixture-dependent tests pending Phase 5 (tracked list, not silence)
 
 #### Testing
@@ -417,19 +417,19 @@ Commit: `feat(cli,bindings,mcp,gov): object carrier across adapter surfaces (#80
 - [x] Pre-stage the mirror: run `scripts/sync-schemas-from-spec.sh` against the local
   sibling checked out on `feat/242-phase-b-schemas` *(done during Phase 1; SHA256SUMS
   regenerated by the sync script)*
-- [ ] Migrate every fixture repository under `crates/*/tests/fixtures/**` through the
+- [x] Migrate every fixture repository under `crates/*/tests/fixtures/**` through the
   Phase-3 transform (dogfood); rewrite inline test JSON by hand; re-pack `core-bundle.srsj`,
   `governance-seed.srsj`, `gallery.srsj` deterministically (ADR-017 as amended)
-- [ ] Verified pre-condition (checked 2026-08-08): no srs-rust fixture carries the dangling
+- [x] Verified pre-condition (checked 2026-08-08): no srs-rust fixture carries the dangling
   `f1a2b3c4-…4c5c` fieldId (#307's class) — re-grep after fixture migration as a guard
-- [ ] Keep two revision-1 fixtures as **named** `legacy-rev1-*` [R9] rejection-test inputs
+- [x] Keep two revision-1 fixtures as **named** `legacy-rev1-*` [R9] rejection-test inputs
   (not loadable data)
 
 #### Acceptance Criteria
 
-- [ ] Full `cargo test` green; `cargo clippy -- -D warnings` green
-- [ ] `bash scripts/check-schema-sync.sh` green against the sibling schema branch
-- [ ] `git grep -c '"fieldValues": \['` over `crates/` returns matches only in
+- [x] Full `cargo test` green; `cargo clippy -- -D warnings` green
+- [x] `bash scripts/check-schema-sync.sh` green against the sibling schema branch
+- [x] `git grep -c '"fieldValues": \['` over `crates/` returns matches only in
   `legacy-rev1-*` fixtures and migration test inputs
 
 #### Testing
@@ -451,23 +451,23 @@ Commit: `test(fixtures): migrate fixture corpus to revision-2 carrier + pre-stag
 
 #### Tasks
 
-- [ ] ADR-043 status → `accepted`; ADR-017 amendment note cross-referenced
-- [ ] `srs-rust/CLAUDE.md`: add `srs-gov` row to the Crate Authority table (gap RFC-039
+- [x] ADR-043 status → `accepted`; ADR-017 amendment note cross-referenced
+- [x] `srs-rust/CLAUDE.md`: add `srs-gov` row to the Crate Authority table (gap RFC-039
   flags); caveat on the "Working with the Spec Repo" `repo validate` line (a revision-2
   binary rejects the pre-cutover spec repo until unit 2 lands — expected [R9] behaviour);
   update the `Cargo.toml` `preserve_order` policy note reference
-- [ ] `docs/dogfooding.md`: new scenario — repo create → author a Record with a composite
+- [x] `docs/dogfooding.md`: new scenario — repo create → author a Record with a composite
   list value via `srs record create` (object `fieldValues`) → render → validate; negative:
   array-shape `fieldValues` rejected with the [R9] diagnostic; update the Coverage matrix
-- [ ] PR per pipeline Stage 8: body carries the choreography, the required-check
+- [x] PR per pipeline Stage 8: body carries the choreography, the required-check
   admin-merge note, and the Change-I five-condition 1:1 mapping table
 
 #### Acceptance Criteria
 
-- [ ] ADR-043 `accepted`; CLAUDE.md and dogfooding.md updates committed; every touched doc
+- [x] ADR-043 `accepted`; CLAUDE.md and dogfooding.md updates committed; every touched doc
   command block actually runs
-- [ ] Dogfood scenario passes end-to-end on a fresh `/tmp` repo with the branch binary
-- [ ] PR open with the three required body elements above
+- [x] Dogfood scenario passes end-to-end on a fresh `/tmp` repo with the branch binary
+- [x] PR open with the three required body elements above
 
 #### Testing
 
@@ -484,18 +484,18 @@ Commit: `docs: RFC-039 carrier docs + dogfood scenario (#806)`.
 
 ## Final Acceptance
 
-- [ ] `cargo test` + `cargo clippy -- -D warnings` green
-- [ ] `cargo test --test payload_contracts` green (goldens regenerated)
-- [ ] `bash scripts/check-schema-sync.sh` green against the pre-staged mirror / sibling
+- [x] `cargo test` + `cargo clippy -- -D warnings` green
+- [x] `cargo test --test payload_contracts` green (goldens regenerated)
+- [x] `bash scripts/check-schema-sync.sh` green against the pre-staged mirror / sibling
   `feat/242-phase-b-schemas` tree; CI `Schema Drift` red-by-construction documented in the
   PR body together with the required-check admin-merge note
-- [ ] Migration idempotence + rollback + round-trip audit tests green
-- [ ] Round-trip fixture evidence produced (unit 2 re-runs it over the real spec corpus —
+- [x] Migration idempotence + rollback + round-trip audit tests green
+- [x] Round-trip fixture evidence produced (unit 2 re-runs it over the real spec corpus —
   Change-I conditions 2–3 are unit 2's)
-- [ ] No symbol `FieldValue`, `FieldGroupValue`, `FieldGroupEntry`, `group_values`,
+- [x] No symbol `FieldValue`, `FieldGroupValue`, `FieldGroupEntry`, `group_values`,
   `x-srs-field-id`, `groupFieldRowTemplates` outside the migration module and
   `legacy-rev1-*` [R9] tests
-- [ ] `srs` branch `feat/242-phase-b-schemas` pushed and named in the PR body
+- [x] `srs` branch `feat/242-phase-b-schemas` pushed and named in the PR body
 
 ## Coordination Rules
 
